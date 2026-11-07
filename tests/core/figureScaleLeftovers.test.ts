@@ -717,11 +717,90 @@ describe("The scale cases #2365 still misses (#2365)", { timeout: 120_000 }, () 
     },
   );
 
-  // protects=#2365; fails_when=the conflicting-scales refusal is removed and a currency-only row takes one of two scales ("Volumes in millions; amounts in thousands").
+  // protects=#2365; fails_when=a row whose head or unit column writes a minor unit ("(US cents)", "（港仙）", a "US cents" cell) takes a line's millions or thousands, so 10 cents becomes 10,000,000.
+  test.each([
+    {
+      language: "English, a plain scale",
+      file: pdf("Dividends", [
+        "(in millions)",
+        "Interim dividend (US cents) 24.7",
+        "Final dividend (US cents) 14.7",
+      ]),
+      cites: ["Interim dividend (US cents) 24.7", "Final dividend (US cents) 14.7"] as [
+        string,
+        string,
+      ],
+      unitQuote: "(in millions)",
+      query: "dividends",
+    },
+    {
+      language: "English, a currency's scale",
+      file: pdf("Dividends", [
+        "(in £ millions)",
+        "Interim dividend (pence) 24.7",
+        "Final dividend (pence) 14.7",
+      ]),
+      cites: ["Interim dividend (pence) 24.7", "Final dividend (pence) 14.7"] as [string, string],
+      unitQuote: "(in £ millions)",
+      query: "dividends",
+    },
+    {
+      language: "Chinese, a currency's scale",
+      file: pdfZh("股息", ["（单位：百万港元）", "中期股息（港仙） 24.7", "末期股息（港仙） 14.7"]),
+      cites: ["中期股息（港仙） 24.7", "末期股息（港仙） 14.7"] as [string, string],
+      unitQuote: "（单位：百万港元）",
+      query: "股息",
+    },
+    {
+      language: "English, a workbook's unit column",
+      file: {
+        name: "EPS sheet.xlsx",
+        contents: xlsxOf([
+          {
+            name: "Results",
+            rows: [
+              ["(in US$ millions, except per share data)"],
+              ["Basic EPS", "US cents", 24.7],
+              ["Diluted EPS", "US cents", 14.7],
+            ],
+          },
+        ]),
+      },
+      cites: ["Basic EPS\tUS cents\t24.7", "Diluted EPS\tUS cents\t14.7"] as [string, string],
+      unitQuote: "(in US$ millions, except per share data)",
+      query: "EPS sheet",
+    },
+    {
+      language: "Chinese, a workbook's unit column",
+      file: {
+        name: "每股收益表.xlsx",
+        contents: xlsxOf([
+          {
+            name: "业绩",
+            rows: [
+              ["（除每股数据外，单位：百万港元）"],
+              ["基本每股收益", "港仙", 24.7],
+              ["稀释每股收益", "港仙", 14.7],
+            ],
+          },
+        ]),
+      },
+      cites: ["基本每股收益\t港仙\t24.7", "稀释每股收益\t港仙\t14.7"] as [string, string],
+      unitQuote: "（除每股数据外，单位：百万港元）",
+      query: "每股收益",
+    },
+  ])("a row in a minor unit is never scaled by a line: $language", async (each) => {
+    const recorded = await record({ ...each, numbers: ["24.7", "14.7"] });
+
+    expect(recorded.value).toBeCloseTo(10, 9);
+    expect(recorded.currency).toBeNull();
+  });
+
+  // protects=#2365; fails_when=the conflicting-scales refusal is removed and a currency-only row takes one of two scales of amounts ("Revenue in US$ millions; costs in US$ thousands").
   test("a currency-only row with two scale statements refuses", async () => {
     const dollarRows: readonly [string, string] = ["Revenue (US$) 1,234.5", "Costs (US$) 334.5"];
     const recorded = await record({
-      file: pdf("Two scales", ["Volumes in millions; amounts in thousands", ...dollarRows]),
+      file: pdf("Two scales", ["Revenue in US$ millions; costs in US$ thousands", ...dollarRows]),
       cites: dollarRows,
       numbers: ["1,234.5", "334.5"],
       unitQuote: "(US$)",
@@ -924,6 +1003,97 @@ describe("The scale cases #2365 still misses (#2365)", { timeout: 120_000 }, () 
 
     expect(recorded.value).toBe(each.value);
     expect(recorded.unit).toEqual(each.unit);
+    expect(recorded.statement).toBe(each.line);
+  });
+
+  // protects=#2365; fails_when=a line that doesn't positively state amounts' scale (a measure or a rate in any spelling, a word the reader doesn't read, a CJK line's joined text) scales an amount whose row head states a currency, whether the row heads or the line are quoted.
+  test.each(
+    [
+      { language: "English", line: "(in thousands of tonnes CO2e)" },
+      { language: "English", line: "In thousands of tonnes (kt)" },
+      { language: "English", line: "(in thousands of tonnes – unaudited)" },
+      {
+        language: "English",
+        line: "In thousands of metric tonnes of crude steel shipped to customers",
+      },
+      { language: "English", line: "(tonnes, in thousands)" },
+      { language: "English", line: "(in millions, tonnes)" },
+      { language: "English", line: "(in US$ thousands per tonne)" },
+      { language: "Chinese", line: "单位：万头" },
+      { language: "Chinese", line: "单位：万亩" },
+      { language: "Chinese", line: "单位：万吉瓦时" },
+      { language: "Chinese", line: "单位万平方米" },
+    ].flatMap((each) => [
+      { ...each, quoted: "the row heads" },
+      { ...each, quoted: "the line" },
+    ]),
+  )(
+    "only a line that states amounts' scale scales an amount: $line, quoting $quoted",
+    async (each) => {
+      const chinese = each.language === "Chinese";
+      const lines = chinese
+        ? (["营业收入（元） 1,200", "营业成本（元） 300"] as const)
+        : (["Revenue (US$) 1,234.5", "Costs (USD) 334.5"] as const);
+      const heads = chinese
+        ? (["营业收入（元）", "营业成本（元）"] as const)
+        : (["(US$)", "(USD)"] as const);
+      const recorded = await record({
+        file: chinese
+          ? pdfZh("经营", [each.line, ...lines])
+          : pdf("Volumes", [each.line, ...lines]),
+        cites: lines,
+        numbers: (chinese ? ["1,200", "300"] : ["1,234.5", "334.5"]) as [string, string],
+        ...(each.quoted === "the line" ? { unitQuote: each.line } : { unitQuotes: heads }),
+        query: chinese ? "经营 营业收入 营业成本" : "volumes revenue costs",
+      });
+
+      expect([null, 900]).toContain(recorded.value);
+    },
+  );
+
+  // protects=#2365; fails_when=a line that positively states amounts' scale ("All amounts in thousands", "amounts in thousands" beside a volume's scale, "Dollars in thousands, except per share amounts", "（单位：千）") stops scaling a row whose head states its currency.
+  test.each([
+    {
+      line: "All amounts in thousands",
+      rows: ["Revenue (US$) 1,234.5", "Costs (USD) 334.5"] as [string, string],
+      heads: ["(US$)", "(USD)"] as [string, string],
+      numbers: ["1,234.5", "334.5"] as [string, string],
+      query: "amounts revenue costs",
+    },
+    {
+      line: "Volumes in millions; amounts in thousands",
+      rows: ["Revenue (US$) 1,234.5", "Costs (USD) 334.5"] as [string, string],
+      heads: ["(US$)", "(USD)"] as [string, string],
+      numbers: ["1,234.5", "334.5"] as [string, string],
+      query: "volumes amounts revenue costs",
+    },
+    {
+      line: "Dollars in thousands, except per share amounts",
+      rows: ["Revenue (US$) 1,234.5", "Costs (USD) 334.5"] as [string, string],
+      heads: ["(US$)", "(USD)"] as [string, string],
+      numbers: ["1,234.5", "334.5"] as [string, string],
+      query: "dollars revenue costs",
+    },
+    {
+      line: "（单位：千）",
+      rows: ["营业收入（元） 1,200", "营业成本（元） 300"] as [string, string],
+      heads: ["营业收入（元）", "营业成本（元）"] as [string, string],
+      numbers: ["1,200", "300"] as [string, string],
+      query: "经营 营业收入 营业成本",
+    },
+  ])("a line that states amounts' scale still scales them: $line", async (each) => {
+    const chinese = /\p{Script=Han}/u.test(each.line);
+    const recorded = await record({
+      file: chinese
+        ? pdfZh("经营", [each.line, ...each.rows])
+        : pdf("Amounts", [each.line, ...each.rows]),
+      cites: each.rows,
+      numbers: each.numbers,
+      unitQuotes: each.heads,
+      query: each.query,
+    });
+
+    expect(recorded.value).toBe(900_000);
     expect(recorded.statement).toBe(each.line);
   });
 

@@ -51,6 +51,7 @@ import {
   type StatedCurrency,
   type StatedUnit,
   scaleExponent,
+  statesAmountScale,
   statesForWholeDocument,
   unsettledScales,
 } from "../../shared/figures";
@@ -703,10 +704,14 @@ const RATE_ROW =
 const PRICE_ROW =
   /\b(?:average|unit|selling|closing|opening)\s+(?:selling\s+|unit\s+)?(?:share\s+)?(?:price|cost)\b|\bshare\s+price\b|[(（]\s*p\s*[)）]|\bpence\b/i;
 
-// A head in a currency's minor unit, which the reader doesn't read as a currency: "(US cents)",
-// "(pence)", "(p)", "（港仙）", "（美分）".
-const MINOR_UNIT_HEAD =
-  /[(（](?:[^()（）\n]{0,20}?((?:[A-Z]{2,3}[ \u00a0])?cents\b|\bpence\b|¢|港仙|美分|便士)[^()（）\n]{0,20}|\s*(p)\s*)[)）]/iu;
+// A currency's minor unit, which the reader doesn't read as a currency: "US cents", "pence", "港仙".
+const MINOR_UNIT = "(?:[A-Z]{2,3}[ \\u00a0])?cents\\b|\\bpence\\b|¢|港仙|美分|便士";
+// In a row head, "(US cents)", "(pence)", "(p)", "（港仙）"; as a unit column's whole cell, "US cents".
+const MINOR_UNIT_HEAD = new RegExp(
+  `[(（](?:[^()（）\\n]{0,20}?(${MINOR_UNIT})[^()（）\\n]{0,20}|\\s*(p)\\s*)[)）]`,
+  "iu",
+);
+const MINOR_UNIT_CELL = new RegExp(`^\\s*(?:${MINOR_UNIT}|p)\\s*$`, "iu");
 
 /** The kind of row `label` names that a scale line's amounts don't include, or null for an amount's. */
 function notAnAmount(label: string): string | null {
@@ -1475,6 +1480,23 @@ export function createCalculationSession(options: CalculationSessionOptions) {
   }
 
   /**
+   * The statements of `unit`'s quote that state amounts' scale, each judged in the whole Unit that
+   * holds the quote: "单位：万" quoted from "单位：万头营业收入…" writes 头 beside its scale.
+   */
+  function amountStatements(unit: Quoted, statements: readonly StatedUnit[]): StatedUnit[] {
+    const quote = unit.citation.quote;
+    const lineUnit = lineUnitOf(unit);
+    const range = lineUnit ? findQuote(lineUnit.text, quote, unit.matching)?.[0] : undefined;
+    const text = lineUnit?.text ?? "";
+    const offset = range && text.slice(range.start, range.end) === quote ? range.start : null;
+    return statements.filter((each) =>
+      offset === null
+        ? statesAmountScale(quote, each)
+        : statesAmountScale(text, { ...each, start: each.start + offset, end: each.end + offset }),
+    );
+  }
+
+  /**
    * A scale line in the figure's own Unit that the figure may take though the model quoted
    * another line: judged as a quoted line is, and every line between it and the figure must be an
    * amount's, so a line for another table or a line below the figure never applies (#2365).
@@ -1798,12 +1820,16 @@ export function createCalculationSession(options: CalculationSessionOptions) {
       // label is the nearest text cell left of the figure, not the first one (#448).
       const cells = row.split("\t");
       const at = cells.findIndex((cell) => cell.includes(figure.chars));
-      const label = cells
+      const [nearest, next] = cells
         .slice(0, at < 0 ? cells.length : at)
         .reverse()
-        .find((cell) => /\p{L}/u.test(cell) && !NOTE_REF.test(cell.trim()));
-      const cell = withoutStatement(label ?? "");
-      return named(cell) ? cell : null;
+        .filter((cell) => /\p{L}/u.test(cell) && !NOTE_REF.test(cell.trim()));
+      // A unit column's minor unit ("Basic EPS | US cents | 24.7") is the row's unit; its label
+      // is the cell before it (#2365).
+      const unitCell = nearest !== undefined && MINOR_UNIT_CELL.test(nearest) ? nearest : null;
+      const cell = withoutStatement((unitCell === null ? nearest : next) ?? "");
+      if (!named(cell)) return null;
+      return unitCell === null ? cell : { ...cell, ownMinor: unitCell.trim() };
     }
     const own = betweenNumbers(before).map(withoutStatement).findLast(named);
     if (own !== undefined) return own;
@@ -2139,7 +2165,7 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     if (ofRow) stated = { quoted, stated: ofRow, currencyChars: null };
     else if (unit && !ownUnit) {
       const row = onLine(unit.citation.quote);
-      const statedLine = readStatedUnits(unit.citation.quote, context, true);
+      let statedLine = readStatedUnits(unit.citation.quote, context, true);
       const ownRow = rowOf(quoted, figure);
       const bracketQuote = wholeScaleBracket(unit.citation.quote);
       const bracketLine =
@@ -2187,19 +2213,25 @@ export function createCalculationSession(options: CalculationSessionOptions) {
       const money =
         base.unit.kind === "currency"
           ? base.unit.code
-          : minor !== null
-            ? null
-            : (ownRow?.ownCurrency ??
-              currencyOnItsFigure(lineOf(page.text, at, at + figure.chars.length), context)?.code ??
-              null);
-      // A measure's scale or unit ("Unit: million tonnes", "单位：万吨") never scales an amount
-      // its own quote, row head or line writes in a currency (#2365).
-      const measure = statedLine.find(
-        (each) => each.unit.kind !== "plain" && each.unit.kind !== "currency",
-      );
-      if ((money ?? minor) !== null && measure)
-        return `the unitQuote "${unit.citation.quote}" states a unit of measure ("${measure.chars}"), but ${figure.chars} is an amount in ${money ?? minor}; quote the line that states the scale of its amounts, or give none.`;
-      if (bracketLine) {
+          : (ownRow?.ownCurrency ??
+            currencyOnItsFigure(lineOf(page.text, at, at + figure.chars.length), context)?.code ??
+            null);
+      // An amount its own quote, row head or line writes in a currency takes only the quoted
+      // line's statements of amounts' scale, as the currency-only fallback does, so a measure in
+      // any spelling never reaches it (#2365).
+      if (minor === null && money !== null) {
+        const ofAmounts = amountStatements(unit, statedLine);
+        const other = statedLine.find((each) => !ofAmounts.includes(each));
+        if (other && ofAmounts.length === 0)
+          return other.unit.kind === "plain" || other.unit.kind === "currency"
+            ? `the unitQuote "${unit.citation.quote}" writes its scale "${other.chars}" with other words beside it, so it doesn't state the scale of amounts, and ${figure.chars} is an amount in ${money}; quote the line that states the scale of its amounts, or give none.`
+            : `the unitQuote "${unit.citation.quote}" states a unit of measure ("${other.chars}"), but ${figure.chars} is an amount in ${money}; quote the line that states the scale of its amounts, or give none.`;
+        statedLine = ofAmounts;
+      }
+      // A row in a minor unit ("(US cents)", "（港仙）") is read in that unit: no line's scale or
+      // whole currency applies to it (#2365).
+      if (minor !== null) stated = null;
+      else if (bracketLine) {
         const kind = notAnAmount(label ?? "");
         if (kind)
           return `${figure.chars} is on a ${kind} row ("${(label ?? "").trim()}"), and the unitQuote "${unit.citation.quote}" states a scale for amounts; it can't be calculated without guessing its scale.`;
@@ -2227,15 +2259,12 @@ export function createCalculationSession(options: CalculationSessionOptions) {
       } else if (label === null && row === null && statedLine.some((each) => each.scale !== 1)) {
         return `${figure.chars} has no label on its line or above it that says what its row is, and the unitQuote "${unit.citation.quote}" states a scale for amounts; it can't be calculated without guessing its scale.`;
       } else if (statedLine.some((each) => exceptedBy(each, label ?? ""))) {
-        // The row's own unit is nearer than the line's: "Basic EPS (HK$)" under "(in US$
-        // millions, except per share data)" is in HK$, and "Basic EPS (US cents)" in no whole
-        // currency (#2365).
+        // The row's own currency is nearer than the line's: "Basic EPS (HK$)" under "(in US$
+        // millions, except per share data)" is in HK$ (#2365).
         const currency =
-          minor !== null
-            ? null
-            : money !== null
-              ? { kind: "currency" as const, code: money }
-              : statedLine.find((each) => each.unit.kind === "currency")?.unit;
+          money !== null
+            ? { kind: "currency" as const, code: money }
+            : statedLine.find((each) => each.unit.kind === "currency")?.unit;
         if (currency && base.unit.kind === "plain")
           stated = { quoted: unit, stated: { ...base, unit: currency }, currencyChars: null };
       } else if (statedLine.some((each) => notedOut(each, label ?? ""))) {
@@ -2255,12 +2284,12 @@ export function createCalculationSession(options: CalculationSessionOptions) {
         for (const each of quoted.units) {
           for (const statement of readStatedUnits(each.text, context)) {
             if (statement.scale === 1 || exceptedBy(statement, label ?? "")) continue;
-            // A measure ("million tonnes") or another currency can't scale a currency's amounts.
-            if (statement.unit.kind !== "plain" && statement.unit.kind !== "currency") {
-              otherScale = true;
-              continue;
-            }
-            if (statement.unit.kind === "currency" && statement.unit.code !== rowCurrency) {
+            // Only a line that states amounts' scale, as a quoted line must, and in this row's
+            // currency, can scale it (#2365).
+            if (
+              !statesAmountScale(each.text, statement) ||
+              (statement.unit.kind === "currency" && statement.unit.code !== rowCurrency)
+            ) {
               otherScale = true;
               continue;
             }
@@ -2379,8 +2408,6 @@ export function createCalculationSession(options: CalculationSessionOptions) {
           return `the unitQuote "${unit.citation.quote}" states ${lineCurrency.code}, but ${figure.chars} is in ${ownCurrency}; quote a line in ${ownCurrency} that states the scale.`;
         // A quote of the number alone leaves out the currency its own line or row head writes:
         // a line in another currency can't state its scale (#2365).
-        if (base.unit.kind === "plain" && lineCurrency?.kind === "currency" && minor !== null)
-          return `the unitQuote "${unit.citation.quote}" states ${lineCurrency.code}, but ${figure.chars}'s own row is in ${minor}; give no unitQuote for it.`;
         if (
           base.unit.kind === "plain" &&
           lineCurrency?.kind === "currency" &&
@@ -2440,7 +2467,7 @@ export function createCalculationSession(options: CalculationSessionOptions) {
         numberIndex >= 0 ? onPage(quoted).at + figure.start - (starts[numberIndex] ?? 0) : -1;
       for (const [unitIndex, unit] of quoted.units.entries()) {
         for (const statement of readStatedUnits(unit.text, context)) {
-          if (exceptedBy(statement, rowLabel)) continue;
+          if (exceptedBy(statement, rowLabel) || ownRow?.ownMinor) continue;
           if (notedOut(statement, rowLabel)) {
             noted = noted ?? statement.chars;
             continue;

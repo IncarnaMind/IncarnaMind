@@ -4586,7 +4586,7 @@ describe("A nearer line, page, section, row head or column head decides the scal
 
   test("a line with two scales refuses before it combines with a row head", async () => {
     const dollarRows: [string, string] = ["Revenue (US$) 1,234.5", "Costs (US$) 334.5"];
-    const twoScales = "Volumes in millions; amounts in thousands";
+    const twoScales = "Revenue in US$ millions; costs in US$ thousands";
     const { answer, asked } = await figuresUnder(
       "Two scales",
       {

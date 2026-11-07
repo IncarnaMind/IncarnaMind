@@ -1840,6 +1840,69 @@ export function statesForWholeDocument(text: string): boolean {
   return wholeDocumentLine(line);
 }
 
+// What may stand before a bare scale that states amounts' scale: nothing, a framing word ("All
+// amounts", "Figures are expressed"), a currency's name ("Dollars in thousands") or "Unit:".
+const AMOUNT_FRAME_BEFORE = new RegExp(
+  `^[ \\u00a0]*(?:(?:all|the)[ \\u00a0]+)*(?:(?:amounts?|figures?|sums?|values?|numbers?|totals?|${WORD_CURRENCIES})[ \\u00a0]+)?(?:(?:are|is|were|was)[ \\u00a0]+)?(?:(?:expressed|stated|shown|presented|reported|given)[ \\u00a0]+)?(?:units?[ \\u00a0]?[:：][ \\u00a0]*)?$|^[ \\u00a0]*(?:所有|全部|一切)?(?:金额|金額|货币|貨幣)?(?:均|一律|都)?(?:以|为|為)?[ \\u00a0]*$`,
+  "iu",
+);
+// What may follow it: the end of its line, cell or bracket, a figure or a year, a conventional
+// exception, or another statement after a comma ("金额单位：万元，数量单位：吨").
+const AMOUNT_FRAME_AFTER =
+  /^[ \u00a0]*(?:$|[\t)）\]|;；。\d]|\.(?!\d)|[,，(（]?[ \u00a0]*(?:(?:except|unless|save|other[ \u00a0]+than|excluding)\b|除|但|惟|另有|每股[^\n,，。]{0,8}?除外)|[,，][ \u00a0]*(?:$|[^\n,，]{0,4}?(?:单位|單位)))/i;
+
+/** Where the bracket open around `at` on its line starts, or null when none is. */
+function openBracketBefore(text: string, from: number, at: number): number | null {
+  let depth = 0;
+  for (let index = at - 1; index >= from; index--) {
+    const char = text[index];
+    if (char === ")" || char === "）") depth++;
+    else if (char === "(" || char === "（") {
+      if (depth === 0) return index;
+      depth--;
+    }
+  }
+  return null;
+}
+
+/**
+ * Whether `statement`, read from `text`, states the scale of amounts of money: a scale with its
+ * currency ("US$ thousands", "单位：万元", "（人民币，百万）"), or a bare scale nothing but a framing
+ * word stands beside ("(in thousands)", "单位：千", "All amounts in thousands"). A scale with any
+ * other word beside it, whatever the word is (a measure, a rate, one the reader doesn't read, or
+ * the next line a PDF joins to a CJK one), states none for amounts, so no spelling of a measure
+ * can reach an amount (#2365).
+ */
+export function statesAmountScale(text: string, statement: StatedUnit): boolean {
+  const { unit, chars } = statement;
+  if (unit.kind !== "plain" && unit.kind !== "currency") return false;
+  const simplified = chars.replace(/\p{Script=Han}/gu, (char) => SIMPLIFIED.get(char) ?? char);
+  if (/^数量单位/.test(simplified)) return false;
+  const lineFrom = text.lastIndexOf("\n", statement.start - 1) + 1;
+  const lineBreak = text.indexOf("\n", statement.end);
+  const open = openBracketBefore(text, lineFrom, statement.start);
+  let after = text.slice(statement.end, lineBreak < 0 ? text.length : lineBreak);
+  const close = open === null ? -1 : after.search(/[)）]/);
+  if (close >= 0) after = after.slice(0, close);
+  // A PDF joins the next line to a CJK one: what follows a Han currency word is that line's.
+  const joined =
+    unit.kind === "currency" &&
+    open === null &&
+    /\p{Script=Han}$/u.test(chars) &&
+    /^\p{Script=Han}/u.test(after) &&
+    !after.startsWith("每");
+  if (!/[)）]$/.test(chars) && !joined && !AMOUNT_FRAME_AFTER.test(after)) return false;
+  if (unit.kind === "currency" || /^(?:金额|货币)?单位|^以/.test(simplified)) return true;
+  const clauseFrom =
+    open !== null
+      ? open + 1
+      : Math.max(
+          lineFrom,
+          ...["\t", ";", "；", "|"].map((sep) => text.lastIndexOf(sep, statement.start - 1) + 1),
+        );
+  return AMOUNT_FRAME_BEFORE.test(text.slice(clauseFrom, statement.start));
+}
+
 function statedUnitsOf(prepared: Prepared, text: string, statements: Statement[]): StatedUnit[] {
   return statements.map((statement) => {
     const start = prepared.from[statement.from] as number;
