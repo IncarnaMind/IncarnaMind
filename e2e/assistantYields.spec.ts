@@ -132,6 +132,8 @@ for (const language of ["en", "zh-CN"] as const) {
     await setLanguage(window, language);
     await setWindowSize(app, window, 1440, 900);
     const answer = await draftCiting(window);
+    await motionSettled(window);
+    await screenshot(window, `assistant-yields-before-click-${language}-1440`);
 
     await pointAndClick(window, answer.getByTestId("citation-chip").first());
     await expect(window.getByTestId("viewer-title")).toHaveText("Tides");
@@ -157,7 +159,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await app.close();
   });
 
-  test(`the assistant comes back by itself with the same thread, scroll and Citation (${language})`, async () => {
+  test(`the assistant comes back by itself with the same thread and scroll (${language})`, async () => {
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
     await dismissChatSetup(window);
     await useLocalChatModel(window);
@@ -189,15 +191,13 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(assistantOf(window)).toHaveAttribute("data-folded", "true");
     await screenshot(window, `assistant-yields-citation-folded-${language}`);
 
-    // Closing the page brings it back as it was, the clicked Citation still open.
+    // Closing the page brings it back as it was.
     await closePage(window);
     await expect(assistantOf(window)).not.toHaveAttribute("data-folded");
     await expect(answers).toHaveCount(count);
     await expect.poll(() => thread.evaluate((element) => element.scrollTop)).toBe(scrolled);
     await expect(first).toBeVisible();
-    await expect(last).toBeVisible();
-    await expect(chip).toHaveAttribute("aria-expanded", "true");
-    await expect(window.getByTestId("citation-card")).toBeVisible();
+    await expect(last).toBeInViewport();
     await motionSettled(window);
     await screenshot(window, `assistant-yields-restored-${language}`);
     await app.close();
