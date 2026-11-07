@@ -1315,6 +1315,14 @@ export async function openOptions(window: Page, title: string): Promise<void> {
   await expect(window.getByTestId("export-dialog").getByRole("heading")).toHaveText(title);
 }
 
+/** Share as a web page…, from Export › More formats; resolves once its sheet shows. */
+export async function openShareSheet(window: Page): Promise<void> {
+  await pointAndClick(window, window.getByTestId("export-mind"));
+  await pointAndClick(window, window.getByTestId("export-more"));
+  await pointAndClick(window, window.getByTestId("export-share-web-page"));
+  await expect(window.getByTestId("share-dialog")).toBeVisible();
+}
+
 /**
  * Test hook for opening a folder in the system's file manager: from now on
  * the main process records the path instead (see `pathsOpened`).

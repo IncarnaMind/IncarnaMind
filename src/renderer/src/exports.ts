@@ -1,17 +1,18 @@
 import { create } from "zustand";
-import type {
-  CheckRecordFormat,
-  CitationPlace,
-  ExportFormat,
-  ExportMindOptions,
-  ExportPreferences,
-  MarkAiTextChoice,
-  SavedCheckRecord,
-  SavedComparisonExport,
-  SavedExport,
-  SavedMindExport,
-  SentenceChecksExported,
-  WordExportReport,
+import {
+  type CheckRecordFormat,
+  type CitationPlace,
+  EXPORT_FORMATS,
+  type ExportFormat,
+  type ExportMindOptions,
+  type ExportPreferences,
+  type MarkAiTextChoice,
+  type SavedCheckRecord,
+  type SavedComparisonExport,
+  type SavedExport,
+  type SavedMindExport,
+  type SentenceChecksExported,
+  type WordExportReport,
 } from "../../core/api";
 import {
   type CitedCount,
@@ -54,8 +55,18 @@ const DEFAULT_PREFERENCES: ExportPreferences = {
   "share-page": { includeQuestions: false, citationCards: true, checkedLine: false },
 };
 
-export const exportPreferences = (): ExportPreferences =>
-  useAppStore.getState().settings?.user.exportOptions ?? DEFAULT_PREFERENCES;
+/** The formats Export options offers and Export writes: the web page has its own Share sheet (#1258). */
+export const EXPORT_OPTIONS_FORMATS = EXPORT_FORMATS.filter((format) => format !== "share-page");
+
+/** The format Export remembers: a web page saved before the Share sheet opens as HTML (#1258). */
+export const exportFormatNow = (format: ExportFormat): ExportFormat =>
+  format === "share-page" ? "html" : format;
+
+export const exportPreferences = (): ExportPreferences => {
+  const saved = useAppStore.getState().settings?.user.exportOptions ?? DEFAULT_PREFERENCES;
+  const format = exportFormatNow(saved.format);
+  return format === saved.format ? saved : { ...saved, format };
+};
 
 export const COMPARISON_EXCEL = "comparison-xlsx";
 export const FIGURE_SCHEDULE_EXCEL = "figure-schedule-xlsx";
@@ -501,7 +512,8 @@ export async function exportMind(
   const options: ExportMindOptions =
     chosen === "docx" ? wordOptions(mindId, preferences) : optionsFor(chosen, preferences);
   const settle = begin(mindId, chosen);
-  if (chosen !== preferences.format) {
+  // The Share sheet saves a web page without making it the format Export options offers (#1258).
+  if (chosen !== preferences.format && chosen !== "share-page") {
     void useAppStore
       .getState()
       .updateSettings({ user: { exportOptions: { ...preferences, format: chosen } } });
