@@ -34,39 +34,6 @@ const ABBREVIATION = /(?:^|\s)(?:mr|mrs|ms|dr|prof|st|sr|jr|vs|etc|fig|no|inc|lt
  */
 const PAGE_REFERENCE = /(?:^|\s)(?:p|pp)\.$/iu;
 
-/**
- * A full stop, past its closing marks and a space, before an opening quotation mark: a sentence
- * starts there though a lowercase word follows ("Revenue rose. “the fee…” said the board"), which
- * the segmenter reads on as one sentence (#2712).
- */
-const STOP_BEFORE_QUOTE = /\.["'”’)\]）」』»]*\s+(?=["'“‘「『«„‹])/gu;
-/** Opening quotation marks the segmenter leaves at a sentence's end ("…增长了。“"): they open the next one. */
-const OPENING_AT_END = /[“‘「『«„‹]+$/u;
-
-/**
- * The segmenter's sentences, cut again at `STOP_BEFORE_QUOTE` unless its stop ends an
- * abbreviation, and each opening quotation mark with the sentence it opens (#2712).
- */
-function* segmentsOf(text: string): Generator<{ segment: string; index: number }> {
-  const cuts: number[] = [];
-  for (const { segment, index } of segmenter.segment(text)) {
-    for (const stop of segment.matchAll(STOP_BEFORE_QUOTE)) {
-      const before = segment.slice(0, stop.index + 1);
-      if (ABBREVIATION.test(before) || PAGE_REFERENCE.test(before)) continue;
-      cuts.push(index + stop.index + stop[0].length);
-    }
-    const end = index + segment.length;
-    if (end < text.length) cuts.push(end - (OPENING_AT_END.exec(segment)?.[0].length ?? 0));
-  }
-  let from = 0;
-  for (const cut of cuts) {
-    if (cut <= from) continue;
-    yield { segment: text.slice(from, cut), index: from };
-    from = cut;
-  }
-  yield { segment: text.slice(from), index: from };
-}
-
 /** A company's abbreviation ends a sentence when a court decision's citation follows it: "…bought from Acme Co. Smith v. Jones, …". */
 const COMPANY_ABBREVIATION = /(?:^|\s)(?:inc|ltd|co|corp)\.$/iu;
 
@@ -117,7 +84,7 @@ export function sentenceSpans(text: string, figures: readonly number[] = []): Se
     const citation = unbrokenCitations[citationAt];
     return citation !== undefined && citation.from < previousTo;
   };
-  for (const { segment, index } of segmentsOf(text)) {
+  for (const { segment, index } of segmenter.segment(text)) {
     let from = index;
     let to = index + segment.length;
     const previous = spans.at(-1);

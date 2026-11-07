@@ -103,17 +103,51 @@ function spansOf(text: string): Span[] {
 
 /** What may stand between a quote's closing mark and the end of its sentence: closing marks and brackets, emphasis, spaces and Citations. */
 const AFTER_THE_QUOTE = /^["'”’)\]）】」』»*_~\s￼]*$/u;
+/** A full stop, past its closing marks and a space, before an opening quotation mark. */
+const STOP_BEFORE_QUOTE = /\.["'”’)\]）」』»]*\s+(?=["'“‘「『«„‹])/gu;
+/** Opening quotation marks the splitter leaves at the end of a sentence ("增长了。“"). */
+const OPENING_AT_END = /[“‘「『«„‹]+$/u;
+
+/** Whether the shared splitter reads on past the full stop that ends `text`: an abbreviation or a page reference it lists. */
+const readsOnPast = (text: string) => (sentenceSpans(`${text} 1`).at(-1)?.from ?? 0) < text.length;
+
+/**
+ * The shared splitter's sentences cut again before each opening quotation mark: after a full
+ * stop and a space, though a lowercase word follows ("rose. “the fee…”"), unless the splitter
+ * reads on past the stop ("Mr. “…”"); and where the splitter leaves the mark at the end of the
+ * sentence before ("增长了。“").
+ */
+function cutBeforeQuotes(read: string): Span[] {
+  const pieces: Span[] = [];
+  for (const { from, to } of sentenceSpans(read)) {
+    let start = from;
+    for (const stop of read.slice(from, to).matchAll(STOP_BEFORE_QUOTE)) {
+      const at = from + stop.index;
+      if (readsOnPast(read.slice(start, at + 1))) continue;
+      pieces.push({ start, end: at + 1 });
+      start = at + stop[0].length;
+    }
+    const opening = OPENING_AT_END.exec(read.slice(start, to))?.[0].length ?? 0;
+    if (opening > 0 && to - opening > start) {
+      pieces.push({ start, end: to - opening });
+      pieces.push({ start: to - opening, end: to });
+    } else pieces.push({ start, end: to });
+  }
+  return pieces;
+}
 
 /**
  * The sentences of a block of text, as the shared splitter reads a paragraph (#2712), each
- * Citation marker read as the node it becomes, so "Mr. Smith" and "Fig. 2" end none. Only
- * quotation marks hold more: a sentence doesn't end inside them, nor at a full stop inside them,
- * past their closing marks and brackets (`.”)`, `。”）`), unless a line break comes first.
+ * Citation marker read as the node it becomes, so "Mr. Smith" and "Fig. 2" end none. Quoted words
+ * add two rules, both about quotation marks: a sentence starts at an opening quotation mark after
+ * a sentence's end (`cutBeforeQuotes`), and it doesn't end inside quotation marks, nor at a full
+ * stop inside them, past their closing marks and brackets (`.”)`, `。”）`), unless a line break
+ * comes first.
  */
 function sentencesOf(text: string, spans: readonly Span[]): Span[] {
   const read = text.replace(MARKER, (marker) => INLINE_NODE.repeat(marker.length));
   const sentences: Span[] = [];
-  for (const { from, to } of sentenceSpans(read)) {
+  for (const { start: from, end: to } of cutBeforeQuotes(read)) {
     const previous = sentences.at(-1);
     const held =
       previous !== undefined &&

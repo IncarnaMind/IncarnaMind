@@ -1027,3 +1027,49 @@ describe.each(["en", "zh"] as const)(
     });
   },
 );
+
+const CONTRACT = {
+  name: "Contract.md",
+  contents:
+    "# Contract\n\nThe clause covers affiliates, meaning any entity controlled by the parent.\n",
+};
+
+/** The check of the one Citation, of the contract's line, in an Answer whose text is `answer`. */
+async function contractCheck(answer: string) {
+  const model = scriptedModel(
+    (call: ModelCall): ScriptedReply => {
+      const search = call.results.filter((result) => result.tool === "search_documents").at(-1);
+      if (!search) return { calls: [{ tool: "search_documents", input: { query: "affiliates" } }] };
+      if (!call.results.some((result) => result.tool === "cite")) {
+        const [passage] = shownPassages(search.text);
+        const record = { marker: 1, passage: passage?.id, quote: "The clause covers affiliates" };
+        return { calls: [{ tool: "cite", input: { citations: [record] } }] };
+      }
+      return { text: answer };
+    },
+    { judgesItsAnswers: true },
+  );
+  const { core } = await setUpWithDocuments(model, [CONTRACT]);
+  const [citation] = (await askAssistant(core, { text: "Does the clause cover affiliates?" }))
+    .citations;
+  return citation?.check;
+}
+
+// protects=a quote after "i.e.", an abbreviation the shared splitter doesn't list, is checked against its sentence's Citation, [^1] (#2712); fails_when=the quote is left unchecked or checked against another sentence's Citation; no_claim=how the claim checks read the sentence, which is main's.
+describe("a quote after “i.e.”", { timeout: 30_000 }, () => {
+  test("words the cited page doesn't hold: not found", async () => {
+    expect(
+      await contractCheck(
+        "The clause does not cover affiliates, i.e. “any entity owned by the parent”[^1].",
+      ),
+    ).toBe("not-found");
+  });
+
+  test("words it holds: found", async () => {
+    expect(
+      await contractCheck(
+        "The clause does not cover affiliates, i.e. “any entity controlled by the parent”[^1].",
+      ),
+    ).toBe("found");
+  });
+});
