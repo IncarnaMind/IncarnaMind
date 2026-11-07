@@ -153,6 +153,7 @@ export function DocumentCheckAction({
         <DocumentOrFolderPicker
           anchor={button}
           wall={wall}
+          startsOnScreen
           labels={{
             title: t("claim.checkAgainstDocument"),
             search: t("scope.picker.label"),
