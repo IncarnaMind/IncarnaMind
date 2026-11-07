@@ -78,11 +78,13 @@ import type { PictureProblem } from "./web/pictures";
  * workbook's rows Units name the rows the file strikes through or hides). 25:
  * #2620 (a Word file's, a deck's and a workbook's parts are read where its
  * package's relationships say they are, not only at their usual names). 26:
- * #2365 (a scale marker reads a bracket's currency with its tail's scale and a
- * Chinese bracket's currency and scale, and a heading that only looks like a
- * scale states none).
+ * #2474 (a PDF page's raised footnote digit after an amount stays apart from
+ * the amount, written as Unicode's superscript digit). 27: #2365 (a scale
+ * marker reads a bracket's currency with its tail's scale and a Chinese
+ * bracket's currency and scale, and a heading that only looks like a scale
+ * states none).
  */
-export const PROCESSING_VERSION = 26;
+export const PROCESSING_VERSION = 27;
 
 /**
  * Per kind, the oldest version whose Passages and Units are still what this
@@ -126,17 +128,19 @@ export const PROCESSING_VERSION = 26;
  * Version 25 Word files', decks' and workbooks': one whose main part, styles,
  * comments or notes have names other than the usual ones is read, where it
  * failed or lost its headings before; one with the usual names comes out as
- * it was, its Passages and embeddings too (#2620). Version 26 PDFs', Word
- * files', decks' and workbooks': their scale markers read the forms #2365 adds;
- * their text, Passages and embeddings come out as they were.
+ * it was, its Passages and embeddings too (#2620). Version 26 only PDFs': a
+ * page's raised footnote digit after an amount keeps apart from it, so its
+ * Passages come out as they are now (#2474). Version 27 PDFs', Word files',
+ * decks' and workbooks': their scale markers read the forms #2365 adds; their
+ * text, Passages and embeddings come out as they were.
  */
 export const CURRENT_SINCE: Readonly<Record<DocumentKind, number>> = {
-  pdf: 26,
+  pdf: 27,
   text: 5,
   markdown: 5,
-  docx: 26,
-  pptx: 26,
-  xlsx: 26,
+  docx: 27,
+  pptx: 27,
+  xlsx: 27,
   csv: 5,
   image: 22,
   rtf: 22,
@@ -149,8 +153,10 @@ export const CURRENT_SINCE: Readonly<Record<DocumentKind, number>> = {
  * For a PDF, the oldest version whose Passages are still what this version
  * builds: version 23 changes only the labels of a PDF's Units (their tables),
  * not the text its Passages are built from, so a PDF kept at 21 or 22 keeps
- * its Passage windows rather than being embedded again (#448). Bump this when
- * a PDF's Passages change.
+ * its Passage windows rather than being embedded again (#448). A page whose
+ * text changes, as when a raised footnote digit is read apart from its amount
+ * (#2474), is told by `pageTextChange` and its Passages are built again. Bump
+ * this when the Passages built from the same page text change.
  */
 export const PDF_PASSAGES_CURRENT_SINCE = 21;
 
