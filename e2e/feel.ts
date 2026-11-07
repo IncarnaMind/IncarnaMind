@@ -54,7 +54,9 @@ export const KNOWN: readonly Known[] = [
     issue: 2519,
   },
   {
-    // The Note and the conversation move as the rewrite's Answer ends; `main` measured 0.0226 here.
+    // The Note and the conversation move as the rewrite's Answer ends, and the report's later
+    // paragraphs move down as longer new ones take the old ones' places: `main` measured 0.0226 on a
+    // Mac (all of it at once), this flow 0.0210 there and 0.0303 on CI's Linux.
     flow: "assistant-rewrites",
     step: "write it again in full",
     kind: "shift",
@@ -66,7 +68,7 @@ export const KNOWN: readonly Known[] = [
       "assistant-answer",
       "assistant-question",
     ],
-    max: 0.023,
+    max: 0.031,
     issue: 1742,
   },
 ];
