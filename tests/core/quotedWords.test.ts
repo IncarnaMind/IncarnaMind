@@ -594,11 +594,11 @@ describe("Quoted words on a sheet's rows (#2358)", { timeout: 60_000 }, () => {
  */
 const FIGURE_TITLE = {
   en: {
-    name: "Sales.csv",
+    name: "Sales",
     figure: "1 234 567 890",
-    header: "Store,City,Sales",
-    row: 'Changjiang Road Flagship,Wenzhou,"¥621,383"',
-    filler: (index: number) => `Store ${index + 1},Hangzhou,${1000 + index}`,
+    header: ["Store", "City", "Sales"],
+    row: ["Changjiang Road Flagship", "Wenzhou", "¥621,383"],
+    filler: (index: number) => [`Store ${index + 1}`, "Hangzhou", String(1000 + index)],
     holds: "Changjiang Road Flagship",
     quote: "Changjiang Road Flagship Wenzhou ¥621,383",
     query: "Changjiang Road Flagship sales",
@@ -606,8 +606,7 @@ const FIGURE_TITLE = {
     answer: "The “1 234 567 890” table gives Changjiang Road Flagship’s sales as ¥621,383 [^1].",
   },
   zh: {
-    name: "门店销售.xlsx",
-    sheet: "销售",
+    name: "门店销售",
     figure: "1 234 567 890",
     header: ["门店", "城市", "销售额"],
     row: ["长江路旗舰店", "温州", "¥621,383"],
@@ -620,27 +619,31 @@ const FIGURE_TITLE = {
   },
 } as const;
 
-/** The stores as a CSV: the figure alone on row 1, and the cited row in the second block. */
-function figureTitleCsv(): string {
-  const { figure, header, filler, row } = FIGURE_TITLE.en;
-  return [figure, header, ...Array.from({ length: 99 }, (_, at) => filler(at)), row].join("\n");
+/** The stores' rows: the figure alone on row 1, and the cited row in the second block. */
+function figureTitleRows(language: "en" | "zh"): string[][] {
+  const { figure, header, filler, row } = FIGURE_TITLE[language];
+  return [
+    [figure],
+    [...header],
+    ...Array.from({ length: 99 }, (_, at) => [...filler(at)]),
+    [...row],
+  ];
 }
 
-/** The stores as a workbook, laid out as `figureTitleCsv` lays them out. */
-function figureTitleWorkbook(): Buffer {
-  const { sheet, figure, header, filler, row } = FIGURE_TITLE.zh;
-  const rows: { row: number; values: string[] }[] = [
-    { row: 1, values: [figure] },
-    { row: 2, values: [...header] },
-    ...Array.from({ length: 99 }, (_, at) => ({ row: 3 + at, values: [...filler(at)] })),
-    { row: 102, values: [...row] },
-  ];
+/** A CSV field as the file holds it: quoted when it has a comma or a mark. */
+const csvField = (value: string) =>
+  /[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+
+/** The stores as a CSV or a workbook, laid out as `figureTitleRows` lays them out. */
+function figureTitleSheet(language: "en" | "zh", format: "csv" | "xlsx"): string | Buffer {
+  const rows = figureTitleRows(language);
+  if (format === "csv") return rows.map((row) => row.map(csvField).join(",")).join("\n");
   return xlsxPackage({
     sheets: [
       {
-        name: sheet,
+        name: language === "en" ? "Sheet1" : "销售",
         xml: `<sheetData>${rows
-          .map(({ row, values }) => sheetRow(row, values))
+          .map((values, at) => sheetRow(at + 1, values))
           .join("")}</sheetData>`,
       },
     ],
@@ -648,16 +651,21 @@ function figureTitleWorkbook(): Buffer {
 }
 
 /** The Unit each text is on in the figure-title fixture. */
-async function figureTitleUnitOf(language: "en" | "zh", needle: string): Promise<number | null> {
+async function figureTitleUnitOf(
+  language: "en" | "zh",
+  format: "csv" | "xlsx",
+  needle: string,
+): Promise<number | null> {
+  const contents = figureTitleSheet(language, format);
   const units =
-    language === "en"
-      ? extractCsv(new TextEncoder().encode(figureTitleCsv())).units
-      : (await extractXlsx(new Uint8Array(figureTitleWorkbook()))).units;
+    typeof contents === "string"
+      ? extractCsv(new TextEncoder().encode(contents)).units
+      : (await extractXlsx(new Uint8Array(contents))).units;
   return units.find((unit) => unit.text.includes(needle))?.page ?? null;
 }
 
 /** Asks the store Question, quoting the figure above the header for the cited row. */
-async function askFigureTitle(language: "en" | "zh") {
+async function askFigureTitle(language: "en" | "zh", format: "csv" | "xlsx") {
   const store = FIGURE_TITLE[language];
   const model = citingModel({
     query: store.query,
@@ -671,7 +679,7 @@ async function askFigureTitle(language: "en" | "zh") {
     answer: store.answer,
   });
   const { core, client, mind } = await setUpWithDocuments(model, [
-    { name: store.name, contents: language === "en" ? figureTitleCsv() : figureTitleWorkbook() },
+    { name: `${store.name}.${format}`, contents: figureTitleSheet(language, format) },
   ]);
   const { answerId } = await askAndFinish(core, client, mind.id, store.question);
   const citation = citationsIn(client, answerId)[0];
@@ -683,33 +691,35 @@ async function askFigureTitle(language: "en" | "zh") {
 describe("A figure above a sheet's header is not the table's name (#2373)", {
   timeout: 60_000,
 }, () => {
-  test("en: a quote of the figure for a cited row is not found", async () => {
-    // The figure is on the first block and the cited row on the second, so only the title rows
-    // could hold the quote.
-    expect(await figureTitleUnitOf("en", FIGURE_TITLE.en.figure)).not.toBe(
-      await figureTitleUnitOf("en", FIGURE_TITLE.en.holds),
-    );
+  test.each([
+    ["en", "csv"],
+    ["en", "xlsx"],
+    ["zh", "csv"],
+    ["zh", "xlsx"],
+  ] as const)(
+    "%s, %s: a quote of the figure for a cited row is not the table's name",
+    async (language, format) => {
+      // The figure is in the first block and the cited row in the second, so only the title rows
+      // could hold the quote.
+      expect(await figureTitleUnitOf(language, format, FIGURE_TITLE[language].figure)).not.toBe(
+        await figureTitleUnitOf(language, format, FIGURE_TITLE[language].holds),
+      );
 
-    const { citation } = await askFigureTitle("en");
+      const { citation, text } = await askFigureTitle(language, format);
 
-    expect(citation).toMatchObject({
-      quote: FIGURE_TITLE.en.quote,
-      check: "not-found",
-      checkReason: "quoted-words-not-on-pages",
-    });
-  });
-
-  test("zh: a quote of the figure for a cited row is not found as the table's name", async () => {
-    expect(await figureTitleUnitOf("zh", FIGURE_TITLE.zh.figure)).not.toBe(
-      await figureTitleUnitOf("zh", FIGURE_TITLE.zh.holds),
-    );
-
-    const { citation, text } = await askFigureTitle("zh");
-
-    // Its own quote is found, and the figure is not the sheet's words: read as a translation,
-    // the Answer's figure loses its quotation marks.
-    expect(citation).toMatchObject({ quote: FIGURE_TITLE.zh.quote, check: "found" });
-    expect(text).not.toContain("“1 234 567 890”");
-    expect(text).toContain("1 234 567 890");
-  });
+      if (language === "en") {
+        expect(citation).toMatchObject({
+          quote: FIGURE_TITLE.en.quote,
+          check: "not-found",
+          checkReason: "quoted-words-not-on-pages",
+        });
+      } else {
+        // Its own quote is found; the figure is not the sheet's words, so the Chinese Answer's
+        // figure reads as a translation and loses its quotation marks.
+        expect(citation).toMatchObject({ quote: FIGURE_TITLE.zh.quote, check: "found" });
+        expect(text).not.toContain("“1 234 567 890”");
+        expect(text).toContain("1 234 567 890");
+      }
+    },
+  );
 });
