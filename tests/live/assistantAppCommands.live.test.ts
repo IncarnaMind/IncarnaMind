@@ -474,14 +474,14 @@ const renamedOnceBack =
     }
   };
 
-/** The window's Export as… entries, which the assistant is never to run (#1421). */
+/** The window's Export as… entries and its Share sheet, which the assistant is never to run (#1421). */
 const EXPORT_AS = [
   "mind.exportAs.docx",
   "mind.exportAs.pdf",
   "mind.exportAs.source-pack",
   "mind.exportAs.html",
-  "mind.exportAs.share-page",
   "mind.exportAs.markdown",
+  "mind.shareWebPage",
 ];
 
 /** The Note asked from was saved as a file of this kind, by the core's export, at once. */

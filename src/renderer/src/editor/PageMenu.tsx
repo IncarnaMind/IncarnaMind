@@ -4,6 +4,7 @@ import type * as Y from "yjs";
 import { mindName } from "../../../shared/naming";
 import type { Verification } from "../../../shared/verification";
 import { offersReview, reviewApplied } from "../appliedEdits";
+import { useCitationStylePicker } from "../citationStylePicker";
 import { ExampleChoices } from "../components/ExamplesMenu";
 import { ChevronRightLineIcon } from "../components/lineIcons";
 import { MindStyleChoices, useStyleValue } from "../components/MindStyle";
@@ -102,7 +103,7 @@ export function PageMenu({
           "mind.moveTo": () => requestAnimationFrame(() => setMoving(button())),
         }}
         // The Mind is open on this page: nothing to open, and Style is below.
-        without={["mind.style", "mind.open", "mind.openTab"]}
+        without={["mind.open", "mind.openTab"]}
         more={
           readOnly && !origin && !otherExamples
             ? undefined
@@ -120,6 +121,23 @@ export function PageMenu({
                         {styleValue}
                       </span>
                       <ChevronRightLineIcon className="size-3.5 shrink-0 text-ink-meta" />
+                    </button>
+                  )}
+                  {!readOnly && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      data-testid="mind.citationStyle"
+                      onClick={() => {
+                        const anchor = button();
+                        close();
+                        requestAnimationFrame(() =>
+                          useCitationStylePicker.getState().show(mindId, anchor),
+                        );
+                      }}
+                      className={`${menuItemClass} pl-2`}
+                    >
+                      <span className="flex-1">{t("citationStyle.command")}</span>
                     </button>
                   )}
                   {!readOnly && origin?.word && <LookMenuItems mindId={mindId} close={close} />}

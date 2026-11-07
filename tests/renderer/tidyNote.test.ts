@@ -3,7 +3,7 @@ import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { undoStackOf } from "../../src/renderer/src/editor/editorUndo";
-import { tidyNote } from "../../src/renderer/src/editor/tidyNote";
+import { hasChineseText, tidyNote } from "../../src/renderer/src/editor/tidyNote";
 import { tidyChinese } from "../../src/shared/tidyChinese";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { boundEditor, boundEditorTo, headlessEditor } from "../helpers/editor";
@@ -45,6 +45,26 @@ const marksIn = (editor: ReturnType<typeof headlessEditor>) => {
   });
   return runs;
 };
+
+describe("whether there is Chinese text to tidy", () => {
+  const mixed = () =>
+    editorWith([paragraph(text("Only English here.")), paragraph(text("导出为Word文件"))]);
+
+  test("is the whole Note's with nothing selected", () => {
+    const editor = mixed();
+    editor.commands.setTextSelection(3);
+    expect(hasChineseText(editor)).toBe(true);
+    expect(hasChineseText(editorWith([paragraph(text("English only."))]))).toBe(false);
+  });
+
+  test("is the selection's once there is one", () => {
+    const editor = mixed();
+    editor.commands.setTextSelection({ from: 1, to: 10 });
+    expect(hasChineseText(editor)).toBe(false);
+    editor.commands.setTextSelection({ from: 21, to: 25 });
+    expect(hasChineseText(editor)).toBe(true);
+  });
+});
 
 describe("tidying Chinese text in the Note", () => {
   test("reaches lists, quotes, tables and Answers", () => {

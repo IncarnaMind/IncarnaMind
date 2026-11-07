@@ -20,6 +20,7 @@ import {
   motionSettled,
   nameMind,
   newMind,
+  openMoreMenu,
   openPageMenu,
   pageMenuButton,
   removeDataFolder,
@@ -238,9 +239,8 @@ test("a right-click opens the menu the ⋯ button opens, for a Mind, a Document,
   await expect(editor.getByTestId("citation")).toHaveCount(1);
   await newMind(window);
 
-  // A Mind: Open, Open in new tab; Export… (one item, which opens the Export button's menu),
-  // the AI use statement and check record; Move to…, New Folder with this note; Rename; then
-  // Delete after a rule.
+  // A Mind: Open, Open in new tab; Duplicate, Check, Tie out figures, Export… (one item, which
+  // opens the Export button's menu), History and More ›; Move to…; Rename; then Delete after a rule.
   const mind = window.getByTestId("mind-row").first();
   const mindMenu = await sameFromBothWays(
     window,
@@ -253,31 +253,33 @@ test("a right-click opens the menu the ⋯ button opens, for a Mind, a Document,
     "mind.open",
     "mind.openTab",
     "—",
-    "mind.outline",
     "mind.duplicate",
-    "mind.useAsSource",
-    "mind.exportMenu",
-    "mind.aiUseStatement",
-    "mind.checkRecord",
-    "mind.history",
     "mind.check",
     "mind.tieOut",
-    "mind.checkContradictions",
-    "mind.citationStyle",
-    "mind.style",
-    "skill.fromMind",
+    "mind.exportMenu",
+    "mind.history",
+    "mind-more",
     "—",
     "mind.moveTo",
-    "folder.newWith",
     "—",
-    "mind.tidy",
     "mind.rename",
     "—",
     "mind.delete",
   ]);
   await rightClick(window, mind.getByTestId("mind-list-item"));
-  await menuCommands(mind.getByTestId("mind-actions"));
+  const mindActions = mind.getByTestId("mind-actions");
+  await menuCommands(mindActions);
   await screenshot(window, "menu-mind");
+  // More ›: the rest, in its own order. Tidy Chinese text is there only for Chinese text.
+  expect(await menuCommands(await openMoreMenu(window, mindActions))).toEqual([
+    "mind.outline",
+    "mind.checkContradictions",
+    "mind.useAsSource",
+    "skill.fromMind",
+    "folder.newWith",
+  ]);
+  await screenshot(window, "menu-mind-more");
+  await window.keyboard.press("Escape");
   await window.keyboard.press("Escape");
 
   // A Document in the sidebar: Open first, its own actions, its file's, Delete last.
@@ -401,17 +403,12 @@ test("a right-click opens the menu the ⋯ button opens, for a Mind, a Document,
   // Its Mind's items first, then the tab's own, and Delete last.
   const tabOwn = byRightClick.indexOf("tab.split");
   expect(byRightClick.slice(0, tabOwn)).toEqual([
-    "mind.outline",
     "mind.duplicate",
-    "mind.useAsSource",
-    "mind.exportMenu",
-    "mind.aiUseStatement",
-    "mind.checkRecord",
-    "mind.history",
     "mind.check",
     "mind.tieOut",
-    "mind.checkContradictions",
-    "mind.style",
+    "mind.exportMenu",
+    "mind.history",
+    "tab-more",
     "—",
   ]);
   expect(byRightClick.slice(-2)).toEqual(["—", "mind.delete"]);
@@ -543,22 +540,13 @@ test("each item shows its shortcut as the system writes it, and the labels are i
   await expect(menu.getByRole("menuitem")).toHaveText([
     "打开",
     "在新标签页中打开",
-    /^大纲(⌥⌘L|Ctrl\+Alt\+L)$/,
     "创建副本",
-    "作为来源使用",
-    "导出…",
-    "导出 AI 使用声明",
-    "导出核对记录",
-    "历史版本",
     "核对",
     "核对数字",
-    "核对矛盾",
-    "引用格式…",
-    "样式…",
-    "做成技能",
+    "导出…",
+    "历史版本",
+    "更多",
     /^移动到…(⇧⌘M|Ctrl\+Shift\+M)$/,
-    /^新建文件夹并放入此笔记(⌃⌘N)?$/,
-    "整理中文排版",
     /^重命名F2$/,
     "删除",
   ]);
@@ -569,6 +557,23 @@ test("each item shows its shortcut as the system writes it, and the labels are i
   expect(box.x).toBeGreaterThanOrEqual(0);
   expect(box.x + box.width).toBeLessThanOrEqual(900);
   for (const item of await menu.getByRole("menuitem").all()) {
+    expect((await item.boundingBox())?.height).toBeLessThanOrEqual(32);
+  }
+  // More ›, in Chinese: the rest, inside the window, each item on one line.
+  const more = await openMoreMenu(window, menu);
+  await expect(more.getByRole("menuitem")).toHaveText([
+    /^大纲(⌥⌘L|Ctrl\+Alt\+L)$/,
+    "核对矛盾",
+    "作为来源使用",
+    "做成技能",
+    /^新建文件夹并放入此笔记(⌃⌘N)?$/,
+  ]);
+  await screenshot(window, "menu-mind-zh-more-narrow");
+  const moreBox = await more.boundingBox();
+  if (!moreBox) throw new Error("More isn't laid out.");
+  expect(moreBox.x).toBeGreaterThanOrEqual(0);
+  expect(moreBox.x + moreBox.width).toBeLessThanOrEqual(900);
+  for (const item of await more.getByRole("menuitem").all()) {
     expect((await item.boundingBox())?.height).toBeLessThanOrEqual(32);
   }
   await app.close();

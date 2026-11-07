@@ -11,9 +11,9 @@ import {
   newMind,
   pointAndClick,
   removeDataFolder,
+  runCommand,
   setLanguage,
   setWindowSize,
-  tabMenu,
 } from "./app";
 
 /** Set INCARNAMIND_SCREENSHOTS to a folder to also save screenshots. */
@@ -53,10 +53,10 @@ test.afterEach(async () => {
   await removeDataFolder(dataDir);
 });
 
-/** Opens Style from the Mind's tab menu, as a person does, and waits for it to settle. */
+/** Opens Style by name from ⌘K, as a person does, and waits for it to settle. */
 async function openStyle(window: Page): Promise<Locator> {
-  const menu = await tabMenu(window);
-  await pointAndClick(window, menu.getByTestId("mind.style"));
+  const lang = await window.evaluate(() => document.documentElement.lang);
+  await runCommand(window, "mind.style", WORDS[lang === "zh-CN" ? "zh-CN" : "en"].style);
   const panel = window.getByTestId("mind-style");
   await expect(panel).toBeVisible();
   await motionSettled(window);
