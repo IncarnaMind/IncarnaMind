@@ -1884,7 +1884,7 @@ describe("A correction persisted on a claim mark", () => {
       ],
     });
     expect(check && restsOn(check)).toEqual(expect.arrayContaining([first, second]));
-    expect(CONTENT_SCHEMA_VERSION).toBe(51);
+    expect(CONTENT_SCHEMA_VERSION).toBe(53);
   });
 
   test("an older mark without one, and a malformed one, read safely", () => {

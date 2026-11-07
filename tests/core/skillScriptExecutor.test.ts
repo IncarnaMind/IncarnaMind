@@ -55,6 +55,15 @@ function fakeExecutor(
 
 const SKILL_DIR = "/data/skills/toolbox-id";
 
+/** IncarnaMind's own Python, where a download leaves it in the data folder. */
+const OWN = {
+  command: "/data/runtimes/python-0123456789abcdef/files/python/bin/python3",
+  prefix: "/data/runtimes/python-0123456789abcdef/files/python",
+};
+
+/** IncarnaMind's own Python started again with nothing to run, to see whether it starts. */
+const startCheck = (request: ExecRequest) => request.args.includes("-c");
+
 /** A run of the toolbox's echo script, with what the case changes. */
 const toRun = (overrides: Partial<ScriptToRun>): ScriptToRun => ({
   skillDir: SKILL_DIR,
@@ -62,6 +71,7 @@ const toRun = (overrides: Partial<ScriptToRun>): ScriptToRun => ({
   args: [],
   timeoutMs: 5_000,
   signal: new AbortController().signal,
+  language: "en",
   ...overrides,
 });
 
@@ -195,6 +205,360 @@ describe("The script runner asks the Executor", () => {
 
     expect(await running).toMatchObject({ exitCode: null });
     expect(requests[0]?.signal.aborted).toBe(true);
+  });
+
+  test("a Python script runs on IncarnaMind's own Python once it is here, reading its folder too; asked at each run", async () => {
+    let here: typeof OWN | null = null;
+    const { executor, requests } = fakeExecutor("os");
+    const scripts = createScriptRunner({
+      executor,
+      runtimes: { platform: "darwin" },
+      python: () => here,
+    });
+
+    await scripts.run(toRun({ script: "scripts/hello.py", args: ["tides"] }));
+    here = OWN;
+    await scripts.run(toRun({ script: "scripts/hello.py", args: ["tides"] }));
+    await scripts.run(toRun({ script: "scripts/hello.sh" }));
+
+    const script = join(SKILL_DIR, "scripts", "hello.py");
+    expect(
+      requests.map(({ command, args, allow, environment }) => ({
+        command,
+        args,
+        allow,
+        environment,
+      })),
+    ).toEqual([
+      {
+        command: "python3",
+        args: [script, "tides"],
+        allow: { read: [SKILL_DIR, WORKING_FOLDER], write: [WORKING_FOLDER], network: "none" },
+      },
+      {
+        command: OWN.command,
+        args: ["-E", "-s", "-B", "-X", "utf8", script, "tides"],
+        environment: "own-python",
+        allow: {
+          read: [SKILL_DIR, WORKING_FOLDER, OWN.prefix],
+          write: [WORKING_FOLDER],
+          network: "none",
+        },
+      },
+      {
+        command: "bash",
+        args: [join(SKILL_DIR, "scripts", "hello.sh")],
+        allow: { read: [SKILL_DIR, WORKING_FOLDER], write: [WORKING_FOLDER], network: "none" },
+      },
+    ]);
+    // What the approval card says a run reads is the Skill's, whichever Python runs it.
+    expect(scripts.access(SKILL_DIR).read).toEqual([SKILL_DIR, WORKING_FOLDER]);
+  });
+
+  test("on Windows a Python script runs on python, with IncarnaMind's own Python given or not", async () => {
+    const { executor, requests } = fakeExecutor("os");
+    const scripts = createScriptRunner({
+      executor,
+      runtimes: { platform: "win32" },
+      python: () => ({ command: "C:\\data\\python\\python.exe", prefix: "C:\\data\\python" }),
+    });
+
+    await scripts.run(toRun({ script: "scripts/hello.py" }));
+
+    expect(requests.map(({ command, args, allow }) => ({ command, args, allow }))).toEqual([
+      {
+        command: "python",
+        args: [join(SKILL_DIR, "scripts", "hello.py")],
+        allow: { read: [SKILL_DIR, WORKING_FOLDER], write: [WORKING_FOLDER], network: "none" },
+      },
+    ]);
+  });
+
+  describe("IncarnaMind's own Python that can't start", () => {
+    const FATAL = {
+      ...RAN,
+      exitCode: 1,
+      stdout: "",
+      stderr: [
+        "Fatal Python error: init_fs_encoding: failed to get the Python codec of the filesystem encoding",
+        "Python runtime state: core initialized",
+        "ModuleNotFoundError: No module named 'encodings'",
+        "",
+      ].join("\n"),
+    };
+    const FAILED = { ...RAN, exitCode: 1, stdout: "", stderr: "ValueError: no rows\n" };
+    const ownRunner = (respond: (request: ExecRequest) => Promise<ExecResult>) => {
+      const { executor, requests } = fakeExecutor("os", respond);
+      const scripts = createScriptRunner({
+        executor,
+        runtimes: { platform: "linux" },
+        python: () => OWN,
+      });
+      return { scripts, requests };
+    };
+
+    test("is a plain Problem naming IncarnaMind's side, and nothing runs on python3 instead", async () => {
+      const { scripts, requests } = ownRunner(async () => FATAL);
+
+      await expect(scripts.run(toRun({ script: "scripts/hello.py" }))).rejects.toThrow(
+        "IncarnaMind's own Python couldn't start on this computer, so scripts/hello.py didn't run: Fatal Python error: init_fs_encoding: failed to get the Python codec of the filesystem encoding",
+      );
+      expect(requests.map(({ command, args }) => ({ command, args }))).toEqual([
+        {
+          command: OWN.command,
+          args: ["-E", "-s", "-B", "-X", "utf8", join(SKILL_DIR, "scripts", "hello.py")],
+        },
+        { command: OWN.command, args: ["-E", "-s", "-B", "-X", "utf8", "-c", ""] },
+      ]);
+      // The check runs as the script did: in the same sandbox, reading the same folders.
+      expect(requests[1]?.allow).toEqual(requests[0]?.allow);
+      expect(requests[1]?.env).toEqual(requests[0]?.env);
+    });
+
+    test("that says nothing is that Problem with how it ended", async () => {
+      const silent = ownRunner(async () => ({ ...RAN, exitCode: 2, stdout: "" }));
+      await expect(silent.scripts.run(toRun({ script: "scripts/hello.py" }))).rejects.toThrow(
+        "IncarnaMind's own Python couldn't start on this computer, so scripts/hello.py didn't run: it exited with code 2.",
+      );
+
+      const hung = ownRunner(async (request) =>
+        startCheck(request)
+          ? { ...RAN, exitCode: null, timedOut: true, stdout: "" }
+          : { ...RAN, exitCode: null, stdout: "" },
+      );
+      await expect(hung.scripts.run(toRun({ script: "scripts/hello.py" }))).rejects.toThrow(
+        "IncarnaMind's own Python couldn't start on this computer, so scripts/hello.py didn't run: it didn't start within 30 seconds.",
+      );
+      expect(hung.requests.find(startCheck)?.timeoutMs).toBe(30_000);
+    });
+
+    test("whose program is gone is that Problem too, not a Python 3 to install", async () => {
+      const { scripts } = ownRunner(async () => {
+        throw Object.assign(new Error("python3 not found"), { code: "ENOENT" });
+      });
+
+      await expect(scripts.run(toRun({ script: "scripts/hello.py" }))).rejects.toThrow(
+        "IncarnaMind's own Python couldn't start on this computer, so scripts/hello.py didn't run: its program can't be found.",
+      );
+    });
+
+    test("is told apart from a script that failed on its own, which comes back as it ran", async () => {
+      const { scripts, requests } = ownRunner(async (request) =>
+        startCheck(request) ? RAN : FAILED,
+      );
+
+      expect(await scripts.run(toRun({ script: "scripts/hello.py" }))).toStrictEqual({
+        ...FAILED,
+        error: null,
+      });
+      expect(requests.filter(startCheck)).toHaveLength(1);
+    });
+
+    test("isn't checked for after a run that ended well, ran out of time or was stopped, or on python3; a stop while checking leaves the run as it ran", async () => {
+      const ended = ownRunner(async () => RAN);
+      await ended.scripts.run(toRun({ script: "scripts/hello.py" }));
+      expect(ended.requests).toHaveLength(1);
+
+      const timedOut = ownRunner(async (request) =>
+        startCheck(request) ? FATAL : { ...RAN, exitCode: null, timedOut: true },
+      );
+      expect(await timedOut.scripts.run(toRun({ script: "scripts/hello.py" }))).toMatchObject({
+        timedOut: true,
+        error: null,
+      });
+      expect(timedOut.requests).toHaveLength(1);
+
+      const answer = new AbortController();
+      const stopped = ownRunner(async (request) => {
+        if (startCheck(request)) return FATAL;
+        answer.abort();
+        return { ...RAN, exitCode: null };
+      });
+      expect(
+        await stopped.scripts.run(toRun({ script: "scripts/hello.py", signal: answer.signal })),
+      ).toMatchObject({ exitCode: null, error: null });
+      expect(stopped.requests).toHaveLength(1);
+
+      const later = new AbortController();
+      const stoppedWhileChecking = ownRunner(async (request) => {
+        if (!startCheck(request)) return FAILED;
+        later.abort();
+        return { ...RAN, exitCode: null };
+      });
+      expect(
+        await stoppedWhileChecking.scripts.run(
+          toRun({ script: "scripts/hello.py", signal: later.signal }),
+        ),
+      ).toStrictEqual({ ...FAILED, error: null });
+
+      const { executor, requests } = fakeExecutor("os", async () => FATAL);
+      const onPath = createScriptRunner({ executor, runtimes: { platform: "linux" } });
+      expect(await onPath.run(toRun({ script: "scripts/hello.py" }))).toMatchObject({
+        exitCode: 1,
+        error: null,
+      });
+      expect(requests).toHaveLength(1);
+    });
+  });
+
+  describe("A package IncarnaMind's own Python doesn't include", () => {
+    const failedOn = (last: string, exitCode = 1): ExecResult => ({
+      ...RAN,
+      exitCode,
+      stdout: "Read 12 rows.\n",
+      stderr: [
+        "Traceback (most recent call last):",
+        '  File "/data/skills/toolbox-id/scripts/hello.py", line 2, in <module>',
+        "    import zorblax_quant.models",
+        last,
+        "",
+      ].join("\n"),
+    });
+    const MISSING = "ModuleNotFoundError: No module named 'zorblax_quant'";
+    const asksForModule = (request: ExecRequest) =>
+      request.args.some((arg) => arg.includes("find_spec"));
+    /** A runtime that starts, and has the module a script asks it about only when `included`. */
+    const onOwn = (result: ExecResult, { included = false } = {}) => {
+      const { executor, requests } = fakeExecutor("os", async (request) =>
+        asksForModule(request)
+          ? { ...RAN, exitCode: included ? 0 : 3, stdout: "" }
+          : startCheck(request)
+            ? RAN
+            : result,
+      );
+      const scripts = createScriptRunner({
+        executor,
+        runtimes: { platform: "linux" },
+        python: () => OWN,
+      });
+      return Object.assign(scripts, { requests });
+    };
+    const ran = async (
+      result: ExecResult,
+      scripts: Pick<ReturnType<typeof createScriptRunner>, "run"> = onOwn(result),
+    ) =>
+      expect(await scripts.run(toRun({ script: "scripts/hello.py" }))).toStrictEqual({
+        ...result,
+        error: null,
+      });
+    const problem = (name: string) =>
+      `This Skill needs the Python package “${name}”, which isn’t included in IncarnaMind.`;
+
+    test("is a plain Problem naming the package, in the interface's language, once the runtime says it has no such module, with nothing the script wrote", async () => {
+      const scripts = onOwn(failedOn(MISSING));
+
+      await expect(scripts.run(toRun({ script: "scripts/hello.py" }))).rejects.toMatchObject({
+        message: problem("zorblax_quant"),
+      });
+      await expect(
+        scripts.run(toRun({ script: "scripts/hello.py", language: "zh-CN" })),
+      ).rejects.toMatchObject({
+        message: "这个技能需要 Python 包“zorblax_quant”，IncarnaMind 未包含这个包。",
+      });
+      // Asked in the same sandbox as the script, from its own empty working folder.
+      const [script, , asked] = scripts.requests;
+      expect(asked?.args).toEqual([
+        "-E",
+        "-s",
+        "-B",
+        "-X",
+        "utf8",
+        "-c",
+        expect.stringContaining("importlib.util.find_spec(sys.argv[1])"),
+        "zorblax_quant",
+      ]);
+      expect(asked).not.toHaveProperty("cwd");
+      expect(asked?.allow).toEqual(script?.allow);
+      expect(asked?.env).toEqual(script?.env);
+      expect(asked?.environment).toBe("own-python");
+
+      await expect(
+        onOwn(failedOn("ImportError: No module named zorblax")).run(
+          toRun({ script: "scripts/hello.py" }),
+        ),
+      ).rejects.toMatchObject({ message: problem("zorblax") });
+      const longest = "z".repeat(64);
+      await expect(
+        onOwn(failedOn(`ModuleNotFoundError: No module named '${longest}'`)).run(
+          toRun({ script: "scripts/hello.py" }),
+        ),
+      ).rejects.toMatchObject({ message: problem(longest) });
+    });
+
+    test("a module the runtime has comes back as it ran: a dotted name, or a line the script wrote itself", async () => {
+      for (const name of ["numpy.zorblax", "sklearn.externals.joblib", "zorblax_quant.models"]) {
+        await ran(failedOn(`ModuleNotFoundError: No module named '${name}'`));
+      }
+      const wroteItself = failedOn("ModuleNotFoundError: No module named 'pandas'");
+      await ran(wroteItself, onOwn(wroteItself, { included: true }));
+    });
+
+    test("a script that caught it and ended well or with another code, one that failed otherwise, and one on python3 come back as they ran", async () => {
+      await ran(failedOn(MISSING, 0));
+      await ran({ ...failedOn(MISSING, 3), stdout: "result: 42\n" });
+      await ran(
+        failedOn(
+          "ValueError: ModuleNotFoundError: No module named 'zorblax_quant' was in the input",
+        ),
+      );
+      const onPath = failedOn(MISSING);
+      const { executor } = fakeExecutor("os", async () => onPath);
+      await ran(onPath, createScriptRunner({ executor, runtimes: { platform: "linux" } }));
+    });
+
+    test("only the whole last line of its error output counts", async () => {
+      const result = failedOn("ValueError: no rows");
+      await ran({
+        ...result,
+        stderr: [MISSING, "", "During handling of the above exception:", "", result.stderr].join(
+          "\n",
+        ),
+      });
+      for (const line of [
+        "RuntimeError: ModuleNotFoundError: No module named 'zorblax'",
+        "ModuleNotFoundError: No module named 'zorblax' and more",
+        "RuntimeError: ImportError: No module named zorblax",
+        "ImportError: No module named zorblax and more",
+      ]) {
+        await ran(failedOn(line));
+      }
+    });
+
+    test("a name that isn't a plain module name comes back as it ran", async () => {
+      for (const name of [
+        "z".repeat(65),
+        "zorb-lax",
+        "../../etc/passwd",
+        "zorblax quant",
+        "zörblax",
+        "",
+      ]) {
+        await ran(failedOn(`ModuleNotFoundError: No module named '${name}'`));
+      }
+    });
+
+    test("a Stop while the runtime is checked leaves the run as it ran", async () => {
+      for (const during of [startCheck, asksForModule]) {
+        const answer = new AbortController();
+        const result = failedOn(MISSING);
+        const { executor } = fakeExecutor("os", async (request) => {
+          // As an Executor does: a request stopped already runs nothing.
+          request.signal.throwIfAborted();
+          if (!startCheck(request)) return result;
+          if (!during(request)) return RAN;
+          answer.abort();
+          return { ...RAN, exitCode: null };
+        });
+        const scripts = createScriptRunner({
+          executor,
+          runtimes: { platform: "linux" },
+          python: () => OWN,
+        });
+        expect(
+          await scripts.run(toRun({ script: "scripts/hello.py", signal: answer.signal })),
+        ).toStrictEqual({ ...result, error: null });
+      }
+    });
   });
 
   test("run_skill_script's declared access comes from the Executor's level", () => {

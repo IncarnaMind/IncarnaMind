@@ -177,6 +177,12 @@ export const NAME_IN_LINE_COLUMNS = 40;
 /** A name inside a line or sentence, cut in the middle; the line's own words are never cut. */
 export const nameInLine = (name: string): string => shortenMiddle(name, NAME_IN_LINE_COLUMNS);
 
+/**
+ * A name a line puts in quotes: “{name}”, or ‘{name}’ when the name already carries “ ” of its
+ * own, so no second pair of the same marks wraps it (#2270).
+ */
+export const quotedName = (name: string): string => (/[“”]/.test(name) ? `‘${name}’` : `“${name}”`);
+
 /** What a Mind is called: the title the User typed, else its first line of text. Empty when it has neither. */
 export const mindName = (mind: { title: string; autoTitle: string }): string =>
   mind.title || mind.autoTitle;

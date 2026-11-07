@@ -218,7 +218,7 @@ function sourceOf(document: Document, slides: number | null): Source | null {
 }
 
 /** The one line of `lines` a quote is on, or null when it is on none or on more than one. */
-function lineQuoted<L extends Line<string>>(
+export function lineQuoted<L extends { start: number; end: number }>(
   unit: PageText,
   lines: readonly L[],
   quote: string,
@@ -232,7 +232,7 @@ function lineQuoted<L extends Line<string>>(
 
 type Decided = Extract<ClaimJudgment, { verdict: ClaimVerdict }>;
 
-const UNDECIDED = { reason: null, covered: null, uncovered: null };
+export const UNDECIDED = { reason: null, covered: null, uncovered: null };
 
 function unbacked<J extends Decided>(judgment: J): J {
   const { correction: _correction, ...rest } = judgment;
@@ -246,7 +246,7 @@ function unbacked<J extends Decided>(judgment: J): J {
   } as J;
 }
 
-interface CitationLike {
+export interface CitationLike {
   passageId?: unknown;
   documentId?: unknown;
   check?: unknown;
@@ -281,7 +281,7 @@ const SIZE_UNITS: readonly (readonly [RegExp, readonly number[]])[] = [
  * its reading counts from the paragraph's start, not the context's, so it is found by its
  * characters; undefined when they are there more than once, or not at all.
  */
-function afterFigure(figure: FigureCheckResult): string | undefined {
+export function afterFigure(figure: FigureCheckResult): string | undefined {
   const { chars } = figure.reading;
   const escaped = chars.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const found = [
@@ -291,6 +291,12 @@ function afterFigure(figure: FigureCheckResult): string | undefined {
   return found.length === 1 && one
     ? (figure.context ?? "").slice(one.index + chars.length)
     : undefined;
+}
+
+/** Whether the sentence writes a size unit after the figure ("22 GB"), which no count of things states. */
+export function writtenAsSize(figure: FigureCheckResult): boolean {
+  const after = afterFigure(figure)?.trimStart();
+  return after !== undefined && SIZE_UNITS.some(([unit]) => unit.test(after));
 }
 
 /**

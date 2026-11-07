@@ -57,6 +57,14 @@ export const looksLikeSecret = (name: string): boolean =>
 export const MINIMAL_ENVIRONMENT = (name: string): boolean =>
   name === "PATH" || name === "LANG" || name === "TZ" || name.startsWith("LC_");
 
+/**
+ * The User's own Python's settings, which `environment: "own-python"` leaves out. -E doesn't keep
+ * them all away: CPython on macOS reads PYTHONEXECUTABLE and __PYVENV_LAUNCHER__ whatever it is
+ * told, and a Python the script starts itself would read the rest.
+ */
+export const USERS_PYTHON = (name: string): boolean =>
+  name.startsWith("PYTHON") || name === "__PYVENV_LAUNCHER__";
+
 /** A program as an Executor starts it: what it runs, and the variables added to its environment. */
 export interface Program {
   command: string;
@@ -392,7 +400,9 @@ export function createLocalExecutor(options: LocalExecutorOptions): Executor {
             omitEnv:
               request.environment === "minimal"
                 ? (name) => !MINIMAL_ENVIRONMENT(name)
-                : looksLikeSecret,
+                : request.environment === "own-python"
+                  ? (name) => looksLikeSecret(name) || USERS_PYTHON(name)
+                  : looksLikeSecret,
             processGroup: true,
           });
           group = child.pid ?? 0;

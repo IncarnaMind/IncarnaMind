@@ -244,7 +244,8 @@ async function changeAll(window: Page, instruction: string) {
 }
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`a résumé's list item replaced by one about something else goes, and the new one comes once: none is kept as left out, and Review strikes the old item whole (${language})`, async () => {
+  // A reply without names doesn't say the old item goes, and the new one says none of its words: it is added, and the old one stays as left out (#2356).
+  test(`a résumé's list item replaced by one about something else, the reply not quoting the old one: the new item comes once, the old one stays as left out, and the line says a paragraph was added (${language})`, async () => {
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
     await dismissChatSetup(window);
     await useLocalChatModel(window);
@@ -261,16 +262,16 @@ for (const language of ["en", "zh-CN"] as const) {
             ],
             "Led quarterly forecasting for a team of twelve analysts",
             "Ran the forecast cycle each quarter",
-            "Changed 1 paragraph",
-            "1 paragraph changed by Edit with AI",
+            "Added 1 paragraph",
+            "Added 1 paragraph",
           ]
         : [
             "教育经历",
             ["2016.09—2018.06 上海财经大学 会计学 硕士", "2012.09—2016.06 复旦大学 金融学 学士"],
             "2016.09—2018.06 上海财经大学 会计学 硕士",
-            "2018.10—至今 Deloitte Touche Tohmatsu, Senior Manager",
-            "修改了 1 个段落",
-            "用 AI 编辑修改的 1 个段落",
+            "2018.10—至今 Quillmere Hart Advisory, Senior Manager",
+            "添加了 1 个段落",
+            "添加了 1 个段落",
           ];
     const editor = await listWith(window, heading, items);
 
@@ -281,14 +282,16 @@ for (const language of ["en", "zh-CN"] as const) {
 
     const line = editor.getByTestId("applied-line");
     await expect(line.getByTestId("applied-count")).toHaveText(count);
-    await expect(editor.locator("li")).toHaveText(
-      items.map((item) => (item === old ? made : item)),
+    // The old item's own line, "Kept 1 Block the edit left out · Remove it", sits in its list item.
+    await expect(editor.locator("li")).toContainText(
+      items.flatMap((item) => (item === old ? [made, old] : [item])),
     );
-    await expect(editor.getByTestId("applied-kept")).toHaveCount(0);
+    await expect(editor.locator("li")).toHaveCount(items.length + 1);
+    await expect(editor.getByTestId("applied-kept")).toHaveCount(1);
 
     await pointAndClick(window, line.getByTestId("applied-review"));
     await expect(line.getByTestId("applied-count")).toHaveText(review);
-    await expect(editor.locator(".applied-old--block")).toHaveText(old);
+    await expect(editor.locator(".applied-old--block")).toHaveCount(0);
     await expect(editor.getByTestId("change-was-line")).toHaveCount(0);
     await motionSettled(window);
     await screenshot(window, `changes-item-replaced-${language}`);
@@ -306,10 +309,10 @@ for (const language of ["en", "zh-CN"] as const) {
         ? [
             "Spring tides are strongest at new moon.",
             "add a table",
-            "Changed 1 table",
-            "1 table changed by Edit with AI",
+            "Added a table",
+            "Added a table",
           ]
-        : ["新月时大潮最强。", "加一个表格", "修改了 1 个表格", "用 AI 编辑修改的 1 个表格"];
+        : ["新月时大潮最强。", "加一个表格", "添加了 1 个表格", "添加了 1 个表格"];
     const editor = await mindWith(window, [line]);
 
     await changeAll(window, instruction);

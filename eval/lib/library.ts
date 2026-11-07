@@ -112,6 +112,11 @@ export interface LibraryOptions {
   modelFacts?: CoreAdapters["modelFacts"];
   /** Wraps the chat model factory the core asks with, for a run that watches or stands in for its requests. */
   chatModels?: (inner: ChatModelFactory) => ChatModelFactory;
+  /** What records and transcribes a Meeting: a fake capture and engine, for a run that asks during a call. */
+  meetings?: Pick<
+    CoreAdapters,
+    "audioCapture" | "transcriber" | "transcriptionModelSource" | "transcriptionKeyFetch"
+  >;
 }
 
 export interface EvalWebPage {
@@ -291,6 +296,7 @@ export async function openLibrary(options: LibraryOptions): Promise<Library> {
     ...(options.executor && { executor: options.executor }),
     ...(options.codeRuntime && { codeRuntime: options.codeRuntime }),
     ...(options.modelFacts && { modelFacts: options.modelFacts }),
+    ...options.meetings,
     // The core reranks by default: with the real built-in model when asked for, as in the app
     // (Answers' searches); otherwise a fake, with nothing to download.
     ...(options.reranker

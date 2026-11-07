@@ -18,6 +18,11 @@ export interface Migration {
   sql: string;
 }
 
+/** A random UUID v4, made in SQL, for rows a migration adds. */
+const UUID_V4_SQL = `lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4'
+  || substr(hex(randomblob(2)), 2) || '-' || substr('89ab', 1 + (random() & 3), 1)
+  || substr(hex(randomblob(2)), 2) || '-' || hex(randomblob(6)))`;
+
 export const migrations: readonly Migration[] = [
   {
     version: 1,
@@ -2298,6 +2303,176 @@ export const migrations: readonly Migration[] = [
       -- Null for a Mind not copied from another. A copy's checks leave the source Mind out of
       -- their evidence, so the copy can't support itself with a snapshot of the words it copied.
       ALTER TABLE minds ADD COLUMN duplicated_from_mind_id TEXT;
+    `,
+  },
+  {
+    version: 129,
+    description:
+      "A saved DeepSeek model id the API no longer serves moves to deepseek-flash (#2567)",
+    sql: `
+      -- DeepSeek's API serves deepseek-flash and deepseek-v4-pro only. A choice saved before the
+      -- old ids went would fail at its first request.
+      UPDATE user_settings
+        SET value = json_set(value, '$.modelId', 'deepseek-flash'),
+            updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        WHERE deleted_at IS NULL
+          AND key IN ('chatModel', 'quickTasksModel', 'imageModel')
+          AND CASE WHEN json_valid(value) THEN json_extract(value, '$.modelId') END IN ('deepseek-v4-flash', 'deepseek-v4-flash-vision-exp')
+          AND CASE WHEN json_valid(value) THEN json_extract(value, '$.providerId') END IN (
+            SELECT id FROM chat_providers WHERE kind = 'deepseek' AND deleted_at IS NULL
+          );
+      UPDATE device_settings
+        SET value = json_set(value, '$.modelId', 'deepseek-flash'),
+            updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        WHERE deleted_at IS NULL
+          AND key = 'lastChatModel'
+          AND CASE WHEN json_valid(value) THEN json_extract(value, '$.modelId') END IN ('deepseek-v4-flash', 'deepseek-v4-flash-vision-exp')
+          AND CASE WHEN json_valid(value) THEN json_extract(value, '$.providerId') END IN (
+            SELECT id FROM chat_providers WHERE kind = 'deepseek' AND deleted_at IS NULL
+          );
+    `,
+  },
+  {
+    version: 130,
+    description:
+      "A Meeting's Transcript belongs to its Note: it goes where the Note goes, with no Folder, Tags or row of its own (#2528)",
+    sql: `
+      -- The Note whose Meeting this Document is the Transcript of. Null for every other Document:
+      -- a .vtt the User added, a Transcript whose Note was deleted permanently, and one left
+      -- apart from its Note by two walls, each of which keeps a row of its own.
+      ALTER TABLE documents ADD COLUMN meeting_mind_id TEXT;
+      CREATE INDEX documents_by_meeting_mind ON documents (meeting_mind_id)
+        WHERE meeting_mind_id IS NOT NULL;
+      -- One time for everything this migration changes, so Undo can find each row it put away.
+      CREATE TEMP TABLE meeting_migration AS SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now') AS at;
+      -- Each Meeting's Note and Transcript, their Folders, and the wall each is behind (null:
+      -- none), worked out as the Library does: a Folder that keeps its work inside it, or the
+      -- nearest one around it. Only the User's own filing puts a Transcript behind a wall: an
+      -- Organize suggestion waits outside it until accepted (ADR-0012).
+      CREATE TEMP TABLE meeting_pair_walls AS
+        WITH RECURSIVE up (folder_id, at_id, wall) AS (
+          SELECT id, id, CASE WHEN keep_inside = 1 THEN id END
+          FROM library_groups WHERE deleted_at IS NULL
+          UNION
+          SELECT up.folder_id, p.id, CASE WHEN p.keep_inside = 1 THEN p.id END
+          FROM up
+          JOIN library_groups g ON g.id = up.at_id
+          JOIN library_groups p ON p.id = g.parent_id AND p.deleted_at IS NULL
+          WHERE up.wall IS NULL
+        ),
+        walls AS (SELECT folder_id, max(wall) AS wall FROM up GROUP BY folder_id)
+        SELECT m.transcript_document_id AS document_id, m.mind_id, m.created_at,
+          m.rowid AS meeting_row, n.folder_id AS note_folder,
+          (SELECT a.group_id FROM document_groups a JOIN walls w ON w.folder_id = a.group_id
+           WHERE a.document_id = m.transcript_document_id AND a.deleted_at IS NULL
+             AND a.source = 'user')
+            AS transcript_folder,
+          (SELECT w.wall FROM document_groups a JOIN walls w ON w.folder_id = a.group_id
+           WHERE a.document_id = m.transcript_document_id AND a.deleted_at IS NULL
+             AND a.source = 'user')
+            AS transcript_wall,
+          (SELECT w.wall FROM walls w WHERE w.folder_id = n.folder_id) AS note_wall
+        FROM meetings m
+        JOIN minds n ON n.id = m.mind_id AND n.purged_at IS NULL
+        JOIN documents d ON d.id = m.transcript_document_id AND d.purged_at IS NULL;
+      -- How each pair joins. Nothing ever comes out of a wall. With no wall between them, the
+      -- Transcript goes where its Note is. With one, the pair joins on its walled side: the Note
+      -- moves into its Transcript's Folder, or the Transcript into its Note's. With two different
+      -- walls, or a Note whose Transcripts are behind more than one, it stays apart.
+      CREATE TEMP TABLE meeting_pairs AS
+        SELECT p.*, CASE
+            WHEN p.transcript_wall IS p.note_wall THEN 'together'
+            WHEN p.note_wall IS NULL AND (
+              SELECT count(DISTINCT o.transcript_wall) FROM temp.meeting_pair_walls o
+              WHERE o.mind_id = p.mind_id AND o.transcript_wall IS NOT NULL
+            ) = 1 THEN 'note-in'
+            WHEN p.transcript_wall IS NULL THEN 'transcript-in'
+            ELSE 'apart'
+          END AS joins
+        FROM temp.meeting_pair_walls p;
+      UPDATE documents SET meeting_mind_id = pair.mind_id
+      FROM (
+        SELECT document_id, mind_id,
+          row_number() OVER (PARTITION BY document_id ORDER BY created_at, meeting_row) AS first
+        FROM temp.meeting_pairs WHERE joins <> 'apart'
+      ) AS pair
+      WHERE pair.document_id = documents.id AND pair.first = 1;
+      -- A Note outside every wall goes into the Folder of its first Meeting behind the one wall.
+      UPDATE minds SET folder_id = move.folder_id, updated_at = (SELECT at FROM temp.meeting_migration)
+      FROM (
+        SELECT mind_id, transcript_folder AS folder_id,
+          row_number() OVER (PARTITION BY mind_id ORDER BY created_at, meeting_row) AS first
+        FROM temp.meeting_pairs p
+        WHERE joins = 'note-in'
+          AND EXISTS (SELECT 1 FROM documents d WHERE d.id = p.document_id AND d.meeting_mind_id = p.mind_id)
+      ) AS move
+      WHERE move.mind_id = minds.id AND move.first = 1;
+      -- Each Note a join moved, or moved a Transcript to, is said once, with Undo; Undo puts back
+      -- what this migration changed for the Transcripts that crossed (meeting_join_transcripts).
+      CREATE TABLE meeting_joins (
+        id TEXT PRIMARY KEY NOT NULL,
+        mind_id TEXT NOT NULL,
+        folder_id TEXT,
+        from_folder_id TEXT,
+        said_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      ) STRICT;
+      CREATE TABLE meeting_join_transcripts (
+        id TEXT PRIMARY KEY NOT NULL,
+        join_id TEXT NOT NULL,
+        document_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      ) STRICT;
+      CREATE TEMP TABLE meeting_crossings AS
+        SELECT p.mind_id, p.document_id, p.note_folder FROM temp.meeting_pairs p
+        JOIN documents d ON d.id = p.document_id AND d.meeting_mind_id = p.mind_id
+        WHERE p.joins IN ('note-in', 'transcript-in');
+      INSERT INTO meeting_joins (id, mind_id, folder_id, from_folder_id, created_at, updated_at)
+        SELECT ${UUID_V4_SQL}, c.mind_id, n.folder_id, c.note_folder,
+          (SELECT at FROM temp.meeting_migration), (SELECT at FROM temp.meeting_migration)
+        FROM (SELECT DISTINCT mind_id, note_folder FROM temp.meeting_crossings) AS c
+        JOIN minds n ON n.id = c.mind_id;
+      INSERT INTO meeting_join_transcripts (id, join_id, document_id, created_at, updated_at)
+        SELECT ${UUID_V4_SQL}, j.id, c.document_id,
+          (SELECT at FROM temp.meeting_migration), (SELECT at FROM temp.meeting_migration)
+        FROM temp.meeting_crossings c JOIN meeting_joins j ON j.mind_id = c.mind_id;
+      -- The Notes with a meeting left apart, so the sidebar can say so once (said_at).
+      CREATE TABLE meetings_left_apart (
+        id TEXT PRIMARY KEY NOT NULL,
+        mind_id TEXT NOT NULL,
+        said_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      ) STRICT;
+      INSERT INTO meetings_left_apart (id, mind_id, created_at, updated_at)
+        SELECT ${UUID_V4_SQL}, mind_id,
+          (SELECT at FROM temp.meeting_migration), (SELECT at FROM temp.meeting_migration)
+        FROM (SELECT DISTINCT mind_id FROM temp.meeting_pairs WHERE joins = 'apart');
+      -- A joined Transcript's own Folder, suggestions, turned-down Folders and Tags go: its Note's
+      -- Folder is its place. Tags deleted with it are moved off its delete time, so a Restore
+      -- doesn't bring them back; a Tag's own Restore skips a Transcript (tags/index.ts).
+      UPDATE document_groups SET deleted_at = (SELECT at FROM temp.meeting_migration),
+        updated_at = (SELECT at FROM temp.meeting_migration)
+      WHERE deleted_at IS NULL
+        AND document_id IN (SELECT id FROM documents WHERE meeting_mind_id IS NOT NULL);
+      UPDATE document_group_rejections SET deleted_at = (SELECT at FROM temp.meeting_migration),
+        updated_at = (SELECT at FROM temp.meeting_migration)
+      WHERE deleted_at IS NULL
+        AND document_id IN (SELECT id FROM documents WHERE meeting_mind_id IS NOT NULL);
+      UPDATE document_tags SET deleted_at = (SELECT at FROM temp.meeting_migration),
+        updated_at = (SELECT at FROM temp.meeting_migration)
+      WHERE document_id IN (SELECT id FROM documents WHERE meeting_mind_id IS NOT NULL)
+        AND (deleted_at IS NULL
+          OR deleted_at = (SELECT d.deleted_at FROM documents d WHERE d.id = document_tags.document_id));
+      DROP TABLE temp.meeting_crossings;
+      DROP TABLE temp.meeting_pairs;
+      DROP TABLE temp.meeting_pair_walls;
+      DROP TABLE temp.meeting_migration;
     `,
   },
 ];

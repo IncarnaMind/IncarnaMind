@@ -29,6 +29,7 @@ import {
   conversationTextGroup,
   documentTextGroup,
   findings,
+  meetingTextItems,
   nameGroups,
   noteGroup,
   type PaletteGroup,
@@ -176,7 +177,14 @@ function Palette() {
     return [
       ...nameGroups(words, found),
       ...actionGroup(words, context, language, found.names),
-      ...(notes ? noteGroup(notes.items, minds, t) : []),
+      ...(notes || passages
+        ? noteGroup(
+            notes?.items ?? [],
+            minds,
+            t,
+            passages ? meetingTextItems(passages.items, documents, minds, t) : [],
+          )
+        : []),
       ...(passages ? documentTextGroup(passages.items, documents, t) : []),
       ...(said ? conversationTextGroup(said.items) : []),
     ];
@@ -385,7 +393,11 @@ function ItemIcon({ item }: { item: PaletteItem }) {
     case "note":
       return <MindLineIcon className={className} />;
     case "passage":
-      return <DocumentLineIcon kind={item.documentKind} className={className} />;
+      return item.mindId === null ? (
+        <DocumentLineIcon kind={item.documentKind} className={className} />
+      ) : (
+        <MindLineIcon className={className} />
+      );
     case "said":
       return <ConversationLineIcon className={className} />;
     case "ask":

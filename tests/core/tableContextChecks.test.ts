@@ -285,8 +285,8 @@ test.each(BUDGETS)(
       calls
         .filter((call) => isCheckRun(call) && call.results.length === 0)
         .slice(count)
-        .map((call) => requestedFigures(call).map((figure) => figure.id)),
-    ).toEqual([[selected.id]]);
+        .map((call) => requestedFigures(call).map((figure) => figure.shown)),
+    ).toEqual([["210"]]);
   },
 );
 

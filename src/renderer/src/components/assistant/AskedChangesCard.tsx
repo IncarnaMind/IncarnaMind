@@ -130,16 +130,21 @@ function AskedRow({
   const settled =
     typeof waiting?.count === "number" ? appliedWaiting(waiting.pending, accepted) : null;
   const held = outcome === "held";
-  // Once the apply takes the changes they stop waiting, but the hidden waiting row keeps the count
-  // it had, and with it the room of the state that was on show (#400).
-  const heldLeft = leftText(
-    t,
-    row,
-    accepted === undefined ? waiting?.count : accepted.length + (settled?.count ?? 0),
-  );
+  // Shown, the held row counts what waits there. Hidden, it keeps the room of the row on show while
+  // the Answer ran, which left out the changes it applied at once: what still waits, with Review,
+  // else Open (#400, #1358).
+  const left = held
+    ? accepted === undefined
+      ? waiting?.count
+      : accepted.length + (settled?.count ?? 0)
+    : settled && settled.count > 0
+      ? settled.count
+      : null;
+  const heldLeft = leftText(t, row, left);
   const kept = keptText(t, row);
   const noteTotal = useWaitingBesidesApplied(row.mindId, arriving);
   const heldInNote = inNoteText(t, noteTotal, ownWaiting(waiting));
+  const reviewed = held || heldLeft !== null || heldInNote !== null;
   // Only the row on show carries the test's hooks; the other is hidden from sight and from the
   // accessibility tree, as a person would never reach it.
   const id = (live: boolean, testId: string) => (live ? testId : undefined);
@@ -195,7 +200,7 @@ function AskedRow({
             onClick={() => showChanges(row)}
             className="mind-changes-review"
           >
-            {t("mindChanges.review")}
+            {t(reviewed ? "mindChanges.review" : "mindChanges.open")}
           </button>
         </p>
         <AppliedLine

@@ -444,7 +444,16 @@ describe("changing a chart in place", () => {
   const match = (
     citations: Citation[],
     value: (row: number, column: number) => number | null,
-  ): AnalysisTableMatch => ({ grids: [], numeric: [1], citations, value });
+  ): AnalysisTableMatch => ({
+    binding: { id: "run", table: { result: "totals" } },
+    label: "",
+    table: { columns: [], rows: [], rowCount: 0, columnCount: 0 },
+    columns: [],
+    grids: [],
+    numeric: [1],
+    citations,
+    value,
+  });
   const drawByTheCore = (editor: Editor, analysis: AnalysisTableMatch) => {
     let tableAt = -1;
     editor.state.doc.descendants((node, pos) => {
@@ -910,6 +919,10 @@ describe("a chart copied", () => {
       "en",
       null,
       {
+        binding: { id: "run", table: { result: "totals" } },
+        label: "",
+        table: { columns: [], rows: [], rowCount: 0, columnCount: 0 },
+        columns: [],
         grids: [],
         numeric: [1],
         citations: [source("orders"), source("regions")],

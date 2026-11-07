@@ -315,10 +315,11 @@ export interface ExecRequest {
   /**
    * "minimal": of the login environment, only `MINIMAL_ENVIRONMENT` is passed on, then `env`: for
    * code a model wrote, which could print any variable to it (`DATABASE_URL`, `SSH_AUTH_SOCK`)
-   * or be steered by one (`BASH_ENV`, `DYLD_*`, `LD_PRELOAD`). Not given: all of it, less names
-   * that look like secrets.
+   * or be steered by one (`BASH_ENV`, `DYLD_*`, `LD_PRELOAD`). "own-python": all of it less names
+   * that look like secrets and the User's own Python's settings (`USERS_PYTHON`), for IncarnaMind's
+   * own Python. Not given: all of it, less names that look like secrets.
    */
-  environment?: "minimal";
+  environment?: "minimal" | "own-python";
   /**
    * What it may read, write and reach. Enforced from "os" up; at "none" it is
    * only declared, for approvals (see `declaredAccess` in ./execution).
@@ -391,9 +392,10 @@ export interface Executor {
 }
 
 /**
- * What Skill scripts run with (see `src/core/skills/scripts.ts`). Python and
- * bash come from the User's login-shell PATH; JavaScript runs on the app's
- * own Node.js, so the User needn't install one.
+ * What Skill scripts run with (see `src/core/skills/scripts.ts`). bash, and
+ * Python until `codeRuntime` has IncarnaMind's own installed, come from the
+ * User's login-shell PATH; JavaScript runs on the app's own Node.js, so the
+ * User needn't install one.
  */
 export interface ScriptRuntimes {
   /**

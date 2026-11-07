@@ -919,7 +919,9 @@ describe("The assistant revises its own changes still waiting", { timeout: 30_00
     const edits = mindCalls(answer).filter((call) => call.tool === "edit_mind");
     expect(edits).toHaveLength(2);
     expect(edits[0]).toMatchObject({ status: "done" });
-    expect(edits[1]).toMatchObject({ status: "failed", mindProblem: { kind: "waiting" } });
+    // The summary's rewrite applies at once, so the refusal says so, and offers no Review (#2356).
+    expect(edits[1]).toMatchObject({ status: "failed", mindProblem: { kind: "content-not-own" } });
+    expect(lastResult(model)).toContain("they are not waiting for review");
     await client.settled();
     expect(shownWithChanges(client).at(-1)).toBe("Do not change this.");
     expect(shownWithChanges(client)).not.toContain("Everything replaced");

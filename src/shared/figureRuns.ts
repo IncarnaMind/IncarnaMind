@@ -1,6 +1,9 @@
 import * as Y from "yjs";
 import {
+  ANALYSIS_TABLE_ATTRIBUTE,
+  ANALYSIS_TABLE_NODE,
   type AnalysisRangeInput,
+  type AnalysisTableBinding,
   type AnalysisTableRows,
   type AnswerAnalysis,
   type AnswerAnalysisInput,
@@ -10,6 +13,7 @@ import {
   type ConversationAnswer,
   type FigureInput,
   MIND_FIGURE_RUNS_FIELD,
+  type RetainedAnalysisTable,
   type RetainedFigureAnalysis,
   type RetainedFigureValue,
 } from "../core/api";
@@ -18,8 +22,13 @@ import {
   ANALYSIS_LIMITS,
   type AnalysisLanguage,
   type AnalysisRecalculation,
+  type AnalysisTableKey,
   type AnalysisVersions,
+  readAnalysisTable,
+  readAnalysisTableKey,
   readFigureRows,
+  readTableCheck,
+  sameTableKey,
 } from "./analysis";
 import type { NodeJSON } from "./blockJson";
 import {
@@ -43,6 +52,27 @@ export const figureRunId = (answerId: string, analysis: AnswerAnalysis): string 
     analysis.inputs.map((input) => [input.name, input.sha256]),
   ]);
 
+/** The binding a table Block, or a caption's marker, holds (#2378); null for any other. */
+export function readTableBinding(value: unknown): AnalysisTableBinding | null {
+  if (!isRecord(value) || typeof value.id !== "string" || value.id === "") return null;
+  const table = readAnalysisTableKey(value.table);
+  return table ? { id: value.id, table } : null;
+}
+
+export const sameBinding = (a: AnalysisTableBinding, b: AnalysisTableBinding): boolean =>
+  a.id === b.id && sameTableKey(a.table, b.table);
+
+/** The Analysis tables `blocks` hold, by the binding each table Block or caption marker names. */
+export function boundTablesIn(blocks: readonly NodeJSON[]): AnalysisTableBinding[] {
+  return blocks.flatMap((node) => {
+    const binding =
+      node.type === "table" || node.type === ANALYSIS_TABLE_NODE
+        ? readTableBinding(node.attrs?.[ANALYSIS_TABLE_ATTRIBUTE])
+        : null;
+    return [...(binding ? [binding] : []), ...boundTablesIn(node.content ?? [])];
+  });
+}
+
 export function calculatedFiguresIn(
   blocks: readonly NodeJSON[],
 ): Omit<CalculatedFigureAttributes, "id">[] {
@@ -60,8 +90,9 @@ export function figureRunsOfAnswer(
   blocks: readonly NodeJSON[],
 ): RetainedFigureAnalysis[] {
   const figures = calculatedFiguresIn(blocks);
+  const tables = boundTablesIn(blocks);
   return answer.analyses.flatMap((analysis) => {
-    const run = retainFigureAnalysis(analysis, figureRunId(answer.id, analysis), figures);
+    const run = retainFigureAnalysis(analysis, figureRunId(answer.id, analysis), figures, tables);
     return run ? [run] : [];
   });
 }
@@ -213,6 +244,8 @@ export function readFigureRun(value: unknown): RetainedFigureAnalysis | null {
   }
   const versions = value.versions === null ? null : readVersions(value.versions);
   if (value.versions !== null && versions === null) return null;
+  const tables = value.tables === undefined ? [] : readTables(value.tables);
+  if (!tables) return null;
   return {
     id: value.id,
     title: value.title,
@@ -223,7 +256,24 @@ export function readFigureRun(value: unknown): RetainedFigureAnalysis | null {
     codeSha256: value.codeSha256,
     ranAt: value.ranAt,
     values,
+    ...(tables.length > 0 && { tables }),
   };
+}
+
+function readTables(value: unknown): RetainedAnalysisTable[] | null {
+  if (!Array.isArray(value) || value.length > ANALYSIS_LIMITS.tables + ANALYSIS_LIMITS.charts)
+    return null;
+  const tables: RetainedAnalysisTable[] = [];
+  for (const each of value) {
+    if (!isRecord(each) || !text(each.label)) return null;
+    const key = readAnalysisTableKey(each.key);
+    const table = readAnalysisTable(each.table);
+    const checked = readTableCheck({ table: each.key, columns: each.columns });
+    if (!key || !table || !checked || tables.some((kept) => sameTableKey(kept.key, key)))
+      return null;
+    tables.push({ key, label: each.label, table, columns: checked.columns });
+  }
+  return tables;
 }
 
 /**
@@ -242,6 +292,18 @@ export function withoutChecks(records: unknown): unknown {
         delete copy.check;
         return copy;
       }),
+      ...(Array.isArray(record.tables) && {
+        tables: record.tables.map((table) =>
+          isRecord(table) && Array.isArray(table.columns)
+            ? {
+                ...table,
+                columns: table.columns.map((column) =>
+                  isRecord(column) ? { ...column, rule: null, rows: 0 } : column,
+                ),
+              }
+            : table,
+        ),
+      }),
     };
   });
 }
@@ -254,15 +316,44 @@ function withoutCheck(value: unknown): unknown {
   return copy;
 }
 
+/** The tables of `analysis` that `bound` names, as a Note keeps them. */
+function retainedTables(
+  analysis: AnswerAnalysis,
+  id: string,
+  bound: readonly AnalysisTableBinding[],
+): RetainedAnalysisTable[] {
+  if (analysis.end.kind !== "done") return [];
+  const named = (key: AnalysisTableKey) =>
+    bound.some((binding) => binding.id === id && sameTableKey(binding.table, key));
+  const columnsOf = (key: AnalysisTableKey) =>
+    analysis.tableChecks?.find((each) => sameTableKey(each.table, key))?.columns ?? [];
+  return [
+    ...analysis.output.results.flatMap((result) => {
+      const key = { result: result.name };
+      return result.kind === "table" && named(key)
+        ? [{ key, label: result.label, table: result.table, columns: columnsOf(key) }]
+        : [];
+    }),
+    ...analysis.output.charts.flatMap((chart, index) => {
+      const key = { chart: index };
+      return named(key)
+        ? [{ key, label: chart.title, table: chart.table, columns: columnsOf(key) }]
+        : [];
+    }),
+  ];
+}
+
 export function retainFigureAnalysis(
   analysis: AnswerAnalysis,
   id: string,
   figures: readonly Omit<CalculatedFigureAttributes, "id">[],
+  bound: readonly AnalysisTableBinding[] = [],
 ): RetainedFigureAnalysis | null {
   const uses = figures.filter(
     (node) => node.analysisId === id && node.figure.analysis?.analysis === analysis.number,
   );
-  if (uses.length === 0) return null;
+  const tables = retainedTables(analysis, id, bound);
+  if (uses.length === 0 && tables.length === 0) return null;
   const checks = new Map((analysis.recalculations ?? []).map((each) => [each.result, each.check]));
   // A run that didn't finish gives no results, but what it printed before it ended was printed.
   const names = new Set(uses.flatMap((node) => node.figure.analysis?.result ?? []));
@@ -298,6 +389,7 @@ export function retainFigureAnalysis(
     codeSha256: analysis.codeSha256,
     ranAt: analysis.ranAt,
     values: results,
+    ...(tables.length > 0 && { tables }),
   });
 }
 
@@ -325,6 +417,39 @@ function usesIn(blocks: readonly NodeJSON[]): FigureUses {
 
 const runKey = (id: string) => JSON.stringify([id]);
 const valueKey = (id: string, name: string) => JSON.stringify([id, name]);
+// Three parts, where a value's key has two: no result's name can make one.
+const tableKey = (id: string, key: AnalysisTableKey) => JSON.stringify([id, "table", key]);
+
+/**
+ * Whether the Note `doc` keeps the run a table is bound to, and that table of it (#2378): only then
+ * are its cells the run's. A table bound to a run the Note lost is a typed table, checked as one.
+ */
+export function tableKept(doc: Y.Doc, binding: AnalysisTableBinding): boolean {
+  const runs = doc.getMap<unknown>(MIND_FIGURE_RUNS_FIELD);
+  const metadata = runs.get(runKey(binding.id));
+  return (
+    isRecord(metadata) &&
+    metadata.id === binding.id &&
+    isRecord(runs.get(tableKey(binding.id, binding.table)))
+  );
+}
+
+/** A table Block's binding while the Note `doc` keeps its run; null for any other table. */
+export function keptBinding(doc: Y.Doc | null, value: unknown): AnalysisTableBinding | null {
+  const binding = readTableBinding(value);
+  return binding && doc && tableKept(doc, binding) ? binding : null;
+}
+
+/** Each run `blocks` name with a table, and which of its tables. */
+function tablesUsedIn(blocks: readonly NodeJSON[]): Map<string, AnalysisTableKey[]> {
+  const used = new Map<string, AnalysisTableKey[]>();
+  for (const { id, table } of boundTablesIn(blocks)) {
+    const keys = used.get(id) ?? [];
+    if (!keys.some((key) => sameTableKey(key, table))) keys.push(table);
+    used.set(id, keys);
+  }
+  return used;
+}
 
 /**
  * The records `blocks`' figures name, as many as the Note still keeps: a figure whose record is
@@ -334,9 +459,17 @@ const valueKey = (id: string, name: string) => JSON.stringify([id, name]);
 export function figureRunsFor(doc: Y.Doc, blocks: readonly NodeJSON[]): RetainedFigureAnalysis[] {
   const runs = doc.getMap<unknown>(MIND_FIGURE_RUNS_FIELD);
   const found: RetainedFigureAnalysis[] = [];
-  for (const [id, names] of usesIn(blocks)) {
+  const figures = usesIn(blocks);
+  const tables = tablesUsedIn(blocks);
+  for (const id of new Set([...figures.keys(), ...tables.keys()])) {
+    const names = figures.get(id) ?? new Map<string, Set<number | boolean>>();
     const metadata = runs.get(runKey(id));
     if (!isRecord(metadata) || metadata.id !== id) continue;
+    // A table the Note no longer keeps reads as a typed table: only its own cells lose the record.
+    const kept = (tables.get(id) ?? []).flatMap((key) => {
+      const table = runs.get(tableKey(id, key));
+      return isRecord(table) ? [table] : [];
+    });
     // Each value the Note still keeps and shows as it was is read; one the Note lost takes only
     // its own figure's check, never the Analysis's other values (#2378).
     const values = [...names.keys()].flatMap((name) => {
@@ -350,8 +483,8 @@ export function figureRunsFor(doc: Y.Doc, blocks: readonly NodeJSON[]): Retained
         return [];
       return expected.has(value.value) ? [value] : [];
     });
-    if (values.length === 0) continue;
-    const run = readFigureRun({ ...metadata, values });
+    if (values.length === 0 && kept.length === 0) continue;
+    const run = readFigureRun({ ...metadata, values, tables: kept });
     if (run) found.push(run);
   }
   return found;
@@ -375,7 +508,12 @@ export function readFigureRunClosure(
       const values = kept.get(id);
       return !values || [...names.keys()].some((name) => !values.has(name));
     });
-    if (missing) throw new Error("The calculated figure's Analysis record is missing.");
+    const tableMissing = [...tablesUsedIn(blocks)].some(([id, keys]) => {
+      const tables = runs.find((run) => run.id === id)?.tables ?? [];
+      return keys.some((key) => !tables.some((table) => sameTableKey(table.key, key)));
+    });
+    if (missing || tableMissing)
+      throw new Error("The calculated figure's Analysis record is missing.");
     return runs;
   } finally {
     doc.destroy();
@@ -392,13 +530,27 @@ export function installFigureRuns(doc: Y.Doc, records: readonly unknown[]): void
     const key = runKey(next.id);
     const before = planned.get(key) ?? runs.get(key);
     const previous = isRecord(before) ? readFigureRun({ ...before, values: [] }) : null;
+    const { values, tables = [], ...metadata } = next;
+    // Its values and tables are kept apart, each under a key of its own: the run is what they share.
     if (
       previous &&
-      JSON.stringify({ ...previous, values: [] }) !== JSON.stringify({ ...next, values: [] })
+      JSON.stringify({ ...previous, values: [] }) !== JSON.stringify({ ...metadata, values: [] })
     )
       throw new Error("The calculated figures name different Analysis runs with the same id.");
-    const { values, ...metadata } = next;
     planned.set(key, metadata);
+    for (const table of tables) {
+      const at = tableKey(next.id, table.key);
+      const old = planned.get(at) ?? runs.get(at);
+      if (old !== undefined && JSON.stringify(old) !== JSON.stringify(table)) {
+        // A clipboard's column checks are no proof, as a value's check is none: the Note's own stand.
+        const asGiven = (each: unknown) =>
+          JSON.stringify(isRecord(each) ? { ...each, columns: undefined } : each);
+        if (asGiven(old) !== asGiven(table))
+          throw new Error("The calculated figures name different values from the same Analysis.");
+        continue;
+      }
+      planned.set(at, table);
+    }
     for (const value of values) {
       const key = valueKey(next.id, value.name);
       const old = planned.get(key) ?? runs.get(key);
@@ -413,8 +565,11 @@ export function installFigureRuns(doc: Y.Doc, records: readonly unknown[]): void
       planned.set(key, value);
     }
     const prefix = `${key.slice(0, -1)},`;
+    const tablePrefix = `${prefix}"table",`;
     const count = new Set(
-      [...runs.keys(), ...planned.keys()].filter((key) => key.startsWith(prefix)),
+      [...runs.keys(), ...planned.keys()].filter(
+        (key) => key.startsWith(prefix) && !key.startsWith(tablePrefix),
+      ),
     ).size;
     if (count > ANALYSIS_LIMITS.figures)
       throw new Error("The calculated figures exceed the Analysis result limit.");

@@ -1,6 +1,12 @@
 import { describe, expect, test } from "vitest";
-import type { AnswerToolCall, MindChange } from "../../src/core/api";
-import { checkableOf, selfCheckLines, selfChecksOf } from "../../src/renderer/src/selfChecks";
+import type { AnswerToolCall, MindChange, RegisteredDataFlow } from "../../src/core/api";
+import {
+  checkableOf,
+  checksWaitIn,
+  checksWaitNow,
+  selfCheckLines,
+  selfChecksOf,
+} from "../../src/renderer/src/selfChecks";
 import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
 
 /*
@@ -275,5 +281,114 @@ describe("What a write's check left to do", () => {
         blocked: { reason: "consent-revoked", count: 1 },
       }).map(({ kind }) => kind),
     ).toEqual(["cost-cap"]);
+  });
+
+  // protects=sentences waiting for the User to allow what checks send now say so in both languages, with Review…, the Check that asks it (#2525); fails_when=the line reads as a plain failure, or offers no way to allow; no_claim=the consent dialog's words.
+  test("sentences waiting for the User to allow what checks send now offer Review…", () => {
+    const lines = (language: "en" | "zh-CN", count: number) =>
+      selfCheckLines(
+        {
+          mindId: "mind-1",
+          request: "w",
+          checkable: count,
+          cited: count,
+          sent: count,
+          checked: 0,
+          failed: count,
+          blocked: { reason: "consent-widened", count },
+        },
+        (key: MessageKey, params?: MessageParams) => translate(language, key, params),
+        language,
+      ).map(({ kind, text, action }) => ({ kind, text, action }));
+
+    expect(lines("en", 2)).toEqual([
+      {
+        kind: "consent-widened",
+        text: "2 sentences couldn’t be checked: checks now send more than when you allowed them",
+        action: { label: "Review…", does: "check" },
+      },
+    ]);
+    expect(lines("en", 1)[0]?.text).toBe(
+      "1 sentence couldn’t be checked: checks now send more than when you allowed them",
+    );
+    expect(lines("zh-CN", 2)).toEqual([
+      {
+        kind: "consent-widened",
+        text: "2 句未能核对：核对现在发送的内容比你当初允许的更多",
+        action: { label: "查看…", does: "check" },
+      },
+    ]);
+    expect(lines("zh-CN", 1)[0]?.text).toBe("1 句未能核对：核对现在发送的内容比你当初允许的更多");
+
+    // Allowed since, in the dialog or Settings › Privacy: they only failed, with Check.
+    expect(
+      selfCheckLines(
+        {
+          mindId: "mind-1",
+          request: "w",
+          checkable: 2,
+          cited: 2,
+          sent: 2,
+          checked: 0,
+          failed: 2,
+          blocked: { reason: "consent-widened", count: 2 },
+        },
+        (key: MessageKey, params?: MessageParams) => translate("en", key, params),
+        "en",
+        new Date(),
+        undefined,
+        false,
+      ).map(({ kind, text, action }) => ({ kind, text, action })),
+    ).toEqual([
+      {
+        kind: "failed",
+        text: "2 sentences couldn’t be checked",
+        action: { label: "Check", does: "check" },
+      },
+    ]);
+  });
+
+  // protects=flows that can't be read leave checks waiting, the failure reported, never thrown where nothing catches it; fails_when=a failed or malformed read throws in its handler, or drops the waiting line on a guess.
+  test("checks wait while the flows can't be read, and the failure is reported", async () => {
+    const reported: unknown[] = [];
+    const report = (error: unknown) => reported.push(error);
+    expect(await checksWaitNow(() => Promise.reject(new Error("The bridge closed.")), report)).toBe(
+      true,
+    );
+    expect(
+      await checksWaitNow(
+        () => Promise.resolve(undefined as unknown as readonly RegisteredDataFlow[]),
+        report,
+      ),
+    ).toBe(true);
+    expect(reported).toHaveLength(2);
+    expect(await checksWaitNow(() => Promise.resolve([]), report)).toBe(false);
+    expect(reported).toHaveLength(2);
+  });
+
+  // protects=checks wait only while a service is not allowed what they send now; fails_when=the waiting line stays once the User allowed it, or shows for a service they declined.
+  test("checks wait only while a service is not allowed what they send now", () => {
+    const flows = (consent: "accepted" | "declined" | "not-asked", decidedAt: string | null) => [
+      {
+        id: "checks" as const,
+        sends: [],
+        services: [
+          {
+            flow: {
+              id: "checks" as const,
+              service: { id: "api.anthropic.com", name: "Anthropic" },
+              sends: [],
+            },
+            consent,
+            decidedAt,
+            chosen: false,
+          },
+        ],
+      },
+    ];
+    expect(checksWaitIn(flows("not-asked", "2026-11-01T09:00:00.000Z"))).toBe(true);
+    expect(checksWaitIn(flows("accepted", "2026-11-06T09:00:00.000Z"))).toBe(false);
+    expect(checksWaitIn(flows("not-asked", null))).toBe(true);
+    expect(checksWaitIn(flows("declined", "2026-11-06T09:00:00.000Z"))).toBe(false);
   });
 });

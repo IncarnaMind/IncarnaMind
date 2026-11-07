@@ -11,8 +11,14 @@ import {
   CLAIM_CHECK_MARK,
   type ClaimCheckAttributes,
 } from "../../../core/api";
+import { detectLanguage } from "../../../core/documents/textLanguage";
 import { readChart } from "../../../shared/charts";
+import { type FigureContext, figureContextOf, figureLanguageTag } from "../../../shared/figures";
 import { paragraphPlaces } from "./claimChecks";
+
+/** How a sentence writes its numbers, as the check read it (the core's `documentFigureContext`). */
+export const sentenceFigureContext = (sentence: string): FigureContext =>
+  figureContextOf(sentence, figureLanguageTag(detectLanguage(sentence.slice(0, 20_000))));
 
 export interface FigurePlace {
   from: number;

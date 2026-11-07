@@ -31,11 +31,13 @@ import type {
   Tag,
 } from "../../core/api";
 import { EXAMPLE_GROUPS } from "../../core/api";
+import { TranslatableError } from "../../core/errors";
 import { resolveLanguage } from "../../core/language";
 import type { UiUsageEvent } from "../../core/usageEvents";
 import { displayName } from "../../shared/documentNames";
 import { isSearchable } from "../../shared/documentStatus";
 import type { DocumentLocation } from "../../shared/documentViewer";
+import { errorForWindow } from "../../shared/errorWording";
 import { type MessageKey, type MessageParams, translate } from "../../shared/i18n";
 import { mindName } from "../../shared/naming";
 import { filingFolder } from "../../shared/searchScope";
@@ -69,6 +71,7 @@ import { type LibraryBridge, mindToAskIn } from "./libraryBridges";
 import { NEEDS_REVIEW } from "./libraryFilters";
 import type { WordsInLine } from "./lineNames";
 import { formatCount, folderName as linkedFolderName } from "./linkedFolders";
+import { isListedDocument } from "./meetingTranscript";
 import {
   foldersMovedFrom,
   itemsOf,
@@ -199,6 +202,8 @@ export interface AppState extends LayoutSlice {
    * again); or "starters", the starter Folders at its top.
    */
   libraryFilter: string;
+  /** The Folder the Library is open on, for a Question's Folder in front (#2529); null: none. */
+  libraryFolderId: string | null;
   refreshLibrary(): Promise<void>;
   /**
    * Shows the Library (one tab per window), at a Folder's section if given:
@@ -1001,6 +1006,7 @@ export const useAppStore = create<AppState>()((set, get) => {
     tagsDialogOpen: false,
     library: null,
     libraryFilter: "all",
+    libraryFolderId: null,
     refreshLibrary: async () => {
       const ticket = ++libraryRequest;
       const library = await core.getLibrary();
@@ -1012,6 +1018,10 @@ export const useAppStore = create<AppState>()((set, get) => {
         ...(!["all", "unsorted", "starters", LIBRARY_DELETED].includes(get().libraryFilter) &&
         !library.groups.some((g) => g.id === get().libraryFilter)
           ? { libraryFilter: "all" }
+          : {}),
+        ...(get().libraryFolderId !== null &&
+        !library.groups.some((g) => g.id === get().libraryFolderId)
+          ? { libraryFolderId: null }
           : {}),
       });
     },
@@ -1036,7 +1046,8 @@ export const useAppStore = create<AppState>()((set, get) => {
       });
     },
     openLibrary: (filter = "all", options) => {
-      set({ libraryFilter: filter });
+      const folder = get().library?.groups.some((group) => group.id === filter) ?? false;
+      set({ libraryFilter: filter, libraryFolderId: folder ? filter : null });
       void get().changeLayout({
         type: "open",
         item: { kind: "library" },
@@ -1265,6 +1276,11 @@ export const useAppStore = create<AppState>()((set, get) => {
       let madeId: string | null = null;
       await attempt(async () => {
         const { minds, documents, library } = get();
+        const chosen = items ? itemsOf(items) : null;
+        // Refused before the Folder is made, so no empty Folder is left behind.
+        if (chosen && !hasRowsOfTheirOwn(chosen.documentIds)) {
+          throw errorForWindow(new TranslatableError({ key: "error.transcript.withNote" }));
+        }
         const name =
           named?.trim() ||
           untitledFolderName(
@@ -1277,7 +1293,6 @@ export const useAppStore = create<AppState>()((set, get) => {
           ...(parentId && { parentId }),
         });
         await get().refreshLibrary();
-        const chosen = items ? itemsOf(items) : null;
         const going =
           chosen && chosen.mindIds.length + chosen.documentIds.length > 0 ? chosen : null;
         const done = going ? await move(going, folder.id) : null;
@@ -2067,10 +2082,24 @@ async function startGettingStarted(exampleMindId: string): Promise<void> {
   }
 }
 
-/** A Document of the User's own: not one of the examples. */
+/**
+ * Whether each Document has a row of its own, so it may be filed, tagged, renamed or deleted on
+ * its own: a meeting's Transcript goes with its Note (#2528). The one check every control that
+ * does so asks.
+ */
+export const hasRowsOfTheirOwn = (documentIds: readonly string[]): boolean => {
+  const { documents } = useAppStore.getState();
+  return documentIds.every((id) => {
+    const document = documents.find((each) => each.id === id);
+    return !document || isListedDocument(document);
+  });
+};
+
+/** A Document of the User's own, as the Library lists it: not one of the examples. */
 export const isOwnDocument = (document: Document, examples: readonly Examples[]) =>
-  document.linkedFolderId === null ||
-  !examples.some((each) => each.linkedFolderId === document.linkedFolderId);
+  isListedDocument(document) &&
+  (document.linkedFolderId === null ||
+    !examples.some((each) => each.linkedFolderId === document.linkedFolderId));
 
 /** The example a first run makes, shown first; the earlier version's tea example stands in for it. */
 const FIRST_RUN_EXAMPLE: ExampleGroup = "credit";

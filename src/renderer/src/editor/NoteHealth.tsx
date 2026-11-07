@@ -1,10 +1,12 @@
 import type { Editor } from "@tiptap/core";
 import { TextSelection } from "@tiptap/pm/state";
 import { useEditorState } from "@tiptap/react";
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type * as Y from "yjs";
-import type { CitationAttributes } from "../../../core/api";
+import { ANALYSIS_TABLE_ATTRIBUTE, type CitationAttributes } from "../../../core/api";
+import { liveVersions, tableShownIn } from "../../../shared/analysisTables";
 import { citationState } from "../../../shared/citations";
+import { keptBinding } from "../../../shared/figureRuns";
 import {
   acceptAndCheck,
   type CheckProblem,
@@ -31,6 +33,7 @@ import { startMindCheck, useMindCheck, useMindCheckRun } from "../mindCheck";
 import { type NoteState, unreadForCard } from "../noteState";
 import { useEmptyScopeLine } from "../scopeDocuments";
 import { useAppStore } from "../store";
+import { useKeptInsideOf } from "../turnWall";
 import { useCheckUnread } from "../unreadFiles";
 import { AddedDocumentsLine } from "./AddedDocumentsLine";
 import { AnswerError } from "./AnswerView";
@@ -44,7 +47,7 @@ import {
   noteHealth,
 } from "./healthCounts";
 import { CheckMarkIcon, ClaimMarkIcon } from "./icons";
-import { CheckedWhen, RunningText } from "./MindCheckLine";
+import { CheckedWhen } from "./MindCheckLine";
 import { useRunModel } from "./ModelChip";
 import { OpinionsLine } from "./OpinionsLine";
 import { useOpinionChecks } from "./opinionChecks";
@@ -63,6 +66,7 @@ const NO_HEALTH: Health = {
   toCheck: [],
   failed: [],
   uncheckable: [],
+  notRecalculated: [],
   recheck: [],
   edited: [],
   checking: [],
@@ -176,6 +180,7 @@ export function useHealth(
     state.status.kind === "ready" ? state.documents : null,
   );
   const kept = useAppStore((state) => state.keptCitationTexts);
+  const keptInside = useKeptInsideOf();
   const [health, setHealth] = useState<Health>(NO_HEALTH);
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -191,6 +196,9 @@ export function useHealth(
           unexamined,
           omitted: opinionSentenceRanges(editor.state.doc, doc),
           kept: keptSpans(editor.state),
+          tableShown: (table) =>
+            tableShownIn(doc, table.toJSON(), "en", liveVersions(documents), keptInside),
+          tableKept: (table) => keptBinding(doc, table.attrs[ANALYSIS_TABLE_ATTRIBUTE]) !== null,
         }),
       );
     };
@@ -206,7 +214,7 @@ export function useHealth(
       editor.off("transaction", later);
       doc.off("afterTransaction", later);
     };
-  }, [editor, doc, documents, kept, skipped, unexamined]);
+  }, [editor, doc, documents, kept, skipped, unexamined, keptInside]);
   return health;
 }
 
@@ -250,10 +258,6 @@ export function HealthCard({
   const running = useChecks((state) => state.running[mindId]);
   // The opinions left out show once in the card: on the last check's line when it shows.
   const opinionsHere = opinions.length > 0 && (Boolean(running) || !checkedAll);
-  const [ranHere, setRanHere] = useState(false);
-  useEffect(() => {
-    if (running !== undefined) setRanHere(true);
-  }, [running]);
   const problem = useChecks((state) => state.problems[mindId]);
   const smallModel = useChecks((state) => state.smallModel[mindId] === true);
   const contradictions = useContradictionLine(doc, mindId);
@@ -321,18 +325,39 @@ export function HealthCard({
   };
 
   const rows = ROWS.filter((part) => countOf(part) > 0);
+  // While a run is on, the note line carries only the verdicts that landed since it started: the
+  // rows above already name the Mind's whole counts, and an earlier verdict did not just land.
+  const landedParts = ["contradicted", "unsupported", "notFound", "found"] as const;
+  const beforeRun = useRef<readonly (readonly [HealthRowPart, number])[] | null>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the counts are kept as the run found them, not refreshed.
+  useLayoutEffect(() => {
+    beforeRun.current =
+      running === undefined
+        ? null
+        : (beforeRun.current ?? landedParts.map((part) => [part, health[part].length] as const));
+  }, [running]);
+  const landed =
+    running === undefined || beforeRun.current === null
+      ? []
+      : landedParts
+          .map(
+            (part) =>
+              [
+                part,
+                Math.max(
+                  health[part].length -
+                    (beforeRun.current?.find(([each]) => each === part)?.[1] ?? 0),
+                  0,
+                ),
+              ] as const,
+          )
+          .filter(([, count]) => count > 0)
+          .map(([part, count]) => label(part, count));
   const summary = healthSummary(health, {
     running: running !== undefined,
     problem: problem !== undefined,
     unread: state?.unreadMatters === true ? state.unread : 0,
   });
-  // The summary's line keeps its place from the moment a run starts here, empty until its
-  // result lands, so the card keeps one height as a check's results arrive (#1312, #1941).
-  const summarySpace =
-    summary === null &&
-    problem === undefined &&
-    health.checkable > 0 &&
-    (running !== undefined || ranHere || health.checking.length > 0);
   const close = {
     label: t("checks.close"),
     testId: "checks-problem-close",
@@ -371,8 +396,36 @@ export function HealthCard({
     );
   };
 
+  // What the note line says: what has landed so far while a run is on, then when it was checked.
+  // With nothing to say it takes no line, so no empty line is reserved.
+  const note =
+    running !== undefined ? (
+      landed.length > 0 && <MetaLine parts={landed} />
+    ) : checkedAll != null && health.checking.length === 0 ? (
+      // The health is counted a moment after the record lands: until no claim says it is being
+      // checked, the line would name a check a row still says is running (#2313).
+      <CheckedWhen
+        run={checkedAll}
+        editor={editor}
+        doc={doc}
+        mindId={mindId}
+        unexamined={health.unexamined.length}
+      />
+    ) : null;
   return (
     <>
+      {summary?.kind === "all" && (
+        <p data-testid="health-all-checked" className="mind-health-summary">
+          {t("health.allChecked")}
+        </p>
+      )}
+      {summary?.kind === "left" && summary.summary.supported > 0 && (
+        <MetaLine
+          data-testid="health-summary"
+          className="mind-health-summary"
+          parts={summaryParts(summary.summary, t, format)}
+        />
+      )}
       <AddedDocumentsLine doc={doc} mindId={mindId} />
       <div className="check-rows" data-testid="mind-health">
         {rows.map(row)}
@@ -429,43 +482,7 @@ export function HealthCard({
             t("signOff.count.changed", { count: format(signedOff.changed) })}
         </p>
       )}
-      {summary?.kind === "all" && (
-        <p data-testid="health-all-checked" className="mind-health-summary">
-          {t("health.allChecked")}
-        </p>
-      )}
-      {summary?.kind === "left" && summary.summary.supported > 0 && (
-        <MetaLine
-          data-testid="health-summary"
-          className="mind-health-summary"
-          parts={summaryParts(summary.summary, t, format)}
-        />
-      )}
-      {summarySpace && <p aria-hidden="true" className="mind-health-summary" />}
-      {/* One line of note, in one place, from the moment the check starts: the sentence it is
-          on, then when it was checked. It stays once a run has started here: a run ends a moment
-          before its record reaches the Mind, and the line must not go in between. The card's
-          body keeps its opening height, so what is above it stays put as the run ends (#1312). */}
-      {(running || checkedAll || ranHere) && (
-        <div className="check-card-note">
-          {running ? (
-            <RunningText editor={editor} mindId={mindId} testId="card-progress" />
-          ) : (
-            // The health is counted a moment after the record lands: until no claim says it is
-            // being checked, the line would name a check a row still says is running (#2313).
-            checkedAll &&
-            health.checking.length === 0 && (
-              <CheckedWhen
-                run={checkedAll}
-                editor={editor}
-                doc={doc}
-                mindId={mindId}
-                unexamined={health.unexamined.length}
-              />
-            )
-          )}
-        </div>
-      )}
+      {note && <div className="check-card-note">{note}</div>}
       {((smallModel && rows.length > 0) ||
         (contradictions?.kind !== "asking" && contradictions?.run.smallModel)) && (
         <p data-testid="checks-small-model" className="mind-health-line mind-health-note">

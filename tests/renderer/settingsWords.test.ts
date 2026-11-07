@@ -92,6 +92,8 @@ const CONSENT_FACTS = [
   "providers.secrets.unavailable",
   "providers.sends.onRequest",
   "rerank.settings.sends",
+  // A page loaded as a browser would reach every host it loads anything from (#2553).
+  "webPages.keepLook.body",
   // What first run's key field and sorting choice send, and where (ADR-0022).
   "needsModel.organize",
   "needsModel.compare",

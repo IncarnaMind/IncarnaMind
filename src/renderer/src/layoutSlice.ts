@@ -163,6 +163,22 @@ export function currentMindIdOf(layout: WindowLayout | null): string | null {
   return mind?.kind === "mind" ? mind.mindId : null;
 }
 
+/** Whether two tabs show the same place: the same Note or its figures, Document, Library or Home. */
+export function sameTabItem(a: TabItem | null, b: TabItem | null): boolean {
+  if (a === null || b === null) return a === b;
+  if (a.kind !== b.kind) return false;
+  switch (a.kind) {
+    case "mind":
+    case "figures":
+      return b.kind === a.kind && a.mindId === b.mindId;
+    case "document":
+      return b.kind === "document" && a.documentId === b.documentId;
+    case "library":
+    case "home":
+      return true;
+  }
+}
+
 function tabsOnScreenOf(layout: WindowLayout, merged: boolean): (LayoutTab | null)[] {
   const focused = focusedGroupOf(layout);
   const shown = [focused, ...visibleGroupsOf(layout, merged).filter((group) => group !== focused)];

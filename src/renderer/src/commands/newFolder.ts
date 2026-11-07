@@ -2,7 +2,7 @@ import type { MessageKey } from "../../../shared/i18n";
 import { countNow } from "../i18n";
 import type { ObjectRef } from "../objects";
 import { selectedOn, useSelection } from "../selection";
-import { useAppStore } from "../store";
+import { hasRowsOfTheirOwn, useAppStore } from "../store";
 import { objectAt } from "./keymap";
 import { type Command, type CommandContext, fromMenu } from "./registry";
 import { targetsOf } from "./targets";
@@ -31,7 +31,9 @@ function chosenBy(ctx: CommandContext): Chosen {
   if (!items.every((item) => item.kind === "mind" || item.kind === "document")) return NOTHING;
   const idsOf = (kind: ObjectRef["kind"]) =>
     items.filter((item) => item.kind === kind).map((item) => item.id);
-  return { mindIds: idsOf("mind"), documentIds: idsOf("document") };
+  const documentIds = idsOf("document");
+  if (!hasRowsOfTheirOwn(documentIds)) return NOTHING;
+  return { mindIds: idsOf("mind"), documentIds };
 }
 
 function labelFor(chosen: Chosen): MessageKey {

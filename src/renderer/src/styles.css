@@ -1635,9 +1635,10 @@
       outline-offset: 1px;
     }
   }
-  /* A running badge, or one whose card is open, keeps one width, so its words changing move
-     nothing; at rest it takes only its words' width, clear of the page's foot. The button fills
-     the pill, and its words start at one edge, so a change widens it without moving them. */
+  /* A running badge, or one showing a finished check, keeps one width, so its words changing move
+     nothing; at rest it takes only its words' width, clear of the page's foot, and opening the
+     card leaves it as it was. The button fills the pill, and its words start at one edge, so a
+     change widens it without moving them. */
   .check-badge[data-stable] {
     justify-content: flex-start;
     min-width: 252px;
@@ -1863,15 +1864,37 @@
       padding-left: 0;
     }
   }
+  /* The run's words take Check's row: they lie over the hidden Check, to its left, so the row
+     keeps the Check's own size and the words' length never moves it (#2313). */
+  .check-card-press {
+    position: relative;
+    display: flex;
+    align-items: center;
+    margin-left: auto;
+
+    & > [data-hidden] {
+      visibility: hidden;
+    }
+  }
+  .check-card-progress {
+    position: absolute;
+    top: 50%;
+    right: 0;
+    transform: translateY(-50%);
+    flex-wrap: nowrap;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+    margin: 0;
+    padding-left: 0;
+  }
+  /* The foot's Stop is the badge's own, in the line's height. */
+  .check-card-progress .check-badge-stop {
+    height: 20px;
+  }
   /* What a check found and what is left, under the rows (#1941). */
   .mind-health-summary {
     margin: 0;
-    padding: 0 8px 6px;
-
-    /* Its line is kept while a run is on, so the card keeps one height as results land (#1312). */
-    &:empty::before {
-      content: "\00a0";
-    }
+    padding: 6px 8px 4px;
   }
   .check-card-note {
     padding: 4px 8px 6px;
@@ -1879,11 +1902,6 @@
     line-height: 18px;
     color: var(--color-ink-meta);
     font-variant-numeric: tabular-nums;
-
-    /* A run ends a moment before its record reaches the Mind: the line keeps its one line. */
-    &:empty::before {
-      content: "\00a0";
-    }
   }
   .check-card-actions {
     display: flex;
@@ -4208,6 +4226,23 @@
     max-height: 40vh;
     overflow-y: auto;
     overscroll-behavior: contain;
+  }
+  .answer-asked {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  /* The question the assistant asked, folded to its words in the Answer's ink (#2530); its options are gone. */
+  .answer-asked-question {
+    margin: 0;
+    font-size: 14px;
+    line-height: 22px;
+    color: var(--color-ink-answer);
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+  }
+  .answer-asked-turn .assistant-question {
+    margin-top: 0;
   }
   .answer-asked-line {
     font-size: 13px;
@@ -7440,10 +7475,11 @@
    */
   .assistant-thread {
     --scrollbar: 8px;
+    --fade-bleed: 12px;
 
     flex: 1 1 auto;
     min-height: 0;
-    padding: 12px calc(var(--edge) - var(--scrollbar)) 12px var(--edge);
+    padding: 12px calc(var(--edge) - var(--scrollbar)) var(--fade-bleed) var(--edge);
     overflow-y: auto;
     overscroll-behavior: contain;
     scrollbar-gutter: stable;
@@ -7456,18 +7492,24 @@
       border-radius: 4px;
       background: var(--color-rule-strong) padding-box;
     }
-
-    /* The last 12px above the composer fade to the sheet, so text never meets its edge. */
-    &::after {
-      content: "";
-      position: sticky;
-      bottom: 0;
-      display: block;
-      height: 12px;
-      margin-top: -12px;
-      background: linear-gradient(to bottom, transparent, var(--color-sheet));
-      pointer-events: none;
-    }
+  }
+  /*
+   * A line the foot of a scrolling frame cuts fades out whole instead of looking sliced (#614,
+   * #2616). `lh` is the frame's line height, so the fade follows its text size.
+   */
+  .scroll-fade::after {
+    content: "";
+    position: sticky;
+    /* A sticky box stops at the frame's padding, so a frame with padding below reaches into it (--fade-bleed) to end at its foot. */
+    bottom: calc(0px - var(--fade-bleed, 0px));
+    display: none;
+    height: 1.5lh;
+    margin-top: -1.5lh;
+    background: linear-gradient(to bottom, transparent, var(--color-sheet));
+    pointer-events: none;
+  }
+  .scroll-fade[data-more-after]::after {
+    display: block;
   }
   .assistant-empty {
     margin: 0;
@@ -8592,8 +8634,43 @@
    * change (a layout shift the feel check counts).
    */
   .answer-steps-live {
+    /* The wait takes the first form that fits (#2531): its own row when it cannot. */
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
     position: relative;
     align-self: stretch;
+  }
+  .answer-steps-live-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    min-width: 0;
+  }
+  /* A wait on a second row sits under the step's words, in the smaller ink of a note. */
+  .answer-steps-live-row--second {
+    padding-left: 20px;
+    font-size: 13px;
+    line-height: 18px;
+    color: var(--color-ink-meta);
+  }
+  .answer-steps-wait-measures {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 0;
+    height: 0;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  .answer-steps-wait-measure {
+    position: absolute;
+    top: 0;
+    left: 0;
+    visibility: hidden;
+    white-space: nowrap;
   }
   .answer-steps-live-toggle {
     display: inline-flex;
@@ -8645,22 +8722,13 @@
     background: var(--color-attention);
     animation: none;
   }
+  /*
+   * The wait that joins the live line after 15 seconds (#2530, #2531): never
+   * dropped; the form is measured so the step's own words stay whole.
+   */
   .answer-steps-wait {
-    max-width: calc(100% - 20px);
-    margin: 0 0 0 20px;
-    font-size: 13px;
-    line-height: 18px;
-    color: var(--color-ink-meta);
-  }
-  .answer-steps-wait-stop {
-    padding: 0;
-    border-radius: 4px;
-    font-weight: 600;
-    color: var(--color-ink-secondary);
-
-    &:hover {
-      color: var(--color-ink);
-    }
+    flex: none;
+    white-space: nowrap;
   }
   .answer-timeline {
     display: flex;

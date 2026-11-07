@@ -6,10 +6,11 @@
  */
 import * as Y from "yjs";
 import { readCalculatedFigureEvidence } from "../../../shared/calculatedFigures";
-import { chartCheckText, chartPoints, readChart } from "../../../shared/charts";
+import { chartCheckText, chartPoints, fromAnalysisOnly, readChart } from "../../../shared/charts";
 import { citationAttributesOf } from "../../../shared/citations";
 import { keptOn, readClaimCheck } from "../../../shared/claimChecks";
 import { partCitations, readClaimParts } from "../../../shared/claimParts";
+import { keptBinding } from "../../../shared/figureRuns";
 import {
   type InlineTextPiece,
   type InlineTextProjection,
@@ -20,8 +21,10 @@ import {
 } from "../../../shared/inlineText";
 import { perBlock } from "../../../shared/memo";
 import { readProposalAttribute, readProposalRef } from "../../../shared/proposals";
-import { INLINE_NODE, sentenceSpans } from "../../../shared/sentences";
+import { INLINE_NODE, onlyNamesItsTable, sentenceSpans } from "../../../shared/sentences";
 import {
+  ANALYSIS_TABLE_ATTRIBUTE,
+  ANALYSIS_TABLE_NODE,
   BLOCK_ID_ATTRIBUTE,
   CALCULATED_FIGURE_NODE,
   CHART_NODE,
@@ -39,7 +42,12 @@ import {
 } from "../../api";
 import { layout, textBlocks, textBlocksOf } from "../../proposals/write";
 import type { NoteParagraph, RecordCiteNote, RecordCitePlace } from "../../recordCites/referents";
-import { type FigureOccurrence, figuresInMind, inTableCell } from "./figureOccurrences";
+import {
+  type FigureOccurrence,
+  figuresInMind,
+  inTableCell,
+  withAboveNow,
+} from "./figureOccurrences";
 
 const BREAK = "hardBreak";
 
@@ -172,7 +180,9 @@ export function checkText(sentence: SelectedSentence) {
     context:
       (sentence.figures?.[0]?.label !== undefined ? sentence.figures[0]?.context : undefined) ??
       wordsOf(sentence.element),
-    ...(sentence.figures?.length && { figures: sentence.figures }),
+    ...(sentence.figures?.length && {
+      figures: withAboveNow(sentence.figures, sentence.element),
+    }),
   };
 }
 
@@ -251,7 +261,8 @@ function chartSentence(
   figures: readonly FigureOccurrence[],
 ): SelectedSentence | null {
   const blockId = element.getAttribute(BLOCK_ID_ATTRIBUTE);
-  if (typeof blockId !== "string" || chartPoints(readChart(element.getAttributes())).length === 0)
+  const chart = readChart(element.getAttributes());
+  if (typeof blockId !== "string" || chartPoints(chart).length === 0 || fromAnalysisOnly(chart))
     return null;
   const text = textOf(element);
   return {
@@ -354,6 +365,28 @@ export function inTableHeader(element: Y.XmlElement): boolean {
 }
 
 /**
+ * An Analysis's own table, and every cell of it, while the Note keeps its run: its run's, never
+ * claims to check against the Documents (#2378).
+ */
+export function inAnalysisTable(element: Y.XmlElement): boolean {
+  for (let at: unknown = element; at instanceof Y.XmlElement; at = at.parent)
+    if (at.nodeName === "table" && keptBinding(at.doc, at.getAttribute(ANALYSIS_TABLE_ATTRIBUTE)))
+      return true;
+  return false;
+}
+
+/** An Analysis table's caption line that only names its table (`onlyNamesItsTable`). */
+export const isTableCaption = (element: Y.XmlElement): boolean =>
+  element
+    .toArray()
+    .some((node) => node instanceof Y.XmlElement && node.nodeName === ANALYSIS_TABLE_NODE) &&
+  onlyNamesItsTable(textOf(element));
+
+/** A paragraph no check reads as sentences: a table's heading, an Analysis table's caption or cell. */
+const notSentences = (element: Y.XmlElement) =>
+  inTableHeader(element) || inAnalysisTable(element) || isTableCaption(element);
+
+/**
  * The sentences each stretch touches, each whole and once: a sentence a
  * stretch only touches is checked all the same. Headings aren't checked.
  */
@@ -373,7 +406,7 @@ export function selectedSentences(
     if (first < 0 || last < first) continue;
     for (const [index, { element, busy }] of all.slice(first, last + 1).entries()) {
       if (busy || (element.nodeName !== "paragraph" && element.nodeName !== CHART_NODE)) continue;
-      if (element.nodeName === "paragraph" && inTableHeader(element)) continue;
+      if (element.nodeName === "paragraph" && notSentences(element)) continue;
       const blockId = idOf(element);
       if (typeof blockId !== "string") continue;
       if (element.nodeName === CHART_NODE) {
@@ -464,7 +497,7 @@ export function everySentence(blocks: Y.XmlFragment): SelectedSentence[] {
       const sentence = chartSentence(element, figures.get(blockId) ?? []);
       return sentence && changesIn(element, 0, 1).length === 0 ? [sentence] : [];
     }
-    if (element.nodeName !== "paragraph" || inTableHeader(element)) return [];
+    if (element.nodeName !== "paragraph" || notSentences(element)) return [];
     const { text, spans } = claimFrame(element);
     const occurrences = new Map<string, number>();
     return spans.flatMap((span) => {
@@ -678,12 +711,18 @@ type CheckedSentence = MarkedSentence & {
   cited: CitedQuote[];
   noteText?: string;
   place?: RecordCitePlace;
+  /**
+   * Where the whole sentences its mark is in are in the Block. A mark covers only their text, so
+   * a figure that ends its line ("- North: total amount 9,450") is inside these but past the mark.
+   */
+  extent: { from: number; to: number };
 };
 
 const checkedOfBlock = perBlock((block): readonly CheckedSentence[] =>
   marksOfBlock(block).map((marked) => {
     const { element, from, to } = marked;
-    if (element.nodeName === CHART_NODE) return { ...marked, sentence: textOf(element), cited: [] };
+    if (element.nodeName === CHART_NODE)
+      return { ...marked, sentence: textOf(element), cited: [], extent: { from: 0, to: 1 } };
     const { text, spans } = claimFrame(element);
     const touched = spans.filter((span) => span.from < to && span.to > from);
     const blockId = element.getAttribute(BLOCK_ID_ATTRIBUTE);
@@ -694,6 +733,10 @@ const checkedOfBlock = perBlock((block): readonly CheckedSentence[] =>
       cited: touched.flatMap((span) => span.cited),
       noteText: textOf(element).slice(start, touched.at(-1)?.to ?? 0),
       ...(typeof blockId === "string" && { place: { blockId, from: start } }),
+      extent: {
+        from: Math.min(touched[0]?.from ?? from, from),
+        to: Math.max(touched.at(-1)?.to ?? to, to),
+      },
     };
   }),
 );

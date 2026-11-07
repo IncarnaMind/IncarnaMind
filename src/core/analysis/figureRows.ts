@@ -17,11 +17,11 @@ import {
 import { figureText } from "../../shared/figures";
 import { sameNumber } from "../../shared/formula";
 
-const isNumber = (cell: AnalysisCell): cell is number =>
+export const isNumber = (cell: AnalysisCell): cell is number =>
   typeof cell === "number" && Number.isFinite(cell);
 
 /** As the helper reads an input's column: numbers, when at least half its filled cells are. */
-function numeric(cells: readonly AnalysisCell[]): boolean {
+export function numeric(cells: readonly AnalysisCell[]): boolean {
   const filled = cells.filter((cell) => cell !== null && cell !== "");
   const numbers = filled.filter(isNumber).length;
   return numbers > 0 && numbers * 2 >= filled.length;
@@ -39,7 +39,7 @@ function sum(values: readonly number[]): number {
   return total + lost;
 }
 
-function reduce(how: Exclude<FigureHow, "count">, values: readonly number[]): number | null {
+export function reduce(how: Exclude<FigureHow, "count">, values: readonly number[]): number | null {
   if (how === "sum") return sum(values);
   if (values.length === 0) return null;
   if (how === "mean") return sum(values) / values.length;

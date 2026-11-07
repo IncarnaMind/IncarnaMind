@@ -9,6 +9,7 @@
 import type { AnswerToolCall, CommandDone, MindChange, MindProblem } from "../api";
 import { asData } from "../promptData";
 import { COMMAND_TOOLS } from "../tools";
+import { sentencesDone } from "../tools/minds/sentencesSaid";
 
 /** A Mind's name now, by its id; null for one deleted or unknown. */
 export type MindNames = (mindId: string) => string | null;
@@ -129,7 +130,8 @@ function detailsOf(change: MindChange): string {
   const noChart = change.chartNotDrawn
     ? `; the chart asked for was not drawn: ${CHART_NOT_DRAWN[change.chartNotDrawn]}`
     : "";
-  return `${tables}${charts}${cited}${left}${noChart}`;
+  const sentences = change.sentences ? sentencesDone(change.sentences) : null;
+  return `${tables}${charts}${cited}${left}${noChart}${sentences ? `. ${sentences}` : ""}`;
 }
 
 function mindOf(call: AnswerToolCall, names: MindNames): string {

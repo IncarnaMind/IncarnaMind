@@ -242,9 +242,16 @@ export function meetingRecord(
     : null;
 }
 
-/** Records which Document is the Meeting's Transcript, in the transaction that makes it. */
+/**
+ * Records which Document is the Meeting's Transcript, in the transaction that makes it, and that
+ * it belongs to the Meeting's Note (#2528).
+ */
 export function linkTranscript(db: Database, meetingId: string, documentId: string): void {
   db.run("UPDATE meetings SET transcript_document_id = ? WHERE id = ?", [documentId, meetingId]);
+  db.run(
+    "UPDATE documents SET meeting_mind_id = (SELECT mind_id FROM meetings WHERE id = ?) WHERE id = ?",
+    [meetingId, documentId],
+  );
 }
 
 const codeOf = (error: unknown) => (error as NodeJS.ErrnoException).code ?? "unknown";

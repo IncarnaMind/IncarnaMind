@@ -1,3 +1,4 @@
+import { OfficePackage } from "../../../core/documents/formats/officePackage";
 import {
   child,
   elements,
@@ -67,7 +68,8 @@ export async function drawnTargetOf(bytes: Uint8Array, place: string): Promise<D
   const match = /^(w:p|w:tbl)#(\d+)$/.exec(place);
   if (!match) return null;
   const [, name, ordinal] = match;
-  const xml = await openPackage(bytes).readText("word/document.xml");
+  const pkg = new OfficePackage(openPackage(bytes));
+  const xml = await pkg.zip.readText(await pkg.mainPart("word/document.xml"));
   if (xml === undefined) return null;
   const root = parseXml(xml);
   const body = child(root, "w:body");

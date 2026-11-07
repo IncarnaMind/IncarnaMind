@@ -49,24 +49,103 @@ const run: RetainedFigureAnalysis = {
 };
 
 const unchecked: ClaimCheckShown = { state: "not-checked", reason: "unread" };
+/** A figure the core didn't work out again: the table's words, "From the Analysis · not recalculated". */
+const notRecalculated: ClaimCheckShown = { state: "not-checked", reason: "analysis" };
+/** A figure whose run the Note no longer keeps: "The Analysis it came from is no longer available". */
+const gone: ClaimCheckShown = { state: "not-checked", reason: "analysis-gone" };
 const versions = new Map([["source", "v1"]]);
 
-test("a figure the core worked out again shows checked while its Document is as it was", () => {
+const misnamed = {
+  kind: "analysis-name" as const,
+  reason: "The sentence doesn’t say this figure is Total yield",
+  covered: null,
+  uncovered: null,
+  found: true as const,
+};
+
+test("a figure worked out again has no verdict of its own until a check reads its sentence as naming it (#2378)", () => {
+  expect(analysisFigureShown(unchecked, { run, result: "total", versions })).toEqual(unchecked);
   expect(
-    analysisFigureShown(unchecked, { checked: false, run, result: "total", versions }),
+    analysisFigureShown(
+      { state: "supported" },
+      {
+        run,
+        result: "total",
+        versions,
+        check: { state: "supported", unsupported: null, named: true },
+      },
+    ),
   ).toEqual({ state: "supported" });
 });
 
-test("a check that ran over the figure but left it unread never shows it checked", () => {
-  expect(analysisFigureShown(unchecked, { checked: true, run, result: "total", versions })).toEqual(
-    unchecked,
-  );
+test("a check stands for the figure only as the claim judge read its naming", () => {
+  // Supported without the judge's reading, as an earlier build stored it: not a name anyone read.
+  expect(
+    analysisFigureShown(
+      { state: "supported" },
+      { run, result: "total", versions, check: { state: "supported", unsupported: null } },
+    ),
+  ).toEqual(unchecked);
+  // An Unsupported against the Documents' text, which never holds the figure, isn't its name.
+  for (const claim of [{ state: "unsupported" }, { state: "contradicted" }] as const)
+    expect(
+      analysisFigureShown(claim, {
+        run,
+        result: "total",
+        versions,
+        check: { state: claim.state, unsupported: { ...misnamed, kind: "unbacked-cause" } },
+      }),
+    ).toEqual(unchecked);
+  expect(
+    analysisFigureShown(
+      { state: "unsupported" },
+      { run, result: "total", versions, check: { state: "unsupported", unsupported: misnamed } },
+    ),
+  ).toEqual({ state: "unsupported" });
+  // Once the sentence's words changed, it waits for the next Check, whatever was read before.
+  expect(
+    analysisFigureShown(
+      { state: "needs-recheck", why: "edited" },
+      {
+        run,
+        result: "total",
+        versions,
+        check: { state: "supported", unsupported: null, named: true },
+      },
+    ),
+  ).toEqual({ state: "needs-recheck", why: "edited" });
+  const total = run.values[0];
+  if (!total) throw new Error("Missing fixture");
+  const fromCode: RetainedFigureAnalysis = { ...run, values: [{ ...total, check: undefined }] };
+  expect(
+    analysisFigureShown(
+      { state: "supported" },
+      {
+        run: fromCode,
+        result: "total",
+        versions,
+        check: { state: "supported", unsupported: null, named: true },
+      },
+    ),
+  ).toEqual(notRecalculated);
+});
+
+test("a total that doesn't add up, or a wall the Note is outside, stands whatever the judge read", () => {
+  const named = { state: "supported" as const, unsupported: null, named: true as const };
+  expect(
+    analysisFigureShown({ state: "unsupported" }, { run, result: "total", versions, check: named }),
+  ).toEqual({ state: "unsupported" });
+  expect(
+    analysisFigureShown(
+      { state: "not-checked", reason: "kept-inside" },
+      { run, result: "total", versions, check: named },
+    ),
+  ).toEqual({ state: "not-checked", reason: "kept-inside" });
 });
 
 test("a figure whose Document changed or went needs a re-check, as a calculated figure does", () => {
   expect(
     analysisFigureShown(unchecked, {
-      checked: false,
       run,
       result: "total",
       versions: new Map([["source", "v2"]]),
@@ -74,7 +153,6 @@ test("a figure whose Document changed or went needs a re-check, as a calculated 
   ).toEqual({ state: "needs-recheck", why: "new-version" });
   expect(
     analysisFigureShown(unchecked, {
-      checked: false,
       run,
       result: "total",
       versions: new Map(),
@@ -84,7 +162,15 @@ test("a figure whose Document changed or went needs a re-check, as a calculated 
 
 test("versions unknown to the reader never turn a check into a re-check", () => {
   expect(
-    analysisFigureShown(unchecked, { checked: false, run, result: "total", versions: null }),
+    analysisFigureShown(
+      { state: "supported" },
+      {
+        run,
+        result: "total",
+        versions: null,
+        check: { state: "supported", unsupported: null, named: true },
+      },
+    ),
   ).toEqual({ state: "supported" });
 });
 
@@ -95,54 +181,43 @@ test("a check that differs, could not be made, or is missing leaves the figure a
     ...run,
     values: [{ ...total, check: { kind: "differs", value: 198250 } }],
   };
-  expect(
-    analysisFigureShown(unchecked, { checked: false, run: differs, result: "total", versions }),
-  ).toEqual(unchecked);
+  expect(analysisFigureShown(unchecked, { run: differs, result: "total", versions })).toEqual(
+    notRecalculated,
+  );
   const failed: RetainedFigureAnalysis = {
     ...run,
     values: [{ ...total, check: { kind: "unchecked", reason: "no row 241" } }],
   };
-  expect(
-    analysisFigureShown(unchecked, { checked: false, run: failed, result: "total", versions }),
-  ).toEqual(unchecked);
-  expect(
-    analysisFigureShown(unchecked, { checked: false, run: null, result: "total", versions }),
-  ).toEqual(unchecked);
+  expect(analysisFigureShown(unchecked, { run: failed, result: "total", versions })).toEqual(
+    notRecalculated,
+  );
+  expect(analysisFigureShown(unchecked, { run: null, result: "total", versions })).toEqual(gone);
 });
 
 test("an Analysis figure whose record the Note no longer keeps never shows checked (#2378)", () => {
   expect(
-    analysisFigureShown(
-      { state: "supported" },
-      { checked: true, run: null, result: "total", versions },
-    ),
-  ).toEqual(unchecked);
+    analysisFigureShown({ state: "supported" }, { run: null, result: "total", versions }),
+  ).toEqual(gone);
   expect(
-    analysisFigureShown(
-      { state: "contradicted" },
-      { checked: true, run: null, result: "total", versions },
-    ),
-  ).toEqual(unchecked);
+    analysisFigureShown({ state: "contradicted" }, { run: null, result: "total", versions }),
+  ).toEqual(gone);
   const withoutTheValue: RetainedFigureAnalysis = { ...run, values: [] };
   expect(
     analysisFigureShown(
       { state: "supported" },
-      { checked: false, run: withoutTheValue, result: "total", versions },
+      { run: withoutTheValue, result: "total", versions },
     ),
-  ).toEqual(unchecked);
+  ).toEqual(gone);
 });
 
 test("the User's own kept view of the sentence still shows when the record is gone", () => {
-  expect(
-    analysisFigureShown({ state: "kept" }, { checked: true, run: null, result: "total", versions }),
-  ).toEqual({ state: "kept" });
+  expect(analysisFigureShown({ state: "kept" }, { run: null, result: "total", versions })).toEqual({
+    state: "kept",
+  });
 });
 
 test("a figure with no Analysis keeps its sentence's own check: there is no record to miss", () => {
   expect(
-    analysisFigureShown(
-      { state: "supported" },
-      { checked: true, run: null, result: null, versions },
-    ),
+    analysisFigureShown({ state: "supported" }, { run: null, result: null, versions }),
   ).toEqual({ state: "supported" });
 });

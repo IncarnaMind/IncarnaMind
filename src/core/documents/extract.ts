@@ -14,6 +14,8 @@ import type { LogFields, PagePicture, PictureRead, RecognizedLine } from "../ada
 import type { DocumentKind, UnreadParts } from "../api";
 import { isRecord } from "../errors";
 import { ExtractionError, extractUnits } from "./formats";
+import { extractDocx } from "./formats/docx";
+import { extractPptx } from "./formats/pptx";
 import { type FigureReading, readWebPage, webUnits } from "./formats/web";
 import { extractXlsx, unreadPartsOf } from "./formats/xlsx";
 import { joinPrintedLines, type PrintedLine, type PrintedText } from "./lineWrap";
@@ -66,6 +68,18 @@ export interface PageReading {
   progress(read: number, of: number, unit: TextUnit | null): void;
   /** Aborted when the job is stopped: no further page is read. */
   signal: AbortSignal;
+  /**
+   * The first `pages` pages, said as soon as they are all read, before any scanned page after
+   * them is: what the Library classifies a Document from while the rest is read (#2308).
+   */
+  head?: {
+    pages: number;
+    read(
+      units: readonly TextUnit[],
+      keptBreaks: ReadonlyMap<number, ReadonlySet<number>>,
+      pageCount: number,
+    ): void;
+  };
 }
 
 /** No scanned page can be read now: the text recognition model can't be downloaded or started. */
@@ -86,6 +100,8 @@ export interface ExtractedText {
    * page ended itself (see `joinPrintedLines`), which the wider join keeps.
    */
   keptBreaks?: ReadonlyMap<number, ReadonlySet<number>>;
+  /** Word files, decks and workbooks: relationships parts that couldn't be read; the rest was. */
+  unreadable?: readonly string[];
 }
 
 /**
@@ -115,7 +131,12 @@ export async function extractText(
   }
   if (kind === "xlsx") {
     const { units, workbook } = await extractXlsx(bytes, readHiddenSheets);
-    return { pageCount: null, units, unread: null, parts: unreadPartsOf(workbook) };
+    const { unreadable } = workbook;
+    return { pageCount: null, units, unread: null, parts: unreadPartsOf(workbook), unreadable };
+  }
+  if (kind === "docx" || kind === "pptx") {
+    const { units, unreadable } = await (kind === "docx" ? extractDocx(bytes) : extractPptx(bytes));
+    return { pageCount: null, units, unread: null, parts: null, unreadable };
   }
   return { pageCount: null, units: await extractUnits(kind, bytes), unread: null, parts: null };
 }
@@ -597,7 +618,7 @@ async function extractPdf(
     }
     const unreadScans =
       reading && scanned.length > 0
-        ? await readScannedPages(document, pages, scanned, reading, scanFields)
+        ? await readScannedPages(document, pages, scanned, reading, scanFields, keptBreaks)
         : null;
     const unread =
       unreadForms.length > 0
@@ -664,12 +685,20 @@ async function readScannedPages(
   scanned: readonly number[],
   reading: PageReading,
   fields: ReadonlyMap<number, { text: string; anchors: Anchor[] }>,
+  keptBreaks: ReadonlyMap<number, ReadonlySet<number>>,
 ): Promise<ExtractedText["unread"]> {
   const factory = document.canvasFactory as CanvasFactory;
   const unread: number[] = [];
   let message: string | null = null;
   let unavailable = false;
+  // Said only when scanned pages follow them: otherwise the whole read is a moment away.
+  const head = scanned.some((number) => number > (reading.head?.pages ?? Infinity))
+    ? reading.head
+    : undefined;
+  const headScans = head ? scanned.filter((number) => number <= head.pages).length : -1;
+  const sayHead = () => head?.read(pages.slice(0, head.pages), keptBreaks, pages.length);
   reading.progress(0, scanned.length, null);
+  if (headScans === 0) sayHead();
   for (const [index, number] of scanned.entries()) {
     reading.signal.throwIfAborted();
     const at = number - 1;
@@ -710,6 +739,7 @@ async function readScannedPages(
     }
     pages[at] = unit;
     reading.progress(index + 1, scanned.length, unit);
+    if (index + 1 === headScans) sayHead();
   }
   return unread.length > 0 ? { pages: unread, message: message ?? "" } : null;
 }

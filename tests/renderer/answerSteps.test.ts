@@ -7,6 +7,7 @@ import {
   liveStep,
   type StepsInput,
   stepRows,
+  stepWordsChanged,
 } from "../../src/renderer/src/answerSteps";
 import {
   checkedWords,
@@ -1213,4 +1214,20 @@ describe("the steps while the Answer is written", () => {
     expect(rowsFor("stopped", refused)).toContain("failed-search");
     expect(rowsFor("done", ended)).toContain("failed-search");
   });
+});
+
+// protects=only the step, or the step's own words, let the wait take more of the line (#2531); fails_when=a thinking step's summary-presence label flip counts as a step change; no_claim=none beyond protects.
+test("a summary-only label flip is not a step change, and a step's own words or the step are", () => {
+  const thinking = { label: "Thinking", stepKey: "thinking", kind: "thinking" as const };
+  expect(stepWordsChanged({ label: "Thinking…", stepKey: "thinking" }, thinking)).toBe(false);
+  expect(stepWordsChanged(thinking, { ...thinking })).toBe(false);
+  expect(
+    stepWordsChanged(thinking, { label: "Thinking", stepKey: "searching", kind: "searching" }),
+  ).toBe(true);
+  expect(
+    stepWordsChanged(
+      { label: "Searching “A”…", stepKey: "searching" },
+      { label: "Searching “B”…", stepKey: "searching", kind: "searching" },
+    ),
+  ).toBe(true);
 });

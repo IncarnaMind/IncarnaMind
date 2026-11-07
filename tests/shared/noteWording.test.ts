@@ -12,8 +12,9 @@ const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const MIND = /\bMinds?\b/g;
 const ONE_MIND = /\bMinds?\b/;
 const NOTE = /\bnotes?\b/i;
-const HAS_NOTES = /笔记(?!本)/;
-const NOTES_ALL = /笔记(?!本)/g;
+// 笔记本 is a notebook, but 笔记本身 is the note itself (#2525).
+const HAS_NOTES = /笔记(?!本(?!身))/;
+const NOTES_ALL = /笔记(?!本(?!身))/g;
 const HAS_YOUR_TEXT = /你写的内容/;
 const YOUR_TEXT = /\byour text\b/i;
 
@@ -112,7 +113,12 @@ const NOTE_FOR_MIND: readonly MessageKey[] = [
 ];
 
 /** Already says 笔记 for the Note, with an English word that never said note. */
-const CHINESE_ONLY: readonly MessageKey[] = ["history.reason.enhance"];
+const CHINESE_ONLY: readonly MessageKey[] = [
+  "history.reason.enhance",
+  // The English says meeting, the Chinese names the meeting's Note and Transcript (#2528).
+  "meetings.leftApart.one",
+  "meetings.leftApart.other",
+];
 
 /**
  * A note here is something else: Word's notes, speaker notes, a style's name,

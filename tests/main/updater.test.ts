@@ -1,3 +1,6 @@
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 const fixture = vi.hoisted(() => ({
@@ -13,6 +16,8 @@ const fixture = vi.hoisted(() => ({
   autoInstallAtCheck: true,
   quitListenersAtCheck: 0,
   checkVersion: "0.1.0-test",
+  updateData: "",
+  updateCheckSafe: true,
 }));
 
 vi.mock("electron", async () => {
@@ -21,6 +26,7 @@ vi.mock("electron", async () => {
     app: Object.assign(new EventEmitter(), {
       isPackaged: true,
       releaseSingleInstanceLock: fixture.releaseSingleInstanceLock,
+      getPath: () => fixture.updateData,
     }),
     autoUpdater: new EventEmitter(),
     BrowserWindow: { getAllWindows: () => [] },
@@ -51,8 +57,7 @@ beforeEach(async () => {
   fixture.checked = Promise.withResolvers<void>();
   fixture.wrapperDownload = Promise.resolve();
   const { app, autoUpdater: native } = await import("electron");
-  const { tmpdir } = await import("node:os");
-  const { join } = await import("node:path");
+  fixture.updateData = mkdtempSync(join(tmpdir(), "incarnamind-updater-data-"));
   const { UpdaterAppFixture, UpdaterSdkFixture } = await import("../helpers/updaterSdk");
   const sdk = Object.assign(
     new UpdaterSdkFixture(
@@ -62,7 +67,10 @@ beforeEach(async () => {
     ),
     { checkForUpdates: fixture.checkForUpdates, quitAndInstall: fixture.quitAndInstall },
   );
-  vi.doMock("../../src/main/autoUpdater", () => ({ autoUpdater: sdk }));
+  vi.doMock("../../src/main/autoUpdater", () => ({
+    autoUpdater: sdk,
+    updateCheckSendsNoInstallId: fixture.updateCheckSafe,
+  }));
   app.removeAllListeners();
   native.removeAllListeners();
   sdk.removeAllListeners();
@@ -71,6 +79,7 @@ beforeEach(async () => {
   fixture.checkVersion = "0.1.0-test";
   fixture.autoInstallAtCheck = true;
   fixture.quitListenersAtCheck = 0;
+  fixture.updateCheckSafe = true;
   fixture.checkForUpdates.mockImplementation(async () => {
     fixture.autoInstallAtCheck = sdk.autoInstallOnAppQuit;
     fixture.quitListenersAtCheck = app.listenerCount("quit");
@@ -95,6 +104,7 @@ afterEach(async () => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  rmSync(fixture.updateData, { recursive: true, force: true });
 });
 
 async function start(
@@ -475,6 +485,22 @@ test("language is cached before the SDK starts and its standard automatic instal
   await run.asked;
   expect(sdk.autoInstallOnAppQuit).toBe(true);
   expect(run.settleQuit).not.toHaveBeenCalled();
+});
+
+test("a packaged start deletes the update check's old install ID", async () => {
+  const file = join(fixture.updateData, ".updaterId");
+  writeFileSync(file, "old-install-id");
+  await start();
+  expect(existsSync(file)).toBe(false);
+});
+
+test("the update check stays off when the updater cannot strip its install ID", async () => {
+  fixture.updateCheckSafe = false;
+  const run = await start();
+  await checkpoint();
+  expect(fixture.checkForUpdates).not.toHaveBeenCalled();
+  expect(run.started).not.toHaveBeenCalled();
+  expect(fixture.showMessageBox).not.toHaveBeenCalled();
 });
 
 test("Restart persists and displays the completed download’s target, not earlier check metadata", async () => {

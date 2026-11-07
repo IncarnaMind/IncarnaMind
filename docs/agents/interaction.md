@@ -39,7 +39,7 @@ Each rule has a check a reviewer can apply. A UI change that breaks a rule says 
 12. **Match the prototype's behaviour, not only its picture.** The interactive prototype is the reference for how every screen works. A design board is a still frame: it fixes the looks, never the behaviour. Every UI issue names the prototype flow it implements, and the design boards for the looks.
     - Build what the flow does, step by step: what each click, key, hover and focus move does; what appears, moves or goes away, and when; the empty, loading and error states; and where focus lands after each step.
     - Where the built screen behaves differently from the prototype, say why in the pull request, or fix it.
-    - Check: the pull request has a short recording of the flow in the built app beside the same flow in the prototype, with the mouse and the keyboard, and every difference listed.
+    - Check: when behaviour changed, the pull request has a short recording of the built flow, with the mouse and the keyboard.
 13. **Use the shared building blocks.** Selection, drag and drop, undo, the right-click menus, rename in place, the command list behind ⌘K and the menus, and optimistic updates each have one shared implementation, so the same gesture does the same thing everywhere. Where a block doesn't exist yet, don't build a one-off: say so in the pull request and keep the current behaviour, or build the block in its own issue.
     - Motion comes from the shared module (`src/renderer/src/motion.ts`) and follows `DESIGN.md` › Motion, Reduced and Off included; no hand-written transitions or animations.
     - Check: code review; no `onContextMenu`, `draggable` or undo handling outside the shared blocks.
@@ -76,12 +76,11 @@ Each rule has a check a reviewer can apply. A UI change that breaks a rule says 
 
 ## In an issue that changes UI
 
-Add the interaction checklist from the pull request template to the acceptance criteria. Name the prototype flow the change implements, step by step (rule 12), the design boards for its looks, and the convention each gesture follows (rule 0).
+Name the prototype flow the change implements, step by step (rule 12), the design boards for its looks, and the convention each gesture follows (rule 0).
 
 ## In a pull request that changes UI
 
-- Tick the interaction checklist in the pull request template.
 - Add before and after screenshots, at a narrow and a wide window, in English and Chinese where text changed.
-- Record the flow in the built app beside the same flow in the prototype (a short GIF of each), with the mouse and the keyboard, and list every difference in behaviour or looks with its reason.
+- When behaviour changed, record the built flow (a short GIF), with the mouse and the keyboard.
 - Test it like a person: with the mouse and the keyboard, in the built app, not only in unit tests.
 - If it changes a flow the feel check covers (`e2e/feel*.spec.ts`), run that spec (testing.md, The feel check).
