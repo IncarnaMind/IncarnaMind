@@ -86,6 +86,8 @@ const CONSENT_FACTS = [
   "embeddingProviders.confirm.cloud",
   "embeddingProviders.settings.sendsTo",
   "privacy.flows.intro",
+  // What the AI use record sends while usage data is on (ADR-0014, #1993).
+  "privacy.aiUse.private",
   "privacy.skills.body",
   "privacy.usageData.tester",
   "providers.secrets.plainText.accept",
