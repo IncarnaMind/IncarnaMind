@@ -5,7 +5,7 @@ import { CJK, nameKey } from "../../shared/text";
 import type { AskedTable, CitationSupport, SkillFile, UnreadFile, UnreadReason } from "../api";
 import { detectLanguage } from "../documents/textLanguage";
 import { LANGUAGE_NAMES, type Language } from "../language";
-import { asData, tagged } from "../promptData";
+import { asData, type PromptTag, tagged } from "../promptData";
 import type { LoadedSkill, SkillSummary } from "../skills";
 import { SET_ASIDE_MARK, UNPLACED_MARK } from "./sheetRows";
 
@@ -232,7 +232,7 @@ const selected = (
   quote: { documentName: string; quote: string; table?: AskedTable },
   place: string | null,
 ) =>
-  `<selected document="${inAttribute(quote.documentName)}"${place ? ` location="${inAttribute(place)}"` : ""}>\n${quote.table ? tableText(quote.table) : quote.quote}\n</selected>`;
+  `<selected document="${inAttribute(quote.documentName)}"${place ? ` location="${inAttribute(place)}"` : ""}>\n${asData(quote.table ? tableText(quote.table) : quote.quote, CALL_TAGS)}\n</selected>`;
 
 /** A selected block's entry: the words (or a range's cells), and the picture of an area (#118) when there is one. */
 export interface SelectedBlockQuote {
@@ -423,6 +423,28 @@ export const CALL_SCOPE_NOTE = [
   "A recap has no heading or closing line, and adds no unrequested suggestion, question to ask, or topic still to cover.",
   "</call>",
 ].join("\n");
+
+/**
+ * The tags the Answer writes around text a User or a Document supplies (#2473). A Transcript's
+ * lines are speech, not the app's markup: shown as Passages they could close the transcript early
+ * or forge the note that says what the call is. Keep this in step with every tag the Answer adds.
+ */
+export const CALL_TAGS: readonly PromptTag[] = [
+  "live-transcript",
+  "found-in-documents",
+  "call",
+  "help",
+  "mind",
+  "selection",
+  "question",
+  "answer",
+  "selected-text",
+  "selected",
+  "document-text",
+  "document-skims",
+  "passage",
+  "tool-record",
+];
 
 /**
  * Connectors that are on but can't be used until the User signs in to them

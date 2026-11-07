@@ -5,7 +5,7 @@
 It drives the core's public interface in Node, the way the desktop app's UI does:
 
 1. It creates a temporary data folder. It never touches the app's real data folder.
-2. It turns embeddings on with the built-in model, as a User can in Settings (they are off by default, ADR-0009), adds the seven generated sample PDFs in `data/` (made for this repository and licensed under Apache-2.0) and the five real Documents in `data/real/` (each under a licence or statute that allows redistribution; see [`data/README.md`](../data/README.md)) and the five Chinese Wikipedia articles in `retrieval/fixtures/` with `addDocuments`, and waits until each is processed: text extracted, Passages built and embedded with the real built-in model, multilingual-e5-small.
+2. It turns embeddings on with the built-in model, as a User can in Settings (they are off by default, ADR-0009), adds the seven generated sample PDFs in `eval/data/` (made for this repository and licensed under Apache-2.0) and the five real Documents in `eval/data/real/` (each under a licence or statute that allows redistribution; see [`eval/data/README.md`](data/README.md)) and the five Chinese Wikipedia articles in `retrieval/fixtures/` with `addDocuments`, and waits until each is processed: text extracted, Passages built and embedded with the real built-in model, multilingual-e5-small.
 3. It searches for each Question with `searchPassages` in hybrid, keyword and vector mode, and scores the top 5. A cross-lingual Question with a translated query is searched with that too.
 4. It reranks keyword search's top 20 with the built-in reranking model, mmarco-mMiniLMv2-L12-H384, as the search Tool does by default, with embeddings off, and scores the top 5 again ("keyword top 20 + rerank"; see [Keyword + rerank](#keyword--rerank)). Then, with embeddings off as Users have them, it runs the search Tool itself for each Question and scores the Passages it hands the model: this is the gate ("search Tool"). Then it reranks what the search Tool hands a reranker with embeddings on (keyword search's top 10 and vector search's top 10, each Passage once) with the same model ("hybrid + rerank", reported only). Other reranking candidates, when given, are scored both ways too. Then the built-in model reranks the candidates of seven other searches, with embeddings off, reported only (see [Other ways to find the candidates](#other-ways-to-find-the-candidates)).
 5. When a chat model is given, it turns embeddings off again, as Users have them by default (the vectors stay, unused), asks each Question with `askQuestion` and scores the Citations of each Answer. The core reranks those Answers' searches with the real built-in reranking model, as the app does.
@@ -338,10 +338,10 @@ Three quotes a model may well write were on their cited Unit but "not found", fa
 
 ### 2026-10-26: the mixed sample set (#2019)
 
-The gating set's library now holds the seven generated sample PDFs in `data/`, the five Chinese
-Wikipedia articles in `retrieval/fixtures/`, and the five readable real Documents in `data/real/`
+The gating set's library now holds the seven generated sample PDFs in `eval/data/`, the five Chinese
+Wikipedia articles in `retrieval/fixtures/`, and the five readable real Documents in `eval/data/real/`
 (17 Documents, 877 Passages). The real Documents are extra library, not new Questions; their
-sources, licences and SHA-256 are in [`data/README.md`](../data/README.md). Measured with
+sources, licences and SHA-256 are in [`eval/data/README.md`](data/README.md). Measured with
 `npm run eval:dump` and `INCARNAMIND_EVAL_RERANK_CPU=1`, keyword search and the built-in reranker
 as the app runs them with embeddings off; the dump scores the same as the run's own scoring.
 

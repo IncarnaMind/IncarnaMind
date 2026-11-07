@@ -40,14 +40,14 @@ npm run eval:hard
 
 ## The library
 
-`library.json` lists 406 Documents (324 English, 82 Chinese) from 38 sources, each with its source, URL (or archive member, or repository path), SHA-256, size and page count, its domain and language, and, where it has them, its versions (`group`, `edition`) and its translation (`translationOf`). All but the six real Documents in `data/real/` are never committed.
+`library.json` lists 406 Documents (324 English, 82 Chinese) from 38 sources, each with its source, URL (or archive member, or repository path), SHA-256, size and page count, its domain and language, and, where it has them, its versions (`group`, `edition`) and its translation (`translationOf`). All but the six real Documents in `eval/data/real/` are never committed.
 
 | Domain | Where from |
 |---|---|
 | Contracts | 100 commercial contracts from CUAD v1 (one 106 MB archive, from which the run takes them out); Chinese model contracts from the State Administration for Market Regulation's model-contract library |
 | Company reports and filings | FinanceBench's open sample (10-Ks, 10-Qs, 8-Ks and earnings releases), several companies in two or more years; Chinese companies' annual reports from the Shenzhen Stock Exchange; the gating set's Vantrell ESG report |
-| Academic papers | 50 arXiv papers from Qasper's test set; Chinese open-access papers (Hans Publishers, CC BY 4.0); the gating set's papers and Chinese Wikipedia articles; a CC BY 4.0 arXiv paper in `data/real/` |
-| Government and international reports | UN, UN SDG Reports, IPCC, FAO, World Bank, UNDP, in English and Chinese; Federal Reserve, Census, IRS, USDA ERS; HM Treasury and other gov.uk reports; People's Bank of China and SAFE reports; the World Bank, UK, National Bureau of Statistics of China, Federal Reserve and CIA Documents in `data/real/` |
+| Academic papers | 50 arXiv papers from Qasper's test set; Chinese open-access papers (Hans Publishers, CC BY 4.0); the gating set's papers and Chinese Wikipedia articles; a CC BY 4.0 arXiv paper in `eval/data/real/` |
+| Government and international reports | UN, UN SDG Reports, IPCC, FAO, World Bank, UNDP, in English and Chinese; Federal Reserve, Census, IRS, USDA ERS; HM Treasury and other gov.uk reports; People's Bank of China and SAFE reports; the World Bank, UK, National Bureau of Statistics of China, Federal Reserve and CIA Documents in `eval/data/real/` |
 | Technical manuals | NIST, FAA, NASA, OCC, CISA, USGS, ready.gov; WHO's biosafety manual in both languages; Chinese environmental monitoring standards |
 | Medical and regulatory | FDA drug labels and guidance; UKHSA patient group directions and training slides; VA/DoD guidelines; WHO guidelines in both languages; NMPA notices, guidelines and statistics; the gating set's MPMA Code |
 
@@ -60,15 +60,15 @@ npm run eval:hard
 | Technical manuals | 33 | 6 |
 | Medical and regulatory | 39 | 12 |
 
-357 PDFs (16,779 pages), 27 Word, 14 Excel, 6 PowerPoint and 2 CSV files; six of the PDFs are the real Documents in `data/real/`. 42 Documents are linked to their translation in the other language, and 50 groups hold versions of one Document (two years of a report or a company's filings, two quarters, two revisions of a standard or a label, with their translations). `report.md` gives what was added, per domain, language and format.
+357 PDFs (16,779 pages), 27 Word, 14 Excel, 6 PowerPoint and 2 CSV files; six of the PDFs are the real Documents in `eval/data/real/`. 42 Documents are linked to their translation in the other language, and 50 groups hold versions of one Document (two years of a report or a company's filings, two quarters, two revisions of a standard or a label, with their translations). `report.md` gives what was added, per domain, language and format.
 
 **Licences.** Each source records its licence or terms, the page they're on, and their own words permitting the download (`sources` in `library.json`); `tests/eval/hardLibrary.test.ts` checks each against an allowed list:
 
-- CC BY 4.0 (CUAD, Hans Publishers), CC BY 3.0 IGO (World Bank, UNDP), Open Government Licence v3.0 (gov.uk), works of the US federal government (17 U.S.C. 105), and official documents of Chinese state organs (Copyright Law of the PRC, art. 5). The six real Documents in `data/real/` are committed under these licences and the statute; each one's source, licence, the day it was read, the basis and its SHA-256 are in `data/README.md`.
+- CC BY 4.0 (CUAD, Hans Publishers), CC BY 3.0 IGO (World Bank, UNDP), Open Government Licence v3.0 (gov.uk), works of the US federal government (17 U.S.C. 105), and official documents of Chinese state organs (Copyright Law of the PRC, art. 5). The six real Documents in `eval/data/real/` are committed under these licences and the statute; each one's source, licence, the day it was read, the basis and its SHA-256 are in `eval/data/README.md`.
 - arXiv's terms, which allow retrieving e-prints for personal use or research, at one request every 3 seconds.
 - Non-commercial use only: FinanceBench (CC BY-NC 4.0), WHO and FAO (CC BY-NC-SA 3.0 IGO), the World Bank's China Economic Update (CC BY-NC 3.0 IGO), and the terms of the UN, the IPCC and the Shenzhen Stock Exchange (download for personal or non-commercial use). The evaluation of a free, open-source app (ADR-0002) is non-commercial; revisit these if that changes.
 - FDA's drug labels are the makers' labelling, published by FDA, whose website policy says its content isn't copyrighted unless noted; they are filed under US government works with that caveat.
-- All but the six real Documents are downloaded to the User's own cache and read there; the six are redistributed in this repository, with their licences recorded in `data/README.md`.
+- All but the six real Documents are downloaded to the User's own cache and read there; the six are redistributed in this repository, with their licences recorded in `eval/data/README.md`.
 
 **Left out on purpose:**
 
@@ -164,7 +164,7 @@ Keyword + rerank at the top 8 and 10 is 135 and 143 of 180. The search Tool's fi
 
 ### 2026-10-26: the mixed sample set (#2019)
 
-The library then held the first mixed set: the six real Documents in `data/real/` beside the
+The library then held the first mixed set: the six real Documents in `eval/data/real/` beside the
 fetched ones (406 Documents, 48,708 Passages; the one-page scan has no text and is left out as
 unread, as the run allows). After this run the licence check replaced two of the real Documents
 (the full World Development Report 2023 with its 20-page Overview, and the PBoC report with the
