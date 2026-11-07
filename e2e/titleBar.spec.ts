@@ -121,6 +121,10 @@ function frameOf(app: ElectronApplication) {
   });
 }
 
+/** The frame's colour in the theme the system shows (#1262): a Mac in Dark opens dark. */
+const frameColour = (app: ElectronApplication) =>
+  app.evaluate(({ nativeTheme }) => (nativeTheme.shouldUseDarkColors ? "#141518" : "#F4F5F7"));
+
 test("no title row of the system's: the traffic lights sit in the sidebar's header, and the band drags the window while its tabs and buttons still work", async () => {
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
@@ -129,7 +133,7 @@ test("no title row of the system's: the traffic lights sit in the sidebar's head
   const frame = await frameOf(app);
   expect(frame.content).toEqual(frame.bounds);
   expect(frame.title).toBe("IncarnaMind");
-  expect(frame.background.toUpperCase()).toBe("#F4F5F7");
+  expect(frame.background.toUpperCase()).toBe(await frameColour(app));
   await expect(window.locator("html")).toHaveAttribute("data-title-bar", "inset");
 
   // The lights: on the line the headers' contents share (the sidebar's toggle is on it), the
