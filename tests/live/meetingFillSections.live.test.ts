@@ -8,7 +8,8 @@
  * tokens and what they cost. The counts, notes and costs go to INCARNAMIND_LIVE_REPORT when set.
  * Runs only with INCARNAMIND_LIVE_ANTHROPIC_KEY (INCARNAMIND_LIVE_ANTHROPIC_MODEL, Claude Haiku
  * 5.5 by default; INCARNAMIND_LIVE_CALLS picks calls by id, comma-separated), or with
- * INCARNAMIND_LIVE_OLLAMA_MODEL for a Local-mode check with an 8,192-token window.
+ * INCARNAMIND_LIVE_DEEPSEEK_KEY and INCARNAMIND_LIVE_DEEPSEEK_MODEL=deepseek-flash in strict mode,
+ * or INCARNAMIND_LIVE_OLLAMA_MODEL for a Local-mode check with an 8,192-token window.
  */
 import { appendFile, readFile } from "node:fs/promises";
 import { getSchema, type JSONContent } from "@tiptap/core";
@@ -27,6 +28,7 @@ import { createTempDataFolder } from "../helpers/core";
 import { checkStructuredMeetingLoader } from "../helpers/meetingFillLoader";
 import {
   createRequestLedger,
+  meetingFillCloud,
   startObservation,
   structuredControls,
   type V5Check,
@@ -36,9 +38,10 @@ import { heading, note, readMind, writeMind } from "../helpers/minds";
 import { transcribingCore } from "../helpers/transcription";
 
 const LOADER_PREFLIGHT = process.env.INCARNAMIND_STRUCTURED_LOADER_PREFLIGHT === "1";
-const KEY = process.env.INCARNAMIND_LIVE_ANTHROPIC_KEY;
+const CLOUD = meetingFillCloud(process.env);
+const KEY = CLOUD.key;
 const LOCAL_MODEL = process.env.INCARNAMIND_LIVE_OLLAMA_MODEL;
-const MODEL = LOCAL_MODEL ?? process.env.INCARNAMIND_LIVE_ANTHROPIC_MODEL ?? "claude-haiku-5-5";
+const MODEL = LOCAL_MODEL ?? CLOUD.model ?? "claude-haiku-5-5";
 const REPORT = process.env.INCARNAMIND_LIVE_REPORT;
 const PICKED = process.env.INCARNAMIND_LIVE_CALLS?.split(",").map((each) => each.trim());
 if (
@@ -46,6 +49,8 @@ if (
   [
     KEY,
     process.env.INCARNAMIND_LIVE_ANTHROPIC_MODEL,
+    process.env.INCARNAMIND_LIVE_DEEPSEEK_KEY,
+    process.env.INCARNAMIND_LIVE_DEEPSEEK_MODEL,
     LOCAL_MODEL,
     process.env.INCARNAMIND_STRUCTURED_RECEIPT,
   ].some((value) => value !== undefined)
@@ -2803,7 +2808,7 @@ async function run(call: Call, ledger: RequestLedger, observation: Observation |
     if (LOCAL_MODEL) {
       await core.saveChatProvider({ kind: "ollama", modelId: MODEL });
       await core.setLocalOnly(true);
-    } else await core.saveChatProvider({ kind: "anthropic", apiKey: KEY ?? "", modelId: MODEL });
+    } else await core.saveChatProvider({ kind: CLOUD.provider, apiKey: KEY ?? "", modelId: MODEL });
     const meeting = await core.createMeeting();
     const client = await connectToMind(core, meeting.mindId);
     if (call.notes.length > 0) writeMind(client, call.notes);
@@ -2943,7 +2948,7 @@ describe.skipIf(LOADER_PREFLIGHT || (!KEY && !LOCAL_MODEL))(
   },
   () => {
     test.each(chosen)("$id", async (call) => {
-      const price = catalogModel("anthropic", MODEL)?.price;
+      const price = catalogModel(CLOUD.provider, MODEL)?.price;
       if (!price && !LOCAL_MODEL) throw new Error("The selected model has no catalog price.");
       const ledger = createRequestLedger({ model: MODEL, price, strict: STRUCTURED });
       let observation: Observation | null = null;

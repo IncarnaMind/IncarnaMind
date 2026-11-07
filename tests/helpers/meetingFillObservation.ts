@@ -10,36 +10,64 @@ import type {
 } from "@ai-sdk/provider";
 import { APICallError, wrapLanguageModel } from "ai";
 import type { MeetingFill } from "../../src/core/api";
-import { costOf } from "../../src/core/cost/price";
+import { costOf, inCurrency } from "../../src/core/cost/price";
 import type { Cue } from "../../src/core/documents/formats/vtt";
 import { catalogProviderOfKind } from "../../src/core/providers/catalog/providers";
 import type { Price } from "../../src/core/providers/catalog/types";
 import { endpointUrl } from "../../src/core/providers/kinds";
 import type { ChatLanguageModel, ChatModelSpec } from "../../src/core/providers/models";
 import { tokenUsageOf } from "../../src/core/providers/promptCache";
+import structuredGate from "../fixtures/meetings/fill-structured-gate.json";
 
 export interface StructuredControls {
   receipt: string;
   report: string;
   candidate: string;
-  model: "claude-haiku-5-5" | "claude-sonnet-5-5";
+  provider: "anthropic" | "deepseek";
+  model: "claude-haiku-5-5" | "claude-sonnet-5-5" | "deepseek-flash";
   call: string;
   dataDir: string;
   key: string;
   cap: 0.25;
 }
 
+export function meetingFillCloud(environment: Readonly<Record<string, string | undefined>>) {
+  const deepseek =
+    environment.INCARNAMIND_LIVE_DEEPSEEK_KEY !== undefined ||
+    environment.INCARNAMIND_LIVE_DEEPSEEK_MODEL !== undefined;
+  if (deepseek) {
+    if (
+      environment.INCARNAMIND_LIVE_ANTHROPIC_KEY !== undefined ||
+      environment.INCARNAMIND_LIVE_ANTHROPIC_MODEL !== undefined
+    )
+      throw new Error("Choose one Meeting fill provider, not two.");
+    return {
+      provider: "deepseek" as const,
+      model: environment.INCARNAMIND_LIVE_DEEPSEEK_MODEL,
+      key: environment.INCARNAMIND_LIVE_DEEPSEEK_KEY,
+    };
+  }
+  return {
+    provider: "anthropic" as const,
+    model: environment.INCARNAMIND_LIVE_ANTHROPIC_MODEL,
+    key: environment.INCARNAMIND_LIVE_ANTHROPIC_KEY,
+  };
+}
+
 export function structuredControls(
   environment: Readonly<Record<string, string | undefined>>,
 ): StructuredControls | null {
   const receipt = environment.INCARNAMIND_STRUCTURED_RECEIPT;
-  if (receipt === undefined) return null;
+  const { provider, model, key } = meetingFillCloud(environment);
+  if (receipt === undefined) {
+    if (provider === "deepseek")
+      throw new Error("DeepSeek Meeting fill requires strict observation controls.");
+    return null;
+  }
   const report = environment.INCARNAMIND_LIVE_REPORT;
   const candidate = environment.INCARNAMIND_STRUCTURED_CANDIDATE;
-  const model = environment.INCARNAMIND_LIVE_ANTHROPIC_MODEL;
   const call = environment.INCARNAMIND_LIVE_CALLS;
   const dataDir = environment.INCARNAMIND_DATA_DIR;
-  const key = environment.INCARNAMIND_LIVE_ANTHROPIC_KEY;
   if (
     !isAbsolute(receipt) ||
     !report ||
@@ -47,9 +75,14 @@ export function structuredControls(
     report === receipt ||
     !candidate ||
     !/^[0-9a-f]{40}$/.test(candidate) ||
-    (model !== "claude-haiku-5-5" && model !== "claude-sonnet-5-5") ||
+    (model !== "claude-haiku-5-5" && model !== "claude-sonnet-5-5" && model !== "deepseek-flash") ||
+    (provider === "deepseek") !== (model === "deepseek-flash") ||
     !call ||
     !/^reserved-(?:en|zh)-structured-[a-z0-9-]+$/.test(call) ||
+    (provider === "deepseek" &&
+      (structuredGate.provider !== provider ||
+        structuredGate.model !== model ||
+        !structuredGate.callIds.includes(call))) ||
     !dataDir ||
     !isAbsolute(dataDir) ||
     !key?.trim() ||
@@ -58,7 +91,7 @@ export function structuredControls(
     environment.INCARNAMIND_LIVE_OLLAMA_MODEL !== undefined
   )
     throw new Error("Invalid strict structured observation controls.");
-  return { receipt, report, candidate, model, call, dataDir, key, cap: 0.25 };
+  return { receipt, report, candidate, provider, model, call, dataDir, key, cap: 0.25 };
 }
 
 export interface ObservedRequest {
@@ -71,13 +104,16 @@ export interface ObservedRequest {
   cache_write_tokens: number | null;
   output_tokens: number | null;
   cost_usd: number | null;
+  priced_at: string;
+  price_currency: Price["currency"] | null;
+  provider_usage: NonNullable<LanguageModelV4Usage["raw"]> | null;
   text: string;
   raw: string;
   tools: string[];
   reasoning: number;
 }
 
-const count = (value: number | undefined): number | null =>
+const count = (value: unknown): number | null =>
   typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;
 let transportOwner: object | null = null;
 
@@ -88,7 +124,7 @@ export function createRequestLedger(options: {
 }) {
   if (
     options.strict &&
-    (options.price?.currency !== "USD" ||
+    (options.price?.currency !== (options.strict.provider === "deepseek" ? "CNY" : "USD") ||
       [options.price, ...(options.price.tiers ?? [])].some(
         (tier) =>
           ![tier.input, tier.output, tier.cacheRead].every(
@@ -103,9 +139,11 @@ export function createRequestLedger(options: {
   const httpStatuses: (number | null)[] = [];
   const logical = new AsyncLocalStorage<ObservedRequest>();
   const sent = new WeakSet<ObservedRequest>();
-  const endpoint = endpointUrl("anthropic");
-  const endpointId = catalogProviderOfKind("anthropic")?.endpoints[0]?.id;
-  const messagesUrl = endpoint ? new URL(`${endpoint.replace(/\/+$/, "")}/messages`).href : null;
+  const provider = options.strict?.provider ?? "anthropic";
+  const endpoint = endpointUrl(provider);
+  const endpointId = catalogProviderOfKind(provider)?.endpoints[0]?.id;
+  const route = provider === "deepseek" ? "chat/completions" : "messages";
+  const messagesUrl = endpoint ? new URL(`${endpoint.replace(/\/+$/, "")}/${route}`).href : null;
   const abort = new AbortController();
   let transportActive = false;
   let logicalCount = 0;
@@ -163,6 +201,9 @@ export function createRequestLedger(options: {
       cache_write_tokens: null,
       output_tokens: null,
       cost_usd: null,
+      priced_at: new Date().toISOString(),
+      price_currency: options.price?.currency ?? null,
+      provider_usage: null,
       text: "",
       raw: "",
       tools: [],
@@ -177,11 +218,46 @@ export function createRequestLedger(options: {
       fault("usage");
       throw stopped();
     }
-    request.input_tokens = count(usage.inputTokens.total);
-    request.cache_read_tokens = count(usage.inputTokens.cacheRead);
-    request.cache_write_tokens = count(usage.inputTokens.cacheWrite);
-    request.output_tokens = count(usage.outputTokens.total);
     request.reasoning = count(usage.outputTokens.reasoning) ?? 0;
+    if (request.provider === "deepseek") {
+      const raw = usage.raw;
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        fault("usage");
+        return;
+      }
+      const input = count(raw.prompt_tokens);
+      const cached = count(raw.prompt_cache_hit_tokens);
+      const missed = count(raw.prompt_cache_miss_tokens);
+      const output = count(raw.completion_tokens);
+      const all = count(raw.total_tokens);
+      request.provider_usage = structuredClone(raw);
+      request.input_tokens = input;
+      request.cache_read_tokens = cached;
+      request.output_tokens = output;
+      // DeepSeek bills cache misses at the input rate, not as Anthropic cache writes.
+      request.cache_write_tokens = 0;
+      if (
+        input === null ||
+        cached === null ||
+        missed === null ||
+        output === null ||
+        all === null ||
+        cached + missed !== input ||
+        input + output !== all ||
+        usage.inputTokens.total !== input ||
+        usage.inputTokens.cacheRead !== cached ||
+        usage.outputTokens.total !== output ||
+        (usage.inputTokens.cacheWrite !== undefined && usage.inputTokens.cacheWrite !== 0)
+      ) {
+        fault("usage");
+        return;
+      }
+    } else {
+      request.input_tokens = count(usage.inputTokens.total);
+      request.cache_read_tokens = count(usage.inputTokens.cacheRead);
+      request.cache_write_tokens = count(usage.inputTokens.cacheWrite);
+      request.output_tokens = count(usage.outputTokens.total);
+    }
     const {
       input_tokens: input,
       cache_read_tokens: cached,
@@ -196,7 +272,7 @@ export function createRequestLedger(options: {
       cached + written <= input &&
       input + output > 0;
     if (request.usage_complete && options.price) {
-      request.cost_usd = costOf(
+      const cost = costOf(
         tokenUsageOf({
           inputTokens: input ?? undefined,
           outputTokens: output ?? undefined,
@@ -206,9 +282,10 @@ export function createRequestLedger(options: {
           },
         }),
         options.price,
-        new Date(),
-        { cacheWrites: true },
+        new Date(request.priced_at),
+        { cacheWrites: request.provider === "anthropic" },
       );
+      request.cost_usd = inCurrency(cost, options.price.currency, "USD");
     }
     request.usage_complete &&= request.cost_usd !== null;
     request.status = "completed";
@@ -320,8 +397,11 @@ export function createRequestLedger(options: {
         if (
           request.url !== messagesUrl ||
           request.method !== "POST" ||
-          request.headers.get("x-api-key") !== strict.key ||
-          request.headers.has("authorization") ||
+          (strict.provider === "deepseek"
+            ? request.headers.get("authorization") !== `Bearer ${strict.key}` ||
+              request.headers.has("x-api-key")
+            : request.headers.get("x-api-key") !== strict.key ||
+              request.headers.has("authorization")) ||
           typeof body !== "object" ||
           body === null ||
           !("model" in body) ||
@@ -337,6 +417,7 @@ export function createRequestLedger(options: {
           throw stopped();
         }
         sent.add(current);
+        current.priced_at = new Date().toISOString();
         requests.push(current);
         physicalCount++;
         const index = httpStatuses.push(null) - 1;
@@ -399,7 +480,7 @@ export function createRequestLedger(options: {
       if (
         options.strict &&
         (!transportActive ||
-          spec.kind !== "anthropic" ||
+          spec.kind !== options.strict.provider ||
           spec.modelId !== options.model ||
           spec.apiKey !== options.strict.key ||
           (spec.baseUrl !== null &&
@@ -570,7 +651,7 @@ export function observationReceipt(
     schema_version: 1,
     contract: "structured-observation-v1",
     candidate: controls.candidate,
-    provider: "anthropic",
+    provider: controls.provider,
     model: controls.model,
     call: controls.call,
     scoring: "cue-owner-subject-placement-v5",
@@ -613,6 +694,9 @@ export function observationReceipt(
           cache_write_tokens,
           output_tokens,
           cost_usd,
+          priced_at,
+          price_currency,
+          provider_usage,
         }) => ({
           provider,
           model,
@@ -623,6 +707,9 @@ export function observationReceipt(
           cache_write_tokens,
           output_tokens,
           cost_usd,
+          priced_at,
+          price_currency,
+          provider_usage,
         }),
       ),
     },

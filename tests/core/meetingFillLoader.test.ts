@@ -59,6 +59,8 @@ test.each([undefined, "", "b".repeat(63), "B".repeat(64)])(
 test.each([
   "INCARNAMIND_LIVE_ANTHROPIC_KEY",
   "INCARNAMIND_LIVE_ANTHROPIC_MODEL",
+  "INCARNAMIND_LIVE_DEEPSEEK_KEY",
+  "INCARNAMIND_LIVE_DEEPSEEK_MODEL",
   "INCARNAMIND_LIVE_OLLAMA_MODEL",
   "INCARNAMIND_STRUCTURED_RECEIPT",
 ])("the keyless preflight rejects %s before reading its input", async (name) => {

@@ -15,6 +15,7 @@ import {
   structuredControls,
   V5_CHECKS,
 } from "../helpers/meetingFillObservation";
+import { drain } from "../helpers/streams";
 
 const controls = {
   INCARNAMIND_STRUCTURED_RECEIPT: "/isolated/observation.json",
@@ -79,11 +80,6 @@ function stream(parts: readonly LanguageModelV4StreamPart[]) {
       controller.close();
     },
   });
-}
-
-async function drain(stream: ReadableStream<LanguageModelV4StreamPart>) {
-  const reader = stream.getReader();
-  while (!(await reader.read()).done) {}
 }
 
 test("stream and Generate requests retain actual tool inputs and settle each cache tier separately", async () => {
@@ -224,6 +220,7 @@ test.each([
 
 test("absent strict mode keeps legacy selection and environment behavior", () => {
   expect(structuredControls({ INCARNAMIND_LIVE_CALLS: "historical-call" })).toBeNull();
+  expect(structuredControls({ ...controls, INCARNAMIND_STRUCTURED_RECEIPT: undefined })).toBeNull();
   expect(structuredControls(controls)).toMatchObject({ model: "claude-haiku-5-5", cap: 0.25 });
 });
 
