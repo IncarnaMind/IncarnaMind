@@ -39,6 +39,7 @@ import {
   documentReadText,
   documentsReadText,
   foldedWords,
+  mindCallText,
   mindLabel,
   mindStepText,
 } from "../../answerStepWords";
@@ -74,7 +75,6 @@ import {
 import { LineAction, ProblemLine } from "../ProblemLine";
 import { askCallText } from "./AskCall";
 import { CheckTheRest } from "./CheckTheRest";
-import { mindCallText } from "./MindCall";
 
 /** Sources shown under a search before "+N more". */
 const SHOWN_SOURCES = 3;

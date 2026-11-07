@@ -313,6 +313,41 @@ describe("The plan's requests and places", () => {
       expect(result.places.get(`doc${at}`)).toEqual({ kind: "new", key: delta?.key });
   });
 
+  test("a plan already at 7 Folders with an area of 30 left out still gets a Folder for them", async () => {
+    const { model, asked } = letterModel({ missesAtFirst: "Theta" });
+    const next = seeded(17);
+    const random = () => unit(Array.from({ length: 24 }, () => next() * 2 - 1));
+    const alpha = random();
+    // Beta lies close to Alpha: the pair the plan merges to make room.
+    const beta = unit([...alpha].map((value) => value + (next() * 2 - 1) * 0.3));
+    const middles = [alpha, beta, random(), random(), random(), random(), random(), random()];
+    const counts = [10, 10, 10, 10, 10, 10, 10, 30];
+    const letters = ["A", "B", "G", "D", "E", "Z", "I", "T"];
+    const named = middles.flatMap((middle, group) =>
+      Array.from({ length: counts[group] ?? 0 }, (_, at) => ({
+        name: `${letters[group]}${at}`,
+        vector: unit([...middle].map((value) => value + (next() * 2 - 1) * 0.08)),
+      })),
+    );
+    const result = await plan(named, model);
+    expect(asked.sorted).toHaveLength(2);
+    const top = result.folders.filter((folder) => folder.parentKey === null);
+    expect(top).toHaveLength(7);
+    const theta = top.find((folder) => folder.name === "Theta");
+    const inTheta = [...result.places.values()].filter(
+      (place) => place.kind === "new" && place.key === theta?.key,
+    );
+    expect(inTheta).toHaveLength(30);
+    expect(top.filter((folder) => folder.name === "Alpha" || folder.name === "Beta")).toHaveLength(
+      1,
+    );
+    const alphaOrBeta = top.find((folder) => folder.name === "Alpha" || folder.name === "Beta");
+    const merged = [...result.places.values()].filter(
+      (place) => place.kind === "new" && place.key === alphaOrBeta?.key,
+    );
+    expect(merged).toHaveLength(20);
+  });
+
   test("a placement request that can't reach the service leaves its Documents out, or ends the plan", async () => {
     const { vectors, middles } = groups(3, 30);
     const [alpha, beta] = middles as [Float32Array, Float32Array];

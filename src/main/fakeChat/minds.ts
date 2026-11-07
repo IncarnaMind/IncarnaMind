@@ -42,6 +42,8 @@
  * report longer" (把潮汐报告写长一点) gives edit_mind its whole new text, four paragraphs changed and
  * one added, as a model does (#1488). "Write the packing list" makes a bulleted list, and "Update
  * the packing list" gives its new text, one item changed, one left out and one added.
+ * "Add a revenue table for checking" (添加核对用的收入表格) cites, then adds the table; "…, citing
+ * after" (…，写完再引用) adds it first and cites in the next step, as a model sometimes does (#1635).
  * "Summarise my leases without citing" (不加引用地总结我的租约) searches, then writes a summary
  * with no Citation into a new Mind, and again as it was once told it has none (#1415).
  */
@@ -125,6 +127,7 @@ const QUARTER_LEVERAGE = /Net debt to EBITDA in (Q\d) was ([\d.]+ times)/g;
 const RENT_CHART = /\bchart of rent by lease\b/i;
 /** A table whose every cell is a claim, for the one check count (#1909). */
 const CHECK_TABLE = /\brevenue table for checking\b|核对用的收入表格/iu;
+const CITES_AFTER = /\bciting after\b|写完再引用/iu;
 const UNIT_RENT = /The monthly rent for (unit \d+) is (€[\d,]+)/g;
 const LEASES_SUMMARY = /\bwrite a summary of my leases\b|根据我的租约写一份总结/i;
 const BRIEF_SUMMARY = /\bbrief summary\b|简要总结/i;
@@ -435,8 +438,10 @@ const RENT: ChartedFigures = {
 
 /** A table of the Document's revenue lines, each cell a claim that cites the line (#1909). */
 function checkTable(prompt: Prompt, question: string): Reply {
+  const after = CITES_AFTER.test(question);
+  const cited = toolResults(prompt, "cite").length > 0;
   const added = lastResult(prompt, "add_to_mind");
-  if (added !== undefined) return { text: firstSentence(added) };
+  if (added !== undefined && (cited || !after)) return { text: firstSentence(added) };
   const [searched] = toolResults(prompt, "search_documents");
   if (searched === undefined) {
     return { tool: "search_documents", input: { query: "revenue by quarter" } };
@@ -451,7 +456,7 @@ function checkTable(prompt: Prompt, question: string): Reply {
       })),
     )
     .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
-  if (toolResults(prompt, "cite").length === 0) {
+  if (!cited && (added !== undefined || !after)) {
     return {
       tool: "cite",
       input: {

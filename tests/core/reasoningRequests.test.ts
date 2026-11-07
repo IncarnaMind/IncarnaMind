@@ -8,9 +8,10 @@ import { type ChatModelSpec, createAiSdkChatModel } from "../../src/core/provide
  * What an Answer's request asks of a model that thinks (#391): its provider's
  * summary of the reasoning (Anthropic's summarized thinking, the Responses
  * API's reasoning summary), never thinking turned on for a model that doesn't
- * think by default, and nothing for a provider whose reasoning is raw. The
- * providers are the real AI SDK ones, against a stand-in for `fetch` that
- * records each request and replies as the provider's API does.
+ * think by default, and on a provider whose reasoning is raw, only the effort
+ * its catalog entry names for the model (#1631). The providers are the real AI
+ * SDK ones, against a stand-in for `fetch` that records each request and
+ * replies as the provider's API does.
  */
 
 type Json = Record<string, unknown>;
@@ -287,27 +288,135 @@ describe("An Answer's request to a model that thinks", () => {
     expect(deepseek[0]?.reasoning_effort).toBeUndefined();
   });
 
-  // protects=DeepSeek Flash, which thinks by default, keeps DeepSeek's default for every kind of call: low was measured and failed the gate (#1631); fails_when=any kind sends thinking, reasoning or reasoning_effort; no_claim=the fake API doesn't check what DeepSeek accepts.
+  // protects=DeepSeek Flash, which thinks by default, keeps DeepSeek's default for every kind of call: low was measured and failed the gate twice (#1631); fails_when=any kind sends thinking, reasoning or reasoning_effort; no_claim=the fake API doesn't check what DeepSeek accepts.
   test.each(["answer", "careful", "task", "summary"] as const)(
     "DeepSeek Flash, %s: none of thinking, reasoning or reasoning_effort",
     async (thinking) => {
-      const bodies = fakeApi(() =>
-        Response.json({
-          id: "c1",
-          object: "chat.completion",
-          created: 1_790_000_000,
-          model: "deepseek-flash",
-          choices: [
-            { index: 0, message: { role: "assistant", content: "OK" }, finish_reason: "stop" },
-          ],
-          usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
-        }),
-      );
+      const bodies = fakeApi(completion);
       await generateText({ model: modelOf("deepseek", "deepseek-flash", thinking), prompt: "OK?" });
       expect(bodies).toHaveLength(1);
       expect(bodies[0]?.thinking).toBeUndefined();
       expect(bodies[0]?.reasoning).toBeUndefined();
       expect(bodies[0]?.reasoning_effort).toBeUndefined();
+    },
+  );
+});
+
+/** A chat completion as OpenAI-compatible APIs (Qwen, GLM, OpenRouter) give it, not streamed. */
+const completion = () =>
+  Response.json({
+    id: "c1",
+    object: "chat.completion",
+    created: 1_790_000_000,
+    model: "m",
+    choices: [{ index: 0, message: { role: "assistant", content: "OK" }, finish_reason: "stop" }],
+    usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+  });
+
+/** Gemini's reply to `generateContent`, not streamed. */
+const geminiReply = () =>
+  Response.json({
+    candidates: [{ content: { role: "model", parts: [{ text: "OK" }] }, finishReason: "STOP" }],
+    usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1, totalTokenCount: 2 },
+  });
+
+/** The body of one small request on this model, at this kind of call. */
+async function sent(
+  kind: ChatProviderKind,
+  modelId: string,
+  thinking: ChatModelSpec["thinking"],
+  reply: () => Response,
+): Promise<Json> {
+  const bodies = fakeApi(reply);
+  await generateText({ model: modelOf(kind, modelId, thinking), prompt: "OK?" });
+  expect(bodies).toHaveLength(1);
+  return bodies[0] ?? {};
+}
+
+describe("Each provider's own effort control (#1631)", () => {
+  // protects=GPT-6 Luna, measured at low and failing the gate (#1631), and GPT-6.1 Sol think at OpenAI's default for every kind of call, with the summary; fails_when=any kind carries an effort or loses the summary; no_claim=the fake API doesn't check what OpenAI accepts.
+  test.each([
+    ["gpt-6-luna", "answer"],
+    ["gpt-6-luna", "task"],
+    ["gpt-6-luna", "careful"],
+    ["gpt-6.1-sol", "answer"],
+  ] as const)("OpenAI's %s, %s: the summary, no effort", async (modelId, thinking) => {
+    expect((await answer("openai", modelId, openaiReply, thinking)).body.reasoning).toEqual({
+      summary: "auto",
+    });
+  });
+
+  // protects=on a provider whose reasoning isn't summarized, each kind the catalog names for a model gets that provider's own control (Qwen3.7-Plus's Tasks), and every other kind and model, those measured and kept at the default included, gets none; fails_when=a named kind lacks its control, or another kind or model carries one; no_claim=the fake APIs don't check what each provider accepts.
+  test.each([
+    ["openrouter", "openai/gpt-6-luna", "answer", (b: Json) => b.reasoning, undefined],
+    ["openrouter", "google/gemini-3.8-flash", "answer", (b: Json) => b.reasoning, undefined],
+    ["openrouter", "google/gemini-3.8-flash", "task", (b: Json) => b.reasoning, undefined],
+    ["openrouter", "z-ai/glm-5.3-flash", "answer", (b: Json) => b.reasoning, undefined],
+    ["openrouter", "qwen/qwen3.7-plus", "task", (b: Json) => b.reasoning, { max_tokens: 512 }],
+    ["openrouter", "qwen/qwen3.7-plus", "answer", (b: Json) => b.reasoning, undefined],
+    ["openrouter", "qwen/qwen3.7-plus", "careful", (b: Json) => b.reasoning, undefined],
+    ["openrouter", "qwen/qwen3.7-plus", "summary", (b: Json) => b.reasoning, undefined],
+    ["openrouter", "anthropic/claude-sonnet-5.5", "answer", (b: Json) => b.reasoning, undefined],
+    ["qwen", "qwen3.7-plus", "task", (b: Json) => b.thinking_budget, 512],
+    ["qwen", "qwen3.7-plus", "answer", (b: Json) => b.thinking_budget, undefined],
+    ["qwen", "qwen3.7-plus", "careful", (b: Json) => b.thinking_budget, undefined],
+    ["qwen", "qwen3.8-max", "task", (b: Json) => b.thinking_budget, undefined],
+    ["glm", "glm-5.3-flash", "answer", (b: Json) => b.reasoning_effort, undefined],
+    ["glm", "glm-5.3-flash", "task", (b: Json) => b.reasoning_effort, undefined],
+  ] as const)("%s's %s, %s", async (kind, modelId, thinking, read, expected) => {
+    expect(read(await sent(kind, modelId, thinking, completion))).toEqual(expected);
+  });
+
+  // protects=Gemini 3.8 Flash, measured at low and failing the gate (#1631), and other Gemini models think at Google's default for every kind of call; fails_when=any kind carries a thinking config; no_claim=the fake API doesn't check what Google accepts.
+  test.each([
+    ["gemini-3.8-flash", "answer"],
+    ["gemini-3.8-flash", "task"],
+    ["gemini-3.1-pro-preview", "answer"],
+  ] as const)("Google's %s, %s: no thinking config", async (modelId, thinking) => {
+    const body = await sent("google", modelId, thinking, geminiReply);
+    expect((body.generationConfig as Json | undefined)?.thinkingConfig).toBeUndefined();
+  });
+});
+
+describe("A model that refuses its provider's own effort control", () => {
+  /** Stands in for the API: refuses with `refusal` while a request carries `carries`, else replies. */
+  function refusing(carries: (body: Json) => boolean, refusal: Json, reply: () => Response) {
+    const bodies: Json[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body ?? "{}")) as Json;
+        bodies.push(body);
+        return carries(body) ? Response.json(refusal, { status: 400 }) : reply();
+      }),
+    );
+    return bodies;
+  }
+
+  // protects=a Qwen model that refuses its thinking budget still answers, asked again once without it, and its later calls leave it out from the start; fails_when=the call fails with the refusal, is asked twice with the control, or a later call sends it again; no_claim=the refusals are the APIs' documented shapes, not live ones; each model is a dated id of its own, so the form it is made to remember reaches no other test.
+  test.each([
+    {
+      kind: "qwen",
+      modelId: "qwen3.7-plus-2026-10-31",
+      thinking: "task",
+      read: (body: Json) => body.thinking_budget,
+      refusal: {
+        error: {
+          code: "InvalidParameter",
+          message: "<400> InternalError.Algo.InvalidParameter: thinking_budget is not supported",
+        },
+      },
+      reply: completion,
+      sentFirst: 512,
+    },
+  ] as const)(
+    "$kind, $modelId: asked again without it, then without it from the start",
+    async (each) => {
+      const bodies = refusing((body) => each.read(body) !== undefined, each.refusal, each.reply);
+      const model = modelOf(each.kind, each.modelId, each.thinking);
+      await generateText({ model, prompt: "OK?" });
+      await generateText({ model, prompt: "OK again?" });
+      expect(bodies.map(each.read)).toEqual([each.sentFirst, undefined, undefined]);
     },
   );
 });
