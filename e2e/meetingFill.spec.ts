@@ -223,7 +223,11 @@ async function chooseMeetingView(
   await expect(view === "notes" ? transcript : notes).toHaveAttribute("aria-checked", "true");
   await window.keyboard.press("Home");
   await expect(notes).toBeFocused();
-  if (view === "transcript") await window.keyboard.press("ArrowDown");
+  // My notes sits between them.
+  if (view === "transcript") {
+    await window.keyboard.press("ArrowDown");
+    await window.keyboard.press("ArrowDown");
+  }
   const choice = view === "notes" ? notes : transcript;
   await expect(choice).toBeFocused();
   await choice.press("Enter");
