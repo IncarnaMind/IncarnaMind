@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import type { LibraryGroup } from "../../src/core/api";
+import type {
+  Document,
+  DocumentGroupAssignment,
+  LibraryGroup,
+  LibrarySnapshot,
+  ProviderErrorKind,
+} from "../../src/core/api";
 
 /*
  * The Folders Organize made for a run (#2308): Undo, or a run that never started, takes away
@@ -43,6 +49,7 @@ vi.mock("../../src/renderer/src/core", () => ({
 const { removeEmpty } = await import("../../src/renderer/src/organizeRun");
 const { organizeDocuments } = await import("../../src/renderer/src/organizeDocuments");
 const { useAppStore } = await import("../../src/renderer/src/store");
+const { documentsOfCause } = await import("../../src/renderer/src/organizeFix");
 
 const folder = (id: string, name: string): LibraryGroup => ({
   id,
@@ -85,5 +92,58 @@ describe("the Folders Organize made", () => {
       expect.objectContaining({ message: "The Folder couldn't be deleted." }),
     );
     logged.mockRestore();
+  });
+});
+
+describe("the Documents a cause covers", () => {
+  test("the credit list spans To review's blocks, and leaves another cause and a manual place out (#2535)", () => {
+    const doc = (id: string): Document =>
+      ({ id, name: id, tagging: "tagged", linkedFolderId: null }) as Document;
+    const held = (
+      documentId: string,
+      kind: ProviderErrorKind,
+      over: Partial<DocumentGroupAssignment> = {},
+    ): DocumentGroupAssignment =>
+      ({
+        documentId,
+        groupId: null,
+        source: "automatic",
+        suggested: false,
+        status: "failed",
+        error: { kind, message: "" },
+        model: null,
+        ...over,
+      }) as DocumentGroupAssignment;
+    useAppStore.setState({
+      documents: [
+        doc("unsorted-1"),
+        doc("unsorted-2"),
+        doc("suggested"),
+        doc("refused"),
+        doc("manual"),
+      ],
+      examples: null,
+      otherExamples: [],
+      library: {
+        groups: [],
+        deletedGroups: [],
+        assignments: [
+          held("unsorted-1", "out-of-credit"),
+          held("unsorted-2", "out-of-credit"),
+          held("suggested", "out-of-credit", { groupId: "f-invoice", suggested: true }),
+          held("refused", "auth"),
+          held("manual", "out-of-credit", { groupId: "f-invoice", source: "user" }),
+        ],
+        settings: {
+          classifier: { kind: "automatic" },
+          organizeWith: null,
+          automatic: false,
+          taggingStopped: [],
+        },
+        automaticDefault: false,
+      } as LibrarySnapshot,
+    });
+    expect(documentsOfCause("credit")).toEqual(["unsorted-1", "unsorted-2", "suggested"]);
+    expect(documentsOfCause("keyRefused")).toEqual(["refused"]);
   });
 });

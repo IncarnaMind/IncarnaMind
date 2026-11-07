@@ -273,6 +273,7 @@
   "reportKeepsCitations.spec.ts": 8,
   "research.spec.ts": 69,
   "restoreInline.spec.ts": 76,
+  "reviewAttention.spec.ts": 60,
   "reviewCard.spec.ts": 19,
   "reviewDuringCheck.spec.ts": 79,
   "reviewPane.spec.ts": 68,

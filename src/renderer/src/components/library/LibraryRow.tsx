@@ -8,9 +8,11 @@ import { useDraggedRef, useDragSource } from "../../dragDrop";
 import { useLanguage, useT } from "../../i18n";
 import { FORMAT_LABELS } from "../../libraryFilters";
 import { addedLabel, foundLine, type SearchMatch } from "../../libraryPage";
+import { organizeDocuments } from "../../organizeDocuments";
 import { atPassage, passagePlace } from "../../palette";
 import { usePeekKey } from "../../peek";
 import { missingList } from "../../referenceEditing";
+import { folderProblemWords, type ReviewReason, ROW_PROBLEM_WORDS } from "../../reviewProblems";
 import { useSelectable } from "../../selection";
 import { rowDrag } from "../../sidebarMoves";
 import { useAppStore } from "../../store";
@@ -131,6 +133,28 @@ const OWN_CLICKS = "button:not([data-row-main]), input, a, [role=menu], [role=di
 const KEEPS_MODIFIER_CLICKS =
   "input, textarea, select, a, [role=menu], [role=dialog], [data-cite-panel]";
 
+/** Try again on one Document Organize couldn't place, where it can't name the cause (#2535). */
+function RetryOrganize({
+  doc,
+  testId = "library-not-organized-retry",
+}: {
+  doc: Document;
+  testId?: string;
+}) {
+  const t = useT();
+  return (
+    <button
+      type="button"
+      data-testid={testId}
+      aria-label={t("library.retryOrganize.label", { name: displayName(doc) })}
+      onClick={() => void organizeDocuments([doc.id]).catch(useAppStore.getState().reportError)}
+      className="shrink-0 font-semibold text-accent underline-offset-2 hover:underline"
+    >
+      {t("answer.error.retry")}
+    </button>
+  );
+}
+
 /**
  * A Document's row on the Library page: its name (with the kind's icon, a
  * problem's word, and "Suggested" while Organize's Folder waits), its Tags, its
@@ -156,10 +180,10 @@ export const LibraryRow = memo(function LibraryRow({
   /** The Suggested Folder it waits in, if Organize suggested one. */
   suggestedIn: string | null;
   review?: boolean;
-  /** Why Organize couldn't sort it, if it couldn't. */
-  notSorted: string | null;
+  /** Why Organize couldn't place it, if it couldn't. */
+  notSorted: ReviewReason | null;
   /** Why a Suggested Folder's latest run failed, if it did. */
-  sortFailed: string | null;
+  sortFailed: ReviewReason | null;
   /** How it matches the search, while there is one. */
   match: SearchMatch | null;
   /** Its Folder, shown under it while searching. */
@@ -338,10 +362,19 @@ export const LibraryRow = memo(function LibraryRow({
                 {notSorted !== null && (
                   <span
                     data-testid="library-not-sorted"
-                    title={t("library.notSorted.title", { reason: notSorted })}
-                    className="min-w-0 max-w-60 shrink truncate text-label font-semibold text-ink-meta"
+                    title={notSorted.title}
+                    className="inline-flex max-w-60 shrink-0 items-center text-label font-semibold text-ink-meta"
                   >
-                    {t("library.notSorted.reason", { reason: notSorted })}
+                    <span aria-hidden="true" className="truncate">
+                      {t(ROW_PROBLEM_WORDS[notSorted.kind])}
+                    </span>
+                    <span className="sr-only">{notSorted.title}</span>
+                    {notSorted.kind === "other" && (
+                      <>
+                        <span aria-hidden="true">{" · "}</span>
+                        <RetryOrganize doc={doc} />
+                      </>
+                    )}
                   </span>
                 )}
                 {suggestedIn !== null && !review && (
@@ -445,10 +478,17 @@ export const LibraryRow = memo(function LibraryRow({
       {sortFailed !== null && (
         <p
           data-testid="library-sort-failed"
-          title={t("library.sortAgain.reason", { reason: sortFailed })}
+          title={sortFailed.title}
           className="truncate pr-1.5 pb-1.5 pl-14 text-label font-semibold leading-5 text-ink-meta"
         >
-          {t("library.sortAgain.reason", { reason: sortFailed })}
+          <span aria-hidden="true">{folderProblemWords(sortFailed.kind, t)}</span>
+          <span className="sr-only">{sortFailed.title}</span>
+          {sortFailed.kind === "other" && (
+            <>
+              {" · "}
+              <RetryOrganize doc={doc} testId="library-organize-failed-retry" />
+            </>
+          )}
         </p>
       )}
       {citing && doc.reference && (
