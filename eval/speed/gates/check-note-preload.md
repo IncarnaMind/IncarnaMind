@@ -97,6 +97,8 @@ The runs were made at 2afea5b0f (`main`), 06e949710 (`preload`) and b0ba53c17 (`
 
 ### Each run
 
+The spreads in the tables above are worked from unrounded times, so three of them differ by 0.1 s from the rounded first verdicts below; no bar changes either way.
+
 The text above, written before the runs, stands as written, with three corrections that change no bar:
 - **The traced runs:** twelve's were `main` with twelve at once on top, not `main` itself.
 - **Processes:** each arm and run took two processes, one per Library, since the mixed Library is set for a whole process.

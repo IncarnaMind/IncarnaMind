@@ -323,9 +323,9 @@ test.each([
   expect(most).toBe(atOnce);
 });
 
-// protects=Check this Note loads the built-in reranker before it asks for the claims, so the first sentence's search finds the load under way or done instead of starting it (#2532), and loads nothing with reranking off; fails_when=the reranker loads only when a check's first search asks it to rerank, loads twice, or loads with reranking off; no_claim=how long a real model takes to load.
+// protects=Check this Note loads the built-in reranker before it asks for the claims, so the first sentence's search finds the load under way or done instead of starting it (#2532), and loads nothing with reranking off; fails_when=the reranker loads only when a check's first search asks it to rerank, or loads with reranking off; no_claim=that a search during the load shares it, which tests/core/reranking.test.ts covers.
 test.each([
-  ["loads the reranker once, before it asks for the claims", true],
+  ["loads the reranker before it asks for the claims", true],
   ["loads no reranker with reranking off", false],
 ] as const)("Check this note %s", async (_, reranking) => {
   const sentence = "Spring tides come at new moon.";
@@ -384,7 +384,41 @@ test.each([
     return;
   }
   expect(events.slice(0, 2)).toEqual(["reranker loads", "claims asked"]);
-  expect(events.filter((event) => event === "reranker loads")).toHaveLength(1);
+});
+
+// protects=the Note's claims step on its own (the estimate before a run) loads the reranker before it asks for the claims too (#2532); fails_when=only the run loads it; no_claim=how long a real model takes to load.
+test("Check this note's claims step loads the reranker before it asks for the claims", async () => {
+  const sentence = "Spring tides come at new moon.";
+  const plans: Record<string, Plan> = { [sentence]: { verdict: "supported", quote: MOON } };
+  const events: string[] = [];
+  const fake = createFakeCrossEncoder();
+  const model = scriptedModel((call) => checkReply(call, plans), {
+    generate: (call) => {
+      if (call.system.startsWith("You sort the sentences")) events.push("claims asked");
+      return checkGenerate(plans)(call);
+    },
+  });
+  const core = startCore(await createTempDataFolder(), {
+    createChatModel: scriptedModels(model).createChatModel,
+    crossEncoder: {
+      ...fake,
+      load: async (files) => {
+        events.push("reranker loads");
+        return fake.load(files);
+      },
+    },
+  });
+  await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+  const sources = await createTempDataFolder();
+  await addAndProcess(core, [await writeSourceFile(sources, TIDES.name, TIDES.contents)]);
+  const mind = await core.createMind({ title: "Tide notes" });
+  const client = await connectToMind(core, mind.id);
+  writeMind(client, [{ type: "paragraph", attrs: { id: "tide" }, content: [text(sentence)] }]);
+  await client.settled();
+  events.length = 0;
+
+  expect(await core.findMindClaims(request(mind.id, "all"))).toMatchObject({ kind: "found" });
+  expect(events.slice(0, 2)).toEqual(["reranker loads", "claims asked"]);
 });
 
 describe("Check this note", () => {
