@@ -11,7 +11,6 @@ import type {
   CitationCheck,
   CitationCheckReason,
   CitationLocation,
-  CitationParagraph,
   CitationRecheck,
   CitationToRecheck,
   Document,
@@ -456,8 +455,8 @@ export function needsRecheck(
 /**
  * What Update the sentence… makes a Citation (#99): the words now at its place in its Document's
  * current version when they changed, or its quote where it is now when it moved, checked there.
- * Null when the current version holds nothing to cite in its place. `verdict`: the core's on the
- * words the sentence quoted at that place, and the paragraph it is in (`quotedWordsAt`).
+ * Null when the current version holds nothing to cite in its place. `onPage`: the core's verdict
+ * on the words the sentence quoted at that place (`quotedWordsOnPage`).
  */
 export function newVersionCitation(
   attributes: Partial<
@@ -467,7 +466,7 @@ export function newVersionCitation(
     >
   >,
   recheck: RecheckResult | "failed" | null,
-  verdict?: QuotedWordsVerdict,
+  onPage?: QuotedWordsOnPage,
 ): Partial<CitationAttributes> | null {
   if (recheck === null || recheck === "failed" || "keptInside" in recheck) return null;
   if (recheck.contentHash === null) return null;
@@ -484,7 +483,7 @@ export function newVersionCitation(
   const notFound =
     asked &&
     now.check === "found" &&
-    !quotedWordsAt(asked, { ...now, documentId: attributes.documentId ?? null }, verdict)
+    !quotedWordsAt(asked, { ...now, documentId: attributes.documentId ?? null }, onPage)
       ? { answer: asked.answer, closest: null }
       : null;
   return {
@@ -770,21 +769,13 @@ export type PlaceToCite = Partial<
 >;
 
 /**
- * The core's verdict on a Citation's quoted words at a place, in its paragraph
- * (`quotedWordsOnPage`): true or false once it has one, null when it couldn't read the place,
- * undefined until it has answered.
+ * The core's verdict on a Citation's quoted words at a place (`quotedWordsOnPage`): true or false
+ * once it has one, null when it couldn't read the place, undefined until it has answered.
  */
 export type QuotedWordsOnPage = (
   words: QuotedWords,
   cited: PlaceToCite,
-  paragraph: CitationParagraph | null,
 ) => boolean | null | undefined;
-
-/** The core's verdicts, and the paragraph the Citation is in, which they are asked with. */
-export interface QuotedWordsVerdict {
-  onPage: QuotedWordsOnPage;
-  paragraph: CitationParagraph | null;
-}
 
 /**
  * Whether the words a Citation's sentence quoted that its check didn't find (#483) are at
@@ -795,26 +786,23 @@ export interface QuotedWordsVerdict {
 export function quotedWordsAt(
   value: unknown,
   cited: PlaceToCite,
-  verdict?: QuotedWordsVerdict,
+  onPage?: QuotedWordsOnPage,
 ): boolean {
   const words = parseQuotedWords(value);
   if (words === null) return true;
-  return (
-    verdict?.onPage(words, cited, verdict.paragraph) ?? quotedWordsFoundIn(cited.quote ?? "", words)
-  );
+  return onPage?.(words, cited) ?? quotedWordsFoundIn(cited.quote ?? "", words);
 }
 
 /**
  * The core's verdict on a Citation's quoted words at a place it would cite (#2712): the
- * Citation it would become, checked again with them and the paragraph it is in, so it reads
- * found only where a re-check would find it too. Null when the core couldn't read that place:
- * kept inside a wall, its version's text gone, or a page it can't check.
+ * Citation it would become, checked again with them, so it reads found only where a re-check
+ * would find it too. Null when the core couldn't read that place: kept inside a wall, its
+ * version's text gone, or a page it can't check.
  */
 export async function quotedWordsOnPage(
   recheck: (input: CitationToRecheck) => RecheckResult | Promise<RecheckResult>,
   cited: PlaceToCite,
   words: QuotedWords,
-  paragraph: CitationParagraph | null,
 ): Promise<boolean | null> {
   const { documentId, quote } = cited;
   if (!documentId || !quote) return null;
@@ -826,7 +814,6 @@ export async function quotedWordsOnPage(
     contentHash: cited.contentHash ?? null,
     location: cited.location ?? null,
     quotedWords: words,
-    paragraph,
   });
   if ("keptInside" in result || result.contentHash === null) return null;
   const checked =

@@ -45,7 +45,6 @@ import {
   writeMindStyle,
 } from "../shared/mindStyle";
 import { mindName } from "../shared/naming";
-import { parseCitationParagraph } from "../shared/noteBlocks";
 import { paperFor } from "../shared/printDocument";
 import { resolveProposals, restoreRevised } from "../shared/proposals";
 import { readableQuoteText } from "../shared/readableQuote";
@@ -2804,7 +2803,7 @@ export function createCore(adapters: CoreAdapters): Core {
     chat,
     consent,
     localOnly: () => embedding.localOnly(),
-    recheck: (attributes, paragraph) => recheckKept(documents, attributes, paragraph),
+    recheck: (attributes) => recheckKept(documents, attributes),
     writing: (mindId, place, part) =>
       events.emit("mind.writing", { mindId, place, ...(part && { part }) }),
     estimate: (choice, parts) => {
@@ -5698,7 +5697,6 @@ export function createCore(adapters: CoreAdapters): Core {
         pageTo: page(input.pageTo) ?? page(input.pageFrom),
         contentHash: typeof input.contentHash === "string" ? input.contentHash : null,
         quotedWords: parseQuotedWords(input.quotedWords),
-        paragraph: parseCitationParagraph(input.paragraph),
         ...(input.location !== undefined && { location: parseLocation(input.location) }),
         mindId: input.mindId,
       });

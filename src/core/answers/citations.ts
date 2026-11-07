@@ -60,7 +60,6 @@ import {
   type CitationCheck,
   type CitationCheckReason,
   type CitationLocation,
-  type CitationParagraph,
   type CitationRecheck,
   type CitationToRecheck,
   type CitedArea,
@@ -103,7 +102,6 @@ import {
   type QuotedSentence,
   type QuotedWordsPlace,
   quotedWordsVerdict,
-  sentenceCitations,
   titleRowsOf,
 } from "./quotedWords";
 import { readDocumentPages } from "./readDocumentPages";
@@ -692,9 +690,9 @@ function quotedWordsPlaceIn(
 /**
  * A found check made not found again when the words the Answer quoted (#483), which the
  * Citation's check didn't find before, still aren't at its cited place of that version by the
- * one rule an Answer's are checked by (#2612, #2712), with the other Citations of its sentence
- * where its paragraph is given. A translation needs every page of the sentence in another
- * language, so without the paragraph, or with one of them unread, it stays not found.
+ * one rule an Answer's are checked by (#2612, #2712). A recheck sees one Citation of the
+ * sentence, so it never takes the words for a translation: only the Answer, which sees them all,
+ * can, and then it stores none.
  */
 function withQuotedWords(
   documents: RecheckDocuments,
@@ -703,23 +701,13 @@ function withQuotedWords(
   range: PageRange,
   location: CitationLocation | null | undefined,
   asked: QuotedWordsCheck | null | undefined,
-  paragraph: CitationParagraph | null | undefined,
   check: CheckResult,
 ): CheckResult {
   if (check.check !== "found" || !asked || !("answer" in asked)) return check;
   const words = asked.answer.map((piece) => piece.text).join("");
-  const places = [quotedWordsPlaceIn(documents, documentId, contentHash, range, location)];
-  let whole = paragraph !== null && paragraph !== undefined;
-  for (const other of paragraph ? sentenceCitations(paragraph).slice(1) : []) {
-    const version = other.contentHash ?? documents.currentVersion(other.documentId);
-    const place = version
-      ? quotedWordsPlaceIn(documents, other.documentId, version, other, other.location)
-      : null;
-    if (place && place.units.some((unit) => unit.text.trim() !== "")) places.push(place);
-    else whole = false;
-  }
-  const verdict = quotedWordsVerdict(words, places, []).kind;
-  return verdict === "not-found" || (verdict === "translation" && !whole)
+  const place = quotedWordsPlaceIn(documents, documentId, contentHash, range, location);
+  const verdict = quotedWordsVerdict(words, [place], []).kind;
+  return verdict === "not-found" || verdict === "translation"
     ? { check: "not-found", checkReason: "quoted-words-not-on-pages" }
     : check;
 }
@@ -734,7 +722,7 @@ function withQuotedWords(
  */
 export function recheckCitation(
   documents: RecheckDocuments,
-  input: Rechecked & Pick<CitationToRecheck, "contentHash" | "quotedWords" | "paragraph">,
+  input: Rechecked & Pick<CitationToRecheck, "contentHash" | "quotedWords">,
 ): CitationRecheck {
   const quoteOnly = recheckInCurrent(documents, input);
   const now =
@@ -749,7 +737,6 @@ export function recheckCitation(
             quoteOnly,
             input.location,
             input.quotedWords,
-            input.paragraph,
             quoteOnly,
           ),
         };
@@ -767,7 +754,6 @@ export function recheckCitation(
         input,
         input.location,
         input.quotedWords,
-        input.paragraph,
         inQuoted,
       ),
     changed:
@@ -1371,7 +1357,6 @@ export function recheckWhereSelected(
 export function recheckKept(
   documents: RecheckDocuments,
   attributes: Record<string, unknown>,
-  paragraph: CitationParagraph | null,
 ): Record<string, unknown> | null {
   const { documentId, quote, keptOver } = attributes;
   if (typeof documentId !== "string" || documentId === "") return null;
@@ -1386,7 +1371,6 @@ export function recheckKept(
     pageFrom: page(attributes.pageFrom),
     pageTo: page(attributes.pageTo) ?? page(attributes.pageFrom),
     quotedWords: parseQuotedWords(quotedWords),
-    paragraph,
     location: parseLocation(attributes.location),
   });
   if (now.check !== "found") return null;

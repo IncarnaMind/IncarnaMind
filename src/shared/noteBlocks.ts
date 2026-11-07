@@ -9,17 +9,14 @@ import {
   BLOCK_ID_ATTRIBUTE,
   CALCULATED_FIGURE_NODE,
   CITATION_NODE,
-  type CitationParagraph,
   type CitationToRecheck,
   NOTE_BLOCK_TYPES,
-  type ParagraphCitation,
   type RecheckResult,
 } from "../core/api";
 import type { NodeJSON } from "./blockJson";
 import { figureShownText, readCalculatedFigureAttributes } from "./calculatedFigures";
 import { parseQuotedWords, parseQuotedWordsCheck } from "./citations";
 import { parseLocation } from "./locations";
-import { INLINE_NODE } from "./sentences";
 
 /** At most this many Blocks go into a note at once, and this deep. */
 export const MAX_BLOCKS = 2_000;
@@ -90,65 +87,6 @@ export type Recheck = (input: CitationToRecheck) => RecheckResult | Promise<Rech
 const unit = (value: unknown): number | null =>
   typeof value === "number" && Number.isInteger(value) && value >= 1 ? value : null;
 
-/** A Citation's node read for the paragraph its quoted words are checked in (#2712); null without a Document. */
-export function paragraphCitationOf(
-  attrs: Record<string, unknown>,
-  at: number,
-): ParagraphCitation | null {
-  const { documentId } = attrs;
-  if (typeof documentId !== "string" || documentId === "") return null;
-  const pageFrom = unit(attrs.pageFrom);
-  return {
-    documentId,
-    contentHash: typeof attrs.contentHash === "string" ? attrs.contentHash : null,
-    pageFrom,
-    pageTo: unit(attrs.pageTo) ?? pageFrom,
-    location: parseLocation(attrs.location),
-    at,
-  };
-}
-
-/**
- * A paragraph's text and Citations as the check of quoted words reads them (`CitationParagraph`),
- * the one checked being its child at `child`; null when that isn't a Citation of a Document.
- */
-export function paragraphOf(block: NodeJSON, child: number): CitationParagraph | null {
-  let text = "";
-  const citations: ParagraphCitation[] = [];
-  let self = -1;
-  for (const [index, node] of (block.content ?? []).entries()) {
-    const cited =
-      node.type === CITATION_NODE ? paragraphCitationOf(node.attrs ?? {}, text.length) : null;
-    if (cited) {
-      if (index === child) self = citations.length;
-      citations.push(cited);
-    }
-    text +=
-      node.type === "text" ? (node.text ?? "") : node.type === "hardBreak" ? "\n" : INLINE_NODE;
-  }
-  return self < 0 ? null : { text, citations, self };
-}
-
-/** A paragraph sent with a Citation to check again, read from untrusted input; null when it isn't one. */
-export function parseCitationParagraph(value: unknown): CitationParagraph | null {
-  if (!isRecord(value) || typeof value.text !== "string" || !Array.isArray(value.citations)) {
-    return null;
-  }
-  const { text } = value;
-  const citations: ParagraphCitation[] = [];
-  for (const each of value.citations) {
-    const at = isRecord(each) ? each.at : null;
-    if (typeof at !== "number" || !Number.isInteger(at) || at < 0 || at >= text.length) return null;
-    const cited = paragraphCitationOf(each as Record<string, unknown>, at);
-    if (!cited) return null;
-    citations.push(cited);
-  }
-  const { self } = value;
-  return typeof self === "number" && Number.isInteger(self) && self >= 0 && self < citations.length
-    ? { text, citations, self }
-    : null;
-}
-
 /**
  * The Blocks with each Citation in them checked again where they land: against
  * its Document's current version, its check and where it points as the check
@@ -164,27 +102,14 @@ export async function recheckCitations(
   recheck: Recheck,
 ): Promise<NodeJSON[]> {
   const visit = async (node: NodeJSON): Promise<NodeJSON> => {
+    if (node.type === CITATION_NODE) return recheckOne(node, recheck);
     if (!node.content) return node;
-    const content = node.content;
-    return {
-      ...node,
-      content: await Promise.all(
-        content.map((child, index) =>
-          child.type === CITATION_NODE
-            ? recheckOne(child, recheck, paragraphOf(node, index))
-            : visit(child),
-        ),
-      ),
-    };
+    return { ...node, content: await Promise.all(node.content.map(visit)) };
   };
   return Promise.all(blocks.map(visit));
 }
 
-async function recheckOne(
-  node: NodeJSON,
-  recheck: Recheck,
-  paragraph: CitationParagraph | null,
-): Promise<NodeJSON> {
+async function recheckOne(node: NodeJSON, recheck: Recheck): Promise<NodeJSON> {
   const attrs = node.attrs ?? {};
   const { documentId, quote } = attrs;
   if (typeof documentId !== "string" || documentId === "") return node;
@@ -203,7 +128,7 @@ async function recheckOne(
       pageFrom,
       pageTo,
       contentHash,
-      ...(asked && { quotedWords: asked, paragraph }),
+      ...(asked && { quotedWords: asked }),
       ...(location && { location }),
     });
     // Kept inside a wall the Note is outside, nothing was read: the check made when it was cited stands.

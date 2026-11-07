@@ -83,7 +83,6 @@ import {
   memberMarker,
 } from "./citationClusters";
 import { citationNumberOf } from "./citationNumbers";
-import { citationParagraphAt } from "./citationParagraph";
 import {
   QuoteWithUnsureWords,
   ScanLine,
@@ -226,17 +225,13 @@ export function CitationView({
       : null;
   const update = editor.isEditable && lookedAt ? newVersionCitation(attributes, recheck) : null;
   const asked = update ? parseQuotedWords(attributes.quotedWords) : null;
-  const nodeAt = asked ? getPos() : undefined;
-  const paragraph = nodeAt === undefined ? null : citationParagraphAt(editor.state.doc, nodeAt);
   const onPage = useQuotedWordsOnPage(
     update && asked
-      ? [{ words: asked, cited: { ...update, documentId: attributes.documentId }, paragraph }]
+      ? [{ words: asked, cited: { ...update, documentId: attributes.documentId } }]
       : [],
     mindId,
   );
-  const newVersion = asked
-    ? newVersionCitation(attributes, recheck, { onPage, paragraph })
-    : update;
+  const newVersion = asked ? newVersionCitation(attributes, recheck, onPage) : update;
   const badge = badgeMessage(state, shown, t);
   const badgeText = recheckAsked ? t("citation.badge.recheck") : t(badge.key, badge.params);
   // A scan's unsure word: the page is shown with the quote, so the User can check it (#535).

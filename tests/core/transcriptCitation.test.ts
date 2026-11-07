@@ -180,7 +180,7 @@ for (const language of ["en", "zh-CN"] as const) {
         { id: citation.passageId ?? "review", text: units.map((unit) => unit.text).join("\n") },
       ],
     };
-    expect(recheckKept(documents, { ...citation, check: "not-found" }, null)).toMatchObject({
+    expect(recheckKept(documents, { ...citation, check: "not-found" })).toMatchObject({
       check: "found",
       location: { kind: "time", from: 7000, to: 10_000, speaker: second },
     });

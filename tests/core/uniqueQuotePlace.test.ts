@@ -364,7 +364,7 @@ for (const language of ["en", "zh-CN"] as const) {
         changed: null,
       });
     }
-    expect(recheckKept(documents, { ...citation, quote: ellipsisQuote }, null)).toMatchObject({
+    expect(recheckKept(documents, { ...citation, quote: ellipsisQuote })).toMatchObject({
       check: "found",
       contentHash: "updated-version",
       location,
@@ -399,7 +399,7 @@ for (const language of ["en", "zh-CN"] as const) {
         checkReason: "quote-not-on-pages",
         location: stored.location,
       });
-      expect(recheckKept(documents, { ...stored, check: "not-found" }, null)).toBeNull();
+      expect(recheckKept(documents, { ...stored, check: "not-found" })).toBeNull();
     },
   );
   test(`nested ellipsis paths with the same derived Location stay ambiguous, ${language}`, async () => {
@@ -427,7 +427,7 @@ for (const language of ["en", "zh-CN"] as const) {
       checkReason: "quote-not-on-pages",
       location: citation.location,
     });
-    expect(recheckKept(documents, { ...citation, check: "not-found" }, null)).toBeNull();
+    expect(recheckKept(documents, { ...citation, check: "not-found" })).toBeNull();
   });
   test.each(["different speaker", "same speaker", "same bounds", "same bounds first"] as const)(
     `an unchanged speaker-selected Citation survives a duplicate cue with %s, ${language}`,
@@ -464,7 +464,7 @@ for (const language of ["en", "zh-CN"] as const) {
           }),
         ).toMatchObject({ check: "found", contentHash: citation.contentHash, location });
       }
-      expect(recheckKept(documents, { ...citation, check: "not-found" }, null)).toMatchObject({
+      expect(recheckKept(documents, { ...citation, check: "not-found" })).toMatchObject({
         check: "found",
         contentHash: citation.contentHash,
         location,
@@ -498,7 +498,7 @@ for (const language of ["en", "zh-CN"] as const) {
         checkReason: "quote-not-on-pages",
         location: stored.location,
       });
-      expect(recheckKept(documents, { ...stored, check: "not-found" }, null)).toBeNull();
+      expect(recheckKept(documents, { ...stored, check: "not-found" })).toBeNull();
     },
   );
   test.each([

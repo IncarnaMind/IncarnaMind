@@ -28,7 +28,6 @@ import { parseQuotedWords, type QuotedWordsOnPage, quotedWordsAt } from "../../s
 import { core } from "./core";
 import { citationDecision, partDecisions } from "./editor/alreadyCited";
 import type { NumberedCitation } from "./editor/citationNumbers";
-import { citationParagraphAt } from "./editor/citationParagraph";
 import { claimSpans, placeInSentence, type ShownClaim } from "./editor/claimChecks";
 import { asOneStep } from "./editor/editorUndo";
 import { selectionForEdit } from "./editor/editSelection";
@@ -621,10 +620,7 @@ export function replaceCitation(
   { citation, evidence }: { citation: NumberedCitation; evidence: CitationAttributes },
   onPage?: QuotedWordsOnPage,
 ): boolean {
-  const paragraph = citationParagraphAt(editor.state.doc, citation.pos);
-  if (!quotedWordsAt(citation.attributes.quotedWords, evidence, onPage && { onPage, paragraph })) {
-    return false;
-  }
+  if (!quotedWordsAt(citation.attributes.quotedWords, evidence, onPage)) return false;
   return rewriteCitation(editor, citation, {
     ...evidence,
     check: "found",
