@@ -21,7 +21,7 @@ import {
   type JevSettings,
 } from "../api";
 import type { Consent } from "../consent";
-import { InvalidInputError, isRecord, TaggingNotReadyError } from "../errors";
+import { InvalidInputError, isRecord, LocalModeError, TaggingNotReadyError } from "../errors";
 import { decisionGroupClassifier, reviewBandFor } from "../library/classifier";
 import { parseApiKey } from "../providers/apiKey";
 import {
@@ -365,6 +365,8 @@ export function createJevTagging(options: {
           key: "error.provider.keyMissing",
           values: { provider: "Jev" },
         });
+      // The key is the User's too: in Local mode it goes to no cloud server (ADR-0022, #2615).
+      if (options.localOnly() && serviceOf(endpoint)) throw new LocalModeError();
       try {
         await askJev({
           baseUrl: baseUrlOf(endpoint),

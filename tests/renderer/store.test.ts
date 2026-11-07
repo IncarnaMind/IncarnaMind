@@ -2251,3 +2251,24 @@ describe("Get started's Ask a question", () => {
     expect(asked()).toBe(true);
   });
 });
+
+describe("the Folder the Library shows (#2529)", () => {
+  test("is the one it opened on, and goes when the whole Library or another section opens", async () => {
+    method("changeLayout").mockResolvedValue({ groups: [], focusedGroupId: null });
+    method("getLibrary").mockResolvedValue(snapshot([]));
+    await useAppStore.getState().refreshLibrary();
+
+    useAppStore.getState().openLibrary("g");
+    expect(useAppStore.getState().libraryFolderId).toBe("g");
+
+    useAppStore.getState().openLibrary("all");
+    expect(useAppStore.getState().libraryFolderId).toBeNull();
+
+    useAppStore.getState().openLibrary("g");
+    expect(useAppStore.getState().libraryFolderId).toBe("g");
+
+    method("getLibrary").mockResolvedValue({ ...snapshot([]), groups: [] });
+    await useAppStore.getState().refreshLibrary();
+    expect(useAppStore.getState().libraryFolderId).toBeNull();
+  });
+});

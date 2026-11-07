@@ -97,6 +97,13 @@ export function extractCsv(
   };
   return {
     units: gridUnits([sheet], false),
-    workbook: { sheets: [sheet], truncated, hiddenSheets: [], rowsCut: [], sheetsNotRead: [] },
+    workbook: {
+      sheets: [sheet],
+      truncated,
+      hiddenSheets: [],
+      rowsCut: [],
+      sheetsNotRead: [],
+      unreadable: [],
+    },
   };
 }

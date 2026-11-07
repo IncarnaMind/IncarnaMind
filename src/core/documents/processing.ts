@@ -75,13 +75,14 @@ import type { PictureProblem } from "./web/pictures";
  * are read). 23: #448 (the tables of a PDF's pages, a Word file's sections and a
  * deck's slides are kept with their Units as rows and columns; a Word table's
  * merged cells keep their columns; raised digits stay raised). 24: #1979 (a
- * workbook's rows Units name the rows the file strikes through or hides).
- * Version 25 PDFs', Word files', decks' and workbooks': their scale markers read the forms
- * #2365 adds (a bracket's currency with the tail's scale, a Chinese bracket's currency and
- * scale, and a heading that only looks like a scale stays none); their text, Passages and
- * embeddings come out as they were.
+ * workbook's rows Units name the rows the file strikes through or hides). 25:
+ * #2620 (a Word file's, a deck's and a workbook's parts are read where its
+ * package's relationships say they are, not only at their usual names). 26:
+ * #2365 (a scale marker reads a bracket's currency with its tail's scale and a
+ * Chinese bracket's currency and scale, and a heading that only looks like a
+ * scale states none).
  */
-export const PROCESSING_VERSION = 25;
+export const PROCESSING_VERSION = 26;
 
 /**
  * Per kind, the oldest version whose Passages and Units are still what this
@@ -122,16 +123,20 @@ export const PROCESSING_VERSION = 25;
  * superscript or subscript digits, not plain ones (#448). Version 24 only
  * workbooks', whose rows Units name the rows the file strikes through or
  * hides; their text, Passages and embeddings come out as they were (#1979).
- * Version 25 re-reads PDFs, Word files, decks and workbooks for their scale markers
- * (#2365); their text, Passages and embeddings come out as they were.
+ * Version 25 Word files', decks' and workbooks': one whose main part, styles,
+ * comments or notes have names other than the usual ones is read, where it
+ * failed or lost its headings before; one with the usual names comes out as
+ * it was, its Passages and embeddings too (#2620). Version 26 PDFs', Word
+ * files', decks' and workbooks': their scale markers read the forms #2365 adds;
+ * their text, Passages and embeddings come out as they were.
  */
 export const CURRENT_SINCE: Readonly<Record<DocumentKind, number>> = {
-  pdf: 25,
+  pdf: 26,
   text: 5,
   markdown: 5,
-  docx: 25,
-  pptx: 25,
-  xlsx: 25,
+  docx: 26,
+  pptx: 26,
+  xlsx: 26,
   csv: 5,
   image: 22,
   rtf: 22,
@@ -540,7 +545,7 @@ export async function processFile(
           return readFile(join(dirname(job.file), src));
         }
       : null;
-  const { processed, firstPages } = await processBytes(
+  const { processed, firstPages, unreadable } = await processBytes(
     job.kind,
     bytes,
     reading,
@@ -548,6 +553,8 @@ export async function processFile(
     readPicture,
     job.readHiddenSheets === true,
   );
+  if (unreadable.length > 0)
+    channel?.log("documents.partsNotRead", { parts: unreadable.join(", ") });
   if (reading?.signal.aborted) return { outcome: "stopped" };
   const firstUnit = processed.outcome === "ready" ? (processed.pages[0]?.text ?? null) : null;
   return {
@@ -700,7 +707,7 @@ async function processBytes(
   password: string | undefined,
   readPicture: ((src: string) => Promise<Uint8Array>) | null,
   readHiddenSheets: boolean,
-): Promise<{ processed: Processed; firstPages: string[] }> {
+): Promise<{ processed: Processed; firstPages: string[]; unreadable: readonly string[] }> {
   try {
     const extracted = await extractText(
       kind,
@@ -712,7 +719,7 @@ async function processBytes(
     );
     const firstPages = extracted.units.slice(0, REFERENCE_PAGES).map((unit) => unit.text);
     const pages = laidOutPages(kind, extracted.units, extracted.keptBreaks);
-    const { pageCount, unread, parts } = extracted;
+    const { pageCount, unread, parts, unreadable = [] } = extracted;
     const passages = buildPassages(pages).map((passage) => ({
       ...passage,
       keywords: keywordText(passage.text),
@@ -726,18 +733,19 @@ async function processBytes(
             message: unreadMessage(unread),
           }
         : { outcome: "no-text", pageCount, parts };
-      return { processed, firstPages };
+      return { processed, firstPages, unreadable };
     }
     return {
       processed: { outcome: "ready", pageCount, passages, pages, unread, parts },
       firstPages,
+      unreadable,
     };
   } catch (error) {
     const processed: Processed =
       error instanceof ExtractionError
         ? { outcome: "failed", reason: error.reason, message: error.message }
         : { outcome: "failed", reason: "processing-error", message: messageOf(error) };
-    return { processed, firstPages: [] };
+    return { processed, firstPages: [], unreadable: [] };
   }
 }
 

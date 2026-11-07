@@ -1007,3 +1007,61 @@ describe("A scan's page confirmation (#535)", () => {
     ).toMatchObject({ check: "found", pageChecked: null, unsure: null, contentHash: "v2" });
   });
 });
+
+// protects=Update the sentence… writes over what the check of the Answer's quoted words found (#2504): the next page they ran on to, and words not found, were the old quote's, whether its words changed or it moved; fails_when=the updated Citation keeps either; no_claim=how the card shows the update.
+describe("Update the sentence…, on a Citation whose quoted words were checked", () => {
+  const cited = {
+    pageFrom: 3,
+    pageTo: 3,
+    location: { kind: "page", from: 3, to: 3 } as const,
+    quote: "No fee is charged when goods are",
+  };
+  const found: CitationRecheck = {
+    check: "found",
+    checkReason: null,
+    contentHash: "v2",
+    passageId: "passage",
+    pageFrom: 3,
+    pageTo: 3,
+    location: { kind: "page", from: 3, to: 3 },
+  };
+  const rechecks: [string, CitationRecheck][] = [
+    [
+      "its words changed",
+      {
+        ...found,
+        check: "not-found",
+        checkReason: "quote-not-on-pages",
+        changed: {
+          parts: [{ kind: "same", text: "No fee is charged" }],
+          now: { ...found, quote: "No fee is charged" },
+        },
+      },
+    ],
+    ["it moved", { ...found, pageFrom: 5, pageTo: 5, location: { kind: "page", from: 5, to: 5 } }],
+  ];
+  test.each(
+    rechecks.flatMap(
+      ([how, recheck]) =>
+        [
+          [how, "ran on to the next page", { runsOnTo: { kind: "page", from: 4, to: 4 } }, recheck],
+          [
+            how,
+            "weren't on the page",
+            { answer: [{ text: "no fee at all", found: false }], closest: null },
+            recheck,
+          ],
+        ] as const,
+    ),
+  )(
+    "%s, and its quoted words %s: the updated Citation says nothing of them",
+    (_, __, quotedWords, recheck) => {
+      const update = newVersionCitation(cited, recheck);
+      expect(update).not.toBeNull();
+      expect({ ...cited, quotedWords, ...update }).toMatchObject({
+        contentHash: "v2",
+        quotedWords: null,
+      });
+    },
+  );
+});

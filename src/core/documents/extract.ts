@@ -14,6 +14,8 @@ import type { LogFields, PagePicture, PictureRead, RecognizedLine } from "../ada
 import type { DocumentKind, UnreadParts } from "../api";
 import { isRecord } from "../errors";
 import { ExtractionError, extractUnits } from "./formats";
+import { extractDocx } from "./formats/docx";
+import { extractPptx } from "./formats/pptx";
 import { type FigureReading, readWebPage, webUnits } from "./formats/web";
 import { extractXlsx, unreadPartsOf } from "./formats/xlsx";
 import { joinPrintedLines, type PrintedLine, type PrintedText } from "./lineWrap";
@@ -98,6 +100,8 @@ export interface ExtractedText {
    * page ended itself (see `joinPrintedLines`), which the wider join keeps.
    */
   keptBreaks?: ReadonlyMap<number, ReadonlySet<number>>;
+  /** Word files, decks and workbooks: relationships parts that couldn't be read; the rest was. */
+  unreadable?: readonly string[];
 }
 
 /**
@@ -127,7 +131,12 @@ export async function extractText(
   }
   if (kind === "xlsx") {
     const { units, workbook } = await extractXlsx(bytes, readHiddenSheets);
-    return { pageCount: null, units, unread: null, parts: unreadPartsOf(workbook) };
+    const { unreadable } = workbook;
+    return { pageCount: null, units, unread: null, parts: unreadPartsOf(workbook), unreadable };
+  }
+  if (kind === "docx" || kind === "pptx") {
+    const { units, unreadable } = await (kind === "docx" ? extractDocx(bytes) : extractPptx(bytes));
+    return { pageCount: null, units, unread: null, parts: null, unreadable };
   }
   return { pageCount: null, units: await extractUnits(kind, bytes), unread: null, parts: null };
 }

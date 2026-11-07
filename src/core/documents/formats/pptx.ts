@@ -13,35 +13,21 @@
  */
 import { type TextUnit, UnitBuilder } from "../../../shared/units";
 import { cellTable, headingRowsOf, isFigure, shiftedDigits } from "../tableCells";
-import { ExtractionError } from "./errors";
 import { dataUrlOf, imageTypeOf } from "./images";
+import {
+  mainRootOf,
+  OfficePackage,
+  type Relationship,
+  type Relationships,
+  relationshipOfType,
+} from "./officePackage";
 import { child, descendants, elements, local, parseXml, textOf, type XmlElement } from "./xml";
-import { openPackage, resolvePart, type ZipArchive } from "./zip";
+import { openPackage, type ZipArchive } from "./zip";
 
 const REL_SLIDE = "/slide";
 const REL_NOTES = "/notesSlide";
 const REL_IMAGE = "/image";
 const REL_CHART = "/chart";
-
-interface Rel {
-  type: string;
-  target: string;
-}
-
-async function relationships(zip: ZipArchive, part: string): Promise<Map<string, Rel>> {
-  const slash = part.lastIndexOf("/");
-  const xml = await zip.readText(`${part.slice(0, slash)}/_rels/${part.slice(slash + 1)}.rels`);
-  const rels = new Map<string, Rel>();
-  if (!xml) return rels;
-  for (const rel of elements(parseXml(xml))) {
-    if (rel.attrs.TargetMode === "External" || !rel.attrs.Id || !rel.attrs.Target) continue;
-    rels.set(rel.attrs.Id, {
-      type: rel.attrs.Type ?? "",
-      target: resolvePart(part, rel.attrs.Target),
-    });
-  }
-  return rels;
-}
 
 /** A merge flag as DrawingML writes it: "1", or "true" in files that spell booleans out. */
 const mergedAttr = (value: string | undefined) => value === "1" || value === "true";
@@ -111,7 +97,7 @@ interface Collected {
 }
 
 /** Walks a shape tree in document order (z-order), into groups. */
-function collect(tree: XmlElement, rels: Map<string, Rel>, into: Collected): void {
+function collect(tree: XmlElement, rels: Relationships, into: Collected): void {
   for (const shape of elements(tree)) {
     switch (shape.name) {
       case "p:sp": {
@@ -193,22 +179,25 @@ const FILE_NAME = /^[\w .-]+\.(png|jpe?g|gif|bmp|emf|wmf|svg|tiff?)$/i;
 export interface PptxResult {
   units: TextUnit[];
   slides: SlideOutline[];
+  /** Relationships parts that couldn't be read; the rest was read without what they name. */
+  unreadable: string[];
 }
 
 export async function extractPptx(bytes: Uint8Array): Promise<PptxResult> {
   const zip = openPackage(bytes);
-  const presentationXml = await zip.readText("ppt/presentation.xml");
-  if (presentationXml === undefined) {
-    throw new ExtractionError(
-      "unreadable",
-      "Not a PowerPoint file: it has no ppt/presentation.xml.",
-    );
-  }
-  const presentationRels = await relationships(zip, "ppt/presentation.xml");
-  const list = child(parseXml(presentationXml), "p:sldIdLst");
+  const pkg = new OfficePackage(zip);
+  const presentation = await pkg.mainPart("ppt/presentation.xml");
+  const root = mainRootOf(
+    await zip.readText(presentation),
+    presentation,
+    "presentation",
+    "Not a PowerPoint file",
+  );
+  const presentationRels = await pkg.internalRelationships(presentation);
+  const list = child(root, "p:sldIdLst");
   const slideParts = (list ? elements(list) : [])
     .map((id) => presentationRels.get(id.attrs["r:id"] ?? ""))
-    .filter((rel): rel is Rel => rel?.type.endsWith(REL_SLIDE) ?? false)
+    .filter((rel): rel is Relationship => rel?.type.endsWith(REL_SLIDE) ?? false)
     .map((rel) => rel.target);
 
   const units: TextUnit[] = [];
@@ -217,7 +206,7 @@ export async function extractPptx(bytes: Uint8Array): Promise<PptxResult> {
     const number = index + 1;
     const xml = await zip.readText(part);
     const root = xml ? parseXml(xml) : null;
-    const rels = await relationships(zip, part);
+    const rels = await pkg.internalRelationships(part);
     const tree = root ? descendants(root, "p:spTree")[0] : undefined;
     const collected: Collected = { title: null, blocks: [], tables: [], images: [], charts: [] };
     if (tree) collect(tree, rels, collected);
@@ -250,7 +239,7 @@ export async function extractPptx(bytes: Uint8Array): Promise<PptxResult> {
       }
     }
 
-    const notesRel = [...rels.values()].find((rel) => rel.type.endsWith(REL_NOTES));
+    const notesRel = relationshipOfType(rels, REL_NOTES);
     const notes: string[] = [];
     if (notesRel) {
       const notesXml = await zip.readText(notesRel.target);
@@ -310,7 +299,7 @@ export async function extractPptx(bytes: Uint8Array): Promise<PptxResult> {
       notes,
     });
   }
-  return { units, slides };
+  return { units, slides, unreadable: pkg.unreadable };
 }
 
 /** The largest image the outline shows, in bytes. */

@@ -37,6 +37,7 @@ import {
 import { HelpStrip } from "../meetings/HelpStrip";
 import { ModelSetupCard } from "../providers/ModelSetupCard";
 import { TaskTray } from "../TaskTray";
+import { useScrollFade } from "../useScrollFade";
 import { AssistantMenu } from "./AssistantMenu";
 import { ConversationThread } from "./ConversationThread";
 import { HistoryPopover } from "./HistoryPopover";
@@ -283,6 +284,7 @@ function AssistantMain({
   const setupCardShown = settingUp || (stepsWaiting && stepOpen);
   const thread = useRef<HTMLDivElement>(null);
   useKeepInView(thread);
+  useScrollFade(thread);
   /** Where the conversation was scrolled to, put back when it shows again. */
   const scrolled = useRef(0);
   useLayoutEffect(() => {
