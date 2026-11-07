@@ -46,12 +46,12 @@ test("embeddings are off by default; turning them on with a cloud provider warns
   // "Turn on…": Off is chosen, and the line says what an embedding model adds and costs.
   await section.getByTestId("embedding-change").click();
   const form = section.getByTestId("embedding-form");
-  await expect(form.getByLabel("Off", { exact: true })).toBeChecked();
+  await expect(form.getByLabel("Search model")).toHaveValue("off");
   await expect(form.getByTestId("embedding-trade-off")).toHaveText(
     "Finds passages worded differently, but reads slower.",
   );
   // Choose OpenAI, with a key; its suggested model is filled in.
-  await form.getByLabel("OpenAI", { exact: true }).check();
+  await form.getByLabel("Search model").selectOption("openai");
   await form.getByLabel("API key").fill("sk-smoke-test-key");
   await expect(form.getByLabel("Model name")).toHaveValue("text-embedding-3-small");
   await acceptPlainTextKeys(window, form);
@@ -106,7 +106,7 @@ test("turned on with the built-in model, Documents are embedded; turned off agai
 
   await section.getByTestId("embedding-change").click();
   const form = section.getByTestId("embedding-form");
-  await form.getByLabel("Built-in model", { exact: true }).check();
+  await form.getByLabel("Search model").selectOption("built-in");
   await form.getByTestId("embedding-switch").click();
   await expect(confirm).toContainText("Turn on Built-in model?");
   await expect(confirm).toContainText("Everything stays on this computer.");
@@ -120,7 +120,7 @@ test("turned on with the built-in model, Documents are embedded; turned off agai
   await expect.poll(async () => (await vector()).length).toBeGreaterThan(0);
 
   await section.getByTestId("embedding-change").click();
-  await form.getByLabel("Off", { exact: true }).check();
+  await form.getByLabel("Search model").selectOption("off");
   await expect(form).toContainText("Searches words only. Nothing is downloaded.");
   await form.getByTestId("embedding-switch").click();
   await expect(confirm).toContainText("Turn off search by meaning?");
@@ -143,8 +143,8 @@ test("in local mode, a server elsewhere and reranking are turned down as they're
 
   await section.getByTestId("embedding-change").click();
   const form = section.getByTestId("embedding-form");
-  await expect(form.getByLabel("OpenAI", { exact: true })).toBeDisabled();
-  await form.getByLabel("OpenAI-compatible server").check();
+  await expect(form.getByLabel("Search model").locator('option[value="openai"]')).toBeDisabled();
+  await form.getByLabel("Search model").selectOption("openai-compatible");
   const server = form.getByLabel("Server URL");
   const why = form.getByTestId("embedding-local-only");
   await server.fill("https://api.deepseek.com/v1");
@@ -164,9 +164,10 @@ test("in local mode, a server elsewhere and reranking are turned down as they're
   );
   await rerank.getByTestId("rerank-change").click();
   const rerankForm = rerank.getByTestId("rerank-form");
-  await expect(rerankForm.getByLabel("Cohere", { exact: true })).toBeDisabled();
-  await expect(rerankForm.getByLabel("Voyage AI", { exact: true })).toBeDisabled();
-  await expect(rerankForm.getByLabel("On this computer (built-in model)")).toBeChecked();
+  const orderWith = rerankForm.getByLabel("Order results with");
+  await expect(orderWith.locator('option[value="cohere"]')).toBeDisabled();
+  await expect(orderWith.locator('option[value="voyage"]')).toBeDisabled();
+  await expect(orderWith).toHaveValue("built-in");
   await expect(rerankForm.getByTestId("rerank-local-only")).toBeVisible();
   await app.close();
 });
@@ -200,7 +201,7 @@ test("reranking is on by default with the built-in model, can be turned off, and
   // Chosen again, it is the User's choice now, not the default.
   await rerank.getByTestId("rerank-set-up").click();
   const form = rerank.getByTestId("rerank-form");
-  await form.getByLabel("On this computer (built-in model)").check();
+  await form.getByLabel("Order results with").selectOption("built-in");
   await expect(form.getByTestId("rerank-built-in-note")).toContainText("runs on this computer.");
   await expect(form.getByLabel("API key")).toHaveCount(0);
   await form.getByRole("button", { name: "Use for ordering results" }).click();

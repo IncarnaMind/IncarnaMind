@@ -218,6 +218,16 @@ export function ChevronDownLineIcon(props: IconProps) {
   );
 }
 
+/** A pop-up button's two chevrons, up over down. */
+export function ChevronUpDownLineIcon(props: IconProps) {
+  return (
+    <LineIcon strokeWidth={2} {...props}>
+      <path d="m8 9 4-4 4 4" />
+      <path d="m8 15 4 4 4-4" />
+    </LineIcon>
+  );
+}
+
 export function ChevronRightLineIcon(props: IconProps) {
   return (
     <LineIcon strokeWidth={2} {...props}>

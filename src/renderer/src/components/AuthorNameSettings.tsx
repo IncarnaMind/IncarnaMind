@@ -2,8 +2,8 @@ import { type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
 import { useT } from "../i18n";
 import { useSettingsTarget } from "../settingsTarget";
 import { useAppStore } from "../store";
-import { InfoTip } from "./InfoTip";
-import { fieldClass, sectionTitleClass } from "./ui";
+import { SettingsGroup, SettingsRow, SettingsSection } from "./settings/SettingsGroup";
+import { rowFieldClass } from "./ui";
 
 const TARGET = ["author-name"] as const;
 
@@ -44,26 +44,30 @@ export function AuthorNameSettings() {
   };
 
   return (
-    <section ref={section} data-testid="author-name-settings">
-      <div className="mb-2 flex items-center">
-        <label htmlFor={id} className={sectionTitleClass}>
-          {t("settings.authorName")}
-        </label>
-        <InfoTip id={`${id}-note`} text={t("settings.authorName.tip")} />
-      </div>
-      <input
-        ref={field}
-        id={id}
-        type="text"
-        data-testid="author-name"
-        value={draft}
-        maxLength={200}
-        aria-describedby={`${id}-note`}
-        onChange={(event) => setDraft(event.target.value)}
-        onBlur={commit}
-        onKeyDown={onKeyDown}
-        className={`${fieldClass} w-full max-w-80`}
-      />
-    </section>
+    <SettingsSection ref={section} testId="author-name-settings">
+      <SettingsGroup>
+        <SettingsRow
+          label={t("settings.authorName")}
+          htmlFor={id}
+          tip={t("settings.authorName.tip")}
+          tipId={`${id}-note`}
+          control={
+            <input
+              ref={field}
+              id={id}
+              type="text"
+              data-testid="author-name"
+              value={draft}
+              maxLength={200}
+              aria-describedby={`${id}-note`}
+              onChange={(event) => setDraft(event.target.value)}
+              onBlur={commit}
+              onKeyDown={onKeyDown}
+              className={`${rowFieldClass} w-56`}
+            />
+          }
+        />
+      </SettingsGroup>
+    </SettingsSection>
   );
 }

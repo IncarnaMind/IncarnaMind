@@ -55,15 +55,15 @@ test("the Privacy page lists the data flows and the update check, and offers no 
   await privacy.getByTestId("privacy-flows-intro-details").click();
   await expect(privacy).toContainText("asks it not to store your requests");
 
-  // The statement, then the services, then the switch, then the other traffic.
+  // The services, then the statement under them, then the switch, then the other traffic.
   const service = privacy.getByTestId("data-service");
   await expect(service).toHaveCount(1);
   await expect(service).toContainText("llm.example.com");
   await expect(service).toHaveAttribute("data-consent", "partly");
   const top = async (locator: Locator) => (await locator.boundingBox())?.y ?? Number.NaN;
   const order = [
-    await top(statement),
     await top(service),
+    await top(statement),
     await top(privacy.getByTestId("local-only-setting")),
     await top(privacy.getByTestId("network-traffic")),
   ];

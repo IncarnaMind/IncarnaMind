@@ -12,7 +12,7 @@ export function CloudLine({
   testId,
 }: {
   service: TranscriptionServiceStatus;
-  className: string;
+  className?: string;
   testId?: string;
 }) {
   const t = useT();

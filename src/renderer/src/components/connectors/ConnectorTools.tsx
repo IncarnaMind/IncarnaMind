@@ -1,3 +1,4 @@
+import { useId } from "react";
 import type {
   ApprovalPolicy,
   ApprovalPolicyValue,
@@ -7,7 +8,8 @@ import type {
 import { core } from "../../core";
 import { useLanguage, useT } from "../../i18n";
 import { useAppStore } from "../../store";
-import { ruledListClass, segmentClass, segmentedClass } from "../ui";
+import { PopUpButton } from "../settings/PopUpButton";
+import { SettingsGroup, SettingsHelp, SettingsRow } from "../settings/SettingsGroup";
 
 /** What the User chooses for a Tool: ask before each call, run without asking, or leave it out. */
 const choices = ["ask", "always", "off"] as const;
@@ -53,68 +55,79 @@ export function ConnectorTools({
       .catch((failure: unknown) => useAppStore.getState().reportError(failure));
   };
   if (tools.length === 0) {
-    return <p className="text-[13px] leading-5 text-ink-meta">{t("connectors.tools.none")}</p>;
+    return <p className="px-4 text-[13px] leading-5 text-ink-meta">{t("connectors.tools.none")}</p>;
   }
   return (
-    <div className="flex flex-col gap-2">
-      <ul data-testid="connector-tools" className={ruledListClass}>
+    <>
+      <SettingsGroup data-testid="connector-tools">
         {tools.map((tool) => {
           const policy = policyOf(tool);
           const ask = asksFirst(tool, policy);
-          const chosen: Choice = policy === "off" ? "off" : ask ? "ask" : "always";
-          const label = t("approvals.tools.select", { tool: tool.name });
           return (
-            <li
+            <ToolRow
               key={tool.name}
-              data-testid="connector-tool"
-              data-tool={tool.name}
-              data-read-only={tool.readOnly}
-              data-asks={ask}
-              data-off={chosen === "off"}
-              className="flex items-center gap-4 py-2.5"
-            >
-              <span className="flex min-w-0 flex-1 flex-col" title={tool.description}>
-                <span
-                  data-testid="connector-tool-name"
-                  className="truncate text-[13px] leading-5 font-semibold text-ink"
-                >
-                  {tool.title ?? tool.name}
-                </span>
-                <span
-                  data-testid="connector-tool-claim"
-                  className="text-[12px] leading-[18px] text-ink-meta"
-                >
-                  {tool.readOnly
-                    ? t("connectors.directory.tool.reads")
-                    : t("connectors.directory.tool.changes")}
-                </span>
-              </span>
-              <span
-                role="radiogroup"
-                aria-label={label}
-                data-testid="connector-tool-approval"
-                className={segmentedClass}
-              >
-                {choices.map((each) => (
-                  <label key={each} className={segmentClass}>
-                    <input
-                      type="radio"
-                      name={`${connectorId}:${tool.name}`}
-                      value={each}
-                      checked={chosen === each}
-                      onChange={() => choose(tool, each)}
-                      className="sr-only"
-                    />
-                    {t(`approvals.tools.${each}`)}
-                  </label>
-                ))}
-              </span>
-            </li>
+              tool={tool}
+              ask={ask}
+              chosen={policy === "off" ? "off" : ask ? "ask" : "always"}
+              onChoose={(choice) => choose(tool, choice)}
+            />
           );
         })}
-      </ul>
-      <p className="text-[12px] leading-[18px] text-ink-meta">{t("connectors.tools.note")}</p>
-    </div>
+      </SettingsGroup>
+      <SettingsHelp>{t("connectors.tools.note")}</SettingsHelp>
+    </>
+  );
+}
+
+/** One Tool: its name and what it claims, and the pop-up at its end that says what Answers do with it. */
+function ToolRow({
+  tool,
+  ask,
+  chosen,
+  onChoose,
+}: {
+  tool: ConnectorTool;
+  ask: boolean;
+  chosen: Choice;
+  onChoose(choice: Choice): void;
+}) {
+  const t = useT();
+  const choiceId = useId();
+  return (
+    <SettingsRow
+      data-testid="connector-tool"
+      data-tool={tool.name}
+      data-read-only={tool.readOnly}
+      data-asks={ask}
+      data-off={chosen === "off"}
+      title={tool.description}
+      label={
+        <span data-testid="connector-tool-name" className="break-words">
+          {tool.title ?? tool.name}
+        </span>
+      }
+      detail={
+        <span data-testid="connector-tool-claim">
+          {tool.readOnly
+            ? t("connectors.directory.tool.reads")
+            : t("connectors.directory.tool.changes")}
+        </span>
+      }
+      control={
+        <>
+          <span id={choiceId} className="sr-only">
+            {t("approvals.tools.select", { tool: tool.name })}
+          </span>
+          <PopUpButton
+            value={chosen}
+            options={choices.map((each) => ({ value: each, label: t(`approvals.tools.${each}`) }))}
+            onChange={onChoose}
+            labelledBy={choiceId}
+            testId="connector-tool-approval"
+          />
+        </>
+      }
+    />
   );
 }
 
@@ -127,28 +140,22 @@ export function ReviewedTools({ tools }: { tools: NonNullable<ConnectorDirectory
   const t = useT();
   const language = useLanguage();
   return (
-    <div className="flex flex-col gap-2">
-      <ul data-testid="connector-reviewed-tools" className={ruledListClass}>
+    <>
+      <SettingsGroup data-testid="connector-reviewed-tools">
         {tools.map((tool) => (
-          <li
+          <SettingsRow
             key={tool.title.en}
             data-testid="connector-reviewed-tool"
-            className="flex flex-col py-2.5"
-          >
-            <span className="text-[13px] leading-5 font-semibold text-ink">
-              {tool.title[language]}
-            </span>
-            <span className="text-[12px] leading-[18px] text-ink-meta">
-              {tool.changes
+            label={tool.title[language]}
+            detail={
+              tool.changes
                 ? t("connectors.directory.tool.changes")
-                : t("connectors.directory.tool.reads")}
-            </span>
-          </li>
+                : t("connectors.directory.tool.reads")
+            }
+          />
         ))}
-      </ul>
-      <p className="text-[12px] leading-[18px] text-ink-meta">
-        {t("connectors.directory.what.listed")}
-      </p>
-    </div>
+      </SettingsGroup>
+      <SettingsHelp>{t("connectors.directory.what.listed")}</SettingsHelp>
+    </>
   );
 }

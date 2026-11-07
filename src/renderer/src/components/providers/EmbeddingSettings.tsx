@@ -17,27 +17,25 @@ import { useAppStore } from "../../store";
 import { KeyCharacterLine } from "../KeyCharacterLine";
 import { ProblemMark } from "../ProblemLine";
 import { SettingsAdvanced } from "../SettingsAdvanced";
+import { PopUpSelect } from "../settings/PopUpButton";
+import {
+  SettingsGroup,
+  SettingsHelp,
+  SettingsRow,
+  SettingsSection,
+} from "../settings/SettingsGroup";
 import {
   buttonClass,
-  choiceListClass,
-  compactChoiceRadioClass,
-  compactChoiceRowClass,
+  buttonStyle,
   dialogActionsClass,
   dialogBodyClass,
   dialogClass,
   dialogTextClass,
   dialogTitleClass,
   errorTextClass,
-  fieldLabelClass,
-  ghostButtonClass,
   hintClass,
-  inputClass,
-  pageIntroClass,
   primaryButtonClass,
-  rowButtonsClass,
-  rowTextClass,
-  ruledListClass,
-  ruledRowClass,
+  rowFieldClass,
   successTextClass,
 } from "../ui";
 import { useModal } from "../useModal";
@@ -114,74 +112,93 @@ export function EmbeddingSettingsSection() {
   const { provider, error, rebuild } = embedding;
   const off = provider.kind === "off";
   return (
-    <section data-testid="embedding-settings" className="flex flex-col">
-      <p data-testid="embedding-plain" className={pageIntroClass}>
-        {t("embeddingProviders.settings.plain")}
-      </p>
-
-      <div className={ruledListClass}>
-        <div className={ruledRowClass}>
-          <div className="flex min-w-0 flex-col gap-0.5">
-            <p data-testid="embedding-state" className="text-ui text-ink">
+    <SettingsSection title={t("embeddingProviders.settings.title")} testId="embedding-settings">
+      <SettingsGroup>
+        <SettingsRow
+          label={
+            <span data-testid="embedding-state">
               {off
                 ? `${t("embeddingProviders.settings.off")} · ${t("embeddingProviders.settings.download")}`
                 : provider.service
                   ? t("embeddingProviders.settings.stateSent", { service: provider.service.name })
                   : t("embeddingProviders.settings.stateOn")}
-            </p>
-            {rebuild && (
-              <p data-testid="embedding-rebuild" className={rowTextClass}>
-                {t("embeddingProviders.rebuild.title", {
-                  done: rebuild.done,
-                  total: rebuild.total,
-                })}
-              </p>
-            )}
-            {error && (
-              <p role="alert" className={`mt-1 ${errorTextClass}`} title={error.message}>
-                <ProblemMark />
-                {t("embeddingProviders.settings.error", { reason: t(testErrorKey(error.kind)) })}
-              </p>
-            )}
-          </div>
-          <div className={rowButtonsClass}>
-            {error && (
-              <button type="button" onClick={() => void retry()} className={buttonClass}>
-                {t("embeddingProviders.settings.retry")}
-              </button>
-            )}
-            {!editing && (
-              <button
-                type="button"
-                data-testid="embedding-change"
-                onClick={() => setEditing(true)}
-                className={buttonClass}
-              >
-                {off
-                  ? t("embeddingProviders.settings.turnOn")
-                  : t("embeddingProviders.settings.change")}
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
+            </span>
+          }
+          detail={
+            (rebuild || error) && (
+              <>
+                {rebuild && (
+                  <p data-testid="embedding-rebuild">
+                    {t("embeddingProviders.rebuild.title", {
+                      done: rebuild.done,
+                      total: rebuild.total,
+                    })}
+                  </p>
+                )}
+                {error && (
+                  <p role="alert" className={errorTextClass} title={error.message}>
+                    <ProblemMark />
+                    {t("embeddingProviders.settings.error", {
+                      reason: t(testErrorKey(error.kind)),
+                    })}
+                  </p>
+                )}
+              </>
+            )
+          }
+          control={
+            <>
+              {error && (
+                <button
+                  type="button"
+                  onClick={() => void retry()}
+                  className={buttonStyle("secondary", "sm")}
+                >
+                  {t("embeddingProviders.settings.retry")}
+                </button>
+              )}
+              {!editing && (
+                <button
+                  type="button"
+                  data-testid="embedding-change"
+                  onClick={() => setEditing(true)}
+                  className={buttonStyle("secondary", "sm")}
+                >
+                  {off
+                    ? t("embeddingProviders.settings.turnOn")
+                    : t("embeddingProviders.settings.change")}
+                </button>
+              )}
+            </>
+          }
+        />
+      </SettingsGroup>
+      <SettingsHelp data-testid="embedding-plain">
+        {t("embeddingProviders.settings.plain")}
+      </SettingsHelp>
 
       <SettingsAdvanced testId="embedding-advanced">
-        <p data-testid="embedding-current" className="text-[13px] leading-5 text-ink">
-          <span className="font-semibold">{t("embeddingProviders.settings.current")}</span>
-          {embeddingProviderLabel(provider, t)}
-        </p>
-        <p className={rowTextClass}>
-          {off
-            ? t("embeddingProviders.settings.offNote")
-            : provider.service
-              ? t("embeddingProviders.settings.sendsTo", { service: provider.service.name })
-              : t("embeddingProviders.settings.local")}
-        </p>
+        <SettingsGroup>
+          <SettingsRow
+            label={
+              <span data-testid="embedding-current">
+                {t("embeddingProviders.settings.current")}
+                {embeddingProviderLabel(provider, t)}
+              </span>
+            }
+            detail={
+              off
+                ? t("embeddingProviders.settings.offNote")
+                : provider.service
+                  ? t("embeddingProviders.settings.sendsTo", { service: provider.service.name })
+                  : t("embeddingProviders.settings.local")
+            }
+          />
+        </SettingsGroup>
       </SettingsAdvanced>
 
       {editing && <EmbeddingForm current={embedding} onDone={() => setEditing(false)} />}
-    </section>
+    </SettingsSection>
   );
 }
 
@@ -294,108 +311,137 @@ function EmbeddingForm({ current, onDone }: { current: EmbeddingSettings; onDone
     }
   };
 
+  const kindId = `${id}-kind`;
+  const urlId = `${id}-url`;
+  const keyId = `${id}-key`;
+  const modelFieldId = `${id}-model`;
+
   return (
-    <form data-testid="embedding-form" onSubmit={submit} className="flex flex-col gap-3">
-      <fieldset>
-        <legend className={`mb-1.5 ${fieldLabelClass}`}>
-          {t("embeddingProviders.form.label")}
-        </legend>
-        <div className={choiceListClass}>
-          {embeddingProviderKinds.map((option) => (
-            <label key={option} className={compactChoiceRowClass}>
-              <input
-                type="radio"
-                name={`${id}-kind`}
-                value={option}
-                checked={kind === option}
-                disabled={current.localOnly && CLOUD_KINDS.has(option)}
-                onChange={() => choose(option)}
-                className={compactChoiceRadioClass}
-              />
-              {t(`embeddingProviders.kind.${option}`)}
-            </label>
-          ))}
-        </div>
-        <p data-testid="embedding-trade-off" className={hintClass}>
-          {t("embeddingProviders.form.tradeOff")}
-        </p>
-        {current.localOnly && <p className={hintClass}>{t("embeddingProviders.form.localOnly")}</p>}
-      </fieldset>
-
-      {kind === "off" && (
-        <p className="text-[13px] leading-5 text-ink-secondary">
-          {t("embeddingProviders.form.offHint")}
-        </p>
-      )}
-
-      {kind === "built-in" && (
-        <p className="text-[13px] leading-5 text-ink-secondary">
-          {t("embeddingProviders.form.builtInHint")}
-        </p>
-      )}
-
-      {(kind === "openai-compatible" || kind === "ollama") && (
-        <label className={fieldLabelClass}>
-          {kind === "ollama" ? t("embeddingProviders.form.ollamaUrl") : t("providers.form.baseUrl")}
-          <input
-            type="url"
-            required={kind === "openai-compatible"}
-            value={baseUrl}
-            onChange={(event) => setBaseUrl(event.target.value)}
-            onBlur={() => key.leftAddress(baseUrl)}
-            placeholder={kind === "ollama" ? OLLAMA_URL : "https://"}
-            spellCheck={false}
-            className={inputClass}
+    <form data-testid="embedding-form" onSubmit={submit} className="mt-4 flex flex-col gap-3">
+      <div>
+        <SettingsGroup>
+          <SettingsRow
+            label={t("embeddingProviders.form.label")}
+            htmlFor={kindId}
+            detail={
+              kind === "off"
+                ? t("embeddingProviders.form.offHint")
+                : kind === "built-in"
+                  ? t("embeddingProviders.form.builtInHint")
+                  : undefined
+            }
+            control={
+              <PopUpSelect
+                id={kindId}
+                value={kind}
+                onChange={(event) => {
+                  const next = embeddingProviderKinds.find((each) => each === event.target.value);
+                  if (next) choose(next);
+                }}
+              >
+                {embeddingProviderKinds.map((option) => (
+                  <option
+                    key={option}
+                    value={option}
+                    disabled={current.localOnly && CLOUD_KINDS.has(option)}
+                  >
+                    {t(`embeddingProviders.kind.${option}`)}
+                  </option>
+                ))}
+              </PopUpSelect>
+            }
           />
-          {outsideLocalMode ? (
-            <span role="alert" data-testid="embedding-local-only" className={hintClass}>
-              {t("embeddingProviders.form.localOnlyServer")}
-            </span>
-          ) : (
-            <span className={hintClass}>
-              {kind === "ollama"
-                ? t("embeddingProviders.form.ollamaHint")
-                : t("providers.form.baseUrlHint")}
-            </span>
-          )}
-        </label>
-      )}
 
-      {takesKey && (
-        <label className={fieldLabelClass}>
-          {keyRequired ? t("providers.form.apiKey") : t("providers.form.apiKeyOptional")}
-          <input
-            type="password"
-            value={apiKey}
-            onChange={(event) => key.type(event.target.value, baseUrl)}
-            autoComplete="off"
-            spellCheck={false}
-            aria-invalid={key.stray ? true : undefined}
-            aria-describedby={key.stray ? `${id}-stray` : undefined}
-            className={inputClass}
-          />
-          {key.stray && <KeyCharacterLine id={`${id}-stray`} stray={key.stray} />}
-          {sameServer && saved.hasApiKey && (
-            <span className={hintClass}>{t("providers.form.apiKeySaved")}</span>
+          {(kind === "openai-compatible" || kind === "ollama") && (
+            <SettingsRow
+              label={
+                kind === "ollama"
+                  ? t("embeddingProviders.form.ollamaUrl")
+                  : t("providers.form.baseUrl")
+              }
+              htmlFor={urlId}
+              control={
+                <input
+                  id={urlId}
+                  type="url"
+                  required={kind === "openai-compatible"}
+                  value={baseUrl}
+                  onChange={(event) => setBaseUrl(event.target.value)}
+                  onBlur={() => key.leftAddress(baseUrl)}
+                  placeholder={kind === "ollama" ? OLLAMA_URL : "https://"}
+                  spellCheck={false}
+                  className={`${rowFieldClass} w-64`}
+                />
+              }
+            >
+              {outsideLocalMode ? (
+                <p role="alert" data-testid="embedding-local-only" className={hintClass}>
+                  {t("embeddingProviders.form.localOnlyServer")}
+                </p>
+              ) : (
+                <p className={hintClass}>
+                  {kind === "ollama"
+                    ? t("embeddingProviders.form.ollamaHint")
+                    : t("providers.form.baseUrlHint")}
+                </p>
+              )}
+            </SettingsRow>
           )}
-        </label>
-      )}
+
+          {takesKey && (
+            <SettingsRow
+              label={keyRequired ? t("providers.form.apiKey") : t("providers.form.apiKeyOptional")}
+              htmlFor={keyId}
+              control={
+                <input
+                  id={keyId}
+                  type="password"
+                  value={apiKey}
+                  onChange={(event) => key.type(event.target.value, baseUrl)}
+                  autoComplete="off"
+                  spellCheck={false}
+                  aria-invalid={key.stray ? true : undefined}
+                  aria-describedby={key.stray ? `${id}-stray` : undefined}
+                  className={`${rowFieldClass} w-64`}
+                />
+              }
+            >
+              {(key.stray || (sameServer && saved.hasApiKey)) && (
+                <>
+                  {key.stray && <KeyCharacterLine id={`${id}-stray`} stray={key.stray} />}
+                  {sameServer && saved.hasApiKey && (
+                    <p className={hintClass}>{t("providers.form.apiKeySaved")}</p>
+                  )}
+                </>
+              )}
+            </SettingsRow>
+          )}
+
+          {!isPlainKind(kind) && (
+            <SettingsRow
+              label={t("embeddingProviders.form.model")}
+              htmlFor={modelFieldId}
+              control={
+                <input
+                  id={modelFieldId}
+                  required
+                  value={modelId}
+                  onChange={(event) => setModelId(event.target.value)}
+                  spellCheck={false}
+                  className={`${rowFieldClass} w-64`}
+                />
+              }
+            />
+          )}
+        </SettingsGroup>
+        <SettingsHelp>
+          <p data-testid="embedding-trade-off">{t("embeddingProviders.form.tradeOff")}</p>
+          {current.localOnly && <p>{t("embeddingProviders.form.localOnly")}</p>}
+        </SettingsHelp>
+      </div>
 
       {takesKey && secretStorage && !secretStorage.canSave && (
         <SecretStorageNotice status={secretStorage} onAccept={() => void acceptPlainText()} />
-      )}
-
-      {!isPlainKind(kind) && (
-        <label className={fieldLabelClass}>
-          {t("embeddingProviders.form.model")}
-          <input
-            required
-            value={modelId}
-            onChange={(event) => setModelId(event.target.value)}
-            spellCheck={false}
-            className={inputClass}
-          />
-        </label>
       )}
 
       <div className="flex flex-wrap items-center gap-2">
@@ -403,7 +449,7 @@ function EmbeddingForm({ current, onDone }: { current: EmbeddingSettings; onDone
           type="submit"
           data-testid="embedding-switch"
           disabled={!complete || unchanged || keyBlocked || outsideLocalMode || busy !== null}
-          className={primaryButtonClass}
+          className={buttonStyle("primary", "sm")}
         >
           {busy === "saving"
             ? t("providers.form.saving")
@@ -418,12 +464,12 @@ function EmbeddingForm({ current, onDone }: { current: EmbeddingSettings; onDone
             type="button"
             disabled={!complete || outsideLocalMode || busy !== null}
             onClick={() => void runTest()}
-            className={buttonClass}
+            className={buttonStyle("secondary", "sm")}
           >
             {busy === "testing" ? t("providers.form.testing") : t("providers.form.test")}
           </button>
         )}
-        <button type="button" onClick={onDone} className={ghostButtonClass}>
+        <button type="button" onClick={onDone} className={buttonStyle("ghost", "sm")}>
           {t("providers.settings.cancel")}
         </button>
       </div>

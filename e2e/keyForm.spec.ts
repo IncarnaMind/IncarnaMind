@@ -357,8 +357,8 @@ test("in Settings the notes and the key line are under the key field, the steps 
       await expect(form.getByTestId("provider-docs-link")).toHaveText(link);
       await expect(form.getByTestId("provider-docs-link")).toHaveAttribute("href", /^https:\/\//);
     }
-    // The link ends the model's line, after Change; once Change opens the list, it heads the list:
-    // Tab goes from one to the other.
+    // The link ends the model's line, after Change; once Change opens the list, it comes before the
+    // list, not under it: Tab goes from one to the other.
     const docs = form.getByTestId("provider-docs-link");
     const change = form.getByTestId("provider-model-change");
     const [docsOnLine, changeBox] = await Promise.all([docs.boundingBox(), change.boundingBox()]);
@@ -371,7 +371,8 @@ test("in Settings the notes and the key line are under the key field, the steps 
     const picker = form.getByTestId("provider-model");
     await expect(picker).toBeFocused();
     const [docsBox, pickerBox] = await Promise.all([docs.boundingBox(), picker.boundingBox()]);
-    expect(docsBox?.y ?? 0).toBeLessThan(pickerBox?.y ?? 0);
+    expect(docsBox?.y ?? 0).toBeLessThan((pickerBox?.y ?? 0) + (pickerBox?.height ?? 0));
+    expect(docsBox?.x ?? 0).toBeLessThan(pickerBox?.x ?? 0);
     await docs.focus();
     await window.keyboard.press("Tab");
     await expect(picker).toBeFocused();

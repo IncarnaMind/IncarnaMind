@@ -2,6 +2,12 @@ import type { ConnectorRegistrySearch, ConnectorRegistryServer } from "../../../
 import { useT } from "../../i18n";
 import { useAppStore } from "../../store";
 import { ProblemMark } from "../ProblemLine";
+import {
+  SettingsGroup,
+  SettingsRow,
+  SettingsRowAction,
+  SettingsSection,
+} from "../settings/SettingsGroup";
 import { buttonStyle } from "../ui";
 import { ConnectorTile } from "./ConnectorTile";
 
@@ -25,81 +31,74 @@ export function RegistryResults({
 }) {
   const t = useT();
   return (
-    <div data-testid="connectors-registry" className="flex flex-col gap-2">
-      <div className="flex flex-wrap items-center gap-1.5">
-        <h4 className="text-[13px] leading-5 font-semibold text-ink-secondary">
+    <SettingsSection
+      testId="connectors-registry"
+      title={
+        <>
           {t("connectors.registry.title")}
-        </h4>
-        <span
-          data-testid="connectors-registry-badge"
-          className="rounded-sm bg-frame px-1.5 text-[11px] leading-[18px] text-ink-secondary"
-        >
-          {t("connectors.registry.badge")}
-        </span>
-      </div>
-      <p className="max-w-[600px] text-[12px] leading-[18px] text-ink-meta">
-        {t("connectors.registry.note")}
-      </p>
+          <span
+            data-testid="connectors-registry-badge"
+            className="ml-1.5 rounded-sm bg-frame px-1.5 text-[11px] leading-[18px] font-normal text-ink-secondary"
+          >
+            {t("connectors.registry.badge")}
+          </span>
+        </>
+      }
+      help={t("connectors.registry.note")}
+    >
       {search === null ? (
-        <p role="status" className="text-[13px] leading-5 text-ink-meta">
+        <p role="status" className="px-4 text-[13px] leading-5 text-ink-meta">
           {t("connectors.registry.searching")}
         </p>
       ) : search.outcome === "failed" ? (
-        <div
-          role="alert"
-          data-testid="connectors-registry-problem"
-          data-reason={search.reason}
-          className="flex flex-wrap items-center gap-2 text-[13px] leading-5 text-ink"
-        >
-          <span>
-            <ProblemMark />
-            {t(`connectors.registry.failed.${search.reason}`)}
-          </span>
-          {search.reason === "declined" ? (
-            <button
-              type="button"
-              onClick={() => useAppStore.getState().showSettingsPage("privacy")}
-              className={buttonStyle("secondary", "sm")}
-            >
-              {t("connectors.registry.privacy")}
-            </button>
-          ) : (
-            search.reason !== "local-mode" && (
-              <button type="button" onClick={onRetry} className={buttonStyle("secondary", "sm")}>
-                {t("connectors.registry.retry")}
-              </button>
-            )
-          )}
-        </div>
+        <SettingsGroup>
+          <SettingsRow
+            role="alert"
+            data-testid="connectors-registry-problem"
+            data-reason={search.reason}
+            label={
+              <span className="break-words">
+                <ProblemMark />
+                {t(`connectors.registry.failed.${search.reason}`)}
+              </span>
+            }
+            control={
+              search.reason === "declined" ? (
+                <button
+                  type="button"
+                  onClick={() => useAppStore.getState().showSettingsPage("privacy")}
+                  className={buttonStyle("secondary", "sm")}
+                >
+                  {t("connectors.registry.privacy")}
+                </button>
+              ) : search.reason === "local-mode" ? undefined : (
+                <button type="button" onClick={onRetry} className={buttonStyle("secondary", "sm")}>
+                  {t("connectors.registry.retry")}
+                </button>
+              )
+            }
+          />
+        </SettingsGroup>
       ) : search.servers.length === 0 ? (
-        <p className="text-[13px] leading-5 text-ink-meta">
+        <p className="px-4 text-[13px] leading-5 text-ink-meta">
           {t("connectors.registry.none", { query: words })}
         </p>
       ) : (
-        <div className="grid grid-cols-1 gap-2 @[30rem]:grid-cols-2">
+        <SettingsGroup>
           {search.servers.map((server) => (
-            <button
+            <SettingsRowAction
               key={server.id}
-              type="button"
-              data-testid="registry-server"
+              testId="registry-server"
               data-registry-id={server.id}
               data-opens={`registry:${server.id}`}
               onClick={() => onOpen(server)}
-              className="flex min-w-0 items-start gap-2.5 rounded-lg p-2.5 text-left shadow-[inset_0_0_0_1px_var(--color-rule)] hover:bg-frame hover:shadow-[inset_0_0_0_1px_var(--color-rule-strong)]"
-            >
-              <ConnectorTile name={server.name} />
-              <span className="flex min-w-0 flex-1 flex-col">
-                <span className="truncate text-[13px] leading-[18px] font-semibold text-ink">
-                  {server.name}
-                </span>
-                <span className="line-clamp-2 text-[12px] leading-[17px] text-ink-meta">
-                  {server.description}
-                </span>
-              </span>
-            </button>
+              leading={<ConnectorTile name={server.name} />}
+              label={server.name}
+              detail={<span className="line-clamp-2">{server.description}</span>}
+            />
           ))}
-        </div>
+        </SettingsGroup>
       )}
-    </div>
+    </SettingsSection>
   );
 }

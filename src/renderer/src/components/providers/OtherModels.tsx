@@ -1,14 +1,17 @@
-import { useId } from "react";
+import { type ReactNode, useId } from "react";
 import type { ChatModelGroup, OtherModel } from "../../../../core/api";
 import type { MessageKey } from "../../../../shared/i18n";
 import { modelName } from "../../../../shared/modelName";
 import { ChevronDownSmallIcon, ChevronRightSmallIcon } from "../../editor/icons";
 import { useT } from "../../i18n";
-import { rowTitleClass, ruledListClass } from "../ui";
+import {
+  SettingsGroup,
+  SettingsRow,
+  SettingsSection,
+  SettingsSwitch,
+} from "../settings/SettingsGroup";
 
 type Why = OtherModel["why"];
-
-const ROW = "flex min-h-[34px] items-center gap-2.5 py-1";
 
 const WHYS: readonly Why[] = ["unknown", "older", "cannot-answer"];
 
@@ -25,7 +28,7 @@ const REASONS: Record<NonNullable<OtherModel["reason"]>, MessageKey> = {
   "computer-use": "models.other.reason.computerUse",
 };
 
-/** What a provider lists beyond its menu, then the ids the User added that it doesn't list; by id, so a tick moves nothing. */
+/** What a provider lists beyond its menu, then the ids the User added that it doesn't list; by id, so a switch moves nothing. */
 export const otherRowsOf = (group: ChatModelGroup): OtherModel[] => [
   ...group.other,
   ...group.added
@@ -57,46 +60,51 @@ export function OtherModels({
         aria-controls={panelId}
         data-testid="other-models-toggle"
         onClick={() => onOpen(!open)}
-        className="flex w-full items-center gap-2.5 py-2.5 text-left"
+        className="flex w-full items-center gap-1.5 rounded-sm px-4 py-1 text-left text-[13px] leading-5 font-semibold text-ink-secondary hover:text-ink"
       >
         <Chevron aria-hidden="true" className="size-4 shrink-0 text-ink-meta" />
-        <span className={rowTitleClass}>
+        <span>
           {t("models.other.title")}
           <span className="font-normal text-ink-meta"> · {rows.length}</span>
         </span>
       </button>
       {open && (
-        <div id={panelId} className="ml-[26px] flex flex-col gap-3">
+        <div id={panelId} className="mt-2 flex flex-col gap-6">
           {WHYS.map((why) => {
             const inGroup = rows.filter((row) => row.why === why);
             if (inGroup.length === 0) return null;
             return (
-              // biome-ignore lint/a11y/useSemanticElements: a titled list of rows, which a fieldset would box.
-              <div key={why} role="group" aria-label={t(WHY_TITLES[why])}>
-                <p className="mb-1 text-[12px] leading-4 font-semibold text-ink-meta">
-                  {t(WHY_TITLES[why])}
-                </p>
-                <div className={ruledListClass}>
-                  {inGroup.map((row) => (
-                    <ModelRow
-                      key={row.id}
-                      row={row}
-                      name={modelName(row.id, {
-                        kind: group.provider.kind,
-                        endpoint: group.provider.endpoint,
-                        names: group.names,
-                      })}
-                      checked={group.added.includes(row.id)}
-                      onToggle={(inMenu) => onToggle(row.id, inMenu)}
-                    />
-                  ))}
-                </div>
-              </div>
+              <OtherGroup key={why} title={t(WHY_TITLES[why])}>
+                {inGroup.map((row) => (
+                  <ModelRow
+                    key={row.id}
+                    row={row}
+                    name={modelName(row.id, {
+                      kind: group.provider.kind,
+                      endpoint: group.provider.endpoint,
+                      names: group.names,
+                    })}
+                    checked={group.added.includes(row.id)}
+                    onToggle={(inMenu) => onToggle(row.id, inMenu)}
+                  />
+                ))}
+              </OtherGroup>
             );
           })}
         </div>
       )}
     </section>
+  );
+}
+
+function OtherGroup({ title, children }: { title: string; children: ReactNode }) {
+  const titleId = useId();
+  return (
+    <SettingsSection title={title} titleId={titleId} titleAs="h5">
+      <SettingsGroup role="group" aria-labelledby={titleId}>
+        {children}
+      </SettingsGroup>
+    </SettingsSection>
   );
 }
 
@@ -112,49 +120,43 @@ function ModelRow({
   onToggle(inMenu: boolean): void;
 }) {
   const t = useT();
+  const id = useId();
+  const label = (
+    <span title={name === row.id ? undefined : row.id} className="break-words">
+      {name}
+    </span>
+  );
   if (row.why === "cannot-answer") {
     return (
-      <div
+      <SettingsRow
         data-testid="other-model"
         data-model={row.id}
         data-unavailable
-        className={`${ROW} pl-[26px]`}
-      >
-        <span
-          title={name === row.id ? undefined : row.id}
-          className="min-w-0 break-all text-ui text-ink-secondary"
-        >
-          {name}
-        </span>
-        <span className="ml-auto shrink-0 text-[13px] leading-5 text-ink-meta">
-          {row.reason ? t(REASONS[row.reason]) : null}
-        </span>
-      </div>
+        label={label}
+        control={
+          row.reason ? (
+            <span className="text-[13px] leading-5 text-ink-meta">{t(REASONS[row.reason])}</span>
+          ) : undefined
+        }
+      />
     );
   }
   return (
-    <label
+    <SettingsRow
       data-testid="other-model"
       data-model={row.id}
-      className={`${ROW} cursor-pointer hover:bg-hover`}
-    >
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={(event) => onToggle(event.target.checked)}
-        className="size-4 shrink-0 accent-ink"
-      />
-      <span
-        title={name === row.id ? undefined : row.id}
-        className="min-w-0 flex-1 break-all text-ui text-ink"
-      >
-        {name}
-      </span>
-      {row.why === "unknown" && (
-        <span className="ml-auto shrink-0 text-[13px] leading-5 text-ink-meta">
-          {t("models.other.mayNotWork")}
-        </span>
-      )}
-    </label>
+      label={label}
+      htmlFor={id}
+      control={
+        <>
+          {row.why === "unknown" && (
+            <span className="text-[13px] leading-5 text-ink-meta">
+              {t("models.other.mayNotWork")}
+            </span>
+          )}
+          <SettingsSwitch id={id} checked={checked} onChange={onToggle} />
+        </>
+      }
+    />
   );
 }
