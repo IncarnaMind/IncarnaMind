@@ -25,6 +25,17 @@ export function useOwnDocuments(): readonly Document[] {
   );
 }
 
+/** The Documents with rows of their own of every example, or of the first run's alone. */
+export function useExampleDocuments({ firstOnly = false } = {}): readonly Document[] {
+  const documents = useAppStore((state) => state.documents);
+  const examples = useAppStore((state) => state.examples);
+  const otherExamples = useAppStore((state) => state.otherExamples);
+  return useMemo(() => {
+    const made = allExamples({ examples, otherExamples: firstOnly ? [] : otherExamples });
+    return documents.filter((each) => isListedDocument(each) && isExampleDocument(each, made));
+  }, [documents, examples, otherExamples, firstOnly]);
+}
+
 /** Whether a Document, by id, belongs to an example. */
 export function useIsExampleDocument(): (documentId: string) => boolean {
   const documents = useAppStore((state) => state.documents);

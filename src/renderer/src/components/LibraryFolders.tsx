@@ -11,7 +11,7 @@ import { useLanguage, useT } from "../i18n";
 import { currentMindIdOf, currentTabOf } from "../layoutSlice";
 import { treeCounts } from "../libraryPage";
 import { formatCount } from "../linkedFolders";
-import { DAY_ONE_DOCUMENTS } from "../ownDocuments";
+import { DAY_ONE_DOCUMENTS, useExampleDocuments } from "../ownDocuments";
 import { useRequests } from "../requests";
 import { useSelectable, useSeveralSelected } from "../selection";
 import { FIRST_DOCUMENTS, moreDocumentsToShow } from "../sidebarList";
@@ -306,7 +306,7 @@ export function LibraryFolders({
 }
 
 /** A Folder's or Not in a Folder's contents: its sub-Folders, then its Minds and Documents. */
-function Contents({
+export function Contents({
   listKey,
   scope,
   depth,
@@ -635,6 +635,9 @@ function NotInAFolder({
 }) {
   const t = useT();
   const drop = useDropTarget("sidebar-folder:none", folderTarget(null));
+  // The quiet first open hands the tree no Documents, so the Examples section brings its own: a
+  // Document opened from a Citation always has its row there (#2376).
+  const exampleDocuments = useExampleDocuments();
   const examplesOnly = useAppStore((state) => {
     const examples = allExamples(state);
     return (
@@ -709,7 +712,7 @@ function NotInAFolder({
             scope="sidebar"
             depth={0}
             minds={apart ? NO_MINDS : minds}
-            documents={documents}
+            documents={examplesOnly ? exampleDocuments : documents}
             renderDocument={renderDocument}
           />
           {offerFolder && (
@@ -746,7 +749,7 @@ function NotInAFolder({
             scope="sidebar"
             depth={0}
             minds={exampleMinds}
-            documents={NO_DOCUMENTS}
+            documents={quiet ? exampleDocuments : NO_DOCUMENTS}
             renderDocument={renderDocument}
           />
         </SidebarSection>
