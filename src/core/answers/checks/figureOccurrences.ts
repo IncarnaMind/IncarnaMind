@@ -92,6 +92,28 @@ export interface TableLayout {
   headerReads: Map<string, HeaderRead>;
 }
 
+/** A first column that numbers its rows: its cells are not the rows' names. */
+const ROW_NUMBERS = /^\s*(?:序号|序號|项次|項次|编号|編號|#|no\.?|nr\.?)\s*$/iu;
+/** A first column headed by a period holds that period's values, not the rows' names. */
+const PERIOD_HEADING =
+  /^\s*(?:(?:fy|cy|year|年度)\s*)?(?:\d{4}\s*年?|[QH][1-4](?:\s+\d{2,4})?)\s*$/iu;
+
+/**
+ * The words naming a row in a figure's label: its first cell, but for a first column that numbers
+ * its rows (序号, #) or is headed by a period (2024年), whose cells are values. The name is then
+ * the next text cell, or none, rather than a number read as the subject.
+ */
+function rowLabelOf(
+  slots: TableLayout["grid"][number],
+  headings: readonly { text: string }[],
+): string {
+  const first = slots[0]?.text ?? "";
+  const heading = headings[0]?.text ?? "";
+  if (ROW_NUMBERS.test(heading))
+    return slots.slice(1).find((slot) => slot !== null && slot.text.trim() !== "")?.text ?? "";
+  return PERIOD_HEADING.test(heading) ? "" : first;
+}
+
 function tableLayout(table: Y.XmlElement, layouts: Map<Y.XmlElement, TableLayout>): TableLayout {
   const known = layouts.get(table);
   if (known) return known;
@@ -116,7 +138,7 @@ function tableLayout(table: Y.XmlElement, layouts: Map<Y.XmlElement, TableLayout
     const slots = grid[index] ?? [];
     layout.rowIndex.set(row, index);
     layout.rows.push({
-      rowLabel: slots[0]?.text ?? "",
+      rowLabel: rowLabelOf(slots, headings),
       rowText: slots.map((slot) => slot?.text ?? "").join(" | "),
       columnLabels: headings.map((heading) => heading.text),
       anchors: slots.flatMap((slot, column) => (slot && !slot.continued ? [column] : [])),

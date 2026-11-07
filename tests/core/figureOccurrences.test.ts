@@ -183,6 +183,34 @@ test("merged table headers project exact row/column labels and preserve unit amb
   ).toBe(true);
 });
 
+test("a first column that numbers its rows or is headed by a period is no row label", () => {
+  const numbered = figuresInMind(
+    stored({
+      type: "table",
+      attrs: { id: "t1" },
+      content: [
+        row(cell("h1", "序号", true), cell("h2", "项目", true), cell("h3", "2025年", true)),
+        row(cell("a", "1"), cell("b", "收入"), cell("c", "120")),
+      ],
+    }),
+  );
+  const revenue = numbered.find((each) => each.reading.value === 120);
+  expect(revenue?.table).toMatchObject({ rowLabel: "收入", columnLabel: "2025年" });
+  expect(revenue?.label).toBe("收入 · 2025年");
+
+  const periods = figuresInMind(
+    stored({
+      type: "table",
+      attrs: { id: "t2" },
+      content: [
+        row(cell("h4", "2024年", true), cell("h5", "2025年", true)),
+        row(cell("d", "999"), cell("e", "120")),
+      ],
+    }),
+  );
+  expect(periods.map((each) => each.label)).toEqual(["2024年", "2025年"]);
+});
+
 test("a row unit cell reaches its numeric cell through the existing reader", () => {
   const figures = figuresInMind(
     stored({
