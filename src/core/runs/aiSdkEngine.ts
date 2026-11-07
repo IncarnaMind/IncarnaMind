@@ -554,9 +554,12 @@ async function* run(request: RunRequest): AsyncGenerator<RunEvent> {
           yield { type: "tool-result", id: part.toolCallId, ok: true };
           break;
         case "tool-error":
+          inputs.get(part.toolCallId)?.tool.inputEnded?.(part.toolCallId);
           yield { type: "tool-result", id: part.toolCallId, ok: false };
           break;
         case "finish-step": {
+          for (const [id, input] of inputs) input.tool.inputEnded?.(id);
+          inputs.clear();
           const usage = tokenUsageOf(part.usage);
           window?.stepFinished(usage);
           yield { type: "step-finished", usage };

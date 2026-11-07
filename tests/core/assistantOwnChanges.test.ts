@@ -2141,12 +2141,13 @@ describe("New text coming in over the assistant's own text (#1635)", { timeout: 
   /**
    * "Make the summary longer." over a summary added from an Answer, its new text held once its
    * third paragraph has begun (or `holdAt` characters of its input are out) until `release`, or
-   * `fail`, or given whole with `streamed` false.
+   * `fail`, or given whole with `streamed` false; `prepare` runs before it is asked.
    */
   async function longer({
     streamed = true,
     input = { part: "Tide notes", content: CONTENT } as Record<string, unknown>,
     holdAt = JSON.stringify(input).indexOf(NEW[2] as string) + 4,
+    prepare = async (_core: Core): Promise<void> => {},
   } = {}) {
     let release = () => {};
     let fail = (_error: Error) => {};
@@ -2173,6 +2174,7 @@ describe("New text coming in over the assistant's own text (#1635)", { timeout: 
       model: null,
     });
     await client.settled();
+    await prepare(core);
     const before = exactly(client);
     const seen: string[][] = [];
     client.blocks.observeDeep(() => seen.push(applied(client)));
@@ -2208,7 +2210,7 @@ describe("New text coming in over the assistant's own text (#1635)", { timeout: 
     expect(seen.slice(first).some((lines) => lines.includes(OLD[0] as string))).toBe(false);
   });
 
-  // protects=a model that names the part after the content, as Claude and DeepSeek often do: the content waits for the part, then what has come goes in its place, and the call ends as the same call made whole (#1635); fails_when=nothing comes in until the call has all of its input, or text comes in before the part says where; no_claim=how often a model orders its input so.
+  // protects=a model that names the part after the content, as Claude and DeepSeek often do: the content waits for the part, then all that has come goes in its place, and the call ends as the same call made whole (#1635); fails_when=nothing comes in until the call has all of its input, its last paragraph waits for the call, or text comes in before the part says where; no_claim=how often a model orders its input so.
   test("named after the content, the part is waited for, then what came in takes the old text's place", async () => {
     const input = { content: CONTENT, part: "Tide notes", removes_only: false };
     const whole = await longer({ streamed: false, input });
@@ -2220,9 +2222,7 @@ describe("New text coming in over the assistant's own text (#1635)", { timeout: 
       holdAt: JSON.stringify(input).indexOf('"removes_only"'),
     });
 
-    await expect
-      .poll(() => applied(client).slice(-4))
-      .toEqual(["Tide notes", NEW[0], NEW[1], NEW[2]]);
+    await expect.poll(() => applied(client).slice(-5)).toEqual(["Tide notes", ...NEW]);
     release();
     expect((await answerEnded(core, asked.answerId)).event).toBe("finished");
     await client.settled();
@@ -2231,6 +2231,201 @@ describe("New text coming in over the assistant's own text (#1635)", { timeout: 
       seen.some((lines) => lines.includes(NEW[0] as string) && lines.includes(OLD[2] as string)),
     ).toBe(false);
     expect(shownWithChanges(client)).toEqual(shownWithChanges(whole.client));
+  });
+
+  /** A second Note, "Harbour log", holding the same summary added from an Answer. */
+  async function harbourLog(core: Core) {
+    const other = await core.createMind({ title: "Harbour log" });
+    await core.addToNote({
+      mindId: other.id,
+      blocks: [
+        { type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "Tide notes" }] },
+        ...OLD.map((words) => ({ type: "paragraph", content: [{ type: "text", text: words }] })),
+      ],
+      origin: null,
+      model: null,
+    });
+    const client = await connectToMind(core, other.id);
+    await client.settled();
+    return { id: other.id, client };
+  }
+
+  // protects=a Note named after the text has come, when it isn't the Note in focus the text went into, takes that text back at once, before the call runs, and the call writes the whole text in the Note it names (#1635); fails_when=the text stays in the Note in focus until the call runs, or the Note named is never written; no_claim=that a model names the Note so late, which none measured did.
+  test("a Note named after the text came in, as another, takes it back at once, and the call writes the Note it names", async () => {
+    const input = {
+      part: "Tide notes",
+      content: CONTENT,
+      mind: "Harbour log",
+      removes_only: false,
+    };
+    let other: { id: string; client: MindClient } | null = null;
+    const { core, client, before, seen, asked, release } = await longer({
+      input,
+      holdAt: JSON.stringify(input).indexOf('"removes_only"'),
+      prepare: async (core) => {
+        other = await harbourLog(core);
+      },
+    });
+    if (!other) throw new Error("No Harbour log.");
+    const { id: logId, client: log }: { id: string; client: MindClient } = other;
+
+    await expect.poll(() => seen.some((lines) => lines.includes(NEW[0] as string))).toBe(true);
+    await expect.poll(() => exactly(client)).toEqual(before);
+    release();
+    expect((await answerEnded(core, asked.answerId)).event).toBe("finished");
+    await client.settled();
+    await log.settled();
+
+    expect(exactly(client)).toEqual(before);
+    expect(applied(log).slice(-5)).toEqual(["Tide notes", ...NEW]);
+    const [call] = mindCalls(await answerJudged(core, asked.conversation.id, asked.answerId));
+    expect(call?.mindChange).toMatchObject({ mindId: logId });
+    expect(call?.mindProblem).toBeUndefined();
+  });
+
+  // protects=two edit_mind calls in one step, each over its own text, each come in and end as their calls made whole: neither takes the other's text back, and neither card says it was stopped (#1635); fails_when=one call's new text goes back to the old while the other's comes in or runs, or a call that changed its text also reports a stop; no_claim=how often a model makes two such calls at once.
+  test("two calls in one step each come in over their own text, and neither takes the other's back", async () => {
+    const HARBOUR = paragraphs(3, "The harbour stayed calm, as paragraph");
+    const HARBOUR_NEW = paragraphs(4, "The harbour stayed calm all season, as paragraph");
+    const first = { part: "Tide notes", content: CONTENT };
+    const second = {
+      part: "Harbour notes",
+      content: `## Harbour notes\n\n${HARBOUR_NEW.join("\n\n")}`,
+    };
+    const model = scriptedModel((call): ScriptedReply => {
+      if (call.results.length > 0) return { text: "Done." };
+      return {
+        calls: [
+          { tool: "edit_mind", input: first, streamInput: true },
+          { tool: "edit_mind", input: second, streamInput: true },
+        ],
+      };
+    });
+    const { core, mind, client } = await setUp(model);
+    for (const [title, words] of [
+      ["Tide notes", OLD],
+      ["Harbour notes", HARBOUR],
+    ] as const) {
+      await core.addToNote({
+        mindId: mind.id,
+        blocks: [
+          { type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: title }] },
+          ...words.map((each) => ({ type: "paragraph", content: [{ type: "text", text: each }] })),
+        ],
+        origin: null,
+        model: null,
+      });
+    }
+    await client.settled();
+    const seen: string[][] = [];
+    client.blocks.observeDeep(() => seen.push(applied(client)));
+
+    const answer = await askAssistant(core, {
+      text: "Make both summaries longer.",
+      mindId: mind.id,
+    });
+    await client.settled();
+
+    const calls = mindCalls(answer);
+    expect(calls).toHaveLength(2);
+    for (const each of calls) {
+      expect(each.mindProblem).toBeUndefined();
+      expect(each.mindChange).toMatchObject({ request: expect.any(String) });
+    }
+    expect(applied(client)).toEqual(expect.arrayContaining([...NEW, ...HARBOUR_NEW]));
+    const came = seen.findIndex((lines) => lines.includes(NEW[0] as string));
+    expect(came).toBeGreaterThanOrEqual(0);
+    expect(seen.slice(came).some((lines) => lines.includes(OLD[0] as string))).toBe(false);
+  });
+
+  // protects=an edit_mind call whose input is refused, so never runs, takes back what it streamed in as its step ends: the Answer that then replies with nothing ends as the same Answer would with no streaming, and the Note is as it was (#1635); fails_when=the text that came in still counts as a change when the Answer decides how it ended; no_claim=what the reply says.
+  test("a call that never ran counts as no change when the Answer replies with nothing", async () => {
+    const ended = async (streamInput: boolean) => {
+      const model = scriptedModel((call): ScriptedReply => {
+        if (call.results.length > 0) return { text: "" };
+        return {
+          calls: [
+            {
+              tool: "edit_mind",
+              input: { part: "Tide notes", content: CONTENT, unknown: true },
+              streamInput,
+            },
+          ],
+        };
+      });
+      const { core, mind, client } = await setUp(model);
+      await core.addToNote({
+        mindId: mind.id,
+        blocks: [
+          { type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "Tide notes" }] },
+          ...OLD.map((words) => ({ type: "paragraph", content: [{ type: "text", text: words }] })),
+        ],
+        origin: null,
+        model: null,
+      });
+      await client.settled();
+      const before = exactly(client);
+      const seen: string[][] = [];
+      client.blocks.observeDeep(() => seen.push(applied(client)));
+      const asked = await core.askInConversation({
+        text: "Make the summary longer.",
+        mindId: mind.id,
+      });
+      if (!asked.asked) throw new Error("Not asked.");
+      const { event } = await answerEnded(core, asked.answerId);
+      await client.settled();
+      return {
+        event,
+        same: JSON.stringify(exactly(client)) === JSON.stringify(before),
+        came: seen.some((lines) => lines.includes(NEW[0] as string)),
+      };
+    };
+
+    const whole = await ended(false);
+    const streamed = await ended(true);
+
+    expect(streamed.came).toBe(true);
+    expect(streamed).toEqual({ ...whole, came: true });
+    expect(streamed.same).toBe(true);
+  });
+
+  // protects=new text for a Note out of focus whose title is close to another's doesn't come in before the User is asked which Note they meant, and goes into the one they pick (#1635, #1865); fails_when=the text shows in the Note the model named before the User picks; no_claim=the question's words.
+  test("over a Note the User is asked about first, nothing comes in before they pick", async () => {
+    const input = { mind: "Tide log", part: "Tide notes", content: CONTENT };
+    const model = scriptedModel((call): ScriptedReply => {
+      if (call.results.length > 0) return { text: "Done." };
+      return { calls: [{ tool: "edit_mind", input, streamInput: true }] };
+    });
+    const { core } = await setUp(model);
+    const log = await core.createMind({ title: "Tide log" });
+    await core.createMind({ title: "Tide log (draft)" });
+    await core.addToNote({
+      mindId: log.id,
+      blocks: [
+        { type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "Tide notes" }] },
+        ...OLD.map((words) => ({ type: "paragraph", content: [{ type: "text", text: words }] })),
+      ],
+      origin: null,
+      model: null,
+    });
+    const client = await connectToMind(core, log.id);
+    await client.settled();
+    const before = JSON.stringify(exactly(client));
+    const changedWhenAsked: boolean[] = [];
+    core.on("question.asked", (request) => {
+      changedWhenAsked.push(JSON.stringify(exactly(client)) !== before);
+      void core.answerUserQuestion(request.requestId, {
+        skipped: false,
+        chosen: ["Tide log"],
+        wrote: null,
+      });
+    });
+
+    await askAssistant(core, { text: "Make the summary in my Tide log longer." });
+    await client.settled();
+
+    expect(changedWhenAsked).toEqual([false]);
+    expect(applied(client).slice(-5)).toEqual(["Tide notes", ...NEW]);
   });
 
   // protects=an instruction given beside the content doesn't stop it coming in: the call writes the content, so its paragraphs take the old ones' places as they are written, and the end is the same call's made whole (#1635); fails_when=the content waits for the whole call because an instruction is there too; no_claim=what a model means by giving both.

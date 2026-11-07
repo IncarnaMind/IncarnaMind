@@ -36,7 +36,10 @@ export interface RunEngine {
  * which it gets as the array's only item. Arguments that don't match never reach
  * `gate` or the Tool: the call fails, and the model reads why.
  */
-export type RunTool = Pick<Tool, "name" | "description" | "inputSchema" | "call" | "streamInput">;
+export type RunTool = Pick<
+  Tool,
+  "name" | "description" | "inputSchema" | "call" | "streamInput" | "inputEnded"
+>;
 
 /** A call of a Tool, under the id the model gave it. */
 export interface RunToolCall {

@@ -1592,13 +1592,18 @@ export function mindTools(options: MindToolsOptions): {
     mind: ChangeableMind;
     over: OwnWaiting | OwnApplied;
     request: string;
-    breaks: number;
+    /** The Note's name as the call gave it before its text came in; null when it gave none. */
+    named: string | null;
+    /** How many of its content's paragraphs have ended. */
+    finished: number;
     /** How many of its content's Blocks are finished and recorded. */
     ready: number;
     /** Its Blocks in the Mind and what they held as written: the User may change them meanwhile. */
     written: { ids: readonly string[]; held: string | null } | null;
     /** Nothing more goes in until the call has all of it: it may be refused, or the text changed. */
     held: boolean;
+    /** Its card was told of the change as it came in. */
+    reported: boolean;
   }
   /** By call; null for one whose text goes in only once the call has all of it. */
   const revisions = new Map<string, Revision | null>();
@@ -1619,28 +1624,29 @@ export function mindTools(options: MindToolsOptions): {
   };
 
   /**
-   * Takes back the revisions but `except`'s, as one cut off by Stop or a failed model, or whose
-   * call never ran, its input refused, would leave the text half new while the model goes on.
+   * Takes back what came in of a call that won't write it: one cut off by Stop or a failed model,
+   * or one that never ran (its input refused, its step cut off) would leave the text half new.
    */
-  const takeBackRevisions = (except: string | null = null): void => {
-    for (const [toolCallId, revision] of revisions) {
-      if (toolCallId === except) continue;
-      revisions.set(toolCallId, null);
-      if (!revision?.written) continue;
-      try {
-        // Changed by the User, what came in stays waiting for them, as when the call refuses.
-        const kind = takeBack(revision) ? "stopped" : "changed";
-        options.failed(toolCallId, { kind, mindId: revision.mind.id });
-      } catch (error) {
-        console.error(
-          `What came in of call ${toolCallId}'s new text for Mind ${revision.mind.id} couldn't be taken back:`,
-          error,
-        );
-      }
+  const dropRevision = (toolCallId: string): void => {
+    const revision = revisions.get(toolCallId);
+    revisions.set(toolCallId, null);
+    if (!revision?.reported) return;
+    try {
+      // Changed by the User, what came in stays waiting for them, as when the call refuses.
+      const kind = takeBack(revision) ? "stopped" : "changed";
+      options.failed(toolCallId, { kind, mindId: revision.mind.id });
+    } catch (error) {
+      console.error(
+        `What came in of call ${toolCallId}'s new text for Mind ${revision.mind.id} couldn't be taken back:`,
+        error,
+      );
     }
-    if (except === null) revisions.clear();
   };
-  options.signal.addEventListener("abort", () => takeBackRevisions());
+  const takeBackRevisions = (): void => {
+    for (const toolCallId of revisions.keys()) dropRevision(toolCallId);
+    revisions.clear();
+  };
+  options.signal.addEventListener("abort", takeBackRevisions);
 
   /**
    * More of a call's content: the Blocks it has finished (all but the one
@@ -2535,9 +2541,18 @@ export function mindTools(options: MindToolsOptions): {
           : waiting;
       return waiting.kind === "none" ? ownAppliedIn(note, stretch.from, stretch.to) : null;
     });
-    return (
-      over && { mind, over, request: randomUUID(), breaks: 0, ready: 0, written: null, held: false }
-    );
+    if (!over) return null;
+    return {
+      mind,
+      over,
+      request: randomUUID(),
+      named: named?.value ?? null,
+      finished: 0,
+      ready: 0,
+      written: null,
+      held: false,
+      reported: false,
+    };
   };
 
   /**
@@ -2554,26 +2569,39 @@ export function mindTools(options: MindToolsOptions): {
     if (!revisions.has(toolCallId)) {
       const opened = openRevision(fields);
       if (opened === undefined) return;
-      takeBackRevisions(toolCallId);
       revisions.set(toolCallId, opened);
     }
     const revision = revisions.get(toolCallId);
-    if (!revision || revision.held) return;
-    // Only once a paragraph has ended is there a Block more to write.
-    const breaks = content.value.split("\n\n").length - 1;
-    if (breaks === revision.breaks) return;
-    revision.breaks = breaks;
+    if (!revision) return;
+    // A Note named after the text came in means where the call writes: when it isn't the Note
+    // the text went into, what came in goes at once, and the call writes the whole text there.
+    const named = fields.get("mind");
+    if (named && named.value !== revision.named) {
+      if (!named.done) return;
+      const meant = targetOf({ mind: named.value });
+      if (meant instanceof Refusal || meant.id !== revision.mind.id) {
+        // Words the User typed into it meanwhile stay theirs, waiting for them.
+        if (!takeBack(revision)) revision.written = null;
+        revision.held = true;
+        return;
+      }
+      revision.named = named.value;
+    }
+    if (revision.held) return;
+    // Only once a paragraph has ended, or all of the content has come, is there a Block more to write.
+    const writing = content.done ? 0 : 1;
+    const finished = content.value.split("\n\n").length - writing;
+    if (finished === revision.finished) return;
+    revision.finished = finished;
     const { markdown } = withoutPointersBack(content.value);
     const { blocks, firstUnrecorded, sourcesAsText } = options.blocksOf(markdown);
-    if (sourcesAsText.length > 0 || blocks.slice(0, -1).some(unmadeTable)) {
+    const whole = blocks.length - writing;
+    if (sourcesAsText.length > 0 || blocks.slice(0, whole).some(unmadeTable)) {
       revision.held = true;
       return;
     }
     // `cite` may run after the call's input starts: a Block waits for its markers' records.
-    const ready = Math.min(
-      firstUnrecorded < 0 ? blocks.length - 1 : firstUnrecorded,
-      blocks.length - 1,
-    );
+    const ready = Math.min(firstUnrecorded < 0 ? whole : firstUnrecorded, whole);
     if (ready <= revision.ready) return;
     revision.ready = ready;
     const { mind, over, request } = revision;
@@ -2591,6 +2619,7 @@ export function mindTools(options: MindToolsOptions): {
       return;
     }
     revision.written = written;
+    revision.reported = true;
     options.changed(toolCallId, {
       ...changeIn(mind.id, request, false),
       ...(over.kind === "own" && { revised: true }),
@@ -2754,6 +2783,9 @@ export function mindTools(options: MindToolsOptions): {
     untrustedResult: false,
     streamInput(toolCallId, input) {
       streamRevision(toolCallId, input);
+    },
+    inputEnded(toolCallId) {
+      if (!ended.has(toolCallId)) dropRevision(toolCallId);
     },
     async call(input, { toolCallId, signal, canCallAgain }) {
       ended.add(toolCallId);
@@ -3172,17 +3204,5 @@ export function mindTools(options: MindToolsOptions): {
     },
   };
 
-  /** A Tool that reads or writes a Note once revisions whose calls never ran are taken back. */
-  const afterRevisions = (tool: Tool): Tool => ({
-    ...tool,
-    call(input, context) {
-      takeBackRevisions(context.toolCallId);
-      return tool.call(input, context);
-    },
-  });
-
-  return {
-    tools: [read, gated(edit), gated(add), create].map((tool) => reporting(afterRevisions(tool))),
-    settle,
-  };
+  return { tools: [read, gated(edit), gated(add), create].map(reporting), settle };
 }
