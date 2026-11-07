@@ -5518,6 +5518,8 @@ export const zhCN = {
   "error.transcription.noKey": "请先添加 {service} 密钥。",
   "error.transcript.withNote": "会议的转写稿随笔记一起移动和删除。请移动或删除笔记。",
   "error.transcript.tagWithNote": "请改为给会议的笔记加标签。",
+  "error.transcript.speakersUnheld": "无法保存发言人：名字为 1 到 200 个字符，“我”始终是你。",
+  "error.transcript.speakersOfTranscript": "只能为转写稿中的发言人命名。",
   "error.meeting.joinMoved": "这场会议之后已移动，无法撤销。",
   "error.transcription.keyMissing": "请先粘贴密钥。",
   "error.transcription.unreachable": "无法连接 {service}。请检查网络后重试。",

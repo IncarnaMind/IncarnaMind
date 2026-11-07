@@ -3252,14 +3252,12 @@ export function createDocuments(options: DocumentsOptions) {
       const id = parseId(idInput);
       const { speakers, dropped } = parseTranscriptSpeakers(speakersInput);
       if (dropped > 0) {
-        throw new InvalidInputError(
-          "speakers must be { labels, lines }: names and labels of 1 to 200 characters, lines by their start and label, and no name for Me.",
-        );
+        throw new InvalidInputError({ key: "error.transcript.speakersUnheld" });
       }
       const row = find(id);
       if (!row) throw new NotFoundError({ key: "error.document.notFound" });
       if (row.kind !== "transcript") {
-        throw new InvalidInputError("Only a Transcript's Speakers can be named.");
+        throw new InvalidInputError({ key: "error.transcript.speakersOfTranscript" });
       }
       db.run("UPDATE documents SET speakers = ?, updated_at = ? WHERE id = ?", [
         speakers === null ? null : JSON.stringify(speakers),

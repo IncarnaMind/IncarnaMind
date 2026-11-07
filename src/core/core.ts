@@ -5594,7 +5594,7 @@ export function createCore(adapters: CoreAdapters): Core {
       return renamed;
     },
     setTranscriptSpeakers: async (input) => {
-      if (!isRecord(input)) throw new InvalidInputError("Give the Transcript and its speakers.");
+      if (!isRecord(input)) throw new InvalidInputError({ key: "error.transcript.speakersUnheld" });
       const updated = documents.setSpeakers(input.documentId, input.speakers);
       events.emit("documents.speakersChanged", [updated]);
       return updated;

@@ -5811,6 +5811,9 @@ export const en = {
   "error.transcript.withNote":
     "A meeting’s Transcript goes with its note. Move or delete the note instead.",
   "error.transcript.tagWithNote": "Tag the meeting’s note instead.",
+  "error.transcript.speakersUnheld":
+    "Who speaks couldn’t be kept: a name is 1 to 200 characters, and “Me” is always you.",
+  "error.transcript.speakersOfTranscript": "Only a Transcript’s speakers can be named.",
   "error.meeting.joinMoved": "The meeting has moved since, so this can’t be undone.",
   "error.transcription.keyMissing": "Paste the key first.",
   "error.transcription.unreachable":

@@ -167,7 +167,7 @@ describe("Who's who in a Transcript (#138)", { timeout: 60_000 }, () => {
         documentId: transcript.id,
         speakers: { labels: { [SPEAKER_ME]: "Joey" }, lines: {} },
       }),
-    ).rejects.toThrow(/no name for Me/);
+    ).rejects.toMatchObject({ wording: { key: "error.transcript.speakersUnheld" } });
 
     const mine = lineBy(cues, SPEAKER_ME);
     const theirs = lineBy(cues, "Speaker 1");
