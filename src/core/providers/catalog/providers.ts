@@ -33,6 +33,10 @@ export const CLAUDE_LOW_EFFORT: ProviderOptions = {
   anthropic: { thinking: { type: "adaptive" }, effort: "low" },
 };
 
+// Measured through OpenRouter (#1631), which passes `reasoning.max_tokens` to Qwen as its
+// `thinking_budget`: Qwen's own API gets the same control under its own name.
+const QWEN_THINKING_BUDGET = 512;
+
 const PROVIDERS = [
   {
     id: "anthropic",
@@ -183,6 +187,9 @@ const PROVIDERS = [
         ],
       },
       reasoningSummary: { options: { openai: { reasoningSummary: "auto" } } },
+      // At low, GPT-6 Luna's Answers were 1.0 s sooner but cited the expected Passage less often
+      // (62 → 57 of 65), twice answering without a search, and its comparison cells were no
+      // sooner; so OpenAI's models, and the ChatGPT plan's, think at their default (#1631).
     },
     roles: {
       answers: "gpt-6-luna",
@@ -243,6 +250,10 @@ const PROVIDERS = [
     ],
     docsUrl: "https://ai.google.dev/gemini-api/docs/models",
     pricingUrl: "https://ai.google.dev/gemini-api/docs/pricing",
+    // At level low, Gemini 3.8 Flash's Answers finished 5.8 s sooner, but once #2706 measured false
+    // Supported one Answer gave a detail its quote doesn't state ("French mathematician") and one
+    // Citation wasn't found; its comparison cells lost a judged-right item. So every kind thinks at
+    // its default (#1631).
     roles: {
       answers: "gemini-3.8-flash",
       strongest: "gemini-3.1-pro-preview",
@@ -301,6 +312,15 @@ const PROVIDERS = [
       // support everything a request asks for (Tools, a JSON schema).
       body: { provider: { data_collection: "deny", require_parameters: true } },
       thinkingOff: { options: { openrouter: { reasoning: { effort: "none" } } } },
+      // Only the kind that held its gate, as on Qwen's own API; GPT-6 Luna, Gemini 3.8 Flash and
+      // GLM-5.3 Flash keep their default (#1631).
+      effort: {
+        models: {
+          "qwen/qwen3.7-plus": {
+            task: { openrouter: { reasoning: { max_tokens: QWEN_THINKING_BUDGET } } },
+          },
+        },
+      },
     },
     roles: {
       answers: "anthropic/claude-sonnet-5.5",
@@ -413,10 +433,11 @@ const PROVIDERS = [
       },
     ],
     docsUrl: "https://api-docs.deepseek.com/quick_start/pricing",
-    // Its own effort, reasoning_effort (high by default), was measured at low on DeepSeek Flash
-    // (#1631): Answers finished 1.5 to 5 s sooner, but on the everyday requests one claimed a change
-    // it hadn't made and one asked instead of writing, and its comparison cells were judged right
-    // less often. So every kind thinks at its default.
+    // Its own effort, reasoning_effort (high by default), was measured at low on DeepSeek Flash twice
+    // (#1631): Answers finished sooner (about 5 s, then 9 s, on the everyday requests), but
+    // each time an everyday request failed at low that hadn't at the default (a change claimed but
+    // not made, then a write that changed nothing), and its comparison cells and its check of an
+    // Answer's sentences were judged right less often. So every kind thinks at its default.
     request: { thinkingOff: { options: { deepseek: { thinking: { type: "disabled" } } } } },
     roles: {
       answers: "deepseek-flash",
@@ -477,7 +498,19 @@ const PROVIDERS = [
       },
     ],
     docsUrl: "https://www.alibabacloud.com/help/en/model-studio/regions",
-    request: { thinkingOff: { options: { alibaba: { enableThinking: false } } } },
+    request: {
+      thinkingOff: { options: { alibaba: { enableThinking: false } } },
+      // Within a 512-token thinking budget, Qwen3.7-Plus's comparison cells finished sooner in two
+      // runs (1.1 s, then 0.2 s at the paired median), as well cited and judged, with no new false
+      // Supported; its Answers were no sooner, so they keep the default (#1631). A budget never
+      // turns thinking on where it is off.
+      effort: {
+        models: { "qwen3.7-plus": { task: { alibaba: { thinkingBudget: QWEN_THINKING_BUDGET } } } },
+        refused: [
+          { names: "thinking_budget", options: { alibaba: { thinkingBudget: undefined } } },
+        ],
+      },
+    },
     roles: {
       answers: "qwen3.7-plus",
       strongest: "qwen3.8-max",
@@ -583,6 +616,9 @@ const PROVIDERS = [
         // GLM-5.3 and its Flash can't turn thinking off.
         unless: ["glm-5.3"],
       },
+      // GLM-5.3 Flash at reasoning_effort low, on OpenRouter's hosts (not Z.ai's own): Answers were
+      // 2.7 s sooner but judged right less often (24 → 22 of 24), and its comparison cells were no
+      // sooner, so every kind thinks at its default (#1631).
     },
     roles: {
       answers: "glm-5.3-flash",
