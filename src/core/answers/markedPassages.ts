@@ -2,13 +2,25 @@
  * The records of a reply that names its Passages in its markers (#2526): call help on a listed
  * model is offered no `cite`, and each marker holds the number of the Passage it rests on, "[^3]"
  * for P3. Its quote is the sentence of that Passage most like the sentence the marker is in, of
- * those the Citation check finds there, so each record is taken and checked as any other. A
- * Passage named in two sentences that rest on different sentences of it gets a marker for each.
+ * those the Citation check finds there, so each record is taken and checked as any other. A claim
+ * that rests on more of the Passage than that sentence (a price, its discount and its fee, one
+ * line each) gets a quote for each, up to `MAX_QUOTES`, each under a marker of its own, as a model
+ * citing by records gives them; so does a Passage named by claims resting on different sentences
+ * of it. A marker written "[^P3]", the id itself, is read as "[^3]".
  */
 import { answerSentences, MARKER } from "../../shared/answerSentences";
 import type { CitationRecordInput } from "./engine";
 import { likeness, wordsOf } from "./markerPlacement";
 import { passageSentences } from "./unmarkedQuotes";
+
+/** The most quotes one marker gets from its Passage. */
+const MAX_QUOTES = 3;
+
+/** The fewest of a claim's words a further quote must add to be taken. */
+const MIN_ADDED_WORDS = 2;
+
+/** A marker as a model may write it: "[^3]", or the Passage's id, "[^P3]". */
+const NAMED = /\[\^[Pp]?(\d{1,4})\]/g;
 
 /** A sentence as a quote of it is written: no list mark, heading mark or "[0:04 Them]" lead. */
 const asQuoted = (sentence: string) =>
@@ -29,54 +41,77 @@ export function markedPassages(
   found: (passage: string, quote: string) => boolean,
   recorded: (marker: number) => boolean,
 ): { text: string; records: CitationRecordInput[] } {
+  const named = text.replace(NAMED, (_, number: string) => `[^${number}]`);
   const shown = new Map(passages.map((passage) => [passage.id.toUpperCase(), passage]));
-  let next = Math.max(0, ...[...text.matchAll(MARKER)].map((each) => Number(each[1]))) + 1;
+  let next = Math.max(0, ...[...named.matchAll(MARKER)].map((each) => Number(each[1]))) + 1;
   /** The marker each Passage's quote was recorded under: the Passage's own number first. */
   const markerOf = new Map<string, number>();
   const records: CitationRecordInput[] = [];
-  const renumbered: { at: number; length: number; marker: number }[] = [];
-  for (const sentence of answerSentences(text)) {
+  const rewritten: { at: number; length: number; markers: number[] }[] = [];
+  for (const sentence of answerSentences(named)) {
     const claim = wordsOf(sentence.text);
-    for (const each of text.slice(sentence.start, sentence.end).matchAll(MARKER)) {
-      const named = Number(each[1]);
-      const passage = shown.get(`P${named}`);
-      if (!passage || recorded(named)) continue;
-      const quote = closestQuote(passage, claim, found);
-      if (!quote) continue;
-      const key = `${passage.id}\n${quote}`;
-      const taken = [...markerOf.values()].includes(named);
-      const marker = markerOf.get(key) ?? (taken ? next++ : named);
-      if (!markerOf.has(key)) {
-        markerOf.set(key, marker);
-        records.push({ marker, passage: passage.id, quote });
-      }
-      if (marker !== named) {
-        renumbered.push({ at: sentence.start + each.index, length: each[0].length, marker });
+    for (const each of named.slice(sentence.start, sentence.end).matchAll(MARKER)) {
+      const number = Number(each[1]);
+      const passage = shown.get(`P${number}`);
+      if (!passage || recorded(number)) continue;
+      const markers = quotesFor(passage, claim, found).map((quote) => {
+        const key = `${passage.id}\n${quote}`;
+        const own = [...markerOf.values()].includes(number);
+        const marker = markerOf.get(key) ?? (own ? next++ : number);
+        if (!markerOf.has(key)) {
+          markerOf.set(key, marker);
+          records.push({ marker, passage: passage.id, quote });
+        }
+        return marker;
+      });
+      if (markers.length > 0 && (markers.length > 1 || markers[0] !== number)) {
+        rewritten.push({ at: sentence.start + each.index, length: each[0].length, markers });
       }
     }
   }
-  let marked = text;
-  for (const { at, length, marker } of renumbered.reverse()) {
-    marked = `${marked.slice(0, at)}[^${marker}]${marked.slice(at + length)}`;
+  let marked = named;
+  for (const { at, length, markers } of rewritten.reverse()) {
+    const written = markers.map((marker) => `[^${marker}]`).join("");
+    marked = `${marked.slice(0, at)}${written}${marked.slice(at + length)}`;
   }
   return { text: marked, records };
 }
 
-/** The sentence of `passage` most like `claim` that the Citation check finds there; null for none. */
-function closestQuote(
+/**
+ * The sentences of `passage` a claim rests on, each one the Citation check finds there: the one
+ * most like `claim`, then each that adds most of the claim's words not yet quoted, while it adds
+ * `MIN_ADDED_WORDS` or more.
+ */
+function quotesFor(
   passage: { id: string; text: string },
   claim: ReadonlySet<string>,
   found: (passage: string, quote: string) => boolean,
-): string | null {
-  return (
-    passageSentences(passage.text)
-      .map((sentence, at) => ({
-        quote: asQuoted(sentence),
-        at,
-        score: likeness(claim, wordsOf(sentence)).score,
+): string[] {
+  const candidates = passageSentences(passage.text)
+    .map((sentence, at) => ({ quote: asQuoted(sentence), at, words: wordsOf(sentence) }))
+    .filter((each) => each.quote !== "");
+  const quotes: string[] = [];
+  const quoted = new Set<string>();
+  const added = (words: ReadonlySet<string>) =>
+    [...words].filter((word) => claim.has(word) && !quoted.has(word)).length;
+  while (quotes.length < MAX_QUOTES) {
+    const next = candidates
+      .filter((each) => !quotes.includes(each.quote))
+      .map((each) => ({
+        ...each,
+        added: added(each.words),
+        score: likeness(claim, each.words).score,
       }))
-      .filter((each) => each.quote !== "")
-      .sort((a, b) => b.score - a.score || a.at - b.at)
-      .find((each) => found(passage.id, each.quote))?.quote ?? null
-  );
+      .filter((each) => quotes.length === 0 || each.added >= MIN_ADDED_WORDS)
+      .sort((a, b) =>
+        quotes.length === 0
+          ? b.score - a.score || a.at - b.at
+          : b.added - a.added || b.score - a.score || a.at - b.at,
+      )
+      .find((each) => found(passage.id, each.quote));
+    if (!next) break;
+    quotes.push(next.quote);
+    for (const word of next.words) if (claim.has(word)) quoted.add(word);
+  }
+  return quotes;
 }

@@ -226,7 +226,7 @@ describe("Help during the call", { timeout: 60_000 }, () => {
     expect(calls.filter((call) => call.tools.length > 0)).toHaveLength(1);
     expect(calls[0]?.tools).toContain("search_documents");
     expect(calls[0]?.tools).not.toContain("cite");
-    expect(calls[0]?.system).toContain("[^3] cites P3");
+    expect(calls[0]?.system).toContain("write [^3] to cite P3");
     expect(answer.citations).toEqual([
       expect.objectContaining({ documentName: "Price sheet", quote: PRICE, check: "found" }),
     ]);

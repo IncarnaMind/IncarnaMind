@@ -697,7 +697,7 @@ const writeThenCite = (keeps: boolean, minds: boolean) => [
  * no Tool's result to think over.
  */
 const MARKS_PASSAGES = [
-  "- Put a marker right after each claim a Passage supports, holding the number of that Passage's id: [^3] cites P3, [^12] cites P12. IncarnaMind records the quote. One Passage a marker: a claim resting on two gets both, as [^3][^12]. Add no list of sources.",
+  "- Put a marker right after each claim a Passage supports, with that Passage's number alone in it: write [^3] to cite P3 and [^12] to cite P12, never [^P3]. IncarnaMind records the quotes. One Passage a marker: a claim resting on two gets both, as [^3][^12]. Add no list of sources.",
   "- Use quotation marks only around a Document's exact words, in its own language.",
   "- Write nothing before a search: only the reply, once you have what it needs.",
 ];

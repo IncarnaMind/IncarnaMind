@@ -70,4 +70,22 @@ describe("Records for a reply that names its Passages in its markers", () => {
       ],
     });
   });
+
+  // protects=a claim resting on several lines of one Passage gets a quote for each line that adds its own words, each under a marker of its own written where the model put its one, and a marker written as the id itself ("[^P3]") is read as the number; fails_when=only one of the lines is quoted, a line adding nothing of the claim is quoted, or "[^P3]" is left in the text; no_claim=whether the judge finds the claim stated (the gate) (#2526).
+  test("a claim resting on several lines of one Passage gets a quote for each, and [^P3] is read as [^3]", () => {
+    const text =
+      "★ 企业版每名司机每月 340 元，50 名司机起打九折，开通费一次性 15,000 元 [^P3]\n→ 报价清楚";
+    const prices = {
+      id: "P3",
+      text: "- 团队版：每名司机每月 190 元。\n- 企业版：每名司机每月 340 元，含路线优化。\n- 批量优惠：企业版 50 名司机起打九折。\n- 开通费：一次性 15,000 元。",
+    };
+    expect(markedPassages(text, [prices], everywhere, none)).toEqual({
+      text: text.replace("[^P3]", "[^3][^4][^5]"),
+      records: [
+        { marker: 3, passage: "P3", quote: "批量优惠：企业版 50 名司机起打九折。" },
+        { marker: 4, passage: "P3", quote: "开通费：一次性 15,000 元。" },
+        { marker: 5, passage: "P3", quote: "企业版：每名司机每月 340 元，含路线优化。" },
+      ],
+    });
+  });
 });
