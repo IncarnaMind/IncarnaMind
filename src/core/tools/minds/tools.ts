@@ -2511,16 +2511,18 @@ export function mindTools(options: MindToolsOptions): {
     );
 
   /**
-   * The text an `edit_mind` call's content will replace, once the fields before it name it whole:
-   * the assistant's own text, as `beginEdit` finds it. Null when the content goes in only once the
-   * call has all of it: the call names no part, or asks the User which Note first, or the text there
-   * isn't the assistant's own, or this Answer wrote it, which taking the new text back would take
-   * back too.
+   * The text an `edit_mind` call's content will replace: the assistant's own text, as `beginEdit`
+   * finds it. Undefined until `part` is whole, and the Note's name when one is given, whichever
+   * comes first: models write `part` after the content as often as before it, and the content
+   * waits for it. Null when the content goes in only once the call has all of it: the part names
+   * nothing, or the Note asks the User which first, or the text there isn't the assistant's own,
+   * or this Answer wrote it, which taking the new text back would take back too. An `instruction`
+   * beside the content changes nothing: the call writes the content.
    */
-  const openRevision = (fields: ReturnType<typeof partialFields>): Revision | null => {
+  const openRevision = (fields: ReturnType<typeof partialFields>): Revision | null | undefined => {
     const named = fields.get("mind");
     const part = fields.get("part");
-    if (!part?.done || (named && !named.done) || fields.has("instruction")) return null;
+    if (!part?.done || (named && !named.done)) return undefined;
     const mind = targetOf({ mind: named?.value });
     if (mind instanceof Refusal || asksFirst(mind)) return null;
     const over = minds.read(mind.id, (note) => {
@@ -2550,8 +2552,10 @@ export function mindTools(options: MindToolsOptions): {
     const content = fields.get("content");
     if (!content) return;
     if (!revisions.has(toolCallId)) {
+      const opened = openRevision(fields);
+      if (opened === undefined) return;
       takeBackRevisions(toolCallId);
-      revisions.set(toolCallId, openRevision(fields));
+      revisions.set(toolCallId, opened);
     }
     const revision = revisions.get(toolCallId);
     if (!revision || revision.held) return;

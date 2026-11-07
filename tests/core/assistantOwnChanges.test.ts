@@ -2140,11 +2140,13 @@ describe("New text coming in over the assistant's own text (#1635)", { timeout: 
 
   /**
    * "Make the summary longer." over a summary added from an Answer, its new text held once its
-   * third paragraph has begun until `release`, or `fail`, or given whole with `streamed` false.
+   * third paragraph has begun (or `holdAt` characters of its input are out) until `release`, or
+   * `fail`, or given whole with `streamed` false.
    */
   async function longer({
     streamed = true,
     input = { part: "Tide notes", content: CONTENT } as Record<string, unknown>,
+    holdAt = JSON.stringify(input).indexOf(NEW[2] as string) + 4,
   } = {}) {
     let release = () => {};
     let fail = (_error: Error) => {};
@@ -2157,7 +2159,7 @@ describe("New text coming in over the assistant's own text (#1635)", { timeout: 
       if (!streamed) return { calls: [{ tool: "edit_mind", input }] };
       return {
         calls: [{ tool: "edit_mind", input, streamInput: true }],
-        pause: { after: JSON.stringify(input).indexOf(NEW[2] as string) + 4, until: held },
+        pause: { after: holdAt, until: held },
       };
     });
     const { core, mind, client } = await setUp(model);
@@ -2204,6 +2206,50 @@ describe("New text coming in over the assistant's own text (#1635)", { timeout: 
     const first = seen.findIndex((lines) => lines.includes(NEW[0] as string));
     expect(first).toBeGreaterThanOrEqual(0);
     expect(seen.slice(first).some((lines) => lines.includes(OLD[0] as string))).toBe(false);
+  });
+
+  // protects=a model that names the part after the content, as Claude and DeepSeek often do: the content waits for the part, then what has come goes in its place, and the call ends as the same call made whole (#1635); fails_when=nothing comes in until the call has all of its input, or text comes in before the part says where; no_claim=how often a model orders its input so.
+  test("named after the content, the part is waited for, then what came in takes the old text's place", async () => {
+    const input = { content: CONTENT, part: "Tide notes", removes_only: false };
+    const whole = await longer({ streamed: false, input });
+    whole.release();
+    await answerEnded(whole.core, whole.asked.answerId);
+    await whole.client.settled();
+    const { core, client, seen, asked, release } = await longer({
+      input,
+      holdAt: JSON.stringify(input).indexOf('"removes_only"'),
+    });
+
+    await expect
+      .poll(() => applied(client).slice(-4))
+      .toEqual(["Tide notes", NEW[0], NEW[1], NEW[2]]);
+    release();
+    expect((await answerEnded(core, asked.answerId)).event).toBe("finished");
+    await client.settled();
+
+    expect(
+      seen.some((lines) => lines.includes(NEW[0] as string) && lines.includes(OLD[2] as string)),
+    ).toBe(false);
+    expect(shownWithChanges(client)).toEqual(shownWithChanges(whole.client));
+  });
+
+  // protects=an instruction given beside the content doesn't stop it coming in: the call writes the content, so its paragraphs take the old ones' places as they are written, and the end is the same call's made whole (#1635); fails_when=the content waits for the whole call because an instruction is there too; no_claim=what a model means by giving both.
+  test("with an instruction beside it, the content still comes in as it is written", async () => {
+    const input = { part: "Tide notes", instruction: "Make it longer.", content: CONTENT };
+    const whole = await longer({ streamed: false, input });
+    whole.release();
+    await answerEnded(whole.core, whole.asked.answerId);
+    await whole.client.settled();
+    const { core, client, asked, release } = await longer({ input });
+
+    await expect
+      .poll(() => applied(client).slice(-4))
+      .toEqual(["Tide notes", NEW[0], NEW[1], OLD[2]]);
+    release();
+    expect((await answerEnded(core, asked.answerId)).event).toBe("finished");
+    await client.settled();
+
+    expect(shownWithChanges(client)).toEqual(shownWithChanges(whole.client));
   });
 
   // protects=new text over the assistant's own text still waiting from an earlier Answer takes its place paragraph by paragraph too, and ends as one revision, its Checkpoint saved once (#1635); fails_when=the old waiting text stays below the new until the end, the end differs from the whole call's, or each paragraph saves a Checkpoint; no_claim=none beyond protects.
