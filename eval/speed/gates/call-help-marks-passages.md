@@ -38,6 +38,27 @@ Unit tests show the request offering no `cite`, the records IncarnaMind takes, a
 - **Load:** a run starts only once the 15-minute load is 24 or less, and a run whose load went above 24 is run again.
 - **Spend:** about $6.50 for the three gates: Sonnet about $4.30, Haiku about $1.70, DeepSeek about $0.40, plus the probes. The ledger stops a run before this work's total passes $33.
 
+## Probes, and what changed after them (added 2026-11-07, before the gate's runs)
+
+The probes ran on DeepSeek V4.1 Flash 1017 and spent about $0.30:
+
+- 8 presses on six cases of this set: en2-answer-tablets, en2-no-price, en2-check-wrong, zh2-answer-total (twice), zh2-sum and zh2-answer-earlier;
+- then 8 presses on the first set.
+
+What they showed changed the step before any gate run. Each fix is general, not fitted to a case's wording:
+
+- **One marker, one Passage.** A Passage named by claims resting on different sentences of it gets a marker for each.
+- **One line, several facts.** A claim resting on several lines of one Passage gets a quote for each line that adds its own words, up to three. Before, a price, its discount and its fee under one marker were quoted from one line.
+- **The id itself.** A marker written as the id, "[^P4]", is read as "[^4]". The rule now says "write [^3] to cite P3, never [^P3]".
+- **calculate.** A `calculate` input that names a Passage by its marker number ("citation": 5 for P5) quotes that Passage's sentence holding its number. Before, it was refused as an unrecorded marker; once, the reply ended with nothing shown.
+
+Those six cases have now been seen by a run of this step. So the bar below is read over the 24 cases no run has seen, 12 in each language, and only those 24 are run:
+
+- en2: answer-total, answer-edition, answer-unknown, answer-earlier, answer-two, say-competitor, say-offline, want, sum, no-deposit, ask-store, check-right;
+- zh2: answer-tablets, answer-edition, answer-unknown, answer-two, say-competitor, say-offline, want, no-deposit, ask-store, check-wrong, check-right, no-price.
+
+Spend falls to about $5.20 for the three gates.
+
 ## The bar
 
 A model is listed only if it holds every line below. Per language, from each run's per-case records (`report.json`), a range is the lowest and highest of the three runs' counts:
