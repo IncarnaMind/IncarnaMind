@@ -76,7 +76,13 @@ const LETTERS = ["Alpha", "Beta", "Gamma", "Delta", "Epsilon", "Zeta", "Eta", "T
  * A plan model that files a Document by the first letter of its name ("A12" in Alpha), names
  * subfolders by its second, and records what each request was given.
  */
-function letterModel(options: { failPlacing?: boolean; existing?: Record<string, string> } = {}) {
+function letterModel(
+  options: {
+    failPlacing?: boolean;
+    existing?: Record<string, string>;
+    missesAtFirst?: string;
+  } = {},
+) {
   const asked = {
     sorted: [] as PlanExcerpt[][],
     placed: [] as PlanExcerpt[][],
@@ -88,8 +94,11 @@ function letterModel(options: { failPlacing?: boolean; existing?: Record<string,
       const folders = new Map<string, { id: string | null; name: string; refs: string[] }>();
       for (const doc of request.documents) {
         const name = LETTERS.find((each) => each.startsWith(doc.name.charAt(0)));
-        if (!name) continue;
-        const existing = options.existing?.[name] ?? null;
+        if (!name || (asked.sorted.length === 1 && name === options.missesAtFirst)) continue;
+        const existing =
+          request.folders.find((folder) => folder.name === name)?.id ??
+          options.existing?.[name] ??
+          null;
         const entry = folders.get(name) ?? { id: existing, name, refs: [] };
         entry.refs.push(doc.ref);
         folders.set(name, entry);
@@ -274,6 +283,17 @@ describe("The plan's requests and places", () => {
     expect(result.places.get("doc0")).toEqual({ kind: "folder", folderId: "leases-id" });
     expect(result.places.get("doc19")).toEqual({ kind: "folder", folderId: "leases-id" });
     expect(result.folders.map((folder) => folder.name)).not.toContain("Alpha");
+  });
+
+  test("3 or more Documents left out of every Folder get a second look, which may find their own", async () => {
+    const { model, asked } = letterModel({ missesAtFirst: "Delta" });
+    const { vectors } = groups(4, 20);
+    const result = await plan(namedGroups(vectors, 20, ["A", "B", "G", "D"]), model);
+    expect(asked.sorted).toHaveLength(2);
+    expect(asked.sorted[1]?.every((doc) => doc.name.startsWith("D"))).toBe(true);
+    const delta = result.folders.find((folder) => folder.name === "Delta");
+    for (let at = 60; at < 80; at++)
+      expect(result.places.get(`doc${at}`)).toEqual({ kind: "new", key: delta?.key });
   });
 
   test("a placement request that can't reach the service leaves its Documents out, or ends the plan", async () => {

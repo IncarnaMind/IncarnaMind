@@ -1,12 +1,14 @@
 /**
  * `INCARNAMIND_ORGANIZE_MODE=new-user npm run eval:organize`: Organize as a new User meets it
  * (README.md). A core on a temporary data folder, with the User's chat model and no Folders, is
- * given the set's Documents, and Organize runs as the Library's "Sort these into Folders" runs it
- * (`organizeDocuments` in src/renderer/src/organizeDocuments.ts). What it proposed is scored
- * before the User confirms anything.
+ * given the set's Documents, and Organize runs as the Library's Organize runs it: planned from
+ * the whole set into the Review (`organizeLibrary`), or on the "classic" route as the Library's
+ * "Sort these into Folders" ran it before the Review. What it proposed is scored before the User
+ * confirms anything.
  */
 import { execFileSync } from "node:child_process";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { generateText } from "ai";
@@ -19,6 +21,7 @@ import { type DocumentExcerpt, documentType } from "../../src/core/tags/classify
 import { createTempDataFolder, queryDatabase, startCore } from "../../tests/helpers/core";
 import { addAndProcess } from "../../tests/helpers/documents";
 import { type ChatSettings, chatModelSpecOf, chatProviderOf, readConfig } from "../lib/config";
+import type { Subfolder } from "./lib/newUser";
 import {
   bars,
   kindOf,
@@ -29,7 +32,7 @@ import {
   scoreNewUser,
   type TopicVerdict,
 } from "./lib/newUser";
-import { runOptions, selected } from "./lib/options";
+import { choice, runOptions, selected } from "./lib/options";
 import { prepare } from "./lib/prepare";
 import { readSet, SET_DIRECTORY, type SetDocument } from "./lib/set";
 
@@ -117,8 +120,42 @@ function metered(dataDir: string): NewUserRun["spend"] {
   }));
 }
 
+/**
+ * The set at scale (`INCARNAMIND_ORGANIZE_SCALE`), made by the fixture generator into a folder of
+ * its own, with the Python that has its libraries (`INCARNAMIND_ORGANIZE_PYTHON`).
+ */
+async function scaleSet(count: number): Promise<string> {
+  const folder = await mkdtemp(join(tmpdir(), "incarnamind-organize-scale-"));
+  const python = process.env.INCARNAMIND_ORGANIZE_PYTHON?.trim() || "python3";
+  const seed = process.env.INCARNAMIND_ORGANIZE_SEED?.trim() || "1";
+  execFileSync(
+    python,
+    [
+      "-I",
+      join(root, SET_DIRECTORY, "make-fixtures.py"),
+      "--scale",
+      String(count),
+      "--seed",
+      seed,
+      folder,
+    ],
+    { stdio: "inherit" },
+  );
+  return folder;
+}
+
 test("Organize as a new User meets it", async () => {
-  const set = await readSet(root);
+  const route = choice(
+    "INCARNAMIND_ORGANIZE_ROUTE",
+    process.env.INCARNAMIND_ORGANIZE_ROUTE,
+    ["plan", "classic"],
+    "plan",
+  );
+  const scale = Number(process.env.INCARNAMIND_ORGANIZE_SCALE ?? 0);
+  if (!Number.isInteger(scale) || scale < 0)
+    throw new Error("INCARNAMIND_ORGANIZE_SCALE must be a number of Documents.");
+  const directory = scale > 0 ? await scaleSet(scale) : join(root, SET_DIRECTORY);
+  const set = await readSet(root, directory);
   const config = readConfig(root);
   const options = runOptions(process.env, "heldout");
   const chat = config.chat;
@@ -129,7 +166,10 @@ test("Organize as a new User meets it", async () => {
   const judgeSettings = config.judge ?? chat;
   const documents = selected(set.documents, options);
   const startedAt = new Date().toISOString();
-  const output = join(results, `new-user-${startedAt.replace(/[:.]/g, "-")}`);
+  const output = join(
+    results,
+    `new-user-${route}${scale ? `-${scale}` : ""}-${startedAt.replace(/[:.]/g, "-")}`,
+  );
   await mkdir(output, { recursive: true });
 
   const dataDir = await createTempDataFolder();
@@ -146,8 +186,8 @@ test("Organize as a new User meets it", async () => {
   await core.saveChatProvider(chatProviderOf(chat));
 
   log(`Adding ${documents.length} Documents…`);
-  const paths = new Map(documents.map((doc) => [join(root, SET_DIRECTORY, doc.file), doc]));
-  const added = await addAndProcess(core, [...paths.keys()], 10 * 60_000);
+  const paths = new Map(documents.map((doc) => [join(directory, doc.file), doc]));
+  const added = await addAndProcess(core, [...paths.keys()], 30 * 60_000);
   const setDocOf = new Map<string, SetDocument>();
   for (const document of added) {
     const doc = paths.get(document.path);
@@ -175,45 +215,120 @@ test("Organize as a new User meets it", async () => {
   log(`Organizing with ${automatic.name}…`);
 
   const pressed = performance.now();
+  let proposedMs = 0;
   let firstPlacementMs: number | null = null;
-  const watching = new Set(ids);
-  const stop = core.on("library.assignments", (changed) => {
-    if (
-      firstPlacementMs === null &&
-      changed.some((each) => watching.has(each.documentId) && each.groupId !== null)
-    )
-      firstPlacementMs = performance.now() - pressed;
-  });
-  const made = await core.proposeFolders(ids);
-  const proposedMs = performance.now() - pressed;
-  log(`${made.length} Folders proposed: ${made.map((folder) => folder.name).join(", ")}`);
-  if (made.length > 0) await core.classifyDocuments(ids);
-  const assignments = await settled(core, watching);
-  const totalMs = performance.now() - pressed;
-  stop();
+  let totalMs = 0;
+  let folders: ProposedFolder[] = [];
+  let outcomes: Outcome<SetDocument>[] = [];
+  let plan: NewUserRun["plan"];
+  const documentsNow = async () =>
+    new Map<string, Document>((await core.listDocuments()).map((each) => [each.id, each]));
 
-  const after = await core.getLibrary();
-  const tagNames = new Map((await core.listTags()).map((tag) => [tag.id, tag.name]));
-  const documentsNow = new Map<string, Document>(
-    (await core.listDocuments()).map((each) => [each.id, each]),
-  );
-  const folders: ProposedFolder[] = after.groups.map(({ id, name, description }) => ({
-    id,
-    name,
-    description,
-  }));
-  const outcomes: Outcome<SetDocument>[] = ids.map((id) => {
-    const document = documentsNow.get(id);
-    const assignment = assignments.find((each) => each.documentId === id);
-    return {
-      doc: setDocOf.get(id) as SetDocument,
-      readable: document?.status === "ready",
-      folder: assignment?.groupId ?? null,
-      tags: (document?.tags ?? []).map((tag) => tagNames.get(tag.tagId) ?? tag.tagId),
-      status: assignment?.status ?? document?.status ?? "none",
-      error: assignment?.error?.message ?? null,
+  if (route === "plan") {
+    let result = await core.organizeLibrary();
+    if (result.status === "estimate") {
+      log(`Estimated ${JSON.stringify(result.estimate)}: going on, as the User would.`);
+      result = await core.organizeLibrary({ costAccepted: true });
+    }
+    totalMs = performance.now() - pressed;
+    proposedMs = totalMs;
+    if (result.status !== "done") throw new Error(`Organize ended: ${result.status}.`);
+    const review = await core.getOrganizeReview();
+    const byId = new Map(review.folders.map((folder) => [folder.id, folder]));
+    const topOf = (id: string) => {
+      let folder = byId.get(id);
+      while (folder?.parentNewFolderId) folder = byId.get(folder.parentNewFolderId);
+      return folder?.id ?? id;
     };
-  });
+    folders = review.folders
+      .filter((folder) => folder.parentNewFolderId === null)
+      .map(({ id, name, description }) => ({ id, name, description }));
+    const now = await documentsNow();
+    outcomes = ids.map((id) => {
+      const document = now.get(id);
+      const item = review.items.find((each) => each.documentId === id);
+      const placement = item?.placement;
+      return {
+        doc: setDocOf.get(id) as SetDocument,
+        readable: document?.status === "ready",
+        folder:
+          placement?.kind === "newFolder"
+            ? topOf(placement.newFolderId)
+            : placement?.kind === "folder"
+              ? placement.folderId
+              : null,
+        tags: (item?.tags ?? []).map((tag) => tag.name),
+        status:
+          placement?.kind === "leftOut"
+            ? `left out: ${placement.leftOut?.reason ?? "moved"}`
+            : (placement?.kind ?? "no row"),
+        error: null,
+      };
+    });
+    const subfolders: Subfolder[] = review.folders.flatMap((folder) => {
+      if (folder.parentNewFolderId === null) return [];
+      const held = review.items
+        .filter(
+          (item) => item.placement.kind === "newFolder" && item.placement.newFolderId === folder.id,
+        )
+        .map((item) => setDocOf.get(item.documentId)?.sub ?? "–");
+      const counts = new Map<string, number>();
+      for (const sub of held) counts.set(sub, (counts.get(sub) ?? 0) + 1);
+      return [
+        {
+          parent: byId.get(folder.parentNewFolderId)?.name ?? "?",
+          name: folder.name,
+          size: held.length,
+          sameSub: Math.max(0, ...counts.values()),
+        },
+      ];
+    });
+    plan = {
+      requests: result.requests,
+      placedByModel: result.placedByModel,
+      inputPerRequest: queryDatabase<{ input: number | null }>(
+        dataDir,
+        "SELECT input_tokens AS input FROM model_requests WHERE deleted_at IS NULL AND flow = 'classification' ORDER BY created_at",
+      ).map((row) => row.input ?? 0),
+      subfolders,
+    };
+    log(
+      `In the Review after ${(totalMs / 1000).toFixed(1)} s: ${folders.length} Folders, ${subfolders.length} subfolders; ${result.placedByModel} asked past the sample in ${result.requests} requests.`,
+    );
+  } else {
+    const watching = new Set(ids);
+    const stop = core.on("library.assignments", (changed) => {
+      if (
+        firstPlacementMs === null &&
+        changed.some((each) => watching.has(each.documentId) && each.groupId !== null)
+      )
+        firstPlacementMs = performance.now() - pressed;
+    });
+    const made = await core.proposeFolders(ids);
+    proposedMs = performance.now() - pressed;
+    log(`${made.length} Folders proposed: ${made.map((folder) => folder.name).join(", ")}`);
+    if (made.length > 0) await core.classifyDocuments(ids);
+    const assignments = await settled(core, watching);
+    totalMs = performance.now() - pressed;
+    stop();
+
+    const after = await core.getLibrary();
+    const tagNames = new Map((await core.listTags()).map((tag) => [tag.id, tag.name]));
+    const now = await documentsNow();
+    folders = after.groups.map(({ id, name, description }) => ({ id, name, description }));
+    outcomes = ids.map((id) => {
+      const document = now.get(id);
+      const assignment = assignments.find((each) => each.documentId === id);
+      return {
+        doc: setDocOf.get(id) as SetDocument,
+        readable: document?.status === "ready",
+        folder: assignment?.groupId ?? null,
+        tags: (document?.tags ?? []).map((tag) => tagNames.get(tag.tagId) ?? tag.tagId),
+        status: assignment?.status ?? document?.status ?? "none",
+        error: assignment?.error?.message ?? null,
+      };
+    });
+  }
   const spend = metered(dataDir);
   await save(join(output, "results.json"), { folders, outcomes, spend });
 
@@ -223,7 +338,7 @@ test("Organize as a new User meets it", async () => {
   for (const outcome of outcomes) {
     const topics = outcome.tags.filter((tag) => kindOf(tag) === null);
     if (!outcome.readable || topics.length === 0) continue;
-    const excerpt = organizeExcerpt((await prepare(root, outcome.doc)).source);
+    const excerpt = organizeExcerpt((await prepare(root, outcome.doc, directory)).source);
     for (const tag of topics)
       verdicts.push({ id: outcome.doc.id, tag, about: await judge.about(excerpt, tag) });
   }
@@ -247,6 +362,8 @@ test("Organize as a new User meets it", async () => {
     // Not a checkout: the report says so.
   }
   const run: NewUserRun = {
+    route,
+    ...(plan && { plan }),
     startedAt,
     commit,
     language: options.language,

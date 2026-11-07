@@ -6,17 +6,24 @@
  * 1. Each Document's vector: the mean of its Passage vectors when search embeddings are on and
  *    all there, else a vector of its words (TF-IDF, CJK as character pairs), projected to
  *    `PROJECTED` dimensions. Both are centred: their shared direction says nothing about topics.
- * 2. Local clusters by spherical k-means. k is the one in `CLUSTERS` with the highest mean
- *    silhouette, in its centroid form (`silhouette`), so it needs no pairwise distances.
+ * 2. Local clusters by spherical k-means, finer than the Folders will be. k is the one in
+ *    `CLUSTERS` with the highest mean silhouette, in its centroid form (`silhouette`), so it
+ *    needs no pairwise distances.
  * 3. The `SAMPLE` Documents nearest the clusters' centres, spread evenly over them, go to the
- *    model in one request, which proposes 3 to 7 Folders (the User's own first) and puts each
- *    sampled Document in one, or in none.
- * 4. A cluster whose sampled Documents all went to the same place sends its other Documents
- *    there, unless one sits near a cluster that went elsewhere (`CLEAR`). The rest are asked
- *    of the model, `PLACE_BATCH` to a request.
- * 5. A new Folder left with fewer than `MIN_FOLDER` is dropped. A new Folder of more than
+ *    model in one request, which proposes up to `MOST_NEW` Folders beside the User's own and puts
+ *    each sampled Document in one, or in none.
+ * 4. A cluster whose sampled Documents all went to the same Folder sends its other Documents
+ *    there, unless one sits near a cluster that went elsewhere (`CLEAR`) or the sampled Document
+ *    most like it went elsewhere. The rest are asked of the model, `PLACE_BATCH` to a request.
+ *    Only the model leaves a Document out.
+ * 5. Three or more left out that no sample showed get a second look, which may find an area
+ *    they share: a Folder for them, and every Document still left out is placed again.
+ * 6. A new Folder left with fewer than `MIN_FOLDER` is dropped. A new Folder of more than
  *    `SPLIT_OVER` is split by its vectors into 2 to 5 subfolders of at least `MIN_SUBFOLDER`,
  *    which one more request names.
+ *
+ * On generated Libraries of 500 and 1,000 Documents with the labels as the model's answers,
+ * steps 2–4 placed 98% where the labels put them, asking the model about a quarter of them.
  */
 import { isCjk } from "../../shared/text";
 import type { Language } from "../language";
@@ -24,9 +31,9 @@ import type { Language } from "../language";
 /** How many Documents the model sees to propose Folders: every one of a Library this small. */
 export const SAMPLE = 48;
 /** Local clusters tried, at most a fifth of the Documents. */
-export const CLUSTERS = { min: 3, max: 12 } as const;
+export const CLUSTERS = { min: 3, max: 24 } as const;
 /** The silhouette under which a Document's own cluster isn't clearly its place. */
-export const CLEAR = 0.25;
+export const CLEAR = 0.4;
 export const PLACE_BATCH = 25;
 export const MIN_FOLDER = 3;
 /** The most new Folders a plan proposes, subfolders aside: the top level stays glanceable. */
@@ -621,7 +628,7 @@ export interface PlanCallbacks {
   leavesOut(error: unknown): boolean;
 }
 
-/** Steps 3–5: the requests, and every Document's place. */
+/** Steps 3–6: the requests, and every Document's place. */
 export async function finishPlan(local: LocalPlan, run: PlanCallbacks): Promise<LibraryPlan> {
   const { input, vectors, clustering, sample } = local;
   const { model, signal } = run;
@@ -631,6 +638,7 @@ export async function finishPlan(local: LocalPlan, run: PlanCallbacks): Promise<
     ...input.excerptOf((documents[at] as { id: string }).id),
   });
   let requests = 0;
+  const askedOne = new Set<number>();
   const places = new Map<number, PlanPlace>();
   const report = () => run.progress(places.size);
   if (documents.length === 0)
@@ -638,50 +646,93 @@ export async function finishPlan(local: LocalPlan, run: PlanCallbacks): Promise<
 
   // The Folders there are go to the model as F1, F2…; new ones are N1, N2… in the plan.
   const known = input.folders.map((folder, at) => ({ ...folder, ref: `F${at + 1}` }));
-  const sorted = await model.sort(
-    {
-      documents: sample.map(excerpt),
-      folders: known.map(({ ref, name, description }) => ({ id: ref, name, description })),
-      language: input.language,
-      within: input.within,
-    },
-    signal,
-  );
-  requests++;
   const folders: PlannedFolder[] = [];
-  const sampledAt = new Map(sample.map((at) => [refOf(at), at]));
-  // Past `MOST_NEW` new Folders, the ones holding the fewest of the sample go, and their
-  // Documents are placed again among the rest.
-  const newOnes = sorted.filter((folder) => !known.some((each) => each.ref === folder.id));
-  const dropped = new Set(
-    [...newOnes].sort((a, b) => b.refs.length - a.refs.length).slice(MOST_NEW),
-  );
-  const replace = new Set<number>();
-  for (const folder of sorted) {
-    const existing = folder.id === null ? undefined : known.find((each) => each.ref === folder.id);
-    const refs = folder.refs.flatMap((ref) => {
-      const at = sampledAt.get(ref);
-      return at === undefined || places.has(at) || replace.has(at) ? [] : [at];
-    });
-    if (dropped.has(folder)) {
-      for (const at of refs) replace.add(at);
-      continue;
-    }
-    let place: PlanPlace;
-    if (existing) {
-      place = { kind: "folder", folderId: existing.id };
-    } else {
-      const key = `N${folders.length + 1}`;
-      folders.push({ key, name: folder.name, description: folder.description, parentKey: null });
-      place = { kind: "new", key };
-    }
-    for (const at of refs) places.set(at, place);
-  }
-  for (const at of sample)
-    if (!places.has(at) && !replace.has(at)) places.set(at, { kind: "none" });
-  report();
+  const choices = (): PlanFolder[] => [
+    ...known.map(({ ref, name, description }) => ({ id: ref, name, description })),
+    ...folders.map(({ key, name, description }) => ({ id: key, name, description })),
+  ];
+  const placeOf = (choice: string | null): PlanPlace => {
+    const existing = known.find((each) => each.ref === choice);
+    if (existing) return { kind: "folder", folderId: existing.id };
+    return folders.some((folder) => folder.key === choice)
+      ? { kind: "new", key: choice as string }
+      : { kind: "none" };
+  };
 
-  // A cluster goes where its sampled Documents all went; a split cluster goes nowhere.
+  /**
+   * Has the model sort these, beside the Folders so far, and places them. Past `MOST_NEW` new
+   * Folders, the ones holding the fewest go; their Documents are returned to be placed again.
+   */
+  const sortInto = async (shown: readonly number[]): Promise<number[]> => {
+    const sorted = await model.sort(
+      {
+        documents: shown.map(excerpt),
+        folders: choices(),
+        language: input.language,
+        within: input.within,
+      },
+      signal,
+    );
+    requests++;
+    const shownAt = new Map(shown.map((at) => [refOf(at), at]));
+    const room = MOST_NEW - folders.length;
+    const fresh = sorted.filter(
+      (folder) => folder.id === null || placeOf(folder.id).kind === "none",
+    );
+    const dropped = new Set(
+      [...fresh].sort((a, b) => b.refs.length - a.refs.length).slice(Math.max(0, room)),
+    );
+    const again: number[] = [];
+    for (const folder of sorted) {
+      const ats = folder.refs.flatMap((ref) => {
+        const at = shownAt.get(ref);
+        return at === undefined || places.has(at) || again.includes(at) ? [] : [at];
+      });
+      if (dropped.has(folder)) {
+        again.push(...ats);
+        continue;
+      }
+      let place = folder.id === null ? null : placeOf(folder.id);
+      if (!place || place.kind === "none") {
+        const key = `N${folders.length + 1}`;
+        folders.push({ key, name: folder.name, description: folder.description, parentKey: null });
+        place = { kind: "new", key };
+      }
+      for (const at of ats) places.set(at, place);
+    }
+    for (const at of shown)
+      if (!places.has(at) && !again.includes(at)) places.set(at, { kind: "none" });
+    report();
+    return again;
+  };
+
+  /** Asks the model where each of these goes, `PLACE_BATCH` to a request. */
+  const placeAll = async (asked: readonly number[]) => {
+    for (const at of asked) askedOne.add(at);
+    const batches: number[][] = [];
+    for (let start = 0; start < asked.length; start += PLACE_BATCH)
+      batches.push(asked.slice(start, start + PLACE_BATCH));
+    await inTurn(
+      batches.map((batch) => async () => {
+        try {
+          const chosen = await model.place(batch.map(excerpt), choices(), signal);
+          requests++;
+          for (const at of batch) places.set(at, placeOf(chosen.get(refOf(at)) ?? null));
+        } catch (error) {
+          if (signal.aborted || !run.leavesOut(error)) throw error;
+          requests++;
+          for (const at of batch) places.set(at, { kind: "none", unreachable: true });
+        }
+        report();
+      }),
+      PLACING_AT_ONCE,
+    );
+  };
+
+  const unclear = await sortInto(sample);
+
+  // A cluster goes where its sampled Documents all went; a split cluster goes nowhere. Only the
+  // model leaves a Document out.
   const keyOf = (place: PlanPlace | undefined) =>
     !place
       ? "again"
@@ -695,11 +746,12 @@ export async function finishPlan(local: LocalPlan, run: PlanCallbacks): Promise<
       .filter((at) => clustering.assignment[at] === cluster)
       .map((at) => places.get(at));
     const first = went[0];
-    return first && went.every((each) => keyOf(each) === keyOf(first)) ? first : null;
+    return first && first.kind !== "none" && went.every((each) => keyOf(each) === keyOf(first))
+      ? first
+      : null;
   });
-  const unclear: number[] = [];
   documents.forEach((_, at) => {
-    if (places.has(at)) return;
+    if (places.has(at) || unclear.includes(at)) return;
     const own = clustering.assignment[at] ?? 0;
     const place = clusterPlace[own];
     if (!place) {
@@ -711,42 +763,46 @@ export async function finishPlan(local: LocalPlan, run: PlanCallbacks): Promise<
       return cluster !== own && (!other || keyOf(other) !== keyOf(place));
     });
     const vector = vectors[at] as Float32Array;
-    if (silhouette(vector, clustering.centres[own] as Float32Array, elsewhere) < CLEAR)
+    // The sampled Document most like it went elsewhere: its cluster mixes what the model told apart.
+    let nearest = -1;
+    let nearestSimilarity = Number.NEGATIVE_INFINITY;
+    for (const sampled of sample) {
+      const similarity = dot(vector, vectors[sampled] as Float32Array);
+      if (similarity > nearestSimilarity) {
+        nearest = sampled;
+        nearestSimilarity = similarity;
+      }
+    }
+    if (
+      silhouette(vector, clustering.centres[own] as Float32Array, elsewhere) < CLEAR ||
+      keyOf(places.get(nearest)) !== keyOf(place)
+    )
       unclear.push(at);
     else places.set(at, place);
   });
   report();
+  await placeAll(unclear);
 
-  const choices: PlanFolder[] = [
-    ...known.map(({ ref, name, description }) => ({ id: ref, name, description })),
-    ...folders.map(({ key, name, description }) => ({ id: key, name, description })),
-  ];
-  const placeOf = (choice: string | null): PlanPlace => {
-    if (choice === null) return { kind: "none" };
-    const existing = known.find((each) => each.ref === choice);
-    if (existing) return { kind: "folder", folderId: existing.id };
-    return folders.some((folder) => folder.key === choice)
-      ? { kind: "new", key: choice }
-      : { kind: "none" };
-  };
-  const batches: number[][] = [];
-  for (let start = 0; start < unclear.length; start += PLACE_BATCH)
-    batches.push(unclear.slice(start, start + PLACE_BATCH));
-  await inTurn(
-    batches.map((batch) => async () => {
-      try {
-        const chosen = await model.place(batch.map(excerpt), choices, signal);
-        requests++;
-        for (const at of batch) places.set(at, placeOf(chosen.get(refOf(at)) ?? null));
-      } catch (error) {
-        if (signal.aborted || !run.leavesOut(error)) throw error;
-        requests++;
-        for (const at of batch) places.set(at, { kind: "none", unreachable: true });
-      }
-      report();
-    }),
-    PLACING_AT_ONCE,
-  );
+  // Documents the model left out of every Folder it had, though it never saw them in a sample:
+  // a second look may find an area 3 or more of them share.
+  const seen = new Set(sample);
+  const leftOut = [...places]
+    .filter(([at, place]) => place.kind === "none" && !place.unreachable && !seen.has(at))
+    .map(([at]) => at);
+  if (leftOut.length >= MIN_FOLDER && folders.length < MOST_NEW) {
+    const byCluster = clustering.centres.map((_, cluster) =>
+      leftOut.filter((at) => clustering.assignment[at] === cluster),
+    );
+    const second = spread(byCluster, SAMPLE);
+    for (const at of second) places.delete(at);
+    const before = folders.length;
+    const again = await sortInto(second);
+    // With a Folder more, every Document still left out is placed again, those sampled first too.
+    const rest = [...places]
+      .filter(([at, place]) => place.kind === "none" && !place.unreachable && !second.includes(at))
+      .map(([at]) => at);
+    await placeAll([...again, ...(folders.length > before ? rest : [])]);
+  }
 
   // A new Folder with too few Documents isn't made: they are left out.
   const holding = (key: string) =>
@@ -775,12 +831,12 @@ export async function finishPlan(local: LocalPlan, run: PlanCallbacks): Promise<
     ),
     clusters: clustering.centres.length,
     sampled: sample.length,
-    placedByModel: unclear.length,
+    placedByModel: askedOne.size,
     requests,
   };
 }
 
-/** Step 5: subfolders for each new Folder of more than `SPLIT_OVER`, named in one request. */
+/** Step 6: subfolders for each new Folder of more than `SPLIT_OVER`, named in one request. */
 async function split(
   folders: readonly PlannedFolder[],
   existing: readonly string[],

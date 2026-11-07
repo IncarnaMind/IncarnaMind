@@ -244,11 +244,57 @@ export interface NewUserRun {
     output: number;
     cost: number | null;
   }[];
+  /**
+   * "plan": the Library's Organize as the Review gets it (`organizeLibrary`); "classic": Folders
+   * proposed, then each Document sorted on its own, as before the Review.
+   */
+  route: "plan" | "classic";
+  /** The plan's own counts, on its route. */
+  plan?: {
+    requests: number;
+    /** Documents asked of the model one by one, past the sample. */
+    placedByModel: number;
+    /** Each request's input tokens, as the meter counted them. */
+    inputPerRequest: number[];
+    subfolders: Subfolder[];
+  };
+}
+
+/** A proposed subfolder, with how many Documents it holds and how many share its commonest `sub` label. */
+export interface Subfolder {
+  parent: string;
+  name: string;
+  size: number;
+  sameSub: number;
 }
 
 const seconds = (ms: number | null) => (ms === null ? "–" : `${(ms / 1000).toFixed(1)} s`);
 const kindList = (tags: readonly string[]) =>
   tags.map((tag) => `${tag}${kindOf(tag) ? "" : " (topic)"}`).join(", ") || "–";
+
+function planLines(plan: NonNullable<NewUserRun["plan"]>): string[] {
+  const inputs = plan.inputPerRequest;
+  const mean = inputs.length ? inputs.reduce((sum, each) => sum + each, 0) / inputs.length : 0;
+  const lines = [
+    "",
+    `The plan: ${plan.requests} requests; ${plan.placedByModel} Documents asked of the model past the sample; input tokens a request ${Math.round(mean).toLocaleString("en")} on average, ${Math.max(0, ...inputs).toLocaleString("en")} at most.`,
+  ];
+  if (plan.subfolders.length === 0) return lines;
+  const smallest = Math.min(...plan.subfolders.map((each) => each.size));
+  const same = plan.subfolders.reduce((sum, each) => sum + each.sameSub, 0);
+  const held = plan.subfolders.reduce((sum, each) => sum + each.size, 0);
+  lines.push(
+    "",
+    `Subfolders: ${plan.subfolders.length}, the smallest holding ${smallest} (bar ≥ 5); ${held ? Math.round((100 * same) / held) : 0}% of their Documents share their subfolder's commonest template. Pairs are scored by the top-level Folder.`,
+    "",
+    "| Folder › subfolder | Documents | Of its commonest template |",
+    "|---|---:|---:|",
+    ...plan.subfolders.map(
+      (each) => `| ${each.parent} › ${each.name} | ${each.size} | ${each.sameSub} |`,
+    ),
+  );
+  return lines;
+}
 
 export function newUserReport(
   run: NewUserRun,
@@ -275,7 +321,10 @@ export function newUserReport(
       (each) => `| ${each.name} | ${each.value} | ${each.bar} | ${each.pass ? "PASS" : "FAIL"} |`,
     ),
     "",
-    `Time from the press: Folders made ${seconds(run.proposedMs)}, first Document placed ${seconds(run.firstPlacementMs)}, all settled ${seconds(run.totalMs)}.`,
+    run.route === "plan"
+      ? `Time from the press to the Review: ${seconds(run.totalMs)}.`
+      : `Time from the press: Folders made ${seconds(run.proposedMs)}, first Document placed ${seconds(run.firstPlacementMs)}, all settled ${seconds(run.totalMs)}.`,
+    ...(run.plan ? planLines(run.plan) : []),
     "",
     "| Requests | Count | Input tokens | Output tokens | Cost |",
     "|---|---:|---:|---:|---:|",
