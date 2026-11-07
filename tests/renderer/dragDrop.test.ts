@@ -96,12 +96,19 @@ function dragEvent(
     inside = false,
     taken = false,
     from = fakeElement(),
-  }: { data?: Record<string, string>; inside?: boolean; taken?: boolean; from?: FakeElement } = {},
+    at = { x: 40, y: 60 },
+  }: {
+    data?: Record<string, string>;
+    inside?: boolean;
+    taken?: boolean;
+    from?: FakeElement;
+    at?: { x: number; y: number };
+  } = {},
 ) {
   const store = { ...data };
   const event = {
-    clientX: 40,
-    clientY: 60,
+    clientX: at.x,
+    clientY: at.y,
     defaultPrevented: taken,
     relatedTarget: {},
     currentTarget: { ...from, contains: () => inside },
@@ -292,10 +299,11 @@ describe("a drag let go where nothing takes it", () => {
     expect(dragImages[0]).toMatchObject({ x: 0, y: 0 });
     const over = dragEvent(types, { data });
     onWindow("dragover", over);
-    onWindow("dragend", {});
+    // A drop further along than the last move: the picture fades where the button was released.
+    onWindow("drop", dragEvent(types, { data, at: { x: 100, y: 120 } }));
     expect(faded).toHaveLength(1);
     expect(faded[0]).not.toBe(browserImage);
-    expect((faded[0] as FakeElement).style).toMatchObject({ left: "28px", top: "46px" });
+    expect((faded[0] as FakeElement).style).toMatchObject({ left: "88px", top: "106px" });
     expect(layer.draggedIn({ types })).toBeNull();
     expect(layer.useDragState.getState().source).toBeNull();
   });

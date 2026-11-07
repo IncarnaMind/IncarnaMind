@@ -393,6 +393,8 @@ function takeAnywhere(event: globalThis.DragEvent): void {
 
 function dropAnywhere(event: globalThis.DragEvent): void {
   if (untakenOwnDrag(event)) event.preventDefault();
+  // The drop says where the button was released, past the last move over the window.
+  pointerAt = pointOf(event);
   endDrag();
 }
 
