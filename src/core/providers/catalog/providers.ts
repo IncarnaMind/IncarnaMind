@@ -33,7 +33,6 @@ export const CLAUDE_LOW_EFFORT: ProviderOptions = {
   anthropic: { thinking: { type: "adaptive" }, effort: "low" },
 };
 
-const OPENAI_LOW: ProviderOptions = { openai: { reasoningEffort: "low" } };
 const GEMINI_LOW: ProviderOptions = { google: { thinkingConfig: { thinkingLevel: "low" } } };
 const QWEN_THINKING_BUDGET = 512;
 const QWEN_BUDGET: ProviderOptions = { alibaba: { thinkingBudget: QWEN_THINKING_BUDGET } };
@@ -194,12 +193,9 @@ const PROVIDERS = [
         ],
       },
       reasoningSummary: { options: { openai: { reasoningSummary: "auto" } } },
-      effort: {
-        models: { "gpt-6-luna": { answer: OPENAI_LOW, task: OPENAI_LOW } },
-        refused: [
-          { names: "reasoning.effort", options: { openai: { reasoningEffort: undefined } } },
-        ],
-      },
+      // At low, GPT-6 Luna's Answers were 1.0 s sooner but cited the expected Passage less often
+      // (62 → 57 of 65), twice answering without a search, and its comparison cells were no
+      // sooner; so OpenAI's models, and the ChatGPT plan's, think at their default (#1631).
     },
     roles: {
       answers: "gpt-6-luna",
@@ -323,7 +319,6 @@ const PROVIDERS = [
       thinkingOff: { options: { openrouter: { reasoning: { effort: "none" } } } },
       effort: {
         models: {
-          "openai/gpt-6-luna": { answer: OPENROUTER_LOW, task: OPENROUTER_LOW },
           "google/gemini-3.8-flash": { answer: OPENROUTER_LOW, task: OPENROUTER_LOW },
           "qwen/qwen3.7-plus": { answer: OPENROUTER_QWEN, task: OPENROUTER_QWEN },
           "z-ai/glm-5.3-flash": { answer: OPENROUTER_LOW, task: OPENROUTER_LOW },

@@ -1,4 +1,4 @@
-import { generateText, streamText } from "ai";
+import { generateText } from "ai";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { type AnswerEngineEvent, createAiSdkAnswerEngine } from "../../src/core/answers/engine";
 import type { ChatProviderKind } from "../../src/core/api";
@@ -345,28 +345,26 @@ async function sent(
 }
 
 describe("Each provider's own effort control (#1631)", () => {
-  // protects=GPT-6 Luna's Answers and Tasks ask for low reasoning effort beside the summary, and a careful Answer, a call of no kind and GPT-6.1 Sol ask for none; fails_when=Luna's Answer or Task lacks effort "low", or a careful Answer, a summary call or Sol carries an effort; no_claim=the fake API doesn't check what OpenAI accepts.
+  // protects=GPT-6 Luna, measured at low and failing the gate (#1631), and GPT-6.1 Sol think at OpenAI's default for every kind of call, with the summary; fails_when=any kind carries an effort or loses the summary; no_claim=the fake API doesn't check what OpenAI accepts.
   test.each([
-    ["gpt-6-luna", "answer", { summary: "auto", effort: "low" }],
-    ["gpt-6-luna", "task", { summary: "auto", effort: "low" }],
-    ["gpt-6-luna-2026-09-30", "answer", { summary: "auto", effort: "low" }],
-    ["gpt-6-luna", "careful", { summary: "auto" }],
-    ["gpt-6-luna", "summary", { summary: "auto" }],
-    ["gpt-6.1-sol", "answer", { summary: "auto" }],
-  ] as const)("OpenAI's %s, %s: reasoning %j", async (modelId, thinking, expected) => {
-    expect((await answer("openai", modelId, openaiReply, thinking)).body.reasoning).toEqual(
-      expected,
-    );
+    ["gpt-6-luna", "answer"],
+    ["gpt-6-luna", "task"],
+    ["gpt-6-luna", "careful"],
+    ["gpt-6.1-sol", "answer"],
+  ] as const)("OpenAI's %s, %s: the summary, no effort", async (modelId, thinking) => {
+    expect((await answer("openai", modelId, openaiReply, thinking)).body.reasoning).toEqual({
+      summary: "auto",
+    });
   });
 
   // protects=on a provider whose reasoning isn't summarized, the models the catalog names get their own control for Answers and Tasks, and no other model or kind gets one; fails_when=a named model's Answer or Task lacks its control, or a careful Answer, a call of no kind or a model not named carries one; no_claim=the fake APIs don't check what each provider accepts.
   test.each([
-    ["openrouter", "openai/gpt-6-luna", "answer", (b: Json) => b.reasoning, { effort: "low" }],
+    ["openrouter", "openai/gpt-6-luna", "answer", (b: Json) => b.reasoning, undefined],
     ["openrouter", "google/gemini-3.8-flash", "task", (b: Json) => b.reasoning, { effort: "low" }],
     ["openrouter", "z-ai/glm-5.3-flash", "answer", (b: Json) => b.reasoning, { effort: "low" }],
     ["openrouter", "qwen/qwen3.7-plus", "answer", (b: Json) => b.reasoning, { max_tokens: 512 }],
-    ["openrouter", "openai/gpt-6-luna", "careful", (b: Json) => b.reasoning, undefined],
-    ["openrouter", "openai/gpt-6-luna", "summary", (b: Json) => b.reasoning, undefined],
+    ["openrouter", "google/gemini-3.8-flash", "careful", (b: Json) => b.reasoning, undefined],
+    ["openrouter", "google/gemini-3.8-flash", "summary", (b: Json) => b.reasoning, undefined],
     ["openrouter", "anthropic/claude-sonnet-5.5", "answer", (b: Json) => b.reasoning, undefined],
     ["qwen", "qwen3.7-plus", "answer", (b: Json) => b.thinking_budget, 512],
     ["qwen", "qwen3.7-plus", "task", (b: Json) => b.thinking_budget, 512],
@@ -387,42 +385,5 @@ describe("Each provider's own effort control (#1631)", () => {
   ] as const)("Google's %s, %s: thinking config %j", async (modelId, thinking, expected) => {
     const body = await sent("google", modelId, thinking, geminiReply);
     expect((body.generationConfig as Json | undefined)?.thinkingConfig).toEqual(expected);
-  });
-});
-
-describe("A model that refuses OpenAI's effort", () => {
-  const refusal = () =>
-    Response.json(
-      {
-        error: {
-          message: "Unsupported value: 'reasoning.effort' does not support 'low' with this model.",
-          type: "invalid_request_error",
-          param: "reasoning.effort",
-          code: "unsupported_value",
-        },
-      },
-      { status: 400 },
-    );
-
-  // protects=an OpenAI model that refuses the effort still writes its Answer, asked again once without it and keeping the summary, and its later Answers leave the effort out from the start; fails_when=the Answer fails with the refusal, the retry drops the summary or keeps the effort, or a later Answer sends the effort again; no_claim=the refusal is the Responses API's documented shape, not a live one.
-  test("is asked again without it, and then without it from the start", async () => {
-    const bodies: Json[] = [];
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
-        const body = JSON.parse(String(init?.body ?? "{}")) as Json;
-        bodies.push(body);
-        return (body.reasoning as Json | undefined)?.effort ? refusal() : openaiReply();
-      }),
-    );
-    // A dated id of its own, so the form this test makes the model remember reaches no other test.
-    const model = modelOf("openai", "gpt-6-luna-2026-10-31", "answer");
-    expect(await streamText({ model, prompt: "OK?" }).text).toBe("At full moon.");
-    expect(await streamText({ model, prompt: "OK again?" }).text).toBe("At full moon.");
-    expect(bodies.map((body) => body.reasoning)).toEqual([
-      { summary: "auto", effort: "low" },
-      { summary: "auto" },
-      { summary: "auto" },
-    ]);
   });
 });
