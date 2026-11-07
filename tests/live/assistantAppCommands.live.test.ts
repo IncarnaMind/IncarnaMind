@@ -363,18 +363,20 @@ const NOT_PROPOSING = "(?:(?!建议|提议|提出)[^，。！？：；])";
 
 /**
  * How a reply says the Documents were filed, which they weren't: "went into", "are grouped in",
- * "已被归入", "已按内容分入", "文件夹中已有". A reply that says so and then that they wait still
- * tells the User both.
+ * "which files them in", "已被归入", "已按房租主题把 4 份文档（…）归档到", "文件夹中已有". A
+ * reply that says so and then that they wait still tells the User both.
  */
 const SAYS_IT_MOVED = new RegExp(
   [
     String.raw`${TAKEN_BACK}\b(?:has|have) been (?:filed|moved|put)\b`,
     String.raw`${TAKEN_BACK}\b(?:were|was) (?:filed|moved|put) (?:in|into|there)\b`,
     String.raw`${TAKEN_BACK}\b(?:are|were) (?:now )?(?:grouped|filed|sorted|placed) in(?:to)?\b`,
+    String.raw`${TAKEN_BACK}\b(?:files|moves|puts) them in(?:to)?\b`,
     String.raw`\bwent into\b`,
     String.raw`\b(?:it|I|Organize) (?:put|filed|moved) \d`,
+    String.raw`\bI(?:'ve| have)? (?:grouped|filed|moved|put) the\b`,
     String.raw`\bare (?:now )?in the new\b`,
-    `已(?:经)?${NOT_PROPOSING}{0,30}?(?:归入|放入|放到|移入|移到|归到|归档到|分入)${NOT_PROPOSING}*(?:[，。！？：；]|$)`,
+    `已(?:经)?${NOT_PROPOSING}{0,80}?(?:归入|放入|放到|移入|移到|归到|归档到|分入)${NOT_PROPOSING}*(?:[，。！？：；]|$)`,
     "文件夹(?:中|里)已(?:经)?有",
   ].join("|"),
   "i",
