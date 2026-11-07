@@ -1153,6 +1153,36 @@ describe("ElevenLabs' real-time speech to text, in the messages its reference sh
     expect(heard.opened.count).toBe(1);
   });
 
+  test("a session at its time limit between a committed text and its times: the new session hears that text again, and its words come once", () => {
+    const { service, heard, stream } = connect();
+    service.open();
+    service.say({ message_type: "session_started", session_id: "s1", config: {} });
+    feed((samples) => stream.push(samples), 2);
+    service.say({ message_type: "partial_transcript", text: "First" });
+    service.say({ message_type: "committed_transcript", text: "First point." });
+    service.say({
+      message_type: "session_time_limit_exceeded",
+      error: "Maximum session duration exceeded. Start a new session.",
+    });
+    expect(service.connections).toHaveLength(2);
+    service.connections[0]?.events.closed(1000, "");
+    service.open();
+    service.say({ message_type: "session_started", session_id: "s2", config: {} });
+    // All 2 s again: nothing had its times, so nothing was let go.
+    expect(service.json()).toHaveLength(20);
+    service.say({ message_type: "committed_transcript", text: "First point." });
+    service.say(
+      timed("First point.", [
+        ["First", 0.2, 0.6],
+        ["point.", 0.6, 1.0],
+      ]),
+    );
+    expect(heard.finals().map((each) => [each.text, each.startMs, each.endMs])).toEqual([
+      ["First point.", 200, 1000],
+    ]);
+    expect(heard.losses).toEqual([]);
+  });
+
   test("its error message names the close: auth_error is a refused key, quota_exceeded out of credit, anything else dropped; nothing more is reported", () => {
     for (const [type, loss] of [
       ["auth_error", "refused"],

@@ -158,7 +158,8 @@ export function createElevenLabsStream(options: CloudStreamOptions): CloudStream
   /** The session's time is up: a new one hears again what the last committed text didn't cover. */
   function renew(link: LiveLink): void {
     if (lastText) clearTimeout(lastText);
-    writeCommitted();
+    // A committed text still without its times is heard again whole: its audio is sent again.
+    committed = null;
     line = null;
     base = safe;
     pending = new Int16Array(0);
