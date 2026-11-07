@@ -1319,6 +1319,8 @@ interface Accepted {
    * not found (#483), or the page they run on to past the one it cites (#2504).
    */
   quotedWords?: QuotedWordsCheck;
+  /** The words of the Answer's quotation marks this record's Units state (#2602). */
+  quotedWordsFound?: string[];
   /** A Citation of the Question context, kept as it is (#1800): there is nothing of it to fix. */
   kept?: true;
 }
@@ -1361,6 +1363,7 @@ const toCitation = (record: Accepted, result: CheckResult | null): Citation => (
   checkReason: result?.checkReason ?? null,
   ...(result?.unsure && result.unsure.length > 0 && { unsure: result.unsure }),
   ...(record.quotedWords && { quotedWords: record.quotedWords }),
+  ...(record.quotedWordsFound && { quotedWordsFound: record.quotedWordsFound }),
 });
 
 export interface CitationSessionEvents {
@@ -2299,7 +2302,8 @@ export function createCitationSession(
      * rows: the rows above the header, which name the table the Citation's
      * rows are in, as a Document's name is not a quote (#2358), and words
      * that start on the one page cited may run on to the next page (#2504).
-     * One found changes nothing. One not found makes the Citation whose Units
+     * One found keeps its words with the Citation whose Units state them, which its sentence's
+     * figures are counted against (#2602). One not found makes the Citation whose Units
      * are nearest it "not found", with the Answer's words and the Document's
      * nearest for its card. Where a Citation of the sentence couldn't be
      * checked, no span of it is. Words in another language than every page
@@ -2345,6 +2349,11 @@ export function createCitationSession(
         return text !== "" && findQuote(text, words, { ...matching, numbers: true }) !== null;
       };
       const translated: string[] = [];
+      /** Keeps `words` with the record whose Units state them, for the check of its figures (#2602). */
+      const states = (record: Accepted, words: string) => {
+        record.quotedWordsFound ??= [];
+        if (!record.quotedWordsFound.includes(words)) record.quotedWordsFound.push(words);
+      };
       // A Document's name in quotation marks, as an Answer gives a title, is a name, not a quote.
       const names = new Set(
         [...records.values()].map(({ source }) => nameKey(source.documentName)),
@@ -2364,7 +2373,11 @@ export function createCitationSession(
             : [];
         });
         if (cited.some(({ record }) => record.result?.check === "cant-check")) continue;
-        if (cited.some(({ units, matching }) => quoteInUnits(units, words, matching))) continue;
+        const stating = cited.filter(({ units, matching }) => quoteInUnits(units, words, matching));
+        if (stating.length > 0) {
+          for (const { record } of stating) states(record, words);
+          continue;
+        }
         const runsOn = cited.flatMap(({ record, matching }) => {
           const next = runsOnToNextPage(record, words, matching);
           return next ? [{ record, next }] : [];
@@ -2372,10 +2385,16 @@ export function createCitationSession(
         if (runsOn) {
           const runsOnTo = locationOf([runsOn.next], null);
           if (runsOnTo) runsOn.record.quotedWords ??= { runsOnTo };
+          states(runsOn.record, words);
           continue;
         }
-        if (cited.some(({ record, units, matching }) => titled(record, units, words, matching)))
+        const titledBy = cited.filter(({ record, units, matching }) =>
+          titled(record, units, words, matching),
+        );
+        if (titledBy.length > 0) {
+          for (const { record } of titledBy) states(record, words);
           continue;
+        }
         const inCjk = writtenInCjk(words);
         if (
           cited.length > 0 &&

@@ -127,17 +127,6 @@ interface QuotedSpan extends QuotedSentence {
   span: Span;
 }
 
-function quotedWordsOf(text: string, span: Span): string {
-  return cleanQuote(
-    text
-      .slice(span.start + 1, span.end - 1)
-      .replace(MARKER, "")
-      .replace(/[*`]+/g, ""),
-  )
-    .replace(/\s+/g, " ")
-    .replace(TRAILING_PUNCTUATION, "");
-}
-
 function quotedSpansIn(text: string): QuotedSpan[] {
   const spans = spansOf(text);
   if (spans.length === 0) return [];
@@ -149,7 +138,14 @@ function quotedSpansIn(text: string): QuotedSpan[] {
     if (markers.length === 0) continue;
     for (const span of spans) {
       if (span.start < sentence.start || span.end > sentence.end) continue;
-      const words = quotedWordsOf(text, span);
+      const words = cleanQuote(
+        text
+          .slice(span.start + 1, span.end - 1)
+          .replace(MARKER, "")
+          .replace(/[*`]+/g, ""),
+      )
+        .replace(/\s+/g, " ")
+        .replace(TRAILING_PUNCTUATION, "");
       if (isQuote(words)) found.push({ words, markers, span });
     }
   }
@@ -217,13 +213,6 @@ export function quotedWordsIn(markdown: string): QuotedSentence[] {
     return text;
   });
   return found;
-}
-
-/** The words one sentence puts in quotation marks, as `quotedWordsIn` reads them, with no Citation marker needed. */
-export function quotedWordsOfSentence(sentence: string): string[] {
-  return spansOf(sentence)
-    .map((span) => quotedWordsOf(sentence, span))
-    .filter(isQuote);
 }
 
 export function withoutQuotationMarks(markdown: string, words: ReadonlySet<string>): string {

@@ -2728,6 +2728,13 @@ export interface Citation {
   /** The unsure words of a scanned page the quote covers (#535). */
   unsure?: string[];
   quotedWords?: QuotedWordsCheck;
+  /**
+   * The words of the Answer's quotation marks that this Citation's Units were found to state
+   * (#2602), so a figure in them is stated by this Citation. None when the quoted-words check
+   * didn't look for them: a Document's name, a Citation that couldn't be checked, or words the
+   * check didn't find (its card says Quote not found instead).
+   */
+  quotedWordsFound?: string[];
   /** "unsupported" and "contradicted": what the Documents say of its sentence, in one plain sentence. */
   verdict?: string | null;
 }
