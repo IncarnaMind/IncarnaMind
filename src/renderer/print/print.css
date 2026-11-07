@@ -276,9 +276,8 @@ ol.numbered > li {
 ol.numbered > li::before {
   content: attr(data-marker);
   position: absolute;
-  left: -20pt;
-  width: 16pt;
-  text-align: right;
+  right: 100%;
+  margin-right: 4pt;
   white-space: nowrap;
 }
 
