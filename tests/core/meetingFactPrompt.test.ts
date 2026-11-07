@@ -30,7 +30,8 @@ test("heading meaning stays in the generation, not in a heading-name list", () =
   const prompt = JSON.stringify(context.messages);
   expect(prompt).toContain("H1 (heading): Where we landed");
   expect(prompt).toContain("HEADINGS: H1=ACTIONS H2=NONE");
-  expect(prompt).toContain("by meaning");
+  expect(prompt).toContain("in any wording or language");
+  expect(prompt).toContain("whether or not the User typed lines under it");
   expect(prompt).toContain("never an ordinary paragraph");
 });
 
