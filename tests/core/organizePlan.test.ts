@@ -372,24 +372,25 @@ function rulesModel(options: { holdSort?: boolean } = {}) {
           folders: { id: string; name: string }[];
           documents: { ref: string; name: string; text: string }[];
         };
-        const folders = new Map<
-          string,
-          { id: string; name: string; description: string; documents: string[] }
-        >();
+        const folders = new Map<string, { key: string; name: string; description: string }>();
+        const placed: { ref: string; folder: string }[] = [];
         for (const doc of data.documents) {
           const rule = ruleOf(doc);
-          if (!rule) continue;
+          if (!rule) {
+            placed.push({ ref: doc.ref, folder: "none" });
+            continue;
+          }
           const existing = data.folders.find((folder) => folder.name.endsWith(rule.folder));
+          const key = existing?.id ?? `N${folders.size + 1}`;
           const entry = folders.get(rule.folder) ?? {
-            id: existing?.id ?? "",
+            key,
             name: existing ? "" : rule.folder,
             description: `Everything about ${rule.folder}`,
-            documents: [],
           };
-          entry.documents.push(doc.ref);
           folders.set(rule.folder, entry);
+          placed.push({ ref: doc.ref, folder: entry.key });
         }
-        return reply({ folders: [...folders.values()] });
+        return reply({ folders: [...folders.values()], documents: placed });
       }
       if (schema?.properties?.placements) {
         const text = userText(call);
