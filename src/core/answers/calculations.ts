@@ -2090,18 +2090,34 @@ export function createCalculationSession(options: CalculationSessionOptions) {
         ? "it has no number"
         : `it has ${figures.map((each) => each.chars).join(", ")}`;
     let figure: Figure | undefined;
+    const namedFigures = (named: string) => {
+      const exact = figures.filter((each) => squeezed(each.chars) === squeezed(named));
+      const inChars =
+        exact.length > 0 ? exact : figures.filter((each) => namedIn(each.chars, named));
+      return inChars.length > 0 ? inChars : figures.filter((each) => writtenAs(each, named));
+    };
     if (original) {
       figure = figures.find((each) => each.start === original.at && each.chars === original.chars);
       if (!figure) return "the number is no longer at its recorded place in the quote.";
     } else if (given.position !== null) {
-      figure = figures[given.position - 1];
-      if (!figure) return `the quote has no number at position ${given.position}; ${has}.`;
+      const at = figures[given.position - 1];
+      if (!at) return `the quote has no number at position ${given.position}; ${has}.`;
+      // A position beside the number it names settles which one when they agree. One that names
+      // another number is the model's slip, and the named number the quote writes once is meant.
+      const named = given.number;
+      const found = named === null ? null : namedFigures(named);
+      if (named === null || found?.includes(at)) {
+        figure = at;
+      } else if (found?.length === 1) {
+        figure = found[0];
+      } else if (!found || found.length === 0) {
+        return `the quote has no number "${named}"; ${has}.`;
+      } else {
+        return `"${named}" is in the quote ${found.length} times; give its position (${either(found.map((each) => figures.indexOf(each) + 1))}).`;
+      }
     } else if (given.number !== null) {
       const named = given.number;
-      const exact = figures.filter((each) => squeezed(each.chars) === squeezed(named));
-      const inChars =
-        exact.length > 0 ? exact : figures.filter((each) => namedIn(each.chars, named));
-      const found = inChars.length > 0 ? inChars : figures.filter((each) => writtenAs(each, named));
+      const found = namedFigures(named);
       if (found.length === 0) {
         if (readsFromUnsureWord(quoted, named)) return UNSURE_INPUT;
         return `the quote has no number "${named}"; ${has}.`;

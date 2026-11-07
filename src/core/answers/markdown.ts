@@ -6,9 +6,11 @@
  * "<br>" as a line break in a cell), and math as KaTeX formulas (`$…$` or
  * `\(…\)` inline, `$$…$$` or `\[…\]` as a block), with bold, italic,
  * strikethrough, inline code and links. Anything else (HTML) stays as text.
- * A line break inside a paragraph is kept. A line starting `\[` is a formula
- * only when a `\]` follows it, on a later line too; with none it stays text,
- * its words kept (#2422). An unclosed `$$` runs to the end.
+ * A line break inside a paragraph is kept. A display formula ends at a blank
+ * line, so its body never holds one: a `\[` (or `$$`) is a formula only when
+ * its closer comes before the next blank line, on a later line too. A `\[`
+ * that never closes stays text, its words kept (#2422); a `$$` that never
+ * closes runs to the end when no blank line follows it (#2435).
  *
  * While an Answer streams, the text is cut off at an arbitrary point. With
  * `streaming`, what would still change how it looks is held back (a half-typed
@@ -120,8 +122,10 @@ function tablePending(lines: readonly string[], i: number, open: boolean): boole
 /** `open`: the last line may continue, so what ends there is unfinished. */
 function parseBlocks(lines: readonly string[], open: boolean): NodeJSON[] {
   const blocks: NodeJSON[] = [];
-  /** From this line on there is no "\]" at all, so a "\[" there is text without looking again. */
-  let noCloserFrom = Number.POSITIVE_INFINITY;
+  /** A `\[` before this line has no `\]` before its blank line, so it is text without looking again (#2438). */
+  let noCloserUntil = 0;
+  /** The same for a `$$` and its closer. */
+  let noDollarCloserUntil = 0;
   let i = 0;
   while (i < lines.length) {
     const line = lines[i] as string;
@@ -180,13 +184,16 @@ function parseBlocks(lines: readonly string[], open: boolean): NodeJSON[] {
     if (math) {
       const [, opener = "$$", rest = ""] = math;
       const closer = opener === "$$" ? "$$" : "\\]";
-      // A "\[" below a line with no "\]" after it is text at once: rescanning for each is quadratic (#2438).
-      const textOnly = opener === "\\[" && i >= noCloserFrom;
+      // A line below one that found no closer before its blank line is text at once: rescanning for each is quadratic (#2438).
+      const textOnly =
+        (opener === "\\[" && i < noCloserUntil) || (opener === "$$" && i < noDollarCloserUntil);
       const body: string[] = [];
       let closed = false;
       let after = "";
       let remaining = rest;
       let end = i;
+      /** The formula can never close: the scan met a settled blank line, or an earlier one proved there is none before it. */
+      let ended = textOnly;
       if (!textOnly)
         for (;;) {
           const close = remaining.indexOf(closer);
@@ -199,19 +206,27 @@ function parseBlocks(lines: readonly string[], open: boolean): NodeJSON[] {
           body.push(remaining);
           end++;
           if (end >= lines.length) break;
+          if (isBlank(lines[end] as string)) {
+            // While the text streams, its last line may still grow a closer on it.
+            ended = !open || end < lines.length - 1;
+            break;
+          }
           remaining = lines[end] as string;
         }
-      // An unclosed formula would show as a KaTeX error until it's complete.
-      if (!closed && open) break;
-      // A "\[" that never closes is text, not a formula: its paragraph keeps the words (#2422).
-      if (closed || opener === "$$") {
+      // An unclosed formula would show as a KaTeX error until it's complete; one that ended at a blank line never closes.
+      if (!closed && open && !ended) break;
+      // A "$$" that never closes runs to the end; a "\[" that never closes is text, its paragraph keeping the words (#2422).
+      if (closed || (opener === "$$" && !ended)) {
         i = closed ? end + 1 : lines.length;
         const latex = body.join("\n").trim();
         if (latex) blocks.push({ type: "blockMath", attrs: { latex } });
         if (after.trim()) blocks.push(paragraph(after.trim(), open && i >= lines.length));
         continue;
       }
-      noCloserFrom = i;
+      if (!closed) {
+        if (opener === "\\[") noCloserUntil = Math.max(noCloserUntil, end);
+        else noDollarCloserUntil = Math.max(noDollarCloserUntil, end);
+      }
     }
 
     const heading = HEADING.exec(line);

@@ -29,9 +29,10 @@ import { CloudLine } from "./CloudLine";
 import { LanguagesLine } from "./LanguagesLine";
 
 /**
- * Under "Transcribe on" in Settings › Meetings (#141). Before a cloud service is chosen it says
- * what choosing one sends, so the choice is the consent (ADR-0022); once chosen, where the audio
- * goes and what it costs, or that Local mode holds it back.
+ * Under "Transcribe on" in Settings › Meetings (#141): the line describes the route chosen — this
+ * computer, whatever cloud keys exist (#2661), or the cloud service, where its audio goes and what
+ * it costs, or that Local mode holds it back. A cloud route the list can't name yet says what
+ * choosing one sends, so the choice is the consent (ADR-0022).
  */
 export function TranscriptionRouteLine({ id, read }: { id?: string; read: ServicesView }) {
   const t = useT();
@@ -56,11 +57,7 @@ export function TranscriptionRouteLine({ id, read }: { id?: string; read: Servic
     return (
       <p id={id} data-testid="meetings-route-line" className={rowTextClass}>
         {chooseAgainLine(services, t, language) ??
-          t(
-            services.some((each) => each.hasKey)
-              ? "meetings.route.consent"
-              : "meetings.route.hereLine",
-          )}
+          t(route === "local" ? "meetings.route.hereLine" : "meetings.route.consent")}
       </p>
     );
   }
