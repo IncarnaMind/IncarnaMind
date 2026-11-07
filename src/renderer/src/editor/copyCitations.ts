@@ -4,9 +4,12 @@
  */
 import { Extension } from "@tiptap/core";
 import type { Node as ProseMirrorNode, Schema } from "@tiptap/pm/model";
-import { DOMSerializer, Fragment } from "@tiptap/pm/model";
-import { Plugin } from "@tiptap/pm/state";
+import { DOMSerializer, Fragment, Slice } from "@tiptap/pm/model";
+import { type EditorState, Plugin } from "@tiptap/pm/state";
+import { CellSelection } from "@tiptap/pm/tables";
 import {
+  ANALYSIS_TABLE_ATTRIBUTE,
+  ANALYSIS_TABLE_NODE,
   CALCULATED_FIGURE_NODE,
   type CalculatedFigureAttributes,
   type RetainedFigureAnalysis,
@@ -14,7 +17,13 @@ import {
 import { InvalidInputError } from "../../../core/errors";
 import type { NodeJSON } from "../../../shared/blockJson";
 import { readCalculatedFigureAttributes } from "../../../shared/calculatedFigures";
-import { calculatedFiguresIn, readFigureRunClosure } from "../../../shared/figureRuns";
+import {
+  boundTablesIn,
+  calculatedFiguresIn,
+  readFigureRunClosure,
+  readTableBinding,
+  sameBinding,
+} from "../../../shared/figureRuns";
 import { withoutInertBrackets } from "../../../shared/inertBrackets";
 import type { SourceContext } from "../../../shared/sources";
 import { languageNow } from "../i18n";
@@ -95,6 +104,35 @@ interface CopyCitationsOptions {
   figureRuns(blocks: readonly NodeJSON[]): readonly RetainedFigureAnalysis[];
 }
 
+/**
+ * Cells copied from an Analysis's own table: that table, bound as it is, with its caption, so its
+ * run goes with them as a whole table's does (#2378). Null for any other copy.
+ */
+function cellsAsTheirTable(state: EditorState, slice: Slice): Slice | null {
+  const { selection } = state;
+  const copied = slice.content.firstChild;
+  if (!(selection instanceof CellSelection) || copied?.type.name !== "table") return null;
+  const table = selection.$anchorCell.node(-1);
+  const binding =
+    table.type.name === "table" ? readTableBinding(table.attrs[ANALYSIS_TABLE_ATTRIBUTE]) : null;
+  if (!binding) return null;
+  // Its caption goes too: a bound table with none is a typed table.
+  let caption: ProseMirrorNode | null = null;
+  state.doc.forEach((line) => {
+    line.descendants((node) => {
+      const named =
+        node.type.name === ANALYSIS_TABLE_NODE
+          ? readTableBinding(node.attrs[ANALYSIS_TABLE_ATTRIBUTE])
+          : null;
+      if (caption === null && named && sameBinding(named, binding)) caption = line;
+      return caption === null;
+    });
+  });
+  // Closed, so a paste makes it a table of its own rather than cells for the table at the cursor.
+  const cells = table.type.create(table.attrs, copied.content);
+  return new Slice(Fragment.from(caption ? [caption, cells] : [cells]), 0, 0);
+}
+
 export const CopyCitations = Extension.create<CopyCitationsOptions>({
   name: "copyCitations",
   addOptions: () => ({ figureRuns: () => [] }),
@@ -135,6 +173,7 @@ export const CopyCitations = Extension.create<CopyCitationsOptions>({
           };
         },
         props: {
+          transformCopied: (slice) => cellsAsTheirTable(this.editor.state, slice) ?? slice,
           clipboardSerializer: (() => {
             const base = DOMSerializer.fromSchema(this.editor.schema);
             const serializer = new DOMSerializer(base.nodes, base.marks);
@@ -148,7 +187,11 @@ export const CopyCitations = Extension.create<CopyCitationsOptions>({
                 span.hidden = true;
                 out.appendChild(span);
               };
-              if (calculatedFiguresIn(blocks).some(({ figure }) => figure.analysis)) {
+              // An Analysis's table goes with the record of its run, as an Analysis figure does (#2378).
+              if (
+                calculatedFiguresIn(blocks).some(({ figure }) => figure.analysis) ||
+                boundTablesIn(blocks).length > 0
+              ) {
                 // Each Analysis figure is tried on its own: one whose saved inputs are complete
                 // keeps its node and record, whatever shares its Block (#2378).
                 const plain = new Set<string>();

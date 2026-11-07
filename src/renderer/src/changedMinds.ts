@@ -2,7 +2,7 @@
  * The Minds an Answer in the assistant changed or made (#202), from its Tool
  * calls: what its card lists (`MindChangesCard`). Only data.
  */
-import type { ChartProblem, ConversationAnswer } from "../../core/api";
+import type { ChartProblem, ConversationAnswer, RemovedParagraphs } from "../../core/api";
 
 /**
  * A Mind an Answer changed or made, the requests its changes there belong to,
@@ -25,6 +25,8 @@ export interface ChangedMind {
   unlinkedSources: number;
   droppedSources: number;
   extraCells: number;
+  /** The whole paragraphs its removals there took out, when they only removed (#2356). Absent: none. */
+  removed?: RemovedParagraphs;
 }
 
 /** The Minds an Answer's calls changed or made, in the order it first changed each. */
@@ -53,7 +55,17 @@ export function changedMinds(answer: Pick<ConversationAnswer, "toolCalls">): Cha
     const replaced = change.replacedOwn;
     // Counted by paragraph; an Answer's calls from before that counted Proposals, a table one of them.
     if (call.tool === "edit_mind" && !change.revised) {
-      row.changed += change.changed ?? change.proposals - tables;
+      // Lines added beside the User's, which stay, are added, as written ones are; none of theirs changed (#2356).
+      const count = change.changed ?? change.proposals - tables;
+      if (change.added) row.wrote += count;
+      else row.changed += count;
+      if (change.removed) {
+        row.removed = {
+          paragraphs: (row.removed?.paragraphs ?? 0) + change.removed.paragraphs,
+          sentences: (row.removed?.sentences ?? 0) + change.removed.sentences,
+          start: row.removed?.start ?? change.removed.start,
+        };
+      }
     } else row.wrote += (change.paragraphs ?? 0) - (replaced?.paragraphs ?? 0);
     row.tables += tables - (replaced?.tables ?? 0);
     const charts = (change.charts ?? 0) - (replaced?.charts ?? 0);

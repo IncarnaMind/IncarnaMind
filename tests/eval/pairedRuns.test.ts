@@ -7,12 +7,18 @@ import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
 import { openLibrary } from "../../eval/lib/library";
 import { type Arm, armNamed, armSwitch } from "../../eval/speed/arms";
-import { type ArmRun, type GroupOptions, openForArms } from "../../eval/speed/paired";
+import {
+  type ArmRun,
+  type GroupOptions,
+  openForArms,
+  type RequestTiming,
+} from "../../eval/speed/paired";
 import {
   guards,
   newFalseSupported,
   type PairedRow,
   pairedSection,
+  timeTable,
 } from "../../eval/speed/pairedReport";
 import { createFakeEmbedder } from "../../src/core/embedding/fake";
 import {
@@ -91,6 +97,18 @@ describe("the guards", () => {
     expect(newFalseSupported(fresh)).toBe(true);
     expect(named([both], "False Supported")?.holds).toBe(true);
     expect(named([both, fresh], "False Supported")).toMatchObject({ lost: 1, holds: false });
+  });
+
+  test("counted over the set, a false Supported only the candidate gives holds against one only the baseline gives, and two against one don't", () => {
+    const fresh = row({}, { falseSupported: 1 }, "en-01");
+    const gone = row({ falseSupported: 1 }, {}, "en-02");
+    const another = row({}, { falseSupported: 2 }, "en-03");
+    const counted = (rows: PairedRow[]) =>
+      guards(rows, 0, true).find((each) => each.name === "False Supported");
+
+    expect(counted([fresh, gone])).toMatchObject({ lost: 1, gained: 1, holds: true });
+    expect(counted([fresh, gone, another])).toMatchObject({ lost: 2, gained: 1, holds: false });
+    expect(named([fresh, gone], "False Supported")?.holds).toBe(false);
   });
 
   test("a duplicate Answer or an unmade change only the candidate gives fails", () => {
@@ -193,6 +211,41 @@ describe("the report", () => {
     );
     expect(section).not.toContain("Searched more than once");
     expect(section).toContain("| Answered in one call | 0 of 1 | 0 of 1 | |");
+  });
+});
+
+describe("where a help reply's time went", () => {
+  const request = (model: string, startMs: number, step: string | null = null): RequestTiming => ({
+    kind: "model",
+    step,
+    model,
+    reasoning: null,
+    startMs,
+    firstByteMs: 500,
+    firstReasoningMs: null,
+    firstTextMs: 700,
+    firstToolMs: null,
+    endMs: 1500,
+    inputTokens: 4000,
+    outputTokens: 200,
+  });
+
+  test("times each of the reply's own requests from the User's action, apart from the other steps' requests, and counts a reply written again by another model", () => {
+    const table = timeTable(
+      [
+        row(
+          { requests: [request("sonnet", 100), request("haiku", 1700, "change-claim-check")] },
+          { requests: [request("haiku", 100), request("sonnet", 1700)], firstOptionMs: 900 },
+        ),
+      ],
+      ["today", "quick-help"],
+    );
+
+    expect(table).toContain("| Request 1: first byte | 0.6 s | 0.6 s |");
+    expect(table).toContain("| Request 2: end | – | 3.2 s |");
+    expect(table).toContain("| Written again by another model (share) | 0.00 | 1.00 |");
+    expect(table).toContain("| Requests for change-claim-check, how many | 1.00 | 0.00 |");
+    expect(table).toContain("| First whole option | – | 0.9 s |");
   });
 });
 

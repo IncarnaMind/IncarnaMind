@@ -1,4 +1,9 @@
-import type { AnalysisCell, AnalysisTable } from "../../shared/analysis";
+import {
+  type AnalysisCell,
+  type AnalysisChart,
+  type AnalysisTable,
+  rowsKey,
+} from "../../shared/analysis";
 import { figureCellText, rawColumn } from "../../shared/figures";
 import { translate } from "../../shared/i18n";
 import type { AnswerAnalysis } from "../api";
@@ -70,22 +75,33 @@ export function withAnalysisResults(
   language: Language,
 ): string {
   if (analyses.length === 0 || !text.includes("[=")) return text;
-  const tables = new Map<number, AnalysisTable>();
-  const charts = new Map<number, { title: string; table: AnalysisTable }>();
+  const tables = new Map<number, { analysis: AnswerAnalysis; table: AnalysisTable }>();
+  const charts = new Map<number, { analysis: AnswerAnalysis; table: AnalysisTable }>();
   const pictures = new Set<number>();
   // The first Analysis that gave a marker names it: this Answer's, when it is listed first.
   for (const analysis of analyses) {
     for (const { result, marker } of analysis.markers.tables) {
       const found = analysis.output.results.find((each) => each.name === result);
-      if (found?.kind === "table" && !tables.has(marker)) tables.set(marker, found.table);
+      if (found?.kind === "table" && !tables.has(marker))
+        tables.set(marker, { analysis, table: found.table });
     }
     analysis.markers.charts.forEach((marker, index) => {
       const chart = analysis.output.charts[index];
-      if (chart && !charts.has(marker))
-        charts.set(marker, { title: chart.title, table: chart.table });
+      if (chart && !charts.has(marker)) charts.set(marker, { analysis, table: chart.table });
     });
     for (const marker of analysis.markers.pictures ?? []) pictures.add(marker);
   }
+  // Each table goes in once: a marker written again, or a chart's marker whose table is already
+  // there, would write the same table a second time (#2378). The table's caption names it. Its
+  // rows are what it holds: a chart drawn of a result's rows, sorted or under other headings, is
+  // that table.
+  const placed = new Set<string>();
+  const once = ({ analysis, table }: { analysis: AnswerAnalysis; table: AnalysisTable }) => {
+    const key = JSON.stringify([analysis.number, analysis.ranAt, rowsKey(table.rows)]);
+    if (placed.has(key)) return null;
+    placed.add(key);
+    return `\n${markdownTable(table, language)}\n`;
+  };
   return text
     .split("\n")
     .map((line) => {
@@ -95,14 +111,30 @@ export function withAnalysisResults(
       // The Blocks show it as its picture (`withAnalysisPictures`): the text keeps its marker.
       if (whole[1] === "picture") return pictures.has(marker) ? `\n[=picture ${marker}]\n` : "";
       // A table reads as one only with a blank line before and after it.
-      if (whole[1] === "table") {
-        const table = tables.get(marker);
-        return table ? `\n${markdownTable(table, language)}\n` : "";
-      }
-      const chart = charts.get(marker);
-      if (!chart) return "";
-      const title = chart.title ? `**${chart.title}**\n\n` : "";
-      return `\n${title}${markdownTable(chart.table, language)}\n`;
+      const given = whole[1] === "table" ? tables.get(marker) : charts.get(marker);
+      return given ? (once(given) ?? "") : "";
     })
     .join("\n");
+}
+
+/** The charts `text` places with a marker on a line of its own, as the Analysis drew each (#2378). */
+export function chartsPlacedIn(
+  text: string,
+  analyses: readonly AnswerAnalysis[],
+): { kind: AnalysisChart["kind"]; title: string; rows: AnalysisTable["rows"] }[] {
+  const placed: { kind: AnalysisChart["kind"]; title: string; rows: AnalysisTable["rows"] }[] = [];
+  for (const line of text.split("\n")) {
+    const whole = LINE.exec(line);
+    if (whole?.[1] !== "chart") continue;
+    const marker = Number(whole[2]);
+    // The first Analysis that gave a marker names it, as `withAnalysisResults` reads it.
+    for (const analysis of analyses) {
+      const index = analysis.markers.charts.indexOf(marker);
+      const chart = index < 0 ? undefined : analysis.output.charts[index];
+      if (!chart) continue;
+      placed.push({ kind: chart.kind, title: chart.title, rows: chart.table.rows });
+      break;
+    }
+  }
+  return placed;
 }

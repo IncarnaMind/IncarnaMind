@@ -5,7 +5,7 @@ import { CJK, nameKey } from "../../shared/text";
 import type { AskedTable, CitationSupport, SkillFile, UnreadFile, UnreadReason } from "../api";
 import { detectLanguage } from "../documents/textLanguage";
 import { LANGUAGE_NAMES, type Language } from "../language";
-import { asData, tagged } from "../promptData";
+import { asData, type PromptTag, tagged } from "../promptData";
 import type { LoadedSkill, SkillSummary } from "../skills";
 import { SET_ASIDE_MARK, UNPLACED_MARK } from "./sheetRows";
 
@@ -138,9 +138,9 @@ export function analysisInstructions(offered: boolean): string {
     "A search shows only some rows of a sheet or CSV file. For any total, count, average, share, change or join over its rows, call run_analysis: it runs your Python with pandas over the rows, up to 20,000 of each range. Never answer such a question from the rows you were shown, or say you saw only part of the sheet.",
     '- Read data only from inputs["name"]: a Passage of a sheet reads all of it (one input per sheet; a range only for part), or a number quoted from a Passage. A number a calculation uses must be an input, cited, never written in the code.',
     '- A table in a PDF, Word file or deck is an input too, {"name": "costs", "passage": "P5"}: all its rows, over every page, each cited where the Document has it. Use it to add up, count or compare a table\'s rows; for a figure from two or three numbers a Passage shows, calculate is enough. A table\'s rows can hold its totals, subtotals and the lines it carries over a page: leave those out of a sum of its entries, and compare the sum with the total it prints.',
-    '- Call step(label, df) after each change to the rows. Give each sum, mean, min, max or count of an input\'s column with figure(name, df[column], how, label, unit), which IncarnaMind works out again from the cells, and each other figure or table the Answer uses with result(name, value, label, unit): a number or a table, never text. A figure a model or a test works out also names the input\'s rows it used, as of=: result("slope", fit.params["Price"], "Slope", of=df). For a percent figure, unit % takes a fraction: 0.081 shows 8.1%. Each run starts clean, with no clock: take a date as an input.',
+    '- Call step(label, df) after each change to the rows. Give each sum, mean, min, max or count of an input\'s column with figure(name, df[column], how, label, unit), which IncarnaMind works out again from the cells; a number of rows is the count of a column every row fills, figure("orders", df["order_id"], "count", "Orders"). Give each other figure or table the Answer uses with result(name, value, label, unit): a number or a table, never text. Every figure worked out from an input\'s rows (a coefficient, a forecast, a p-value, a share) passes those rows as of=, the DataFrame after any filtering, so its Citation leads to them: result("slope", fit.params["Price"], "Slope", of=df). For a percent figure, unit % takes a fraction: 0.081 shows 8.1%. Each run starts clean, with no clock: take a date as an input.',
     "- For statistics, models and forecasts, import scipy, statsmodels or sklearn. Draw a simple series with chart(); plot with matplotlib.pyplot what chart() can't draw, such as points coloured by group, a fitted line or a distribution.",
-    "- In the Answer, put each [=table n], [=chart n] and [=picture n] on a line of its own where it goes, and don't write the table yourself.",
+    "- In the Answer, put each [=table n], [=chart n] and [=picture n] on a line of its own where it goes, and don't write the table yourself: its label is its caption, so write no line above it that only says the same. Write each label and title in the language the Answer is in.",
     "- When it stops with an error, fix the code and run it again.",
   ].join("\n");
 }
@@ -232,7 +232,7 @@ const selected = (
   quote: { documentName: string; quote: string; table?: AskedTable },
   place: string | null,
 ) =>
-  `<selected document="${inAttribute(quote.documentName)}"${place ? ` location="${inAttribute(place)}"` : ""}>\n${quote.table ? tableText(quote.table) : quote.quote}\n</selected>`;
+  `<selected document="${inAttribute(quote.documentName)}"${place ? ` location="${inAttribute(place)}"` : ""}>\n${asData(quote.table ? tableText(quote.table) : quote.quote, CALL_TAGS)}\n</selected>`;
 
 /** A selected block's entry: the words (or a range's cells), and the picture of an area (#118) when there is one. */
 export interface SelectedBlockQuote {
@@ -423,6 +423,28 @@ export const CALL_SCOPE_NOTE = [
   "A recap has no heading or closing line, and adds no unrequested suggestion, question to ask, or topic still to cover.",
   "</call>",
 ].join("\n");
+
+/**
+ * The tags the Answer writes around text a User or a Document supplies (#2473). A Transcript's
+ * lines are speech, not the app's markup: shown as Passages they could close the transcript early
+ * or forge the note that says what the call is. Keep this in step with every tag the Answer adds.
+ */
+export const CALL_TAGS: readonly PromptTag[] = [
+  "live-transcript",
+  "found-in-documents",
+  "call",
+  "help",
+  "mind",
+  "selection",
+  "question",
+  "answer",
+  "selected-text",
+  "selected",
+  "document-text",
+  "document-skims",
+  "passage",
+  "tool-record",
+];
 
 /**
  * Connectors that are on but can't be used until the User signs in to them
@@ -698,7 +720,7 @@ export interface LibraryDocuments {
 }
 
 /** A Document name on one line of its own, and not too long. */
-function listedName(name: string): string {
+export function listedName(name: string): string {
   const line = name.replace(/\s+/g, " ").trim();
   return line.length > MAX_NAME_LENGTH ? `${line.slice(0, MAX_NAME_LENGTH - 1)}…` : line;
 }

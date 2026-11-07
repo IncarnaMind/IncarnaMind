@@ -3,8 +3,10 @@ import { TextSelection } from "@tiptap/pm/state";
 import { useEditorState } from "@tiptap/react";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type * as Y from "yjs";
-import type { CitationAttributes } from "../../../core/api";
+import { ANALYSIS_TABLE_ATTRIBUTE, type CitationAttributes } from "../../../core/api";
+import { liveVersions, tableShownIn } from "../../../shared/analysisTables";
 import { citationState } from "../../../shared/citations";
+import { keptBinding } from "../../../shared/figureRuns";
 import {
   acceptAndCheck,
   type CheckProblem,
@@ -31,6 +33,7 @@ import { startMindCheck, useMindCheck, useMindCheckRun } from "../mindCheck";
 import { type NoteState, unreadForCard } from "../noteState";
 import { useEmptyScopeLine } from "../scopeDocuments";
 import { useAppStore } from "../store";
+import { useKeptInsideOf } from "../turnWall";
 import { useCheckUnread } from "../unreadFiles";
 import { AddedDocumentsLine } from "./AddedDocumentsLine";
 import { AnswerError } from "./AnswerView";
@@ -63,6 +66,7 @@ const NO_HEALTH: Health = {
   toCheck: [],
   failed: [],
   uncheckable: [],
+  notRecalculated: [],
   recheck: [],
   edited: [],
   checking: [],
@@ -176,6 +180,7 @@ export function useHealth(
     state.status.kind === "ready" ? state.documents : null,
   );
   const kept = useAppStore((state) => state.keptCitationTexts);
+  const keptInside = useKeptInsideOf();
   const [health, setHealth] = useState<Health>(NO_HEALTH);
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -191,6 +196,9 @@ export function useHealth(
           unexamined,
           omitted: opinionSentenceRanges(editor.state.doc, doc),
           kept: keptSpans(editor.state),
+          tableShown: (table) =>
+            tableShownIn(doc, table.toJSON(), "en", liveVersions(documents), keptInside),
+          tableKept: (table) => keptBinding(doc, table.attrs[ANALYSIS_TABLE_ATTRIBUTE]) !== null,
         }),
       );
     };
@@ -206,7 +214,7 @@ export function useHealth(
       editor.off("transaction", later);
       doc.off("afterTransaction", later);
     };
-  }, [editor, doc, documents, kept, skipped, unexamined]);
+  }, [editor, doc, documents, kept, skipped, unexamined, keptInside]);
   return health;
 }
 

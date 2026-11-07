@@ -415,7 +415,7 @@ function FolderGroup({
   const expanded = useFolds((state) => state.open.has(folder.id));
   const shownInLibrary = useAppStore(
     (state) =>
-      currentTabOf(state.layout)?.item.kind === "library" && state.libraryFilter === folder.id,
+      currentTabOf(state.layout)?.item.kind === "library" && state.libraryFolderId === folder.id,
   );
   const toggle = () => useFolds.getState().toggle(folder.id);
   const row = useRef<HTMLDivElement>(null);

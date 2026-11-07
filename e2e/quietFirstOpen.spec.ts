@@ -300,7 +300,7 @@ test("File > Export names the Mind in front and exports it while the tab strip i
     });
   await expect
     .poll(item)
-    .toEqual({ label: "Export “Draft: credit committee paper”…", enabled: true });
+    .toEqual({ label: "Export “Draft: credit committee paper”", enabled: true });
 
   await app.evaluate(({ Menu }) => {
     Menu.getApplicationMenu()
@@ -324,6 +324,6 @@ test("File > Export is disabled with no Mind open (#123)", async () => {
         return found ? { label: found.label, enabled: found.enabled } : null;
       }),
     )
-    .toEqual({ label: "Export…", enabled: false });
+    .toEqual({ label: "Export", enabled: false });
   await app.close();
 });

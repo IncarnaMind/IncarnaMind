@@ -46,13 +46,13 @@ import { asGenerated } from "../../shared/aiText";
 import { withAnalysisPictures } from "../../shared/analysisPictures";
 import {
   analysisTablesOf,
-  countCitations,
-  withAnalysisTableCitations,
+  countBoundTables,
+  withAnalysisTables,
 } from "../../shared/analysisTables";
 import { hasText, markersIn, pageBlocks, withCalculatedFigures } from "../../shared/answerBlocks";
 import { ANSWER_CHECKING_LIMIT } from "../../shared/answerChecking";
 import { runsByDefault } from "../../shared/approvalRules";
-import { appliedAsAsked } from "../../shared/askedChanges";
+import { appliedAsAsked, appliedRequests } from "../../shared/askedChanges";
 import { PICTURE_DATA_URL, quoteKey } from "../../shared/askedQuote";
 import { citationNode, withCitations } from "../../shared/blockJson";
 import { type LiveDocument, shownDocumentName } from "../../shared/citations";
@@ -88,13 +88,14 @@ import {
   folderScope,
   hasSearchScope,
   NO_SCOPE,
+  type ScopeKind,
   searchScopeOf,
 } from "../../shared/searchScope";
 import { normaliseText } from "../../shared/text";
 import { setTextOrigin } from "../../shared/textOrigins";
 import { unbackedCommandNotes, unrunToolNotes } from "../../shared/unrunTools";
 import type { AnalysisRuntime } from "../adapters";
-import { withAnalysisResults, withEveryChartPlaced } from "../analysis/markers";
+import { chartsPlacedIn, withAnalysisResults, withEveryChartPlaced } from "../analysis/markers";
 import { createAnalysisRecorder } from "../analysis/recorder";
 import { analysisTool } from "../analysis/tool";
 import {
@@ -160,7 +161,14 @@ import {
   type WebPageCall,
 } from "../api";
 import type { CallToDecide, ToolCallToApprove } from "../approvals";
-import type { AddedTurn, AnswerRead, AnswerWrite, QuestionInput, Turn } from "../conversations";
+import type {
+  AddedTurn,
+  AnswerRead,
+  AnswerWrite,
+  QuestionInput,
+  RetryOrigin,
+  Turn,
+} from "../conversations";
 import type { WindowedPassage } from "../documents/search";
 import { ChatNotReadyError, InvalidInputError, isRecord, NotFoundError } from "../errors";
 import type { createEventHub } from "../events";
@@ -336,6 +344,7 @@ import {
   analysisInstructions,
   answerInstructions,
   CALL_SCOPE_NOTE,
+  CALL_TAGS,
   codeInstructions,
   commandInstructions,
   connectorInstructions,
@@ -368,6 +377,7 @@ import {
 } from "./prompt";
 import { quotedWordsIn, withoutQuotationMarks } from "./quotedWords";
 import { readKinds } from "./readKinds";
+import { nameScope, type ScopeSource, SEARCH_SCOPE_RULE, scopeLines } from "./scopeLine";
 import { withoutSearchTalk } from "./searchTalk";
 import { setAsideMarksInWords } from "./sheetRows";
 import type { ChangeStates } from "./toolRecord";
@@ -489,12 +499,16 @@ export interface AnswerConversations {
   setQuestionModel(questionId: string, model: ChatModelChoice): ConversationQuestion | null;
   /** Takes the Search scope off a Question: its Answers search every Document (#748). */
   clearScope(questionId: string): ConversationQuestion | null;
-  /** Empties an Answer, where it is, to write it again, reading `read`. */
+  /**
+   * Empties an Answer, where it is, to write it again, reading `read`; with `origin`, records it
+   * on the Question in the same transaction, so an interrupted Try again keeps both as they were.
+   */
   restartAnswer(
     answerId: string,
     answerModel: ChatModelChoice | null,
     read: AnswerRead | null,
     emit?: boolean,
+    origin?: RetryOrigin,
   ): Turn;
   /** Writes an Answer as it stands; false when it is gone: its conversation was deleted. */
   writeAnswer(answerId: string, write: AnswerWrite): boolean;
@@ -671,6 +685,10 @@ export interface AnswersOptions {
   /** What a Question from a Mind searches, by the one rule (`mindSearchScope`); null: every Document. */
   searchedScope(scope: SearchScope | null, mindId: string | null): SearchScope | null;
   mindFolder(mindId: string): string | null;
+  /** The name of a Folder, Tag or Document a Search scope names, as its chip shows it now; null once gone. */
+  scopeItemName(kind: ScopeKind, id: string): string | null;
+  /** The live Folders of the Library, with whether each keeps its work inside it. */
+  libraryFolders(): readonly { id: string; name: string; keepInside: boolean }[];
   /** The walled Folder a Mind is in; null when it is in none. */
   walledFolder(mindId: string | null): string | null;
   /** The Folder itself when it is walled now; null for any other, or none. */
@@ -1525,6 +1543,7 @@ export function createAnswers(options: AnswersOptions) {
         onRecord: (marker, citation) =>
           announce("answer.citationAdded", { ...place, answerId, marker, citation }),
         marksFormulas: () => workbookToolsOffered,
+        defuses: CALL_TAGS,
       },
       original
         ? {
@@ -1744,9 +1763,9 @@ export function createAnswers(options: AnswersOptions) {
                   ? (marker) => session.finalNode(marker)
                   : (marker) => session.streamingNode(marker),
               );
-              const drawn = withAnalysisTableCitations(
+              const drawn = withAnalysisTables(
                 withAnalysisPictures(blocks, analyses),
-                analyses,
+                analyses.map((analysis) => ({ answerId, analysis })),
               );
               return asGenerated(
                 calculating
@@ -2375,12 +2394,12 @@ export function createAnswers(options: AnswersOptions) {
       // Nothing is sent before the User says: the Answer waits for them.
       if (consenting) showPhase();
       let prepared: PreparedChatModel;
+      // Help during a call is read within seconds: the model answers without thinking first.
+      const thinking = help
+        ? "off"
+        : (input.thinking ?? (input.task ? "task" : careful ? "careful" : "answer"));
       try {
-        prepared = await options.prepareModel(
-          model,
-          // Help during a call is read within seconds: the model answers without thinking first.
-          help ? "off" : (input.thinking ?? (input.task ? "task" : careful ? "careful" : "answer")),
-        );
+        prepared = await options.prepareModel(model, thinking);
       } catch (error) {
         finish({ status: "failed", error: failureOf(error) });
         return;
@@ -2687,6 +2706,13 @@ export function createAnswers(options: AnswersOptions) {
       const focusedId = input.assistant?.focused?.mindId ?? null;
       const wallId = turnWall;
       const allMinds = given;
+      // Read again in the turn that made them, its changes that the window applies at once read as
+      // applied: the window may not have taken them in yet (#2321).
+      const appliedRequestsIn = (mindId: string): ReadonlySet<string> =>
+        allMinds?.read(mindId, (blocks) => {
+          const doc = blocks.doc;
+          return doc === null ? new Set<string>() : appliedRequests(doc, mindId, toolCalls);
+        }) ?? new Set<string>();
       const minds: MindsForTools | undefined = given && {
         ...given,
         list: () =>
@@ -2705,6 +2731,8 @@ export function createAnswers(options: AnswersOptions) {
             }
             return result;
           }),
+        text: (mindId, name, tokens, ids) =>
+          given.text(mindId, name, tokens, ids, appliedRequestsIn(mindId)),
       };
       // A new piece fills the empty Mind the User is in rather than making another (#1109).
       const focusedEmpty =
@@ -2774,6 +2802,14 @@ export function createAnswers(options: AnswersOptions) {
                   ...analyses,
                   ...(input.assistant?.lastAnswer?.answer.analyses ?? []),
                 ];
+                const last = input.assistant?.lastAnswer?.answer;
+                const markerRuns = [
+                  ...analyses.map((analysis) => ({ answerId, analysis })),
+                  ...(last?.analyses ?? []).map((analysis) => ({
+                    answerId: last?.id ?? "",
+                    analysis,
+                  })),
+                ];
                 const markdown = withAnalysisResults(
                   calculating
                     ? withPrintedFigures(citeFigures(written.markdown))
@@ -2815,12 +2851,12 @@ export function createAnswers(options: AnswersOptions) {
                       analyses,
                     })
                   : cited;
-                // An Analysis's table cites the rows it read, so content that gives one isn't uncited.
-                const citedTables = withAnalysisTableCitations(uncited, markerAnalyses);
-                const blocks = asGenerated(citedTables);
+                // An Analysis's own table names the rows and files it read, so content that gives one isn't uncited.
+                const bound = withAnalysisTables(uncited, markerRuns);
+                const blocks = asGenerated(bound);
                 return {
                   blocks,
-                  cited: found + notFound + countCitations(citedTables) - countCitations(uncited),
+                  cited: found + notFound + countBoundTables(bound),
                   notFound,
                   unrecorded,
                   firstUnrecorded,
@@ -2829,7 +2865,8 @@ export function createAnswers(options: AnswersOptions) {
                   unlinkedSources: tables.unlinked,
                   extraCells: tables.extraCells,
                   searchTalk: written.left,
-                  analysisTables: analysisTablesOf(markerAnalyses),
+                  analysisTables: analysisTablesOf(markerRuns),
+                  chartsPlaced: chartsPlacedIn(written.markdown, markerAnalyses),
                 };
               },
               changed: (toolCallId, change) => {
@@ -3189,8 +3226,11 @@ export function createAnswers(options: AnswersOptions) {
       // An Answer the User reads holds its claims of Tools to its calls; a check's, a cell's or a
       // call's help is read by its own flow, which offers no calculate to call.
       const readByUser = !outside && !help && !input.task && input.toolSet !== "check";
+      // Call help is offered no Tool that changes a Note or runs a command, and its reply is lines
+      // for the User to say: a claim of a change can't be the app's, so it isn't checked (#2526).
+      const checksClaims = !help;
       const turnChecks: TurnCheck[] = [
-        ...(mindsTools || commandsOffered
+        ...((mindsTools || commandsOffered) && checksClaims
           ? [
               {
                 name: "claimed-change",
@@ -3385,6 +3425,7 @@ export function createAnswers(options: AnswersOptions) {
                   withMindTools || ids.size() > 0,
                   { writeFirst, minds: withMindTools, library },
                 ),
+            inAssistant && !help ? SEARCH_SCOPE_RULE : "",
             stillReadingNote(options.documents.reading(documentIds)),
             coverageInstructions(coverage, asked.each, coverageSized),
             skillInstructions(listed, forced, withSkillTools, scripts),
@@ -3975,13 +4016,20 @@ export function createAnswers(options: AnswersOptions) {
       leftOut,
     }: { quoted: Quoted[]; pictured: AskedQuote[]; leftOut: AskedQuote[] },
     commands: CommandWindow | null,
+    folderInFront: string | null,
     remake: string | null = null,
+    namedScope: SearchScope | null = null,
   ): ConversationAskResult {
     const { conversation, question, answer } = turn;
     const help = mind ? (options.meetingHelp?.(mind.mindId, question.text) ?? null) : null;
     const callOnly = help !== null && HELP_DOCUMENTS[help] === null;
     // Each press of a help button stands alone: an earlier suggestion would only steer this one.
-    const wallId = mind ? options.walledFolder(mind.mindId) : wallOfTurn(turn.question);
+    // With no Note, the Folder in front (the Library's) is the turn's Folder: its wall is the one read.
+    const wallId = mind
+      ? options.walledFolder(mind.mindId)
+      : folderInFront !== null
+        ? options.walledFolderId(folderInFront)
+        : wallOfTurn(turn.question);
     // Earlier turns are judged by the wall alone: one outside this turn's Search scope still counts.
     const readable = readableAcrossWalls(mind?.mindId ?? null, wallId);
     const permitted = readable === null ? null : new Set(readable);
@@ -4036,6 +4084,30 @@ export function createAnswers(options: AnswersOptions) {
     const shown = callOnly ? [] : namesOnScreen(onScreen, documentIds);
     const ids = (callOnly ? null : mind?.ids) ?? contextCitationsFor(mind?.mindId ?? null, wallId);
     const named = help ? [] : namedMinds(mind?.mindId ?? null, wallId);
+    const scopeText =
+      callOnly || help || wallId === UNKNOWN_WALL
+        ? ""
+        : scopeLines(
+            nameScope(
+              {
+                scope: namedScope ?? question.scope,
+                mindId: mind?.mindId ?? null,
+                wallId,
+                documentIds,
+                folderInFront,
+              },
+              {
+                itemName: options.scopeItemName,
+                folders: options.libraryFolders,
+                walledFolderId: options.walledFolderId,
+                resolveScope: options.resolveScope,
+                searchableCount: options.documents.searchableCount,
+                searchableNames: (ids, limit) =>
+                  options.documents.searchableNames(ids, limit).names,
+                mindFolder: options.mindFolder,
+              } satisfies ScopeSource,
+            ),
+          );
     // A model that can't read pictures is sent none, even a figure the User picked (#118).
     const pictures =
       options.readsImages?.(ready.model) === false
@@ -4050,6 +4122,7 @@ export function createAnswers(options: AnswersOptions) {
       mindNames: options.readableMindName,
       changeStates: changeStatesOf,
       onScreen: shown,
+      scopeLine: scopeText,
       ids,
       pictures,
     });
@@ -4060,10 +4133,11 @@ export function createAnswers(options: AnswersOptions) {
       cut: (tokens) => reading.section(tokens, asking),
     });
     start({
+      ...(scopeText && { scopeLine: scopeText }),
       ...(named.length > 0 && {
         mindsLine: {
           line: mindsLine(named),
-          asked: askedText(shown, section?.selection ?? "", question.text),
+          asked: askedText(shown, section?.selection ?? "", question.text, scopeText),
         },
       }),
       home: conversationHome(conversation.id, answer.id),
@@ -4093,6 +4167,7 @@ export function createAnswers(options: AnswersOptions) {
                   mindNames: options.readableMindName,
                   changeStates: changeStatesOf,
                   onScreen: shown,
+                  scopeLine: scopeText,
                   ids,
                   pictures,
                 }).context,
@@ -4277,8 +4352,17 @@ export function createAnswers(options: AnswersOptions) {
   const scopeNow = (scope: SearchScope | null, mindId: string | null, wallId?: string | null) => {
     let documentIds: string[] | null;
     if (wallId === UNKNOWN_WALL) documentIds = [];
-    else if (wallId) documentIds = options.resolveScope(folderScope(wallId));
-    else {
+    else if (wallId) {
+      // A Folder picked inside the wall (the Library's nested one) stays that Folder, not its wall (#2529).
+      const inside =
+        scope !== null &&
+        hasSearchScope(scope) &&
+        scope.folderIds.length > 0 &&
+        scope.tagIds.length === 0 &&
+        scope.documentIds.length === 0 &&
+        scope.folderIds.every((id) => options.walledFolderId(id) === wallId);
+      documentIds = options.resolveScope(inside ? scope : folderScope(wallId), mindId);
+    } else {
       const resolved = options.resolveScope(scope ?? NO_SCOPE, mindId);
       const unscoped =
         scope && hasSearchScope(scope) ? null : (options.unscopedDocuments?.(mindId) ?? null);
@@ -4449,7 +4533,16 @@ export function createAnswers(options: AnswersOptions) {
      * model or Skill can't be asked is discarded without being published.
      */
     async askInConversation(question: QuestionInput): Promise<ConversationAskResult> {
-      const scope = options.searchedScope(question.scope, question.mind?.id ?? null);
+      // A walled Folder the Library is open on, with no Note, is that Folder alone: the scope
+      // the chip shows, read inside its wall (#2529).
+      const frontWall =
+        question.mind === null && question.folderInFront !== null
+          ? options.walledFolderId(question.folderInFront)
+          : null;
+      const scope =
+        frontWall !== null && question.folderInFront !== null
+          ? folderScope(question.folderInFront)
+          : options.searchedScope(question.scope, question.mind?.id ?? null);
       const answerModel =
         question.model && options.providerExists(question.model.providerId)
           ? question.model
@@ -4468,6 +4561,7 @@ export function createAnswers(options: AnswersOptions) {
         false,
         (folderId) => {
           if (mind) return options.mindFolder(mind.mindId) ?? "";
+          if (frontWall !== null) return question.folderInFront ?? "";
           if (scope === null) return folderId ?? "";
           return scope.folderIds.length === 1 &&
             scope.tagIds.length === 0 &&
@@ -4518,6 +4612,9 @@ export function createAnswers(options: AnswersOptions) {
           question.onScreen,
           checked,
           question.commands,
+          question.folderInFront,
+          undefined,
+          scope,
         );
       } catch (error) {
         if (!published) options.conversations.discard(added);
@@ -4527,6 +4624,14 @@ export function createAnswers(options: AnswersOptions) {
 
     /** Writes an Answer of a conversation again, in place (see `CoreApi.regenerateConversationAnswer`). */
     async regenerateInConversation(input: unknown): Promise<ConversationAskResult> {
+      const folderInFrontId = isRecord(input) ? input.folderInFrontId : undefined;
+      if (
+        folderInFrontId !== undefined &&
+        folderInFrontId !== null &&
+        (typeof folderInFrontId !== "string" || folderInFrontId === "")
+      ) {
+        throw new InvalidInputError({ key: "error.question.folderInFront" });
+      }
       const asked = options.conversations.questionOf(input);
       const everyDocument = isRecord(input) && input.clearScope === true;
       if (everyDocument) options.conversations.clearScope(asked.question.id);
@@ -4550,12 +4655,35 @@ export function createAnswers(options: AnswersOptions) {
         !from || from.deleted
           ? null
           : mindToRead(from.mindId, question.focus, question.text, ready.model);
-      const turn = options.conversations.restartAnswer(answerId, ready.model, readOf(mind));
-      const { documentIds, emptyScope } = scopeNow(
-        question.scope,
-        from && !from.deleted ? from.mindId : null,
-        mind ? null : wallOfTurn(question),
+      // The retry's origin: the Note it still reads, with that Note's Folder and wall, else the
+      // Folder in front. One decision drives the search, the context, the Tools and what is kept.
+      const mindId = mind?.mindId ?? null;
+      const front = mindId === null && typeof folderInFrontId === "string" ? folderInFrontId : null;
+      // The retry's origin is what it actually reads: a Note at the Folder it is in now, else the
+      // Folder in front. It is written with the Answer's reset, so a crash keeps the old origin
+      // with the Answer that held its text, never one without the other.
+      let origin: RetryOrigin | undefined;
+      if (mindId !== null) {
+        const own = options.mindFolder(mindId) ?? "";
+        if ((question.folderAskedIn ?? "") !== own) origin = { folderId: own };
+      } else if (front !== null) {
+        origin = { folderId: front, scope: folderScope(front) };
+      }
+      const turn = options.conversations.restartAnswer(
+        answerId,
+        ready.model,
+        readOf(mind),
+        true,
+        origin,
       );
+      const wall =
+        mindId !== null
+          ? null
+          : front !== null
+            ? options.walledFolderId(front)
+            : wallOfTurn(question);
+      const scoped = front !== null ? folderScope(front) : question.scope;
+      const { documentIds, emptyScope } = scopeNow(scoped, mindId, wall);
       return startInConversation(
         turn,
         ready,
@@ -4563,9 +4691,11 @@ export function createAnswers(options: AnswersOptions) {
         emptyScope,
         mind,
         onScreen,
-        checkQuotes(question.quotes, from?.mindId ?? null, mind ? null : wallOfTurn(question)),
+        checkQuotes(question.quotes, mindId, wall),
         commands,
+        front,
         remake,
+        scoped,
       );
     },
 

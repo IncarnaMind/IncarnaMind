@@ -36,6 +36,7 @@ export interface CitingDocuments {
     query: string,
     documentIds: readonly string[] | null,
     signal?: AbortSignal,
+    background?: boolean,
   ): Promise<WindowedPassage[]>;
   /** A Passage and its Document, deleted or not; null if unknown. */
   citationSource(passageId: string): CitationSource | null;
@@ -52,11 +53,16 @@ export interface CitingDocuments {
 export type { FoundPassage } from "../api";
 
 export interface Citing {
-  /** The Passages `text` is about, of these Documents (null: every Document), best first. */
+  /**
+   * The Passages `text` is about, of these Documents (null: every Document),
+   * best first. `background`: no one is waiting on it (a writing suggestion),
+   * so it uses only flows already allowed, asking never.
+   */
   findPassages(
     text: string,
     documentIds: readonly string[] | null,
     signal?: AbortSignal,
+    background?: boolean,
   ): Promise<FoundPassage[]>;
   /**
    * The words of a Passage that best match `text` (#281): the sentence holding
@@ -213,8 +219,8 @@ export function createCiting(documents: CitingDocuments): Citing {
   };
 
   return {
-    async findPassages(text, documentIds, signal) {
-      const found = await documents.search(text, documentIds, signal);
+    async findPassages(text, documentIds, signal, background = false) {
+      const found = await documents.search(text, documentIds, signal, background);
       const terms = keywordTerms(text);
       const best = (passage: WindowedPassage) => passage.rank ?? Number.POSITIVE_INFINITY;
       return [...found]

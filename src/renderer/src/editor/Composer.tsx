@@ -52,8 +52,10 @@ import { type Dragged, type Dropped, useDropTarget } from "../dragDrop";
 import { editFromComposer, stopEditing, useEdits } from "../editWithAi";
 import { describeError, errorMessage } from "../errors";
 import { cancelExplain, takeExplain, useExplainQueue } from "../explainQueue";
+import { folderWallOf } from "../folders";
 import { useT } from "../i18n";
 import { useCitedScopeDocument, useScopeBefore } from "../keptScope";
+import { currentTabOf } from "../layoutSlice";
 import { modelInUseOf, useModelInUse } from "../modelInUse";
 import { newNoteTitle } from "../newNoteRequest";
 import { useCitedSource } from "../openCited";
@@ -74,7 +76,7 @@ import { tellTask, useTasks } from "../tasks";
 import { takeBackLast, tellable } from "../taskTell";
 import { taskName } from "../taskText";
 import { useTurnWall } from "../turnWall";
-import { scopeOutsideWalls } from "../walls";
+import { scopeOutsideWalls, wallsOf } from "../walls";
 import { AnswerAnnouncer } from "./AnswerAnnouncer";
 import { AskedQuoteChips } from "./AskedQuotes";
 import { AskProblem } from "./AskProblem";
@@ -152,6 +154,9 @@ export function Composer({
 }) {
   const t = useT();
   const mindId = mind?.mindId ?? null;
+  const libraryFolderId = useAppStore((state) =>
+    currentTabOf(state.layout)?.item.kind === "library" ? state.libraryFolderId : null,
+  );
   const key = mindId ?? NO_MIND;
   const citedSource = useCitedSource();
   const source = mind === null ? citedSource : null;
@@ -185,6 +190,21 @@ export function Composer({
     wallId ?? null,
     mindSearchScope(scopeDraft.scope, folderId, folderHolds),
   );
+  const libraryGroups = useAppStore((state) => state.library?.groups);
+  const libraryWall =
+    libraryFolderId === null ? null : folderWallOf(libraryGroups ?? [], libraryFolderId);
+  // With no Note, the Folder the Library shows is the Folder in front, and the chip and the
+  // Question take one resolved scope: that Folder as a picked one, alone inside its wall (#2529).
+  const libraryWalled = libraryFolderId !== null && libraryWall !== null;
+  const resolvedScope =
+    libraryFolderId === null
+      ? scope
+      : libraryWalled
+        ? folderScope(libraryFolderId)
+        : {
+            ...scope,
+            folderIds: [libraryFolderId, ...scope.folderIds.filter((id) => id !== libraryFolderId)],
+          };
   // The Mind in focus changes under the one composer: what was typed with no Mind goes with the
   // User into the Mind that opens, whose draft is empty, and the quotes waiting with it go
   // whatever that draft holds; the rest of its state starts over.
@@ -278,7 +298,7 @@ export function Composer({
   const withinWall = (next: SearchScope) => {
     if (typeof wallId === "string") return folderScope(wallId);
     return chosenScope(
-      scopeOutsideWalls(useAppStore.getState().library, next, null) ?? next,
+      scopeOutsideWalls(wallsOf(useAppStore.getState()), next, null) ?? next,
       folderId,
     );
   };
@@ -452,6 +472,13 @@ export function Composer({
 
   /** A chip's ×. The Folder's own taken out: every Document is searched. */
   const removeFromScope = (kind: ScopeKind, id: string) => {
+    // The Library's Folder is not a pick: its × takes the chip away and searches everything,
+    // including a pick the chip hid.
+    if (kind === "folder" && id === libraryFolderId && mindId === null) {
+      useAppStore.setState({ libraryFolderId: null });
+      update({ scope: null });
+      return;
+    }
     const left = scopeIds(scope, kind).filter((each) => each !== id);
     updateScope({ ...scope, [SCOPE_LISTS[kind]]: left });
   };
@@ -627,7 +654,8 @@ export function Composer({
       mindId,
       text,
       focus: selection.focus(),
-      scope,
+      scope: resolvedScope,
+      ...(mindId === null && libraryFolderId !== null && { folderInFrontId: libraryFolderId }),
       model: modelInUseOf(mind?.doc ?? null),
       forcedSkill: draft.skill,
       ...(draft.analyse && { analyse: true }),
@@ -1051,14 +1079,14 @@ export function Composer({
               <SearchIcon className="composer-chip-icon" />
               <span className="truncate">{allLabel}</span>
             </span>
-          ) : hasSearchScope(scope) ? (
+          ) : hasSearchScope(resolvedScope) ? (
             <ScopeChips
-              scope={scope}
+              scope={resolvedScope}
               ownFolderId={folderId}
               onRemove={removeFromScope}
               {...(scopeDraft.scope !== null &&
                 hasSearchScope(scopeDraft.scope) && { back: { label: backLabel, onBack: goBack } })}
-              onChange={walled ? undefined : openScopePicker}
+              onChange={walled || libraryWalled ? undefined : openScopePicker}
               shown={CHIPS_SHOWN}
               className="composer-scope"
               testId="composer-scope"

@@ -1,11 +1,13 @@
 /**
  * Automatic tagging (spec #20, "Tagging"), unless Organize tags and files new
- * Documents by itself: once a Document is ready (embedded, so already
- * searchable), its Tags are decided by the model the Tagging setting picks
- * (Automatic, or one chosen by hand, see ../library/tagging), the one Organize
- * uses once there are Folders. With Organize not moving new Documents by
- * itself, this still tags them, and Organize only moves them when asked. One
- * Document at a time, in the order they became ready.
+ * Documents by itself: once a Document's text is read, or the first pages of a
+ * scan whose rest is still being read (#2308), its Tags are decided by the
+ * model the Tagging setting picks (Automatic, or one chosen by hand, see
+ * ../library/tagging), the one Organize uses once there are Folders. With
+ * Organize not moving new Documents by itself, this still tags them, and
+ * Organize only moves them when asked. One Document at a time, in the order
+ * their text was read, and once for its version: reading the rest of it, or
+ * embedding it, doesn't tag it again.
  *
  * - Each Document takes one turn in the background model queue (see
  *   ../backgroundQueue), which other background model work shares and which
@@ -124,10 +126,18 @@ export interface TaggerOptions {
   rateLimit: Pick<RateLimitPause, "pausedUntil" | "pause" | "succeeded" | "refusal" | "refuse">;
   /** Waits before the one retry after a passing error. */
   timers: PaceTimers;
+  /** A scan's first pages, while the rest is still being read (../documents, `head`). */
+  head?(id: string): { pageCount: number; passages: readonly string[] } | null;
+  /** The Documents whose first pages are read while the rest is. */
+  headIds?(): readonly string[];
 }
+
+/** A Document in these states has its text stored, embedded or not. */
+const TEXT_STATES = ["ready", "embedding", "waiting-for-model"];
 
 interface DocumentRow {
   name: string;
+  content_hash: string | null;
   kind: string;
   page_count: number | null;
   status: string;
@@ -154,11 +164,12 @@ export function createTagger(options: TaggerOptions) {
   const asked = new Set<string>();
   const organized = (id: string) => options.organizing?.(id) === true;
 
+  // A Meeting's Transcript has no Tags of its own: it goes with its Note (#2528).
   const rowOf = (id: string) =>
     db.get<DocumentRow>(
-      `SELECT name, kind, page_count, status, tagging_status, tagging_error_kind, tagging_error_message,
-         tagging_error_resets_at
-       FROM documents WHERE id = ? AND deleted_at IS NULL`,
+      `SELECT name, content_hash, kind, page_count, status, tagging_status, tagging_error_kind,
+         tagging_error_message, tagging_error_resets_at
+       FROM documents WHERE id = ? AND deleted_at IS NULL AND meeting_mind_id IS NULL`,
       [id],
     );
 
@@ -198,17 +209,24 @@ export function createTagger(options: TaggerOptions) {
     if (changed.length > 0) announce(changed);
   }
 
+  /** Its text is read, or its first pages are while the rest is. */
+  const hasText = (id: string, row: DocumentRow) =>
+    TEXT_STATES.includes(row.status) || !!options.head?.(id);
+
   function excerptOf(id: string, row: DocumentRow): DocumentExcerpt {
-    const passages = db.all<{ text: string }>(
-      `SELECT text FROM passages WHERE document_id = ? AND deleted_at IS NULL
-       ORDER BY position LIMIT ?`,
-      [id, BigInt(EXCERPT_ROWS)],
-    );
+    const stored = db
+      .all<{ text: string }>(
+        `SELECT text FROM passages WHERE document_id = ? AND deleted_at IS NULL
+         ORDER BY position LIMIT ?`,
+        [id, BigInt(EXCERPT_ROWS)],
+      )
+      .map((passage) => passage.text);
+    const head = stored.length === 0 ? options.head?.(id) : null;
     return {
       name: row.name,
       kind: row.kind as DocumentKind,
-      pageCount: row.page_count,
-      text: excerptFromPassages(passages.map((passage) => passage.text)),
+      pageCount: row.page_count ?? head?.pageCount ?? null,
+      text: excerptFromPassages(head ? head.passages : stored),
     };
   }
 
@@ -233,7 +251,7 @@ export function createTagger(options: TaggerOptions) {
       (requests.get(id) ?? 0) !== request;
     const row = rowOf(id);
     // Tagged meanwhile: Organize did it, in its own turn.
-    if (row?.status !== "ready" || row.tagging_status === "tagged") return;
+    if (!row || !hasText(id, row) || row.tagging_status === "tagged") return;
     const definitions = tags.list();
     if (setState(id, "tagging")) announce([id]);
 
@@ -326,7 +344,9 @@ export function createTagger(options: TaggerOptions) {
 
     const { changed, made } = db.transaction(() => {
       // Deleted, or processed again, meanwhile.
-      if (rowOf(id)?.status !== "ready") return { changed: false, made: 0 };
+      const latest = rowOf(id);
+      if (!latest || !hasText(id, latest) || latest.content_hash !== row.content_hash)
+        return { changed: false, made: 0 };
       const applied = tags.applyAutomatic(id, choice.decisions, choice.newTags);
       // Asked with no Tag to offer and given none, it is checked again once a Tag exists.
       const found = definitions.length > 0 || tagsOfDocument(db, id).length > 0;
@@ -434,10 +454,12 @@ export function createTagger(options: TaggerOptions) {
     const found = db
       .all<{ id: string; tagging_status: string; tagging_error_kind: string | null }>(
         `SELECT id, tagging_status, tagging_error_kind FROM documents
-         WHERE deleted_at IS NULL AND status = 'ready'
+         WHERE deleted_at IS NULL AND meeting_mind_id IS NULL
+           AND (status IN ('ready', 'embedding', 'waiting-for-model')
+                OR id IN (SELECT value FROM json_each(?)))
            AND tagging_status IN (${statuses.map(() => "?").join(", ")})
          ORDER BY created_at, rowid`,
-        statuses,
+        [JSON.stringify(options.headIds?.() ?? []), ...statuses],
       )
       .filter((row) => !organized(row.id));
     // Off, nothing goes by itself: only what the User asked for is tagged. A Document that
@@ -506,7 +528,8 @@ export function createTagger(options: TaggerOptions) {
     documentReady(id: string): void {
       if (options.enabled?.() === false || organized(id)) return;
       const row = rowOf(id);
-      // Processed again (e.g. by a newer pipeline): the same file keeps its Tags.
+      // Processed again (e.g. by a newer pipeline), its rest read or embedded: the same file
+      // keeps its Tags.
       if (!row || row.tagging_status === "tagged") return;
       if (!automatic()) {
         setState(id, "off");
@@ -545,7 +568,7 @@ export function createTagger(options: TaggerOptions) {
         input === undefined
           ? db
               .all<{ id: string }>(
-                "SELECT id FROM documents WHERE deleted_at IS NULL ORDER BY created_at, rowid",
+                "SELECT id FROM documents WHERE deleted_at IS NULL AND meeting_mind_id IS NULL ORDER BY created_at, rowid",
               )
               .map((row) => row.id)
           : [...new Set(input as string[])];
@@ -567,7 +590,7 @@ export function createTagger(options: TaggerOptions) {
       const changed: string[] = [];
       const ready = options.mightBeReady();
       for (const { id, row } of askedFor) {
-        if (row.status !== "ready") {
+        if (!hasText(id, row)) {
           // Being processed again: tagged afresh once ready. Failed or without text: nothing to tag.
           if (row.tagging_status === "tagged" && setState(id, "pending")) changed.push(id);
           continue;
@@ -576,7 +599,7 @@ export function createTagger(options: TaggerOptions) {
       }
       if (changed.length > 0) announce(changed);
       if (!ready) return;
-      for (const { id, row } of askedFor) if (row.status === "ready") enqueue(id, true);
+      for (const { id, row } of askedFor) if (hasText(id, row)) enqueue(id, true);
     },
 
     /** The ready Documents whose tagging, or Organize's, couldn't reach the AI model, unless stopped. */
@@ -584,7 +607,7 @@ export function createTagger(options: TaggerOptions) {
       return db
         .all<{ id: string }>(
           `SELECT id FROM documents
-           WHERE deleted_at IS NULL AND status = 'ready'
+           WHERE deleted_at IS NULL AND status = 'ready' AND meeting_mind_id IS NULL
              AND tagging_status = 'failed' AND tagging_error_kind = 'network'
            ORDER BY created_at, rowid`,
         )

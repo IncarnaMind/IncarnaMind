@@ -67,7 +67,10 @@ export function OpinionCard({
       initialFocus={{
         current: focus ? { focus: () => focusFirstAction(card.current, editor.view.dom) } : null,
       }}
-      aria-label={t("claim.card.label", { state: t("claim.opinion"), sentence: opinion.text })}
+      aria-label={t("claim.card.label", {
+        state: t(opinion.part.itself ? "claim.itself" : "claim.opinion"),
+        sentence: opinion.text,
+      })}
       data-testid="claim-card"
       data-check="opinion"
       onKeyDown={(event) => keepFocusInside(event, event.currentTarget)}

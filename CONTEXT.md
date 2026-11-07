@@ -192,7 +192,7 @@ What a Tool call can do beyond the conversation it is part of: read data, write 
 _Avoid_: permission, capability, side effect
 
 **Analysis**:
-Python (or, on macOS and Linux, a shell command) an Answer wrote and IncarnaMind ran in a sandbox, with no network, reading the files it was given and everything outside the home folders (the system's own files, and what apps installed outside a home keep there) but no one's home folder, over Inputs cited from Documents, kept in a Note with its steps, Inputs, code and results. Its results are figures, tables, charts and pictures of the plots it drew; a figure names the rows of its Input it was worked out from, and a sum, average, lowest, highest or count is worked out again by IncarnaMind from those cells before the Answer may use it.
+Python (or, on macOS and Linux, a shell command) an Answer wrote and IncarnaMind ran in a sandbox, with no network, reading the files it was given and everything outside the home folders (the system's own files, and what apps installed outside a home keep there) but no one's home folder, over Inputs cited from Documents, kept in a Note with its steps, Inputs, code and results. Its results are figures, tables, charts and pictures of the plots it drew; a figure names the rows of its Input it was worked out from, and a sum, average, lowest, highest or count is worked out again by IncarnaMind from those cells before the Answer may use it. A table it gives reaches a Note as one calculated object: a caption line ending with one marker in the one number series, its cells judged from the Analysis's run, never against the Documents' text.
 _Avoid_: notebook, script, code interpreter (in the interface), Skill script
 
 **Third-party text**:
@@ -338,7 +338,7 @@ What the User records alone, with the microphone, to think out loud: recorded an
 _Avoid_: dictation, voice note, audio note, recording
 
 **Transcript**:
-The words of a Meeting, in order and with times, kept as a Document in the Library so that a Citation can point at it; its file is IncarnaMind's own, inside the data folder, never one the User keeps. A `.vtt` file the User adds is their own file, as any Document is. Its Location is a range of time.
+The words of a Meeting, in order and with times, kept as a Document that belongs to the Meeting's Note, so that a Citation can point at it; its file is IncarnaMind's own, inside the data folder, never one the User keeps. A meeting is one item: the Transcript has no row, Folder or Tags of its own, and is reached through its Note; it goes where its Note goes, into its Folder, behind its wall and to Recently deleted, and words found inside it are its Note's. One that an earlier version left with a wall between it and its Note stays a Document of its own, where it was. A `.vtt` file the User adds is their own file, as any Document is. Its Location is a range of time.
 _Avoid_: captions, subtitles, minutes
 
 **Speaker**:

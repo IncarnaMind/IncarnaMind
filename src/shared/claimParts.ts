@@ -28,7 +28,7 @@ import type {
 } from "../core/api";
 import { claimCheckActions } from "../core/api";
 import { citedInputs } from "./calculatedFigures";
-import { citationAttributesOf, parseQuotedWords } from "./citations";
+import { citationAttributesOf, parseQuotedWordsCheck } from "./citations";
 import { aggregateFigureResults, readFigureFinding } from "./figureChecks";
 import { graphemeBoundary } from "./graphemes";
 import { type InlineTextProjection, inlineRange, inlineSpan } from "./inlineText";
@@ -52,7 +52,10 @@ const FAILURES: Record<ClaimCheckFailure, true> = {
   "too-many": true,
   "consent-revoked": true,
   "local-mode": true,
+  "consent-widened": true,
   "kept-inside": true,
+  analysis: true,
+  "analysis-gone": true,
   "absence-read-limit": true,
   "absence-unconfirmed": true,
   "absence-other-document": true,
@@ -69,6 +72,8 @@ const FAILURES: Record<ClaimCheckFailure, true> = {
   "workbook-unsupported": true,
   "figures-not-read": true,
   "sentence-figures-not-read": true,
+  "library-unsettled": true,
+  "analysis-unnamed": true,
 };
 export const CLAIM_CHECK_FAILURES: readonly ClaimCheckFailure[] = Object.keys(FAILURES).filter(
   (key): key is ClaimCheckFailure => Object.hasOwn(FAILURES, key),
@@ -179,7 +184,9 @@ export function readClaimCalculation(value: unknown): ClaimCalculation | null {
 export function readUnsupportedReason(value: unknown): UnsupportedReason | null {
   if (!isRecord(value)) return null;
   return {
-    ...((value.kind === "forecast-certainty" || value.kind === "unbacked-cause") && {
+    ...((value.kind === "forecast-certainty" ||
+      value.kind === "unbacked-cause" ||
+      value.kind === "analysis-name") && {
       kind: value.kind,
     }),
     reason: text(value.reason),
@@ -206,7 +213,7 @@ function citationOf(value: unknown): CitationAttributes | null {
   if (!check) return null;
   const checkReason = CITATION_REASONS.find((reason) => reason === value.checkReason) ?? null;
   if (value.checkReason !== null && !checkReason) return null;
-  const quotedWords = parseQuotedWords(value.quotedWords);
+  const quotedWords = parseQuotedWordsCheck(value.quotedWords);
   return {
     passageId: read.passageId ?? null,
     documentId: read.documentId ?? null,
@@ -355,6 +362,15 @@ export function boundedCheck(check: ClaimCheckBasis): ClaimCheckBasis {
  * The parts of `sentence`, in order and apart, but for a fact inside the opinion before it: a
  * number the writer's view surrounds (`withFigureFacts`). Null when they aren't parts of it.
  */
+const ITSELF = { itself: true } as const;
+
+/** A part's plan alone: its span, its kind, and whether it is about its own note or Answer. */
+export const planOf = ({ span, kind, itself }: ClaimPartPlan): ClaimPartPlan => ({
+  span,
+  kind,
+  ...(itself && ITSELF),
+});
+
 export function readPartPlans(value: unknown, sentence: string): ClaimPartPlan[] | null {
   if (!Array.isArray(value)) return null;
   const parts: ClaimPartPlan[] = [];
@@ -376,6 +392,7 @@ export function readPartPlans(value: unknown, sentence: string): ClaimPartPlan[]
     )
       return null;
     if (each.kind !== "fact" && each.kind !== "opinion") return null;
+    if (each.itself !== undefined && (each.itself !== true || each.kind !== "opinion")) return null;
     const nested =
       start < end &&
       each.kind === "fact" &&
@@ -384,7 +401,7 @@ export function readPartPlans(value: unknown, sentence: string): ClaimPartPlan[]
       to <= opinion.end &&
       to - start < opinion.end - opinion.start;
     if (start < end && !nested) return null;
-    parts.push({ span: { start, end: to }, kind: each.kind });
+    parts.push({ span: { start, end: to }, kind: each.kind, ...(each.itself === true && ITSELF) });
     if (nested) {
       inner = to;
       continue;
@@ -790,6 +807,7 @@ export function pendingPart(plan: ClaimPartPlan): ClaimCheckPart {
   return {
     span: { ...plan.span },
     kind: plan.kind,
+    ...(plan.itself && ITSELF),
     verdict: plan.kind === "fact" ? "checking" : null,
     evidence: [],
     says: null,

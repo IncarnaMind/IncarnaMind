@@ -1,5 +1,5 @@
 import type * as Y from "yjs";
-import { pendingPart } from "../../../shared/claimParts";
+import { pendingPart, planOf } from "../../../shared/claimParts";
 import {
   readOpinionSentences,
   resolveOpinions,
@@ -83,7 +83,7 @@ export function recordOpinions(blocks: Y.XmlFragment, sorted: readonly SortedSen
         mark.check.text === sentence.text,
     );
     if (!found && !mark) return [];
-    const parts = mark?.check.parts?.map(({ span, kind }) => ({ span, kind })) ?? found?.parts;
+    const parts = mark?.check.parts?.map(planOf) ?? found?.parts;
     return [
       {
         blockId: sentence.blockId,

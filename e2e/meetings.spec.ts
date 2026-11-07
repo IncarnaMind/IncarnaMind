@@ -1,9 +1,10 @@
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
 import type { Editor } from "@tiptap/core";
 import type { CoreBridge } from "../src/core/api";
+import { readVtt } from "../src/core/documents/formats/vtt";
 import type { FakeCapture } from "../src/core/meetings/fakeCapture";
 import type { TestHooks } from "../src/shared/testHooks";
 import {
@@ -16,7 +17,6 @@ import {
   forceQuit,
   frontMindName,
   launchApp,
-  makeTagOnDocument,
   motionSettled,
   openDocumentAt,
   openSettings,
@@ -178,10 +178,7 @@ test("a meeting records from the + menu, after the one-time notice: the bar, ⌘
   await expect(bar).toBeInViewport();
   await shot(window, "meeting-bar-scrolled-en");
 
-  // While it records, Documents wait to be read; its Transcript is read at once. A Tag of the
-  // User's own is what lets the footer name Tags at all (#1942).
-  await makeTagOnDocument(window);
-  await expect(window.getByTestId("tagging-waiting")).toBeVisible({ timeout: 20_000 });
+  // While it records, Documents wait to be read; its Transcript is read at once.
   const file = join(sources, "Agenda.md");
   await writeFile(file, "# Agenda\n\nThe rebates.\n");
   await window.evaluate(async (path) => {
@@ -189,12 +186,9 @@ test("a meeting records from the + menu, after the one-time notice: the bar, ⌘
     if (!hooks) throw new Error("Test hooks are off.");
     await hooks.addPaths([path]);
   }, file);
-  // The Transcript's tags waiting for a model is the more pressing status: reading waits behind "+1".
   const agenda = window.getByTestId("document-list-item").filter({ hasText: "Agenda" });
   await expect(agenda).toHaveAttribute("data-status", "queued");
-  await window.getByTestId("status-more").click();
-  await expect(window.getByTestId("status-others").getByTestId("reading-paused")).toBeVisible();
-  await window.keyboard.press("Escape");
+  await expect(window.getByTestId("reading-paused")).toBeVisible();
 
   // ⌘⇧P (Ctrl+Shift+P) is the "Pause recording" command, bound in the window's one keymap:
   // it works while the User types in the meeting's notes, and types nothing there.
@@ -288,6 +282,77 @@ test("a meeting records from the + menu, after the one-time notice: the bar, ⌘
   await recordMeetingNow(window);
   await expect(window.getByTestId("meeting-notice")).toBeHidden();
   await expect(window.getByTestId("meeting-start")).toHaveCount(0);
+});
+
+test("the first Record waits for macOS: the page says so with no timer or meter, and the Transcript gap says it waited, in English and Chinese", async () => {
+  test.setTimeout(150_000);
+  const { app, window } = await launchApp(dataDir, { microphone: "waiting" });
+  await setWindowSize(app, window, 1440, 900);
+  await dismissChatSetup(window);
+  await useOutputLocation(window, sources);
+  const bar = await startRecording(window, await recordMeeting(window), { notice: true });
+  const [meeting] = await bridge(window);
+  if (!meeting) throw new Error("No Meeting.");
+
+  // While the system's prompt is open the page waits: no running timer, no level meter.
+  await expect(bar.getByTestId("meeting-state")).toHaveText("Waiting for macOS…");
+  await expect(bar.getByTestId("meeting-time")).toHaveCount(0);
+  await expect(bar.getByTestId("level-bars")).toHaveCount(0);
+  await expect(window.getByTestId("mind-tab-time")).toHaveCount(0);
+  await shot(window, "meeting-waiting-permission-en");
+  await setLanguage(window, "zh-CN");
+  await expect(bar.getByTestId("meeting-state")).toHaveText("正在等待 macOS 授权…");
+  await shot(window, "meeting-waiting-permission-zh");
+  await setLanguage(window, "en");
+
+  // The prompt is answered after a second or more: recording starts, and the page shows it.
+  await expect
+    .poll(async () => {
+      const current = (await bridge(window)).find((each) => each.id === meeting.id);
+      const since = current?.recordingSince ? Date.parse(current.recordingSince) : 0;
+      return since === 0 ? 0 : Date.now() - since;
+    })
+    .toBeGreaterThanOrEqual(1500);
+  await app.evaluate(() => {
+    const fake = (globalThis as { incarnamindFakeAudio?: FakeCapture }).incarnamindFakeAudio;
+    if (!fake) throw new Error("The app isn't recording with the fake capture.");
+    fake.answerPermission();
+  });
+  await expect(bar.getByTestId("meeting-state")).toHaveText("Recording");
+  await expect(bar.getByTestId("meeting-time")).toHaveText(/^\d+:\d\d$/);
+  await expect(bar.getByTestId("level-bars")).toHaveCount(1);
+  await expect(window.getByTestId("mind-tab-time")).toHaveText(/^\d+:\d\d$/);
+  await shot(window, "meeting-permission-answered-en");
+
+  // The live Transcript says what happened in the stretch with no audio, never that it was deleted.
+  const toggle = bar.getByTestId("meeting-transcript-toggle");
+  await expect(toggle).toBeEnabled({ timeout: 20_000 });
+  await toggle.click();
+  const transcript = window.getByTestId("viewer-transcript");
+  const gap = transcript.locator('[data-testid="transcript-gap"][data-reason="permission"]');
+  await expect(gap).toHaveCount(1);
+  await expect(gap).toContainText(/not transcribed: waiting for permission$/);
+  await expect(transcript).not.toContainText("its audio was deleted");
+  await setLanguage(window, "zh-CN");
+  await expect(gap).toContainText(/未转写：等待麦克风授权$/);
+  await shot(window, "meeting-permission-gap-zh");
+  await setLanguage(window, "en");
+
+  await bar.getByTestId("meeting-stop").click();
+  await expect(bar).toBeHidden();
+  await expect
+    .poll(async () => {
+      const current = (await bridge(window)).find((each) => each.id === meeting.id);
+      return current?.transcript?.state;
+    })
+    .toBe("saved");
+  const saved = readVtt(readFileSync(join(dataDir, "Transcripts", `${meeting.id}.vtt`), "utf8"));
+  const permission = saved.gaps.filter((each) => each.reason === "permission");
+  expect(permission).toHaveLength(1);
+  expect((permission[0]?.toMs ?? 0) - (permission[0]?.fromMs ?? 0)).toBeGreaterThanOrEqual(1000);
+  expect(saved.gaps.map((each) => each.reason)).not.toContain("lost");
+  expect(saved.gaps.every((each) => each.toMs - each.fromMs >= 1000)).toBe(true);
+  await shot(window, "meeting-permission-saved-en");
 });
 
 test("an engine that can't start says so in plain words, never in its JavaScript error, in English and Chinese", async () => {
@@ -972,7 +1037,7 @@ test("asking during the call: the assistant listens to the live transcript, its 
   await app.close();
 });
 
-test("a stopped Transcript is kept in the Library: Get info says so, with no .vtt path and no file actions, in English and Chinese (#763)", async () => {
+test("a stopped Transcript has no row of its own: from its Note, Get info names that Note, with no .vtt path and no file actions, in English and Chinese (#763, #2528)", async () => {
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
   await setWindowSize(app, window, 1440, 900);
@@ -989,13 +1054,20 @@ test("a stopped Transcript is kept in the Library: Get info says so, with no .vt
   await expect(line).toContainText("Transcript saved", { timeout: 30_000 });
   await expect(line).not.toContainText(/vtt|Documents › IncarnaMind|Change folder/i);
 
-  // In the Library, the Transcript is a Document of the Library, not a .vtt file of the User's.
+  // The Library has no row for it: the meeting is its Note, where its Transcript is reached.
   await pointAndClick(window, window.getByTestId("open-library"));
   const library = window.getByTestId("library");
-  const row = library.getByTestId("library-document").filter({ hasText: "Transcript" });
-  await expect(row).toHaveCount(1);
-  await row.locator('[data-object-menu^="document:"]').click();
-  const menu = window.getByTestId("document-file-actions");
+  await expect(library).toBeVisible();
+  await expect(library.getByTestId("library-document")).toHaveCount(0);
+  await pointAndClick(window, window.getByTestId("mind-tab").first());
+  await pointAndClick(window, line.getByTestId("meeting-transcript-open"));
+  await expect(window.getByTestId("viewer")).toBeVisible();
+  // Opened, it has no "Open in default app": its file is IncarnaMind's, not the User's.
+  await expect(window.getByTestId("viewer-open-externally")).toHaveCount(0);
+  const header = window.getByTestId("viewer-header");
+  await pointAndClick(window, window.getByTestId("document-tab"));
+  await pointAndClick(window, header.getByTestId("document-file-menu"));
+  const menu = header.getByTestId("document-file-actions");
   await expect(menu.getByTestId("file.info")).toBeVisible();
   // It has no file of the User's to show, copy or open in its app.
   await expect(menu.getByTestId("file.copyPath")).toHaveCount(0);
@@ -1003,21 +1075,31 @@ test("a stopped Transcript is kept in the Library: Get info says so, with no .vt
   await expect(menu.getByTestId("document.openExternally")).toHaveCount(0);
   await pointAndClick(window, menu.getByTestId("file.info"));
   const panel = window.getByTestId("info-panel");
-  await expect(panel.getByTestId("info-path")).toHaveText("In your Library");
+  // Its place is its Note's: the panel names the Note, which it opens, never a place of its own.
+  const [note] = await window.evaluate(async () =>
+    (await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.listMinds()).map(
+      (mind) => mind.title,
+    ),
+  );
+  await expect(panel.getByRole("term").filter({ hasText: /^Note$/ })).toBeVisible();
+  await expect(panel.getByTestId("info-open-meeting-note")).toHaveText(note ?? "");
+  // Organize never files a meeting's Transcript, so Get info has no Organize row for it.
+  await expect(panel.getByTestId("info-organize")).toHaveCount(0);
+  await expect(panel.getByTestId("info-path")).toHaveCount(0);
   await expect(panel).not.toContainText(".vtt");
+  await expect(panel).not.toContainText("In your Library");
   await expect(panel.getByTestId("info-show")).toHaveCount(0);
   await expect(panel.getByTestId("info-copy-path")).toHaveCount(0);
   await window.keyboard.press("Escape");
-  // Opened, it has no "Open in default app" either: its file is IncarnaMind's, not the User's.
-  await pointAndClick(window, row.getByTestId("library-document-name"));
-  await expect(window.getByTestId("viewer")).toBeVisible();
-  await expect(window.getByTestId("viewer-open-externally")).toHaveCount(0);
-  await pointAndClick(window, window.getByTestId("document-tab").getByTestId("tab-close"));
 
   await setLanguage(window, "zh-CN");
-  await row.locator('[data-object-menu^="document:"]').click();
-  await pointAndClick(window, window.getByTestId("document-file-actions").getByTestId("file.info"));
-  await expect(panel.getByTestId("info-path")).toHaveText("在资料库中");
+  await pointAndClick(window, header.getByTestId("document-file-menu"));
+  await pointAndClick(window, menu.getByTestId("file.info"));
+  await expect(panel.getByRole("term").filter({ hasText: /^笔记$/ })).toBeVisible();
+  await expect(panel.getByTestId("info-open-meeting-note")).toHaveText(note ?? "");
+  await expect(panel).not.toContainText("在资料库中");
   await expect(panel).not.toContainText(".vtt");
+  await pointAndClick(window, panel.getByTestId("info-open-meeting-note"));
+  await expect(window.getByTestId("mind-pane")).toBeVisible();
   await app.close();
 });

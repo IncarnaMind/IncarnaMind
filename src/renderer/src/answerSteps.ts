@@ -571,3 +571,15 @@ export function liveStep({
 /** Steps that stand for the same thing: a new count of Citations is the same step. */
 export const liveStepKey = (step: LiveStep): string =>
   step.kind === "call" ? `call:${step.call.id}` : step.kind;
+
+/**
+ * Whether the wait may take more of the line back: the step changed, or the step's own words did.
+ * A thinking step's label only goes Thinking ↔ Thinking… with its summary, which is not a step
+ * change (#2531).
+ */
+export function stepWordsChanged(
+  before: { label: string; stepKey: string },
+  now: { label: string; stepKey: string; kind: LiveStep["kind"] },
+): boolean {
+  return before.stepKey !== now.stepKey || (now.kind !== "thinking" && before.label !== now.label);
+}

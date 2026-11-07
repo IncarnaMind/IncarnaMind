@@ -21,6 +21,7 @@ import { startingChecks } from "./compareScope";
 import { useComparisonColumns } from "./comparisonColumnState";
 import { core } from "./core";
 import { currentMindIdOf } from "./layoutSlice";
+import { isListedDocument } from "./meetingTranscript";
 import { flushMindUpdates } from "./mindCopies";
 import type { ObjectRef } from "./objects";
 import { selectedOn } from "./selection";
@@ -117,7 +118,10 @@ export function sheetDocuments(source: SheetSource, selected: readonly string[] 
     (source === "selected" ? chosen.has(document.id) : folderOf.get(document.id) === source);
   return documents.filter(
     (document) =>
-      inSource(document) && !document.notCited && !leftOutOfEvidence(document, settings, library),
+      isListedDocument(document) &&
+      inSource(document) &&
+      !document.notCited &&
+      !leftOutOfEvidence(document, settings, library),
   );
 }
 

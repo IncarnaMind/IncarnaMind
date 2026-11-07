@@ -280,13 +280,13 @@ test("an Answer goes to another Mind through the ▾, and to a new Mind as chang
   // ▾ → New note: named by its first line, in a new tab, its content in at once (#1559), with Undo.
   const shown = assistantAnswers(window).first();
   await pointAt(window, shown.getByTestId("assistant-answer-text"));
-  // "Added to …" under it goes after a few seconds, and its actions come back.
+  // The line under it goes after a few seconds, and its actions come back.
   await expect(shown.getByTestId("answer-add-to")).toBeVisible({ timeout: 15_000 });
   await pointAndClick(window, shown.getByTestId("answer-add-to"));
   await pointAndClick(window, window.getByTestId("add-to-option").last());
   // What went in is one Undo under the Answer; the Mind it made, Delete takes back (#1940).
   await expect(shown.getByTestId("answer-added")).toContainText(
-    "Added to “Your Documents answer this”",
+    "Wrote “Your Documents answer this”",
   );
   const tab = window.getByTestId("mind-tab").filter({ hasText: "Your Documents answer this" });
   await expect(tab).toHaveAttribute("aria-selected", "true");

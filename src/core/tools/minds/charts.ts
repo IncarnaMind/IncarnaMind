@@ -4,6 +4,7 @@
  * does (#436), and put it right after that table, in the same change. Every
  * value keeps its cell's Citation.
  */
+import type { AnalysisCell } from "../../../shared/analysis";
 import type { AnalysisTableMatch } from "../../../shared/analysisTables";
 import {
   CHART_KINDS,
@@ -25,6 +26,8 @@ export interface ChartAsked {
   /** Null: the kind the chart Block starts with. */
   kind: ChartKind | null;
   title: string;
+  /** An Analysis chart's marker: the rows its chart draws, so it goes beneath the table that holds them. */
+  rows?: readonly (readonly AnalysisCell[])[];
 }
 
 export const chartProperty = {

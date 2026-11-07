@@ -36,7 +36,7 @@ import { isChatModelChoice, type SettingsStore } from "../settings";
 import type { Database } from "../storage";
 import type { TagsStore } from "../tags";
 import { documentType, excerptFromPassages } from "../tags/classify";
-import { clearForService, mayBackgroundSend, turnOnTime } from "../tags/held";
+import { clearForService, mayBackgroundSend, nextSequence } from "../tags/held";
 import { type RateLimitPause, rateLimitError } from "../tags/rateLimit";
 import { fallbackLine } from "../tags/suggest";
 import type { FolderSample, GroupClassifier } from "./classifier";
@@ -383,6 +383,13 @@ export function createLibrary(options: {
    * (#1942). Asked at each use, since the examples are made after the Library.
    */
   isExampleDocument?(id: string): boolean;
+  /**
+   * A Document's first pages, while the rest of its scan is still being read (#2308): Organize
+   * reads them as it would read the finished Document, so it sorts it once, at once.
+   */
+  head?(id: string): Pick<OrganizeSource, "pageCount" | "passages" | "units"> | null;
+  /** Local mode: nothing goes to a cloud service, so nothing waits to be allowed there. */
+  localOnly?(): boolean;
 }) {
   const { db, now, settings, background, changed } = options;
   const lifetime = new AbortController();
@@ -405,6 +412,14 @@ export function createLibrary(options: {
         ? Object.fromEntries(
             Object.entries(saved.automaticSince).filter(
               (each): each is [string, string] => typeof each[1] === "string",
+            ),
+          )
+        : null,
+      // Where each turn-on is in the database's order, which decides what came after it (#2370).
+      automaticSinceSeq: isRecord(saved.automaticSinceSeq)
+        ? Object.fromEntries(
+            Object.entries(saved.automaticSinceSeq).filter(
+              (each): each is [string, number] => typeof each[1] === "number",
             ),
           )
         : null,
@@ -439,15 +454,17 @@ export function createLibrary(options: {
     const since = sinceOf(saved);
     return options.sendsTo(saved).every((service) => since[service.id] !== undefined);
   };
-  /** When the User turned tagging on for this service; null if they haven't. */
-  const turnedOnAt = (service: ExternalService): string | null => {
-    const saved = savedSettings();
-    return saved.automaticSince
-      ? (saved.automaticSince[service.id] ?? null)
-      : options.consentedAt(service);
-  };
+  /** The place of the User's turn-on for this service in the database's order; null if none. */
+  const turnedOnSeq = (service: ExternalService): number | null =>
+    savedSettings().automaticSinceSeq?.[service.id] ?? null;
+  const sinceSeqOf = (saved: ReturnType<typeof savedSettings>): Record<string, number> =>
+    saved.automaticSinceSeq ?? {};
   const shownSettings = (saved: ReturnType<typeof savedSettings>): LibrarySettings => {
-    const { automaticSince: _automaticSince, ...shown } = saved;
+    const {
+      automaticSince: _automaticSince,
+      automaticSinceSeq: _automaticSinceSeq,
+      ...shown
+    } = saved;
     return {
       ...shown,
       automatic:
@@ -474,6 +491,11 @@ export function createLibrary(options: {
       "SELECT a.group_id FROM document_groups a JOIN library_groups g ON g.id = a.group_id WHERE a.document_id = ? AND a.deleted_at IS NULL AND g.deleted_at IS NULL",
       [id],
     )?.group_id ?? null;
+  /** A Document filed inside a Folder that keeps its work inside it: nothing of it goes to a cloud service by itself (#2308). */
+  const inWall = (id: string) => {
+    const place = placeOf(id);
+    return place !== null && wallOf(place) !== null;
+  };
   const taggingStoppedFor = (id: string) => {
     const { taggingStopped } = getSettings();
     return taggingStopped.length > 0 && taggingStopped.includes(placeOf(id));
@@ -596,23 +618,41 @@ export function createLibrary(options: {
     }
     return null;
   };
+  /**
+   * The Transcripts of the Meetings whose Notes are in this Folder: a Transcript has no Folder of
+   * its own, it is where its Note is (#2528).
+   */
+  const transcriptIdsIn = (folderId: string): string[] =>
+    db
+      .all<{ id: string }>(
+        `SELECT d.id FROM documents d JOIN minds n ON n.id = d.meeting_mind_id
+         JOIN library_groups g ON g.id = n.folder_id
+         WHERE g.id = ? AND g.deleted_at IS NULL AND n.deleted_at IS NULL AND d.deleted_at IS NULL`,
+        [folderId],
+      )
+      .map((row) => row.id);
   /** The Documents filed in this Folder (a suggestion too, unless the Folder keeps its work inside it). */
   const filedDocumentIdsOf = (folderId: string): string[] => {
     const walled = wallOf(folderId) !== null;
-    return db
-      .all<{ document_id: string }>(
-        `SELECT a.document_id FROM document_groups a JOIN library_groups g ON g.id = a.group_id JOIN documents d ON d.id = a.document_id WHERE g.id = ? AND g.deleted_at IS NULL AND a.deleted_at IS NULL AND d.deleted_at IS NULL${walled ? " AND a.source = 'user'" : ""}`,
-        [folderId],
-      )
-      .map((row) => row.document_id);
+    return [
+      ...db
+        .all<{ document_id: string }>(
+          `SELECT a.document_id FROM document_groups a JOIN library_groups g ON g.id = a.group_id JOIN documents d ON d.id = a.document_id WHERE g.id = ? AND g.deleted_at IS NULL AND a.deleted_at IS NULL AND d.deleted_at IS NULL${walled ? " AND a.source = 'user'" : ""}`,
+          [folderId],
+        )
+        .map((row) => row.document_id),
+      ...transcriptIdsIn(folderId),
+    ];
   };
-  const everyFiledDocumentIdsOf = (folderId: string): string[] =>
-    db
+  const everyFiledDocumentIdsOf = (folderId: string): string[] => [
+    ...db
       .all<{ document_id: string }>(
         "SELECT a.document_id FROM document_groups a JOIN library_groups g ON g.id = a.group_id JOIN documents d ON d.id = a.document_id WHERE g.id = ? AND g.deleted_at IS NULL AND a.deleted_at IS NULL AND d.deleted_at IS NULL",
         [folderId],
       )
-      .map((row) => row.document_id);
+      .map((row) => row.document_id),
+    ...transcriptIdsIn(folderId),
+  ];
   const document = (id: unknown) => {
     if (typeof id !== "string") throw new InvalidInputError("A Document id must be text.");
     const value = db.get<DocumentRow>(
@@ -622,10 +662,33 @@ export function createLibrary(options: {
     if (!value) throw new NotFoundError({ key: "error.document.gone" });
     return value;
   };
+  const isTranscriptOfNote = (id: string): boolean =>
+    db.get("SELECT 1 FROM documents WHERE id = ? AND meeting_mind_id IS NOT NULL", [id]) !==
+    undefined;
+  /** A Document the User or Organize may file; a Meeting's Transcript is never filed alone (#2528). */
+  const fileable = (id: unknown) => {
+    const doc = document(id);
+    if (isTranscriptOfNote(doc.id)) {
+      throw new InvalidInputError({ key: "error.transcript.withNote" });
+    }
+    return doc;
+  };
+  /** What Organize leaves where it is: the examples' Documents (#1942) and Meetings' Transcripts (#2528). */
+  const leftAlone = (id: string): boolean =>
+    options.isExampleDocument?.(id) === true || isTranscriptOfNote(id);
   const assignment = (id: string) =>
     db.get<AssignmentRow>(
       "SELECT * FROM document_groups WHERE document_id = ? AND deleted_at IS NULL",
       [id],
+    );
+  /**
+   * Organize took this version up before and let it go: an Undo took its filing back, or it was
+   * held back for the User. Reading the rest of it, or reading it again, doesn't file it (#2308).
+   */
+  const filedBefore = (doc: DocumentRow) =>
+    !!db.get(
+      "SELECT 1 FROM document_groups WHERE document_id = ? AND content_hash IS ? AND deleted_at IS NOT NULL LIMIT 1",
+      [doc.id, doc.content_hash],
     );
   const rejected = (id: string) =>
     new Set(
@@ -657,7 +720,8 @@ export function createLibrary(options: {
       (["ready", "waiting-for-model", "embedding"].includes(doc.status) &&
         !!db.get("SELECT 1 FROM passages WHERE document_id = ? AND deleted_at IS NULL LIMIT 1", [
           doc.id,
-        ]))
+        ])) ||
+      !!options.head?.(doc.id)
     );
   };
   const scanWaits = (doc: DocumentRow): ProviderError | undefined => {
@@ -672,8 +736,20 @@ export function createLibrary(options: {
         }
       : undefined;
   };
-  /** What Organize reads of the indexed version (see ./excerpt). */
-  const source = (doc: DocumentRow, withPassages = true): OrganizeSource => ({
+  /** What Organize reads of the indexed version (see ./excerpt), or of its first pages. */
+  const source = (doc: DocumentRow, withPassages = true): OrganizeSource => {
+    const head = options.head?.(doc.id);
+    if (head)
+      return {
+        name: doc.name,
+        kind: doc.kind,
+        pageCount: head.pageCount,
+        passages: withPassages ? head.passages : [],
+        units: head.units,
+      };
+    return indexedSource(doc, withPassages);
+  };
+  const indexedSource = (doc: DocumentRow, withPassages: boolean): OrganizeSource => ({
     name: doc.name,
     kind: doc.kind,
     pageCount: doc.page_count,
@@ -991,7 +1067,10 @@ export function createLibrary(options: {
       // Checked on where this request goes, as prepared; the User's own Organize goes.
       const service = options.organizeService(settingsNow);
       const services = service ? [service] : [];
-      if (!asked.has(id) && !mayBackgroundSend(db, id, services, turnedOnAt)) {
+      if (
+        !asked.has(id) &&
+        (!mayBackgroundSend(db, id, services, turnedOnSeq) || (services.length > 0 && inWall(id)))
+      ) {
         holdBack(id, initial);
         return;
       }
@@ -1077,6 +1156,9 @@ export function createLibrary(options: {
   const queueClassification = (ids: readonly string[]) => {
     const docs = ids.map(document);
     for (const doc of docs) asked.add(doc.id);
+    // The User's own request goes to this service, after a quit too: kept, not only in memory.
+    const service = options.organizeService(getSettings());
+    if (service) for (const doc of docs) clearForService(db, doc.id, [service], now());
     db.transaction(() => {
       for (const doc of docs) {
         const existing = assignment(doc.id);
@@ -1101,8 +1183,9 @@ export function createLibrary(options: {
       .all<{ document_id: string }>(
         "SELECT g.document_id FROM document_groups g JOIN documents d ON d.id = g.document_id WHERE g.deleted_at IS NULL AND d.deleted_at IS NULL AND g.status IN ('pending', 'waiting')",
       )
-      // An assignment an earlier version made for an example's Document isn't worked on again.
-      .filter((row) => !options.isExampleDocument?.(row.document_id));
+      // An assignment an earlier version made for an example's Document or a Meeting's Transcript
+      // isn't worked on again.
+      .filter((row) => !leftAlone(row.document_id));
     // Existing batches run text first, then PDFs needing images, avoiding model churn.
     const ordered =
       organizeModelOf(getSettings())?.kind === "auto"
@@ -1217,6 +1300,19 @@ export function createLibrary(options: {
     announce([id]);
   }
 
+  /**
+   * The cloud service new Documents wait to be allowed on (`LibrarySnapshot.sortWaitsFor`). None
+   * when turning sorting on would turn it on for another service too (tagging's, say a Jev key's):
+   * the row's Allow names one service, and is the consent for that one only.
+   */
+  function sortWaitsFor(): ExternalService | null {
+    const now = getSettings();
+    if (now.automatic || options.localOnly?.() || groups().length === 0) return null;
+    const service = options.organizeService(now);
+    if (!service || options.sendsTo(now).some((each) => each.id !== service.id)) return null;
+    return service;
+  }
+
   // Organize holds a Document's Tags while its assignment isn't finished (queued, running,
   // waiting or failed), or while Organize files new Documents by itself.
   const isOrganizing = (id: string): boolean => {
@@ -1237,7 +1333,7 @@ export function createLibrary(options: {
         lent = null;
       };
     },
-    turnedOnAt,
+    turnedOnSeq,
     taggingStoppedFor,
     isOrganizing,
     taggingPlaces(): (string | null)[] {
@@ -1305,14 +1401,17 @@ export function createLibrary(options: {
     /**
      * The live Documents in no live Folder now, the Library's "Not in a Folder": one with a
      * suggested Folder waiting counts as in it, a Linked folder's Documents are in none
-     * until they are filed.
+     * until they are filed, and a Meeting's Transcript is where its Note is (#2528).
      */
     unfiledDocumentIds(): string[] {
       return db
         .all<{ id: string }>(
           `SELECT d.id FROM documents d WHERE d.deleted_at IS NULL AND NOT EXISTS (
              SELECT 1 FROM document_groups a JOIN library_groups g ON g.id = a.group_id
-             WHERE a.document_id = d.id AND a.deleted_at IS NULL AND g.deleted_at IS NULL)`,
+             WHERE a.document_id = d.id AND a.deleted_at IS NULL AND g.deleted_at IS NULL)
+           AND (d.meeting_mind_id IS NULL OR NOT EXISTS (
+             SELECT 1 FROM minds n JOIN library_groups g ON g.id = n.folder_id
+             WHERE n.id = d.meeting_mind_id AND g.deleted_at IS NULL))`,
         )
         .map((row) => row.id);
     },
@@ -1328,6 +1427,7 @@ export function createLibrary(options: {
         )
         .map(toGroup);
       const saved = savedSettings();
+      const waiting = sortWaitsFor();
       return {
         groups: groups(),
         deletedGroups,
@@ -1335,6 +1435,7 @@ export function createLibrary(options: {
         settings: shownSettings(saved),
         automaticDefault: defaultAutomatic(saved),
         automaticOffNotice: automaticOffNotice(),
+        ...(waiting && { sortWaitsFor: waiting }),
       };
     },
     dismissAutomaticOffNotice(): void {
@@ -1342,6 +1443,7 @@ export function createLibrary(options: {
       settings.writeDeviceValue(AUTOMATIC_OFF_NOTICE, false);
       changed();
     },
+    inWall,
     /** A live Folder, or NotFoundError. */
     folder: group,
     /** The live Folders, by name. */
@@ -1353,7 +1455,7 @@ export function createLibrary(options: {
      */
     move(ids: readonly string[], groupId: string | null): MovedDocument[] {
       if (groupId !== null) group(groupId);
-      const docs = ids.map(document);
+      const docs = ids.map(fileable);
       const moved = db.transaction(() =>
         docs.map((doc) => {
           const before = assignment(doc.id);
@@ -1495,6 +1597,10 @@ export function createLibrary(options: {
     ): Pick<FolderDeletion, "assignments"> {
       const existing = group(id);
       const folders = subtree(existing.id);
+      // The record is dated when it is written, not at `at`: Undo of a Restore deletes a Folder
+      // at its old time after an item was deleted at the Undo's own, and the item still reads the
+      // Folder it was in (#2274).
+      const written = now();
       const record = (
         folderId: string,
         kind: "document" | "mind" | "conversation",
@@ -1505,7 +1611,7 @@ export function createLibrary(options: {
           `INSERT INTO deleted_folder_items
              (id, folder_id, item_kind, item_id, suggested, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          [randomUUID(), folderId, kind, itemId, suggested, at, at],
+          [randomUUID(), folderId, kind, itemId, suggested, written, written],
         );
       const assignments = db.transaction(() => {
         const rows = db.all<AssignmentRow & { live: number }>(
@@ -1662,9 +1768,10 @@ export function createLibrary(options: {
         classifier: automaticChosen ? AUTOMATIC : (taggingClassifierOf(chosen) ?? AUTOMATIC),
         organizeWith: taggingClassifierOf(organizeWith),
       };
-      // Only `turnOn`, sent where the line says what goes, turns it on, and records when, for
-      // each service it sends to (ADR-0022). Any other save may only turn it off: a save sends
-      // the switch as shown, which can be a window's older view (#2308).
+      // Only `turnOn`, sent where the line says what goes, turns it on, and records when and
+      // where in the database's order, for each service it sends to (ADR-0022, #2370). Any other
+      // save may only turn it off: a save sends the switch as shown, which can be a window's
+      // older view (#2308).
       const turnOn = input.turnOn === true;
       const showing = shownSettings(before).automatic;
       const automatic = turnOn
@@ -1672,9 +1779,9 @@ export function createLibrary(options: {
         : input.automatic === false && showing
           ? false
           : before.automatic;
-      const at = turnOnTime(db, now());
+      const at = now();
       // Turned on again where it is on, and still allowed, as a new key's Use this does, it keeps
-      // its time: what came in while it was on stays new. Where the User took the consent back,
+      // its place: what came in while it was on stays new. Where the User took the consent back,
       // turning it on is a new consent.
       const onFor = new Set(
         showing
@@ -1684,17 +1791,18 @@ export function createLibrary(options: {
               .map((service) => service.id)
           : [],
       );
+      const freshOn = turnOn
+        ? options.sendsTo(next).filter((service) => !onFor.has(service.id))
+        : [];
       const automaticSince = turnOn
-        ? {
-            ...sinceOf(before),
-            ...Object.fromEntries(
-              options
-                .sendsTo(next)
-                .filter((service) => !onFor.has(service.id))
-                .map((service) => [service.id, at]),
-            ),
-          }
+        ? { ...sinceOf(before), ...Object.fromEntries(freshOn.map((service) => [service.id, at])) }
         : sinceOf(before);
+      const automaticSinceSeq = turnOn
+        ? {
+            ...sinceSeqOf(before),
+            ...Object.fromEntries(freshOn.map((service) => [service.id, nextSequence(db, at)])),
+          }
+        : sinceSeqOf(before);
       if (automatic !== null && noticeIsOpen(settings.readDeviceValue(AUTOMATIC_OFF_NOTICE))) {
         settings.writeDeviceValue(AUTOMATIC_OFF_NOTICE, false);
       }
@@ -1703,6 +1811,7 @@ export function createLibrary(options: {
         ...(automatic !== null && { automatic }),
         organizeWith,
         automaticSince,
+        automaticSinceSeq,
         taggingStopped: before.taggingStopped,
       });
       revision++;
@@ -1723,7 +1832,7 @@ export function createLibrary(options: {
       if (!organizeModelOf(settings))
         throw new InvalidInputError({ key: "error.library.noClassifier" });
       const docs = documentIdsOf(input)
-        .filter((id) => !options.isExampleDocument?.(id))
+        .filter((id) => !leftAlone(id))
         .map(document)
         .filter(hasContent);
       if (docs.length === 0) return [];
@@ -1755,7 +1864,7 @@ export function createLibrary(options: {
               .all<{ id: string }>("SELECT id FROM documents WHERE deleted_at IS NULL")
               .map((row) => row.id)
           : documentIdsOf(input)
-      ).filter((id) => !options.isExampleDocument?.(id));
+      ).filter((id) => !leftAlone(id));
       queueClassification(ids);
       resume();
     },
@@ -1774,7 +1883,7 @@ export function createLibrary(options: {
       if (!organizeModelOf(getSettings()))
         throw new InvalidInputError({ key: "error.library.noClassifier" });
       if (groups().length === 0) throw new InvalidInputError({ key: "error.library.noFolders" });
-      const ids = documentIdsOf(input).filter((id) => !options.isExampleDocument?.(id));
+      const ids = documentIdsOf(input).filter((id) => !leftAlone(id));
       const before = new Map(
         ids.map((id) => {
           const row = assignment(id);
@@ -1826,7 +1935,7 @@ export function createLibrary(options: {
       return { failed: failure, untouched: untouched.length, tagChanges };
     },
     assign(id: unknown, groupId: unknown): AssignmentChange {
-      const doc = document(id);
+      const doc = fileable(id);
       if (groupId !== null) group(groupId);
       const before = assignment(doc.id);
       const taggingBefore = taggingSnapshot(doc.id);
@@ -1859,7 +1968,7 @@ export function createLibrary(options: {
       const after = parseAssignmentState(afterInput);
       let doc: DocumentRow;
       try {
-        doc = document(id);
+        doc = fileable(id);
       } catch (error) {
         if (!(error instanceof NotFoundError)) throw error;
         throw new NotFoundError({ key: "error.restore.documentGone" });
@@ -1973,13 +2082,13 @@ export function createLibrary(options: {
     file(id: string, groupId: string) {
       if (!groups().some((item) => item.id === groupId)) return;
       const { automatic, taggingStopped } = getSettings();
-      write(document(id), groupId, "user", automatic ? "pending" : "classified");
+      write(fileable(id), groupId, "user", automatic ? "pending" : "classified");
       if (taggingStopped.includes(groupId)) stopped(id);
       else announce([id]);
     },
     documentChanged(id: string) {
       if (lifetime.signal.aborted) return;
-      if (options.isExampleDocument?.(id)) return;
+      if (leftAlone(id)) return;
       const doc = document(id);
       const existing = assignment(id);
       if (!hasContent(doc)) {
@@ -2015,7 +2124,7 @@ export function createLibrary(options: {
       if (
         getSettings().automatic &&
         groups().length > 0 &&
-        (!existing || existing.content_hash !== doc.content_hash)
+        (existing ? existing.content_hash !== doc.content_hash : !filedBefore(doc))
       ) {
         if (taggingStoppedFor(id)) {
           stopped(id);

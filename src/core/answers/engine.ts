@@ -202,6 +202,10 @@ export interface AnswerSearchOptions {
   document?: string;
   /** The Documents' file properties too: a check's search, for a sentence about a file itself (#2458). */
   properties?: true;
+  /** The Library's own facts too: a check's search, for a sentence about the Library itself (#2525). */
+  library?: true;
+  /** A search no one is waiting on (a writing suggestion): it never asks for consent. */
+  background?: boolean;
 }
 
 /** A page range, a Document opening, or the Passages around one already shown. */
@@ -261,6 +265,8 @@ export interface AnswerTools {
   readingDocuments?(): readonly { name: string }[];
   /** The search Tool can show the Documents' file properties: a check Run's (#2458). */
   readonly fileProperties?: boolean;
+  /** The search Tool can show the Library's own facts: a check Run's (#2525). */
+  readonly libraryFacts?: boolean;
   /** The document-search Tool. */
   searchDocuments(
     query: string,
@@ -273,6 +279,8 @@ export interface AnswerTools {
   cite(records: readonly CitationRecordInput[], options?: CiteOptions): string;
   /** Whether a valid record was taken for this marker: the engine places its marker if the model left it out. */
   hasRecord?(marker: number): boolean;
+  /** The records taken so far, each by the Passage it quotes and its quote as taken. */
+  recordedQuotes?(): readonly { passageId: string; quote: string }[];
   /**
    * What the Run still owes with `text` written so far: each marker whose last record from a
    * `cite` call was refused or came back with a problem to fix, written or not, until a record
@@ -421,6 +429,8 @@ export interface AnswerRequest {
    * read the Minds, and the search rewrite's notebook.
    */
   mindsLine?: { line: string; asked: string };
+  /** The scope lines the Answer added just before the Question, kept out of the search rewrite's context (#2529). */
+  scopeLine?: string;
   /** The model to answer with, from `Core.prepareChatModel`. */
   model: ChatLanguageModel;
   /**
@@ -898,7 +908,10 @@ async function searchQuery(
   small: () => Promise<SmallCallModel>,
 ): Promise<SmallCallResult<string>> {
   const { question, signal } = request;
-  const earlier = earlierContext(request.messages, question);
+  const earlier = earlierContext(request.messages, question, undefined, [
+    request.scopeLine ?? "",
+    request.mindsLine?.line ?? "",
+  ]);
   if (!earlier) return { value: question, usage: null };
   try {
     const { model, temperature } = await small();
@@ -1458,6 +1471,7 @@ export function documentTools(
   const own = (name: string) => ({ name, provider: DOCUMENTS_PROVIDER, providerTool: name });
   const checking = toolSet === "check";
   const properties = checking && documents.fileProperties === true;
+  const library = checking && documents.libraryFacts === true;
   return {
     search: {
       ...own(DOCUMENT_TOOLS.search),
@@ -1482,24 +1496,36 @@ export function documentTools(
                 "true for a sentence about a file itself: when it was created or last modified, its author as the file records it, its page, slide or sheet count, its size or its file name. The result adds the file properties of the Document named in document, else of the Documents the search finds.",
             },
           }),
+          ...(library && {
+            library: {
+              type: "boolean",
+              description:
+                "true for a sentence about the Library itself rather than what a Document says: how many Documents it holds, in all or in a Folder, their names and kinds, Documents that share a name, its Folders, Tags and notes. The result adds the Library's facts as this check's scope sees them.",
+            },
+          }),
         },
         required: ["query"],
       },
-      shownInput: ({ query, document, properties: asked }) => ({
+      shownInput: ({ query, document, properties: asked, library: askedLibrary }) => ({
         query: String(query ?? ""),
         ...(typeof document === "string" && document !== "" && { document }),
         ...(properties && asked === true && { properties: true }),
+        ...(library && askedLibrary === true && { library: true }),
       }),
       effects: () => [{ action: "read", scope: { kind: "documents" } }],
       // The User didn't write their Documents.
       untrustedResult: true,
-      async call({ query, document, properties: asked }, { toolCallId, signal, readThirdParty }) {
+      async call(
+        { query, document, properties: asked, library: askedLibrary },
+        { toolCallId, signal, readThirdParty },
+      ) {
         let found: SearchResultForModel;
         try {
           found = await documents.searchDocuments(String(query ?? ""), signal, {
             rerank: false,
             ...(typeof document === "string" && document !== "" && { document }),
             ...(properties && asked === true && { properties: true }),
+            ...(library && askedLibrary === true && { library: true }),
           });
         } catch (error) {
           // A failed search is the app's problem, so it is logged; the model is told it failed.

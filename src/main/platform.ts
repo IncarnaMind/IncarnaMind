@@ -564,6 +564,13 @@ const referenceLookupUrl =
   import.meta.env.MODE === "test" ? process.env.INCARNAMIND_TEST_REFERENCE_LOOKUP : undefined;
 
 /**
+ * Test-only launch flag: where requests to TypeSafe's hosted Jev go, a local server standing in
+ * for it, so the smoke tests set Jev up as the User does and reach no one. Only a test build
+ * honours it.
+ */
+const jevHostedUrl = import.meta.env.MODE === "test" ? process.env.INCARNAMIND_TEST_JEV : undefined;
+
+/**
  * Test-only launch flag: where Find sources asks its providers (#296), a
  * local server standing in for each provider (OpenAlex, arXiv, PubMed, Crossref, openFDA, DailyMed, ClinicalTrials.gov, the eCFR and GovInfo), each
  * under its own path, so the smoke tests reach none of them. Only a test
@@ -767,7 +774,12 @@ function audioCapture(log: Logger): AudioCapture | undefined {
       realTime: 100,
       system: system === "denied" || system === "silent" ? system : "allowed",
       ...(recording && { recording: wavSamples(readFileSync(recording)) }),
-      microphone: process.env.INCARNAMIND_TEST_AUDIO_MICROPHONE === "denied" ? "denied" : "allowed",
+      microphone:
+        process.env.INCARNAMIND_TEST_AUDIO_MICROPHONE === "denied"
+          ? "denied"
+          : process.env.INCARNAMIND_TEST_AUDIO_MICROPHONE === "waiting"
+            ? "waiting"
+            : "allowed",
     });
     (globalThis as { incarnamindFakeAudio?: FakeCapture }).incarnamindFakeAudio = fake;
     return fake;
@@ -830,6 +842,7 @@ export async function createElectronAdapters(log: Logger): Promise<CoreAdapters>
     ...(standIn !== undefined && { webPages: { fetch: standInPageFetch(standIn) } }),
     ...(crashReporter && { crashReporter }),
     ...(usageData && { usageData }),
+    ...(jevHostedUrl && { jevHostedUrl }),
     ...(referenceLookupUrl && {
       referenceLookup: {
         crossref: referenceLookupUrl,

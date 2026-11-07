@@ -39,11 +39,14 @@ export function citationDecision(state: EditorState, claim: ShownClaim): Citatio
 }
 
 /**
- * A file's properties (#2458) are no Passage a Note's Citation could quote: a check names them in
- * its row, and the Note's Citations stay quotes of the Documents' text, which every check reads.
+ * A file's properties (#2458) and the Library's facts (#2525) are no Passage a Note's Citation
+ * could quote: a check names them in its row, and the Note's Citations stay quotes of the
+ * Documents' text, which every check reads.
  */
-const ofProperties = (evidence: CitationAttributes) =>
-  citationLocation(evidence)?.kind === "properties";
+const ofProperties = (evidence: CitationAttributes) => {
+  const kind = citationLocation(evidence)?.kind;
+  return kind === "properties" || kind === "library";
+};
 
 /**
  * What a supported part's row offers for each Passage its check found, by the

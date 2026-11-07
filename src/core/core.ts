@@ -6,6 +6,7 @@ import { deflateRawSync } from "node:zlib";
 import * as Y from "yjs";
 import { cleanApiKey } from "../shared/apiKey";
 import { isCitationStyleId, withRecentStyle } from "../shared/citationStyles";
+import { parseQuotedWords } from "../shared/citations";
 import type { DrawnPage } from "../shared/citedPage";
 import { ACCEPT_SUGGESTIONS } from "../shared/commands";
 import { optionsFor } from "../shared/exportOptions";
@@ -52,7 +53,9 @@ import {
   holdsText,
   mindSearchScope,
   NO_SCOPE,
+  oneFolderOf,
   type ScopeKind,
+  scopeName,
 } from "../shared/searchScope";
 import { SPEAKER_ME, SPEAKER_THEM } from "../shared/speakers";
 import { readVerification, verificationOf, writeVerification } from "../shared/verification";
@@ -68,6 +71,7 @@ import { createAiSdkAnswerEngine, createAnswers } from "./answers";
 import { createAskedChanges } from "./answers/applyAsked";
 import { createChecks } from "./answers/checks";
 import { tableCellFigurePlaces } from "./answers/checks/figureOccurrences";
+import { type LibraryListing, linkedFolderName } from "./answers/checks/libraryFacts";
 import { AFTER_NEW_VERSION_MS, CLAIM_TIME_LIMIT_MS } from "./answers/checks/watch";
 import {
   citeSelection,
@@ -91,6 +95,7 @@ import { createCiting } from "./answers/citing";
 import { readMind } from "./answers/context";
 import type { AnswerSearchOptions } from "./answers/engine";
 import type { LiveTranscript } from "./answers/liveTranscript";
+import { explicitWalledFolderScope } from "./answers/scopeLine";
 import {
   type AddDocumentsResult,
   type AnswerPlace,
@@ -245,6 +250,14 @@ import { listParts, meetingFolder } from "./meetings/audioFiles";
 import { createMeetingFill } from "./meetings/fill";
 import { createCaptureHealth } from "./meetings/health";
 import { type MemoCue, memoTitle } from "./meetings/memo";
+import {
+  joinedMeetings,
+  joinedMeetingsSaid,
+  meetingsLeftApart,
+  meetingsLeftApartSaid,
+  transcriptsApart,
+  undoMeetingJoin,
+} from "./meetings/oneItem";
 import { createSpeakerPass } from "./meetings/speakerPass";
 import { createTranscripts } from "./meetings/transcript";
 import { meetingWords } from "./meetings/words";
@@ -486,6 +499,13 @@ const isBehind = (meeting: Meeting) => meeting.transcript?.state === "behind";
 /** The longest password a PDF is unlocked with: far beyond any real one, short enough to refuse junk. */
 const MAX_PDF_PASSWORD = 1_024;
 
+/**
+ * How much of Recently deleted's 30 days an item must have left for Undo of a Restore to keep its
+ * deletion time: with less, it is deleted at the Undo's own moment, so the Redo that follows isn't
+ * refused once those last seconds pass (#2274).
+ */
+const DELETE_AGAIN_MARGIN_MS = 24 * 60 * 60 * 1000;
+
 const parseDocumentId = (input: unknown): string => {
   if (typeof input !== "string" || input === "") {
     throw new InvalidInputError({ key: "error.document.notFound" });
@@ -617,6 +637,7 @@ export function createCore(adapters: CoreAdapters): Core {
     throw error;
   }
   const events = createEventHub();
+
   const knownSecrets = new Set<string>();
   // Logs what happens from here on, from the events: never the User's content.
   const activity = logActivity(events, adapters.log ?? silentLogger, knownSecrets);
@@ -997,6 +1018,8 @@ export function createCore(adapters: CoreAdapters): Core {
         prepareRerank();
         documentReady(documentId);
       },
+      // Tagged as soon as its text, or a scan's first pages, can be read, not once embedded (#2308).
+      onText: (documentId) => documentReady(documentId),
       // Citations live in Minds, anywhere: in Answers, or copied into Notes; and in
       // conversations. Features other than Citations retain what they need too.
       citedUnits: (documentIds) => {
@@ -1086,8 +1109,9 @@ export function createCore(adapters: CoreAdapters): Core {
     db.close();
     throw error;
   }
-  // A saved page's pictures may come from any host: only the public internet is reached (#756).
-  const pictureFetcher = createPublicFetch(adapters.web);
+  // A saved page and its pictures are fetched only from the public internet: never this
+  // computer or a local network, every redirect checked as an address is (#2553).
+  const publicFetcher = createPublicFetch(adapters.web);
   const webPages = createWebPages({
     db,
     dataDir,
@@ -1095,7 +1119,8 @@ export function createCore(adapters: CoreAdapters): Core {
     documents,
     languages: () =>
       settings.get().language === "zh-CN" ? ["zh-CN", "zh;q=0.9", "en;q=0.8"] : ["en", "*;q=0.5"],
-    pictureFetch: pictureFetcher.fetch,
+    fetch: publicFetcher.fetch,
+    pictureFetch: publicFetcher.fetch,
     ...(adapters.pageLook ? { look: adapters.pageLook } : {}),
     keepLookByDefault: () => settings.get().user.keepWebPageLook,
     localOnly: () => embedding.localOnly(),
@@ -1232,6 +1257,8 @@ export function createCore(adapters: CoreAdapters): Core {
     if (wasLocal !== embedding.localOnly()) {
       usageData.localModeChanged();
       privacyChanged();
+      // Documents waiting to be allowed on a cloud service aren't, in Local mode (#2308).
+      events.emit("library.changed", null);
       agentsLocalModeChanged();
       connectorsLocalModeChanged();
       await rerankChanged();
@@ -1352,9 +1379,9 @@ export function createCore(adapters: CoreAdapters): Core {
    * so the chat flow sends "tool-results" too, and asks again for it. So do
    * Skill scripts that can run (#41): what they print could be anything.
    *
-   * Skills alone don't: their Tools (`use_skill`, `read_skill_file`) return
-   * only the text of Skills the User imported, which is sent like the system
-   * prompt, not data fetched from another service.
+   * Skills alone don't add "tool-results": their Tools (`use_skill`,
+   * `read_skill_file`) return only a Skill's own instructions and files, which
+   * the chat flow names as "skill-files".
    */
   const sendsToolResults = () => connectors.anyEnabled() || scriptsOffered();
   /** Whether the chat flow sends "tool-results", as last registered. */
@@ -1478,24 +1505,25 @@ export function createCore(adapters: CoreAdapters): Core {
   /** The User's Documents searched as an Answer searches them: the search Tool, reranked as the User chose unless `rerank` is false. */
   const timedRerank = (reranker: Reranker | undefined): Reranker | undefined =>
     reranker &&
-    ((query, candidates, signal) =>
+    ((query, candidates, signal, background) =>
       timings.local(
         "rerank",
         rerank.usesBuiltIn() ? BUILT_IN_RERANKING_MODEL.name : "rerank service",
-        () => reranker(query, candidates, signal),
+        () => reranker(query, candidates, signal, background),
         () => candidates.length,
       ));
   const searchDocuments = (
     query: string,
     documentIds: readonly string[] | null,
     signal?: AbortSignal,
-    { rerank: reranking = true, parameters }: AnswerSearchOptions = {},
+    { rerank: reranking = true, parameters, background }: AnswerSearchOptions = {},
   ) => {
     const options = {
       signal,
       rerank: reranking ? timedRerank(adapters.reranker ?? rerank.active()) : undefined,
       documentIds: documentIds ?? undefined,
       ...(parameters && { parameters }),
+      ...(background === true && { background }),
     };
     const tuning = adapters.answerSearch;
     return tuning
@@ -1513,18 +1541,9 @@ export function createCore(adapters: CoreAdapters): Core {
     const walled = library.folders().filter((folder) => folder.keepInside);
     const own = mindId !== null && mindExists(mindId) ? minds.get(mindId).folderId : null;
     const ownWall = own === null ? null : library.wallOf(own);
-    const wallIds = new Set(
-      wanted.folderIds.flatMap((id) => {
-        const wall = library.wallOf(id);
-        return wall === null ? [] : [wall];
-      }),
+    const explicitFolderScope = explicitWalledFolderScope(wanted, mindId, (id) =>
+      id === null ? null : library.wallOf(id),
     );
-    const explicitFolderScope =
-      mindId === null &&
-      wallIds.size === 1 &&
-      wanted.folderIds.every((id) => library.wallOf(id) !== null) &&
-      wanted.tagIds.length === 0 &&
-      wanted.documentIds.length === 0;
     if (ownWall !== null || explicitFolderScope) {
       return resolveSearchScope(ownWall !== null ? constrainedScope(wanted, mindId) : wanted, {
         folderTree: (folderId) => folders.subtree(folderId),
@@ -1685,8 +1704,9 @@ export function createCore(adapters: CoreAdapters): Core {
     const made = examples.made();
     if (made.documentIds.length === 0 || (mindId && made.mindIds.includes(mindId))) return null;
     const left = new Set(made.documentIds);
+    // The examples are the User's Library until a Document of their own exists (#1942), a
+    // meeting's Transcript among them: a first meeting's Note searches its own words only.
     const own = documents.ids({}).filter((id) => !left.has(id));
-    // The examples are the User's Library until a Document of their own exists (#1942).
     return own.length > 0 ? own : null;
   };
   /**
@@ -1776,6 +1796,66 @@ export function createCore(adapters: CoreAdapters): Core {
       : kind === "tag"
         ? (tags.list().find((tag) => tag.id === id)?.name ?? null)
         : (documents.getMany([id])[0]?.name ?? null);
+  const nameSent = (kind: ScopeKind, id: string): string | null => {
+    const linked =
+      kind === "folder" ? folders.list().find((folder) => folder.id === id) : undefined;
+    return linked ? linkedFolderName(linked) : scopeItemName(kind, id);
+  };
+  /**
+   * What a check's scope sees of the Library (#2525), from a Note in `mindId`: the Documents the
+   * scope covers, the Folders, Tags and other notes it may see, with Folder walls applied both
+   * ways, so a walled Folder's Documents are never counted or named for a Note outside it.
+   */
+  const libraryListing = (mindId: string | null, searched: SearchScope | null): LibraryListing => {
+    const ownWall = walledFolder(mindId);
+    const counted = documents.getMany(scopeDocuments(searched, mindId) ?? documents.ids({}));
+    const ids = new Set(counted.map((document) => document.id));
+    // A scope picked before a Folder got its wall may still list it, or one of its Documents: for a
+    // note outside the wall, what is behind it is named from nowhere, only counted among the walls.
+    const constrained =
+      searched && hasSearchScope(searched) ? constrainedScope(searched, mindId) : null;
+    const visible = constrained && {
+      ...constrained,
+      documentIds: constrained.documentIds.filter((id) => walledDocument(id) === ownWall),
+    };
+    const one = oneFolderOf(visible);
+    const within = one === null ? null : new Set(library.subtree(one));
+    const seen = (folderId: string | null) =>
+      walledFolderId(folderId) === ownWall && (within === null || within.has(folderId ?? ""));
+    const named = visible && hasSearchScope(visible) ? scopeName(visible, nameSent) : null;
+    const walls = library.folders().filter((folder) => folder.keepInside).length;
+    const folders = library
+      .folders()
+      .filter((folder) => seen(folder.id))
+      .map((folder) => ({
+        name: folder.name,
+        count: library.treeDocumentIds(folder.id).filter((id) => ids.has(id)).length,
+      }));
+    const notes = minds.list().filter((mind) => mind.id !== mindId && seen(mind.folderId));
+    const unfiled = new Set(library.unfiledDocumentIds());
+    return {
+      source: named
+        ? { kind: "scope", name: named.name ?? "", more: named.more }
+        : ownWall === null && walls > 0
+          ? { kind: "left-out", folders: walls }
+          : { kind: "library" },
+      documents: counted.map(({ name, kind }) => ({ name, kind })),
+      folders,
+      unfiled: one === null ? counted.filter((document) => unfiled.has(document.id)).length : null,
+      tags: tags.list().flatMap((tag) => {
+        const count = counted.filter((document) =>
+          document.tags.some((each) => each.tagId === tag.id),
+        ).length;
+        return count > 0 ? [{ name: tag.name, count }] : [];
+      }),
+      // A note with no typed title is named by its first line, which is its text: it is counted only.
+      notes: {
+        count: notes.length,
+        names: notes.map((mind) => mind.title).filter((title) => title !== ""),
+      },
+      searches: named?.name ? { kind: named.kind, name: named.name } : null,
+    };
+  };
   // A Folder of the Library holds no file that isn't a Document, so it names the folders on disk
   // its Documents are in: a Linked folder filed into it whole names the Linked folder.
   const foldersOnDisk = (folderIds: readonly string[]) => {
@@ -2054,10 +2134,11 @@ export function createCore(adapters: CoreAdapters): Core {
     documents: {
       searchableCount: (documentIds) => documents.searchableCount(documentIds ?? undefined),
       // The Library's count is what its page shows: the examples until the User has a Document of
-      // their own, and theirs alone from then on (#1942).
+      // their own, and theirs alone from then on (#1942); a meeting is a Note, its Transcript no
+      // Document of the page's (#2528).
       libraryCount: () => {
         const example = new Set(examples.made().documentIds);
-        const all = documents.ids({});
+        const all = documents.ids({ listed: true });
         const own = all.filter((id) => !example.has(id));
         return own.length > 0 ? own.length : all.length;
       },
@@ -2156,9 +2237,9 @@ export function createCore(adapters: CoreAdapters): Core {
         ),
       read: (mindId, look) => content.read(mindId, look),
       edit: (mindId, change) => content.edit(mindId, change),
-      text: (mindId, name, tokens, ids) => {
+      text: (mindId, name, tokens, ids, applied) => {
         const section = content
-          .peek(mindId, (blocks) => readMind(blocks, name, null, null, ids))
+          .peek(mindId, (blocks) => readMind(blocks, name, null, null, ids, true, applied))
           .section(tokens);
         return { text: section.text, origins: section.origins };
       },
@@ -2231,9 +2312,13 @@ export function createCore(adapters: CoreAdapters): Core {
         if (question) events.emit("conversation.message", question);
         return question;
       },
-      restartAnswer: (answerId, answerModel, read, emit = true) => {
-        const turn = conversations.restartAnswer(answerId, answerModel, read);
-        if (emit) events.emit("conversation.message", turn.answer);
+      restartAnswer: (answerId, answerModel, read, emit = true, origin) => {
+        const turn = conversations.restartAnswer(answerId, answerModel, read, origin);
+        if (emit) {
+          // An origin and the Answer it resets were written together: both changed at once.
+          if (origin) events.emit("conversation.message", turn.question);
+          events.emit("conversation.message", turn.answer);
+        }
         return turn;
       },
       writeAnswer: (answerId, write) => {
@@ -2257,6 +2342,13 @@ export function createCore(adapters: CoreAdapters): Core {
     workingCopyOf: (mindId) => wordImports.importedAsOf(mindId),
     searchedScope,
     mindFolder: (mindId) => (mindExists(mindId) ? minds.get(mindId).folderId : null),
+    scopeItemName,
+    libraryFolders: () =>
+      library.folders().map((folder) => ({
+        id: folder.id,
+        name: folder.name,
+        keepInside: folder.keepInside,
+      })),
     walledFolder,
     walledFolderId,
     walledDocuments,
@@ -2462,7 +2554,8 @@ export function createCore(adapters: CoreAdapters): Core {
 
   // Suggest as I write (#282): Passages found and quotes checked as Answers do (see ./answers/citing).
   const citing = createCiting({
-    search: searchDocuments,
+    search: (query, documentIds, signal, background) =>
+      searchDocuments(query, documentIds, signal, { background }),
     citationSource: (passageId) => documents.citationSource(passageId),
     pageTexts: (documentId, contentHash, from, to) =>
       documents.pageTexts(documentId, contentHash, from, to),
@@ -2528,6 +2621,15 @@ export function createCore(adapters: CoreAdapters): Core {
   /** Sends a Document or several to Recently deleted. */
   const removeDocuments = (ids: readonly string[], at: string = now()) => {
     for (const deleted of documents.delete(ids, at)) activity.documentDeleted(deleted);
+  };
+  /** Documents the User may delete on their own: a Meeting's Transcript goes with its Note (#2528). */
+  const deletable = (ids: readonly string[]): readonly string[] => {
+    for (const id of ids) {
+      if (typeof id === "string" && liveDocument(id)?.meetingMindId) {
+        throw new InvalidInputError({ key: "error.transcript.withNote" });
+      }
+    }
+    return ids;
   };
 
   /**
@@ -2720,12 +2822,36 @@ export function createCore(adapters: CoreAdapters): Core {
         folderId: mind.folderId,
         scope,
         personId: settings.get().user.personId,
+        language: settings.get().language,
+        keptInside: (documentId) => {
+          const wall = walledDocument(documentId);
+          return wall === null || wall === walledFolder(mind.id)
+            ? null
+            : (walledFolderName(documentId) ?? documentId);
+        },
       });
     });
   }
 
   const checks = createChecks({
     language: () => settings.get().language,
+    // What a check reads of the Documents as it runs: their words, names and whether it may use
+    // them. Its scope, their Folders and Tags are taken when the run starts (#2532).
+    libraryState: () =>
+      JSON.stringify(
+        documents
+          .list()
+          .map((document) => [
+            document.id,
+            document.name,
+            document.title,
+            document.contentHash,
+            document.status,
+            document.notCited,
+            document.ownFile,
+            document.readHiddenSheets,
+          ]),
+      ),
     content,
     requireMind: (mindId) => {
       writableMind(mindId);
@@ -2803,6 +2929,7 @@ export function createCore(adapters: CoreAdapters): Core {
     walledFolderName,
     searchedScope,
     pickedDocuments,
+    libraryListing,
     originalOf: (mindId) => {
       const original = wordImports.originalOf(mindId);
       const duplicated = minds.duplicatedFrom(mindId);
@@ -2944,6 +3071,7 @@ export function createCore(adapters: CoreAdapters): Core {
     readableQuote: quoteAsRead,
     language: () => settings.get().language,
     scopeItemName,
+    libraryFactsNow: (mindId) => checks.libraryFactsNow(mindId),
     citationStyle: (mindId) => {
       const { style, textLanguage } = mindStyleAndText(mindId);
       return { style: citationStyles.resolve(style.style, textLanguage), textLanguage };
@@ -3281,6 +3409,14 @@ export function createCore(adapters: CoreAdapters): Core {
     const live = documents.getMany(documentIds);
     if (live.length > 0) events.emit("documents.tagged", live);
   };
+  /** A Document the User may tag; a Meeting's Transcript has no Tags of its own (#2528). */
+  const taggable = (documentId: unknown): Document => {
+    const document = documents.get(documentId);
+    if (document.meetingMindId !== null) {
+      throw new InvalidInputError({ key: "error.transcript.tagWithNote" });
+    }
+    return document;
+  };
   /**
    * The User's change to one Tag on several Documents: all of it or nothing,
    * in one transaction, then one "documents.tagged" event for those that changed.
@@ -3348,7 +3484,9 @@ export function createCore(adapters: CoreAdapters): Core {
     }
   };
   const tagger = createTagger({
-    maySend: (id, service) => mayBackgroundSend(db, id, [service], library.turnedOnAt),
+    // A Document filed inside a walled Folder goes to no cloud service by itself (#2308).
+    maySend: (id, service) =>
+      !library.inWall(id) && mayBackgroundSend(db, id, [service], library.turnedOnSeq),
     db,
     now,
     tags,
@@ -3390,6 +3528,8 @@ export function createCore(adapters: CoreAdapters): Core {
     background,
     rateLimit,
     timers: paceTimers,
+    head: (id) => documents.head(id),
+    headIds: () => documents.headIds(),
   });
   const automaticClassifiers = new Map<string, ReturnType<typeof automaticGroupClassifier>>();
   // Set below, once the examples are made: Organize leaves the example's Documents alone (#1942).
@@ -3403,6 +3543,8 @@ export function createCore(adapters: CoreAdapters): Core {
     settings,
     background,
     isExampleDocument: (documentId) => isExampleDocument(documentId),
+    head: (id) => documents.head(id),
+    localOnly: () => embedding.localOnly(),
     changed: () => {
       events.emit("library.changed", null);
       batches.libraryChanged();
@@ -3505,7 +3647,7 @@ export function createCore(adapters: CoreAdapters): Core {
       const ready = await chat.readiness(choice, "classification");
       if (embedding.localOnly() && "provider" in ready && ready.provider.service)
         throw new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
-      const prepared = await chat.prepareModel(choice, "classification", undefined, permit);
+      const prepared = await chat.prepareModel(choice, "classification", undefined, { permit });
       if (embedding.localOnly() && prepared.provider.service)
         throw new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
       // A scan's page images go only where the User allowed them (the "scan-images" flow).
@@ -3518,7 +3660,9 @@ export function createCore(adapters: CoreAdapters): Core {
       const imageModel = readsImages(prepared.capabilities) ? null : chat.imageModel(choice);
       if (imageModel && scanImagesAllowed(imageModel)) {
         chosen = withPageReader(chosen, async () => {
-          const reader = await chat.prepareModel(imageModel, "classification", undefined, permit);
+          const reader = await chat.prepareModel(imageModel, "classification", undefined, {
+            permit,
+          });
           return {
             ...chatGroupClassifier(reader.model, reader.provider.service === null, true),
             model: { id: imageModel.modelId, images: true, reason: "selected" as const },
@@ -3674,14 +3818,6 @@ export function createCore(adapters: CoreAdapters): Core {
       restored: (restoredMeetings) => {
         const audio = meetings.restored(restoredMeetings);
         const meetingIds = restoredMeetings.map((each) => each.meetingId);
-        // One made while its note waited in Recently deleted goes to the note's Folder now.
-        for (const meetingId of meetingIds) {
-          const documentId = meetings.transcriptOf(meetingId);
-          const folderId = minds.get(meetings.get(meetingId).mindId).folderId;
-          if (!documentId || !folderId || !liveDocument(documentId)) continue;
-          const filed = db.get("SELECT 1 FROM document_groups WHERE document_id = ?", [documentId]);
-          if (!filed) library.assign(documentId, folderId);
-        }
         meetingFill.restored(meetingIds);
         return {
           lost: audio.lost,
@@ -4244,6 +4380,7 @@ export function createCore(adapters: CoreAdapters): Core {
     meter,
     localOnly: () => embedding.localOnly(),
     providerKey: (catalogId) => chat.apiKeyOf(catalogId),
+    languages: () => [settings.get().language, ...adapters.systemLanguages()],
     log: adapters.log ?? silentLogger,
     ...(adapters.transcriptionKeyFetch && { fetch: adapters.transcriptionKeyFetch }),
     vadFile: async () => {
@@ -4287,8 +4424,6 @@ export function createCore(adapters: CoreAdapters): Core {
             return;
           }
           documents.addSnapshot(id, name, file, link, "transcript");
-          const folderId = meeting ? minds.get(meeting.mindId).folderId : null;
-          if (folderId) library.assign(id, folderId);
         },
         check: (path) => documents.check(path),
         checkNow: async (documentId, path) => {
@@ -4376,6 +4511,12 @@ export function createCore(adapters: CoreAdapters): Core {
     log: adapters.log ?? silentLogger,
   });
   listMeetings = () => meetings.list();
+  // One meeting is one item (#2528): a pair an earlier version left apart is put right first.
+  db.transaction(() => {
+    for (const { deletedAt, documentIds } of transcriptsApart(db, now())) {
+      removeDocuments(documentIds, deletedAt);
+    }
+  });
   transcriptionGateChanged = () => transcripts?.recheckCloud();
   meetingHelpOf = (mindId, question) => {
     const meeting = meetings.liveOf(mindId);
@@ -5005,6 +5146,7 @@ export function createCore(adapters: CoreAdapters): Core {
           mind: { id: mindId, folderId: minds.get(mindId).folderId },
           focus: null,
           scope: null,
+          folderInFront: null,
           model: null,
           forcedSkill: null,
           analyse: false,
@@ -5279,8 +5421,8 @@ export function createCore(adapters: CoreAdapters): Core {
       events.emit("documents.renamed", [renamed]);
       return renamed;
     },
-    deleteDocument: async (id) => removeDocuments([id]),
-    deleteDocuments: async (ids) => removeDocuments(ids),
+    deleteDocument: async (id) => removeDocuments(deletable([id])),
+    deleteDocuments: async (ids) => removeDocuments(deletable(ids)),
     retryDocument: async (id) => documents.retry(id),
     readHiddenSheets: async (id, readHidden) => documents.readHiddenSheets(id, readHidden),
     unlockDocument: async (input) => {
@@ -5388,6 +5530,7 @@ export function createCore(adapters: CoreAdapters): Core {
         pageFrom: page(input.pageFrom),
         pageTo: page(input.pageTo) ?? page(input.pageFrom),
         contentHash: typeof input.contentHash === "string" ? input.contentHash : null,
+        quotedWords: parseQuotedWords(input.quotedWords),
         mindId: input.mindId,
       });
     },
@@ -5498,7 +5641,7 @@ export function createCore(adapters: CoreAdapters): Core {
     listChatProviders: () => chat.list(),
     saveChatProvider: async (input) => {
       const provider = await chat.save(input);
-      await cloudTranscription.refreshKeys();
+      await cloudTranscription.refreshKeys(provider.catalogId);
       transcriptionGateChanged();
       settingsChanged();
       await dataFlowsChanged();
@@ -5623,6 +5766,7 @@ export function createCore(adapters: CoreAdapters): Core {
     getFigureSchedule: async (mindId) => readFigureSchedule(mindId),
     getFigureScheduleChange: async (mindId, since) => figureScheduleChangeFor(mindId, since),
     documentsAddedSinceChecks: async (mindId) => checks.documentsAddedSinceChecks(mindId),
+    libraryFactsNow: async (mindId) => checks.libraryFactsNow(mindId),
 
     getSecretStorage: async () => secrets.status(),
     acceptPlainTextSecretStorage: async () => secrets.acceptPlainText(),
@@ -5733,7 +5877,9 @@ export function createCore(adapters: CoreAdapters): Core {
     listDataFlows: () => consent.list(),
     listConsentRequests: async () => consent.requests(),
     respondToConsent: async (requestId, accept) => {
-      consent.respond(requestId, accept);
+      const answered = consent.respond(requestId, accept);
+      // Accepting the embeddings dialog is the User allowing it: Documents waiting carry on.
+      if (accept === true && answered?.flow.id === "embeddings") embedding.retry();
       await readinessChanged();
     },
     revokeConsent: async (flowId, serviceId) => {
@@ -5749,6 +5895,8 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     restoreConsent: async (flowId, serviceId, revokedAt) => {
       consent.restore(flowId, serviceId, revokedAt);
+      // Undo may bring back the choice that let embeddings run: Documents waiting carry on.
+      if (flowId === "embeddings") embedding.retry();
       connectors.consentChanged();
       transcriptionGateChanged();
       settingsChanged();
@@ -5757,6 +5905,8 @@ export function createCore(adapters: CoreAdapters): Core {
     listRegisteredDataFlows: () => consent.listRegistered(),
     allowDataFlow: async (flowId, serviceId) => {
       await consent.allow(flowId, serviceId);
+      // Documents waiting for embeddings carry on now that the User allowed it.
+      if (flowId === "embeddings") embedding.retry();
       connectors.consentChanged();
       await dataFlowsChanged();
     },
@@ -5858,11 +6008,14 @@ export function createCore(adapters: CoreAdapters): Core {
       const current = now();
       const nowMs = Date.parse(current);
       const earliest = nowMs - RECENTLY_DELETED_DAYS * 24 * 60 * 60 * 1000;
-      // A time outside Recently deleted's 30 days would list it expired or purge it at once:
-      // deleting it again at `current` keeps it restorable (#2238).
+      // A time outside Recently deleted's 30 days, or with less than a day of them left, would
+      // list it expired or purge it at once: deleting it again at `current` keeps it restorable
+      // and its Redo possible (#2238, #2274).
       const atOf = (item: DeletedAgainRef) => {
         const time = Date.parse(item.deletedAt);
-        return time >= earliest && time <= nowMs ? item.deletedAt : current;
+        return time >= earliest + DELETE_AGAIN_MARGIN_MS && time <= nowMs
+          ? item.deletedAt
+          : current;
       };
       // Documents go back together, as their deletion did (#1349), before what came after them.
       const byTime = new Map<string, string[]>();
@@ -5980,7 +6133,7 @@ export function createCore(adapters: CoreAdapters): Core {
     deleteTag: async (tagId) => removeTag(tagId),
     addDocumentTag: async (documentId, tagId) => {
       const { document, changed } = db.transaction(() => {
-        const document = documents.get(documentId);
+        const document = taggable(documentId);
         return { document, changed: tags.addToDocument(document.id, tagId) };
       });
       if (!changed) return document;
@@ -5999,7 +6152,7 @@ export function createCore(adapters: CoreAdapters): Core {
       return updated;
     },
     addTagToDocuments: async (documentIds, tagId) =>
-      tagMany(documentIds, (id) => tags.addToDocument(id, tagId)),
+      tagMany(documentIds, (id) => tags.addToDocument(taggable(id).id, tagId)),
     removeTagFromDocuments: async (documentIds, tagId) =>
       tagMany(documentIds, (id) => tags.removeFromDocument(id, tagId)),
     listDocumentTagDecisions: async (documentIds) =>
@@ -6462,6 +6615,32 @@ export function createCore(adapters: CoreAdapters): Core {
     respondToFileWrite: (requestId, accept) => outputs.respond(requestId, accept),
 
     listMeetings: async () => meetings.list(),
+    listJoinedMeetings: async () => joinedMeetings(db),
+    joinedMeetingsSaid: async (ids) => joinedMeetingsSaid(db, ids, now()),
+    undoMeetingJoin: async (id) => {
+      const { undone, moved } = db.transaction(() => {
+        const undone = undoMeetingJoin(db, id, now());
+        const moved =
+          undone.noteBackTo === undefined ? [] : minds.move([undone.mindId], undone.noteBackTo);
+        return { undone, moved };
+      });
+      if (moved.some((item) => item.from !== undone.noteBackTo)) {
+        mindsChanged();
+        if (undone.noteBackTo) checks.mindJoinedFolder(undone.mindId);
+      }
+      for (const document of documents.getMany(undone.documentIds)) {
+        events.emit("document.status", document);
+      }
+      library.moved(undone.documentIds);
+      const filedIn = db.all<{ group_id: string }>(
+        `SELECT DISTINCT group_id FROM document_groups
+         WHERE deleted_at IS NULL AND document_id IN (SELECT value FROM json_each(?))`,
+        [JSON.stringify(undone.documentIds)],
+      );
+      for (const row of filedIn) checks.folderContentsChanged(row.group_id);
+    },
+    listMeetingsLeftApart: async () => meetingsLeftApart(db),
+    meetingsLeftApartSaid: async (ids) => meetingsLeftApartSaid(db, ids, now()),
     createMeeting: async (input) => meetings.create(input),
     discardMeeting: async (meetingId) => meetings.discard(meetingId),
     startMeeting: async (input) => meetings.start(input),
@@ -6474,7 +6653,12 @@ export function createCore(adapters: CoreAdapters): Core {
     deleteMeetingAudio: async (meetingId) => meetings.deleteAudio(meetingId),
     retryTranscript: async (meetingId) => meetings.retryTranscript(meetingId),
     listTranscriptionServices: () => cloudTranscription.list(),
-    setTranscriptionKey: (input) => cloudTranscription.setKey(input),
+    setTranscriptionKey: async (input) => {
+      const listed = await cloudTranscription.setKey(input);
+      // A new key for the service a Meeting is sending to takes over from its next audio.
+      transcriptionGateChanged();
+      return listed;
+    },
     getTranscriptionModel: async () => transcriptionModel?.status() ?? null,
     getTranscriptionSpeed: async () => {
       const speed = settings.readDeviceValue(TRANSCRIPTION_SPEED);
@@ -6592,7 +6776,7 @@ export function createCore(adapters: CoreAdapters): Core {
       // the User's approval are denied, and Skill scripts running are stopped.
       answers.stopAll();
       void webSearch.close().catch((error: unknown) => console.error(error));
-      void pictureFetcher.close().catch((error: unknown) => console.error(error));
+      void publicFetcher.close().catch((error: unknown) => console.error(error));
       suggestions.stop();
       edits.stopAll();
       checks.stopAll();

@@ -8,7 +8,7 @@
  *
  * INCARNAMIND_WORD_SET picks the files: "core" (the committed files, the default), "extended"
  * (the cache that `npm run eval:word:fetch` fills) or "all".
- * INCARNAMIND_WORD_REQUIRE_LIBREOFFICE=1 (CI sets it) fails the run when LibreOffice is missing,
+ * INCARNAMIND_WORD_REQUIRE_LIBREOFFICE=1 fails the run when LibreOffice is missing,
  * instead of skipping that step.
  */
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -57,7 +57,7 @@ interface Step {
 }
 
 const soffice = findLibreOffice();
-/** Where to keep a PDF of each edited export, for a person to look at (CI uploads them). */
+/** Where to keep a PDF of each edited export, for a person to look at. */
 const keepPdfs = process.env.INCARNAMIND_WORD_PDFS;
 const required = process.env.INCARNAMIND_WORD_REQUIRE_LIBREOFFICE === "1";
 const wanted = process.env.INCARNAMIND_WORD_SET ?? "core";
@@ -259,7 +259,7 @@ describe("the Word corpus", () => {
     expect(bytes).toBeLessThan(25_000_000);
   });
 
-  it.skipIf(!required)("has LibreOffice when CI asks for it", () => {
+  it.skipIf(!required)("has LibreOffice when it is required", () => {
     expect(soffice).toBeDefined();
   });
 

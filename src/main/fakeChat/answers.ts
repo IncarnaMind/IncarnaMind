@@ -561,6 +561,7 @@ export function searchParts(tool: string, query: string): StreamPart[] {
 }
 
 const BY_REGION = /\bby region\b|按地区/i;
+const WITH_COUNTS = /\bhow many sales\b|多少笔/i;
 const AGAINST_SPEND = /\bad spend\b|广告投入/i;
 
 /** A regression of revenue on ad spend, its plot, and the total IncarnaMind works out again. */
@@ -570,7 +571,7 @@ function regressionReply(prompt: Prompt, question: string, searched: string): Re
     return {
       text: chinese
         ? "广告投入每增加 1，收入增加 [=1]，收入合计 [=2]。\n\n[=picture 1]"
-        : "Each unit of ad spend adds [=1] of revenue, out of [=2] in total.\n\n[=picture 1]",
+        : "Each unit of ad spend adds [=1] of revenue; the total revenue is [=2].\n\n[=picture 1]",
     };
   }
   const marketing = passagesIn(searched).find((passage) =>
@@ -687,7 +688,7 @@ function analysisReply(prompt: Prompt, question: string, searched: string): Repl
     }
     return {
       text: chinese
-        ? "各地区收入如下：\n\n[=table 1]\n\n合计 [=1]。"
+        ? "各地区收入：\n\n[=table 1]\n\n合计 [=1]。"
         : "Revenue by region:\n\n[=table 1]\n\nIn total, [=1].",
     };
   }
@@ -696,11 +697,15 @@ function analysisReply(prompt: Prompt, question: string, searched: string): Repl
   if (!sales) return null;
   const regions = passages.find((passage) => /regions|地区/i.test(passage.document));
   const joining = WITH_MANAGERS.test(question) && regions;
+  // Asked for counts too, the table has a column of them, which IncarnaMind never recalculates.
+  const counted = WITH_COUNTS.test(question);
   const code = [
     'sales = step("Read the sales", inputs["sales"])',
     'sales["Revenue"] = pd.to_numeric(sales["Revenue"], errors="coerce")',
-    'totals = sales.groupby("Region", sort=True)["Revenue"].sum()',
-    'result("by_region", totals, "Revenue by region")',
+    counted
+      ? 'totals = sales.groupby("Region", sort=True).agg(Revenue=("Revenue", "sum"), Sales=("Revenue", "count"))'
+      : 'totals = sales.groupby("Region", sort=True)["Revenue"].sum()',
+    `result("by_region", totals, "${chinese ? "各地区收入" : "Revenue by region"}")`,
     'result("total", totals.sum(), "Total revenue")',
     ...(joining ? ['merged = sales.merge(inputs["regions"], on="Region", how="left")'] : []),
   ].join("\n");

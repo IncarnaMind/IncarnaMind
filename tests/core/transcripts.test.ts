@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test, vi } from "vitest";
 import type { Core } from "../../src/core";
@@ -180,6 +180,61 @@ describe("A Meeting's live Transcript", { timeout: 60_000 }, () => {
       expect(gaps.every((gap) => gap.toMs - gap.fromMs >= 1000)).toBe(true);
     },
   );
+
+  // protects=the system's permission prompt holding the capture is a gap that says it waited, never that audio was deleted, and a wait under a second is not listed; fails_when=the stretch is uncaptured or lost, or a sub-second wait is a gap; no_claim=the page's waiting state, which the smoke test covers.
+  test.each([
+    ["two seconds", 2 * SECOND, true],
+    ["under a second", 400, false],
+  ] as const)(
+    "the capture waits %s for the microphone permission: its stretch is a gap only when it is listed",
+    async (_what, waitMs, listed) => {
+      const dataDir = await createTempDataFolder();
+      const { core, capture, clock, record } = await transcribingCore(dataDir, {
+        capture: { microphone: "waiting" },
+      });
+      const meeting = await core.createMeeting();
+      const started = await core.startMeeting({ meetingId: meeting.id });
+      expect(started.sources.microphone).toBe("waiting");
+
+      clock.advance(waitMs);
+      capture.answerPermission();
+      expect((await core.listMeetings()).find((each) => each.id === meeting.id)?.sources).toEqual({
+        microphone: "recording",
+        system: "recording",
+      });
+      record(9 * SECOND);
+      await until(core, meeting.id, (transcript) => transcript.lines >= 4);
+
+      await core.stopMeeting(meeting.id);
+      const saved = await until(core, meeting.id, (transcript) => transcript.state === "saved");
+      const { gaps } = readVtt(readFileSync(saved.savedPath as string, "utf8"));
+      expect(gaps.filter((gap) => gap.reason === "permission")).toEqual(
+        listed ? [{ fromMs: 0, toMs: waitMs, reason: "permission" }] : [],
+      );
+      expect(gaps.map((gap) => gap.reason)).not.toContain("lost");
+      expect(gaps.map((gap) => gap.reason)).not.toContain("uncaptured");
+      expect(gaps.every((gap) => gap.toMs - gap.fromMs >= 1000)).toBe(true);
+    },
+  );
+
+  // protects=a capture that stalls leaves a gap that says no sound came in, one for both sources, not that audio was deleted; fails_when=the stretch is uncaptured or lost, or each source lists its own stall; no_claim=how the recording details word the same stall.
+  test("a capture that stalls is a gap that says so, once, not that its audio was deleted", async () => {
+    const dataDir = await createTempDataFolder();
+    const { core, clock, record } = await transcribingCore(dataDir);
+    const meeting = await core.createMeeting();
+    await core.startMeeting({ meetingId: meeting.id });
+    record(5 * SECOND);
+    await until(core, meeting.id, (transcript) => transcript.lines >= 2);
+
+    // Three seconds pass with no audio from either source, then both come back.
+    clock.advance(3 * SECOND);
+    record(6 * SECOND);
+
+    await core.stopMeeting(meeting.id);
+    const saved = await until(core, meeting.id, (transcript) => transcript.state === "saved");
+    const { gaps } = readVtt(readFileSync(saved.savedPath as string, "utf8"));
+    expect(gaps).toEqual([{ fromMs: 5 * SECOND, toMs: 8 * SECOND, reason: "stalled" }]);
+  });
 
   test("a line whose words hold control characters is kept as one line, and the file reads back (#981)", async () => {
     const dataDir = await createTempDataFolder();
@@ -548,7 +603,7 @@ describe("Pausing my microphone, in the Transcript", { timeout: 60_000 }, () => 
     expect(gaps).toEqual([{ fromMs: PAUSED_AT, toMs: RESUMED_AT, reason: "muted" }]);
   });
 
-  test("a .vtt the User added keeps its file and its path; a Meeting's Transcript is the Library's, and its file goes at permanent delete (#763)", async () => {
+  test("a .vtt the User added keeps its file and its path; a Meeting's Transcript is IncarnaMind's, and its file goes when its Note is deleted permanently (#763, #2528)", async () => {
     const dataDir = await createTempDataFolder();
     const sourcesDir = await createTempDataFolder();
     const { core, record } = await transcribingCore(dataDir);
@@ -575,9 +630,10 @@ describe("Pausing my microphone, in the Transcript", { timeout: 60_000 }, () => 
 
     const ownFile = join(dataDir, "Transcripts", `${meeting.id}.vtt`);
     expect(existsSync(ownFile)).toBe(true);
-    await core.deleteDocuments([own.id, user.id]);
+    await core.deleteDocuments([user.id]);
+    await core.deleteMind(meeting.mindId);
     await core.deletePermanently([
-      { kind: "document", id: own.id },
+      { kind: "mind", id: meeting.mindId },
       { kind: "document", id: user.id },
     ]);
     // IncarnaMind's own Transcript goes; the .vtt the User added stays theirs.
@@ -595,20 +651,17 @@ describe("Pausing my microphone, in the Transcript", { timeout: 60_000 }, () => 
     await core.stopMeeting(meeting.id);
     const saved = await until(core, meeting.id, (transcript) => transcript.state === "saved");
     if (!saved.documentId) throw new Error("The Transcript has no Document.");
-    await core.deleteDocuments([saved.documentId]);
+    await core.deleteMind(meeting.mindId);
 
-    const folder = join(dataDir, "Transcripts");
-    const file = join(folder, `${meeting.id}.vtt`);
-    // A folder that can't be written to: removing the file fails with EACCES, and must not throw.
-    chmodSync(folder, 0o500);
-    try {
-      await expect(
-        core.deletePermanently([{ kind: "document", id: saved.documentId }]),
-      ).resolves.toBeUndefined();
-    } finally {
-      chmodSync(folder, 0o700);
-    }
+    // Something in its place that can't be removed as a file: removing it fails, and must not throw.
+    const file = join(dataDir, "Transcripts", `${meeting.id}.vtt`);
+    rmSync(file);
+    mkdirSync(join(file, "kept"), { recursive: true });
+    await expect(
+      core.deletePermanently([{ kind: "mind", id: meeting.mindId }]),
+    ).resolves.toBeUndefined();
     expect(existsSync(file)).toBe(true);
+    expect(await core.listDeleted()).toEqual([]);
   });
 
   test("Stop says the Transcript is saved only once its finished text is read, so the notes are filled from it (#763)", async () => {

@@ -1,9 +1,19 @@
+import type { Document } from "../../../core/api";
 import { countedByChoice, leftOutOfEvidence } from "../../../shared/evidence";
 import { countAsEvidence, markNotCited } from "../evidence";
 import { countNow } from "../i18n";
+import { isListedDocument } from "../meetingTranscript";
 import { useAppStore } from "../store";
-import type { Command } from "./registry";
-import { documentsOf, everyDocument } from "./targets";
+import type { Command, CommandContext } from "./registry";
+import { documentsOf, everyDocument, mindsOf, targetsOf } from "./targets";
+
+/** The Transcripts of the one meeting Note a menu or ⌘K acts on (#2528); none otherwise. */
+function transcriptsOf(ctx: CommandContext): Document[] {
+  const minds = mindsOf(ctx);
+  const [mind] = minds;
+  if (!mind || minds.length !== 1 || targetsOf(ctx).length !== 1) return [];
+  return useAppStore.getState().documents.filter((each) => each.meetingMindId === mind.id);
+}
 
 /** "Count it" for the files IncarnaMind wrote (#80), and taking it back. */
 export const evidenceCommands: readonly Command[] = [
@@ -51,7 +61,9 @@ export const evidenceCommands: readonly Command[] = [
     hint: "evidence.notCited.hint",
     group: "main",
     appliesTo: ["document"],
-    when: (ctx) => everyDocument(ctx, (document) => !document.notCited),
+    // A meeting's Transcript is left out from its Note's menu (#2528).
+    when: (ctx) =>
+      everyDocument(ctx, (document) => isListedDocument(document) && !document.notCited),
     reversible: true,
     run: (ctx) => markNotCited(documentsOf(ctx), true),
   },
@@ -65,8 +77,34 @@ export const evidenceCommands: readonly Command[] = [
     },
     group: "main",
     appliesTo: ["document"],
-    when: (ctx) => everyDocument(ctx, (document) => document.notCited),
+    when: (ctx) =>
+      everyDocument(ctx, (document) => isListedDocument(document) && document.notCited),
     reversible: true,
     run: (ctx) => markNotCited(documentsOf(ctx), false),
+  },
+  {
+    id: "mind.dontCiteTranscript",
+    label: "evidence.notCited.transcript",
+    hint: "evidence.notCited.hint",
+    group: "main",
+    appliesTo: ["mind", "tab"],
+    when: (ctx) => {
+      const transcripts = transcriptsOf(ctx);
+      return transcripts.length > 0 && transcripts.every((each) => !each.notCited);
+    },
+    reversible: true,
+    run: (ctx) => markNotCited(transcriptsOf(ctx), true),
+  },
+  {
+    id: "mind.citeTranscriptAgain",
+    label: "evidence.citeAgain.transcript",
+    group: "main",
+    appliesTo: ["mind", "tab"],
+    when: (ctx) => {
+      const transcripts = transcriptsOf(ctx);
+      return transcripts.length > 0 && transcripts.every((each) => each.notCited);
+    },
+    reversible: true,
+    run: (ctx) => markNotCited(transcriptsOf(ctx), false),
   },
 ];

@@ -30,7 +30,6 @@ const PROVIDERS: Record<string, SaveChatProviderInput> = {
   "Claude Haiku 5.5": { kind: "anthropic", apiKey: "sk-test", modelId: "claude-haiku-5-5" },
   "GPT-6 Luna": { kind: "openai", apiKey: "sk-test", modelId: "gpt-6-luna" },
   "DeepSeek Flash": { kind: "deepseek", apiKey: "sk-test", modelId: "deepseek-flash" },
-  "DeepSeek V4 Flash": { kind: "deepseek", apiKey: "sk-test", modelId: "deepseek-v4-flash" },
   "DeepSeek V4 Pro": { kind: "deepseek", apiKey: "sk-test", modelId: "deepseek-v4-pro" },
 };
 
@@ -78,7 +77,6 @@ describe.each([
     ["Claude Haiku 5.5", WATCHED, ["calculate"]],
     ["GPT-6 Luna", WATCHED, ["calculate"]],
     ["DeepSeek Flash", ["calculate"], []],
-    ["DeepSeek V4 Flash", ["calculate"], []],
     ["DeepSeek V4 Pro", [], []],
   ])("%s: an Answer is offered %j, a claim check %j", async (name, inAnswers, inChecks) => {
     const provider = PROVIDERS[name];

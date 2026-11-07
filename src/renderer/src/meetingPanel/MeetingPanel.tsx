@@ -30,7 +30,7 @@ import { core } from "../core";
 import { errorMessage } from "../errors";
 import { translateNow, useT } from "../i18n";
 import { addHelpToNotes, askHelp, useMeetingHelp } from "../meetingHelp";
-import { isLive, useMeetings, useMeetingTime } from "../meetings";
+import { isLive, isWaitingForPermission, useMeetings, useMeetingTime } from "../meetings";
 import { clockTime } from "../meetingTime";
 import { useAppStore } from "../store";
 
@@ -147,20 +147,42 @@ function RecordingState({ meeting, brand = false }: { meeting: Meeting; brand?: 
   const t = useT();
   const time = clockTime(useMeetingTime(meeting));
   const recording = meeting.status === "recording";
+  const waiting = isWaitingForPermission(meeting);
   return (
     <span className="panel-state">
-      <span aria-hidden="true" data-status={meeting.status} className="recording-dot" />
+      <span
+        aria-hidden="true"
+        data-status={waiting ? "waiting" : meeting.status}
+        className="recording-dot"
+      />
       {brand && <b>IncarnaMind</b>}
       {brand ? (
         <span>
-          {t(recording ? "meetings.bar.recording" : "meetings.bar.paused")} {time}
+          {t(
+            waiting
+              ? "meetings.bar.waiting"
+              : recording
+                ? "meetings.bar.recording"
+                : "meetings.bar.paused",
+          )}
+          {!waiting && ` ${time}`}
         </span>
       ) : (
         <>
-          <b>{t(recording ? "meetings.bar.recording" : "meetings.bar.paused")}</b>
-          <span role="timer" data-testid="panel-time" className="panel-time">
-            {time}
-          </span>
+          <b>
+            {t(
+              waiting
+                ? "meetings.bar.waiting"
+                : recording
+                  ? "meetings.bar.recording"
+                  : "meetings.bar.paused",
+            )}
+          </b>
+          {!waiting && (
+            <span role="timer" data-testid="panel-time" className="panel-time">
+              {time}
+            </span>
+          )}
         </>
       )}
     </span>

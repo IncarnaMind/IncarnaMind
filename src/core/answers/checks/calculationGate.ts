@@ -84,6 +84,7 @@ export async function needsCalculation({
   attempted,
   computed,
   citations,
+  quotedWords = [],
   inputs,
   confirm,
 }: {
@@ -92,6 +93,8 @@ export async function needsCalculation({
   attempted: boolean;
   computed: readonly Figure[];
   citations: readonly { citation: Citation; units: readonly { text: string }[] }[];
+  /** The words the sentence put in quotation marks, which its quoted-words check found on the cited pages (#2602). */
+  quotedWords?: readonly string[];
   inputs: readonly InputNumber[];
   confirm(figure: Figure, citations: readonly Citation[]): Promise<boolean>;
 }): Promise<boolean> {
@@ -153,7 +156,12 @@ export async function needsCalculation({
       ]),
     };
   });
-  const available = [...sources.flatMap(({ figures }) => figures.flat()), ...inputs];
+  const quotedFigures = quotedWords.flatMap((words) => figuresInClaim(words, context));
+  const available = [
+    ...sources.flatMap(({ figures }) => figures.flat()),
+    ...quotedFigures,
+    ...inputs,
+  ];
   const quoted = citations.map(({ citation, units }) => ({
     cited: () => citation.quote,
     document: () => units.map((unit) => unit.text).join("\n"),
@@ -167,6 +175,7 @@ export async function needsCalculation({
     }
     if (unitNotStated(figure.chars, quoted) !== null) continue;
     if (
+      quotedWords.some((words) => wordsState(figure, words, context)) ||
       citations.some(
         ({ citation, units }) =>
           rowStates(claim, figure, citation.quote, units, context) ||
