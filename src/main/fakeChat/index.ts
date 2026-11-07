@@ -45,7 +45,7 @@ import {
 } from "./prompt";
 import { fakeResearchTags } from "./researchTags";
 import { fakeSkillDraft } from "./skillDraft";
-import { refusal, replyParts } from "./stream";
+import { refusal, replyParts, streamedText } from "./stream";
 import {
   fakeStructuredOutput,
   SLOW_TAGGING_MS,
@@ -124,112 +124,117 @@ const slowCheck = {
 };
 (globalThis as { incarnamindSlowCheck?: typeof slowCheck }).incarnamindSlowCheck = slowCheck;
 
-export const createFakeChatModel: ChatModelFactory = (spec) =>
-  new MockLanguageModelV4({
-    provider: "incarnamind-fake",
-    modelId: spec.modelId,
-    // Structured output (automatic tagging) gets its Tags as JSON; Edit with AI its new text;
-    // anything else (a connection test) gets "OK".
-    doGenerate: async (options) => {
-      const refused = refusal(spec, options);
-      if (refused) throw refused;
-      // A model id ending "-claims-not-found" is one its provider doesn't know when it checks or finds claims (#764).
-      if (spec.modelId.endsWith("-claims-not-found")) {
-        throw new APICallError({
-          message: `The model ${spec.modelId} does not exist`,
-          url: "https://fake.invalid/chat",
-          requestBodyValues: {},
-          statusCode: 404,
-        });
-      }
-      // A model id ending "-claims-offline" can't reach its provider the first time it finds claims (#973).
-      if (
-        spec.modelId.endsWith("-claims-offline") &&
-        findsClaims(options) &&
-        !offline.has(spec.modelId)
-      ) {
-        offline.add(spec.modelId);
-        throw new APICallError({
-          message: "Cannot connect to API: fetch failed",
-          url: "https://fake.invalid/chat",
-          requestBodyValues: {},
-          isRetryable: false,
-        });
-      }
-      if (spec.modelId.endsWith("-claims-undecided") && findsClaims(options)) {
-        return {
-          content: [{ type: "text", text: fakeClaims(options, { undecidedLast: true }) ?? "" }],
-          finishReason: { unified: "stop", raw: undefined },
-          usage: USAGE,
-          warnings: [],
-        };
-      }
-      if (tagsSlowly(options)) await new Promise((resolve) => setTimeout(resolve, SLOW_TAGGING_MS));
-      if (tagsUnreachable(options)) {
-        throw new APICallError({
-          message: "Cannot connect to API: fetch failed",
-          url: "https://fake.invalid/chat",
-          requestBodyValues: {},
-          isRetryable: false,
-        });
-      }
-      if (tagsRateLimited(options)) {
-        throw new APICallError({
-          message: "Rate limit reached for requests",
-          url: "https://fake.invalid/chat",
-          requestBodyValues: {},
-          statusCode: 429,
-          responseHeaders: { "retry-after": "600" },
-          isRetryable: true,
-        });
-      }
-      if (tagsOutOfCredit(options)) {
-        throw new APICallError({
-          message: "You exceeded your current quota, please check your plan and billing details.",
-          url: "https://fake.invalid/chat",
-          requestBodyValues: {},
-          statusCode: 429,
-          responseBody: JSON.stringify({
-            error: {
-              message:
-                "You exceeded your current quota, please check your plan and billing details.",
-              type: "insufficient_quota",
-              code: "insufficient_quota",
-            },
-          }),
-          isRetryable: false,
-        });
-      }
-      // A model id ending "-always-thinks" thinks through its whole reply to a plan, as one with no off switch may (#1369).
-      if (spec.modelId.endsWith("-always-thinks") && asksForPlan(options)) {
-        return {
-          content: [{ type: "text", text: "" }],
-          finishReason: { unified: "length", raw: undefined },
-          usage: USAGE,
-          warnings: [],
-        };
-      }
-      // A test's hold stops the judgement of a batch of sentences until it releases it, so the
-      // test opens a Citation whose card is still Checking (#2375), or sees a run mid-flight.
-      if (slowCheck.hold && fakeSentenceBatch(options) !== null) {
-        await new Promise<void>((go) => slowCheck.waiting.push(go));
-      }
+export const createFakeChatModel: ChatModelFactory = (spec) => {
+  const generate = async (
+    options: GenerateOptions,
+  ): Promise<Awaited<ReturnType<MockLanguageModelV4["doGenerate"]>>> => {
+    const refused = refusal(spec, options);
+    if (refused) throw refused;
+    // A model id ending "-claims-not-found" is one its provider doesn't know when it checks or finds claims (#764).
+    if (spec.modelId.endsWith("-claims-not-found")) {
+      throw new APICallError({
+        message: `The model ${spec.modelId} does not exist`,
+        url: "https://fake.invalid/chat",
+        requestBodyValues: {},
+        statusCode: 404,
+      });
+    }
+    // A model id ending "-claims-offline" can't reach its provider the first time it finds claims (#973).
+    if (
+      spec.modelId.endsWith("-claims-offline") &&
+      findsClaims(options) &&
+      !offline.has(spec.modelId)
+    ) {
+      offline.add(spec.modelId);
+      throw new APICallError({
+        message: "Cannot connect to API: fetch failed",
+        url: "https://fake.invalid/chat",
+        requestBodyValues: {},
+        isRetryable: false,
+      });
+    }
+    if (spec.modelId.endsWith("-claims-undecided") && findsClaims(options)) {
       return {
-        content: [
-          {
-            type: "text",
-            text:
-              options.responseFormat?.type === "json"
-                ? fakeStructuredOutput(options)
-                : generatedText(options),
-          },
-        ],
+        content: [{ type: "text", text: fakeClaims(options, { undecidedLast: true }) ?? "" }],
         finishReason: { unified: "stop", raw: undefined },
         usage: USAGE,
         warnings: [],
       };
-    },
-    doStream: async ({ prompt, tools, abortSignal, responseFormat }) => {
+    }
+    if (tagsSlowly(options)) await new Promise((resolve) => setTimeout(resolve, SLOW_TAGGING_MS));
+    if (tagsUnreachable(options)) {
+      throw new APICallError({
+        message: "Cannot connect to API: fetch failed",
+        url: "https://fake.invalid/chat",
+        requestBodyValues: {},
+        isRetryable: false,
+      });
+    }
+    if (tagsRateLimited(options)) {
+      throw new APICallError({
+        message: "Rate limit reached for requests",
+        url: "https://fake.invalid/chat",
+        requestBodyValues: {},
+        statusCode: 429,
+        responseHeaders: { "retry-after": "600" },
+        isRetryable: true,
+      });
+    }
+    if (tagsOutOfCredit(options)) {
+      throw new APICallError({
+        message: "You exceeded your current quota, please check your plan and billing details.",
+        url: "https://fake.invalid/chat",
+        requestBodyValues: {},
+        statusCode: 429,
+        responseBody: JSON.stringify({
+          error: {
+            message: "You exceeded your current quota, please check your plan and billing details.",
+            type: "insufficient_quota",
+            code: "insufficient_quota",
+          },
+        }),
+        isRetryable: false,
+      });
+    }
+    // A model id ending "-always-thinks" thinks through its whole reply to a plan, as one with no off switch may (#1369).
+    if (spec.modelId.endsWith("-always-thinks") && asksForPlan(options)) {
+      return {
+        content: [{ type: "text", text: "" }],
+        finishReason: { unified: "length", raw: undefined },
+        usage: USAGE,
+        warnings: [],
+      };
+    }
+    // A test's hold stops the judgement of a batch of sentences until it releases it, so the
+    // test opens a Citation whose card is still Checking (#2375), or sees a run mid-flight.
+    if (slowCheck.hold && fakeSentenceBatch(options) !== null) {
+      await new Promise<void>((go) => slowCheck.waiting.push(go));
+    }
+    return {
+      content: [
+        {
+          type: "text",
+          text:
+            options.responseFormat?.type === "json"
+              ? fakeStructuredOutput(options)
+              : generatedText(options),
+        },
+      ],
+      finishReason: { unified: "stop", raw: undefined },
+      usage: USAGE,
+      warnings: [],
+    };
+  };
+  return new MockLanguageModelV4({
+    provider: "incarnamind-fake",
+    modelId: spec.modelId,
+    // Structured output (automatic tagging) gets its Tags as JSON; Edit with AI its new text;
+    // anything else (a connection test) gets "OK".
+    doGenerate: generate,
+    doStream: async (options) => {
+      const { prompt, tools, abortSignal, responseFormat } = options;
+      // A Note's sort streams its reply (#2532): it is answered as when it was generated.
+      if (findsClaims(options)) return streamedText(await generate(options), abortSignal);
       // A test's hold stops a check Run's judgement of a claim until it releases it, so a window
       // test sees the run mid-flight (#2313).
       if (slowCheck.hold && CHECK_RUN.test(systemOf(prompt))) {
@@ -352,3 +357,4 @@ export const createFakeChatModel: ChatModelFactory = (spec) =>
       return { stream };
     },
   });
+};

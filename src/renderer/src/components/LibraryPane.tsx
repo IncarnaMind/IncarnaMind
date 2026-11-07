@@ -113,6 +113,15 @@ export function LibraryPane() {
   const [search, setSearch] = useState("");
   /** The format, year, status and Folder filters' choices; the Tags filter is the store's, shared with the sidebar. */
   const [facetFilter, setFacetFilter] = useState<FilterSelection>({});
+  // The Folder the Library shows is the one its own Folder filter narrows to; clearing it shows
+  // everything, so no Folder is in front (#2529).
+  const folderFilter = facetFilter.folder?.length === 1 ? (facetFilter.folder[0] ?? null) : null;
+  const narrowedTo = useRef<string | null>(null);
+  useEffect(() => {
+    if (folderFilter !== null) useAppStore.setState({ libraryFolderId: folderFilter });
+    else if (narrowedTo.current !== null) useAppStore.setState({ libraryFolderId: null });
+    narrowedTo.current = folderFilter;
+  }, [folderFilter]);
   // A source's view lists that source's Documents even when they are the examples': the examples
   // leave the Library once the User has a Document of their own, but their Linked folder's row
   // stays the way back to them (#1944).

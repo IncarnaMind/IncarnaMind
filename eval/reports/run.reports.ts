@@ -205,7 +205,7 @@ test("a cited Mind made a report keeps its Citations", async () => {
     reranker: createWorkerCrossEncoder(config.rerankOnCpu),
     documents: [...new Set(CLAIMS.map((claim) => claim.paper))].map((paper) => ({
       key: paper,
-      path: join(ROOT, "data", `${paper}.pdf`),
+      path: join(ROOT, "eval", "data", `${paper}.pdf`),
     })),
     builtInSkills: join(ROOT, "resources", "skills"),
     embeddings: false,

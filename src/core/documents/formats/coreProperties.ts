@@ -5,8 +5,9 @@
  * record (#286), and its modified date, which only a check of a sentence about
  * the file reads (#2458).
  */
-import { child, elements, parseXml, textOf } from "./xml";
-import { openPackage, resolvePart } from "./zip";
+import { parseRelationships, partOfType } from "./officePackage";
+import { child, parseXml, textOf } from "./xml";
+import { openPackage } from "./zip";
 
 /**
  * The end of the relationship type that names the part: writers use the
@@ -38,12 +39,8 @@ export interface OfficeProperties {
 /** The package's core properties as written, each null if absent. */
 export async function officeProperties(bytes: Uint8Array): Promise<OfficeProperties> {
   const zip = openPackage(bytes);
-  const relsXml = await zip.readText("_rels/.rels", MAX_BYTES);
-  const target = relsXml
-    ? elements(parseXml(relsXml)).find((rel) => rel.attrs.Type?.endsWith(CORE_PROPERTIES))?.attrs
-        .Target
-    : undefined;
-  const xml = await zip.readText(target ? resolvePart("", target) : DEFAULT_PART, MAX_BYTES);
+  const rels = parseRelationships(await zip.readText("_rels/.rels", MAX_BYTES), "");
+  const xml = await zip.readText(partOfType(rels, CORE_PROPERTIES, DEFAULT_PART), MAX_BYTES);
   if (xml === undefined) {
     return { created: null, modified: null, title: null, creator: null, language: null };
   }

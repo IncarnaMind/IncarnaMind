@@ -70,14 +70,14 @@ import { LookReader, type ParagraphLookContext, type TableLookContext } from "./
 import {
   NS_STRICT,
   NS_TRANSITIONAL,
-  type Relationship,
   refusalOf,
-  relationshipsOf,
   type WordPackage,
   WordRefusedError,
   type WordReview,
 } from "./docxPackage";
 import { dataUrlOf, imageTypeOf } from "./images";
+import { type Relationship, relationshipOfType, relationshipsOf } from "./officePackage";
+import { readStyleTable, type WordStyleTable } from "./wordStyleTable";
 import {
   child,
   descendants,
@@ -93,9 +93,6 @@ import {
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 /** The most picture bytes one import puts into a Mind; the rest are kept as is. */
 const MAX_IMAGES_BYTES = 64 * 1024 * 1024;
-
-/** How deep a style's `basedOn` chain is followed. */
-const MAX_STYLE_DEPTH = 20;
 
 /** A Word document read as a Mind's Blocks. */
 export interface WordStructure {
@@ -282,51 +279,36 @@ export const decodePart = (bytes: Uint8Array): string =>
 // Parts the document refers to
 
 interface ParagraphStyle {
-  basedOn: string | null;
   level: number | null;
   numId: string | null;
   ilvl: number | null;
 }
 
 interface Styles {
+  table: WordStyleTable;
   paragraph: Map<string, ParagraphStyle>;
   /** The style of a paragraph that names none. */
   defaultId: string | null;
 }
 
 function readStyles(xml: string | undefined): Styles {
+  const table = readStyleTable(xml ? parseXml(xml) : undefined);
   const paragraph = new Map<string, ParagraphStyle>();
-  let defaultId: string | null = null;
-  for (const style of xml ? elements(parseXml(xml)) : []) {
-    if (style.name !== "w:style" || style.attrs["w:type"] !== "paragraph") continue;
-    const id = style.attrs["w:styleId"];
-    if (!id) continue;
-    if (style.attrs["w:default"] === "1" || style.attrs["w:default"] === "true") defaultId = id;
-    const numPr = child(child(style, "w:pPr") ?? style, "w:numPr");
+  for (const style of table.styles) {
+    if (style.type !== "paragraph") continue;
+    const numPr = child(child(style.element, "w:pPr") ?? style.element, "w:numPr");
     const ilvl = numPr && child(numPr, "w:ilvl")?.attrs["w:val"];
-    paragraph.set(id, {
-      basedOn: child(style, "w:basedOn")?.attrs["w:val"] ?? null,
-      level: headingLevelOf(style),
+    paragraph.set(style.id, {
+      level: headingLevelOf(style.element),
       numId: (numPr && child(numPr, "w:numId")?.attrs["w:val"]) ?? null,
       ilvl: ilvl === undefined || ilvl === null ? null : Number(ilvl),
     });
   }
-  return { paragraph, defaultId };
+  return { table, paragraph, defaultId: table.defaultOf("paragraph") };
 }
 
-/** The styles a style is based on, itself first, as far as `MAX_STYLE_DEPTH`, never twice. */
-function styleChain(styles: Styles, id: string | null): ParagraphStyle[] {
-  const chain: ParagraphStyle[] = [];
-  const seen = new Set<string>();
-  for (let at = id; at && !seen.has(at) && chain.length < MAX_STYLE_DEPTH; ) {
-    seen.add(at);
-    const style = styles.paragraph.get(at);
-    if (!style) break;
-    chain.push(style);
-    at = style.basedOn;
-  }
-  return chain;
-}
+const styleChain = (styles: Styles, id: string | null): ParagraphStyle[] =>
+  styles.table.chain("paragraph", id).flatMap((style) => styles.paragraph.get(style.id) ?? []);
 
 interface ListLevel {
   format: string;
@@ -931,8 +913,7 @@ class Reader {
       throw new WordRefusedError("damaged", "The document isn't WordprocessingML.");
     }
     const rels = await relationshipsOf(zip, part);
-    const partOf = (suffix: string) =>
-      [...rels.values()].find((rel) => !rel.external && rel.type.endsWith(suffix))?.target;
+    const partOf = (suffix: string) => relationshipOfType(rels, suffix)?.target;
     const read = async (suffix: string) => {
       const target = partOf(suffix);
       return target && zip.has(target) ? zip.readText(target) : undefined;

@@ -23,6 +23,8 @@ import {
   needsRecheck,
   newVersionCitation,
   parseQuotedWords,
+  quotedNameOf,
+  quotedWordsRunOnTo,
   quoteWashedOnOpen,
   withShownName,
 } from "../../../shared/citations";
@@ -853,6 +855,8 @@ function CitationCard({
                     : null;
   const removed = state.reason === "document-removed";
   const quotedWords = state.check === "not-found" && parseQuotedWords(attributes.quotedWords);
+  const runOn = quotedWordsRunOnTo(attributes.quotedWords);
+  const quotedName = quotedNameOf(attributes.quotedWords);
   const scanned = useScannedQuote(attributes);
   const scannedText = useScannedText(state.reason === "unsure-word" ? state.documentId : null);
   const quote = useReadableQuote(attributes);
@@ -979,6 +983,16 @@ function CitationCard({
         </p>
       )}
       {quotedWords && <p className="citation-card-note">{t("citation.quoted.why")}</p>}
+      {runOn && state.check === "found" && (
+        <p data-testid="citation-quoted-run-on" className="citation-card-note">
+          {t("citation.quotedWordsRunOn", { place: formatLocation(runOn, t) })}
+        </p>
+      )}
+      {quotedName && (
+        <p data-testid="citation-quoted-name" className="citation-card-note">
+          {t("citation.quotedName")}
+        </p>
+      )}
       {state.pageChecked && (
         <p data-testid="citation-page-checked" className="citation-card-note">
           {t("citation.pageChecked.done")}

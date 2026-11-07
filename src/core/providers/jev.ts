@@ -27,6 +27,9 @@ import { retryAfterMs } from "./retryAfter";
 /** TypeSafe's hosted API, the default base URL. */
 export const JEV_HOSTED_URL = "https://api.typesafe.ai";
 
+/** Where TypeSafe gives Jev's price, which the app links to and never states. */
+export const JEV_PRICING_URL = "https://docs.typesafe.ai/models";
+
 /** Where TypeSafe's hosted Jev sends data: one service for consent, whatever URL tests route it to. */
 export const JEV_SERVICE: ExternalService = { id: JEV_HOSTED_URL, name: "TypeSafe Jev" };
 

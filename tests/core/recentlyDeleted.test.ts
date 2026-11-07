@@ -943,7 +943,7 @@ describe("Recently deleted keeps the Folder an item was in (#2238)", { timeout: 
     );
   });
 
-  test("Undo of a Restore dates the deletion only inside the last 30 days", async () => {
+  test("Undo of a Restore dates the deletion only inside the last 30 days, with a day to spare", async () => {
     const { core, clock } = await start();
     const leases = await addText(core, "Leases.txt", "The leases of the harbour.");
     const base = clock.now().getTime();
@@ -953,9 +953,11 @@ describe("Recently deleted keeps the Folder an item was in (#2238)", { timeout: 
     await core.deleteDocument(leases.id);
 
     for (const [given, expected] of [
-      [at(base - 30 * DAY), at(base - 30 * DAY)],
+      [at(base - 29 * DAY), at(base - 29 * DAY)],
+      [at(base - 29 * DAY - 1), at(base)],
+      [at(base - 29 * DAY + 1), at(base - 29 * DAY + 1)],
+      [at(base - 30 * DAY), at(base)],
       [at(base - 30 * DAY - 1), at(base)],
-      [at(base - 30 * DAY + 1), at(base - 30 * DAY + 1)],
       ["1970-01-01T00:00:00.000Z", at(base)],
       ["2100-01-01T00:00:00.000Z", at(base)],
     ] as const) {
@@ -963,6 +965,26 @@ describe("Recently deleted keeps the Folder an item was in (#2238)", { timeout: 
       await core.deleteAgain([{ kind: "document", id: leases.id, deletedAt: given }]);
       expect(await deletedAtOf()).toBe(expected);
     }
+  });
+
+  test("Undo of a Restore with seconds of its 30 days left deletes it now, so its Redo works", async () => {
+    const { core, clock } = await start();
+    const leases = await addText(core, "Leases.txt", "The leases of the harbour.");
+    const deletedAt = clock.now().toISOString();
+    await core.deleteDocument(leases.id);
+    clock.advance(30 * DAY - 5_000);
+    await core.restore([{ kind: "document", id: leases.id }]);
+    clock.advance(2_000);
+
+    await core.deleteAgain([{ kind: "document", id: leases.id, deletedAt }]);
+
+    expect((await core.listDeleted()).find((each) => each.id === leases.id)?.deletedAt).toBe(
+      clock.now().toISOString(),
+    );
+    // Past the old time's 30 days: the Redo would be refused had the old time been kept.
+    clock.advance(4_000);
+    await core.restore([{ kind: "document", id: leases.id }]);
+    expect((await core.listDocuments()).map((each) => each.id)).toContain(leases.id);
   });
 
   test("Undo of a Restore after its 30 days puts the Document back deleted now, so it can come back again", async () => {
@@ -981,6 +1003,40 @@ describe("Recently deleted keeps the Folder an item was in (#2238)", { timeout: 
     );
     await core.restore([{ kind: "document", id: leases.id }]);
     expect((await core.listDocuments()).map((each) => each.id)).toContain(leases.id);
+  });
+
+  test("Undo of a mixed Restore at the 30-day edge keeps a Document in its Folder, restored with it", async () => {
+    const { core, clock } = await start();
+    const archive = await core.createLibraryGroup({ name: "Archive", description: "" });
+    const leases = await addText(core, "Leases.txt", "The leases of the harbour.");
+    await core.assignDocumentGroup(leases.id, archive.id);
+    const documentDeletedAt = clock.now().toISOString();
+    await core.deleteDocument(leases.id);
+    clock.advance(5 * DAY);
+    const folderDeletedAt = clock.now().toISOString();
+    await core.deleteLibraryGroup(archive.id);
+
+    // Restored together a minute before the Document's 30 days end, then undone after them.
+    clock.advance(25 * DAY - 60_000);
+    await core.restore([
+      { kind: "folder", id: archive.id },
+      { kind: "document", id: leases.id },
+    ]);
+    clock.advance(120_000);
+    await core.deleteAgain([
+      { kind: "document", id: leases.id, deletedAt: documentDeletedAt },
+      { kind: "folder", id: archive.id, deletedAt: folderDeletedAt },
+    ]);
+
+    expect((await core.listDeleted()).map(({ kind, groupId }) => [kind, groupId])).toEqual([
+      ["document", archive.id],
+      ["folder", null],
+    ]);
+    await core.restore([
+      { kind: "folder", id: archive.id },
+      { kind: "document", id: leases.id },
+    ]);
+    expect(await assignmentOf(core, leases.id)).toMatchObject({ groupId: archive.id });
   });
 });
 

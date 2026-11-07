@@ -211,6 +211,8 @@ export interface AppState extends LayoutSlice {
    * sidebar's status counts the rest and goes once every one was seen (#2308).
    */
   reviewedAttention: ReadonlySet<string>;
+  /** The Folder the Library is open on, for a Question's Folder in front (#2529); null: none. */
+  libraryFolderId: string | null;
   refreshLibrary(): Promise<void>;
   /**
    * Shows the Library (one tab per window), at a Folder's section if given:
@@ -1022,6 +1024,7 @@ export const useAppStore = create<AppState>()((set, get) => {
     libraryFilter: "all",
     reviewTarget: null,
     reviewedAttention: new Set(),
+    libraryFolderId: null,
     refreshLibrary: async () => {
       const ticket = ++libraryRequest;
       const library = await core.getLibrary();
@@ -1033,6 +1036,10 @@ export const useAppStore = create<AppState>()((set, get) => {
         ...(!["all", "unsorted", "starters", LIBRARY_DELETED].includes(get().libraryFilter) &&
         !library.groups.some((g) => g.id === get().libraryFilter)
           ? { libraryFilter: "all" }
+          : {}),
+        ...(get().libraryFolderId !== null &&
+        !library.groups.some((g) => g.id === get().libraryFolderId)
+          ? { libraryFolderId: null }
           : {}),
       });
     },
@@ -1057,7 +1064,8 @@ export const useAppStore = create<AppState>()((set, get) => {
       });
     },
     openLibrary: (filter = "all", options) => {
-      set({ libraryFilter: filter });
+      const folder = get().library?.groups.some((group) => group.id === filter) ?? false;
+      set({ libraryFilter: filter, libraryFolderId: folder ? filter : null });
       void get().changeLayout({
         type: "open",
         item: { kind: "library" },

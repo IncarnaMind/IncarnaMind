@@ -1,12 +1,16 @@
 import { describe, expect, onTestFinished, test } from "vitest";
 import type { CheckReferencesResult, Core, CoreEvents } from "../../src/core";
+import { createLookupCache } from "../../src/core/referenceChecks/cache";
+import type { Lookups } from "../../src/core/referenceChecks/lookups";
 import {
   citedReference,
   differences,
   holdsTitle,
   titleCoverage,
   titleOf,
+  type WorkRecord,
 } from "../../src/core/referenceChecks/match";
+import { migrate, openDatabase } from "../../src/core/storage";
 import { checkableReferences } from "../../src/shared/referenceList";
 import { createTempDataFolder, manualClock, startCore } from "../helpers/core";
 import { connectToMind } from "../helpers/mindClient";
@@ -139,6 +143,31 @@ async function setUp(
   return { core, services, dataDir, mindId: mind.id };
 }
 
+const marksOf = (result: CheckReferencesResult) => {
+  if (result.kind !== "checked") throw new Error(`Not checked: ${result.kind}`);
+  return result.references.map(({ mark }) => mark);
+};
+
+/** Starts a check, lets its Crossref answer through, and holds its OpenAlex answer: in flight, with that answer kept. */
+async function checkUpToOpenAlex(core: Core, services: ReferenceServices, mindId: string) {
+  const first = services.pause();
+  const checking = core.checkReferences(mindId);
+  await first.reached;
+  first.release();
+  const openalex = services.pause("openalex");
+  await openalex.reached;
+  return { checking, openalex };
+}
+
+/** Another Mind with the same entries, so a second check of the same lookups can be in flight at once. */
+async function otherList(core: Core, entries: readonly string[]): Promise<string> {
+  const mind = await core.createMind({ title: "Draft" });
+  const client = await connectToMind(core, mind.id);
+  writeMind(client, [heading(2, "References"), ...entries.map((entry) => note(entry))]);
+  await client.settled();
+  return mind.id;
+}
+
 describe("Checking a reference list", { timeout: 30_000 }, () => {
   // protects=each mark and the service that gave it: found in Crossref by search and by DOI, in OpenAlex by title (a conference paper) and by DOI (an arXiv preprint), on arXiv; not listed (in neither Crossref nor OpenAlex); not found (a DOI or arXiv number leading nowhere); doesn't match (year, author); not checked when another agency holds a DOI neither has; a web page isn't looked up; only the reference is sent; checking again asks nothing twice; fails_when=a mark is wrong, a search miss reads as an invented reference, a preprint reads as not found, more than the reference goes, or a reference is asked about again; no_claim=Crossref's real matching (the evaluation, eval/references).
   test("every entry gets its mark, and only the reference is sent", async () => {
@@ -253,8 +282,8 @@ describe("Checking a reference list", { timeout: 30_000 }, () => {
     ]);
   });
 
-  // protects=a miss (a DOI no agency has registered yet, a work no service lists yet) is kept a week, then asked about again, and Check again asks about it at once; a found record is kept for good; fails_when=a miss is kept for good, Check again serves a kept miss, or a found record is asked about again; no_claim=none beyond protects.
-  test("a miss is asked about again after a week or on Check again; a found record is kept", async () => {
+  // protects=a miss (a DOI no agency has registered yet, a work no service lists yet) is kept, so checking the list again sends nothing, however long after; Check again, the User asking for a fresh look, asks about misses at once; a found record is kept even then; fails_when=a re-check sends a request, Check again serves a kept miss, or a found record is asked about again; no_claim=none beyond protects.
+  test("checking again sends nothing once sent; Check again asks about misses again", async () => {
     const clock = manualClock();
     const { core, services, mindId } = await setUp([REAL, INVENTED, DEAD_DOI], { now: clock.now });
     const newRequests = async (again: boolean) => {
@@ -273,12 +302,75 @@ describe("Checking a reference list", { timeout: 30_000 }, () => {
     expect(askedAgain.some((path) => path.includes("10.9999/nowhere.42"))).toBe(true);
     expect(askedAgain.some((path) => path.includes("Long short-term memory"))).toBe(false);
 
-    clock.advance(6 * 24 * 60 * 60_000);
+    // Kept for good: a year later, checking again still sends nothing.
+    clock.advance(366 * 24 * 60 * 60_000);
     expect(await newRequests(false)).toEqual([]);
-    clock.advance(2 * 24 * 60 * 60_000);
-    const afterAWeek = await newRequests(false);
-    expect(afterAWeek.some((path) => path.includes("Quantum gradient folding"))).toBe(true);
-    expect(afterAWeek.some((path) => path.includes("Long short-term memory"))).toBe(false);
+  });
+
+  // protects=a failure racing a successful lookup neither replaces that answer nor becomes kept: an ordinary check and Check again still replay the answer; fails_when=the failure replaces the answer and is kept, so a later check reads a service failure; no_claim=none beyond protects.
+  test("a failure racing a successful lookup neither replaces it nor is kept", async () => {
+    const { core, services, mindId } = await setUp([WRONG_YEAR]);
+    const other = await otherList(core, [WRONG_YEAR]);
+    const { checking, openalex } = await checkUpToOpenAlex(core, services, mindId);
+
+    // A Check again of the same entries fails while the first check is in flight, after its Crossref answer was stored.
+    services.fail(500);
+    await core.checkReferences(other, { again: true });
+    services.fail(null);
+    openalex.release();
+    expect(marksOf(await checking)).toEqual(["mismatch"]);
+
+    // The answer is kept: neither an ordinary check nor Check again asks or reads a failure.
+    const asked = services.requests.length;
+    expect(marksOf(await core.checkReferences(mindId))).toEqual(["mismatch"]);
+    expect(marksOf(await core.checkReferences(mindId, { again: true }))).toEqual(["mismatch"]);
+    expect(services.requests).toHaveLength(asked);
+  });
+
+  // protects=a settled answer stays when a request that began before it settled then fails; fails_when=the later failure replaces the settled answer, so a later check reads a service failure; no_claim=none beyond protects.
+  test("a failure doesn't replace a settled answer", async () => {
+    const { core, services, mindId } = await setUp([WRONG_YEAR]);
+    const other = await otherList(core, [WRONG_YEAR]);
+    const { checking, openalex } = await checkUpToOpenAlex(core, services, mindId);
+
+    // A Check again of the same entries is under way when the first check settles; its Crossref answer, asked before, fails after.
+    const later = services.pause();
+    const retried = core.checkReferences(other, { again: true });
+    await later.reached;
+    openalex.release();
+    expect(marksOf(await checking)).toEqual(["mismatch"]);
+    services.fail(500);
+    later.release();
+    await retried;
+    services.fail(null);
+
+    const asked = services.requests.length;
+    expect(marksOf(await core.checkReferences(mindId))).toEqual(["mismatch"]);
+    expect(marksOf(await core.checkReferences(mindId, { again: true }))).toEqual(["mismatch"]);
+    expect(services.requests).toHaveLength(asked);
+  });
+
+  // protects=a settled answer stays when a request that began before it settled then answers otherwise (here, with nothing): an ordinary check and Check again still replay it and send nothing; fails_when=the later answer replaces the settled one, so the reference reads not listed; no_claim=none beyond protects.
+  test("a later answer doesn't replace a settled one", async () => {
+    const works = [LSTM];
+    const { core, services, mindId } = await setUp([WRONG_YEAR], { works });
+    const other = await otherList(core, [WRONG_YEAR]);
+    const { checking, openalex } = await checkUpToOpenAlex(core, services, mindId);
+
+    // A Check again of the same entries is under way when the first check settles; by the time Crossref answers it, Crossref no longer lists the work.
+    const later = services.pause();
+    const retried = core.checkReferences(other, { again: true });
+    await later.reached;
+    openalex.release();
+    expect(marksOf(await checking)).toEqual(["mismatch"]);
+    works.splice(0);
+    later.release();
+    expect(marksOf(await retried)).toEqual(["not-listed"]);
+
+    const asked = services.requests.length;
+    expect(marksOf(await core.checkReferences(mindId))).toEqual(["mismatch"]);
+    expect(marksOf(await core.checkReferences(mindId, { again: true }))).toEqual(["mismatch"]);
+    expect(services.requests).toHaveLength(asked);
   });
 
   // protects=Crossref is sent the whole entry, so a same-titled entry by other authors is asked about on its own; fails_when=it reuses another entry's candidates; no_claim=none beyond protects.
@@ -368,9 +460,15 @@ describe("Checking a reference list", { timeout: 30_000 }, () => {
       references: Array.from({ length: 4 }, () => ({ mark: "not-checked", reason: "unreachable" })),
     });
     expect(dropped.services.requests).toHaveLength(1);
-    // Back online, Try again checks them all.
-    dropped.services.fail(null);
+    // A kept failure: checking again sends nothing...
     expect(await dropped.core.checkReferences(dropped.mindId)).toMatchObject({
+      kind: "checked",
+      references: Array.from({ length: 4 }, () => ({ mark: "not-checked", reason: "unreachable" })),
+    });
+    expect(dropped.services.requests).toHaveLength(1);
+    // ...and Try again, the User asking for a fresh look, checks them all.
+    dropped.services.fail(null);
+    expect(await dropped.core.checkReferences(dropped.mindId, { again: true })).toMatchObject({
       kind: "checked",
       references: [
         { mark: "found" },
@@ -480,15 +578,22 @@ describe("Checking a reference list", { timeout: 30_000 }, () => {
     expect(Date.parse(resetsAt ?? "") - Date.now()).toBeGreaterThan(3_500_000);
   });
 
-  // protects=while OpenAlex can't be asked, a reference with an arXiv number is still looked up on arXiv; fails_when=an arXiv preprint reads "not checked" though arXiv answers; no_claim=none beyond protects.
-  test("while OpenAlex can't be reached, an arXiv number is still looked up on arXiv", async () => {
+  // protects=while OpenAlex can't be asked, a reference with an arXiv number is still looked up on arXiv; OpenAlex's failure isn't kept with the record arXiv found, so checking again sends nothing and Check again, OpenAlex back, asks it again; fails_when=an arXiv preprint reads "not checked" though arXiv answers, or the failure is kept for good, so Check again doesn't ask OpenAlex; no_claim=none beyond protects.
+  test("while OpenAlex can't be reached, an arXiv number is still looked up on arXiv; Check again asks OpenAlex again", async () => {
     const { core, services, mindId } = await setUp([ON_ARXIV]);
     services.fail("unreachable", "openalex");
+    const onArxiv = { kind: "checked", references: [{ mark: "found", service: "arxiv" }] };
+    const toOpenAlex = () => services.requests.filter(({ path }) => path.startsWith("/works/doi:"));
 
-    expect(await core.checkReferences(mindId)).toMatchObject({
-      kind: "checked",
-      references: [{ mark: "found", service: "arxiv" }],
-    });
+    expect(await core.checkReferences(mindId)).toMatchObject(onArxiv);
+    expect(toOpenAlex()).toHaveLength(1);
+
+    services.fail(null);
+    const asked = services.requests.length;
+    expect(await core.checkReferences(mindId)).toMatchObject(onArxiv);
+    expect(services.requests).toHaveLength(asked);
+    expect(await core.checkReferences(mindId, { again: true })).toMatchObject(onArxiv);
+    expect(toOpenAlex()).toHaveLength(2);
   });
 
   test("when OpenAlex can't be reached, Crossref's answers stand and OpenAlex is asked once", async () => {
@@ -528,6 +633,52 @@ describe("Checking a reference list", { timeout: 30_000 }, () => {
     expect(await checking).toEqual({ kind: "cancelled" });
     slow.release();
     expect(busy.services.requests).toHaveLength(1);
+  });
+});
+
+describe("Keeping the services' answers", () => {
+  // Through the core, a second check's OpenAlex request waits behind the first's (the Pace sends a
+  // service's requests one at a time), so nothing shows when its Crossref answer is stored: the cache is driven here.
+  // protects=a check settles only the answer it used: when a Check again stored another answer meanwhile (here, nothing), the first check's verdict doesn't keep it, so the next Check again asks Crossref again and gets the record; fails_when=the other answer is kept, so Check again replays it and doesn't ask Crossref; no_claim=the checks' order through the core, which the Pace decides.
+  test("a check settles only the answer it used", async () => {
+    const db = openDatabase(":memory:");
+    onTestFinished(() => db.close());
+    migrate(db);
+    const record: WorkRecord = {
+      fields: {
+        title: "Long Short-Term Memory",
+        authors: [{ family: "Hochreiter", given: "Sepp" }],
+      },
+      years: [1997],
+    };
+    let listed = [record];
+    const searched: string[] = [];
+    const lookups: Lookups = {
+      crossref: {
+        byDoi: async () => null,
+        agency: async () => null,
+        search: async (reference) => {
+          searched.push(reference);
+          return listed;
+        },
+      },
+      openalex: { byDoi: async () => null, search: async () => [] },
+      arxiv: { byId: async () => null },
+    };
+    const cache = createLookupCache(lookups, db, () => "2026-11-07T09:00:00.000Z");
+    const { signal } = new AbortController();
+
+    const first = cache.forReference(false);
+    expect(await first.lookups.crossref.search(WRONG_YEAR, signal)).toEqual([record]);
+    // Before the first check settles, a Check again of the same entry stores Crossref's answer once it no longer lists the work.
+    listed = [];
+    expect(await cache.forReference(true).lookups.crossref.search(WRONG_YEAR, signal)).toEqual([]);
+    first.settle(true);
+
+    listed = [record];
+    const again = await cache.forReference(true).lookups.crossref.search(WRONG_YEAR, signal);
+    expect(again).toEqual([record]);
+    expect(searched).toHaveLength(3);
   });
 });
 

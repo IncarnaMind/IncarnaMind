@@ -37,10 +37,12 @@ export interface ReferenceServices {
    */
   fail(status: number | "unreachable" | null, only?: "openalex"): void;
   /**
-   * Holds every answer from now on until `release`, as a slow service would;
-   * `reached` settles when the first held request comes in.
+   * Holds answers from now on until `release`, as a slow service would;
+   * `reached` settles when the first held request comes in. `only`: just
+   * OpenAlex's answers, or just Crossref's and arXiv's. Holds made one after
+   * another are kept at once, each for its own requests.
    */
-  pause(): { reached: Promise<void>; release(): void };
+  pause(only?: "openalex" | "crossref"): { reached: Promise<void>; release(): void };
   close(): Promise<void>;
 }
 
@@ -87,9 +89,10 @@ function bestMatches<T>(works: readonly T[], titleOf: (work: T) => string, query
 /**
  * Starts the stand-in. `crossref` maps DOIs to recorded Crossref answers (as
  * JSON text); `arxiv` maps arXiv ids to recorded Atom feeds; `works` are
- * searched, and answer their DOIs too; `registered` maps DOIs Crossref has no
- * record of to the agency that registered them ("datacite"); `openalex` are
- * OpenAlex's works, searched and answering their DOIs. Anything else is
+ * searched, and answer their DOIs too, as the list holds them when each
+ * request comes in (a test may change it); `registered` maps DOIs Crossref
+ * has no record of to the agency that registered them ("datacite"); `openalex`
+ * are OpenAlex's works, searched and answering their DOIs. Anything else is
  * a 404, as the real services answer an unknown DOI or id.
  */
 export async function startReferenceServices(answers: {
@@ -102,7 +105,18 @@ export async function startReferenceServices(answers: {
   const requests: ServiceRequest[] = [];
   let failure: number | "unreachable" | null = null;
   let failOnly: "openalex" | null = null;
-  let held: { arrived(): void; waiting: (() => void)[] } | null = null;
+  const holds: {
+    only: "openalex" | "crossref" | null;
+    arrived(): void;
+    waiting: (() => void)[];
+  }[] = [];
+  const isOpenAlex = (path: string) => {
+    const url = new URL(path, "http://localhost");
+    return (
+      url.pathname.startsWith("/works/doi:") ||
+      (url.pathname === "/works" && url.searchParams.has("search"))
+    );
+  };
   const server = createServer((request, response) => {
     let bodyLength = 0;
     request.on("data", (chunk: Buffer) => {
@@ -112,10 +126,12 @@ export async function startReferenceServices(answers: {
       const path = request.url ?? "/";
       const userAgent = request.headers["user-agent"] ?? "";
       requests.push({ method: request.method ?? "", path, bodyLength, userAgent });
+      const held = holds.find(
+        (hold) => hold.only === null || (hold.only === "openalex") === isOpenAlex(path),
+      );
       if (held) {
-        const { waiting } = held;
         held.arrived();
-        waiting.push(() => answer(path, response));
+        held.waiting.push(() => answer(path, response));
         return;
       }
       answer(path, response);
@@ -123,10 +139,7 @@ export async function startReferenceServices(answers: {
   });
   function answer(path: string, response: ServerResponse) {
     const url = new URL(path, "http://localhost");
-    const toOpenAlex =
-      url.pathname.startsWith("/works/doi:") ||
-      (url.pathname === "/works" && url.searchParams.has("search"));
-    const failing = failOnly === null || (failOnly === "openalex" && toOpenAlex);
+    const failing = failOnly === null || (failOnly === "openalex" && isOpenAlex(path));
     if (failing && failure !== null) {
       // Offline, the connection drops with no answer.
       if (failure === "unreachable") response.socket?.destroy();
@@ -212,18 +225,19 @@ export async function startReferenceServices(answers: {
       failure = status;
       failOnly = only ?? null;
     },
-    pause() {
+    pause(only) {
       let arrived = () => {};
       const reached = new Promise<void>((resolve) => {
         arrived = resolve;
       });
-      const waiting: (() => void)[] = [];
-      held = { arrived, waiting };
+      const hold = { only: only ?? null, arrived, waiting: [] as (() => void)[] };
+      holds.push(hold);
       return {
         reached,
         release() {
-          held = null;
-          for (const each of waiting.splice(0)) each();
+          const index = holds.indexOf(hold);
+          if (index >= 0) holds.splice(index, 1);
+          for (const each of hold.waiting.splice(0)) each();
         },
       };
     },

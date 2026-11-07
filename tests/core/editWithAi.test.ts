@@ -280,6 +280,40 @@ describe("Edit with AI", () => {
     ]);
   });
 
+  // protects=a Citation a rewrite keeps, checked again in its Document's current version, says nothing of the page the Answer's quoted words ran on to in the old one (#2504); rejected, it is as it was; fails_when=the accepted Citation keeps the old run-on page; no_claim=none beyond protects.
+  test.each([
+    ["accepted", "accept", "current"],
+    ["rejected", "reject", "old"],
+  ] as const)(
+    "a Citation whose quoted words ran on, through a rewrite %s",
+    async (_, outcome, version) => {
+      const { core, mind, client, tides } = await setUp(
+        editingModel(() => "Spring tides come at new and full moon [1]."),
+      );
+      const runOn = { runsOnTo: { kind: "page", from: 2, to: 2 } };
+      const held = citation(tides);
+      held.attrs = { ...held.attrs, contentHash: "an-older-version", quotedWords: runOn };
+      const note = paragraph(
+        text("Spring tides happen at new moon and at full moon "),
+        held,
+        text("."),
+      );
+      writeMind(client, [note]);
+      await client.settled();
+
+      await core.editWithAi(wholeParagraph(client, mind.id, note.attrs.id, "shorten"));
+      await resolveChanges(client, outcome);
+
+      const after: Record<string, unknown>[] = [];
+      readMind(client).descendants((node) => {
+        if (node.type.name === "citation") after.push(node.attrs);
+      });
+      expect(after.map((attrs) => [attrs.contentHash, attrs.quotedWords ?? null])).toEqual([
+        version === "current" ? [tides.contentHash, null] : ["an-older-version", runOn],
+      ]);
+    },
+  );
+
   // protects=a rewrite that moves a marked Citation, or deletes the sentence it is in, keeps the Citation's id: accepted, the moved Citation is the one the mark names; rejected, the Citation stays as it was; and one the accepted deletion took out comes back marked from a version kept before (#1933), in English and Chinese; fails_when=the Citation the rewrite writes, or the restored one, has another id; no_claim=how the model words the rewrite.
   test.each([
     {
@@ -2659,6 +2693,70 @@ describe("An edit the User asked for (#880)", () => {
     expect(result).toEqual({ kind: "unplaced", quotes: [quote] });
     expect(shownWithChanges(client)).toEqual(lines);
   });
+
+  // protects=a quote is read word for word with its spaces: "The keys are nowhere." takes nothing out of "The keys are now here.", and the edit is refused; between two Latin letters a space parts words, so in Chinese too, a Latin word inside a Chinese line (#2589); fails_when=a sentence with other words is taken out; no_claim=how often a model quotes this way.
+  test.each([
+    {
+      language: "English",
+      lines: ["Rent is monthly.", "The keys are now here.", "Water is quarterly."],
+      quote: "The keys are nowhere.",
+    },
+    {
+      language: "Chinese",
+      lines: ["租金按月支付。", "密码写成 now here 两个词。", "水费按季度支付。"],
+      quote: "密码写成 nowhere 两个词。",
+    },
+  ])(
+    "a quote whose spaces part other words takes nothing out, $language",
+    async ({ lines, quote }) => {
+      const { core, mind, client } = await setUp(editingModel(() => `<removed>${quote}</removed>`));
+      writeMind(
+        client,
+        lines.map((line) => paragraph(text(line))),
+      );
+      await client.settled();
+
+      const result = await core.editWithAi(wholeMind(client, mind.id, "Delete that sentence"));
+
+      expect(result).toEqual({ kind: "unplaced", quotes: [quote] });
+      expect(shownWithChanges(client)).toEqual(lines);
+    },
+  );
+
+  // protects=a quote whose spaces differ only where they part no words still takes its words out: two spaces for one, and none, or one, beside a Chinese character (#2589); fails_when=the edit is refused, or other words go; no_claim=none beyond protects.
+  test.each([
+    {
+      language: "English",
+      lines: ["Rent is monthly.", "The keys are now here.", "Water is quarterly."],
+      quote: "The keys  are now here.",
+    },
+    {
+      language: "Chinese",
+      lines: ["租金按月支付。", "请使用 Excel 表格记账。", "水费按季度支付。"],
+      quote: "请使用Excel表格记账。",
+    },
+    {
+      language: "Chinese with the words parted",
+      lines: ["租金按月支付。", "密码写成 now here 两个词。", "水费按季度支付。"],
+      quote: "密码写成now here两个词。",
+    },
+  ])(
+    "a quote whose spaces part no other words takes its paragraph out, $language",
+    async ({ lines, quote }) => {
+      const { core, mind, client } = await setUp(editingModel(() => `<removed>${quote}</removed>`));
+      writeMind(
+        client,
+        lines.map((line) => paragraph(text(line))),
+      );
+      await client.settled();
+
+      const result = await core.editWithAi(wholeMind(client, mind.id, "Delete that sentence"));
+
+      expect(result).toMatchObject({ kind: "proposed" });
+      await resolveChanges(client, "accept");
+      expect(shownWithChanges(client)).toEqual([lines[0], lines[2]]);
+    },
+  );
 
   // protects=a part quote whose words a paragraph the reply wrote still holds refuses the edit, so no other paragraph loses them: written back as it was, rewritten around them, or only there; in Chinese too (#2180); fails_when=the words come out of a paragraph nobody named, or the quote is let pass; no_claim=how often a real model quotes this way.
   test.each([
