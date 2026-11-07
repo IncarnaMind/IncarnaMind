@@ -1,10 +1,11 @@
 /**
  * Organize by what the Documents say (#1421): the Library's own Organize, on the Documents named
- * or found, or those in no Folder, with the Folder the request names among those it may choose,
- * proposed by name if there is none, and Folders proposed when there are none at all. Nothing
- * moves from the chat (#1569): what it proposes waits in Suggestions, and the reply's Review
- * button opens them. It asks only before a cloud service first reads the Documents for it, and
- * its Undo takes its proposals back out. With no model chosen for Organize it takes the one the
+ * or found, or those in no Folder. With no Folder named, outside every wall, it plans them as the
+ * Library's Organize does, at any size; with one named, proposed by name if there is none, or
+ * inside a wall, it sorts each into the Folders it may choose. Nothing moves from the chat
+ * (#1569): what it proposes waits in Suggestions, and the reply's Review button opens them. It
+ * asks only before a cloud service first reads the Documents for it, and its Undo takes its
+ * proposals back out. With no model chosen for Organize it takes the one the
  * Library offers as "Use {company}", asks where that Library question would, and keeps it as
  * Organize's model; under a standing no it only lends it for the run (#2252).
  */
@@ -13,8 +14,10 @@ import type {
   DocumentGroupAssignment,
   DocumentTag,
   LibraryGroup,
+  OrganizeLibraryResult,
   OrganizeReviewChange,
   OrganizeReviewItem,
+  RunEstimate,
   TagLinkChange,
   TagLinkState,
 } from "../../api";
@@ -101,6 +104,26 @@ function unsortedReason(
   return null;
 }
 
+/** Why the plan left Documents out, when it is more than that no Folder fitted them. */
+function leftOutReason(items: readonly OrganizeReviewItem[]): string | null {
+  for (const { placement } of items) {
+    if (placement.kind !== "leftOut") continue;
+    if (placement.leftOut?.reason === "unreachable")
+      return `${placement.leftOut.service} couldn't be reached`;
+    if (placement.leftOut?.reason === "noText") return "no text to read";
+  }
+  return null;
+}
+
+/** What the model is told of a plan that would cost more than IncarnaMind spends unshown. */
+function costSaid(count: number, estimate: RunEstimate): string {
+  const cost = estimate.billing === "per-token" ? estimate.cost : null;
+  const amount = cost
+    ? `about ${cost.amount.toFixed(2)} ${cost.currency}`
+    : "more than 1 US dollar";
+  return `Organizing ${plural(count, "Document")} would cost ${amount} on the Organize model, so nothing was sent and nothing was proposed. Tell the User they can start Organize from the Library, which shows the cost before it runs.`;
+}
+
 export const organizeChecker: Checker = async (input, host, { wallId }) => {
   const { core } = host;
   const requested = input.folder;
@@ -156,39 +179,49 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
         const runId = crypto.randomUUID();
         const proposed: string[] = [];
         let named: LibraryGroup | null = null;
-        const { groups } = await core.getLibrary();
         if (requested !== null) {
+          const { groups } = await core.getLibrary();
           named = groups.find((group) => same(group.name, requested)) ?? null;
           const folder = named ? null : host.proposeFolder(requested, input.about ?? "");
           if (folder) proposed.push(folder.id);
-        } else if (groups.length === 0) {
-          proposed.push(...(await host.proposeFolders(ids, permit)).map((folder) => folder.id));
         }
         const waitingBefore = new Set(
           (await core.getOrganizeReview()).items.map((item) => item.id),
         );
+        let planned: OrganizeLibraryResult | null = null;
         let failed: unknown | null = null;
         let untouched = 0;
         let tagChanges: TagLinkChange[] = [];
         try {
-          ({ failed, untouched, tagChanges } = await host.organizeAtOnce(
-            ids,
-            signal,
-            wallId,
-            permit,
-            runId,
-          ));
+          if (requested === null && wallId === null)
+            planned = await host.organizeByPlan(ids, signal, permit, runId);
+          if (planned === null)
+            ({ failed, untouched, tagChanges } = await host.organizeAtOnce(
+              ids,
+              signal,
+              wallId,
+              permit,
+              runId,
+            ));
         } catch (error) {
           host.withdrawOrganizeRun(runId, proposed);
           throw error;
         }
+        if (planned?.status === "estimate")
+          return { done: { items: [] }, step: null, said: costSaid(ids.length, planned.estimate) };
+        if (planned?.status === "stopped")
+          return {
+            done: { items: [] },
+            step: null,
+            said: "Organize stopped before it proposed anything. Nothing moved.",
+          };
         const review = await core.getOrganizeReview();
         const wanted = new Set(ids);
-        const placed = review.items.filter(
-          (item) =>
-            wanted.has(item.documentId) &&
-            !waitingBefore.has(item.id) &&
-            (item.placement.kind === "folder" || item.placement.kind === "newFolder"),
+        const fresh = review.items.filter(
+          (item) => wanted.has(item.documentId) && !waitingBefore.has(item.id),
+        );
+        const placed = fresh.filter(
+          (item) => item.placement.kind === "folder" || item.placement.kind === "newFolder",
         );
         // A Folder it proposed that nothing went into was never seen: it goes at once.
         const used = new Set(
@@ -200,6 +233,15 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
           null,
           proposed.filter((id) => !used.has(id)),
         );
+        // The Folders the plan proposed, and their proposed parents, go with its Undo.
+        if (planned) {
+          const parents = new Map(
+            review.folders.map((folder) => [folder.id, folder.parentNewFolderId]),
+          );
+          for (const id of used)
+            for (let at: string | null | undefined = id; at; at = parents.get(at))
+              proposed.push(at);
+        }
         const { groups: groupsNow } = await core.getLibrary();
         const nameOf = (item: OrganizeReviewItem) => {
           const { placement } = item;
@@ -231,14 +273,16 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
         const placedIds = new Set(placed.map((item) => item.documentId));
         const { assignments } = await core.getLibrary();
         const reason =
-          unsorted > 0
-            ? unsortedReason(
-                failed,
-                assignments.filter(
-                  (each) => wanted.has(each.documentId) && !placedIds.has(each.documentId),
-                ),
-              )
-            : null;
+          unsorted === 0
+            ? null
+            : planned
+              ? leftOutReason(fresh)
+              : unsortedReason(
+                  failed,
+                  assignments.filter(
+                    (each) => wanted.has(each.documentId) && !placedIds.has(each.documentId),
+                  ),
+                );
         let withdrawn: OrganizeReviewChange | null = null;
         return {
           done: {

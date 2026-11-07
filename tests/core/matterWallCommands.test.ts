@@ -9,6 +9,7 @@ import type {
 import { askAssistant } from "../helpers/assistant";
 import { setUpWithDocuments } from "../helpers/citations";
 import { manualClock } from "../helpers/core";
+import { planReply } from "../helpers/library";
 import {
   type GenerateCall,
   type GeneratedReply,
@@ -271,6 +272,42 @@ describe("the command gate denies by default what is behind another wall", () =>
 
     expect(offered.length).toBeGreaterThan(0);
     for (const names of offered) expect(names).not.toContain("Client A");
+    expect(await heldIn(s.core, office.id)).toEqual([
+      "General memo: waiting",
+      "Late filing: waiting",
+    ]);
+    expect(await heldIn(s.core, s.folderA.id)).toEqual(["Client A lease: filed"]);
+  });
+
+  test("from outside a wall its plan is never offered a walled Folder", async () => {
+    const offered: string[][] = [];
+    const s = await setUp({}, ({ prompt }) => {
+      const data = JSON.parse(prompt) as { folders?: unknown[]; documents?: unknown[] };
+      if (data.folders && data.documents)
+        offered.push(
+          data.folders.flatMap((each) =>
+            typeof each === "object" && each !== null && "name" in each ? [String(each.name)] : [],
+          ),
+        );
+      const planned = planReply(prompt, { name: "Office", description: "" });
+      return { text: planned?.text ?? JSON.stringify({ tags: [] }) };
+    });
+    const provider = (await s.core.listChatProviders())[0];
+    if (!provider) throw new Error("No provider.");
+    const settings = (await s.core.getLibrary()).settings;
+    await s.core.saveLibrarySettings({
+      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "local-model" } },
+      automatic: settings.automatic,
+    });
+    const office = await s.core.createLibraryGroup({ name: "Office", description: "" });
+
+    await s.ask(s.outside.id, [{ tool: "run_command", input: { command: "documents.organize" } }]);
+
+    expect(offered.length).toBeGreaterThan(0);
+    for (const names of offered) {
+      expect(names).toContain("Office");
+      expect(names).not.toContain("Client A");
+    }
     expect(await heldIn(s.core, office.id)).toEqual([
       "General memo: waiting",
       "Late filing: waiting",
