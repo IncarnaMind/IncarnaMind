@@ -5,6 +5,7 @@
  */
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import type { MockLanguageModelV4 } from "ai/test";
 import * as Y from "yjs";
 import {
   COMPARISON_ROW_NODE,
@@ -13,7 +14,6 @@ import {
   type CoreEvents,
   MIND_CONTENT_FIELD,
 } from "../../src/core";
-import type { MockLanguageModelV4 } from "ai/test";
 import { plainText } from "../../src/core/mindText";
 import { type ShownPassage, setUpWithDocuments, shownPassages } from "./citations";
 import { createTempDataFolder, startCore } from "./core";
