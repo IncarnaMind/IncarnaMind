@@ -18,10 +18,11 @@ export const JudgedAnswerContext = createContext<{ id: string; conversationId: s
 );
 
 /**
- * The assistant this is drawn in is folded (#2270): its Citations keep their
- * cards open but keep them out of sight, and they come back with the assistant.
+ * Whether the assistant this is drawn in is folded (#2270): its Citations keep
+ * their cards open but out of sight, and they come back with the assistant.
+ * Null outside the assistant, where a Citation's page is opened from the Note.
  */
-export const AssistantFoldedContext = createContext(false);
+export const AssistantFoldedContext = createContext<boolean | null>(null);
 
 /**
  * Whether an editor holds one Answer's Blocks alone, as the assistant's does:

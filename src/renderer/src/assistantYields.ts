@@ -10,16 +10,18 @@ import {
   sideWidth,
 } from "./assistantPlace";
 import { GROUP_MIN_WIDTH, useCardWidth } from "./layoutSlice";
+import type { CitedOrigin } from "./openCited";
 import { quietAssistantNow } from "./quietAssistant";
 import { useAppStore } from "./store";
 
 /*
- * The assistant yields to a Citation's page (#2270): the Note and the page
- * keep their even split, so when that split would leave the Note too narrow
- * to write in, the assistant folds to its rail. Closing the page, or room
- * enough again, brings it back; the User's own fold or unfold wins, and
- * unfolding it while the page is open gives the page the narrower share
- * instead. Nothing new is worded: the rail and its own button are used.
+ * The assistant yields to a Citation's page opened from the Note (#2270): the
+ * Note and the page keep their even split, so when that split would leave the
+ * Note too narrow to write in, the assistant folds to its rail. Closing the
+ * page, or room enough again, brings it back; the User's own fold or unfold
+ * wins. A page opened from inside the assistant leaves it open, as the User
+ * is reading there, and the page takes the narrower share instead, as it does
+ * whenever the assistant is unfolded beside it. Nothing new is worded.
  */
 
 /** The narrowest the Note's share of an even split is written at; narrower, its text wraps too tightly (#2270). */
@@ -99,11 +101,13 @@ let yielded = false;
 
 /**
  * A Citation's page opened (#2270): when the Note and the page cannot keep their even split at
- * the Note's readable width beside the open assistant, it folds to its rail. After folding the
- * even split is wide enough (a card that shows two groups gains at least `SIDE_MIN` − `RAIL`),
- * so `pageYieldsWidths` only has more to do where a third group keeps its share.
+ * the Note's readable width beside the open assistant, it folds to its rail if the page was
+ * opened from the Note, and the page takes the narrower share if from the assistant. After
+ * folding the even split is wide enough (a card that shows two groups gains at least
+ * `SIDE_MIN` − `RAIL`), so `pageYieldsWidths` only has more to do where a third group keeps its
+ * share.
  */
-export function citationPageOpened(layout: WindowLayout): void {
+export function citationPageOpened(layout: WindowLayout, origin: CitedOrigin): void {
   const app = useAppStore.getState();
   const place = app.layout?.assistant;
   const cardWidth = useCardWidth.getState().width;
@@ -114,6 +118,11 @@ export function citationPageOpened(layout: WindowLayout): void {
   if (pair === null) return;
   const widths = splitWidths(layout, pair, cardWidth);
   if (!noteLacksRoom(widths)) return;
+  if (origin === "assistant") {
+    const narrowed = pageYieldsWidths(layout, pair, cardWidth);
+    if (narrowed) void app.changeLayout({ type: "resize", widths: narrowed });
+    return;
+  }
   const room = cardWidth + GAP + Math.max(SIDE_MIN, place.width);
   const foldedCard = cardWidth + (sideWidth(place.width, room) - RAIL);
   const narrowed = pageYieldsWidths(layout, pair, foldedCard);

@@ -52,7 +52,7 @@ const recheckOf = (patch: Partial<CitationRecheck>): CitationRecheck =>
     ...patch,
   }) as CitationRecheck;
 
-const HOW = { check: "found", withQuote: true, label: "§ Notice" } as const;
+const HOW = { origin: "note", check: "found", withQuote: true, label: "§ Notice" } as const;
 
 beforeEach(() => {
   recheckCitation.mockReset();

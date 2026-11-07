@@ -63,7 +63,7 @@ import { useJudgementLimit } from "../judgementLimit";
 import { currentTabOf, groupsMerged } from "../layoutSlice";
 import { useBreathing } from "../motion";
 import type { ObjectRef } from "../objects";
-import { openCited as openCitedPlace } from "../openCited";
+import { openCited as openCitedPlace, useCitedOrigin } from "../openCited";
 import {
   pinCitation,
   pinnedMind,
@@ -183,6 +183,7 @@ export function CitationView({
   updateAttributes,
   decorations,
 }: ReactNodeViewProps) {
+  const origin = useCitedOrigin();
   const t = useT();
   const language = useLanguage();
   // None in the assistant, whose Answers are read only and say how they are written again.
@@ -196,7 +197,7 @@ export function CitationView({
   const kept = useAppStore((state) => state.keptCitationTexts);
   const keptInside = useKeptInside(attributes.documentId);
   /** Its card waits while the assistant is folded, and comes back with it (#2270). */
-  const assistantFolded = useContext(AssistantFoldedContext);
+  const assistantFolded = useContext(AssistantFoldedContext) === true;
   /** The Mind's group: the Document opens in the group to its right. */
   const place = useTabPlace();
   const state = citationState(attributes, documents, kept, keptInside);
@@ -290,6 +291,7 @@ export function CitationView({
     openCitedPlace(
       { ...attributes, documentId },
       {
+        origin,
         check: state.check,
         ...(state.reason && { checkReason: state.reason }),
         withQuote,
@@ -380,6 +382,7 @@ export function CitationView({
         offerEditorUndo(editor, (t) => t("citation.updated"));
         // The Note stays in front, in a window of one group too: the new words are one tab away.
         openCitedPlace(moved, {
+          origin,
           check: moved.check,
           withQuote: true,
           number,

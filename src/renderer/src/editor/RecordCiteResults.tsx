@@ -4,7 +4,7 @@ import { citationLocation, formatLocation, openKind } from "../../../shared/loca
 import { SearchPicker } from "../components/SearchPicker";
 import { errorMessage } from "../errors";
 import { useT } from "../i18n";
-import { openCited } from "../openCited";
+import { openCited, useCitedOrigin } from "../openCited";
 import { useAppStore } from "../store";
 import {
   chooseRecordCite,
@@ -27,6 +27,7 @@ export function RecordCiteResults({
   onOpen(): void;
   onPickerChange(open: boolean): void;
 }) {
+  const origin = useCitedOrigin();
   const t = useT();
   const documents = useAppStore((store) => store.documents);
   const [picker, setPicker] = useState<{
@@ -94,6 +95,7 @@ export function RecordCiteResults({
         ...(place.location && { location: place.location }),
       },
       {
+        origin,
         check: nearby || cite.outcome === "supported" ? "found" : "unsupported",
         withQuote: true,
         label: location ? formatLocation(location, t) : null,

@@ -18,7 +18,7 @@ import { useComparisons } from "../comparisons";
 import { useTabPlace } from "../components/tabs/tabItems";
 import { buttonStyle } from "../components/ui";
 import { useT } from "../i18n";
-import { openCited, quoteSaysSo } from "../openCited";
+import { openCited, quoteSaysSo, useCitedOrigin } from "../openCited";
 import { useAppStore } from "../store";
 import { ComparisonRefillEstimate } from "./ComparisonRefillEstimate";
 import { citationsIn } from "./copyNotes";
@@ -33,6 +33,7 @@ export function ComparisonCellCard({
   handle: ComparisonCellHandle;
   replace: boolean;
 }) {
+  const origin = useCitedOrigin();
   const t = useT();
   const place = useTabPlace();
   const first = useRef<HTMLButtonElement>(null);
@@ -101,6 +102,7 @@ export function ComparisonCellCard({
         ...(citation.location && { location: citation.location }),
       },
       {
+        origin,
         check: state.check,
         withQuote: quoteSaysSo(state.check) || state.reason === "document-removed",
         number: index + 1,

@@ -55,7 +55,7 @@ import { useJudgementLimit } from "../../judgementLimit";
 import { useMeetings } from "../../meetings";
 import { useModelNames } from "../../modelNames";
 import type { Translate } from "../../objects";
-import { openCited, quoteSaysSo } from "../../openCited";
+import { openCited, quoteSaysSo, useCitedOrigin } from "../../openCited";
 import { usePythonRuntime } from "../../pythonRuntime";
 import { scopeChips } from "../../scope";
 import { skillTitle } from "../../skills";
@@ -1042,6 +1042,7 @@ function useOnlyDocumentKind(documents: readonly ReadDocument[]) {
 
 /** A source of a step: its Document and Location, which open beside the Mind as its Citation does. */
 function SourceRow({ source }: { source: StepSource }) {
+  const origin = useCitedOrigin();
   const t = useT();
   const kind = useAppStore(
     (state) => state.documents.find((document) => document.id === source.documentId)?.kind,
@@ -1059,6 +1060,7 @@ function SourceRow({ source }: { source: StepSource }) {
       title={where ? t("citation.where", { document: name, location: where }) : name}
       onClick={() =>
         void openCited(source, {
+          origin,
           check: source.check,
           withQuote: quoteSaysSo(source.check),
           label: where,

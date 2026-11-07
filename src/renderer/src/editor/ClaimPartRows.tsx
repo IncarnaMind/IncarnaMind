@@ -22,7 +22,7 @@ import { rowActionButtonClass } from "../components/sidebarRows";
 import type { PartCorrection } from "../correctionFixes";
 import { reasonText } from "../cost";
 import { useLanguage, useT } from "../i18n";
-import { openCited, quoteSaysSo } from "../openCited";
+import { openCited, quoteSaysSo, useCitedOrigin } from "../openCited";
 import { useScopeName } from "../scopeDocuments";
 import { useAppStore } from "../store";
 import { type CitationDecision, partDecisions } from "./alreadyCited";
@@ -55,6 +55,7 @@ function PartCitation({
   citation: CitationAttributes;
   onOpen(): void;
 }) {
+  const origin = useCitedOrigin();
   const t = useT();
   const documents = useAppStore((store) =>
     store.status.kind === "ready" ? store.documents : null,
@@ -90,7 +91,7 @@ function PartCitation({
     if (property) return showFileProperties(citation.documentId, onOpen);
     void openCited(
       { ...citation, documentId: state.documentId ?? citation.documentId },
-      { check: state.check, withQuote: quoteSaysSo(state.check), label: where },
+      { origin, check: state.check, withQuote: quoteSaysSo(state.check), label: where },
     );
     onOpen();
   };

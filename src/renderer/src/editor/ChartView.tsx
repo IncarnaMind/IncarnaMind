@@ -37,7 +37,7 @@ import { citationLocation, formatLocation } from "../../../shared/locations";
 import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
 import { useTabPlace } from "../components/tabs/tabItems";
 import { useLanguage, useT } from "../i18n";
-import { openCited, quoteSaysSo } from "../openCited";
+import { openCited, quoteSaysSo, useCitedOrigin } from "../openCited";
 import { useAppStore } from "../store";
 import { useKeptInsideOf } from "../turnWall";
 import { ChartFoot } from "./ChartFoot";
@@ -174,6 +174,7 @@ export function ChartView({
   deleteNode,
   doc,
 }: ReactNodeViewProps & { doc: Y.Doc | null }) {
+  const origin = useCitedOrigin();
   const t = useT();
   const language = useLanguage();
   const chart = useMemo(() => readChart(node.attrs), [node.attrs]);
@@ -409,6 +410,7 @@ export function ChartView({
     void openCited(
       { ...citation, documentId },
       {
+        origin,
         check: state.check,
         withQuote: quoteSaysSo(state.check) || state.reason === "document-removed",
         label: location ? formatLocation(location, t) : null,

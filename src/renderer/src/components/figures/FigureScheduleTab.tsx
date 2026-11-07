@@ -20,7 +20,7 @@ import { focusFigure, useFigureSchedule } from "../../figures";
 import { translateNow, useLanguage, useT } from "../../i18n";
 import { startChangedCheckAsking, startFigureCheckAsking } from "../../mindCheck";
 import { openMindCopy } from "../../mindCopies";
-import { openCited, quoteSaysSo } from "../../openCited";
+import { openCited, quoteSaysSo, useCitedOrigin } from "../../openCited";
 import { useAppStore } from "../../store";
 import { type Undoable, useUndo } from "../../undo";
 import { ExportResultLine } from "../ExportResultLine";
@@ -37,6 +37,7 @@ interface Choice {
 }
 
 export function FigureScheduleTab({ mindId }: { mindId: string }) {
+  const origin = useCitedOrigin();
   const [copy, setCopy] = useState<{ doc: Y.Doc; editable: boolean } | null>(null);
   const doc = copy?.doc ?? null;
   /** Undo for changes made in the copy while the note wasn't shown: they go with the copy. */
@@ -188,6 +189,7 @@ export function FigureScheduleTab({ mindId }: { mindId: string }) {
         }}
         onOpenSource={(citation) =>
           openCited(citation, {
+            origin,
             check: citation.check,
             withQuote: quoteSaysSo(citation.check),
             from: place?.groupId,

@@ -59,7 +59,7 @@ import { translateNow, useLanguage, useT } from "../i18n";
 import { groupsMerged } from "../layoutSlice";
 import { useNotices } from "../notices";
 import { citationStepOpen } from "../nudges";
-import { openCited } from "../openCited";
+import { openCited, useCitedOrigin } from "../openCited";
 import { offersRewrite, rewriteWithDocuments } from "../rewriteFix";
 import { useScopeName } from "../scopeDocuments";
 import { useAppStore } from "../store";
@@ -551,6 +551,7 @@ function WorkingInput({
   documents: ReturnType<typeof useAppStore.getState>["documents"];
   onOpen(): void;
 }) {
+  const origin = useCitedOrigin();
   const t = useT();
   const quote = useReadableQuote(input.citation);
   const location = citationLocation(input.citation);
@@ -569,7 +570,7 @@ function WorkingInput({
       className="claim-card-input"
       title={quote}
       onClick={() => {
-        void openCited(input.citation, { check: "found", withQuote: true, label: where });
+        void openCited(input.citation, { origin, check: "found", withQuote: true, label: where });
         onOpen();
       }}
     >
@@ -681,6 +682,7 @@ export function ClaimCard({
   use: boolean;
   onUse(): void;
 }) {
+  const origin = useCitedOrigin();
   const t = useT();
   const mindId = useContext(MindIdContext);
   const language = useLanguage();
@@ -1324,7 +1326,7 @@ export function ClaimCard({
               if (!evidence.documentId) return;
               void openCited(
                 { ...evidence, documentId: evidence.documentId },
-                { check: "found", withQuote: true, label: where },
+                { origin, check: "found", withQuote: true, label: where },
               );
               onOpen();
             }}
@@ -1341,6 +1343,7 @@ export function ClaimCard({
               void openCited(
                 { ...unread, quote: "" },
                 {
+                  origin,
                   check: "not-checked",
                   withQuote: false,
                   label: unreadLocation ? formatLocation(unreadLocation, t) : null,

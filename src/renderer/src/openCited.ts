@@ -1,12 +1,24 @@
+import { useContext } from "react";
 import type { CitationAttributes, CitationCheck, CitationCheckReason } from "../../core/api";
 import { citationState, quoteStanding } from "../../shared/citations";
 import { citationLocation, formatLocation } from "../../shared/locations";
 import { citationPageOpened } from "./assistantYields";
 import { type CitedSource, useComposer } from "./composer";
 import { core } from "./core";
+import { AssistantFoldedContext } from "./editor/mindContext";
 import { translateNow } from "./i18n";
 import { currentTabOf } from "./layoutSlice";
 import { type AppState, useAppStore } from "./store";
+
+/**
+ * Where a Citation's page is opened from (#2270): inside the assistant, where the User is reading,
+ * or the Note and what acts beside it (its Citations, cards, tabs and commands).
+ */
+export type CitedOrigin = "note" | "assistant";
+
+/** The origin of a page opened from this component: the assistant it is drawn in, else the Note. */
+export const useCitedOrigin = (): CitedOrigin =>
+  useContext(AssistantFoldedContext) === null ? "note" : "assistant";
 
 /** Whether opening the cited place washes the quote: it is there, unless the check could not find it. */
 export const quoteSaysSo = (check: CitationCheck) =>
@@ -43,6 +55,7 @@ export function openCited(
     location?: CitationAttributes["location"];
   },
   how: {
+    origin: CitedOrigin;
     check: CitationCheck;
     /** Why it can't be checked, when `check` is "cant-check" (#535). */
     checkReason?: CitationCheckReason;
@@ -98,7 +111,7 @@ export function openCited(
   );
   useComposer.setState({ citedSource: source });
   void Promise.resolve(opened).then((layout) => {
-    if (layout) citationPageOpened(layout);
+    if (layout) citationPageOpened(layout, how.origin);
   });
 }
 

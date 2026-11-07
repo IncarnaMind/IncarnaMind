@@ -3,7 +3,7 @@ import type { UnsupportedReason } from "../../../core/api";
 import { MetaLine } from "../components/MetaLine";
 import { LineAction } from "../components/ProblemLine";
 import { useT } from "../i18n";
-import { openCited, quoteSaysSo } from "../openCited";
+import { openCited, quoteSaysSo, useCitedOrigin } from "../openCited";
 import type { NumberedCitation } from "./citationNumbers";
 
 /**
@@ -101,6 +101,7 @@ export function OpenCitation({
   onOpen(): void;
   children: ReactNode;
 }) {
+  const origin = useCitedOrigin();
   const t = useT();
   const { documentId, quote } = attributes;
   return documentId ? (
@@ -113,7 +114,7 @@ export function OpenCitation({
       onClick={() => {
         void openCited(
           { ...attributes, documentId },
-          { check: attributes.check, withQuote: quoteSaysSo(attributes.check), number },
+          { origin, check: attributes.check, withQuote: quoteSaysSo(attributes.check), number },
         );
         onOpen();
       }}
