@@ -346,11 +346,18 @@ export function waitingIn(
   const own = range.filter(isOwn);
   // An Answer's own change takes these Blocks out whole: once accepted there is no text of the
   // assistant's left there to rewrite, so the revision that some later call would make has
-  // nowhere to go (#2502).
-  const removesWhole = range.some((element) => {
+  // nowhere to go (#2502). A paragraph inside a list, quote or table cell carries the removal
+  // itself, the wrapper besides other Blocks staying (../proposals/write `removedWith`).
+  const isWholeRemoval = (element: Y.XmlElement) => {
     const proposal = readProposalAttribute(element.getAttribute(PROPOSAL_ATTRIBUTE));
     return proposal?.kind === "delete" && answerRequest(doc, proposal.request);
-  });
+  };
+  const removesWhole = range.some(
+    (element) =>
+      isWholeRemoval(element) ||
+      [...element.createTreeWalker((each) => each instanceof Y.XmlElement && isWholeRemoval(each))]
+        .length > 0,
+  );
   const ownRemoval =
     removesWhole && requests.length > 0 && requests.every((request) => answerRequest(doc, request));
   if (unsafeCurrentRevision(range, inTurn)) {
