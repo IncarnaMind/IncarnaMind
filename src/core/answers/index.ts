@@ -3419,6 +3419,8 @@ export function createAnswers(options: AnswersOptions) {
       // An ordinary Answer's or the assistant's searches only: a check, a Task's cells and call
       // help have searches of their own.
       const atOnce =
+        !help &&
+        !input.task &&
         (input.toolSet ?? "answer") === "answer" &&
         (options.searchesAtOnce?.(prepared, flow) ?? false);
       for await (const event of engine.generate({

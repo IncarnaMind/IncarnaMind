@@ -36,3 +36,23 @@ Model calls, searches and Document reads per Answer, the times on both arms by l
 ## Before the first whole run (added on 2026-11-07)
 
 The first start of the held-out run was stopped after its first item, before anything was read from it. Each item now keeps the sentences the judge flags as false Supported, with their quotes, and every flag is read by hand on both arms. The arms are compared with each other, never against zero, and both the raw counts and the counts read by hand are reported. The held-out run is started again whole. Since the measure's judge may be strict (it flagged 3 of 7 sentences on cite-first Answers in its first runs), false Supported is counted over each set (`INCARNAMIND_EVAL_SPEED_FALSE_SUPPORTED=counted`) and doesn't stop the run. The bar's false-Supported line is then read this way, decided now, before the first whole run: over each set, `search-at-once` may have no more false Supported than `today`, counting only the flags that read right by hand. The raw counts are reported beside them.
+
+## Result (added on 2026-11-07, after the runs): fails, no model listed
+
+DeepSeek V4.1 Flash 1017, `today` against `search-at-once`, paired, one run of each set, judged by Claude Sonnet 5.5 on a direct Anthropic key; the runs cost $1.27.
+
+| | held-out (20) | gating (65) |
+|---|---|---|
+| First words, today → search at once | 9.8 → 7.9 s (−0.6 s, sooner in 11) | 5.6 → 5.4 s (−0.3 s, sooner in 35) |
+| Done | 13.5 → 10.9 s (−0.8 s, sooner in 10) | 7.3 → 7.3 s (**+0.3 s**, sooner in 28): not sooner |
+| Model calls per Answer | 4.10 → 3.40 | 3.54 → 3.31 |
+| Expected Passages cited | 20 → 20 | 63 → 64 (1 / 2) |
+| Judged right | 20 → 20 | 62 → 63 (2 / 3) |
+| Every Citation found | 17 → 20 | **62 → 58 (6 / 2; 2 allowed): fails** |
+| False Supported sentences, read by hand (flagged by the judge) | **26 → 30** (43 → 56) | **68 → 77** (85 → 96) |
+| Items with a false Supported read by hand | 14 → 16 | 49 → 45 |
+| Duplicates, unmade changes, tool text, failed to run | 0 → 0 | 0 → 0 |
+
+Every flag was read by hand from one list of both arms' flags, shuffled, with the arm hidden until all 280 were read: 201 read right (the sentence states something its quotes don't, most often a second claim beside the one its quote holds) and 79 wrong (mostly a table cell whose figure is in the quote, or the quote's own words in other words). The 15-minute load was 7.4 to 17.2. `hard` and `everyday` weren't run, as the bar says once a set fails.
+
+On the question flow it was shaped on, the path took 2 rounds of searches and reads instead of 5 and was 5.8 s sooner to done (median of 8 Answers each), but that doesn't carry to these sets: Questions in a Note already search in one or two rounds, and the larger searches gave the model more to cite past.
