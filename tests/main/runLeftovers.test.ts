@@ -14,6 +14,7 @@ import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 import { WORKING_FOLDER } from "../../src/core/execution";
 import { createProcessLauncher } from "../../src/main/processes";
 import {
+  adoptedMembers,
   type Classified,
   classify,
   createRunSweeper,
@@ -173,6 +174,10 @@ function computer(table: ProcessRow[], ours: Set<number>, platform: NodeJS.Platf
   };
   const deps: SweepDeps = {
     list: async () => table.map((each) => ({ ...each })),
+    started: async (pids) =>
+      new Map(
+        table.filter((each) => pids.includes(each.pid)).map((each) => [each.pid, each.startedMs]),
+      ),
     check: async (questions) =>
       questions.map((question, at) => (ours.has(question.pid) ? (OURS[at % 3] ?? -1) : 1)),
     stopper,
@@ -249,6 +254,108 @@ describe("the sweep's stops, through a stopper that records", () => {
     const { deps, sent } = computer(table, new Set(), "linux");
     expect(await sweepRun(RUN, 600, deps)).toEqual([601]);
     expect(sent).toEqual([]);
+  });
+});
+
+describe("the run's processes launchd took over, counted against its limits while it runs", () => {
+  /** A tick's listing of `table`, as the meter reads it. */
+  const listing = (table: readonly ProcessRow[]) =>
+    table.map(({ pid, ppid, group, uid }) => ({ pid, ppid, group, uid, resident: 0 }));
+
+  test("are this User's orphans with the run's profile; each is asked once while it is listed, and again once a pid has gone and come back", async () => {
+    // 601 is the run's daemon, 602 its child, 603 another program's orphan, 604 the program's own,
+    // 606 another User's orphan.
+    const table = [
+      ...APP,
+      row(601),
+      row(602, { ppid: 601 }),
+      row(603),
+      row(604, { ppid: 600, group: 600 }),
+      row(606, { uid: 0 }),
+    ];
+    const { deps } = computer(table, new Set([601, 602, 604, 606]));
+    const asked: number[] = [];
+    const startsRead: number[] = [];
+    const { check, started } = deps;
+    deps.check = async (questions) => {
+      asked.push(...new Set(questions.map((question) => question.pid)));
+      return check(questions);
+    };
+    deps.started = async (pids) => {
+      startsRead.push(...pids);
+      return started(pids);
+    };
+    const known = new Map<number, boolean>();
+    expect(await adoptedMembers(RUN, 600, listing(table), deps, known)).toEqual([601]);
+    table.push(row(605));
+    expect(await adoptedMembers(RUN, 600, listing(table), deps, known)).toEqual([601]);
+    expect(asked).toEqual([601, 603, 605]);
+    // 603 has gone: a later process with its pid is asked about afresh.
+    expect(
+      await adoptedMembers(
+        RUN,
+        600,
+        listing(table.filter((each) => each.pid !== 603)),
+        deps,
+        known,
+      ),
+    ).toEqual([601]);
+    expect(await adoptedMembers(RUN, 600, listing(table), deps, known)).toEqual([601]);
+    expect(asked).toEqual([601, 603, 605, 603]);
+    expect(startsRead).toEqual([400, 601, 603, 605, 603]);
+  });
+
+  test("an answer sandbox_check couldn't give in full is asked again, so a check that failed once hides no daemon", async () => {
+    const table = [...APP, row(601)];
+    const { deps } = computer(table, new Set([601]));
+    const check = deps.check;
+    let calls = 0;
+    deps.check = async (questions) => {
+      calls += 1;
+      return calls === 1 ? questions.map(() => -1) : check(questions);
+    };
+    const known = new Map<number, boolean>();
+    expect(await adoptedMembers(RUN, 600, listing(table), deps, known)).toEqual([]);
+    expect(await adoptedMembers(RUN, 600, listing(table), deps, known)).toEqual([601]);
+    expect(calls).toBe(2);
+  });
+
+  test("its profile check has the meter's time limit", async () => {
+    const table = [...APP, row(601)];
+    const { deps } = computer(table, new Set([601]));
+    const limits: (number | undefined)[] = [];
+    const check = deps.check;
+    deps.check = async (questions, options) => {
+      limits.push(options?.timeoutMs);
+      return check(questions);
+    };
+    await adoptedMembers(RUN, 600, listing(table), deps, new Map());
+    expect(limits).toEqual([2000]);
+  });
+
+  test("two runs on one tick share the start-time cache, so an orphan's start time is read once", async () => {
+    const table = [...APP, row(601)];
+    const { deps } = computer(table, new Set([601]));
+    const startsRead: number[][] = [];
+    const started = deps.started;
+    deps.started = async (pids) => {
+      startsRead.push([...pids]);
+      return started(pids);
+    };
+    const shared = new Map<number, number | null>();
+    const runA: RunRecord = { ...RUN, id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" };
+    const runB: RunRecord = { ...RUN, id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" };
+    await adoptedMembers(runA, 600, listing(table), deps, new Map(), shared);
+    await adoptedMembers(runB, 700, listing(table), deps, new Map(), shared);
+    // The orphans' start times (the app's parent 400 and 601) are read on the first run and
+    // reused on the second: one read, not one per run.
+    expect(startsRead).toEqual([[400, 601]]);
+  });
+
+  test("on Linux there are none: bubblewrap's PID namespace keeps them under the program", async () => {
+    const table = [...APP, row(601)];
+    const { deps } = computer(table, new Set([601]), "linux");
+    expect(await adoptedMembers(RUN, 600, listing(table), deps, new Map())).toEqual([]);
   });
 });
 
@@ -372,7 +479,7 @@ describe("the sweeper: runs a crash left, and runs it couldn't end", () => {
       },
       computer: fakeComputer(rows, { [id]: [800] }),
     });
-    const sweep = await sweeper.begin(id, join(records, "incarnamind-code-y", "work"));
+    const { sweep } = await sweeper.begin(id, join(records, "incarnamind-code-y", "work"));
     // The program's end finds nothing left, and the record goes.
     await sweep(600);
     expect(await readdir(records)).toEqual([]);

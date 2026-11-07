@@ -20,7 +20,13 @@ export const FROM_CORE = Symbol("from the core");
 /** The core's changes from an edit asked for here (#880): not sent back, but this window's Undo takes them back. */
 export const EDIT_FROM_CORE = Symbol("an edit asked for here, from the core");
 
-const takers = new Map<string, { doc: Y.Doc; take(update: Uint8Array, cause: EditCause): void }>();
+interface Taker {
+  doc: Y.Doc;
+  take(update: Uint8Array, cause: EditCause): void;
+}
+
+/** Each copy that asked to take an edit's updates, by the edit's request. */
+const takers = new Map<string, Set<Taker>>();
 
 /** How many copies of each Mind this window has open: the note's worth one watch, not each. */
 const copiesOpen = new Map<string, number>();
@@ -41,16 +47,22 @@ export async function flushMindUpdates(mindId: string): Promise<void> {
   }
 }
 
-/** Hands the updates of this edit to `take`, in the copy `doc` only. Returns what stops it. */
+/**
+ * Hands the updates of this edit to `take`, in the copy `doc` only: another copy takes them
+ * through its own. Returns what stops it.
+ */
 export function takeEditUpdates(
   requestId: string,
   doc: Y.Doc,
   take: (update: Uint8Array, cause: EditCause) => void,
 ): () => void {
   const taker = { doc, take };
-  takers.set(requestId, taker);
+  const all = takers.get(requestId) ?? new Set<Taker>();
+  all.add(taker);
+  takers.set(requestId, all);
   return () => {
-    if (takers.get(requestId) === taker) takers.delete(requestId);
+    all.delete(taker);
+    if (all.size === 0 && takers.get(requestId) === all) takers.delete(requestId);
   };
 }
 
@@ -77,8 +89,9 @@ export function openMindCopy(
   // Listen before opening, so nothing pushed in between is missed. Yjs merges in any order.
   const stopListening = core.on("mind.update", ({ mindId: changed, update, cause }) => {
     if (changed !== mindId) return;
-    const taker = cause && takers.get(cause.requestId);
-    if (cause && taker?.doc === local) taker.take(update, cause);
+    const taker =
+      cause && [...(takers.get(cause.requestId) ?? [])].find((each) => each.doc === local);
+    if (cause && taker) taker.take(update, cause);
     else Y.applyUpdate(local, update, FROM_CORE);
   });
   // A change that built on one the core never got goes again inside the whole copy (#1119).

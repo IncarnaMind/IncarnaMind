@@ -85,6 +85,9 @@ export const dialogFrameClass =
 /** A native modal <dialog>, 24px clear of the window's edges, scrolling if it must. Add a width. */
 export const dialogClass = `${dialogFrameClass} max-h-[calc(100vh-48px)] max-w-[calc(100vw-48px)] overflow-y-auto`;
 
+/** A sheet hanging from the tab strip, as Export options is drawn, rather than a dialog in the middle. */
+export const tabSheetClass = `${dialogFrameClass} mt-11 mb-auto max-h-[calc(100vh-68px)] w-[min(520px,calc(100vw-48px))] overflow-hidden rounded-t-none open:flex open:flex-col`;
+
 /** The padding inside a dialog. */
 export const dialogBodyClass = "flex flex-col gap-4 px-6 pt-6 pb-5";
 

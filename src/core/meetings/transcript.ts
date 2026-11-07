@@ -101,8 +101,12 @@ const SWITCH_TOGETHER_MS = 10_000;
 const CATCH_UP_CHUNK_MS = 20_000;
 /** The speed probe counts once this much audio has been decoded live. */
 const PROBE_MS = 30_000;
-/** Partial text reaches the window at once, then at most this often. */
-const PARTIAL_EVERY_MS = 500;
+/**
+ * Partial text reaches the window at once, then at most this often: cloud services send theirs
+ * every 0.2 to 0.3 s, and the live Transcript keeps up with them without layout shifts or long
+ * tasks (#138).
+ */
+const PARTIAL_EVERY_MS = 250;
 /** Cloud audio is counted against the cap this much ahead of what is sent, so the cap is never passed. */
 const COUNTED_AHEAD_MS = 10_000;
 
@@ -597,13 +601,14 @@ export function createTranscripts(options: TranscriptsOptions) {
     });
   }
 
-  function shownPartial(state: State): MeetingTranscript["partial"] {
+  // Both sides can speak at once, so each shows (#138); the microphone's echo of theirs doesn't.
+  function shownPartials(state: State): MeetingTranscript["partials"] {
     const all = [...state.partials.values()];
     const theirs = all.filter((each) => isTheirs(each.speaker)).map((each) => each.text);
-    const newest = all
+    return all
       .filter((each) => each.speaker !== SPEAKER_ME || !repeats(each.text, theirs))
-      .sort((a, b) => b.startMs - a.startMs)[0];
-    return newest ? { startMs: newest.startMs, text: newest.text, speaker: newest.speaker } : null;
+      .sort((a, b) => a.startMs - b.startMs)
+      .map(({ startMs, text, speaker }) => ({ startMs, text, speaker }));
   }
 
   function heardSegment(segment: SpeechSegment): void {
@@ -1540,7 +1545,7 @@ export function createTranscripts(options: TranscriptsOptions) {
         documentId: state.documentId,
         state: state.state,
         lines: state.cues.length,
-        partial: shownPartial(state),
+        partials: shownPartials(state),
         model:
           (state.state === "preparing" ||
             state.state === "finishing" ||

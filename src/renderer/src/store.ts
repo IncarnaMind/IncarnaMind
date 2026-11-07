@@ -2159,11 +2159,14 @@ export const hasRowsOfTheirOwn = (documentIds: readonly string[]): boolean => {
   });
 };
 
+/** A Document of one of the examples: it is in the Linked folder the example made. */
+export const isExampleDocument = (document: Document, examples: readonly Examples[]) =>
+  document.linkedFolderId !== null &&
+  examples.some((each) => each.linkedFolderId === document.linkedFolderId);
+
 /** A Document of the User's own, as the Library lists it: not one of the examples. */
 export const isOwnDocument = (document: Document, examples: readonly Examples[]) =>
-  isListedDocument(document) &&
-  (document.linkedFolderId === null ||
-    !examples.some((each) => each.linkedFolderId === document.linkedFolderId));
+  isListedDocument(document) && !isExampleDocument(document, examples);
 
 /** The example a first run makes, shown first; the earlier version's tea example stands in for it. */
 const FIRST_RUN_EXAMPLE: ExampleGroup = "credit";

@@ -519,3 +519,160 @@ describe("Decision model hosts (#1907)", { timeout: 30_000 }, () => {
     await changed;
   });
 });
+
+/*
+ * Removing a key or workspace that sorting uses gives sorting back to Automatic (#1907), which
+ * starts no host and turns nothing on: what it picks instead, the User's AI here, reads a new
+ * Document only where the User has allowed that service.
+ */
+describe("Removing what sorting uses (#1907)", { timeout: 30_000 }, () => {
+  const ANTHROPIC = {
+    kind: "anthropic",
+    apiKey: "sk-ant-test",
+    modelId: "claude-haiku-5-5",
+  } as const;
+
+  /**
+   * Liquid chosen with its Use this, then its key removed; Anthropic is the User's AI. `allowed`:
+   * sorting was turned on with it before Liquid, the consent the footer's Allow gives.
+   */
+  async function liquidInUse(allowed: boolean) {
+    const hosts = await startFakeHosts();
+    const tagging = taggingModel(["Notes"]);
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: scriptedModels(tagging.model).createChatModel,
+      keychain: createMemoryKeychain(),
+      decisionOrigins: { liquid: hosts.url },
+    });
+    await core.saveChatProvider(ANTHROPIC);
+    await core.createLibraryGroup({ name: "Research", description: "Papers and studies." });
+    if (allowed) {
+      const { settings } = await core.getLibrary();
+      await core.saveLibrarySettings({ ...settings, automatic: true, turnOn: true });
+    }
+    await core.setDecisionKey({ host: "liquid", apiKey: KEYS.liquid });
+    await chooseAndTurnOn(core, { kind: "decision", host: "liquid", modelId: "d1-ultra" });
+    await core.removeDecisionKey("liquid");
+    return { core, hosts, tagging };
+  }
+
+  test("with the User's AI service not allowed, a new Document waits with tagging off and nothing is sent", async () => {
+    const { core, hosts, tagging } = await liquidInUse(false);
+    expect((await core.getLibrary()).settings.classifier).toEqual({ kind: "automatic" });
+
+    const document = await addDocument(core, "Attention.md", PAPER_TEXT);
+    const [waiting] = await waitForTagging(core, [document.id], (each) => each.tagging === "off");
+    expect(waiting?.tagging).toBe("off");
+    // The switch was turned on for Liquid only, so it reads off for Anthropic until it is turned
+    // on there (#2308); and Organize asks its "Use Anthropic" before it keeps a model.
+    expect((await core.getLibrary()).settings).toMatchObject({
+      automatic: false,
+      organizeWith: null,
+    });
+    expect(tagging.requests).toHaveLength(0);
+    expect(hosts.tagging()).toEqual([]);
+  });
+
+  test("with the User's AI service allowed, the new Document is tagged by it, and Liquid gets nothing", async () => {
+    const { core, hosts, tagging } = await liquidInUse(true);
+    expect((await core.getLibrary()).settings.classifier).toEqual({ kind: "automatic" });
+
+    const document = await addDocument(core, "Attention.md", PAPER_TEXT);
+    const [sorted] = await waitForTagging(core, [document.id]);
+    expect(sorted?.tagging).toBe("tagged");
+    expect(await tagNamesOf(core, document.id)).toEqual(["Notes"]);
+    expect(tagging.requests.length).toBeGreaterThan(0);
+    expect((await core.getLibrary()).sortWaitsFor).toBeUndefined();
+    expect(hosts.tagging()).toEqual([]);
+  });
+  /** Decider through OpenRouter chosen with its Use this, beside Anthropic as the User's AI. */
+  async function deciderInUse() {
+    const hosts = await startFakeHosts();
+    const tagging = taggingModel(["Notes"]);
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: scriptedModels(tagging.model).createChatModel,
+      keychain: createMemoryKeychain(),
+      decisionOrigins: { openrouter: hosts.url },
+    });
+    const anthropic = await core.saveChatProvider(ANTHROPIC);
+    const openrouter = await core.saveChatProvider({ ...PROVIDERS.openrouter, keepDefault: true });
+    await core.createLibraryGroup({ name: "Research", description: "Papers and studies." });
+    await chooseAndTurnOn(core, {
+      kind: "decision",
+      host: "openrouter",
+      modelId: "perplexity/pplx-decider-v1.2",
+    });
+    return { core, hosts, tagging, anthropic, openrouter };
+  }
+
+  test("deleting the OpenRouter provider that Decider reaches gives sorting back to Automatic: OpenRouter gets nothing", async () => {
+    const { core, hosts, tagging, openrouter } = await deciderInUse();
+    await core.deleteChatProvider(openrouter.id);
+    expect((await core.getLibrary()).settings.classifier).toEqual({ kind: "automatic" });
+    expect((await status(core, "openrouter"))?.ready).toBe(false);
+
+    const document = await addDocument(core, "Attention.md", PAPER_TEXT);
+    const [waiting] = await waitForTagging(core, [document.id], (each) => each.tagging === "off");
+    expect(waiting?.tagging).toBe("off");
+    expect(hosts.tagging()).toEqual([]);
+    expect(tagging.requests).toHaveLength(0);
+  });
+
+  test("deleting another provider leaves Decider chosen, and a new Document goes to OpenRouter", async () => {
+    const { core, hosts, anthropic } = await deciderInUse();
+    await core.deleteChatProvider(anthropic.id);
+    expect((await core.getLibrary()).settings.classifier).toMatchObject({ host: "openrouter" });
+
+    const document = await addDocument(core, "Attention.md", PAPER_TEXT);
+    await waitForTagging(core, [document.id]);
+    expect(hosts.tagging().map((each) => each.path)).toContain("/api/v1/systemone");
+  });
+
+  test("Organize's kept model naming the host goes too, and the choice under Automatic stays", async () => {
+    const hosts = await startFakeHosts();
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: scriptedModels(taggingModel(["Notes"]).model).createChatModel,
+      keychain: createMemoryKeychain(),
+      decisionOrigins: { liquid: hosts.url },
+    });
+    await core.saveChatProvider(ANTHROPIC);
+    await core.setDecisionKey({ host: "liquid", apiKey: KEYS.liquid });
+    const { settings } = await core.getLibrary();
+    await core.saveLibrarySettings({
+      ...settings,
+      classifier: { kind: "automatic" },
+      organizeWith: { kind: "decision", host: "liquid", modelId: "d1-ultra" },
+    });
+
+    await core.removeDecisionKey("liquid");
+    expect((await core.getLibrary()).settings).toMatchObject({
+      classifier: { kind: "automatic" },
+      organizeWith: null,
+    });
+  });
+
+  test("a kept model naming a deleted provider doesn't stop a key from going", async () => {
+    const hosts = await startFakeHosts();
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: scriptedModels(taggingModel(["Notes"]).model).createChatModel,
+      keychain: createMemoryKeychain(),
+      decisionOrigins: { liquid: hosts.url },
+    });
+    const anthropic = await core.saveChatProvider(ANTHROPIC);
+    await core.setDecisionKey({ host: "liquid", apiKey: KEYS.liquid });
+    await core.saveLibrarySettings({
+      ...(await core.getLibrary()).settings,
+      classifier: { kind: "decision", host: "liquid", modelId: "d1-ultra" },
+      organizeWith: {
+        kind: "chat",
+        choice: { providerId: anthropic.id, modelId: ANTHROPIC.modelId },
+      },
+    });
+    // Organize's kept model now names a provider that is gone.
+    await core.deleteChatProvider(anthropic.id);
+
+    await core.removeDecisionKey("liquid");
+    expect((await status(core, "liquid"))?.hasKey).toBe(false);
+    expect((await core.getLibrary()).settings.classifier).toEqual({ kind: "automatic" });
+  });
+});

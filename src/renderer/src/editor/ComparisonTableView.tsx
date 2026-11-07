@@ -35,7 +35,7 @@ import { ReadinessLine } from "../components/providers/ChatReadinessNotice";
 import { runStopParts } from "../cost";
 import { resolveProposalsIn } from "../editWithAi";
 import { dialogOrMenuOpen } from "../escapeDismiss";
-import { exportComparison } from "../exports";
+import { exportComparison, exportComparisonCsv } from "../exports";
 import { useLanguage, useT } from "../i18n";
 import { useAppStore } from "../store";
 import { tableTask, useTasks } from "../tasks";
@@ -46,7 +46,7 @@ import {
   ComparisonColumnHeading,
 } from "./ComparisonColumnHeading";
 import { ComparisonTableMenu } from "./ComparisonTableMenu";
-import { problemCounts, shownRowCount } from "./comparisonRowCounts";
+import { problemCounts, shownDocumentIds, shownRowCount } from "./comparisonRowCounts";
 import { CollapseIcon, ExpandIcon, TableIcon } from "./icons";
 import { useMindId } from "./mindContext";
 
@@ -511,15 +511,32 @@ export function ComparisonTableView({ node, editor }: ReactNodeViewProps) {
           {editable && <ComparisonTableMenu handle={handle} hidden={hidden} />}
           {addButton("head")}
           {expanded && (
-            <button
-              type="button"
-              data-testid="comparison-export-excel"
-              className="comparison-export"
-              onClick={() => void exportComparison(mindId, tableId)}
-            >
-              <ExportLineIcon className="size-3.5" />
-              {t("export.excel.button")}
-            </button>
+            <>
+              <button
+                type="button"
+                data-testid="comparison-export-excel"
+                className="comparison-export"
+                onClick={() => void exportComparison(mindId, tableId)}
+              >
+                <ExportLineIcon className="size-3.5" />
+                {t("export.excel.button")}
+              </button>
+              <button
+                type="button"
+                data-testid="comparison-export-csv"
+                className="comparison-export"
+                onClick={() =>
+                  void exportComparisonCsv(
+                    mindId,
+                    tableId,
+                    shownDocumentIds(node, hiddenIds, filters),
+                  )
+                }
+              >
+                <ExportLineIcon className="size-3.5" />
+                {t("export.csv.button")}
+              </button>
+            </>
           )}
           {expanded ? (
             <button

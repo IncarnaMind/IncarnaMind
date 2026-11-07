@@ -120,6 +120,7 @@ import { askInEditor, QuestionCommands } from "../editor/questionCommands";
 import { QuestionFold } from "../editor/questionFold";
 import { ReferencesBlock } from "../editor/ReferencesBlock";
 import { ReviewFold, ReviewPane } from "../editor/ReviewPane";
+import { RedoKeys } from "../editor/redoKeys";
 import { ReviewPick } from "../editor/reviewPick";
 import { ScopePicker } from "../editor/ScopePicker";
 import { type SelectionAction, SelectionMenu } from "../editor/SelectionMenu";
@@ -157,7 +158,13 @@ import { translateNow, useT } from "../i18n";
 import { useKeptScope, useMindScope } from "../keptScope";
 import { markSelectionAsMine } from "../markAsMine";
 import { useMeetingOf, useMeetings } from "../meetings";
-import { meetingNoteViewFor, showMeetingNoteView, useMeetingNoteView } from "../meetingViews";
+import {
+  focusTaken,
+  meetingNoteViewFor,
+  showMeetingNoteView,
+  useMeetingNoteView,
+  useMeetingViewFocus,
+} from "../meetingViews";
 import { type OpenedCopy, openMindCopy } from "../mindCopies";
 import { isWritingIn } from "../mindStatus";
 import { followMindStyle } from "../mindStyles";
@@ -380,6 +387,7 @@ function MindEditorView({
   const revealEditor = useCallback(() => {
     if (tabId) flushSync(() => showMeetingNoteView(tabId, mindId, "notes"));
   }, [tabId, mindId]);
+  const notesFocus = useMeetingViewFocus(tabId, "notes");
   // The example Mind invites a Question of one's own at its end.
   const [explained, setExplained] = useState(mindExplained);
   const hintText = (place: HintPlace): HintText => {
@@ -488,6 +496,7 @@ function MindEditorView({
             ),
         }),
         Collaboration.configure({ document: doc, field: MIND_CONTENT_FIELD }),
+        RedoKeys,
         FigureEvidence.configure({ doc }),
         // Notes added from an Answer, with their links back to it (#201).
         BlockOrigins.configure({ doc }),
@@ -669,6 +678,13 @@ function MindEditorView({
   useEffect(() => {
     if (!editor.isDestroyed) resumeTabCloseFocus();
   }, [editor]);
+
+  // Back from the meeting's Transcript, the cursor is where the User left it.
+  useEffect(() => {
+    if (notesFocus === null || editor.isDestroyed) return;
+    editor.view.focus();
+    focusTaken(notesFocus);
+  }, [notesFocus, editor]);
 
   // The commands on the Mind's text (⌘K, ⌘↵ and ⌘⌫ on its changes) act on the Mind last written in.
   useEffect(() => {

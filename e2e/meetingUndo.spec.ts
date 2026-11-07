@@ -16,12 +16,13 @@ import {
   setLanguage,
   setWindowSize,
   tabMenu,
+  transcriptSaved,
 } from "./app";
 
 /*
  * Deleting a Meeting's Note (#1253) asks nothing and erases nothing: Undo, or Restore in
- * Recently deleted, brings back the Note with its Meeting, the Transcript's saved line that
- * opens it, and the audio's line, in either language. A Meeting recording stops at Delete.
+ * Recently deleted, brings back the Note with its Meeting, its chip that opens the Transcript
+ * and holds the audio's line (#2527), in either language. A Meeting recording stops at Delete.
  * Set INCARNAMIND_SCREENSHOTS to a folder to also save screenshots there.
  */
 
@@ -43,23 +44,23 @@ test.afterEach(async () => {
 
 const WORDS = {
   en: {
-    saved: "Transcript saved · Open transcript",
-    audio: /^Recorded 0:\d\d · Audio stays on this computer until /,
+    recorded: /^Recorded 0:\d\d$/,
+    audio: /^Audio kept until /,
     deleted: (name: string) => `Moved “${name}” to Recently deleted`,
     restored: (name: string) => `Restored “${name}”`,
     lost: (name: string) =>
       `Restored “${name}” without its audio: it was no longer on this computer.`,
-    gone: /^Recorded 0:\d\d · Audio deleted$/,
+    gone: "Audio deleted",
     question: (name: string) =>
       `Your text in “${name}” is gone. Its recording and Transcript are deleted too. This can’t be undone. Your files stay where they are.`,
   },
   "zh-CN": {
-    saved: "转写稿已保存 · 打开转写稿",
-    audio: /^已录制 0:\d\d · 音频保存在这台电脑上，/,
+    recorded: /^已录制 0:\d\d$/,
+    audio: /^音频保留到 /,
     deleted: (name: string) => `已将“${name}”移到回收站`,
     restored: (name: string) => `已恢复“${name}”`,
     lost: (name: string) => `已恢复“${name}”，但音频已不在这台电脑上，无法恢复。`,
-    gone: /^已录制 0:\d\d · 音频已删除$/,
+    gone: "音频已删除",
     question: (name: string) =>
       `“${name}”中你写的内容将丢失。会议的录音和转写稿也将彻底删除。此操作无法撤销。你的文件仍在原处。`,
   },
@@ -105,17 +106,28 @@ async function recording(window: Page, language: keyof typeof WORDS) {
   return { bar, name, meeting };
 }
 
-/** The lines under a stopped Meeting, as they read once it is saved. */
-async function stoppedLines(window: Page, language: keyof typeof WORDS) {
-  const saved = window.getByTestId("meeting-transcript-line");
-  const audio = window.getByTestId("meeting-audio");
-  await expect(saved).toHaveText(WORDS[language].saved, { timeout: 30_000 });
-  await expect(audio).toHaveText(WORDS[language].audio);
-  return { saved, audio };
+/** A stopped Meeting's chip, once its Transcript is saved: the page above the notes is bare. */
+async function stoppedChip(window: Page, language: keyof typeof WORDS): Promise<Locator> {
+  await transcriptSaved(window);
+  const chip = window.getByTestId("meeting-view-chip");
+  await expect(chip).toHaveText(WORDS[language].recorded);
+  await expect(window.getByTestId("meeting-transcript-line")).toHaveCount(0);
+  return chip;
 }
 
-/** The Transcript opens from its line, with the lines said in it. */
-async function opensTranscript(window: Page, saved: Locator, mindId: string): Promise<void> {
+/** What the chip's popover says of the audio; then Esc closes it. */
+async function audioLine(window: Page, chip: Locator): Promise<string> {
+  await pointAndClick(window, chip);
+  const audio = window.getByTestId("meeting-view-menu").getByTestId("meeting-audio");
+  await expect(audio).toBeVisible();
+  const said = (await audio.locator("p").textContent()) ?? "";
+  await window.keyboard.press("Escape");
+  await expect(audio).toBeHidden();
+  return said;
+}
+
+/** The Transcript opens from the chip, with the lines said in it. */
+async function opensTranscript(window: Page, chip: Locator, mindId: string): Promise<void> {
   const tab = window.locator(`[data-testid="mind-tab"][data-mind-id="${mindId}"]`);
   await expect(tab).toHaveAttribute("aria-selected", "true");
   const tabId = await tab.getAttribute("data-tab-id");
@@ -127,7 +139,8 @@ async function opensTranscript(window: Page, saved: Locator, mindId: string): Pr
   if (!retained) throw new Error("Expected the restored Note's editor");
   const documentTabs = await window.getByTestId("document-tab").count();
   try {
-    await pointAndClick(window, saved.getByTestId("meeting-transcript-open"));
+    await pointAndClick(window, chip);
+    await pointAndClick(window, window.getByTestId("meeting-view-transcript"));
     await expect(
       panel
         .getByTestId("meeting-note-transcript")
@@ -152,8 +165,9 @@ for (const language of ["en", "zh-CN"] as const) {
     await setWindowSize(app, window, 1440, 900);
     const { bar, name, meeting } = await recording(window, language);
     await pointAndClick(window, bar.getByTestId("meeting-stop"));
-    const { saved, audio } = await stoppedLines(window, language);
-    const audioLine = (await audio.textContent()) ?? "";
+    const chip = await stoppedChip(window, language);
+    const audioSaid = await audioLine(window, chip);
+    expect(audioSaid).toMatch(WORDS[language].audio);
     const parts = partsOf(meeting.id);
     expect(parts.length).toBeGreaterThan(0);
     await screenshot(window, `meeting-undo-stopped-${language}`);
@@ -170,11 +184,11 @@ for (const language of ["en", "zh-CN"] as const) {
 
     await expect(frontMindName(window)).toHaveText(name);
     await screenshot(window, `meeting-undo-undone-${language}`);
-    await expect(saved).toHaveText(WORDS[language].saved);
-    await expect(audio).toHaveText(audioLine);
+    await expect(chip).toHaveText(WORDS[language].recorded);
+    expect(await audioLine(window, chip)).toBe(audioSaid);
     await expect(undoMessage(window)).toHaveCount(0);
     expect(partsOf(meeting.id)).toEqual(parts);
-    await opensTranscript(window, saved, meeting.mindId);
+    await opensTranscript(window, chip, meeting.mindId);
     await app.close();
   });
 
@@ -219,10 +233,10 @@ for (const language of ["en", "zh-CN"] as const) {
     await pointAndClick(window, noteRow(window, name).getByTestId("mind-list-item"));
     await expect(frontMindName(window)).toHaveText(name);
     await screenshot(window, `meeting-restore-restored-${language}`);
-    const { saved } = await stoppedLines(window, language);
+    const chip = await stoppedChip(window, language);
     expect((await meetings(window))[0]).toMatchObject({ id: meeting.id, status: "stopped" });
     expect(partsOf(meeting.id).length).toBeGreaterThan(0);
-    await opensTranscript(window, saved, meeting.mindId);
+    await opensTranscript(window, chip, meeting.mindId);
     await app.close();
   });
 
@@ -232,7 +246,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await setWindowSize(app, window, 1440, 900);
     const { bar, name, meeting } = await recording(window, language);
     await pointAndClick(window, bar.getByTestId("meeting-stop"));
-    await stoppedLines(window, language);
+    await stoppedChip(window, language);
     await pointAndClick(window, (await tabMenu(window)).getByTestId("mind.delete"));
     await expect(undoMessage(window)).toHaveText(WORDS[language].deleted(name));
     // Something outside IncarnaMind removes it while the Note waits in Recently deleted.
@@ -244,8 +258,8 @@ for (const language of ["en", "zh-CN"] as const) {
       WORDS[language].lost(name),
     );
     await expect(frontMindName(window)).toHaveText(name);
-    await expect(window.getByTestId("meeting-transcript-line")).toHaveText(WORDS[language].saved);
-    await expect(window.getByTestId("meeting-audio")).toHaveText(WORDS[language].gone);
+    const chip = await stoppedChip(window, language);
+    expect(await audioLine(window, chip)).toBe(WORDS[language].gone);
     await screenshot(window, `meeting-undo-lost-${language}`);
     await app.close();
   });

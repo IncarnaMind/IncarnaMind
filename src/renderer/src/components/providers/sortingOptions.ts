@@ -186,6 +186,28 @@ export function hostSetUpOffers(
     .map((host) => ({ id: host.host, label: label(host) }));
 }
 
+/**
+ * The chat provider (a catalog id) whose key the chosen decision model uses: OpenRouter's,
+ * OpenAI's or the Qwen key (#1907). Your providers has no row of its own for it, so the sorting
+ * row names it. Null for any other choice.
+ */
+export function keyProviderOf(
+  option: SortingOption | null,
+  hosts: readonly DecisionHostStatus[] | null,
+): string | null {
+  const classifier = option?.classifier;
+  if (classifier?.kind !== "decision") return null;
+  const host = hosts?.find((each) => each.host === classifier.host);
+  return host?.key === "provider" ? host.provider : null;
+}
+
+/**
+ * Whether Your providers keeps something for this host only for sorting (#1907): its own key, or
+ * Alibaba's workspace beside the Qwen key.
+ */
+export const keptForSorting = (host: DecisionHostStatus): boolean =>
+  host.key === "own" ? host.hasKey : host.account?.value != null;
+
 /** Whether Jev can run here, set up with its key on this device, and whether its server is on this computer. */
 export interface JevState {
   ready: boolean;

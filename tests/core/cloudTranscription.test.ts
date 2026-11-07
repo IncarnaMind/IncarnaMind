@@ -80,6 +80,44 @@ describe("Cloud transcription with the User's own key", { timeout: 60_000 }, () 
     );
   });
 
+  test("the service's unfinished words show for both sides before any line is finished, and the finished line takes their place", async () => {
+    const dataDir = await createTempDataFolder();
+    const { core, record } = await transcribingCore(dataDir);
+    await chooseSoniox(core);
+    const meeting = await core.createMeeting();
+    await core.startMeeting({ meetingId: meeting.id });
+    await until(core, meeting.id, (transcript) => transcript.cloud === "soniox");
+
+    record(1.5 * SECOND);
+    const speaking = await until(
+      core,
+      meeting.id,
+      (transcript) => transcript.partials.length === 2,
+    );
+    expect(speaking.lines).toBe(0);
+    expect(speaking.documentId).toBeNull();
+    expect(speaking.partials.map((partial) => partial.speaker).sort()).toEqual(["Me", "Them"]);
+    for (const { text } of speaking.partials) {
+      expect(FAKE_CLOUD_LINES.some((line) => line.startsWith(text) && line !== text)).toBe(true);
+    }
+
+    record(3 * SECOND);
+    const finished = await until(core, meeting.id, (transcript) =>
+      speaking.partials.every(
+        (partial) => !transcript.partials.some((each) => each.startMs === partial.startMs),
+      ),
+    );
+    expect(finished.lines).toBeGreaterThanOrEqual(2);
+    await core.stopMeeting(meeting.id);
+    const saved = await until(core, meeting.id, (transcript) => transcript.state === "saved");
+    const { cues } = readVtt(readFileSync(saved.savedPath as string, "utf8"));
+    for (const partial of speaking.partials) {
+      const line = cues.find((cue) => cue.startMs === partial.startMs);
+      expect(line?.text.startsWith(partial.text)).toBe(true);
+      expect(FAKE_CLOUD_LINES).toContain(line?.text);
+    }
+  });
+
   // protects=on the cloud path too, a line the User said before the others made a sound becomes Me once the computer's sound is heard, not the room's "Speaker 1" the service's voice gave it (#2305); fails_when=the first line keeps a number; no_claim=the local engine, which tests/core/transcripts.test.ts covers.
   test("the User speaks before the others make a sound: the service's first lines read Me once the call is heard", async () => {
     const dataDir = await createTempDataFolder();
@@ -683,7 +721,7 @@ describe("Cloud transcription with the User's own key", { timeout: 60_000 }, () 
       const meeting = await core.createMeeting();
       await core.startMeeting({ meetingId: meeting.id });
       record(4 * SECOND);
-      await until(core, meeting.id, (transcript) => transcript.partial !== null);
+      await until(core, meeting.id, (transcript) => transcript.partials.length > 0);
 
       await core.stopMeeting(meeting.id);
       const saved = await until(core, meeting.id, (transcript) => transcript.state === "saved");

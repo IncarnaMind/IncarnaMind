@@ -1,6 +1,8 @@
 import { beforeAll, describe, expect, test } from "vitest";
 import {
   buildMenu,
+  isMenuItem,
+  isMoreEntry,
   type MenuEntry,
   menuEntries,
   menuIds,
@@ -31,7 +33,11 @@ const focusOn = (kind: ObjectKind, here?: CommandContext["here"]): CommandContex
 });
 
 const idsIn = (entries: MenuEntry[]) =>
-  entries.map((entry) => (entry === "rule" ? "—" : entry.command.id));
+  entries.map((entry) => (entry === "rule" ? "—" : isMoreEntry(entry) ? "more" : entry.command.id));
+
+/** What the More › row holds, in order. */
+const moreIn = (entries: MenuEntry[]) =>
+  entries.flatMap((entry) => (isMoreEntry(entry) ? entry.more.map((item) => item.command.id) : []));
 
 beforeAll(async () => {
   // The commands reach the store, which reads the bridge the preload exposes.
@@ -52,32 +58,24 @@ beforeAll(async () => {
 });
 
 describe("the menus", () => {
-  test("a Mind's is Open, Open in new tab, Outline, Duplicate, Use as a source, Export…, its AI use statement and check record, History, Check this note, Tie out figures, Check for contradictions, Style, Make this a Skill, Move to and New Folder with this note, Rename, then Delete after a rule", () => {
+  test("a Mind's is Open, Open in new tab, Duplicate, Check this note, Tie out figures, Export…, History, More, Move to, Rename, then Delete after a rule", () => {
     const here = {
-      "mind.citationStyle": () => undefined,
       "mind.moveTo": () => undefined,
       "mind.rename": () => undefined,
     };
-    expect(idsIn(buildMenu("mind", focusOn("mind", here)))).toEqual([
+    const entries = buildMenu("mind", focusOn("mind", here));
+    expect(idsIn(entries)).toEqual([
       "mind.open",
       "mind.openTab",
       "—",
-      "mind.outline",
       "mind.duplicate",
-      "mind.useAsSource",
-      "mind.exportMenu",
-      "mind.aiUseStatement",
-      "mind.checkRecord",
-      "mind.history",
       "mind.check",
       "mind.tieOut",
-      "mind.checkContradictions",
-      "mind.citationStyle",
-      "mind.style",
-      "skill.fromMind",
+      "mind.exportMenu",
+      "mind.history",
+      "more",
       "—",
       "mind.moveTo",
-      "folder.newWith",
       "—",
       "mind.rename",
       "—",
@@ -88,32 +86,45 @@ describe("the menus", () => {
       "mind.open",
       "mind.openTab",
       "—",
-      "mind.outline",
       "mind.duplicate",
-      "mind.useAsSource",
-      "mind.exportMenu",
-      "mind.aiUseStatement",
-      "mind.checkRecord",
-      "mind.history",
       "mind.check",
       "mind.tieOut",
-      "mind.checkContradictions",
-      "mind.style",
-      "skill.fromMind",
-      "—",
-      "folder.newWith",
+      "mind.exportMenu",
+      "mind.history",
+      "more",
       "—",
       "mind.delete",
     ]);
-    // The page's ⋯ offers Style as a submenu of its own, and nothing to open the Mind it is on.
-    const page = idsIn(
-      buildMenu("mind", focusOn("mind"), ["mind.style", "mind.open", "mind.openTab"]),
-    );
-    expect(page).not.toContain("mind.style");
-    expect(page).not.toContain("mind.open");
-    expect(page).not.toContain("mind.openTab");
-    expect(page).toContain("skill.fromMind");
-    expect(page).toContain("mind.exportMenu");
+    // The page's ⋯ has nothing to open the Mind it is on.
+    const page = buildMenu("mind", focusOn("mind"), ["mind.open", "mind.openTab"]);
+    expect(idsIn(page)).not.toContain("mind.open");
+    expect(idsIn(page)).not.toContain("mind.openTab");
+    expect(idsIn(page)).toContain("mind.exportMenu");
+  });
+
+  test("More holds the rest of a Mind's menu, in its own order and not the groups'", () => {
+    // Tidy Chinese text and the transcript's rows are offered only where they apply.
+    expect(moreIn(buildMenu("mind", focusOn("mind")))).toEqual([
+      "mind.outline",
+      "mind.checkContradictions",
+      "mind.useAsSource",
+      "skill.fromMind",
+      "folder.newWith",
+    ]);
+  });
+
+  test("a Mind's menu offers no Style, Citation style or the export records, which the page's ⋯ and the Export menu hold", () => {
+    for (const kind of ["mind", "tab"] as const) {
+      const ids = menuIds(kind);
+      for (const id of [
+        "mind.style",
+        "mind.citationStyle",
+        "mind.aiUseStatement",
+        "mind.checkRecord",
+      ]) {
+        expect(ids, `${kind} ${id}`).not.toContain(id);
+      }
+    }
   });
 
   test("no Mind menu lists the export formats, which the Export button's menu and ⌘K have", () => {
@@ -254,7 +265,7 @@ describe("the menus", () => {
     commands.register({ ...base, id: "test.fine", appliesTo: ["folder"] });
     registerMenu("folder", ["test.notHere", "test.wrongKind", "test.notNow", "test.fine"]);
     const entries = buildMenu("folder", focusOn("folder"));
-    const items = entries.flatMap((entry) => (entry === "rule" ? [] : [entry]));
+    const items = entries.flatMap((entry) => (isMenuItem(entry) ? [entry] : []));
     const byId = Object.fromEntries(items.map((item) => [item.command.id, item.enabled]));
     expect(byId["test.notHere"]).toBeUndefined();
     expect(byId["test.wrongKind"]).toBeUndefined();
@@ -279,13 +290,13 @@ describe("the menus", () => {
     registerMenu("document", ["test.count"]);
     const ctx: CommandContext = { selection, focus: selection[0] ?? null, surface: "library" };
     const item = buildMenu("document", ctx).find(
-      (entry) => entry !== "rule" && entry.command.id === "test.count",
+      (entry) => isMenuItem(entry) && entry.command.id === "test.count",
     );
     expect(item).toBeDefined();
     // And a selection with something that isn't a Document is no menu for Documents.
     const mixed: CommandContext = { ...ctx, selection: [...selection, { kind: "mind", id: "m" }] };
     expect(
-      buildMenu("document", mixed).some((e) => e !== "rule" && e.command.id === "test.count"),
+      buildMenu("document", mixed).some((e) => isMenuItem(e) && e.command.id === "test.count"),
     ).toBe(false);
   });
 
@@ -305,7 +316,7 @@ describe("the menus", () => {
     };
     const inMenu = (ctx: CommandContext) =>
       buildMenu("folder", ctx).some(
-        (entry) => entry !== "rule" && entry.command.id === "folder.addDocuments",
+        (entry) => isMenuItem(entry) && entry.command.id === "folder.addDocuments",
       );
     expect(inMenu(one)).toBe(true);
     expect(inMenu(two)).toBe(false);

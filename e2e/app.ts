@@ -513,7 +513,9 @@ export async function expectBarOneRow(bar: Locator): Promise<void> {
               each.getBoundingClientRect().right <= frame.right + 1,
           ),
           kept:
-            ["meeting-dot", "meeting-time", "meeting-mic", "meeting-stop"].every(shown) &&
+            ["meeting-dot", "meeting-time", "meeting-mic", "meeting-stop", "meeting-views"].every(
+              shown,
+            ) &&
             (shown("meeting-pause") || shown("meeting-resume")),
           fits: element.scrollWidth <= element.clientWidth + 1,
           cut: buttons.some((button) =>
@@ -522,12 +524,8 @@ export async function expectBarOneRow(bar: Locator): Promise<void> {
             ),
           ),
           foldedHaveMore:
-            [
-              "meeting-mark",
-              "meeting-call-help",
-              "meeting-transcript-toggle",
-              "meeting-details-toggle",
-            ].every(shown) || shown("meeting-more"),
+            ["meeting-mark", "meeting-call-help", "meeting-details-toggle"].every(shown) ||
+            shown("meeting-more"),
         };
       }),
     )
@@ -1130,6 +1128,65 @@ export async function recordMeetingNow(window: Page): Promise<Locator> {
   return bar;
 }
 
+/** Waits until a recording meeting's Transcript has its first finished line. */
+export async function firstTranscriptLine(window: Page, timeout = 20_000): Promise<void> {
+  await expect
+    .poll(
+      () =>
+        window.evaluate(async () =>
+          (
+            await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.listMeetings()
+          ).some((each) => each.status !== "stopped" && (each.transcript?.lines ?? 0) > 0),
+        ),
+      { timeout },
+    )
+    .toBe(true);
+}
+
+/**
+ * After the first fill on a computer, the stopped call's chip opens its popover by itself, once,
+ * leaving the focus where it was (#2527): Esc closes it.
+ */
+export async function closeFirstFillPopover(window: Page): Promise<void> {
+  const menu = window.getByTestId("meeting-view-menu");
+  await expect(menu).toBeVisible();
+  await window.keyboard.press("Escape");
+  await expect(menu).toBeHidden();
+}
+
+/** Waits until a stopped meeting's Transcript is saved: its page says nothing of it (#2527). */
+export async function transcriptSaved(window: Page, timeout = 30_000): Promise<void> {
+  await expect
+    .poll(
+      () =>
+        window.evaluate(async () =>
+          (
+            await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.listMeetings()
+          ).some((each) => each.status === "stopped" && each.transcript?.state === "saved"),
+        ),
+      { timeout },
+    )
+    .toBe(true);
+}
+
+/**
+ * The recording bar's Transcript view, then its "Open beside" once the Transcript has a line: the
+ * live Transcript in a tab of the next group, and the meeting's page back on its notes (#138).
+ */
+export async function openTranscriptBeside(
+  window: Page,
+  bar: Locator,
+  timeout = 20_000,
+): Promise<void> {
+  await firstTranscriptLine(window, timeout);
+  await pointAndClick(window, bar.getByTestId("meeting-views").locator("label").nth(1));
+  const beside = window.getByTestId("meeting-transcript-beside");
+  await expect(beside).toBeEnabled();
+  await pointAndClick(window, beside);
+  await expect(window.getByTestId("meeting-note-transcript")).toHaveCount(0);
+  await expect(window.getByTestId("viewer-transcript")).toBeVisible();
+}
+
 /** Starts recording from the start block; the first time, through the one-time notice. */
 export async function startRecording(window: Page, start: Locator, { notice = false } = {}) {
   const record = start.getByTestId("meeting-start-record");
@@ -1313,6 +1370,14 @@ export async function openExportOptions(window: Page): Promise<void> {
 export async function openOptions(window: Page, title: string): Promise<void> {
   await openExportOptions(window);
   await expect(window.getByTestId("export-dialog").getByRole("heading")).toHaveText(title);
+}
+
+/** Share as a web page…, from Export › More formats; resolves once its sheet shows. */
+export async function openShareSheet(window: Page): Promise<void> {
+  await pointAndClick(window, window.getByTestId("export-mind"));
+  await pointAndClick(window, window.getByTestId("export-more"));
+  await pointAndClick(window, window.getByTestId("export-share-web-page"));
+  await expect(window.getByTestId("share-dialog")).toBeVisible();
 }
 
 /**
@@ -2601,6 +2666,18 @@ export async function openPageMenu(window: Page): Promise<Locator> {
   return menu;
 }
 
+/**
+ * The More › submenu of an object's menu that is open, opened with a click on its row, as a person
+ * opens it. Its items sit beside the menu, not inside it.
+ */
+export async function openMoreMenu(window: Page, menu: Locator): Promise<Locator> {
+  const prefix = ((await menu.getAttribute("data-testid")) ?? "").replace(/-actions$/, "");
+  await pointAndClick(window, menu.getByTestId(`${prefix}-more`));
+  const more = window.locator(`[data-testid="${prefix}-more-menu"]:visible`);
+  await expect(more).toBeVisible();
+  return more;
+}
+
 /** Look › The Word file's look or Plain note, in a Word Note's ⋯ menu beside Style. */
 export async function chooseLook(window: Page, look: "word" | "plain"): Promise<void> {
   const menu = await openPageMenu(window);
@@ -3418,6 +3495,17 @@ export async function exportFromMenu(window: Page, format?: ExportFormat): Promi
     await expect(window.getByTestId("export-more-menu")).toBeVisible();
   }
   await pointAndClick(window, item);
+}
+
+/** Export's More formats › menu for the Mind in the shown tab, opened as a person opens it. */
+export async function openExportMore(window: Page): Promise<Locator> {
+  await pointAndClick(window, window.getByTestId("export-mind"));
+  const menu = window.getByTestId("export-menu");
+  await expect(menu).toBeVisible();
+  await pointAndClick(window, menu.getByTestId("export-more"));
+  const more = window.getByTestId("export-more-menu");
+  await expect(more).toBeVisible();
+  return more;
 }
 
 /** The fonts Chromium drew an element's text with, by name, and whether each is bundled with the app. */
