@@ -592,6 +592,7 @@ describe("Downloading the speech models", () => {
       push: () => {},
       finish: async () => {},
       drop: () => {},
+      dropCloud: async () => {},
       open: () => {},
       listen: () => {},
       close: () => {},

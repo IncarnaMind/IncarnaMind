@@ -3,6 +3,7 @@ import { describe, expect, test, vi } from "vitest";
 import type { Core, Transcriber } from "../../src/core";
 import { createFakeCapture } from "../../src/core/meetings/fakeCapture";
 import {
+  type ConfirmDeadline,
   createChannelTranscriber,
   serveTranscriber,
   type TranscriberPort,
@@ -183,7 +184,8 @@ type Service = ReturnType<typeof counting>;
 /**
  * The channel to the transcription process, counting the audio the core hands over it for cloud
  * streams: what the send gate let go. `hold` keeps what the core sends on its way, as a busy
- * process does, until `deliver`.
+ * process does, until `deliver`. The wait for the process to confirm a drop runs out only when
+ * the test calls `overdue`.
  */
 function transcriptionChannel() {
   const cloud = new Set<string>();
@@ -191,15 +193,49 @@ function transcriptionChannel() {
   let handedAtMark = 0;
   let onTheWay = 0;
   let opened = 0;
+  let starts = 0;
   let holding = false;
   const held: (() => void)[] = [];
+  const waits = new Set<() => void>();
   return {
     hold: () => {
       holding = true;
     },
-    deliver: () => {
-      holding = false;
-      for (const delivery of held.splice(0)) setImmediate(delivery);
+    /**
+     * Lets through what was held: all in one batch, or `oneByOne`, a turn each, as a process
+     * that was stuck works through its queue.
+     */
+    deliver: (oneByOne = false) => {
+      if (!oneByOne) {
+        holding = false;
+        for (const delivery of held.splice(0)) setImmediate(delivery);
+        return;
+      }
+      const next = () => {
+        const delivery = held.shift();
+        if (!delivery) {
+          holding = false;
+          return;
+        }
+        delivery();
+        setTimeout(next, 0);
+      };
+      setTimeout(next, 0);
+    },
+    deadline: ((late) => {
+      waits.add(late);
+      return () => waits.delete(late);
+    }) as ConfirmDeadline,
+    overdue: () => {
+      for (const late of [...waits]) {
+        waits.delete(late);
+        late();
+      }
+    },
+    /** How many transcription processes have started. */
+    starts: () => starts,
+    started: () => {
+      starts++;
     },
     mark: () => {
       handedAtMark = handed;
@@ -235,6 +271,9 @@ type Channel = ReturnType<typeof transcriptionChannel>;
 
 function transcriberOn(service: Service, channel: Channel): Transcriber {
   return createChannelTranscriber(() => {
+    channel.started();
+    // A stopped process hears and says nothing more.
+    let running = true;
     let deliver: (request: TranscriberRequest) => void = () => {};
     const responses: ((response: TranscriberResponse) => void)[] = [];
     const port: TranscriberPort = {
@@ -243,6 +282,7 @@ function transcriberOn(service: Service, channel: Channel): Transcriber {
       },
       respond: (response) =>
         setImmediate(() => {
+          if (!running) return;
           for (const listener of responses) listener(response);
           channel.heard(response);
         }),
@@ -253,12 +293,17 @@ function transcriberOn(service: Service, channel: Channel): Transcriber {
       detectors: async () => createFakeSpeechEngine().detector,
     });
     return {
-      send: (request) => channel.send(request, (each) => deliver(each)),
+      send: (request) =>
+        channel.send(request, (each) => {
+          if (running) deliver(each);
+        }),
       onResponse: (listener) => responses.push(listener),
       onExit: () => {},
-      stop: () => {},
+      stop: () => {
+        running = false;
+      },
     };
-  });
+  }, channel.deadline);
 }
 
 async function meetingOn(route: Route, service: Service, keychain = createMemoryKeychain()) {
@@ -304,6 +349,22 @@ async function meetingOn(route: Route, service: Service, keychain = createMemory
 
 /** Lets messages cross the channel and the pretend socket. */
 const settle = () => new Promise((resolve) => setTimeout(resolve, 300));
+
+/** Both streams' connections are open and every chunk handed over has reached its socket. */
+async function drained(channel: Channel) {
+  await vi.waitFor(
+    () => {
+      expect(channel.opened()).toBe(2);
+      expect(channel.onTheWay()).toBe(0);
+    },
+    { timeout: 20_000, interval: 20 },
+  );
+  // The process sends what it received on its next turn.
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+const linesOf = async (core: Core, meetingId: string) =>
+  (await core.listMeetings()).find((each) => each.id === meetingId)?.transcript?.lines ?? 0;
 
 type Change = (core: Core, route: Route) => Promise<unknown>;
 
@@ -374,6 +435,30 @@ describe("Nothing more goes to the cloud once the User says no", { timeout: 60_0
         expect(service.sentSinceMark()).toBe(0);
       });
     }
+
+    test(`${route}: the consent revoked sends none of the audio still queued for the transcription process`, async () => {
+      const service = counting();
+      const { core, record, meeting, channel } = await meetingOn(route, service);
+      await until(core, meeting.id, (each) => each.cloud === route);
+      record(2 * SECOND);
+      await drained(channel);
+      channel.hold();
+      record(2 * SECOND);
+      expect(channel.onTheWay()).toBeGreaterThan(0);
+      service.mark();
+      channel.mark();
+      const revoked = core.revokeConsent("transcription", SERVICES[route]);
+      channel.deliver();
+      await revoked;
+      const before = await linesOf(core, meeting.id);
+      record(2 * SECOND);
+      const after = await until(core, meeting.id, (each) => each.lines > before);
+
+      expect(service.sendsSinceMark()).toEqual([]);
+      expect(channel.handedSinceMark()).toBe(0);
+      expect(service.closes()).toBe(2);
+      expect(after.cloud).toBeNull();
+    });
 
     test(`${route}: Stop after the gate closed sends nothing queued`, async () => {
       const service = counting();
@@ -463,37 +548,70 @@ describe("Nothing more goes to the cloud once the User says no", { timeout: 60_0
         await vi.waitFor(() => expect(channel.opened()).toBe(2), { timeout: 20_000, interval: 20 });
         expect(channel.onTheWay()).toBeGreaterThan(0);
       }
-      const onTheWay = channel.onTheWay();
       const active = (await core.listChatProviders()).find(
         (provider) => provider.endpoint !== "intl",
       )?.id;
       service.mark();
       channel.mark();
-      await core.deleteChatProvider(active ?? "");
-      await core.revokeConsent("transcription", SERVICES.qwen);
-      const before =
-        (await core.listMeetings()).find((each) => each.id === exercised.id)?.transcript?.lines ??
-        0;
-      record(4 * SECOND);
+      const deleted = core.deleteChatProvider(active ?? "");
       channel.deliver();
+      await deleted;
+      await core.revokeConsent("transcription", SERVICES.qwen);
+      const before = await linesOf(core, exercised.id);
+      record(4 * SECOND);
       service.release();
       // Lines for what was recorded after the User said no: all handed over before it has arrived.
       const after = await until(core, exercised.id, (each) => each.lines > before);
 
-      // The core let nothing go once the User acted. What still reached a socket had been handed
-      // over before, to Beijing's sockets with Beijing's key, and both are closed.
+      // The process threw away the audio it held for Beijing's sockets before sending any of it.
+      expect(service.sendsSinceMark()).toEqual([]);
       expect(channel.handedSinceMark()).toBe(0);
-      expect(service.sentSinceMark()).toBeLessThanOrEqual(onTheWay);
-      expect(
-        service
-          .sendsSinceMark()
-          .filter((each) => each.url !== beijing || each.key !== "cn-active-dummy"),
-      ).toEqual([]);
       expect(service.opened()).toEqual([beijing, beijing]);
       expect(service.closes()).toBe(2);
       expect(after.cloud).toBeNull();
     });
   }
+
+  test("qwen: a transcription process that never confirms the drop is stopped, so the consent revoked sends nothing more, and the next process starts afresh", async () => {
+    const service = counting();
+    const { core, record, meeting, channel } = await meetingOn("qwen", service);
+    await until(core, meeting.id, (each) => each.cloud === "qwen");
+    record(2 * SECOND);
+    await drained(channel);
+    channel.hold();
+    record(2 * SECOND);
+    service.mark();
+    let answered = false;
+    const revoked = core.revokeConsent("transcription", SERVICES.qwen).then(() => {
+      answered = true;
+    });
+
+    // The choice reads off at once; only the answer waits for the process.
+    expect((await core.getSettings()).device.transcriptionRoute).toBe("local");
+    const flow = (await core.listDataFlows()).find(
+      (each) => each.flow.id === "transcription" && each.flow.service.id === SERVICES.qwen,
+    );
+    expect(flow?.consent).not.toBe("accepted");
+    expect(answered).toBe(false);
+    channel.overdue();
+    await revoked;
+    // Woken, the stopped process would work through what it held: it never does.
+    channel.deliver(true);
+    const before = await linesOf(core, meeting.id);
+    record(4 * SECOND);
+    const after = await until(core, meeting.id, (each) => each.lines > before);
+    expect(service.sendsSinceMark()).toEqual([]);
+    expect(after.cloud).toBeNull();
+    expect(channel.starts()).toBe(2);
+
+    await core.stopMeeting(meeting.id);
+    const next = await core.createMeeting();
+    await core.startMeeting({ meetingId: next.id });
+    record(4 * SECOND);
+    await until(core, next.id, (each) => each.lines > 0);
+    expect(service.sendsSinceMark()).toEqual([]);
+    expect(channel.starts()).toBe(2);
+  });
 
   test("qwen: the key moving to another region sends nothing there, sets Meetings back to this computer and says so, until Qwen is chosen again for that region", async () => {
     const service = counting();
@@ -584,13 +702,7 @@ describe("Nothing more goes to the cloud once the User says no", { timeout: 60_0
     await until(core, meeting.id, (each) => each.cloud === "qwen");
     record(2 * SECOND);
     // Open and drained before the mark, so when the connections opened can't decide it (#2702).
-    await vi.waitFor(
-      () => {
-        expect(channel.opened()).toBe(2);
-        expect(channel.onTheWay()).toBe(0);
-      },
-      { timeout: 20_000, interval: 20 },
-    );
+    await drained(channel);
     const beijing = (await core.listChatProviders())[0]?.id ?? "";
     await core.saveChatProvider({
       kind: "qwen",
