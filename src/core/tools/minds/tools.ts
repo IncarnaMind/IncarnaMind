@@ -2049,80 +2049,100 @@ export function mindTools(options: MindToolsOptions): {
     streams.clear();
   };
 
+  type Settled = Pick<Written, "blocks"> & { change: MindChange };
+
+  /** What one write made before `cite` recorded its markers holds once its Citations are in. */
+  const settleOne = (
+    toolCallId: string,
+    each: NonNullable<ReturnType<(typeof unsettled)["get"]>>,
+  ): Settled | null => {
+    const { blocks, cited, unrecorded, ...notes } = options.blocksOf(each.markdown);
+    if (blocks.length !== each.ids.length) {
+      console.warn(
+        `Citations recorded after a Mind was written couldn't go in: the text reads as ${blocks.length} Blocks, ${each.ids.length} were written (Mind ${each.mindId}, call ${toolCallId}).`,
+      );
+      // Its chart would draw figures whose Citations never went in.
+      if (each.chart) options.changed(toolCallId, { ...each.sent, chartNotDrawn: "uncited" });
+      return null;
+    }
+    const synced = minds.edit(each.mindId, (note) => {
+      const found: { ids: string[]; blocks: NodeJSON[] } = { ids: [], blocks: [] };
+      for (const element of topLevelBlocks(note)) {
+        const id = idOf(element);
+        const at = each.ids.indexOf(id);
+        const block = blocks[at];
+        if (at < 0 || !block) continue;
+        syncContent(element, block.content ?? []);
+        found.ids.push(id);
+        found.blocks.push(block);
+      }
+      return found;
+    });
+    const there = synced.ids.length;
+    const drawn = each.chart?.(blocks) ?? null;
+    const charted = drawn !== null && !drawn.problem;
+    // A later call revised some of what this one wrote: counted now, it would read as having
+    // written less, or nothing. Its card keeps what it wrote, and the chart drawn now.
+    const counts =
+      there < each.ids.length
+        ? {
+            ...each.sent,
+            ...(charted && {
+              proposals: each.sent.proposals + 1,
+              charts: (each.sent.charts ?? 0) + 1,
+            }),
+          }
+        : each.change();
+    const change: MindChange = {
+      ...counts,
+      ...citedIn({ cited, unrecorded }),
+      ...someTableNotes(notes),
+      ...(drawn?.problem && { chartNotDrawn: drawn.problem }),
+    };
+    options.changed(toolCallId, change);
+    return { blocks: { mindId: each.mindId, ...synced }, change };
+  };
+
   const settle = async (failed = false): Promise<void> => {
     if (failed) takeBackUnmade();
     // Taken before any of it runs: settled again after a throw, nothing is checked twice.
     const entries = [...unsettled];
     unsettled.clear();
+    const settled: { toolCallId: string; written: Settled }[] = [];
+    for (const [toolCallId, each] of entries) {
+      try {
+        const written = settleOne(toolCallId, each);
+        if (written) settled.push({ toolCallId, written });
+      } catch (error) {
+        // A Note that refuses one write's Citations leaves the others to go in and be checked.
+        console.error(
+          `Citations recorded after the assistant wrote in Mind ${each.mindId} couldn't go in (call ${toolCallId}):`,
+          error,
+        );
+      }
+    }
+    // A Block two of them wrote, as a revision that kept its id, holds the later one's text: it is
+    // checked once, as that.
+    const later = new Set<string>();
+    for (const { written } of [...settled].reverse()) {
+      const { mindId, ids, blocks } = written.blocks;
+      const kept = ids.flatMap((id, at) => {
+        const block = blocks[at];
+        return later.has(id) || !block ? [] : [{ id, block }];
+      });
+      for (const id of ids) later.add(id);
+      written.blocks = {
+        mindId,
+        ids: kept.map(({ id }) => id),
+        blocks: kept.map(({ block }) => block),
+      };
+    }
     // Its Citations weren't in as it landed, so it wasn't checked then (#1635): unchecked, its
     // sentences would show found Citations and no mark, which reads as checked. One write's
     // check at a time, as each holds as many requests at once as a write's check does.
-    const checks: (() => Promise<unknown>)[] = [];
-    const check = (toolCallId: string, written: Pick<Written, "blocks"> & { change: MindChange }) =>
-      checks.push(() => checkBlocks(toolCallId, written, options.signal, failed));
-    for (const [toolCallId, each] of entries) {
-      const { blocks, cited, unrecorded, ...notes } = options.blocksOf(each.markdown);
-      if (blocks.length !== each.ids.length) {
-        console.warn(
-          `Citations recorded after a Mind was written couldn't go in: the text reads as ${blocks.length} Blocks, ${each.ids.length} were written (Mind ${each.mindId}, call ${toolCallId}).`,
-        );
-        // Its chart would draw figures whose Citations never went in.
-        const change: MindChange = each.chart
-          ? { ...each.sent, chartNotDrawn: "uncited" }
-          : each.sent;
-        if (each.chart) options.changed(toolCallId, change);
-        // The Citations it had as it was written are still there, as yet unchecked.
-        const standing = minds.read(each.mindId, (note) => {
-          const found: { ids: string[]; blocks: NodeJSON[] } = { ids: [], blocks: [] };
-          for (const element of topLevelBlocks(note)) {
-            const id = idOf(element);
-            if (!each.ids.includes(id)) continue;
-            found.ids.push(id);
-            found.blocks.push(nodeOf(element));
-          }
-          return found;
-        });
-        check(toolCallId, { blocks: { mindId: each.mindId, ...standing }, change });
-        continue;
-      }
-      const synced = minds.edit(each.mindId, (note) => {
-        const found: { ids: string[]; blocks: NodeJSON[] } = { ids: [], blocks: [] };
-        for (const element of topLevelBlocks(note)) {
-          const id = idOf(element);
-          const at = each.ids.indexOf(id);
-          const block = blocks[at];
-          if (at < 0 || !block) continue;
-          syncContent(element, block.content ?? []);
-          found.ids.push(id);
-          found.blocks.push(block);
-        }
-        return found;
-      });
-      const there = synced.ids.length;
-      const drawn = each.chart?.(blocks) ?? null;
-      const charted = drawn !== null && !drawn.problem;
-      // A later call revised some of what this one wrote: counted now, it would read as having
-      // written less, or nothing. Its card keeps what it wrote, and the chart drawn now.
-      const counts =
-        there < each.ids.length
-          ? {
-              ...each.sent,
-              ...(charted && {
-                proposals: each.sent.proposals + 1,
-                charts: (each.sent.charts ?? 0) + 1,
-              }),
-            }
-          : each.change();
-      const change: MindChange = {
-        ...counts,
-        ...citedIn({ cited, unrecorded }),
-        ...someTableNotes(notes),
-        ...(drawn?.problem && { chartNotDrawn: drawn.problem }),
-      };
-      options.changed(toolCallId, change);
-      check(toolCallId, { blocks: { mindId: each.mindId, ...synced }, change });
+    for (const { toolCallId, written } of settled) {
+      await checkBlocks(toolCallId, written, options.signal, failed);
     }
-    for (const next of checks) await next();
   };
 
   /** What the model reads of Blocks it added: how many, and what of their Citations didn't hold. */

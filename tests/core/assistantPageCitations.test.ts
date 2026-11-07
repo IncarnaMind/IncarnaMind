@@ -101,7 +101,7 @@ describe("Text written into a Mind keeps its Citations", { timeout: 30_000 }, ()
     expect(answerRequests(model)).toHaveLength(3);
   });
 
-  // protects=a revision with new text, written in the same step as its cite, keeps its Citation and is checked whichever comes first; fails_when=the revised page loses its marker, or the revision goes unchecked; no_claim=how a real provider orders the calls.
+  // protects=a revision with new text, written in the same step as its cite, keeps its Citation whichever comes first, and is checked; fails_when=the revised page loses its marker, or the revision goes unchecked; no_claim=a revision that runs before its cite: here `cite` runs first in both orders, so the test below holds that case.
   test.each(["cite-first", "write-first"] as const)("a revision, %s", async (order) => {
     const LONGER =
       "## Tides\n\nSpring tides come at new and full moon [^1].\n\nNeap tides come between them.";

@@ -1066,7 +1066,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     );
     if (signal.aborted) return null;
     if (waiting) for (const sentence of sending) failed(sentence, "consent-widened", null);
-    else if (holding) for (const sentence of sending) failed(sentence, "failed", null);
+    else if (holding) for (const sentence of sending) failed(sentence, "answer-failed", null);
     const at = options.now().toISOString();
     landAll([
       ...held.sort((a, b) => a.index - b.index).map(({ landing }) => landing),

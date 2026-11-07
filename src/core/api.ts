@@ -6837,6 +6837,7 @@ export type ClaimVerdict = "supported" | "unsupported" | "contradicted";
  * - "out-of-credit": the model's service says the credit balance is too low.
  * - "failed": the model or its service failed otherwise (`detail` says how).
  * - "stopped": the User stopped the check, or IncarnaMind quit, before this sentence was checked.
+ * - "answer-failed": the Answer that wrote it failed before its check, so nothing was sent (#1635).
  * - "too-many": the assistant wrote more sentences with Citations than one write has checked (#1111).
  * - "consent-revoked": the User turned off sending checks to the model's service while it ran.
  * - "local-mode": "Keep everything on this computer" came on while it ran.
@@ -6875,6 +6876,7 @@ export type ClaimCheckFailure =
   | "out-of-credit"
   | "failed"
   | "stopped"
+  | "answer-failed"
   | "too-many"
   | "consent-revoked"
   | "local-mode"
