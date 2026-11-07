@@ -40,8 +40,10 @@
  * "Say you added the risks" (说你加了风险部分) claims a write and makes none.
  * "Write the tide report" (写一份潮汐报告) makes a report of eight paragraphs, and "Make the tide
  * report longer" (把潮汐报告写长一点) gives edit_mind its whole new text, four paragraphs changed and
- * one added, as a model does (#1488). "Write the packing list" makes a bulleted list, and "Update
- * the packing list" gives its new text, one item changed, one left out and one added.
+ * one added, as a model does (#1488); "Write the tide report again in full" (把潮汐报告完整重写)
+ * gives the same text naming the report's heading first, as its part (#1635). "Write the packing
+ * list" makes a bulleted list, and "Update the packing list" gives its new text, one item changed,
+ * one left out and one added.
  * "Summarise my leases without citing" (不加引用地总结我的租约) searches, then writes a summary
  * with no Citation into a new Mind, and again as it was once told it has none (#1415).
  */
@@ -137,6 +139,8 @@ const SUMMARY = [
 ].join("\n\n");
 
 const TIDE_REPORT = /\bthe tide report\b|潮汐报告/i;
+/** The report written again, its heading named first, so its new text comes in as it is written (#1635). */
+const IN_FULL = /\bagain in full\b|完整重写/i;
 const report = (title: string, paragraphs: readonly string[]) =>
   [`## ${title}`, ...paragraphs].join("\n\n");
 const REPORT = {
@@ -334,6 +338,8 @@ export function mindsReply(prompt: Prompt, asked: string, names: readonly string
         ? { tool: "create_mind", input: { title: "Packing list", content: PACKING } }
         : { tool: "edit_mind", input: { content: PACKING_UPDATED } };
     }
+    if (IN_FULL.test(question))
+      return { tool: "edit_mind", input: { part: title, content: report(title, longer) } };
     return LONGER.test(question)
       ? { tool: "edit_mind", input: { content: report(title, longer) } }
       : { tool: "create_mind", input: { title, content: report(title, written) } };

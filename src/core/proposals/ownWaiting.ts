@@ -437,6 +437,20 @@ function blocksOf(
 }
 
 /**
+ * The first `count` of `over`'s Blocks, as they are now: what new text coming in a paragraph at a
+ * time takes the place of so far (#1635). Null once any of `over`'s Blocks changed.
+ */
+export function leadingOf<T extends OwnWaiting | OwnApplied>(
+  blocks: Y.XmlFragment,
+  over: T,
+  count: number,
+): T | null {
+  const range = blocksOf(blocks, over)?.slice(0, count);
+  if (!range || range.length === 0) return null;
+  return { ...over, blockIds: range.map(idOf), fingerprint: fingerprintOf(range) };
+}
+
+/**
  * Accepts the Proposals of `own`'s Blocks in a copy of the Mind, so its text
  * reads as the User would see it once accepted: what a revision rewrites.
  * Call it in a Yjs transaction.

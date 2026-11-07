@@ -2,13 +2,14 @@ import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import { type Core, GENERATED_MARK } from "../../src/core";
+import { MIND_CONTENT_FIELD } from "../../src/core/api";
 import { EDIT_INSTRUCTIONS, EDIT_INSTRUCTIONS_NAMED } from "../../src/core/edits/prompt";
 import { waitingProblemOf } from "../../src/renderer/src/changeProblems";
 import { resolveInEditor } from "../../src/renderer/src/editor/proposalReview";
 import { waitsForUser } from "../../src/shared/askedChanges";
 import { pendingProposals, proposalRequestOf, resolveProposals } from "../../src/shared/proposals";
 import { askAssistant, changesIn, lastResult, mindCalls } from "../helpers/assistant";
-import { answerEnded } from "../helpers/citations";
+import { answerEnded, answerJudged } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { boundEditor } from "../helpers/editor";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
@@ -2117,4 +2118,177 @@ describe("Reading the Note again in the turn that changed it", { timeout: 30_000
     expect(seen[0]).toContain(c.held);
     expect(pendingProposals(client.blocks).length).toBeGreaterThan(0);
   });
+});
+
+describe("New text coming in over the assistant's own text (#1635)", { timeout: 30_000 }, () => {
+  const paragraphs = (count: number, say: string) =>
+    Array.from({ length: count }, (_, index) => `${say} ${index + 1}.`);
+  const OLD = paragraphs(3, "The quarter went to plan, as paragraph");
+  const NEW = paragraphs(4, "The quarter went to plan and then some, as paragraph");
+  const CONTENT = `## Tide notes\n\n${NEW.join("\n\n")}`;
+
+  /** The Note as it reads once every change in it is accepted: what the window draws of changes it applies at once. */
+  const applied = (client: MindClient): string[] => {
+    const copy = new Y.Doc();
+    Y.applyUpdate(copy, Y.encodeStateAsUpdate(client.doc));
+    const blocks = copy.getXmlFragment(MIND_CONTENT_FIELD);
+    copy.transact(() => resolveProposals(blocks, () => true, "accept"));
+    const lines = shownWithChanges({ blocks });
+    copy.destroy();
+    return lines;
+  };
+
+  /**
+   * "Make the summary longer." over a summary added from an Answer, its new text held once its
+   * third paragraph has begun until `release`, or `fail`, or given whole with `streamed` false.
+   */
+  async function longer({
+    streamed = true,
+    input = { part: "Tide notes", content: CONTENT } as Record<string, unknown>,
+  } = {}) {
+    let release = () => {};
+    let fail = (_error: Error) => {};
+    const held = new Promise<void>((resolve, reject) => {
+      release = resolve;
+      fail = reject;
+    });
+    const model = scriptedModel((call): ScriptedReply => {
+      if (call.results.length > 0) return { text: "Done." };
+      if (!streamed) return { calls: [{ tool: "edit_mind", input }] };
+      return {
+        calls: [{ tool: "edit_mind", input, streamInput: true }],
+        pause: { after: JSON.stringify(input).indexOf(NEW[2] as string) + 4, until: held },
+      };
+    });
+    const { core, mind, client } = await setUp(model);
+    await core.addToNote({
+      mindId: mind.id,
+      blocks: [
+        { type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "Tide notes" }] },
+        ...OLD.map((words) => ({ type: "paragraph", content: [{ type: "text", text: words }] })),
+      ],
+      origin: null,
+      model: null,
+    });
+    await client.settled();
+    const before = exactly(client);
+    const seen: string[][] = [];
+    client.blocks.observeDeep(() => seen.push(applied(client)));
+    const asked = await core.askInConversation({
+      text: "Make the summary longer.",
+      mindId: mind.id,
+    });
+    if (!asked.asked) throw new Error("Not asked.");
+    return { core, model, client, before, seen, asked, release, fail };
+  }
+
+  // protects=each paragraph of edit_mind's new text over the summary added from an Answer takes the place of the next old one as the model writes it, so the Note as the window draws it never holds both versions, and the call ends exactly as the same call made whole, in one step (#1635); fails_when=nothing changes until the call is whole, the new text shows below the old, the Note grows past its longer version, or the old summary shows again between the last paragraph and the end; no_claim=how a real model orders its input.
+  test("each finished paragraph takes the place of the next old one, and the end is the whole call's", async () => {
+    const whole = await longer({ streamed: false });
+    whole.release();
+    await answerEnded(whole.core, whole.asked.answerId);
+    await whole.client.settled();
+    const { core, client, seen, asked, release } = await longer();
+
+    await expect
+      .poll(() => applied(client).slice(-4))
+      .toEqual(["Tide notes", NEW[0], NEW[1], OLD[2]]);
+    release();
+    expect((await answerEnded(core, asked.answerId)).event).toBe("finished");
+    await client.settled();
+
+    expect(shownWithChanges(client)).toEqual(shownWithChanges(whole.client));
+    expect(applied(client).slice(-5)).toEqual(["Tide notes", ...NEW]);
+    const lengths = seen.map((lines) => lines.length);
+    expect(Math.max(...lengths)).toBe(applied(client).length);
+    const first = seen.findIndex((lines) => lines.includes(NEW[0] as string));
+    expect(first).toBeGreaterThanOrEqual(0);
+    expect(seen.slice(first).some((lines) => lines.includes(OLD[0] as string))).toBe(false);
+  });
+
+  // protects=new text over the assistant's own text still waiting from an earlier Answer takes its place paragraph by paragraph too, and ends as one revision, its Checkpoint saved once (#1635); fails_when=the old waiting text stays below the new until the end, the end differs from the whole call's, or each paragraph saves a Checkpoint; no_claim=none beyond protects.
+  test("over its own waiting text, each paragraph takes the next old one's place, with one Checkpoint", async () => {
+    const page = `## Summary\n\n${OLD.join("\n\n")}`;
+    const input = {
+      mind: "Tide notes",
+      part: "Summary",
+      content: `## Summary\n\n${NEW.join("\n\n")}`,
+    };
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const model = scriptedModel((call): ScriptedReply => {
+      if (asked(call).endsWith("write a summary page")) {
+        return called(call, "create_mind")
+          ? { text: "It covers the quarter." }
+          : { calls: [{ tool: "create_mind", input: { title: "Tide notes", content: page } }] };
+      }
+      if (called(call, "edit_mind")) return { text: "It says more now." };
+      return {
+        calls: [{ tool: "edit_mind", input, streamInput: true }],
+        pause: { after: JSON.stringify(input).indexOf(NEW[2] as string) + 4, until: held },
+      };
+    });
+    const { core, mind } = await setUp(model);
+    const first = await askAssistant(core, { text: "write a summary page", mindId: mind.id });
+    const made = await madeBy(core, first);
+    const pageId = changesIn(first)[0]?.mindId ?? "";
+    const checkpoints = (await core.listCheckpoints(pageId)).checkpoints.length;
+
+    const second = askAssistant(core, {
+      text: "make it longer",
+      mindId: mind.id,
+      conversationId: first.conversationId,
+    });
+    await expect
+      .poll(() => shownWithChanges(made))
+      .toEqual(["+ Summary", `+ ${NEW[0]}`, `+ ${NEW[1]}`, `+ ${OLD[2]}`]);
+    release();
+    const answer = await second;
+
+    await made.settled();
+    expect(shownWithChanges(made)).toEqual(["+ Summary", ...NEW.map((each) => `+ ${each}`)]);
+    expect(changesIn(answer)).toEqual([expect.objectContaining({ revised: true, proposals: 5 })]);
+    expect((await core.listCheckpoints(pageId)).checkpoints).toHaveLength(checkpoints + 1);
+  });
+
+  // protects=new text that came in and is refused once whole (here, off the length asked for) is taken back, and the Note is exactly as it was (#1635); fails_when=the paragraphs that came in stay; no_claim=the refusal's words.
+  test("refused once whole, what came in is taken back", async () => {
+    const { core, client, before, asked, release } = await longer({
+      input: { part: "Tide notes", content: CONTENT, times_as_long: 3 },
+    });
+    await expect.poll(() => applied(client)).toContain(NEW[1]);
+    release();
+    await answerEnded(core, asked.answerId);
+    await client.settled();
+
+    const answer = await answerJudged(core, asked.conversation.id, asked.answerId);
+    expect(mindCalls(answer)[0]?.mindProblem).toMatchObject({ kind: "length" });
+    expect(exactly(client)).toEqual(before);
+  });
+
+  // protects=Stop, or a model that fails, while edit_mind's new text is coming takes back what came: the Note is exactly as it was, and the card claims no change for the window to apply (#1635); fails_when=part of the new text stays in place of the old, or a change is claimed; no_claim=the words of the stop or the failure.
+  test.each(["stop", "fail"] as const)(
+    "%s while the new text comes leaves the Note exactly as it was",
+    async (how) => {
+      const { core, client, before, asked, release, fail } = await longer();
+      await expect.poll(() => applied(client)).toContain(NEW[1]);
+      const ended = answerEnded(core, asked.answerId);
+      if (how === "stop") {
+        await core.stopConversationAnswer({
+          conversationId: asked.conversation.id,
+          answerId: asked.answerId,
+        });
+        release();
+      } else fail(new Error("The connection dropped."));
+      await ended;
+      await client.settled();
+
+      expect(exactly(client)).toEqual(before);
+      const { messages } = await core.getConversation(asked.conversation.id);
+      const answer = messages.find((message) => message.id === asked.answerId);
+      expect(answer?.kind === "answer" && changesIn(answer)).toEqual([]);
+    },
+  );
 });

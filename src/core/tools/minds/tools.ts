@@ -114,6 +114,7 @@ import { insertBlocks } from "../../noteAdding";
 import {
   citationsDropped,
   keepingTitle,
+  leadingOf,
   type OwnApplied,
   type OwnWaiting,
   ownAppliedIn,
@@ -1585,6 +1586,42 @@ export function mindTools(options: MindToolsOptions): {
     streams.clear();
   });
 
+  /** An `edit_mind` call's new text coming in over the assistant's own text (`streamRevision`). */
+  interface Revision {
+    mind: ChangeableMind;
+    over: OwnWaiting | OwnApplied;
+    request: string;
+    breaks: number;
+    /** How many of its content's Blocks are finished and recorded. */
+    ready: number;
+    /** How many of its Blocks are in the Mind. */
+    written: number;
+    /** It may yet be refused: nothing more goes in until the call has all of it. */
+    held: boolean;
+  }
+  /** By call; null for one whose text goes in only once the call has all of it. */
+  const revisions = new Map<string, Revision | null>();
+
+  /** What came in of a revision goes: the text is as it was. */
+  const takeBack = (revision: Revision): void => {
+    if (revision.written === 0) return;
+    revision.written = 0;
+    minds.edit(revision.mind.id, (note) => {
+      resolveProposals(note, (each) => each.request === revision.request, "reject");
+    });
+  };
+
+  // A revision cut off by Stop, a failed model or a call that never ran would leave the text half new.
+  const takeBackRevisions = (): void => {
+    for (const [toolCallId, revision] of revisions) {
+      if (!revision || revision.written === 0) continue;
+      takeBack(revision);
+      options.failed(toolCallId, { kind: "stopped", mindId: revision.mind.id });
+    }
+    revisions.clear();
+  };
+  options.signal.addEventListener("abort", takeBackRevisions);
+
   /**
    * More of a call's content: the Blocks it has finished (all but the one
    * being written) go in. `open` gives the writer once the fields before the
@@ -2128,6 +2165,7 @@ export function mindTools(options: MindToolsOptions): {
 
   const settle = async (failed = false): Promise<void> => {
     if (failed) takeBackUnmade();
+    takeBackRevisions();
     // Taken before any of it runs: settled again after a throw, nothing is checked twice.
     const entries = [...unsettled];
     unsettled.clear();
@@ -2278,10 +2316,61 @@ export function mindTools(options: MindToolsOptions): {
       : `Revised your own text in “${mind.name}”${went}: the old version of it is gone. ${outcome}`;
   };
 
+  interface Replacing {
+    /** Written again from every Document (#1149): over words the User typed in since, it waits. */
+    remade?: { typedSince: boolean };
+    action?: EditAction;
+    /** The assistant said the User asked only for text to go (#2356). */
+    removesOnly?: boolean;
+    /** Citations `cite` records later go in once the Run is done (`settle`), into Blocks added whole. */
+    whole?: boolean;
+  }
+
+  /**
+   * Puts `blocks` in place of the Blocks of `part`, the whole of `over` or its first ones, as
+   * Proposals of `request`, tagged as asked for when `over` was. Returns the new Blocks' ids; null,
+   * changing nothing, when they changed since they were read. Call it in `minds.edit`.
+   */
+  const replaceIn = (
+    note: Y.XmlFragment,
+    over: OwnWaiting | OwnApplied,
+    part: OwnWaiting | OwnApplied,
+    blocks: readonly NodeJSON[],
+    request: string,
+    { remade, action, removesOnly = false, whole = false }: Replacing,
+  ): string[] | null => {
+    const asked =
+      over.kind === "own" ? ownAsked(note, over) : remade === undefined || !remade.typedSince;
+    const doc = note.doc;
+    // A revision asked only to take text out, or of a removal that was, is held to it.
+    const removing =
+      removesOnly ||
+      (over.kind === "own" &&
+        doc !== null &&
+        over.requests.some((each) => removesOnlyAsked(doc, each)));
+    const written =
+      part.kind === "own"
+        ? replaceOwn(note, part, blocks.map(createElement), request, ownRequests)
+        : replaceApplied(note, part, blocks, request, { whole });
+    if (!written || !doc) return written;
+    setOriginsOf(doc, request, written, options.origin);
+    recordProposalRequest(doc, request, {
+      source: "answer-added",
+      providerId: options.prepared.provider.id,
+      modelId: options.prepared.modelId,
+      createdAt: options.now().toISOString(),
+      ...(action && { action }),
+      ...(asked && { requested: remade ? ("write" as const) : ("edit" as const) }),
+      ...(removing && { removesOnly: true }),
+    });
+    return written;
+  };
+
   /**
    * `edit_mind` with new text: it takes the place of the assistant's own text over the
    * stretch, cited as an Answer is: its changes still waiting (`own`), revised in place, or
-   * its text already in the Mind (`applied`), proposed to be replaced (#1061).
+   * its text already in the Mind (`applied`), proposed to be replaced (#1061). `streamed`: the
+   * request its text came in under, taken back in this same `minds.edit` (`revisions`).
    */
   const writeOver = (
     toolCallId: string,
@@ -2291,18 +2380,11 @@ export function mindTools(options: MindToolsOptions): {
     retry: boolean,
     {
       again = "call edit_mind again",
-      remade,
-      action,
-      removesOnly = false,
-    }: {
-      again?: string;
-      // Written again from every Document (#1149): over words the User typed in since, it waits.
-      remade?: { typedSince: boolean };
-      action?: EditAction;
-      /** The assistant said the User asked only for text to go (#2356). */
-      removesOnly?: boolean;
-    } = {},
+      streamed,
+      ...replacing
+    }: Omit<Replacing, "whole"> & { again?: string; streamed?: string } = {},
   ): Written & { change: MindChange; dropped: number } => {
+    const { remade } = replacing;
     const alone = withoutPointersBack(markdown);
     const content = options.blocksOf(alone.markdown);
     const { blocks, cited, notFound, unrecorded, searchTalk, analysisTables, ...notes } = content;
@@ -2316,37 +2398,13 @@ export function mindTools(options: MindToolsOptions): {
     if (twice) throw tableTwice(mind, twice, `Nothing was changed in “${mind.name}”`, again);
     const dropped = minds.read(mind.id, (note) => citationsDropped(note, over, blocks));
     const replaced = over.kind === "own" ? replacedOwn(mind.id, over.blockIds) : {};
-    const request = randomUUID();
+    const request = streamed ?? randomUUID();
     ownRequests.add(request);
-    minds.checkpoint(mind.id);
-    const ids = minds.edit(mind.id, (note) => {
-      const asked =
-        over.kind === "own" ? ownAsked(note, over) : remade === undefined || !remade.typedSince;
-      const doc = note.doc;
-      // A revision asked only to take text out, or of a removal that was, is held to it.
-      const removing =
-        removesOnly ||
-        (over.kind === "own" &&
-          doc !== null &&
-          over.requests.some((each) => removesOnlyAsked(doc, each)));
-      // `settle` writes Citations recorded later into the Blocks written, which only Blocks added whole can take.
-      const written =
-        over.kind === "own"
-          ? replaceOwn(note, over, blocks.map(createElement), request, ownRequests)
-          : replaceApplied(note, over, blocks, request, { whole: unrecorded > 0 });
-      if (!written || !doc) return written;
-      setOriginsOf(doc, request, written, options.origin);
-      recordProposalRequest(doc, request, {
-        source: "answer-added",
-        providerId: options.prepared.provider.id,
-        modelId: options.prepared.modelId,
-        createdAt: options.now().toISOString(),
-        ...(action && { action }),
-        ...(asked && { requested: remade ? ("write" as const) : ("edit" as const) }),
-        ...(removing && { removesOnly: true }),
-      });
-      return written;
-    });
+    // Text that came in took the Checkpoint before its first paragraph went in.
+    if (!streamed) minds.checkpoint(mind.id);
+    const ids = minds.edit(mind.id, (note) =>
+      replaceIn(note, over, over, blocks, request, { ...replacing, whole: unrecorded > 0 }),
+    );
     if (!ids) {
       throw new Refusal(
         { kind: "changed", mindId: mind.id },
@@ -2424,6 +2482,197 @@ export function mindTools(options: MindToolsOptions): {
       ),
     );
 
+  /**
+   * The text an `edit_mind` call's content will replace, once the fields before it name it whole:
+   * the assistant's own text, as `beginEdit` finds it. Null when the content goes in only once the
+   * call has all of it: the call names no part, or asks the User which Note first, or the text there
+   * isn't the assistant's own, or this Answer wrote it, which taking the new text back would take
+   * back too.
+   */
+  const openRevision = (fields: ReturnType<typeof partialFields>): Revision | null => {
+    const named = fields.get("mind");
+    const part = fields.get("part");
+    if (!part?.done || (named && !named.done) || fields.has("instruction")) return null;
+    const mind = targetOf({ mind: named?.value });
+    if (mind instanceof Refusal || asksFirst(mind)) return null;
+    const over = minds.read(mind.id, (note) => {
+      const stretch = stretchOf(note, part.value, options.language, [], options.paragraph);
+      if ("why" in stretch) return null;
+      const waiting = waitingIn(note, stretch.from, stretch.to, ownRequests);
+      if (waiting.kind === "own")
+        return waiting.removesWhole || waiting.requests.some((each) => ownRequests.has(each))
+          ? null
+          : waiting;
+      return waiting.kind === "none" ? ownAppliedIn(note, stretch.from, stretch.to) : null;
+    });
+    return (
+      over && { mind, over, request: randomUUID(), breaks: 0, ready: 0, written: 0, held: false }
+    );
+  };
+
+  /**
+   * More of an `edit_mind` call's content as the model writes it (#1635): each paragraph it has
+   * finished takes the place of the next paragraph of the text it replaces, all in one request
+   * written again each time over the text as it was, so the page keeps its length while the rest
+   * comes in instead of showing the old text and the new one below it. The call writes the whole
+   * text over it in the end, or takes it back (`beginEdit`).
+   */
+  const streamRevision = (toolCallId: string, text: string): void => {
+    if (options.signal.aborted || ended.has(toolCallId)) return;
+    const fields = partialFields(text);
+    const content = fields.get("content");
+    if (!content) return;
+    if (!revisions.has(toolCallId)) revisions.set(toolCallId, openRevision(fields));
+    const revision = revisions.get(toolCallId);
+    if (!revision || revision.held) return;
+    // Only once a paragraph has ended is there a Block more to write.
+    const breaks = content.value.split("\n\n").length - 1;
+    if (breaks === revision.breaks) return;
+    revision.breaks = breaks;
+    const { markdown } = withoutPointersBack(content.value);
+    const { blocks, firstUnrecorded, sourcesAsText } = options.blocksOf(markdown);
+    if (sourcesAsText.length > 0 || blocks.slice(0, -1).some(unmadeTable)) {
+      revision.held = true;
+      return;
+    }
+    // `cite` may run after the call's input starts: a Block waits for its markers' records.
+    const ready = Math.min(
+      firstUnrecorded < 0 ? blocks.length - 1 : firstUnrecorded,
+      blocks.length - 1,
+    );
+    if (ready <= revision.ready) return;
+    revision.ready = ready;
+    const { mind, over, request } = revision;
+    if (revision.written === 0) minds.checkpoint(mind.id);
+    const written = minds.edit(mind.id, (note) => {
+      takeBack(revision);
+      const titled = options.blocksOf(keepingTitle(note, over, markdown)).blocks;
+      const done = titled.slice(0, ready + titled.length - blocks.length);
+      const part = leadingOf(note, over, done.length);
+      return part && replaceIn(note, over, part, done, request, {}) ? done.length : null;
+    });
+    if (written === null) {
+      revision.held = true;
+      return;
+    }
+    revision.written = written;
+  };
+
+  /**
+   * An `edit_mind` call up to its first wait: the text it names, and with content, that content
+   * written in place of the assistant's own text there; or why not. `streamed`: what of the
+   * content came in, taken back in the same `minds.edit` as this runs in.
+   */
+  const beginEdit = (
+    input: Record<string, unknown>,
+    toolCallId: string,
+    canCallAgain: (() => boolean) | undefined,
+    streamed: Revision | null,
+  ) => {
+    const markdown = optional(input.content);
+    const instruction = markdown === null ? text(input.instruction, "instruction") : "";
+    const times = timesAsked(input.times_as_long);
+    const mind = picked.get(toolCallId) ?? found(targetOf(input));
+    const part = optional(input.part);
+    // The selection counts only in the Mind it is in, and only when no section is named.
+    const selected = focused?.mindId === mind.id && part === null ? focused.blockIds : [];
+    // Text the assistant still waits on is revised as a whole, from its heading.
+    const stretch = minds.read(mind.id, (blocks) =>
+      stretchOf(blocks, part, options.language, selected, options.paragraph),
+    );
+    if ("why" in stretch) {
+      throw new Refusal(
+        stretch.kind === "no-heading"
+          ? { kind: "no-heading", mindId: mind.id, heading: part ?? "" }
+          : stretch.kind === "several-places"
+            ? { kind: "several-places", mindId: mind.id, name: part ?? "", adding: false }
+            : { kind: "no-text", mindId: mind.id },
+        `Nothing was changed in “${mind.name}”: ${stretch.why}.${stretch.hint ? ` ${stretch.hint}` : ""}`,
+      );
+    }
+    const waiting = minds.read(mind.id, (blocks) =>
+      waitingIn(blocks, stretch.from, stretch.to, ownRequests),
+    );
+    if (waiting.kind === "mixed" || waiting.kind === "other") {
+      throw refuseWaiting(mind, {
+        count: waiting.count,
+        mixed: waiting.kind === "mixed",
+        applies: waiting.applies,
+        ownRemoval: waiting.ownRemoval,
+      });
+    }
+    // A rewrite has no text to work on where its own waiting change takes it out whole (#2502).
+    if (markdown === null && waiting.kind === "own" && waiting.removesWhole) {
+      throw refuseWaiting(mind, {
+        count: waiting.count,
+        mixed: false,
+        applies: waiting.applies,
+        ownRemoval: true,
+      });
+    }
+    if (markdown !== null) {
+      const over =
+        waiting.kind === "own"
+          ? waiting
+          : minds.read(mind.id, (blocks) => ownAppliedIn(blocks, stretch.from, stretch.to));
+      if (!over) {
+        throw new Refusal(
+          { kind: "content-not-own", mindId: mind.id },
+          `Nothing was changed in “${mind.name}”: content only replaces your own text there, still waiting or as you wrote it. To change the User's text, give instruction instead.`,
+        );
+      }
+      const newText = minds.read(mind.id, (blocks) => keepingTitle(blocks, over, markdown));
+      const before = minds.read(mind.id, (blocks) => stretchText(blocks, stretch));
+      const beforeLanguage = detectLanguage(before);
+      const contentLanguage = detectLanguage(newText);
+      const previousTranslation =
+        over.kind === "own" &&
+        minds.read(mind.id, (note) =>
+          note.doc ? translationRequested(note.doc, new Set(over.requests)) : false,
+        );
+      const action =
+        (previousTranslation && beforeLanguage !== contentLanguage) ||
+        (beforeLanguage && contentLanguage && beforeLanguage !== contentLanguage)
+          ? ("translate" as const)
+          : undefined;
+      const retry = canCallAgain?.() ?? true;
+      const off =
+        times !== null && retry && !lengthRefused ? offLength(before, newText, times) : null;
+      if (off !== null) {
+        lengthRefused = true;
+        throw new Refusal(
+          { kind: "length", mindId: mind.id },
+          `Nothing was changed in “${mind.name}”: ${off}`,
+        );
+      }
+      // Text cited before, or cited in part now, is text from the Documents: what it adds is held to them too.
+      const fromDocuments =
+        /\[\^\d+\]/.test(newText) || minds.read(mind.id, (blocks) => stretchCites(blocks, stretch));
+      const added = fromDocuments ? addedUncited(before, newText) : [];
+      if (added.length > 0 && retry && !addedRefused) {
+        addedRefused = true;
+        throw new Refusal({ kind: "uncited", mindId: mind.id }, addedUncitedMessage(mind, added));
+      }
+      const written = writeOver(toolCallId, mind, over, newText, retry, {
+        action,
+        removesOnly: input.removes_only === true,
+        streamed: streamed?.mind.id === mind.id ? streamed.request : undefined,
+      });
+      return {
+        kind: "content" as const,
+        mind,
+        over,
+        written,
+        before,
+        newText,
+        times,
+        added,
+        hint: stretch.hint,
+      };
+    }
+    return { kind: "instruction" as const, mind, instruction, times, stretch, waiting };
+  };
+
   const edit: Tool = {
     name: MIND_TOOLS.edit,
     description:
@@ -2464,96 +2713,24 @@ export function mindTools(options: MindToolsOptions): {
     providerTool: MIND_TOOLS.edit,
     effects: effectOn("write"),
     untrustedResult: false,
+    streamInput(toolCallId, input) {
+      streamRevision(toolCallId, input);
+    },
     async call(input, { toolCallId, signal, canCallAgain }) {
-      const markdown = optional(input.content);
-      const instruction = markdown === null ? text(input.instruction, "instruction") : "";
-      const times = timesAsked(input.times_as_long);
-      const mind = picked.get(toolCallId) ?? found(targetOf(input));
-      const part = optional(input.part);
-      // The selection counts only in the Mind it is in, and only when no section is named.
-      const selected = focused?.mindId === mind.id && part === null ? focused.blockIds : [];
-      // Text the assistant still waits on is revised as a whole, from its heading.
-      const stretch = minds.read(mind.id, (blocks) =>
-        stretchOf(blocks, part, options.language, selected, options.paragraph),
-      );
-      if ("why" in stretch) {
-        throw new Refusal(
-          stretch.kind === "no-heading"
-            ? { kind: "no-heading", mindId: mind.id, heading: part ?? "" }
-            : stretch.kind === "several-places"
-              ? { kind: "several-places", mindId: mind.id, name: part ?? "", adding: false }
-              : { kind: "no-text", mindId: mind.id },
-          `Nothing was changed in “${mind.name}”: ${stretch.why}.${stretch.hint ? ` ${stretch.hint}` : ""}`,
-        );
-      }
-      const waiting = minds.read(mind.id, (blocks) =>
-        waitingIn(blocks, stretch.from, stretch.to, ownRequests),
-      );
-      if (waiting.kind === "mixed" || waiting.kind === "other") {
-        throw refuseWaiting(mind, {
-          count: waiting.count,
-          mixed: waiting.kind === "mixed",
-          applies: waiting.applies,
-          ownRemoval: waiting.ownRemoval,
-        });
-      }
-      // A rewrite has no text to work on where its own waiting change takes it out whole (#2502).
-      if (markdown === null && waiting.kind === "own" && waiting.removesWhole) {
-        throw refuseWaiting(mind, {
-          count: waiting.count,
-          mixed: false,
-          applies: waiting.applies,
-          ownRemoval: true,
-        });
-      }
-      if (markdown !== null) {
-        const over =
-          waiting.kind === "own"
-            ? waiting
-            : minds.read(mind.id, (blocks) => ownAppliedIn(blocks, stretch.from, stretch.to));
-        if (!over) {
-          throw new Refusal(
-            { kind: "content-not-own", mindId: mind.id },
-            `Nothing was changed in “${mind.name}”: content only replaces your own text there, still waiting or as you wrote it. To change the User's text, give instruction instead.`,
-          );
-        }
-        const newText = minds.read(mind.id, (blocks) => keepingTitle(blocks, over, markdown));
-        const before = minds.read(mind.id, (blocks) => stretchText(blocks, stretch));
-        const beforeLanguage = detectLanguage(before);
-        const contentLanguage = detectLanguage(newText);
-        const previousTranslation =
-          over.kind === "own" &&
-          minds.read(mind.id, (note) =>
-            note.doc ? translationRequested(note.doc, new Set(over.requests)) : false,
-          );
-        const action =
-          (previousTranslation && beforeLanguage !== contentLanguage) ||
-          (beforeLanguage && contentLanguage && beforeLanguage !== contentLanguage)
-            ? ("translate" as const)
-            : undefined;
-        const retry = canCallAgain?.() ?? true;
-        const off =
-          times !== null && retry && !lengthRefused ? offLength(before, newText, times) : null;
-        if (off !== null) {
-          lengthRefused = true;
-          throw new Refusal(
-            { kind: "length", mindId: mind.id },
-            `Nothing was changed in “${mind.name}”: ${off}`,
-          );
-        }
-        // Text cited before, or cited in part now, is text from the Documents: what it adds is held to them too.
-        const fromDocuments =
-          /\[\^\d+\]/.test(newText) ||
-          minds.read(mind.id, (blocks) => stretchCites(blocks, stretch));
-        const added = fromDocuments ? addedUncited(before, newText) : [];
-        if (added.length > 0 && retry && !addedRefused) {
-          addedRefused = true;
-          throw new Refusal({ kind: "uncited", mindId: mind.id }, addedUncitedMessage(mind, added));
-        }
-        const written = writeOver(toolCallId, mind, over, newText, retry, {
-          action,
-          removesOnly: input.removes_only === true,
-        });
+      ended.add(toolCallId);
+      const revision = revisions.get(toolCallId) ?? null;
+      revisions.delete(toolCallId);
+      // What came in goes, and the whole text or the text as it was takes its place, in one step:
+      // the window never draws the old text between them (#1635).
+      const begun =
+        revision && revision.written > 0
+          ? minds.edit(revision.mind.id, () => {
+              takeBack(revision);
+              return beginEdit(input, toolCallId, canCallAgain, revision);
+            })
+          : beginEdit(input, toolCallId, canCallAgain, null);
+      if (begun.kind === "content") {
+        const { mind, over, written, before, newText, times, added, hint } = begun;
         const checked = await checkWritten(toolCallId, written, signal);
         const went = ` (${lengthSaid(before, newText, times)})`;
         return [
@@ -2570,9 +2747,10 @@ export function mindTools(options: MindToolsOptions): {
                 `It went in as written, and ${addedSaid(added)}: say so, never that all of it is cited.`,
               ]
             : []),
-          ...(stretch.hint ? [stretch.hint] : []),
+          ...(hint ? [hint] : []),
         ].join(" ");
       }
+      const { mind, instruction, times, stretch, waiting } = begun;
       const replaced = waiting.kind === "own" ? replacedOwn(mind.id, waiting.blockIds) : {};
       const toWrite =
         times === null
