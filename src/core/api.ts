@@ -2295,6 +2295,12 @@ export interface CitationToRecheck {
    * (`changed`).
    */
   contentHash?: string | null;
+  /**
+   * The words the Answer put in quotation marks that the Citation's check didn't find (#483):
+   * looked for with the quote, so a Citation not found for them stays not found until its cited
+   * Units have them (#2612).
+   */
+  quotedWords?: QuotedWordsCheck | null;
 }
 
 /** Where a Question is asked: its Note, else its conversation; null for none. */

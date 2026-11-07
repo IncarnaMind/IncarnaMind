@@ -6,6 +6,7 @@ import { deflateRawSync } from "node:zlib";
 import * as Y from "yjs";
 import { cleanApiKey } from "../shared/apiKey";
 import { isCitationStyleId, withRecentStyle } from "../shared/citationStyles";
+import { parseQuotedWords } from "../shared/citations";
 import type { DrawnPage } from "../shared/citedPage";
 import { ACCEPT_SUGGESTIONS } from "../shared/commands";
 import { optionsFor } from "../shared/exportOptions";
@@ -5524,6 +5525,7 @@ export function createCore(adapters: CoreAdapters): Core {
         pageFrom: page(input.pageFrom),
         pageTo: page(input.pageTo) ?? page(input.pageFrom),
         contentHash: typeof input.contentHash === "string" ? input.contentHash : null,
+        quotedWords: parseQuotedWords(input.quotedWords),
         mindId: input.mindId,
       });
     },
