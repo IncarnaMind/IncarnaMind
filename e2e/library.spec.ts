@@ -732,12 +732,13 @@ test("Auto routes text and scans with tags, reports failures, retries and preser
     fail = true;
     await pointAndClick(window, organize(library));
     await expect(library.getByTestId("library-organize-failed")).toHaveText(
-      /^Organize couldn’t sort (1 Document|2 Documents) · Try again$/,
+      /^(1 Document|2 Documents) not organized · Try again$/,
     );
     await expect(notes.getByTestId("library-not-sorted")).toHaveAttribute(
       "title",
-      /Temporary test outage/,
+      "Organize couldn’t place this Document in a Folder",
     );
+    await expect(notes.getByTestId("library-not-sorted")).toContainText("Couldn’t organize");
     const info = await infoOf(window, scan);
     await expect(info.getByTestId("info-organize")).toContainText("Needs attention");
     await window.keyboard.press("Escape");

@@ -136,8 +136,9 @@ function chooseAgainLine(
 }
 
 /**
- * A transcription service's own key (Soniox's, Deepgram's, AssemblyAI's): pasted, checked with the
- * service, kept in the keychain. Deepgram's takes the server too, where it isn't Deepgram's own:
+ * A transcription service's own key (Soniox's, Deepgram's, AssemblyAI's, ElevenLabs',
+ * Speechmatics', Gladia's): pasted, checked with the service where it has a check, kept in the
+ * keychain. Deepgram's takes the server too, where it isn't Deepgram's own:
  * Cloudflare Workers AI's or the User's, whose key may be left out.
  */
 export function TranscriptionKeyRows({ read }: { read: ServicesView }) {

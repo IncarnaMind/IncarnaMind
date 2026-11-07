@@ -1,5 +1,6 @@
 import type { SearchScope } from "../../../core/api";
 import { useT } from "../i18n";
+import { documentsOnScreenOf, groupsMerged } from "../layoutSlice";
 import { useAppStore } from "../store";
 import {
   type DocumentOrFolderChoice,
@@ -21,7 +22,8 @@ export interface DocumentOrFolderPickerLabels {
 
 /**
  * One Document or Folder, found by its English or Chinese name, to use as a Search scope: only
- * those on the Note's side of a Folder wall.
+ * those on the Note's side of a Folder wall. `documentsOnly`: one Document, never a Folder.
+ * `startsOnScreen`: a Document open beside the Note is chosen as it opens, so Enter takes it.
  */
 export function DocumentOrFolderPicker({
   anchor,
@@ -29,6 +31,8 @@ export function DocumentOrFolderPicker({
   labels,
   onChoose,
   onClose,
+  documentsOnly = false,
+  startsOnScreen = false,
   testId = "document-or-folder",
 }: {
   /** What it opens beside; it takes the focus back once closed. Null: closed. */
@@ -38,9 +42,14 @@ export function DocumentOrFolderPicker({
   labels: DocumentOrFolderPickerLabels;
   onChoose(scope: SearchScope): void;
   onClose(): void;
+  documentsOnly?: boolean;
+  startsOnScreen?: boolean;
   testId?: string;
 }) {
   const t = useT();
+  const onScreen = useAppStore((state) =>
+    startsOnScreen ? (documentsOnScreenOf(state.layout, groupsMerged())[0] ?? null) : null,
+  );
   const folders = useAppStore((state) => state.folders);
   const groups = useAppStore((state) => state.library?.groups);
   const tags = useAppStore((state) => state.tags);
@@ -93,10 +102,14 @@ export function DocumentOrFolderPicker({
     };
     const choices = documentOrFolderChoices(library, query);
     return [
-      {
-        title: t("scope.picker.folders"),
-        options: choices.filter((choice) => choice.kind === "folder").map(optionOf),
-      },
+      ...(documentsOnly
+        ? []
+        : [
+            {
+              title: t("scope.picker.folders"),
+              options: choices.filter((choice) => choice.kind === "folder").map(optionOf),
+            },
+          ]),
       {
         title: t("scope.picker.documents"),
         options: choices.filter((choice) => choice.kind === "document").map(optionOf),
@@ -113,6 +126,11 @@ export function DocumentOrFolderPicker({
       options={matching}
       current={undefined}
       currentLabel=""
+      startsAt={
+        onScreen === null
+          ? undefined
+          : (choice) => choice.kind === "document" && choice.id === onScreen
+      }
       onChoose={(choice) => onChoose(documentOrFolderScope(choice))}
       onClose={onClose}
       testId={testId}

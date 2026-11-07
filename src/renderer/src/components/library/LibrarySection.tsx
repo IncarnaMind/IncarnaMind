@@ -22,10 +22,12 @@ import {
 } from "../../libraryPage";
 import { formatCount } from "../../linkedFolders";
 import { organizeDocuments, useProposing } from "../../organizeDocuments";
-import { organizeFailedIds, organizeStateOf } from "../../organizeOutcome";
+import { organizeStateOf } from "../../organizeOutcome";
 import { useOrganizeAsk } from "../../organizeRun";
 import { useListedDocuments } from "../../ownDocuments";
 import { useRequests } from "../../requests";
+import type { ReviewReason } from "../../reviewProblems";
+import { notOrganizedLine, retryableIds, unsettledProblemsOf } from "../../reviewProblems";
 import { useSidebarMove } from "../../sidebarMoves";
 import { useAppStore } from "../../store";
 import { foldKeys, isMoveToKey, TREE_ROW } from "../../treeKeys";
@@ -84,9 +86,9 @@ export function LibrarySection({
   /** The Suggested Folder a Document waits in, by its id, if it waits in one. */
   suggestedOf(documentId: string): string | null;
   /** Why Organize couldn't sort a Document, by its id, if it couldn't. */
-  notSortedOf(documentId: string): string | null;
+  notSortedOf(documentId: string): ReviewReason | null;
   /** Why a Suggested Folder's latest run failed, by a Document's id, if it did. */
-  sortFailedOf(documentId: string): string | null;
+  sortFailedOf(documentId: string): ReviewReason | null;
 }) {
   const t = useT();
   const language = useLanguage();
@@ -192,8 +194,8 @@ function SubfolderRow({
   matches: ReadonlyMap<string, SearchMatch> | null;
   pathOf(documentId: string): string | null;
   suggestedOf(documentId: string): string | null;
-  notSortedOf(documentId: string): string | null;
-  sortFailedOf(documentId: string): string | null;
+  notSortedOf(documentId: string): ReviewReason | null;
+  sortFailedOf(documentId: string): ReviewReason | null;
 }) {
   const t = useT();
   const language = useLanguage();
@@ -616,7 +618,13 @@ function Organize({ documents }: { documents: readonly Document[] }) {
     return all.map((doc) => organizeStateOf(doc, held.get(doc.id)));
   }, [all, library]);
   const pending = states.filter((state) => state.run === "working").length;
-  const failed = useMemo(() => organizeFailedIds(all, library?.assignments ?? []), [all, library]);
+  const problems = useMemo(
+    () => unsettledProblemsOf(documents, library?.assignments ?? []),
+    [documents, library],
+  );
+  // The count, the causes and Try again's list all come from the same failures (#2308).
+  const failedCount = problems.reduce((count, problem) => count + problem.documentIds.length, 0);
+  const retryIds = retryableIds(problems);
   const run = (ids: readonly string[]) => {
     organizeDocuments(ids).catch(useAppStore.getState().reportError);
   };
@@ -631,21 +639,23 @@ function Organize({ documents }: { documents: readonly Document[] }) {
       </span>
     );
   }
-  if (failed.size > 0) {
-    const retry = () => run([...failed]);
+  if (failedCount > 0) {
+    const retry = () => run(retryIds);
     return (
       <span
         role="alert"
         data-testid="library-organize-failed"
         className="min-w-0 truncate text-[13px] text-ink-meta"
       >
-        {t(failed.size === 1 ? "library.organize.failed.one" : "library.organize.failed", {
-          count: failed.size,
-        })}
-        <span aria-hidden="true"> · </span>
-        <button type="button" onClick={retry} className={quietButtonClass}>
-          {t("library.organize.retry")}
-        </button>
+        {notOrganizedLine(problems, failedCount, t)}
+        {retryIds.length > 0 && (
+          <>
+            <span aria-hidden="true"> · </span>
+            <button type="button" onClick={retry} className={quietButtonClass}>
+              {t("library.organize.retry")}
+            </button>
+          </>
+        )}
       </span>
     );
   }

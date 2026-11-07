@@ -181,6 +181,61 @@ describe("A Meeting's live Transcript", { timeout: 60_000 }, () => {
     },
   );
 
+  // protects=the system's permission prompt holding the capture is a gap that says it waited, never that audio was deleted, and a wait under a second is not listed; fails_when=the stretch is uncaptured or lost, or a sub-second wait is a gap; no_claim=the page's waiting state, which the smoke test covers.
+  test.each([
+    ["two seconds", 2 * SECOND, true],
+    ["under a second", 400, false],
+  ] as const)(
+    "the capture waits %s for the microphone permission: its stretch is a gap only when it is listed",
+    async (_what, waitMs, listed) => {
+      const dataDir = await createTempDataFolder();
+      const { core, capture, clock, record } = await transcribingCore(dataDir, {
+        capture: { microphone: "waiting" },
+      });
+      const meeting = await core.createMeeting();
+      const started = await core.startMeeting({ meetingId: meeting.id });
+      expect(started.sources.microphone).toBe("waiting");
+
+      clock.advance(waitMs);
+      capture.answerPermission();
+      expect((await core.listMeetings()).find((each) => each.id === meeting.id)?.sources).toEqual({
+        microphone: "recording",
+        system: "recording",
+      });
+      record(9 * SECOND);
+      await until(core, meeting.id, (transcript) => transcript.lines >= 4);
+
+      await core.stopMeeting(meeting.id);
+      const saved = await until(core, meeting.id, (transcript) => transcript.state === "saved");
+      const { gaps } = readVtt(readFileSync(saved.savedPath as string, "utf8"));
+      expect(gaps.filter((gap) => gap.reason === "permission")).toEqual(
+        listed ? [{ fromMs: 0, toMs: waitMs, reason: "permission" }] : [],
+      );
+      expect(gaps.map((gap) => gap.reason)).not.toContain("lost");
+      expect(gaps.map((gap) => gap.reason)).not.toContain("uncaptured");
+      expect(gaps.every((gap) => gap.toMs - gap.fromMs >= 1000)).toBe(true);
+    },
+  );
+
+  // protects=a capture that stalls leaves a gap that says no sound came in, one for both sources, not that audio was deleted; fails_when=the stretch is uncaptured or lost, or each source lists its own stall; no_claim=how the recording details word the same stall.
+  test("a capture that stalls is a gap that says so, once, not that its audio was deleted", async () => {
+    const dataDir = await createTempDataFolder();
+    const { core, clock, record } = await transcribingCore(dataDir);
+    const meeting = await core.createMeeting();
+    await core.startMeeting({ meetingId: meeting.id });
+    record(5 * SECOND);
+    await until(core, meeting.id, (transcript) => transcript.lines >= 2);
+
+    // Three seconds pass with no audio from either source, then both come back.
+    clock.advance(3 * SECOND);
+    record(6 * SECOND);
+
+    await core.stopMeeting(meeting.id);
+    const saved = await until(core, meeting.id, (transcript) => transcript.state === "saved");
+    const { gaps } = readVtt(readFileSync(saved.savedPath as string, "utf8"));
+    expect(gaps).toEqual([{ fromMs: 5 * SECOND, toMs: 8 * SECOND, reason: "stalled" }]);
+  });
+
   test("a line whose words hold control characters is kept as one line, and the file reads back (#981)", async () => {
     const dataDir = await createTempDataFolder();
     const { core, record } = await transcribingCore(dataDir, {

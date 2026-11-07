@@ -6,7 +6,7 @@
  */
 import type { Editor } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
-import type { EditorState } from "@tiptap/pm/state";
+import type { EditorState, Transaction } from "@tiptap/pm/state";
 import type * as Y from "yjs";
 import {
   BLOCK_ID_ATTRIBUTE,
@@ -52,7 +52,7 @@ interface Edit {
 }
 
 /** A sentence's corrections, applied together: one edit per contradicted part. */
-interface CorrectionPlan {
+export interface CorrectionPlan {
   claim: ShownClaim;
   edits: Edit[];
   /** The Passages to cite at the sentence's end: those it doesn't already cite. */
@@ -128,14 +128,22 @@ function planCorrection(
   claim: ShownClaim,
   span?: ClaimPartSpan | null,
 ): CorrectionPlan | null {
-  if (
-    claim.kind === "chart" ||
-    claim.shown.state !== "contradicted" ||
-    claim.check.text !== claim.sentence.text
-  )
-    return null;
-  const edits = correctionsOf(claim.check).flatMap((each) => {
-    if (span !== undefined && !sameSpan(each.span, span)) return [];
+  if (claim.shown.state !== "contradicted") return null;
+  return planEdits(
+    state,
+    claim,
+    correctionsOf(claim.check).filter((each) => span === undefined || sameSpan(each.span, span)),
+  );
+}
+
+/** The edits that write `corrections` over a sentence's words, while it reads as its check did. */
+export function planEdits(
+  state: EditorState,
+  claim: ShownClaim,
+  corrections: readonly { correction: ClaimCorrection; span: ClaimPartSpan | null }[],
+): CorrectionPlan | null {
+  if (claim.kind === "chart" || claim.check.text !== claim.sentence.text) return null;
+  const edits = corrections.flatMap((each) => {
     const edit = editOf(state, claim, each.correction, each.span);
     return edit ? [edit] : [];
   });
@@ -194,19 +202,14 @@ function blockIdAt(doc: ProseMirrorNode, from: number): string | null {
   return typeof id === "string" ? id : null;
 }
 
-function apply(
-  editor: Editor,
-  mindId: string,
-  doc: Y.Doc,
-  plans: CorrectionPlan[],
-  showCard?: (checkId: string) => void,
-): number {
-  const { state } = editor;
-  const citationType = state.schema.nodes[CITATION_NODE];
-  const generated = state.schema.marks[GENERATED_MARK];
-  const edits = plans.flatMap((plan) => plan.edits);
-  if (edits.length === 0 || !citationType || !generated) return 0;
-  const tr = state.tr;
+/**
+ * Writes each plan's wording over its old words as AI text, and the Citations it adds at its
+ * sentence's end, in `tr`; false when the Note's schema can't hold them.
+ */
+export function writeCorrections(tr: Transaction, plans: readonly CorrectionPlan[]): boolean {
+  const citationType = tr.doc.type.schema.nodes[CITATION_NODE];
+  const generated = tr.doc.type.schema.marks[GENERATED_MARK];
+  if (!citationType || !generated || plans.every((plan) => plan.edits.length === 0)) return false;
   // Last first, so each sentence's places still hold when it is changed.
   for (const plan of [...plans].sort((a, b) => b.claim.sentence.from - a.claim.sentence.from)) {
     for (const edit of [...plan.edits].sort((a, b) => b.from - a.from)) {
@@ -227,6 +230,45 @@ function apply(
       ),
     );
   }
+  return true;
+}
+
+/**
+ * Records what the AI wrote into the Note, as accepting an Edit with AI does: by the model that
+ * wrote it, the check's own unless `model` says another did.
+ */
+export function recordCorrections(
+  editor: Editor,
+  mindId: string,
+  plans: readonly CorrectionPlan[],
+  tr: Transaction,
+  model?: { providerId: string; modelId: string },
+): void {
+  const entries: RecordAiUseInput[] = plans.map((plan) => {
+    const first = plan.edits[0];
+    const blockId = first ? blockIdAt(editor.state.doc, tr.mapping.map(first.from, -1)) : null;
+    return {
+      mindId,
+      kind: "edit-with-ai-accepted",
+      providerId: model?.providerId ?? plan.claim.check.providerId,
+      modelId: model?.modelId ?? plan.claim.check.modelId,
+      characters: plan.edits.reduce((count, edit) => count + edit.choice.wording.length, 0),
+      ...(blockId && { blockIds: [blockId] }),
+    };
+  });
+  core.recordAiUse(entries).catch((error: unknown) => useNotices.getState().showError(error));
+}
+
+function apply(
+  editor: Editor,
+  mindId: string,
+  doc: Y.Doc,
+  plans: CorrectionPlan[],
+  showCard?: (checkId: string) => void,
+): number {
+  const edits = plans.flatMap((plan) => plan.edits);
+  const tr = editor.state.tr;
+  if (!writeCorrections(tr, plans)) return 0;
   asOneStep(editor, () => editor.view.dispatch(tr));
   const corrected = plans.filter((plan) =>
     claimSpans(editor.state.doc).some((span) => span.check.id === plan.claim.check.id),
@@ -256,19 +298,7 @@ function apply(
     recheck,
   );
   recheck();
-  const entries: RecordAiUseInput[] = plans.map((plan) => {
-    const first = plan.edits[0];
-    const blockId = first ? blockIdAt(editor.state.doc, tr.mapping.map(first.from, -1)) : null;
-    return {
-      mindId,
-      kind: "edit-with-ai-accepted",
-      providerId: plan.claim.check.providerId,
-      modelId: plan.claim.check.modelId,
-      characters: plan.edits.reduce((count, edit) => count + edit.choice.wording.length, 0),
-      ...(blockId && { blockIds: [blockId] }),
-    };
-  });
-  core.recordAiUse(entries).catch((error: unknown) => useNotices.getState().showError(error));
+  recordCorrections(editor, mindId, plans, tr);
   return edits.length;
 }
 

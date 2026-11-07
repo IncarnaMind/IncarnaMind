@@ -2,14 +2,19 @@ import { describe, expect, test, vi } from "vitest";
 import type { CloudLoss, SpeechSegment } from "../../src/core";
 import { createAssemblyAiStream } from "../../src/core/transcription/cloud/assemblyai";
 import { createDeepgramStream } from "../../src/core/transcription/cloud/deepgram";
+import { createElevenLabsStream } from "../../src/core/transcription/cloud/elevenlabs";
 import { createGeminiStream } from "../../src/core/transcription/cloud/gemini";
+import { createGladiaStream } from "../../src/core/transcription/cloud/gladia";
 import {
   type CloudAuth,
   type CloudConnect,
   type CloudSocketEvents,
   HANDSHAKE_NO_CREDIT,
   HANDSHAKE_REFUSED,
+  handshakeRefusalOf,
 } from "../../src/core/transcription/cloud/socket";
+import { createSpeechmaticsStream } from "../../src/core/transcription/cloud/speechmatics";
+import { createXaiStream } from "../../src/core/transcription/cloud/xai";
 
 const RATE = 16_000;
 
@@ -635,5 +640,735 @@ describe("Gemini's Live API, for what it hears, in the messages its reference sh
       service.drop(code, reason);
       expect(heard.losses).toEqual([loss]);
     }
+  });
+});
+
+// ---- A handshake refused before the socket opened, as a probe with the same key hears the answer ----
+
+describe("A refused handshake, read from the service's answer", () => {
+  test.each([
+    [
+      "xAI's wrong key",
+      400,
+      '{"code":"Client specified an invalid argument","error":"Incorrect API key provided. You can obtain an API key from https://console.x.ai."}',
+      HANDSHAKE_REFUSED,
+    ],
+    [
+      "xAI's account out of credit",
+      403,
+      '{"code":"The caller does not have permission to execute the specified operation","error":"Your team has used all available credits. Please purchase more credits."}',
+      HANDSHAKE_NO_CREDIT,
+    ],
+    [
+      "Google's wrong key",
+      400,
+      "API key not valid. Please pass a valid API key.",
+      HANDSHAKE_REFUSED,
+    ],
+    ["a 401", 401, "", HANDSHAKE_REFUSED],
+    ["a 401 in credit's words", 401, "Insufficient credits.", HANDSHAKE_REFUSED],
+    ["a bare 403", 403, "Forbidden", HANDSHAKE_REFUSED],
+    ["a 402", 402, "", HANDSHAKE_NO_CREDIT],
+    [
+      "a 429 for the quota",
+      429,
+      '{"error":{"message":"You exceeded your current quota, please check your plan and billing details.","type":"insufficient_quota","code":"insufficient_quota"}}',
+      HANDSHAKE_NO_CREDIT,
+    ],
+    ["a 429 for the rate", 429, "Rate limit reached.", 0],
+    ["another 400", 400, "Unsupported sample rate.", 0],
+    ["a 500", 500, "Insufficient credits.", 0],
+  ] as const)("%s", (_, status, body, refusal) => {
+    expect(handshakeRefusalOf(status, body)).toBe(refusal);
+  });
+});
+
+// ---- xAI, as https://docs.x.ai/developers/model-capabilities/audio/speech-to-text shows its stream ----
+
+describe("xAI's streaming speech to text, in the messages its reference shows", () => {
+  function connect() {
+    const service = playback();
+    const heard = collect();
+    const stream = createXaiStream({
+      stream: "m:system",
+      model: "grok-voice-transcribe-2.0",
+      apiKey: "xai-test-key",
+      connect: service.connect,
+      report: heard.report,
+    });
+    return { service, heard, stream };
+  }
+
+  const xaiWord = (text: string, start: number, end: number, speaker = 0) => ({
+    text,
+    start,
+    end,
+    confidence: 0.95,
+    speaker,
+  });
+  const result = (
+    words: ReturnType<typeof xaiWord>[],
+    start: number,
+    duration: number,
+    flags: { is_final: boolean; speech_final: boolean },
+  ) => ({
+    type: "transcript.partial",
+    text: words.map((each) => each.text).join(" "),
+    words,
+    start,
+    duration,
+    ...flags,
+  });
+
+  test("asks for grok-voice-transcribe-2.0 on 16 kHz PCM with interim results and speakers, in the address alone, with the key as Bearer; audio waits for transcript.created", () => {
+    const { service, heard, stream } = connect();
+    const url = new URL(service.last().url);
+    expect(`${url.origin}${url.pathname}`).toBe("wss://api.x.ai/v1/stt");
+    expect(url.searchParams.get("model")).toBe("grok-voice-transcribe-2.0");
+    expect(url.searchParams.get("sample_rate")).toBe("16000");
+    expect(url.searchParams.get("encoding")).toBe("pcm");
+    expect(url.searchParams.get("interim_results")).toBe("true");
+    expect(url.searchParams.get("diarize")).toBe("true");
+    expect(service.last().auth).toBeUndefined();
+    expect(service.last().key).toBe("xai-test-key");
+    service.open();
+    feed((samples) => stream.push(samples), 1);
+    expect(service.audioBytes()).toEqual([]);
+    service.say({ type: "transcript.created", id: "83f2f6fd-1cd1-4747-bc52-cebddc961c32" });
+    expect(heard.opened.count).toBe(1);
+    expect(service.audioBytes()).toHaveLength(10);
+  });
+
+  test("an interim guess, a locked chunk, then the utterance whole, written once with its words' times and speaker", async () => {
+    const { service, heard, stream } = connect();
+    service.open();
+    service.say({ type: "transcript.created", id: "s1" });
+    const words = [
+      xaiWord("The", 0.24, 0.48),
+      xaiWord("review", 0.48, 0.96),
+      xaiWord("moves", 0.96, 1.3),
+      xaiWord("to", 1.3, 1.42),
+      xaiWord("Thursday.", 1.42, 2.1),
+    ];
+    service.say(result(words.slice(0, 2), 0.24, 0.8, { is_final: false, speech_final: false }));
+    service.say(result(words.slice(0, 3), 0.24, 1.1, { is_final: true, speech_final: false }));
+    service.say(result(words, 0.24, 1.9, { is_final: true, speech_final: true }));
+    expect(heard.segments.filter((each) => !each.final).map((each) => each.text)).toEqual([
+      "The review",
+      "The review moves",
+    ]);
+    expect(heard.finals()).toEqual([
+      expect.objectContaining({
+        id: heard.segments[0]?.id,
+        text: "The review moves to Thursday.",
+        startMs: 240,
+        endMs: 2100,
+        speaker: "1",
+      }),
+    ]);
+    const finished = stream.finish();
+    expect(service.json().at(-1)).toEqual({ type: "audio.done" });
+    service.say({ type: "transcript.done", text: "", words: [], duration: 2.4 });
+    await finished;
+    expect(heard.losses).toEqual([]);
+    expect(service.last().closed).toBe(true);
+  });
+
+  test("a new voice starts a new line; Chinese joins without spaces; words flushed after audio.done are kept", async () => {
+    const { service, heard, stream } = connect();
+    service.open();
+    service.say({ type: "transcript.created", id: "s1" });
+    service.say(
+      result(
+        [
+          xaiWord("Budget", 3.1, 3.5, 0),
+          xaiWord("first.", 3.5, 3.9, 0),
+          xaiWord("预算", 4.2, 4.6, 1),
+          xaiWord("下周三", 4.6, 5.1, 1),
+          xaiWord("再确认。", 5.1, 5.8, 1),
+        ],
+        3.1,
+        2.7,
+        { is_final: true, speech_final: true },
+      ),
+    );
+    const finished = stream.finish();
+    service.say({
+      type: "transcript.done",
+      text: "好的。",
+      words: [xaiWord("预算", 4.2, 4.6, 1), xaiWord("好的。", 6.0, 6.4, 1)],
+      duration: 6.5,
+    });
+    await finished;
+    expect(heard.finals().map((each) => [each.text, each.speaker, each.startMs])).toEqual([
+      ["Budget first.", "1", 3100],
+      ["预算下周三再确认。", "2", 4200],
+      ["好的。", "2", 6000],
+    ]);
+  });
+
+  test("a key refused at the handshake is refused; an error in words names the credit before the key, any other end is dropped; nothing more is reported", () => {
+    for (const [message, loss] of [
+      ["Incorrect API key provided.", "refused"],
+      [
+        "The caller does not have permission to execute the specified operation: Your team has used all available credits. Please purchase more credits.",
+        "credit",
+      ],
+      ["The caller does not have permission to execute the specified operation.", "refused"],
+      ["RESOURCE_EXHAUSTED: too many requests.", "dropped"],
+      ["Stream timeout.", "dropped"],
+    ] as const) {
+      const { service, heard } = connect();
+      service.open();
+      service.say({ type: "error", message });
+      service.drop(1008);
+      service.say(
+        result([xaiWord("Late", 0.1, 0.4)], 0.1, 0.3, { is_final: true, speech_final: true }),
+      );
+      expect(heard.losses).toEqual([loss]);
+      expect(heard.segments).toEqual([]);
+    }
+    const refused = connect();
+    refused.service.drop(HANDSHAKE_REFUSED);
+    expect(refused.heard.losses).toEqual(["refused"]);
+    const noCredit = connect();
+    noCredit.service.drop(HANDSHAKE_NO_CREDIT);
+    expect(noCredit.heard.losses).toEqual(["credit"]);
+    const dropped = connect();
+    dropped.service.open();
+    dropped.service.say({ type: "transcript.created", id: "s1" });
+    dropped.service.drop(1006);
+    expect(dropped.heard.losses).toEqual(["dropped"]);
+  });
+});
+
+// ---- Speechmatics, as its real-time AsyncAPI spec shows its messages ----
+
+describe("Speechmatics' real-time transcription, in the messages its spec shows", () => {
+  function connect() {
+    const service = playback();
+    const heard = collect();
+    const stream = createSpeechmaticsStream({
+      stream: "m:system",
+      model: "enhanced",
+      apiKey: "sm-test-key",
+      connect: service.connect,
+      report: heard.report,
+    });
+    return { service, heard, stream };
+  }
+
+  const smWord = (content: string, start: number, end: number, speaker = "S1") => ({
+    type: "word",
+    start_time: start,
+    end_time: end,
+    alternatives: [{ content, confidence: 0.98, language: "en", speaker }],
+  });
+  const mark = (content: string, at: number, speaker = "S1") => ({
+    type: "punctuation",
+    start_time: at,
+    end_time: at,
+    attaches_to: "previous",
+    is_eos: content === "." || content === "。",
+    alternatives: [{ content, confidence: 1, speaker }],
+  });
+  const transcript = (message: string, end: number, results: object[]) => ({
+    message,
+    format: "2.9",
+    metadata: { start_time: 0, end_time: end, transcript: "" },
+    results,
+  });
+
+  test("starts recognition of Mandarin and English with the Enhanced model on 16 kHz PCM, with speakers, partials and the end of each utterance, the key as Bearer; audio waits for RecognitionStarted", () => {
+    const { service, heard, stream } = connect();
+    expect(service.last().url).toBe("wss://global.rt.speechmatics.com/v2");
+    expect(service.last().auth).toBeUndefined();
+    expect(service.last().key).toBe("sm-test-key");
+    service.open();
+    expect(service.json()).toEqual([
+      {
+        message: "StartRecognition",
+        audio_format: { type: "raw", encoding: "pcm_s16le", sample_rate: 16000 },
+        transcription_config: {
+          language: "cmn_en",
+          model: "enhanced",
+          diarization: "speaker",
+          enable_partials: true,
+          max_delay: 2,
+          conversation_config: { end_of_utterance_silence_trigger: 1 },
+        },
+      },
+    ]);
+    feed((samples) => stream.push(samples), 1);
+    expect(service.audioBytes()).toEqual([]);
+    service.say({ message: "RecognitionStarted", id: "807670e9" });
+    expect(heard.opened.count).toBe(1);
+    expect(service.audioBytes()).toHaveLength(10);
+  });
+
+  test("a partial, then final words with their times and speaker; the end of the utterance ends the line; EndOfStream names the last chunk", async () => {
+    const { service, heard, stream } = connect();
+    service.open();
+    service.say({ message: "RecognitionStarted", id: "s1" });
+    feed((samples) => stream.push(samples), 3);
+    service.say(
+      transcript("AddPartialTranscript", 0.9, [
+        smWord("The", 0.4, 0.5),
+        smWord("review", 0.5, 0.9),
+      ]),
+    );
+    service.say(
+      transcript("AddTranscript", 2.2, [
+        smWord("The", 0.4, 0.5),
+        smWord("review", 0.5, 0.9),
+        smWord("moves", 0.9, 1.2),
+        smWord("to", 1.2, 1.3),
+        smWord("Thursday", 1.3, 1.9),
+        mark(".", 1.9),
+      ]),
+    );
+    expect(heard.finals()).toEqual([]);
+    service.say({ message: "EndOfUtterance", metadata: { start_time: 2.9, end_time: 2.9 } });
+    expect(heard.segments[0]).toMatchObject({ text: "The review", final: false, speaker: "1" });
+    expect(heard.finals()).toEqual([
+      expect.objectContaining({
+        id: heard.segments[0]?.id,
+        text: "The review moves to Thursday.",
+        startMs: 400,
+        endMs: 1900,
+        speaker: "1",
+      }),
+    ]);
+    const finished = stream.finish();
+    expect(service.json().at(-1)).toEqual({ message: "EndOfStream", last_seq_no: 30 });
+    service.say({ message: "EndOfTranscript" });
+    await finished;
+    expect(heard.losses).toEqual([]);
+  });
+
+  test("a new voice starts a new line; Chinese joins without spaces, its marks without one before them", () => {
+    const { service, heard } = connect();
+    service.open();
+    service.say({ message: "RecognitionStarted", id: "s1" });
+    service.say(
+      transcript("AddTranscript", 5.8, [
+        smWord("Budget", 3.1, 3.5),
+        smWord("first", 3.5, 3.9),
+        mark(".", 3.9),
+        smWord("预算", 4.2, 4.6, "S2"),
+        smWord("下周三", 4.6, 5.1, "S2"),
+        smWord("再确认", 5.1, 5.8, "S2"),
+        mark("。", 5.8, "S2"),
+      ]),
+    );
+    service.say({ message: "EndOfUtterance", metadata: { start_time: 6.8, end_time: 6.8 } });
+    expect(heard.finals().map((each) => [each.text, each.speaker, each.startMs])).toEqual([
+      ["Budget first.", "1", 3100],
+      ["预算下周三再确认。", "2", 4200],
+    ]);
+  });
+
+  test("not_authorised or close 4001 is a refused key, timelimit_exceeded or close 4006 is out of credit, too many sessions is dropped; nothing more is reported", () => {
+    for (const [type, code, loss] of [
+      ["not_authorised", 4001, "refused"],
+      ["timelimit_exceeded", 4006, "credit"],
+      ["quota_exceeded", 4005, "dropped"],
+    ] as const) {
+      const withMessage = connect();
+      withMessage.service.open();
+      withMessage.service.say({ message: "Error", type, reason: "From the service." });
+      withMessage.service.drop(code);
+      withMessage.service.say(transcript("AddTranscript", 1, [smWord("Late", 0.1, 0.4)]));
+      expect(withMessage.heard.losses).toEqual([loss]);
+      expect(withMessage.heard.segments).toEqual([]);
+      const closeOnly = connect();
+      closeOnly.service.open();
+      closeOnly.service.drop(code);
+      expect(closeOnly.heard.losses).toEqual([loss]);
+    }
+    const refused = connect();
+    refused.service.drop(HANDSHAKE_REFUSED);
+    expect(refused.heard.losses).toEqual(["refused"]);
+  });
+});
+
+// ---- ElevenLabs, as its real-time speech to text reference and event reference show them ----
+
+describe("ElevenLabs' real-time speech to text, in the messages its reference shows", () => {
+  function connect() {
+    const service = playback();
+    const heard = collect();
+    const stream = createElevenLabsStream({
+      stream: "m:system",
+      model: "scribe_v2_realtime",
+      apiKey: "sk_eleven-test-key",
+      connect: service.connect,
+      report: heard.report,
+    });
+    return { service, heard, stream };
+  }
+
+  const timed = (text: string, words: [string, number, number][]) => ({
+    message_type: "committed_transcript_with_timestamps",
+    text,
+    language_code: "eng",
+    words: words.flatMap(([word, start, end], index) => [
+      ...(index > 0 ? [{ text: " ", start, end: start, type: "spacing" }] : []),
+      { text: word, start, end, type: "word", logprob: -0.1 },
+    ]),
+  });
+
+  test("asks for Scribe v2 Realtime on 16 kHz PCM with its own voice detection and words' times, the key in xi-api-key; audio waits for session_started, in chunks of a tenth of a second", () => {
+    const { service, heard, stream } = connect();
+    const url = new URL(service.last().url);
+    expect(`${url.origin}${url.pathname}`).toBe(
+      "wss://api.elevenlabs.io/v1/speech-to-text/realtime",
+    );
+    expect(url.searchParams.get("model_id")).toBe("scribe_v2_realtime");
+    expect(url.searchParams.get("audio_format")).toBe("pcm_16000");
+    expect(url.searchParams.get("commit_strategy")).toBe("vad");
+    expect(url.searchParams.get("include_timestamps")).toBe("true");
+    expect(service.last().auth).toEqual({ header: "xi-api-key", prefix: "" });
+    service.open();
+    feed((samples) => stream.push(samples), 1);
+    expect(service.json()).toEqual([]);
+    service.say({ message_type: "session_started", session_id: "s1", config: {} });
+    expect(heard.opened.count).toBe(1);
+    const chunks = service.json();
+    expect(chunks).toHaveLength(10);
+    expect(chunks[0]).toMatchObject({
+      message_type: "input_audio_chunk",
+      commit: false,
+      sample_rate: 16000,
+    });
+    expect(Buffer.from(String(chunks[0]?.audio_base_64), "base64").byteLength).toBe(3200);
+  });
+
+  test("each guess replaces the last, the committed text ends the line at its words' times; the last audio is committed at the end", async () => {
+    const { service, heard, stream } = connect();
+    service.open();
+    service.say({ message_type: "session_started", session_id: "s1", config: {} });
+    feed((samples) => stream.push(samples), 3);
+    service.say({ message_type: "partial_transcript", text: "The review" });
+    service.say({ message_type: "partial_transcript", text: "The review moves" });
+    service.say({ message_type: "committed_transcript", text: "The review moves to Thursday." });
+    service.say(
+      timed("The review moves to Thursday.", [
+        ["The", 0.4, 0.52],
+        ["review", 0.52, 0.9],
+        ["moves", 0.9, 1.2],
+        ["to", 1.2, 1.3],
+        ["Thursday.", 1.3, 1.9],
+      ]),
+    );
+    expect(heard.segments.filter((each) => !each.final).map((each) => each.text)).toEqual([
+      "The review",
+      "The review moves",
+    ]);
+    expect(heard.finals()).toEqual([
+      expect.objectContaining({
+        id: heard.segments[0]?.id,
+        text: "The review moves to Thursday.",
+        startMs: 400,
+        endMs: 1900,
+      }),
+    ]);
+    stream.push(new Int16Array(100));
+    const finished = stream.finish();
+    const last = service.json().at(-1);
+    expect(last).toMatchObject({ message_type: "input_audio_chunk", commit: true });
+    expect(Buffer.from(String(last?.audio_base_64), "base64").byteLength).toBe(3200);
+    service.say({ message_type: "partial_transcript", text: "最后" });
+    service.say({ message_type: "committed_transcript", text: "最后一句。" });
+    service.say(timed("最后一句。", [["最后一句。", 3.1, 3.6]]));
+    await finished;
+    expect(heard.finals().at(-1)).toMatchObject({ text: "最后一句。", startMs: 3100, endMs: 3600 });
+    expect(heard.losses).toEqual([]);
+  });
+
+  test("after the last audio with nothing being said, it waits three seconds for text, then is done", async () => {
+    vi.useFakeTimers();
+    try {
+      const { service, heard, stream } = connect();
+      service.open();
+      service.say({ message_type: "session_started", session_id: "s1", config: {} });
+      let done = false;
+      void stream.finish().then(() => {
+        done = true;
+      });
+      expect(service.json().at(-1)).toMatchObject({ audio_base_64: "", commit: true });
+      await vi.advanceTimersByTimeAsync(2900);
+      expect(done).toBe(false);
+      await vi.advanceTimersByTimeAsync(200);
+      expect(done).toBe(true);
+      expect(heard.losses).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("a session at its time limit goes on over a new one, sending again the audio after the last committed text: no words lost and none twice", () => {
+    const { service, heard, stream } = connect();
+    service.open();
+    service.say({ message_type: "session_started", session_id: "s1", config: {} });
+    feed((samples) => stream.push(samples), 2);
+    service.say({ message_type: "partial_transcript", text: "First" });
+    service.say({ message_type: "committed_transcript", text: "First point." });
+    service.say(
+      timed("First point.", [
+        ["First", 0.2, 0.6],
+        ["point.", 0.6, 1.0],
+      ]),
+    );
+    feed((samples) => stream.push(samples), 1);
+    service.say({ message_type: "partial_transcript", text: "Second" });
+    service.say({
+      message_type: "session_time_limit_exceeded",
+      error: "Maximum session duration exceeded. Start a new session.",
+    });
+    expect(service.connections).toHaveLength(2);
+    expect(service.connections[0]?.closed).toBe(true);
+    // The old socket's own close, after its error, ends nothing.
+    service.connections[0]?.events.closed(1000, "");
+    service.open();
+    service.say({ message_type: "session_started", session_id: "s2", config: {} });
+    // Kept from the end of the last committed text, 1 s, to the 3 s received.
+    const again = service.json();
+    expect(again).toHaveLength(20);
+    expect(again.every((each) => each.commit === false)).toBe(true);
+    // Its times count from where its audio starts.
+    service.say({ message_type: "committed_transcript", text: "Second point." });
+    service.say(
+      timed("Second point.", [
+        ["Second", 0.1, 0.5],
+        ["point.", 0.5, 0.9],
+      ]),
+    );
+    expect(heard.finals().map((each) => [each.text, each.startMs, each.endMs])).toEqual([
+      ["First point.", 200, 1000],
+      ["Second point.", 1100, 1900],
+    ]);
+    expect(heard.losses).toEqual([]);
+    expect(heard.opened.count).toBe(1);
+  });
+
+  test("a session at its time limit between a committed text and its times: the new session hears that text again, and its words come once", () => {
+    const { service, heard, stream } = connect();
+    service.open();
+    service.say({ message_type: "session_started", session_id: "s1", config: {} });
+    feed((samples) => stream.push(samples), 2);
+    service.say({ message_type: "partial_transcript", text: "First" });
+    service.say({ message_type: "committed_transcript", text: "First point." });
+    service.say({
+      message_type: "session_time_limit_exceeded",
+      error: "Maximum session duration exceeded. Start a new session.",
+    });
+    expect(service.connections).toHaveLength(2);
+    service.connections[0]?.events.closed(1000, "");
+    service.open();
+    service.say({ message_type: "session_started", session_id: "s2", config: {} });
+    // All 2 s again: nothing had its times, so nothing was let go.
+    expect(service.json()).toHaveLength(20);
+    service.say({ message_type: "committed_transcript", text: "First point." });
+    service.say(
+      timed("First point.", [
+        ["First", 0.2, 0.6],
+        ["point.", 0.6, 1.0],
+      ]),
+    );
+    expect(heard.finals().map((each) => [each.text, each.startMs, each.endMs])).toEqual([
+      ["First point.", 200, 1000],
+    ]);
+    expect(heard.losses).toEqual([]);
+  });
+
+  test("its error message names the close: auth_error is a refused key, quota_exceeded out of credit, anything else dropped; nothing more is reported", () => {
+    for (const [type, loss] of [
+      ["auth_error", "refused"],
+      ["quota_exceeded", "credit"],
+      ["unaccepted_terms", "dropped"],
+      ["resource_exhausted", "dropped"],
+    ] as const) {
+      const { service, heard } = connect();
+      service.open();
+      service.say({ message_type: type, error: "From the service." });
+      service.drop(1000);
+      service.say({ message_type: "committed_transcript", text: "Late words." });
+      expect(heard.losses).toEqual([loss]);
+      expect(heard.segments).toEqual([]);
+    }
+    const dropped = connect();
+    dropped.service.open();
+    dropped.service.say({ message_type: "session_started", session_id: "s1", config: {} });
+    dropped.service.drop(1006);
+    expect(dropped.heard.losses).toEqual(["dropped"]);
+  });
+});
+
+// ---- Gladia, as its live API reference shows the session's request and its socket ----
+
+describe("Gladia's live transcription, in the request and messages its reference shows", () => {
+  function connect(answer: () => Response = () => started(201)) {
+    const service = playback();
+    const heard = collect();
+    const asked: { url: string; init: RequestInit | undefined }[] = [];
+    const stream = createGladiaStream({
+      stream: "m:system",
+      model: "solaria-1",
+      apiKey: "gladia-test-key",
+      languages: ["en", "zh"],
+      connect: service.connect,
+      report: heard.report,
+      fetch: async (input, init) => {
+        asked.push({ url: String(input), init });
+        return answer();
+      },
+    });
+    return { service, heard, stream, asked };
+  }
+
+  const started = (status: number, url = "wss://api.gladia.io/v2/live?token=636c70f6") =>
+    new Response(JSON.stringify({ id: "636c70f6", url }), { status });
+  const transcript = (
+    id: string,
+    final: boolean,
+    text: string,
+    words: [string, number, number][],
+  ) => ({
+    session_id: "636c70f6",
+    created_at: "2026-11-07T09:00:00Z",
+    type: "transcript",
+    data: {
+      id,
+      is_final: final,
+      utterance: {
+        start: words[0]?.[1],
+        end: words.at(-1)?.[2],
+        confidence: 0.93,
+        channel: 0,
+        words: words.map(([word, start, end]) => ({ word, start, end, confidence: 0.95 })),
+        text,
+        language: "en",
+      },
+    },
+  });
+
+  test("asks Gladia for a session with the key in x-gladia-key and the User's languages, then opens its socket with no key, as the address holds its token", async () => {
+    const { service, asked, heard, stream } = connect();
+    expect(service.connections).toEqual([]);
+    feed((samples) => stream.push(samples), 1);
+    await vi.waitFor(() => expect(service.connections).toHaveLength(1));
+    expect(asked).toHaveLength(1);
+    expect(asked[0]?.url).toBe("https://api.gladia.io/v2/live");
+    expect(asked[0]?.init?.method).toBe("POST");
+    expect(asked[0]?.init?.headers).toMatchObject({ "x-gladia-key": "gladia-test-key" });
+    expect(JSON.parse(String(asked[0]?.init?.body))).toEqual({
+      encoding: "wav/pcm",
+      bit_depth: 16,
+      sample_rate: 16000,
+      channels: 1,
+      model: "solaria-1",
+      language_config: { languages: ["en", "zh"], code_switching: true },
+      endpointing: 0.4,
+      maximum_duration_without_endpointing: 15,
+      messages_config: { receive_partial_transcripts: true, receive_final_transcripts: true },
+    });
+    expect(service.last().url).toBe("wss://api.gladia.io/v2/live?token=636c70f6");
+    expect(service.last().key).toBe("");
+    expect(service.audioBytes()).toEqual([]);
+    service.open();
+    expect(heard.opened.count).toBe(1);
+    expect(service.audioBytes()).toHaveLength(10);
+  });
+
+  test("an utterance as it is said, then final with its times; Chinese as it writes it; stop_recording, then the normal close, ends it whole", async () => {
+    const { service, heard, stream } = connect();
+    await vi.waitFor(() => expect(service.connections).toHaveLength(1));
+    service.open();
+    service.say(
+      transcript("00-00000001", false, "The review", [
+        ["The", 0.4, 0.52],
+        ["review", 0.52, 0.9],
+      ]),
+    );
+    service.say(
+      transcript("00-00000001", true, "The review moves to Thursday.", [
+        ["The", 0.4, 0.52],
+        ["review", 0.52, 0.9],
+        ["moves", 0.9, 1.2],
+        ["to", 1.2, 1.3],
+        ["Thursday.", 1.3, 1.9],
+      ]),
+    );
+    service.say(transcript("00-00000002", false, "预算", [["预算", 2.2, 2.6]]));
+    expect(heard.finals()).toEqual([
+      expect.objectContaining({
+        id: heard.segments[0]?.id,
+        text: "The review moves to Thursday.",
+        startMs: 400,
+        endMs: 1900,
+      }),
+    ]);
+    const finished = stream.finish();
+    expect(service.json().at(-1)).toEqual({ type: "stop_recording" });
+    service.say(
+      transcript("00-00000002", true, "预算下周三再确认。", [
+        ["预算", 2.2, 2.6],
+        ["下周三", 2.6, 3.1],
+        ["再确认。", 3.1, 3.8],
+      ]),
+    );
+    service.drop(1000);
+    await finished;
+    expect(heard.finals().map((each) => [each.text, each.startMs])).toEqual([
+      ["The review moves to Thursday.", 400],
+      ["预算下周三再确认。", 2200],
+    ]);
+    expect(heard.losses).toEqual([]);
+  });
+
+  test("a 401 to the session's request is a refused key, a 402 out of credit, any other answer or a socket address not Gladia's dropped; no socket opens", async () => {
+    for (const [answer, loss] of [
+      [() => new Response("{}", { status: 401 }), "refused"],
+      [() => new Response("{}", { status: 402 }), "credit"],
+      [() => new Response("{}", { status: 429 }), "dropped"],
+      [() => started(201, "wss://elsewhere.example/v2/live?token=1"), "dropped"],
+    ] as const) {
+      const { service, heard } = connect(answer);
+      await vi.waitFor(() => expect(heard.losses).toEqual([loss]));
+      expect(service.connections).toEqual([]);
+    }
+  });
+
+  test("dropped while its session is being asked for, it opens no socket, so no audio goes", async () => {
+    let answer: (response: Response) => void = () => {};
+    const pending = new Promise<Response>((resolve) => {
+      answer = resolve;
+    });
+    const service = playback();
+    const heard = collect();
+    const stream = createGladiaStream({
+      stream: "m:system",
+      model: "solaria-1",
+      apiKey: "gladia-test-key",
+      languages: [],
+      connect: service.connect,
+      report: heard.report,
+      fetch: () => pending,
+    });
+    feed((samples) => stream.push(samples), 1);
+    stream.drop();
+    answer(started(201));
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(service.connections).toEqual([]);
+    expect(heard.losses).toEqual([]);
+  });
+
+  test("a socket that closes before the end drops the stream", async () => {
+    const { service, heard } = connect();
+    await vi.waitFor(() => expect(service.connections).toHaveLength(1));
+    service.open();
+    service.drop(1006);
+    expect(heard.losses).toEqual(["dropped"]);
   });
 });

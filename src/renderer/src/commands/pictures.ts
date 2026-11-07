@@ -3,26 +3,44 @@ import { noteHolding } from "../editor/noteKeymap";
 import { mindEditor } from "../editor/openEditors";
 // The Pictures extension's own commands (`choosePicture`) are typed where it declares them.
 import type {} from "../editor/pictures";
+import {
+  openPictureFromEditor,
+  selectedPictureAt,
+  usePictureViewer,
+  viewerActions,
+} from "../pictureViewer";
+import { noteToWrite } from "./handles";
 import type { Command, CommandContext } from "./registry";
 
 /**
  * The note a command acts on: the Block the keymap's focus is in, or, from ⌘K,
- * the Note in front, whose cursor may be anywhere in it.
+ * the Note the User last wrote in, whose cursor may be anywhere in it. A
+ * picture selected in the Note is the mind's selection, with no focus.
  */
 function noteOf(ctx: CommandContext): Editor | null {
-  const focus = ctx.focus;
-  const editor =
-    focus?.kind === "block"
-      ? noteHolding(focus.id)
-      : focus?.kind === "mind"
-        ? mindEditor(focus.id)
-        : null;
-  return editor && !editor.isDestroyed && editor.isEditable ? editor : null;
+  const ref =
+    ctx.focus ??
+    ctx.selection.find(
+      (each) => each.kind === "block" || each.kind === "answer" || each.kind === "mind",
+    ) ??
+    null;
+  if (ref?.kind === "block" || ref?.kind === "answer") {
+    const editor = noteHolding(ref.id);
+    return editor && !editor.isDestroyed && editor.isEditable ? editor : null;
+  }
+  if (ref?.kind === "mind") {
+    const editor = mindEditor(ref.id);
+    if (editor && !editor.isDestroyed && editor.isEditable) return editor;
+    return noteToWrite(ctx);
+  }
+  return null;
 }
 
 /**
  * Pictures in a Note (#1937): a picture chosen from the computer, as "/" and
- * the drop of an image file do. The note's own undo (⌘Z) takes it back.
+ * the drop of an image file do, and the selected picture at full size
+ * (#2377), which a double-click and Space also open. The note's own undo (⌘Z)
+ * takes an insert back.
  */
 export const pictureCommands: readonly Command[] = [
   {
@@ -39,5 +57,35 @@ export const pictureCommands: readonly Command[] = [
       const editor = noteOf(ctx);
       if (editor) editor.commands.choosePicture();
     },
+  },
+  {
+    id: "picture.open",
+    label: "editor.picture.open",
+    keywords: ["editor.picture.openKeywords"],
+    group: "open",
+    // From ⌘K the focus is the Note in front or the Answer whose picture is selected.
+    appliesTo: ["block", "mind", "answer"],
+    assistant: false,
+    reversible: true,
+    when(ctx) {
+      const editor = noteOf(ctx);
+      return editor !== null && selectedPictureAt(editor) !== null;
+    },
+    run(ctx) {
+      const editor = noteOf(ctx);
+      const at = editor && selectedPictureAt(editor);
+      if (editor && at !== null) openPictureFromEditor(editor, at);
+    },
+  },
+  {
+    id: "picture.copy",
+    label: "menu.copy",
+    shortcut: { keys: "CmdOrCtrl+C", outsideText: true },
+    palette: false,
+    group: "main",
+    assistant: false,
+    reversible: true,
+    when: () => usePictureViewer.getState().target !== null,
+    run: () => viewerActions.copy(),
   },
 ];

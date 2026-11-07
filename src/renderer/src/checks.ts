@@ -32,7 +32,7 @@ import { claimSpans, placeInSentence, type ShownClaim } from "./editor/claimChec
 import { asOneStep } from "./editor/editorUndo";
 import { selectionForEdit } from "./editor/editSelection";
 import { type BlockPlace, pendingIn, placeOnAccept, positionOf } from "./editor/proposalReview";
-import { resolveProposalsIn, useEdits } from "./editWithAi";
+import { noteBusy, resolveProposalsIn, useEdits } from "./editWithAi";
 import { modelInUseOf } from "./modelInUse";
 
 /** Why a check gave no marks, or what it left out, for the check badge's card. */
@@ -99,6 +99,8 @@ interface ChecksState {
    * than in the card, which draws the question in a view of its own.
    */
   documentAsk: Readonly<Record<string, { within: SearchScope; plan: DocumentCheckPlan }>>;
+  /** By Mind: the sentence check whose rewrite with what the Documents say the model works on (#1554). */
+  rewriting: Readonly<Record<string, string>>;
 }
 
 export const useChecks = create<ChecksState>()(() => ({
@@ -111,6 +113,7 @@ export const useChecks = create<ChecksState>()(() => ({
   pickDocument: {},
   documentProgress: {},
   documentAsk: {},
+  rewriting: {},
 }));
 
 function setFor<K extends keyof ChecksState>(
@@ -145,6 +148,9 @@ export const setOpenClaim = (place: string, id: string | null) => setFor("openCl
 export const setClaimFocus = (place: string, id: string | null) => setFor("focusClaim", place, id);
 
 export const requestDocumentPicker = (id: string) => setFor("pickDocument", id, true);
+
+export const setRewriting = (mindId: string, checkId: string | null) =>
+  setFor("rewriting", mindId, checkId);
 
 /** Asks the claim's card to read `within` again: it sizes the read and asks before reading. */
 export const requestDocumentRead = (id: string, within: SearchScope) =>
@@ -245,6 +251,11 @@ export async function checkSentences(
       ? "check-against-documents"
       : asked;
   if (editor.isDestroyed || useChecks.getState().running[mindId]) return;
+  // A rewrite writes its reply only into a Note nothing else started on meanwhile.
+  if (useChecks.getState().rewriting[mindId]) {
+    noteBusy(mindId);
+    return;
+  }
   const stretches = (ranges ?? [editor.state.selection]).flatMap((range) => {
     const read = selectionForEdit(editor.state, range);
     return read ? [read] : [];
@@ -378,9 +389,13 @@ export function acceptAndCheck(
   });
 }
 
-/** Whether no edit or check is running in the Mind, so one of its fixes can change it. */
-export const fixesFree = (mindId: string): boolean =>
-  !useEdits.getState().pending[mindId] && !useChecks.getState().running[mindId];
+/** Whether no edit, check or rewrite is running in the Mind, so one of its fixes can change it. */
+export const fixesFree = (mindId: string): boolean => {
+  const checks = useChecks.getState();
+  return (
+    !useEdits.getState().pending[mindId] && !checks.running[mindId] && !checks.rewriting[mindId]
+  );
+};
 
 /**
  * Puts back the check a fix took the sentence's mark from, once Undo has brought its words back:

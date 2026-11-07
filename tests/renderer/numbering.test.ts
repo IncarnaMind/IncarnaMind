@@ -154,6 +154,74 @@ describe("Numbering schemes", () => {
     expect(markers(editor)).toEqual(["1.", "2.", "1.", "2."]);
   });
 
+  // protects=a list in an Answer, a quote or a table cell is no list above a list under another parent: it neither changes how that list continues nor makes it continuable; fails_when=the last numbered list anywhere counts, so the continued list goes on from a contained list's numbers or Continue is offered with only one above; no_claim=none beyond protects.
+  test("a list in an Answer, a quote or a table cell doesn't change how another parent's list continues", () => {
+    const editor = editorWith([
+      ordered({}, item("One"), item("Two")),
+      {
+        type: "answer",
+        content: [ordered({ numbering: "clauses" }, item("A"), item("B"), item("C"))],
+      },
+      {
+        type: "blockquote",
+        content: [ordered({}, item("Q1"), item("Q2"), item("Q3"), item("Q4"))],
+      },
+      {
+        type: "table",
+        content: [
+          {
+            type: "tableRow",
+            content: [
+              {
+                type: "tableCell",
+                content: [ordered({}, item("T1"), item("T2"), item("T3"), item("T4"), item("T5"))],
+              },
+            ],
+          },
+        ],
+      },
+      paragraph("Between"),
+      ordered({ continues: true }, item("Three"), item("Four")),
+    ]);
+    expect(markers(editor)).toEqual([
+      "1.",
+      "2.",
+      "(a)",
+      "(b)",
+      "(c)",
+      "1.",
+      "2.",
+      "3.",
+      "4.",
+      "1.",
+      "2.",
+      "3.",
+      "4.",
+      "5.",
+      "3.",
+      "4.",
+    ]);
+
+    const contained = editorWith([
+      { type: "answer", content: [ordered({}, item("A"))] },
+      { type: "blockquote", content: [ordered({}, item("Q"))] },
+      {
+        type: "table",
+        content: [
+          {
+            type: "tableRow",
+            content: [{ type: "tableCell", content: [ordered({}, item("T"))] }],
+          },
+        ],
+      },
+      paragraph("Between"),
+      ordered({}, item("After")),
+    ]);
+    caretIn(contained, "After");
+    expect(canContinueNumbering(contained)).toBe(false);
+    expect(markers(contained)).toEqual(["1.", "1.", "1.", "1."]);
+  });
+
   // protects=a start a pasted or stored list holds, however large, draws at once as its number where the scheme can't write it; fails_when=the conversion loops or its work grows with the number; no_claim=the marker a scheme draws at a value it can still write.
   test("a list's extreme start draws at once", () => {
     const stored = editorWith([
