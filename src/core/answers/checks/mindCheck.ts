@@ -44,8 +44,10 @@ import type {
   ClaimPartPlan,
   DocumentsAddedSince,
   FindMindClaimsResult,
+  MindCheckEarly,
   MindCheckPlan,
   RunStop,
+  TextStretch,
 } from "../../api";
 import { CHART_NODE } from "../../api";
 import { parseModel } from "../../edits";
@@ -117,6 +119,8 @@ export interface MindCheckOptions extends RunChecksOptions {
   requireMind(mindId: string): void;
   /** What a check reads of the Library as it runs, as text that differs whenever that does. */
   libraryState(): string;
+  /** The run's sentences checked before it marks them, for the window to draw (#1624). */
+  checkingEarly(event: MindCheckEarly): void;
 }
 
 const MODES: readonly CheckMindMode[] = ["all", "changed", "added"];
@@ -656,7 +660,13 @@ export function createMindCheck(options: MindCheckOptions) {
       claim: SelectedSentence,
       checkedAt: string,
       named?: readonly ClaimPartPlan[],
-    ): { sentence: SelectedSentence; mark: ClaimCheckAttributes; queued: QueuedClaim } | null => {
+    ): {
+      sentence: SelectedSentence;
+      mark: ClaimCheckAttributes;
+      queued: QueuedClaim;
+      /** The sentence carries no check's mark yet. */
+      unmarked: boolean;
+    } | null => {
       const sentence = now.find(
         (each) =>
           each.blockId === claim.blockId &&
@@ -715,6 +725,7 @@ export function createMindCheck(options: MindCheckOptions) {
       return {
         sentence,
         mark: pending,
+        unmarked: owners.length === 0,
         queued: {
           id: mark.id,
           ...(row ? { ...row, figures: sentence.figures } : checkText(sentence)),
@@ -767,13 +778,25 @@ export function createMindCheck(options: MindCheckOptions) {
             ])
           : library();
     };
-    /** Starts a claim's check before the run's marks are written (`earlyChecks`). */
+    /** The sentences the window shows as checking until the run marks its claims. */
+    const shownEarly: TextStretch[] = [];
+    const showEarly = () =>
+      options.checkingEarly({ mindId, requestId, sentences: [...shownEarly] });
+    /**
+     * Starts a claim's check before the run's marks are written (`earlyChecks`). A sentence the
+     * sort has named, with no mark on it yet, shows in the window as checking from then (#1624):
+     * the Note's own marks wait until every claim is named, as the run's queue reads the Note then.
+     */
     const startEarly = (claim: SelectedSentence, named?: readonly ClaimPartPlan[]) => {
       try {
         const found = content.read(mindId, (blocks) =>
           placed(blocks, nowOf(blocks), claim, options.now().toISOString(), named),
         );
-        if (found) early.start(found.queued, readsNow(claim));
+        if (!found || !early.start(found.queued, readsNow(claim))) return;
+        if (!named || !found.unmarked) return;
+        const { blockId, from, to } = found.sentence;
+        shownEarly.push({ from: { blockId, offset: from }, to: { blockId, offset: to } });
+        showEarly();
       } catch (error) {
         // The run still checks it, once the claims are named.
         console.error(`A sentence of Note ${mindId} couldn't be checked early:`, error);
@@ -820,6 +843,10 @@ export function createMindCheck(options: MindCheckOptions) {
         return marked;
       });
       early.keep(queued);
+      if (shownEarly.length > 0) {
+        shownEarly.length = 0;
+        showEarly();
+      }
 
       const result = await runChecks(
         { ...options, claimCheck: early.claimCheck },
@@ -827,6 +854,10 @@ export function createMindCheck(options: MindCheckOptions) {
       );
       ran = { ...result, sentences: queued.length };
     } finally {
+      if (shownEarly.length > 0) {
+        shownEarly.length = 0;
+        showEarly();
+      }
       early.drop();
     }
     if (signal.aborted) {

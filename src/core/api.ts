@@ -7848,6 +7848,17 @@ export interface TextStretch {
   to: TextPlace;
 }
 
+/**
+ * The sentences a Check this Note run checks before it has marked them (#1624): each from when its
+ * check starts, while the model still names the rest, until the run marks its claims or ends,
+ * when `sentences` is empty. A window draws them as checking; the Note never stores them.
+ */
+export interface MindCheckEarly {
+  mindId: string;
+  requestId: string;
+  sentences: TextStretch[];
+}
+
 /** Why finding or checking a document's claims sent nothing. */
 type VerifyRefusal =
   | Exclude<
@@ -14031,6 +14042,8 @@ export interface CoreEvents {
   "references.changed": Document[];
   /** How far a whole read of Check against a Document… is (#1554). */
   "documentCheck.progress": DocumentCheckProgress;
+  /** A Check this Note run's sentences checked before it marks them (`MindCheckEarly`). */
+  "mindCheck.early": MindCheckEarly;
   /** How far a Mind's `checkReferences` is: `done` of `total` entries looked up. */
   "referenceCheck.progress": { mindId: string; done: number; total: number };
   /** `importReferences` has matched `done` of `total` references. */
