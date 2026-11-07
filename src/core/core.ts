@@ -2061,7 +2061,13 @@ export function createCore(adapters: CoreAdapters): Core {
       if (exported.word && exported.word.notKept.length > 0) {
         throw new InvalidInputError({ key: "error.commands.wordLoses" });
       }
-      if (approvedFiles && baseNameOf(approvedFiles.fileName) !== exported.fileName)
+      // The name this folder gives the file now, as the card worked it out, must be the one the
+      // User allowed; a Note renamed or a name taken since asks again (#2514).
+      if (
+        approvedFiles &&
+        (folder === null ||
+          (await freeFileName(folder, exported.fileName)) !== approvedFiles.fileName)
+      )
         throw new ExportChangedError();
       const file = await outputs.save({
         name: approvedFiles?.fileName ?? exported.fileName,
@@ -3307,7 +3313,8 @@ export function createCore(adapters: CoreAdapters): Core {
       const name = approvedNames?.[next];
       if (approvedNames) {
         // A picture changed since the card, or the list did: nothing is written under a new name.
-        if (name === undefined || baseNameOf(name) !== file.name) throw new ExportChangedError();
+        if (name === undefined || name !== (await freeFileName(folder, file.name)))
+          throw new ExportChangedError();
         next++;
       }
       await outputs.save({
@@ -3321,11 +3328,6 @@ export function createCore(adapters: CoreAdapters): Core {
       });
     }
     if (approvedNames && next !== approvedNames.length) throw new ExportChangedError();
-  };
-  /** A name a save takes, without the number a taken name adds: "Tides 2.md" is "Tides.md" (#2514). */
-  const baseNameOf = (name: string): string => {
-    const extension = extname(name);
-    return `${name.slice(0, name.length - extension.length).replace(/ \d+$/, "")}${extension}`;
   };
   /**
    * Saves an export in the Output location, as the window's save: what went wrong is a result, not

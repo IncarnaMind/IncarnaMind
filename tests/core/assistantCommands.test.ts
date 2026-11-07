@@ -779,6 +779,54 @@ describe("Commands that reach outside IncarnaMind wait for the User (#1110)", {
     ]);
   });
 
+  /** Asks for a Markdown export of the Note named `name` to `folder`; Allow once, and says what followed. */
+  async function exportNamed(name: string, folder: string, ownName = name) {
+    const { core, mind } = await setUpWithDocuments(
+      calling(find(name, "mind"), run("mind.export", { format: "markdown", folder })),
+      DOCUMENTS,
+    );
+    await core.renameMind(mind.id, name);
+    const requested = nextEvent(core, "approval.requested");
+    const asking = askAssistant(core, {
+      text: "Export this Note as Markdown to that folder",
+      mindId: mind.id,
+    });
+    const request = await requested;
+    expect(request).toMatchObject({
+      ask: { kind: "export", fileName: `${ownName}.md`, pictures: [] },
+    });
+    const again = nextEvent(core, "approval.requested");
+    await core.respondToApproval(request.requestId, "allow-once");
+    const outcome = await Promise.race([
+      asking.then(() => "written" as const),
+      again.then(async (second) => {
+        await core.respondToApproval(second.requestId, "deny");
+        await asking;
+        return "asked again" as const;
+      }),
+    ]);
+    return outcome;
+  }
+
+  // protects=a number at the end of the Note's own name is part of the name the User allowed, not a clash's suffix; fails_when=Allow asks again with the same name and nothing is ever written; no_claim=the card's look.
+  test.each(["Budget 2026", "Meeting 2", "预算 2026"])(
+    "a Note named %s, exported to another folder, is written on one Allow",
+    async (name) => {
+      const elsewhere = await createTempDataFolder();
+      expect(await exportNamed(name, elsewhere)).toBe("written");
+      expect(await readdir(elsewhere)).toEqual([`${name}.md`]);
+    },
+  );
+
+  // protects=a real clash still takes the next free name, named on the card, and one Allow writes it; fails_when=the card names the taken name, or Allow asks again; no_claim=the card's look.
+  test("a Note named Budget 2026 whose name the folder holds is asked for as Budget 2026 2.md and written on one Allow", async () => {
+    const elsewhere = await createTempDataFolder();
+    await writeFile(join(elsewhere, "Budget 2026.md"), "An older export.");
+    expect(await exportNamed("Budget 2026", elsewhere, "Budget 2026 2")).toBe("written");
+    expect((await readdir(elsewhere)).sort()).toEqual(["Budget 2026 2.md", "Budget 2026.md"]);
+    expect(await readFile(join(elsewhere, "Budget 2026.md"), "utf8")).toBe("An older export.");
+  });
+
   // protects=a Markdown export with no pictures still asks for one file, and Allow writes exactly it; fails_when=the ask counts a picture or Allow writes one beside it; no_claim=the card's look.
   test("a Markdown export with no pictures asks for one file, and Allow writes only it", async () => {
     const elsewhere = await createTempDataFolder();
