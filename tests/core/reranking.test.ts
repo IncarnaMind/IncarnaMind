@@ -903,7 +903,8 @@ describe("A GPU file's copy for its WebGPU session", () => {
     expect(await copiesIn(folder)).toEqual([]);
   });
 
-  test.skipIf(process.platform === "win32")(
+  // A folder without write permission stops a write only for a user other than root.
+  test.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
     "opens the file as downloaded and says why when the copy can't be written",
     async () => {
       const { folder, files } = await exportedGpuFile();
