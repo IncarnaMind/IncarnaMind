@@ -81,7 +81,7 @@ export function createOrganizeReview(options: {
   };
 
   /** Files, makes and tags what these rows say, and closes them under `id`. Run in a transaction. */
-  const apply = (id: string, items: readonly ItemRow[]) => {
+  const apply = (id: string, items: readonly ItemRow[], redo = false) => {
     const folders = new Map<string, string>();
     const madeFolders: string[] = [];
     const madeTags = new Map<string, string>();
@@ -170,7 +170,17 @@ export function createOrganizeReview(options: {
           "SELECT group_id, source FROM document_groups WHERE document_id = ? AND deleted_at IS NULL",
           [item.document_id],
         );
-        if (groupId !== null && (now?.group_id !== groupId || now.source !== "user")) {
+        // Done again, a Document the User has put somewhere else since its Undo stays there.
+        const movedSince =
+          redo &&
+          item.filed !== null &&
+          (now?.group_id ?? null) !==
+            ((JSON.parse(item.filed) as AssignmentChange).before.assignment?.groupId ?? null);
+        if (
+          groupId !== null &&
+          !movedSince &&
+          (now?.group_id !== groupId || now.source !== "user")
+        ) {
           const [moved] = library.move([item.document_id], groupId);
           if (moved) change = JSON.stringify(moved.change);
           filed.push(item.document_id);
@@ -405,7 +415,7 @@ export function createOrganizeReview(options: {
             "UPDATE organize_review_confirmations SET undone_at = NULL, updated_at = ? WHERE id = ?",
             [now(), id],
           );
-          return apply(id, items);
+          return apply(id, items, true);
         }),
       );
     },

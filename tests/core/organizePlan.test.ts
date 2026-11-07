@@ -645,6 +645,7 @@ describe("Organize the Library into the Review", () => {
           estimate.billing === "per-token" ? (estimate.cost?.amount ?? null) : null,
         tokensOf: approximateTokens,
         propose: () => 0,
+        settled: () => undefined,
         progress: () => {},
       });
 

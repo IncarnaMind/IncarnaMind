@@ -22,12 +22,18 @@ import {
 } from "../../libraryPage";
 import { formatCount } from "../../linkedFolders";
 import { organizeDocuments, useOrganizeAsk } from "../../organizeDocuments";
+import { fixOrganizeProblem } from "../../organizeFix";
 import { organizeStateOf } from "../../organizeOutcome";
 import { useOrganizeReview } from "../../organizeReview";
 import { useListedDocuments } from "../../ownDocuments";
 import { useRequests } from "../../requests";
 import type { ReviewReason } from "../../reviewProblems";
-import { notOrganizedLine, retryableIds, unsettledProblemsOf } from "../../reviewProblems";
+import {
+  notOrganizedLine,
+  PROBLEM_FIX,
+  retryableIds,
+  unsettledProblemsOf,
+} from "../../reviewProblems";
 import { useSidebarMove } from "../../sidebarMoves";
 import { useAppStore } from "../../store";
 import { foldKeys, isMoveToKey, TREE_ROW } from "../../treeKeys";
@@ -638,6 +644,9 @@ function Organize({ documents }: { documents: readonly Document[] }) {
   }
   if (failedCount > 0) {
     const retry = () => run(retryIds);
+    // The one press that fixes a cause, such as adding credit, before Try again can help (#2308).
+    const fixable = problems.find((problem) => PROBLEM_FIX[problem.kind] !== undefined);
+    const fixLabel = fixable ? PROBLEM_FIX[fixable.kind] : undefined;
     return (
       <span
         role="alert"
@@ -645,6 +654,19 @@ function Organize({ documents }: { documents: readonly Document[] }) {
         className="min-w-0 truncate text-[13px] text-ink-meta"
       >
         {notOrganizedLine(problems, failedCount, t)}
+        {fixable && fixLabel && (
+          <>
+            <span aria-hidden="true"> · </span>
+            <button
+              type="button"
+              data-testid="library-organize-fix"
+              onClick={() => void fixOrganizeProblem(fixable.kind)}
+              className={quietButtonClass}
+            >
+              {t(fixLabel)}
+            </button>
+          </>
+        )}
         {retryIds.length > 0 && (
           <>
             <span aria-hidden="true"> · </span>

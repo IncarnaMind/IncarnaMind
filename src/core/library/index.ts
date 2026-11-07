@@ -1540,6 +1540,26 @@ export function createLibrary(options: {
         ...(reviewMoved() > 0 && { reviewMoved: reviewMoved() }),
       };
     },
+    /**
+     * The plan has finished with these Documents (#1569): one waiting to be allowed, queued or
+     * failed is done, in the Folder it is in, and a job of the queue still running on it stops.
+     */
+    settle(ids: readonly string[]): void {
+      const done = db.transaction(() =>
+        ids.flatMap((id) => {
+          const row = assignment(id);
+          const doc = db.get<DocumentRow>(
+            "SELECT id, name, kind, page_count, content_hash, status FROM documents WHERE id = ? AND deleted_at IS NULL",
+            [id],
+          );
+          if (!row || !doc || row.status === "classified") return [];
+          asked.delete(id);
+          write(doc, row.group_id, row.source, "classified");
+          return [id];
+        }),
+      );
+      if (done.length > 0) announce(done);
+    },
     dismissReviewMoved(): void {
       if (reviewMoved() === 0) return;
       settings.writeDeviceValue(REVIEW_MOVED_NOTICE, 0);
