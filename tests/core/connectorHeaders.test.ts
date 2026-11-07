@@ -253,6 +253,28 @@ describe("Remote Connector keys and older connections", () => {
     await waitForState(core, connector.id, "ready");
   });
 
+  test("a header that only names an environment variable imports where keys can't be saved, and asks for the key there (#2025)", async () => {
+    const server = await startHeaderMcp();
+    onTestFinished(() => server.close());
+    const core = startCore(await createTempDataFolder(), {
+      keychain: createMemoryKeychain("unavailable"),
+    });
+    const json = JSON.stringify({
+      mcpServers: {
+        Tides: { url: server.url, headers: { Authorization: "Bearer ${env:TIDES_KEY}" } },
+      },
+    });
+
+    const { added } = await core.importConnectors(json);
+    expect(added).toMatchObject([{ name: "Tides", transport: "http", headers: ["Authorization"] }]);
+    const connector = added[0];
+    if (!connector) throw new Error("No Connector was imported.");
+    await waitForState(core, connector.id, "error");
+    await expect(
+      core.setConnectorHeaders(connector.id, { Authorization: "Bearer synthetic-key" }),
+    ).rejects.toMatchObject({ name: "SecretStorageError" });
+  });
+
   test.each([404, 405] as const)(
     "only the opening %s falls back to SSE and closes when disabled",
     async (status) => {

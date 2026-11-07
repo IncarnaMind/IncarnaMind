@@ -556,17 +556,35 @@ describe("Tokens", { timeout: 30_000 }, () => {
     expect(afterRestart.every((request) => fake.requests.indexOf(request) < firstNew)).toBe(true);
   });
 
-  test("an OAuth refresh refused with its token in the answer keeps that token out of the failure and the log (#2025)", async () => {
+  test("an OAuth refresh refused with its tokens in the answer keeps them out of the failure and the log (#2025)", async () => {
     const clock = manualClock();
     const dataDir = await createTempDataFolder();
     const keychain = createMemoryKeychain();
-    const { core, fake, id } = await signedIn({ now: clock.now, keychain, paths: { dataDir } });
+    const setup = await setUp({ now: clock.now, keychain, paths: { dataDir } });
+    // Letters alone: the generic message scrubber keeps this shape, so only the Connector's own
+    // inventory of the tokens it sent can keep them out of a failure or a log.
+    setup.fake.opaqueTokens = true;
+    const added = await addWiki(setup);
+    expect(await setup.core.signInToConnector(added.id)).toMatchObject({
+      ok: true,
+      connector: { state: "ready" },
+    });
+    const { core, fake } = setup;
+    const id = added.id;
     const stored = tokensIn(keychain, id) as {
       tokens: { access_token: string; refresh_token: string };
       expiresAt: number;
     };
+    const accessToken = stored.tokens.access_token;
     const refreshToken = stored.tokens.refresh_token;
-    fake.refreshRefusal = { status: 500, body: { error: `refresh_token ${refreshToken}` } };
+    expect([accessToken, refreshToken]).toEqual(["harbouraccessb", "harbourrenewb"]);
+    fake.refreshRefusal = {
+      status: 500,
+      body: {
+        error: "invalid_request",
+        error_description: `refresh_token ${refreshToken} after access_token ${accessToken}`,
+      },
+    };
     core.close();
     await keychain.set(`connector:${id}:oauth-tokens`, JSON.stringify({ ...stored, expiresAt: 0 }));
     clock.advance(2 * 3600_000);
@@ -583,8 +601,11 @@ describe("Tokens", { timeout: 30_000 }, () => {
     const failed = await connectorState(restarted, id, "error");
     expect(refreshes(fake)).toHaveLength(1);
     expect(failed.error).toMatchObject({ kind: "failed", step: "sign-in" });
-    expect(JSON.stringify(failed)).not.toContain(refreshToken);
-    expect(JSON.stringify(logged)).not.toContain(refreshToken);
+    for (const token of [accessToken, refreshToken]) {
+      expect(JSON.stringify(failed)).not.toContain(token);
+      expect(JSON.stringify(logged)).not.toContain(token);
+    }
+    expect(JSON.stringify(logged)).toContain("[redacted]");
   });
 
   test("an OAuth refresh refused with its client secret in the answer keeps it out of the failure and the log, with the status (#2025)", async () => {
@@ -633,6 +654,35 @@ describe("Tokens", { timeout: 30_000 }, () => {
     expect(refreshes(fake)).toHaveLength(1);
     expect(failed.error).toMatchObject({ kind: "failed", step: "sign-in", status: 500 });
     expect(JSON.stringify(failed)).not.toContain(manualSecret);
+    expect(JSON.stringify(logged)).not.toContain(manualSecret);
+  });
+
+  test("a code exchange refused with the client secret in the answer keeps it out of the browser's page, the sign-in's problem and the log (#2025)", async () => {
+    const logged: { event: string; fields?: Record<string, unknown> }[] = [];
+    const record = (event: string, fields?: Record<string, unknown>) =>
+      logged.push({ event, fields });
+    const setup = await setUp({ log: { info: record, warn: record, error: record } });
+    const added = await addWiki(setup);
+    // Letters only, and short: the generic message scrubber keeps this shape.
+    const manualSecret = "quietseal";
+    setup.fake.manualSecret = manualSecret;
+    await setup.core.setConnectorClient(added.id, {
+      clientId: MANUAL_CLIENT_ID,
+      clientSecret: manualSecret,
+    });
+    setup.fake.exchangeRefusal = {
+      status: 400,
+      body: { error: "invalid_request", error_description: `client_secret ${manualSecret}` },
+    };
+
+    const signed = await setup.core.signInToConnector(added.id);
+    expect(signed).toMatchObject({ ok: false, error: { kind: "failed" } });
+    const page = await setup.browser.visits[0];
+    expect(page?.status).toBe(502);
+    expect(page?.html).toContain("[redacted]");
+    expect(page?.html).not.toContain(manualSecret);
+    expect(JSON.stringify(signed)).not.toContain(manualSecret);
+    expect(JSON.stringify(await setup.core.listConnectors())).not.toContain(manualSecret);
     expect(JSON.stringify(logged)).not.toContain(manualSecret);
   });
 

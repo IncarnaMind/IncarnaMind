@@ -331,7 +331,16 @@ export async function signInRemote(options: RemoteSignInOptions): Promise<void> 
     }
     await redirect.receive({
       verify: (params) => provider.verifyIssuer(params),
-      exchange: (code) => transport.finishAuth(code),
+      exchange: async (code) => {
+        try {
+          return await transport.finishAuth(code);
+        } catch (error) {
+          // The token endpoint's refusal can quote what the request sent, the client secret too,
+          // and the browser's page shows this message: it is masked as a log line is.
+          const masked = hideHeaders(options.auth.credentials())(messageOf(error));
+          throw new Error(redactMessage(masked), { cause: error });
+        }
+      },
     });
     await options.auth.rememberRedirect(redirect.redirectUri);
   } finally {
