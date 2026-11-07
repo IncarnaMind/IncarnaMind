@@ -108,6 +108,9 @@ export function periodCounts(text: string, context: FigureContext): Figure[] {
       continue;
     const start = from + figure.start;
     const before = text.slice(0, start);
+    // "这一年", "那一年", "每一年" and "当一年" say which year, not how many: one period behind a
+    // demonstrative is no count (#2215).
+    if (figure.value === 1 && /[这那每当]\s*$/u.test(before)) continue;
     const consecutive = /(?:连续|接连|相继)\s*$/u.test(before);
     if (/第\s*$/u.test(before)) continue;
     if (match[0] === "年" && figure.value >= 1000 && !consecutive) continue;

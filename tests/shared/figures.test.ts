@@ -9,6 +9,7 @@
  * figure that isn't expected, or an ambiguity that isn't, fails the case.
  */
 import { describe, expect, test } from "vitest";
+import { figuresInClaim } from "../../src/core/answers/checks/calculated";
 import {
   type AmbiguityKind,
   currencyOnItsFigure,
@@ -762,6 +763,37 @@ const GOLDEN: { name: string; context: FigureContext; cases: Case[] }[] = [
     ],
   },
   {
+    name: "a digit amount that goes on in Chinese numerals (#2215)",
+    context: ZH,
+    cases: [
+      ["2万三千元", [f("2万三千元", 23000, { unit: "CNY", scale: "万" })]],
+      ["2万3千元", [f("2万3千元", 23000, { unit: "CNY", scale: "万" })]],
+      ["两万三千元", [f("两万三千元", 23000, { unit: "CNY" })]],
+      ["2万，三千元", [f("2万", 20000, { scale: "万" }), f("三千元", 3000, { unit: "CNY" })]],
+    ],
+  },
+  {
+    name: "a mobile or ID number written bare is no amount (#2215)",
+    context: ZH,
+    cases: [
+      ["13800138000", []],
+      ["电话13800138000", []],
+      ["身份证号110101199003071234", []],
+      ["身份证号11010119900307123X", []],
+      ["13,800,138,000元", [f("13,800,138,000元", 13800138000, { unit: "CNY" })]],
+      ["人民币13800138000元", [f("人民币13800138000元", 13800138000, { unit: "CNY" })]],
+    ],
+  },
+  {
+    name: "半 after a numeral of more than one place (#2215)",
+    context: ZH,
+    cases: [
+      ["一万二千半", [f("一万二千半", 12500)]],
+      ["两万半", [f("两万半", 25000, { scale: "万" })]],
+      ["两千半导体", [f("两千", 2000)]],
+    ],
+  },
+  {
     name: "sentences from English reports",
     context: EN,
     cases: [
@@ -942,6 +974,46 @@ describe("the golden set", () => {
     test.each(OWN_CONTEXT)("%s with %j", (text, context, figures) => {
       expect(readFigures(text, context).map(shape)).toEqual(figures);
     });
+  });
+});
+
+describe("a period a Chinese sentence counts (#2215)", () => {
+  const year = { kind: "other", word: "year" };
+
+  test.each([
+    "在这一年里",
+    "那一年",
+    "每一年",
+    "当一年",
+    "这一个月里",
+    "那一天",
+    "每一季度",
+  ])("%s states no count", (text) => {
+    expect(figuresInClaim(text, ZH)).toEqual([]);
+  });
+
+  test.each([
+    ["一年内", "一年", 1],
+    ["三年", "三年", 3],
+    ["连续两年", "两年", 2],
+  ])("%s still counts", (text, chars, value) => {
+    expect(figuresInClaim(text, ZH)).toEqual([
+      {
+        start: text.indexOf(chars),
+        end: text.indexOf(chars) + chars.length,
+        chars,
+        value,
+        scale: 1,
+        scaleWord: null,
+        unit: year,
+        decimals: 0,
+        currency: null,
+        approximate: false,
+        rangeTo: null,
+        footnote: null,
+        ambiguous: [],
+      },
+    ]);
   });
 });
 
