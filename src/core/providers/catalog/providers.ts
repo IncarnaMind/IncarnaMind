@@ -33,14 +33,10 @@ export const CLAUDE_LOW_EFFORT: ProviderOptions = {
   anthropic: { thinking: { type: "adaptive" }, effort: "low" },
 };
 
-const GEMINI_LOW: ProviderOptions = { google: { thinkingConfig: { thinkingLevel: "low" } } };
+// Measured through OpenRouter (#1631), which passes `reasoning.effort` to Gemini 3 as its
+// `thinkingLevel` and `reasoning.max_tokens` to Qwen as its `thinking_budget`: each model's own
+// provider gets the same control under its own name.
 const QWEN_THINKING_BUDGET = 512;
-const QWEN_BUDGET: ProviderOptions = { alibaba: { thinkingBudget: QWEN_THINKING_BUDGET } };
-const OPENROUTER_LOW: ProviderOptions = { openrouter: { reasoning: { effort: "low" } } };
-// OpenRouter passes its reasoning budget to Qwen as `thinking_budget`.
-const OPENROUTER_QWEN: ProviderOptions = {
-  openrouter: { reasoning: { max_tokens: QWEN_THINKING_BUDGET } },
-};
 
 const PROVIDERS = [
   {
@@ -256,8 +252,14 @@ const PROVIDERS = [
     docsUrl: "https://ai.google.dev/gemini-api/docs/models",
     pricingUrl: "https://ai.google.dev/gemini-api/docs/pricing",
     request: {
+      // At level low, Gemini 3.8 Flash's Answers finished 6.5 s sooner (11.1 → 6.3 s) as well cited
+      // and judged, and its everyday requests 27 s sooner with no guard failed. Its comparison
+      // cells were 7.2 s sooner but one of 28 was judged right less often, so they keep the default
+      // (#1631).
       effort: {
-        models: { "gemini-3.8-flash": { answer: GEMINI_LOW } },
+        models: {
+          "gemini-3.8-flash": { answer: { google: { thinkingConfig: { thinkingLevel: "low" } } } },
+        },
         refused: [
           { names: "thinking", options: { google: { thinkingConfig: undefined } } },
           { names: "Thinking", options: { google: { thinkingConfig: undefined } } },
@@ -322,10 +324,14 @@ const PROVIDERS = [
       // support everything a request asks for (Tools, a JSON schema).
       body: { provider: { data_collection: "deny", require_parameters: true } },
       thinkingOff: { options: { openrouter: { reasoning: { effort: "none" } } } },
+      // Only the kinds that held their gate, as on the models' own providers (Google's and Qwen's
+      // entries); GPT-6 Luna and GLM-5.3 Flash keep their default (#1631).
       effort: {
         models: {
-          "google/gemini-3.8-flash": { answer: OPENROUTER_LOW },
-          "qwen/qwen3.7-plus": { task: OPENROUTER_QWEN },
+          "google/gemini-3.8-flash": { answer: { openrouter: { reasoning: { effort: "low" } } } },
+          "qwen/qwen3.7-plus": {
+            task: { openrouter: { reasoning: { max_tokens: QWEN_THINKING_BUDGET } } },
+          },
         },
       },
     },
@@ -507,8 +513,11 @@ const PROVIDERS = [
     docsUrl: "https://www.alibabacloud.com/help/en/model-studio/regions",
     request: {
       thinkingOff: { options: { alibaba: { enableThinking: false } } },
+      // Within a 512-token thinking budget, Qwen3.7-Plus's comparison cells finished 1.1 s sooner
+      // (12.9 → 11.0 s) as well cited and judged; its Answers were no sooner, so they keep the
+      // default (#1631). A budget never turns thinking on where it is off.
       effort: {
-        models: { "qwen3.7-plus": { task: QWEN_BUDGET } },
+        models: { "qwen3.7-plus": { task: { alibaba: { thinkingBudget: QWEN_THINKING_BUDGET } } } },
         refused: [
           { names: "thinking_budget", options: { alibaba: { thinkingBudget: undefined } } },
         ],
@@ -619,6 +628,9 @@ const PROVIDERS = [
         // GLM-5.3 and its Flash can't turn thinking off.
         unless: ["glm-5.3"],
       },
+      // GLM-5.3 Flash at reasoning_effort low, on OpenRouter's hosts (not Z.ai's own): Answers were
+      // 2.7 s sooner but judged right less often (24 → 22 of 24), and its comparison cells were no
+      // sooner, so every kind thinks at its default (#1631).
     },
     roles: {
       answers: "glm-5.3-flash",
