@@ -8,8 +8,8 @@ import { currentTabOf } from "../layoutSlice";
 import { useMeetings } from "../meetings";
 import { clockTime } from "../meetingTime";
 import {
-  MEETING_NOTE_VIEWS,
   type MeetingNoteView,
+  meetingViewsOf,
   showMeetingNoteView,
   useMeetingNoteView,
   useMeetingNoteViews,
@@ -28,6 +28,7 @@ import { usePopoverMenu } from "./usePopoverMenu";
 
 const LABELS = {
   notes: "meetings.views.notes",
+  mine: "meetings.views.mine",
   transcript: "meetings.views.transcript",
 } as const satisfies Record<MeetingNoteView, string>;
 
@@ -116,8 +117,9 @@ export function MeetingViewChip({ meeting, tabId }: { meeting: Meeting; tabId: s
         data-testid="meeting-view-menu"
         className={`${menuFrameClass} w-72 max-w-[calc(100vw-16px)]`}
       >
-        {MEETING_NOTE_VIEWS.filter((choice) => choice !== "transcript" || hasTranscript).map(
-          (choice) => (
+        {meetingViewsOf(meeting)
+          .filter((choice) => choice !== "transcript" || hasTranscript)
+          .map((choice) => (
             <button
               key={choice}
               type="button"
@@ -135,8 +137,7 @@ export function MeetingViewChip({ meeting, tabId }: { meeting: Meeting; tabId: s
               </span>
               {t(LABELS[choice])}
             </button>
-          ),
-        )}
+          ))}
         <hr className={menuRuleClass} />
         <AudioRow meeting={meeting} asked={asked} open={menu.open} />
         <hr className={menuRuleClass} />
