@@ -266,6 +266,7 @@ import {
 } from "./citations";
 import {
   askAgainNote,
+  claimCheckPrompt,
   unbackedClaims as claimsNoCallMade,
   unmadeFixesNote,
 } from "./claimedChanges";
@@ -3257,9 +3258,23 @@ export function createAnswers(options: AnswersOptions) {
       // Call help is offered no Tool that changes a Note or runs a command, and its reply is lines
       // for the User to say: a claim of a change can't be the app's, so it isn't checked (#2526).
       const checksClaims = !help;
-      // A refusal's own line says what wasn't done: never read as a claim (#2407), also copied
-      // with straight quotes (#2252).
-      const judgeClaims = async (reply: string): Promise<TurnFinding | null> => {
+      /** What the judge reads for this reply, from the turn's calls and Notes as they are now. */
+      const claimPrompt = (reply: string) => {
+        mindsNow = null;
+        return claimCheckPrompt(
+          reply,
+          toolCalls,
+          mindsListed(),
+          focusedId,
+          options.readableMindName,
+          appliedInTurn,
+        );
+      };
+      /** How many claim checks are running: the phase goes back to writing when the last ends. */
+      let claimChecks = 0;
+      /** The judge's verdict on the reply, and the prompt it read; its tokens count as the Answer's. */
+      const askClaimJudge = async (reply: string) => {
+        claimChecks++;
         activity = "checking-claims";
         showPhase();
         try {
@@ -3273,7 +3288,8 @@ export function createAnswers(options: AnswersOptions) {
               );
             }
           }
-          mindsNow = null;
+          // Taken in the same tick as the request is built, so it is the prompt the judge reads.
+          const prompt = claimPrompt(reply);
           const checked = await inStep("change-claim-check", () =>
             claimsNoCallMade(reply, toolCalls, mindsListed(), focusedId, {
               model: judgeModel,
@@ -3288,47 +3304,63 @@ export function createAnswers(options: AnswersOptions) {
             usage.cachedInputTokens += checked.usage.cachedInputTokens ?? 0;
             usage.cacheWriteTokens += checked.usage.cacheWriteTokens ?? 0;
           }
-          // Any claim that stands, and a check that couldn't run, name what the turn
-          // refused as the User's alone, whatever the judge took a claim to be about, so
-          // none of it reads as done (#2407). Only a verdict asks again.
-          const refused = new Set<string>(refusedCommands().map(({ yours }) => yours));
-          const claimed = checked.claims.length > 0 || checked.commands.length > 0;
-          const commands =
-            claimed || checked.failed
-              ? CLAIMED_COMMANDS.filter(
-                  (each) => checked.commands.includes(each) || refused.has(each),
-                )
-              : [];
-          if (!claimed) return commands.length > 0 ? { claims: [], commands, note: "" } : null;
-          return {
-            claims: checked.claims,
-            commands,
-            note: askAgainNote(checked, toolCalls, options.readableMindName, appliedInTurn),
-          };
+          return { prompt, checked };
         } finally {
-          activity = "writing";
-          showPhase();
+          claimChecks--;
+          if (claimChecks === 0) {
+            activity = "writing";
+            showPhase();
+          }
         }
       };
+      /** What the judge's verdict on the reply asks of the turn, from the turn as it is now. */
+      const claimFinding = (
+        checked: Awaited<ReturnType<typeof claimsNoCallMade>>,
+      ): TurnFinding | null => {
+        // Any claim that stands, and a check that couldn't run, name what the turn refused as the
+        // User's alone, whatever the judge took a claim to be about, so none of it reads as done
+        // (#2407). Only a verdict asks again.
+        const refused = new Set<string>(refusedCommands().map(({ yours }) => yours));
+        const claimed = checked.claims.length > 0 || checked.commands.length > 0;
+        const commands =
+          claimed || checked.failed
+            ? CLAIMED_COMMANDS.filter(
+                (each) => checked.commands.includes(each) || refused.has(each),
+              )
+            : [];
+        if (!claimed) return commands.length > 0 ? { claims: [], commands, note: "" } : null;
+        return {
+          claims: checked.claims,
+          commands,
+          note: askAgainNote(checked, toolCalls, options.readableMindName, appliedInTurn),
+        };
+      };
       const claimsCheck = (): TurnCheck => {
-        let warmed: { reply: string; finding: Promise<TurnFinding | null> } | null = null;
+        let warmed: ReturnType<typeof askClaimJudge> | null = null;
         return {
           name: "claimed-change",
-          check: (text: string) => {
+          check: async (text: string) => {
+            // A refusal's own line says what wasn't done: never read as a claim (#2407), also
+            // copied with straight quotes (#2252).
             const reply = withoutRefusals(text);
             if (reply.trim() === "") return null;
-            const ready = warmed?.reply === reply ? warmed.finding : null;
+            const prompt = claimPrompt(reply);
+            const early = warmed ? await warmed.catch(() => null) : null;
             warmed = null;
-            return ready ?? judgeClaims(reply);
+            // A verdict is reused only for the very prompt it judged: a call made, or a change
+            // taken back, since it started changes the record, and the reply is judged again.
+            const judged = early?.prompt === prompt ? early : await askClaimJudge(reply);
+            return claimFinding(judged.checked);
           },
           ...((options.checksClaimsEarly?.(prepared) ?? true) && {
             warm: (text: string) => {
               const reply = withoutRefusals(text);
-              if (reply.trim() === "" || warmed?.reply === reply) return;
-              const finding = judgeClaims(reply);
-              // Taken by `check` when the reply stands; a reply that changed leaves it unread.
-              finding.catch(() => undefined);
-              warmed = { reply, finding };
+              if (reply.trim() === "") return;
+              const started = askClaimJudge(reply);
+              started.catch((error: unknown) => {
+                console.error(`The change-claim check started early failed: ${messageOf(error)}`);
+              });
+              warmed = started;
             },
           }),
         };

@@ -109,7 +109,10 @@ describe("The change-claim check beside the working-notes judgement (#1624)", {
     const answer = await askAssistant(core, { text: "When are spring tides?", mindId: mind.id });
 
     expect(seen.beside).toBe(true);
+    // The early verdict stands for the reply it judged: only the reply asked for again is judged anew.
+    expect(seen.claimChecks).toHaveLength(2);
     expect(seen.claimChecks[0]).toContain(CLAIM);
+    expect(seen.claimChecks[1]).not.toContain(CLAIM);
     expect(seen.notes.some((note) => note.includes(ASKED_AGAIN))).toBe(true);
     expect(answer.text).not.toContain("I've added");
   });
@@ -145,5 +148,76 @@ describe("The change-claim check beside the working-notes judgement (#1624)", {
 
     expect(seen.beside).toBe(false);
     expect(seen.notes.some((note) => note.includes(ASKED_AGAIN))).toBe(true);
+  });
+
+  // protects=a call made after the check started, with the reply's text unchanged, makes the record the early verdict read stale, so the reply is judged again on the record as it stands and a change that was made isn't asked for again; fails_when=the early verdict is reused and the model is told to make an edit it already made; no_claim=none beyond protects.
+  test("judges again when a call is made after it started, though the reply reads the same", async () => {
+    const records: boolean[] = [];
+    const notes: string[] = [];
+    const model = scriptedModel(
+      (call: ModelCall): ScriptedReply => {
+        notes.push(asked(call));
+        const searched = call.results.find((result) => result.tool === "search_documents");
+        if (!searched) return { calls: [{ tool: "search_documents", input: { query: "spring" } }] };
+        const passage = shownPassages(searched.text)[0]?.id ?? "P1";
+        const cites = call.results.filter((result) => result.tool === "cite").length;
+        const added = call.results.some((result) => result.tool === "add_to_mind");
+        if (asked(call).includes(ASKED_AGAIN)) return { text: "Asked again." };
+        // A record cite asks to fix, so the turn goes on: it adds the summary, then cites again.
+        if (cites === 0) {
+          return {
+            text: `${ANSWER}\n\n${CLAIM}`,
+            calls: [
+              {
+                tool: "cite",
+                input: { citations: [{ marker: 1, passage, quote: "Neap tides are weak." }] },
+              },
+            ],
+          };
+        }
+        if (!added) {
+          return {
+            calls: [
+              { tool: "add_to_mind", input: { mind: "Tides", content: `## Summary\n\n${SPRING}` } },
+            ],
+          };
+        }
+        if (cites === 1) {
+          return {
+            calls: [
+              { tool: "cite", input: { citations: [{ marker: 1, passage, quote: SPRING }] } },
+            ],
+          };
+        }
+        return {};
+      },
+      {
+        generate: (call: GenerateCall): GeneratedReply => {
+          if (call.system === CLAIM_CHECK_INSTRUCTIONS) {
+            const made = /tool-record>[\s\S]*add_to_mind[\s\S]*<\/tool-record/.test(call.prompt);
+            records.push(made);
+            return claimCheckReply(call, made ? [] : [{ sentence: CLAIM, kind: "added" }]);
+          }
+          if (call.system === WORKING_TEXT_INSTRUCTIONS) {
+            return { text: JSON.stringify({ parts: ["answer"] }) };
+          }
+          return { text: "" };
+        },
+      },
+    );
+    const { core, mind } = await setUpWithDocuments(
+      model,
+      [{ name: "Tides.md", contents: TIDES_MD }],
+      writingFirst(),
+    );
+
+    const answer = await askAssistant(core, {
+      text: "When are spring tides? Add a summary to Tides.",
+      mindId: mind.id,
+    });
+
+    expect(records.at(-1)).toBe(true);
+    expect(notes.some((note) => note.includes(ASKED_AGAIN))).toBe(false);
+    expect(answer.toolCalls.filter((each) => each.tool === "add_to_mind")).toHaveLength(1);
   });
 });

@@ -294,6 +294,31 @@ export interface ClaimCheckResult extends Unbacked {
   failed?: true;
 }
 
+/**
+ * What the change-claim check asks its judge: the record of what the calls did, the Note in focus
+ * and the reply. Two checks with the same prompt are the same check.
+ */
+export function claimCheckPrompt(
+  reply: string,
+  calls: readonly AnswerToolCall[],
+  minds: readonly { id: string; name: string }[],
+  focused: string | null,
+  names: MindNames,
+  states?: ChangeStates,
+): string {
+  const named: MindNames = (id) => names(id) ?? minds.find((mind) => mind.id === id)?.name ?? null;
+  return [
+    tagged("tool-record", JSON.stringify(recordOf(calls, named, states), null, 2), "", JUDGED_TAGS),
+    tagged(
+      "focused-mind",
+      focused ? JSON.stringify({ id: focused, name: named(focused) }) : "none",
+      "",
+      JUDGED_TAGS,
+    ),
+    tagged("reply", reply, "", JUDGED_TAGS),
+  ].join("\n");
+}
+
 export async function unbackedClaims(
   reply: string,
   calls: readonly AnswerToolCall[],
@@ -313,17 +338,7 @@ export async function unbackedClaims(
 ): Promise<ClaimCheckResult> {
   if (reply.trim() === "") return { claims: [], commands: [], usage: null, durationMs: 0 };
   const started = Date.now();
-  const named: MindNames = (id) => names(id) ?? minds.find((mind) => mind.id === id)?.name ?? null;
-  const prompt = [
-    tagged("tool-record", JSON.stringify(recordOf(calls, named, states), null, 2), "", JUDGED_TAGS),
-    tagged(
-      "focused-mind",
-      focused ? JSON.stringify({ id: focused, name: named(focused) }) : "none",
-      "",
-      JUDGED_TAGS,
-    ),
-    tagged("reply", reply, "", JUDGED_TAGS),
-  ].join("\n");
+  const prompt = claimCheckPrompt(reply, calls, minds, focused, names, states);
   let value: unknown;
   let usage: TokenUsage | null = null;
   try {
