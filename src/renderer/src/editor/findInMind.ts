@@ -3,6 +3,7 @@ import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import { focusNow } from "./footnoteSchema";
+import { myNotesHidden, myNotesToggled } from "./myNotes";
 import { keepMenuClosed } from "./selectionDismissal";
 
 /** How find matches, as the bar offers it (⌘F, ⌥⌘F): Word's Match case and Whole word. */
@@ -85,18 +86,21 @@ function unitsOf(block: ProseMirrorNode, blockPos: number, matchCase: boolean): 
  * (which has none) is found like any other text. A node in the text, a
  * Citation among them, breaks a match: a replacement can never cross one.
  * Letters whose case changes their length, such as İ, are folded one
- * character at a time, so their block is searched like any other.
+ * character at a time, so their block is searched like any other. What the
+ * page hides (My notes, `hidden`) isn't searched.
  */
 export function findMatches(
   doc: ProseMirrorNode,
   query: string,
   options: FindOptions = {},
+  hidden: readonly { from: number; to: number }[] = [],
 ): FindMatch[] {
   const wanted = [...query];
   if (wanted.length === 0) return [];
   const keys = wanted.map((char) => (options.matchCase ? char : fold(char)));
   const matches: FindMatch[] = [];
   doc.descendants((block, blockPos) => {
+    if (hidden.some((range) => blockPos >= range.from && blockPos < range.to)) return false;
     if (!block.isTextblock) return true;
     const units = unitsOf(block, blockPos, options.matchCase === true);
     for (let at = 0; at + keys.length <= units.length; at++) {
@@ -235,7 +239,7 @@ export function replaceAllInMind(
   replacement: string,
   options: FindOptions,
 ): number {
-  const matches = findMatches(editor.state.doc, query, options);
+  const matches = findMatches(editor.state.doc, query, options, myNotesHidden(editor.state));
   return replaceMatches(editor, matches, replacement);
 }
 
@@ -255,7 +259,7 @@ export function replaceCurrentInMind(
   const replaced = replaceMatches(editor, [match], replacement);
   if (replaced === 0) return null;
   // The match after what was written, never the new words themselves, and the first again at the end.
-  const matches = findMatches(editor.state.doc, query, options);
+  const matches = findMatches(editor.state.doc, query, options, myNotesHidden(editor.state));
   const next = matches.findIndex((each) => each.from >= match.from + replacement.length);
   editor.view.dispatch(editor.state.tr.setMeta(KEY, { at: next === -1 ? 0 : next }));
   scrollToCurrent(editor);
@@ -294,13 +298,14 @@ export const FindInMind = Extension.create({
         key: KEY,
         state: {
           init: () => ({ query: "", options: {}, matches: [], current: -1 }),
-          apply(tr, state) {
+          apply(tr, state, _old, editorState) {
             const meta = tr.getMeta(KEY) as FindMeta | undefined;
+            const hidden = myNotesHidden(editorState);
             if (meta && "clear" in meta)
               return { query: "", options: {}, matches: [], current: -1 };
             if (meta && "query" in meta) {
               const options = meta.options ?? state.options;
-              const matches = findMatches(tr.doc, meta.query, options);
+              const matches = findMatches(tr.doc, meta.query, options, hidden);
               return {
                 query: meta.query,
                 options,
@@ -318,9 +323,9 @@ export const FindInMind = Extension.create({
               const at = Math.min(Math.max(meta.at, 0), state.matches.length - 1);
               return { ...state, current: at };
             }
-            if (!tr.docChanged || state.query === "") return state;
+            if ((!tr.docChanged && !myNotesToggled(tr)) || state.query === "") return state;
             const kept = state.matches[state.current];
-            const matches = findMatches(tr.doc, state.query, state.options);
+            const matches = findMatches(tr.doc, state.query, state.options, hidden);
             const from = kept ? tr.mapping.map(kept.from) : -1;
             return {
               query: state.query,

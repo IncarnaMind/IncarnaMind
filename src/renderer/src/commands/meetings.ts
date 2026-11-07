@@ -10,6 +10,7 @@ import {
   hasMeetingViews,
   type MeetingNoteView,
   meetingNoteViewFor,
+  meetingViewsOf,
   showMeetingNoteView,
   stepMeetingNoteView,
 } from "../meetingViews";
@@ -103,18 +104,27 @@ function meetingPageInView(ctx: CommandContext) {
 const showViewCommand = (
   id: string,
   view: MeetingNoteView,
-  label: "meetings.views.showNotes" | "meetings.views.showTranscript",
+  label: "meetings.views.showNotes" | "meetings.views.showMine" | "meetings.views.showTranscript",
 ): Command => ({
   id: `meeting.${id}`,
   label,
-  keywords: ["meetings.views.label", "meetings.views.notes", "meetings.views.transcript"],
+  keywords: [
+    "meetings.views.label",
+    "meetings.views.notes",
+    "meetings.views.mine",
+    "meetings.views.transcript",
+  ],
   group: "main",
   // Another view is one more choice away.
   reversible: true,
   assistant: false,
   when: (ctx) => {
     const page = meetingPageInView(ctx);
-    return page !== null && meetingNoteViewFor(page.tabId, page.mindId) !== view;
+    return (
+      page !== null &&
+      meetingViewsOf(page.meeting).includes(view) &&
+      meetingNoteViewFor(page.tabId, page.mindId) !== view
+    );
   },
   run(ctx) {
     const page = meetingPageInView(ctx);
@@ -139,7 +149,7 @@ const stepViewCommand = (id: string, by: -1 | 1, keys: string): Command => ({
   when: (ctx) => meetingPageInView(ctx) !== null && !typingInTable(),
   run(ctx) {
     const page = meetingPageInView(ctx);
-    if (page) stepMeetingNoteView(page.tabId, page.mindId, by);
+    if (page) stepMeetingNoteView(page.tabId, page.meeting, by);
   },
 });
 
@@ -224,6 +234,7 @@ export const meetingCommands: readonly Command[] = [
     run: () => transcriptHandle.current?.addLine(),
   },
   showViewCommand("showNotes", "notes", "meetings.views.showNotes"),
+  showViewCommand("showMyNotes", "mine", "meetings.views.showMine"),
   showViewCommand("showTranscript", "transcript", "meetings.views.showTranscript"),
   stepViewCommand("previousView", -1, "CmdOrCtrl+Alt+Left"),
   stepViewCommand("nextView", 1, "CmdOrCtrl+Alt+Right"),

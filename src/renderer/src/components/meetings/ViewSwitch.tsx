@@ -3,8 +3,8 @@ import type { Meeting } from "../../../../core/api";
 import { shortcutLabel } from "../../commands/keymap";
 import { useT } from "../../i18n";
 import {
-  MEETING_NOTE_VIEWS,
   type MeetingNoteView,
+  meetingViewsOf,
   showMeetingNoteView,
   useMeetingNoteView,
 } from "../../meetingViews";
@@ -13,6 +13,7 @@ import { LevelBars } from "./LevelBars";
 
 const LABELS = {
   notes: "meetings.views.notes",
+  mine: "meetings.views.mine",
   transcript: "meetings.views.transcript",
 } as const satisfies Record<MeetingNoteView, string>;
 
@@ -37,7 +38,7 @@ export function ViewSwitch({ meeting, tabId }: { meeting: Meeting; tabId: string
       title={t("meetings.views.switch", { keys })}
       className={`${segmentedClass} meeting-views`}
     >
-      {MEETING_NOTE_VIEWS.map((choice) => (
+      {meetingViewsOf(meeting).map((choice) => (
         <label key={choice} className={`${segmentClass} meeting-view`}>
           <input
             type="radio"

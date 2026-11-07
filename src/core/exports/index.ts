@@ -16,6 +16,7 @@ import type { DrawnPage } from "../../shared/citedPage";
 import { comparisonQuestionsOf } from "../../shared/comparisons";
 import { formatDate } from "../../shared/dates";
 import { titleWithoutSite } from "../../shared/documentNames";
+import { type ExportMarks, type PrintedMarks, printedMarks } from "../../shared/exportMarks";
 import { propertyWords } from "../../shared/fileProperties";
 import { translate } from "../../shared/i18n";
 import { factWords, sourceWords } from "../../shared/libraryFacts";
@@ -129,6 +130,8 @@ export interface ExportsDependencies {
   font(mindId: string): string | null;
   /** The Mind's line spacing, a multiple of a single line; null: its text size's own. */
   lineSpacing(mindId: string): number | null;
+  /** The page numbers and watermark the Mind's Word file and PDF carry (#1258). */
+  exportMarks(mindId: string): ExportMarks;
   /** Whether the Mind shows its Bibliography without a citation style (#102). */
   bibliography(mindId: string): boolean;
   /** Formats Citations in a style, as the editor does (see `CoreApi.formatCitations`). */
@@ -217,11 +220,16 @@ interface Prepared {
   listed: boolean;
   font: string | null;
   lineSpacing: number | null;
+  /** What the Word file or PDF prints at its foot and across its pages; null for another format. */
+  marks: PrintedMarks | null;
   /** Each Citation's footnote with the attributes it was made from, for the source pack. */
   attributesOf: ReadonlyMap<Footnote, Partial<CitationAttributes>>;
   /** The Mind's comments (#328), written as Word comments with their threads and resolved state. */
   comments: MindComment[];
 }
+
+/** What a page printed by a format with no marks choice has: page numbers, as PDFs always have, and no watermark. */
+const DEFAULT_PRINTED_MARKS: PrintedMarks = { pageNumbers: true, watermark: null };
 
 export function createExports(deps: ExportsDependencies) {
   /** `othersComments`: for someone else's file, the comment choice to write with instead of the Note's. */
@@ -419,6 +427,10 @@ export function createExports(deps: ExportsDependencies) {
       listed,
       font: deps.font(mind.id),
       lineSpacing: deps.lineSpacing(mind.id),
+      marks:
+        format === "docx" || format === "pdf"
+          ? printedMarks(deps.exportMarks(mind.id), language)
+          : null,
       attributesOf,
       comments: writtenComments,
     };
@@ -711,6 +723,7 @@ export function createExports(deps: ExportsDependencies) {
       const { blocks, labels } = await styledBlocks(prepared, thin);
       const drawn = await withPictures(blocks, prepared.language, deps);
       const { body, notes } = renderPrintHtml(drawn, labels);
+      const marks = prepared.marks ?? DEFAULT_PRINTED_MARKS;
       try {
         await deps.printer.printToPrinter({
           language: prepared.language,
@@ -719,6 +732,8 @@ export function createExports(deps: ExportsDependencies) {
           ...(prepared.font !== null && { fontFamily: bodyFamily(prepared.font) }),
           body,
           notes,
+          pageNumbers: marks.pageNumbers,
+          ...(marks.watermark !== null && { watermark: marks.watermark }),
         });
       } catch (error) {
         deps.log.error("export.printOnPrinterFailed", {
@@ -778,6 +793,7 @@ export function createExports(deps: ExportsDependencies) {
             comments: prepared.comments,
             font: prepared.font,
             lineSpacing: prepared.lineSpacing,
+            marks: prepared.marks ?? DEFAULT_PRINTED_MARKS,
           },
         ));
       } else if (format === "html" || format === "share-page") {
@@ -794,6 +810,7 @@ export function createExports(deps: ExportsDependencies) {
         // Charts as Word has them: the picture, drawn at twice its size, else the table of values.
         const drawn = await withPictures(blocks, language, deps);
         const { body, notes, footnotes: printedFootnotes } = renderPrintHtml(drawn, labels);
+        const marks = prepared.marks ?? DEFAULT_PRINTED_MARKS;
         data = await printedPdf(deps.printer as Printer, {
           language,
           paper: deps.paper(),
@@ -801,6 +818,8 @@ export function createExports(deps: ExportsDependencies) {
           ...(prepared.font !== null && { fontFamily: bodyFamily(prepared.font) }),
           body,
           notes,
+          pageNumbers: marks.pageNumbers,
+          ...(marks.watermark !== null && { watermark: marks.watermark }),
         });
         footnotes = printedFootnotes;
       }
@@ -875,6 +894,7 @@ export function createExports(deps: ExportsDependencies) {
         withPictures: (blocks) => withPictures(blocks, language, deps),
         review: reviewChoices(prepared, true),
         comments: prepared.comments,
+        marks: prepared.marks ?? DEFAULT_PRINTED_MARKS,
       });
       deps.log.info("export.word", {
         notKept: report.notKept.length,

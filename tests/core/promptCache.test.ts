@@ -340,6 +340,39 @@ describe("Anthropic requests", () => {
     expect(marks(body).length).toBeLessThanOrEqual(4);
   });
 
+  // protects=a turn holding no text, as Claude's empty reply comes back, is never sent to Anthropic, so the mark on the turn before the newest message can't land on an empty text block, which Anthropic refuses; fails_when=the blank turn is sent with a cache mark; no_claim=other providers, whose requests this doesn't touch (#2701).
+  test("a turn that said nothing isn't sent, so no empty text block carries a mark", async () => {
+    const requests = fakeProvider("anthropic");
+
+    await run(
+      request(modelOf("anthropic"), [
+        ...FIRST,
+        { role: "assistant", content: " \n" },
+        { role: "user", content: "Your reply is empty. Say what causes the tides." },
+      ]),
+    );
+
+    const body = (requests[0] as Captured).body;
+    const messages = body.messages as {
+      role: string;
+      content: { type: string; text?: string }[];
+    }[];
+    expect(messages.map((each) => each.role)).toEqual(["user"]);
+    expect(strings(messages)).toEqual(
+      expect.arrayContaining([
+        "What causes the tides?",
+        "Your reply is empty. Say what causes the tides.",
+      ]),
+    );
+    expect(marks(body).filter((mark) => mark.startsWith("message"))).toEqual(["message 1 (user)"]);
+    const marked = messages.flatMap((each) =>
+      (each.content as { text?: string; cache_control?: unknown }[]).filter(
+        (block) => block.cache_control,
+      ),
+    );
+    expect(marked.map((block) => block.text)).toEqual(["What causes the tides?"]);
+  });
+
   test("in a Tool loop, the history so far is marked at every step, within four breakpoints", async () => {
     const requests: Captured[] = [];
     let step = 0;

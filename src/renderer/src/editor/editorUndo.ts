@@ -153,6 +153,8 @@ export interface NoteSteps extends FollowedSteps {
   inNote(): readonly UndoStep[];
   /** Takes the steps out of the note's history: ⌘Z and ⇧⌘Z no longer reach them. */
   drop(): void;
+  /** Taken back, and what puts them back is the next ⇧⌘Z. */
+  redoesNext(): boolean;
 }
 
 export function followSteps(editor: Editor, first: readonly UndoStep[]): NoteSteps | null {
@@ -219,6 +221,10 @@ export function followSteps(editor: Editor, first: readonly UndoStep[]): NoteSte
       return () => listeners.delete(listener);
     },
     inNote: inStack,
+    redoesNext() {
+      const next = manager.redoStack.at(-1);
+      return next !== undefined && undone.has(next);
+    },
     drop() {
       const without = (stack: UndoStep[], steps: ReadonlySet<UndoStep>) =>
         stack.splice(0, stack.length, ...stack.filter((step) => !steps.has(step)));

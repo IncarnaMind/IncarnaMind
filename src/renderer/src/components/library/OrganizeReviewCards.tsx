@@ -183,7 +183,11 @@ export function OrganizeReviewCard({ card, context }: { card: ReviewCard; contex
                 <CardName card={card} />
               </button>
             ) : (
-              <span data-testid="organize-review-card-name" title={path} className="min-w-0 truncate">
+              <span
+                data-testid="organize-review-card-name"
+                title={path}
+                className="min-w-0 truncate"
+              >
                 <CardName card={card} />
               </span>
             )}
@@ -225,7 +229,6 @@ function CardName({ card }: { card: ReviewCard }) {
   );
 }
 
-/** A new Folder's ⋯: Rename, then Merge into one of the Review's other Folders. */
 function CardMenu({
   card,
   context,
@@ -307,10 +310,6 @@ function CardMenu({
   );
 }
 
-/**
- * A Document waiting in a card: its tick, icon and name, and the Tags it would get. Its + and ⋯
- * (Move to…) and a chip's × show on hover and focus. Space on its name, or a click, peeks at it.
- */
 function OrganizeReviewRow({
   item,
   card,
@@ -371,7 +370,6 @@ function OrganizeReviewRow({
   );
 }
 
-/** The Tags a row would get, each in its own colour, a new one outlined; + adds one. */
 function RowChips({
   item,
   context,
@@ -491,7 +489,6 @@ function ReviewChip({
   );
 }
 
-/** A row's ⋯: Move to… another Folder in the Review, or any of the Library's. */
 function RowMenu({
   item,
   card,

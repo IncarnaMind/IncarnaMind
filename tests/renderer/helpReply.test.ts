@@ -108,6 +108,35 @@ describe("A help reply", () => {
     expect(shown(behind, "lines")).toEqual([behind]);
   });
 
+  // protects=while a reply is written, the notes a model writes before its form (and the core then takes back) are never drawn, so no words show and then vanish: the outline stays until the first "★" or "- " line; fails_when=the notes are drawn while streaming, or a finished reply or a lead-in line is hidden; no_claim=how the outline looks (#2526).
+  test("while it streams, nothing before the first ★ or - line is drawn; once written, as before", () => {
+    const notes = "The newest lines: they ask about single sign-on, and the price sheet has it.";
+    const shown = (text: string, shape: "options" | "readings" | "lines", streaming: boolean) =>
+      shownItems(readHelpReply(text), { shape, leadIn: false, streaming }).map((item) =>
+        textOf(item.lead),
+      );
+    expect(shown(notes, "options", true)).toEqual([]);
+    expect(shown(`${notes}\n\n★ Yes, Enterprise inclu`, "options", true)).toEqual([
+      "Yes, Enterprise inclu",
+    ]);
+    expect(shown(`${notes}\n\n★ One\n→ a\n\nTwo`, "options", true)).toEqual(["One", "Two"]);
+    expect(shown(notes, "readings", true)).toEqual([]);
+    expect(shown(notes, "lines", true)).toEqual([]);
+    expect(shown(`${notes}\n- The pilot starts on 3 March`, "lines", true)).toEqual([
+      "The pilot starts on 3 March",
+    ]);
+    expect(shown("One\n→ a\n\nTwo\n→ b", "options", false)).toEqual(["One", "Two"]);
+    expect(shown("The pilot starts on 3 March", "lines", false)).toEqual([
+      "The pilot starts on 3 March",
+    ]);
+    const leading = readHelpReply(`A little: it suggests the answer.\n\n${notes}`);
+    expect(
+      shownItems(leading, { shape: "options", leadIn: true, streaming: true }).map((item) =>
+        textOf(item.lead),
+      ),
+    ).toEqual(["A little: it suggests the answer."]);
+  });
+
   test("while it streams, an option before its arrow has no effect yet", () => {
     const items = readHelpReply("★ We can extend the pil");
     expect(items).toHaveLength(1);

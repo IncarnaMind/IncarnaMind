@@ -2368,7 +2368,7 @@ export function createAnswers(options: AnswersOptions) {
       return true;
     };
 
-    let settleMinds = (_failed: boolean): void => undefined;
+    let settleMinds = async (_failed: boolean): Promise<void> => undefined;
     const run = async () => {
       // An outside agent's Question, or a table's cell, whose scope has no Documents has nothing to
       // answer from: it says so without asking the model.
@@ -3806,12 +3806,12 @@ export function createAnswers(options: AnswersOptions) {
             break;
         }
       }
-      settleMinds(outcome.status === "failed");
+      await settleMinds(outcome.status === "failed");
       finish(outcome);
     };
-    inFlow(flow, run).catch((error: unknown) => {
+    inFlow(flow, run).catch(async (error: unknown) => {
       options.reportError(error);
-      settleMinds(true);
+      await settleMinds(true).catch(options.reportError);
       finish({ status: "failed", error: classifyProviderError(error) });
     });
   }

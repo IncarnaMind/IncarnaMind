@@ -167,7 +167,6 @@ export function startForAssistant(request: WindowCommandRequest): {
     started: true,
     ended: tried.change.then(
       (change) => ({ result: { ran: true, changed: change !== undefined }, change }),
-      // The core's own words, as for a suggestion that moved since it was checked (#2243).
       (error: unknown) => {
         const { message, wording: described } = describeError(error);
         // A Check refused because another window checks the Note says so by its name, never Done.
