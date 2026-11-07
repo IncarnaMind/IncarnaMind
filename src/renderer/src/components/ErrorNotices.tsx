@@ -1,6 +1,7 @@
 import { createPortal } from "react-dom";
+import { errorDetails } from "../errorDetails";
 import { useDismissOnEscape } from "../escapeDismiss";
-import { useT } from "../i18n";
+import { useLanguage, useT } from "../i18n";
 import { type ErrorNotice as ErrorNoticeState, useNotices } from "../notices";
 import { ProblemMark } from "./ProblemLine";
 import { UnsavedNotices, useUnsavedShown } from "./UnsavedNotice";
@@ -10,8 +11,9 @@ import { useTopModal } from "./useModal";
 /**
  * What failed where the action had no line of its own, in plain words, bottom right (DESIGN.md,
  * Problems). Each stays until the User dismisses it, with its button or Esc: it never goes by
- * itself, as an error the User didn't read would be lost. The technical text is one click away
- * under Details; nothing here shows Electron's wrapping or a stack.
+ * itself, as an error the User didn't read would be lost. What was said, what was being done and
+ * what to do are one click away under Details, in plain words. Nothing here shows Electron's
+ * wrapping, a stack, or the name of a method or class.
  *
  * With a modal dialog open (Settings, say), they are drawn inside it: it makes all else inert, so
  * a notice outside would be hidden or unclickable (#754).
@@ -34,6 +36,7 @@ export function ErrorNotices() {
 
 function Notice({ notice }: { notice: ErrorNoticeState }) {
   const t = useT();
+  const language = useLanguage();
   const dismiss = () => useNotices.getState().dismissError(notice.id);
   useDismissOnEscape(true, dismiss);
   const said = notice.wording
@@ -56,8 +59,8 @@ function Notice({ notice }: { notice: ErrorNoticeState }) {
         </p>
         <details data-testid="error-notice-details" className="mt-1 text-ink-meta">
           <summary className="w-fit cursor-default rounded-sm">{t("error.details")}</summary>
-          <p className="mt-1 max-h-40 overflow-y-auto font-mono text-[12px] leading-4 break-words whitespace-pre-wrap">
-            {notice.detail}
+          <p className="mt-1 max-h-40 overflow-y-auto break-words whitespace-pre-wrap">
+            {errorDetails(t, language, notice).join("\n")}
           </p>
         </details>
       </div>

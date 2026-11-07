@@ -22,7 +22,8 @@ const buttonSizes: Record<ButtonSize, string> = {
 };
 
 const buttonVariants: Record<ButtonVariant, string> = {
-  primary: "bg-ink text-white hover:bg-ink-strong disabled:hover:bg-ink",
+  primary:
+    "bg-ink text-white hover:bg-ink-strong active:scale-[0.98] disabled:hover:bg-ink disabled:active:scale-100",
   secondary:
     "border border-rule-strong bg-sheet text-ink-strong hover:bg-frame disabled:hover:bg-sheet",
   ghost: "text-ink-secondary hover:bg-chip hover:text-ink disabled:hover:bg-transparent",

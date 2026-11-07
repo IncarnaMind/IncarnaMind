@@ -27,8 +27,10 @@ export interface ErrorNotice {
   wording: ErrorWording | null;
   /** Plain words for a failure of the system's, which replace the sentence. */
   reason: MessageKey | null;
-  /** The technical text, for the Details. */
-  detail: string;
+  /** The core call that failed, which the Details say in words. */
+  call: string | null;
+  /** The technical text, kept for the log. */
+  log: string;
   /** The one thing that puts it right, as a button beside Dismiss. */
   action: NoticeAction | null;
 }
@@ -64,11 +66,11 @@ export function createNotices(clock: Clock = systemClock) {
     errors: [],
     confirmation: null,
     showError(error, action) {
-      const { message, wording, reason, detail } = describeError(error);
+      const { message, wording, reason, call, log } = describeError(error);
       // The same failure twice is one notice: it says it once.
       if (
         get().errors.some(
-          (each) => each.message === message && each.reason === reason && each.detail === detail,
+          (each) => each.message === message && each.reason === reason && each.log === log,
         )
       ) {
         return;
@@ -76,7 +78,7 @@ export function createNotices(clock: Clock = systemClock) {
       set((state) => ({
         errors: [
           ...state.errors,
-          { id: ++ids, message, wording, reason, detail, action: action ?? null },
+          { id: ++ids, message, wording, reason, call, log, action: action ?? null },
         ],
       }));
     },

@@ -91,9 +91,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await window.keyboard.press("ControlOrMeta+j");
       const reads = window.getByTestId("assistant-reads");
       await expect(reads).toHaveText(
-        language === "en"
-          ? `Reads “${example}” · searches All Documents`
-          : `正在读“${example}” · 搜索全部文档`,
+        language === "en" ? `Reads “${example}” and All Documents` : `读“${example}”和全部文档`,
       );
       await screenshot(window, `2245-empty-${language}-1440`);
       await setWindowSize(app, window, 900, 900);
@@ -180,9 +178,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await window.keyboard.press("ControlOrMeta+j");
       const reads = window.getByTestId("assistant-reads");
       await expect(reads).toHaveText(
-        language === "en"
-          ? `Reads “${note}” · searches All Documents`
-          : `正在读“${note}” · 搜索全部文档`,
+        language === "en" ? `Reads “${note}” and All Documents` : `读“${note}”和全部文档`,
       );
       await screenshot(window, `2245-note-empty-${language}`);
       await window.keyboard.type(language === "en" ? "What do the tides do?" : "潮汐是什么？");
