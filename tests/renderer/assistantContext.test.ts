@@ -35,23 +35,22 @@ describe("what the next Question reads and searches", () => {
   });
 
   test("a Mind and its Folder", () => {
-    expect(readsLine(en, "Chapter 3", [chip("Thesis")])).toBe(
-      "Reads “Chapter 3” · searches “Thesis”",
-    );
-    expect(readsLine(zh, "第三章", [chip("论文")])).toBe("正在读“第三章” · 搜索“论文”");
+    expect(readsLine(en, "Chapter 3", [chip("Thesis")])).toBe("Reads “Chapter 3” and “Thesis”");
+    expect(readsLine(zh, "第三章", [chip("论文")])).toBe("读“第三章”和“论文”");
   });
 
   test("a Mind with no scope searches All Documents; deleted items are left out", () => {
-    expect(readsLine(en, "Notes", [])).toBe("Reads “Notes” · searches All Documents");
+    expect(readsLine(en, "Notes", [])).toBe("Reads “Notes” and All Documents");
+    expect(readsLine(zh, "笔记", [])).toBe("读“笔记”和全部文档");
     expect(readsLine(en, "Notes", [chip(null, true), chip("Old", true)])).toBe(
-      "Reads “Notes” · searches All Documents",
+      "Reads “Notes” and All Documents",
     );
   });
 
   test("a scope of several items names the first and counts the rest", () => {
     const scope = [chip("Thesis"), chip("Leeds data"), chip(null, true), chip("Report.pdf")];
-    expect(readsLine(en, "Notes", scope)).toBe("Reads “Notes” · searches “Thesis” and 2 more");
-    expect(readsLine(zh, "笔记", scope)).toBe("正在读“笔记” · 搜索“Thesis”等 3 项");
+    expect(readsLine(en, "Notes", scope)).toBe("Reads “Notes”, “Thesis” and 2 more");
+    expect(readsLine(zh, "笔记", scope)).toBe("读“笔记”和“Thesis”等 3 项");
   });
 });
 

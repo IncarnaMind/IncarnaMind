@@ -1029,7 +1029,7 @@ test("asking during the call: the assistant listens to the live transcript, its 
   );
   await window.getByTestId("assistant-new-chat").click();
   await window.getByTestId("mind-editor").click();
-  await expect(reads).toHaveText(/^正在读“.+” · 正在听：实时转写$/);
+  await expect(reads).toHaveText(/^读“.+” · 正在听：实时转写$/);
   await expect(starters).toHaveText(["回顾最近 5 分钟", "接下来该问什么？", "目前的待办事项"]);
   await shot(window, "meeting-ask-starters-zh");
   await pointAndClick(window, starters.first());

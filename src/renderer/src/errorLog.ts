@@ -1,6 +1,7 @@
 import type { RendererErrorReport } from "../../shared/bridge";
 import type { PanelName } from "../../shared/panels";
 import { files } from "./core";
+import { useNotices } from "./notices";
 
 /** Chromium's notice that layout took two passes: harmless, and frequent. */
 const RESIZE_OBSERVER_NOTICE = /^ResizeObserver loop/;
@@ -39,4 +40,10 @@ export const logPanelFailure = (panel: PanelName, reason: unknown, componentStac
 export function installErrorLog(): void {
   window.addEventListener("error", (event) => report("error", event.error ?? event.message));
   window.addEventListener("unhandledrejection", (event) => report("rejection", event.reason));
+  // A notice's Details are plain words, so the technical text of what it says goes to the log.
+  useNotices.subscribe((state, before) => {
+    for (const notice of state.errors) {
+      if (!before.errors.includes(notice)) report("error", new Error(notice.log));
+    }
+  });
 }

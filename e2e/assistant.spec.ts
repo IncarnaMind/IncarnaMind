@@ -156,9 +156,7 @@ test("a new window's assistant is docked on the right, outside the groups, the c
   );
   await expect(window.getByTestId("assistant-more")).toHaveAccessibleName("More for the assistant");
   await expect(window.getByTestId("assistant-fold")).toHaveAccessibleName("Fold the assistant");
-  await expect(window.getByTestId("assistant-reads")).toHaveText(
-    "Reads “Tides” · searches All Documents",
-  );
+  await expect(window.getByTestId("assistant-reads")).toHaveText("Reads “Tides” and All Documents");
   // An empty panel is that one line; the composer's placeholder says the rest.
   await expect(window.getByTestId("assistant-empty").locator("p")).toHaveCount(1);
   await expect(assistant.getByText("Ask about this note")).toHaveCount(0);
@@ -175,13 +173,9 @@ test("a new window's assistant is docked on the right, outside the groups, the c
   await expect(assistant).toHaveCount(1);
   await expect(window.getByTestId("composer")).toHaveCount(1);
   await window.getByTestId("tab-group").nth(0).getByTestId("mind-editor").click();
-  await expect(window.getByTestId("assistant-reads")).toHaveText(
-    "Reads “Tides” · searches All Documents",
-  );
+  await expect(window.getByTestId("assistant-reads")).toHaveText("Reads “Tides” and All Documents");
   await window.getByTestId("tab-group").nth(1).getByTestId("mind-editor").click();
-  await expect(window.getByTestId("assistant-reads")).toHaveText(
-    "Reads “Moon” · searches All Documents",
-  );
+  await expect(window.getByTestId("assistant-reads")).toHaveText("Reads “Moon” and All Documents");
   box = await boxOf(assistant);
   const groups = await boxOf(window.getByTestId("tab-groups"));
   expect(box.x).toBeGreaterThan(groups.x + groups.width);
@@ -749,7 +743,7 @@ test("in Chinese: the header, the line, the menu and the zones", async () => {
   await expect(window.getByTestId("assistant-title")).toHaveText("新对话");
   await expect(assistantOf(window)).toHaveAccessibleName("助手");
   await expect(window.getByTestId("assistant-fold")).toHaveAccessibleName("收起助手");
-  await expect(window.getByTestId("assistant-reads")).toHaveText("正在读“Tides” · 搜索全部文档");
+  await expect(window.getByTestId("assistant-reads")).toHaveText("读“Tides”和全部文档");
   await openMoveAssistant(window);
   await expect(window.getByTestId("assistant-menu-docks").getByRole("menuitemradio")).toHaveText([
     "停靠在右侧",

@@ -4018,12 +4018,17 @@ export function createCore(adapters: CoreAdapters): Core {
     return hosts;
   };
   /**
-   * Before a key or workspace goes, sorting, and Organize's kept model, stop naming what it reached
-   * (#1907): back to Automatic, which starts no host and turns nothing on. The app never picks
-   * another host in its place, so nothing goes anywhere the User hasn't allowed.
+   * Before a key, workspace or chat provider goes, sorting, and Organize's kept model, stop
+   * naming what it reached (#1907, #2693): back to Automatic, which starts no host and turns
+   * nothing on. The app never picks another host in its place, so nothing goes anywhere the User
+   * hasn't allowed.
    */
-  const stopSortingWith = async (reached: (classifier: TaggingClassifier) => boolean) => {
-    if (library.forgetModel(reached)) await dataFlowsChanged();
+  const stopSortingWith = async (
+    reached: (classifier: TaggingClassifier) => boolean,
+  ): Promise<boolean> => {
+    const forgot = library.forgetModel(reached);
+    if (forgot) await dataFlowsChanged();
+    return forgot;
   };
   /** The hosts that reach their decision models with this chat provider's key: OpenRouter's, OpenAI's, the Qwen key's. */
   const hostsOnKeyOf = async (providerId: string) => {
@@ -5946,11 +5951,14 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     deleteChatProvider: async (id) => {
       const riding = await hostsOnKeyOf(id);
-      await stopSortingWith(
-        (classifier) => classifier.kind === "decision" && riding.includes(classifier.host),
+      const forgot = await stopSortingWith(
+        (classifier) =>
+          (classifier.kind === "decision" && riding.includes(classifier.host)) ||
+          (classifier.kind === "chat" && classifier.choice.providerId === id),
       );
       await chat.delete(id);
       if (riding.length > 0) await decisionsChanged(await decisionHosts.list());
+      else if (forgot) await taggingChanged();
       // A transcription route that used this provider's key has none now.
       await cloudTranscription.refreshKeys();
       const dropped = transcriptionGateChanged();
