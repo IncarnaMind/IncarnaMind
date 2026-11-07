@@ -2087,7 +2087,7 @@ export const en = {
   "annotations.collect.empty": "There are no highlights to collect.",
   "annotations.collect.failed": "Couldn’t collect the highlights.",
   "annotations.collect.tooMany":
-    "There are too many highlights ({count}) to collect into one note. Collect one Document or one colour at a time.",
+    "There are too many highlights ({count}) to collect into one note. Collect one Document or one color at a time.",
   "annotations.addToNote.added": "Added the highlight to “{mind}”",
   "annotations.export.empty": "This Document has no highlights to export.",
   "annotations.export.title": "highlights and comments",
