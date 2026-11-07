@@ -196,7 +196,7 @@ function CitationRow({ editor, row }: { editor: Editor; row: Extract<Row, { kind
   const kept = useAppStore((state) => state.keptCitationTexts);
   const { attributes } = row;
   const state = citationState(attributes, documents, kept);
-  const source = citationSource(withShownName(attributes, documents), t, language).text;
+  const source = citationSource(withShownName(attributes, documents), t, language, documents).text;
   // In a note style, the note as the style writes it (#289), once it is formatted.
   const formatting = useMindFormatting(useMindId());
   const note = noteOfCitation(editor.state, formatting, row.key);

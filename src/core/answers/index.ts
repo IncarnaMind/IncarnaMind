@@ -883,7 +883,7 @@ const messageOf = (error: unknown) => (error instanceof Error ? error.message : 
  * ids (null: every Document).
  */
 export interface DocumentsForAnswers
-  extends Pick<AnswerDocuments, "citationSource" | "pageTexts" | "documentDate"> {
+  extends Pick<AnswerDocuments, "citationSource" | "pageTexts" | "documentDate" | "speakers"> {
   searchableCount(documentIds: readonly string[] | null): number;
   /** The Library's count as its page shows it: the examples' until the User has one, then theirs. */
   libraryCount(): number;
@@ -962,6 +962,7 @@ function inScope(
     pageTexts: (documentId, contentHash, from, to) =>
       documents.pageTexts(documentId, contentHash, from, to),
     documentDate: (documentId) => documents.documentDate(documentId),
+    speakers: (documentId) => documents.speakers?.(documentId) ?? null,
     passage: (passageId) => documents.passage(passageId),
     passagesBetween: (documentId, from, to) => documents.passagesBetween(documentId, from, to),
     passagesCovering: (documentId, from, to, overlapping) =>

@@ -1332,12 +1332,22 @@ export function createTranscripts(options: TranscriptsOptions) {
     return Object.keys(state.voices ?? {}).some((key) => key.includes(side));
   };
 
+  // A Transcript the User has said who's who in keeps its labels: their names and lines hang on
+  // them (#138), and a pass run again after a failure would move them under other people.
+  const named = (state: State) =>
+    state.documentId !== null && documents.find(state.documentId)?.speakers != null;
+
   // A quit during the pass leaves it due, for the next start. Whatever else ends it, the notes
   // go ahead with the labels the Transcript has, so a failed pass never holds them up.
   function separate(state: State): void {
     const pass = options.speakers;
     if (!pass || state.separating || closed) return;
-    if (!state.savedPath || options.audioDeleted(state.meetingId) || toldApart(state)) {
+    if (
+      !state.savedPath ||
+      options.audioDeleted(state.meetingId) ||
+      toldApart(state) ||
+      named(state)
+    ) {
       settle(state, "done");
       return;
     }
@@ -1349,7 +1359,11 @@ export function createTranscripts(options: TranscriptsOptions) {
       .run(state.meetingId, [...state.cues])
       .then(
         (cues) => {
-          if (current() && cues?.some((cue, at) => cue.speaker !== state.cues[at]?.speaker)) {
+          if (
+            current() &&
+            !named(state) &&
+            cues?.some((cue, at) => cue.speaker !== state.cues[at]?.speaker)
+          ) {
             relabel(state, cues, saved);
           }
           return "done" as const;

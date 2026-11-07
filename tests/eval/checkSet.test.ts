@@ -58,7 +58,7 @@ function foundAt({ document, units: [from, to], quote }: Omit<LabelledQuote, "lo
   if (units.length !== to - from + 1) return null;
   const ranges = quoteInUnits(units, quote);
   const location = ranges ? locationOf(units, ranges) : null;
-  return location ? englishLocation(location, false) : null;
+  return location ? englishLocation(location, { speaker: false }) : null;
 }
 
 describe("The checks evaluation's labels", () => {

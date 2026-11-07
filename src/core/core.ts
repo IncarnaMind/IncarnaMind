@@ -2235,8 +2235,13 @@ export function createCore(adapters: CoreAdapters): Core {
         if (matches.length === 0) return "";
         const lines = matches.map((match) => {
           const where = match.location
-            ? formatLocation(match.location, (key: MessageKey, params?: MessageParams) =>
-                translate("en", key, params),
+            ? formatLocation(
+                match.location,
+                (key: MessageKey, params?: MessageParams) => translate("en", key, params),
+                {
+                  speakers:
+                    match.location.kind === "time" ? documents.speakersOf(match.documentId) : null,
+                },
               )
             : "";
           const note = match.note === null ? "" : ` — the User's note: ${match.note}`;
@@ -2249,6 +2254,7 @@ export function createCore(adapters: CoreAdapters): Core {
       pageTexts: (documentId, contentHash, from, to) =>
         documents.pageTexts(documentId, contentHash, from, to),
       documentDate: (documentId) => documents.documentDate(documentId),
+      speakers: (documentId) => documents.speakersOf(documentId),
     },
     toolProviders: [
       {
@@ -5580,6 +5586,12 @@ export function createCore(adapters: CoreAdapters): Core {
       const renamed = documents.rename(id, name);
       events.emit("documents.renamed", [renamed]);
       return renamed;
+    },
+    setTranscriptSpeakers: async (input) => {
+      if (!isRecord(input)) throw new InvalidInputError("Give the Transcript and its speakers.");
+      const updated = documents.setSpeakers(input.documentId, input.speakers);
+      events.emit("documents.speakersChanged", [updated]);
+      return updated;
     },
     deleteDocument: async (id) => removeDocuments(deletable([id])),
     deleteDocuments: async (ids) => removeDocuments(deletable(ids)),

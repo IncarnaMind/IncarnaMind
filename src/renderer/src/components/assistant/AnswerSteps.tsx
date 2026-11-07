@@ -15,7 +15,7 @@ import type {
   ConversationQuestion,
   EmbeddingModelStatus,
 } from "../../../../core/api";
-import { shownDocumentName } from "../../../../shared/citations";
+import { citedSpeakers, shownDocumentName } from "../../../../shared/citations";
 import { citationLocation, formatLocation } from "../../../../shared/locations";
 import { mindName } from "../../../../shared/naming";
 import { NO_SCOPE } from "../../../../shared/searchScope";
@@ -1063,8 +1063,9 @@ function SourceRow({ source }: { source: StepSource }) {
   const name = useAppStore(
     (state) => shownDocumentName(source, state.documents) || source.documentName,
   );
+  const speakers = useAppStore((state) => citedSpeakers(source, state.documents));
   const location = citationLocation(source);
-  const where = location ? formatLocation(location, t) : null;
+  const where = location ? formatLocation(location, t, { speakers }) : null;
   return (
     <button
       type="button"

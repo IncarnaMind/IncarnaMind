@@ -29,6 +29,7 @@ import type {
   SettingsPatch,
   Skill,
   Tag,
+  TranscriptSpeakers,
   WindowLayout,
 } from "../../core/api";
 import { EXAMPLE_GROUPS } from "../../core/api";
@@ -433,6 +434,15 @@ export interface AppState extends LayoutSlice {
    */
   locateDocumentFile(id: string): Promise<"cancelled" | "located" | "other">;
   renameDocument(id: string, name: string): Promise<void>;
+  /**
+   * Who's who in a Meeting's Transcript (#138), whole: shown at once, then kept, with one Undo
+   * whose line `said` words. Its file isn't touched, so no Citation is checked again.
+   */
+  setTranscriptSpeakers(
+    documentId: string,
+    speakers: TranscriptSpeakers,
+    said: WordsInLine,
+  ): Promise<void>;
   /** To Recently deleted, at once, with one undo line for all of them. */
   deleteDocuments(ids: readonly string[]): Promise<void>;
   /** Processes a Document that failed again, from its file. */
@@ -1828,6 +1838,39 @@ export const useAppStore = create<AppState>()((set, get) => {
         push(renamed(displayName(document), rename, { before, after: document.name }));
       }),
 
+    setTranscriptSpeakers: (documentId, speakers, said) =>
+      attempt(async () => {
+        const before = get().documents.find((each) => each.id === documentId)?.speakers ?? null;
+        const put = async (to: TranscriptSpeakers | null) => {
+          const shown = (value: TranscriptSpeakers | null) =>
+            set((state) => ({
+              documents: state.documents.map((each) =>
+                each.id === documentId ? { ...each, speakers: value } : each,
+              ),
+            }));
+          const was = get().documents.find((each) => each.id === documentId)?.speakers ?? null;
+          shown(to);
+          try {
+            const document = await core.setTranscriptSpeakers({
+              documentId,
+              speakers: to ?? { labels: {}, lines: {} },
+            });
+            documentUpdates.flush();
+            set((state) => ({ documents: upsert(state.documents, document) }));
+          } catch (error) {
+            shown(was);
+            throw error;
+          }
+        };
+        await put(speakers);
+        push({
+          said,
+          name: (t) => t("transcript.speaker.change"),
+          undo: () => put(before),
+          redo: () => put(speakers),
+        });
+      }),
+
     deleteDocuments: (ids) =>
       attempt(() =>
         makeInTurn(async () => {
@@ -2363,6 +2406,9 @@ core.on("documents.moved", (moved) => documentUpdates.upsert(moved));
 
 // Renamed here, in another window or by the assistant.
 core.on("documents.renamed", (renamed) => documentUpdates.upsert(renamed));
+
+// Who's who in a Transcript changed, here, in another window or by Undo (#138).
+core.on("documents.speakersChanged", (changed) => documentUpdates.upsert(changed));
 
 // Tags change through this window or another: follow the list, and drop a deleted Tag from the filter.
 core.on("tags.changed", (tags) => {

@@ -27,7 +27,9 @@ export function calculatedFrom(
     count: inputs.count,
   });
   const first = inputs.places[0]?.citation;
-  const document = first ? citationSource(withShownName(first, documents), t, language).name : "";
+  const document = first
+    ? citationSource(withShownName(first, documents), t, language, documents).name
+    : "";
   if (inputs.documents > 1) {
     return count === null
       ? t("chart.point.calculatedDocuments", { inputs: said, documents: inputs.documents })

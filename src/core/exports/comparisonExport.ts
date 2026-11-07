@@ -120,7 +120,7 @@ export function createComparisonExport(deps: ComparisonExportDependencies) {
             t,
             language,
           ),
-          location: citedLocation(attributes, t),
+          location: citedLocation(attributes, t, documents),
           quote: attributes.quote
             ? (deps.readableQuote(attributes) ?? readableQuoteText(attributes.quote))
             : null,

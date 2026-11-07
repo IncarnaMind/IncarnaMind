@@ -1,14 +1,21 @@
 import { clockTime } from "../../shared/clock";
+import { speakerMark } from "../../shared/speakers";
 import { parseCueTarget } from "../../shared/units";
+import type { TranscriptSpeakers } from "../api";
 import type { PageText } from "../documents/passages";
 
 /**
  * A Transcript's Passage with each cue's time, and who said it where known,
  * before it ("[14:26 Dana] …"), so the model can say when something was said
- * and by whom (#136). Each cue is a line of its own, found by its start, in
+ * and by whom (#136): by the name the User gave the Speaker in `speakers` (#138), and
+ * "Me" for the User. Each cue is a line of its own, found by its start, in
  * order. Any other Passage is returned as it is.
  */
-export function withCueMarks(text: string, units: readonly PageText[]): string {
+export function withCueMarks(
+  text: string,
+  units: readonly PageText[],
+  speakers: TranscriptSpeakers | null = null,
+): string {
   let marked = "";
   let from = 0;
   /** Where the next cue's line is looked for: after the line last marked. */
@@ -30,7 +37,10 @@ export function withCueMarks(text: string, units: readonly PageText[]): string {
         line = next < 0 ? -1 : next + 1;
       }
       if (at < 0) continue;
-      const speaker = unit.label?.speakers?.[index]?.replace(/[\]\n]+/g, " ");
+      const label = unit.label?.speakers?.[index];
+      const speaker = label
+        ? speakerMark(speakers, cue.startMs, label).replace(/[\]\n]+/g, " ")
+        : undefined;
       marked += `${text.slice(from, at)}[${clockTime(cue.startMs)}${speaker ? ` ${speaker}` : ""}] `;
       from = at;
       const next = text.indexOf("\n", at);
