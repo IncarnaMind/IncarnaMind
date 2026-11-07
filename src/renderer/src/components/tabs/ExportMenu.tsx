@@ -89,6 +89,7 @@ export function ExportIdle() {
       type="button"
       data-testid="export-idle"
       aria-disabled="true"
+      aria-description={t("export.idle")}
       tabIndex={-1}
       title={t("export.idle")}
       className="tab-export"

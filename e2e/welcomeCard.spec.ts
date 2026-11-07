@@ -279,6 +279,11 @@ test("the example's Documents stay reachable when its Mind is deleted after the 
     });
     const sidebar = window.getByTestId("sidebar");
     await expect(sidebar.getByTestId("document-list-item")).toHaveCount(1);
+    // Under the Examples heading nothing is badged: the heading says it, and the example's Linked
+    // folder isn't listed there.
+    const examples = window.getByTestId("example-section");
+    await expect(examples.getByTestId("example-chip")).toHaveCount(0);
+    await expect(examples.getByTestId("linked-folder-row")).toHaveCount(0);
 
     await window.evaluate(async () => {
       const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
@@ -290,6 +295,10 @@ test("the example's Documents stay reachable when its Mind is deleted after the 
     await expect(window.getByTestId("example-section")).toHaveCount(0);
     await expect(sidebar.getByTestId("document-list-item")).toHaveCount(1);
     await expect(window.getByTestId("linked-folders-section")).toBeVisible();
+    // Under Linked folders nothing else says the folder is the example's, so its row keeps the badge.
+    await expect(linkedFolderRow(window, "Examples").getByTestId("example-chip")).toHaveText(
+      "Example",
+    );
     const exampleDocuments = await window.evaluate(async () => {
       const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
       const examples = await bridge.getExamples();

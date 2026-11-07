@@ -17,6 +17,7 @@ import {
   pathsOpened,
   pointAndClick,
   removeDataFolder,
+  runCommand,
   setLanguage,
   setSidebarWidth,
   setWindowSize,
@@ -57,7 +58,7 @@ for (const [language, width] of [
   ["zh-CN", 900],
   ["zh-CN", 1600],
 ] as const) {
-  test(`an empty Library and sidebar say No Documents yet and offer both ways in (${language}, ${width}px)`, async () => {
+  test(`an empty sidebar says only No Documents yet, and the empty Library offers both ways in (${language}, ${width}px)`, async () => {
     const { app, window } = await launchApp(dataDir);
     try {
       await setWindowSize(app, window, width, 900);
@@ -80,15 +81,13 @@ for (const [language, width] of [
           .toBe(true);
       };
 
+      // The sidebar says what is missing and nothing more: its + and the Library are where to add.
       const sidebar = window.getByTestId("documents-empty");
-      await expect(sidebar.getByText(none, { exact: true })).toBeVisible();
-      await fits(
-        sidebar,
-        sidebar.getByTestId("documents-empty-add-files"),
-        sidebar.getByTestId("documents-empty-link-folder"),
-      );
-      await expect(sidebar.getByTestId("documents-empty-add-files")).toHaveText(add);
-      await expect(sidebar.getByTestId("documents-empty-link-folder")).toHaveText(link);
+      await expect(sidebar).toHaveText(none);
+      await expect(sidebar.getByRole("button")).toHaveCount(0);
+      await expect
+        .poll(() => sidebar.evaluate((element) => element.scrollWidth <= element.clientWidth + 1))
+        .toBe(true);
       await screenshot(window, `sidebar-empty-${language}-${width}`);
 
       const library = window.getByTestId("library-empty");
@@ -142,35 +141,29 @@ for (const language of ["en", "zh-CN"] as const) {
       const folder = join(sources, "Reading");
       await mkdir(folder, { recursive: true });
       const none = translate(language, "library.none");
+      const link = translate(language, "startGuide.documents.linkFolder");
       const sidebar = window.getByTestId("documents-empty");
       const dialog = window.getByTestId("link-folder-dialog");
 
-      // The empty sidebar at its narrowest, as the footer row is checked: the line and both ways
-      // in stay visible, each inside the sidebar's own box, nothing pushed out of it.
+      // The empty sidebar at its narrowest, as the footer row is checked: its one line stays
+      // visible inside the sidebar's own box, nothing pushed out of it.
       await expect(sidebar.getByText(none, { exact: true })).toBeVisible();
       await setSidebarWidth(window, SIDEBAR_MIN);
       const sidebarBox = await window.getByTestId("sidebar").boundingBox();
       if (!sidebarBox) throw new Error("The sidebar isn't visible.");
-      for (const part of [
-        sidebar.getByText(none, { exact: true }),
-        sidebar.getByTestId("documents-empty-add-files"),
-        sidebar.getByTestId("documents-empty-link-folder"),
-      ]) {
-        await expect(part).toBeVisible();
-        const box = await part.boundingBox();
-        if (!box) throw new Error("A part of the empty sidebar isn't visible.");
-        expect(box.x).toBeGreaterThanOrEqual(sidebarBox.x);
-        expect(box.y).toBeGreaterThanOrEqual(sidebarBox.y);
-        expect(box.x + box.width).toBeLessThanOrEqual(sidebarBox.x + sidebarBox.width);
-        expect(box.y + box.height).toBeLessThanOrEqual(sidebarBox.y + sidebarBox.height);
-      }
+      const line = await sidebar.getByText(none, { exact: true }).boundingBox();
+      if (!line) throw new Error("The empty sidebar's line isn't visible.");
+      expect(line.x).toBeGreaterThanOrEqual(sidebarBox.x);
+      expect(line.y).toBeGreaterThanOrEqual(sidebarBox.y);
+      expect(line.x + line.width).toBeLessThanOrEqual(sidebarBox.x + sidebarBox.width);
+      expect(line.y + line.height).toBeLessThanOrEqual(sidebarBox.y + sidebarBox.height);
       await screenshot(window, `sidebar-empty-narrow-${language}`);
       await setSidebarWidth(window, SIDEBAR_DEFAULT);
 
-      // The sidebar's two: Link a folder asks the system for a folder and opens its dialog, which
-      // Escape closes with nothing linked.
+      // The sidebar's way to link: ⌘K's Link a folder asks the system for a folder and opens its
+      // dialog, which Escape closes with nothing linked.
       await answer({ canceled: false, filePaths: [folder] });
-      await sidebar.getByTestId("documents-empty-link-folder").click();
+      await runCommand(window, "linkedFolder.add", link);
       await expect.poll(async () => (await asked()).length).toBe(1);
       await expect(dialog).toBeVisible();
       await expect(dialog.getByTestId("link-folder-files")).toBeVisible();
@@ -178,12 +171,13 @@ for (const language of ["en", "zh-CN"] as const) {
       await window.keyboard.press("Escape");
       await expect(dialog).toBeHidden();
 
-      // Add files asks for files, and the file the sheet answers is added: the sidebar's count
-      // moves and its empty line gives way to the Document's row.
+      // The sidebar's + menu adds files, and the file the sheet answers is added: the sidebar's
+      // count moves and its empty line gives way to the Document's row.
       const orders = join(sources, "Harbour orders.csv");
       await copyFile(join(FIXTURES, "Orders.csv"), orders);
       await answer({ canceled: false, filePaths: [orders] });
-      await sidebar.getByTestId("documents-empty-add-files").click();
+      await pointAndClick(window, window.getByTestId("plus-menu"));
+      await pointAndClick(window, window.getByTestId("plus-add-documents"));
       await expect.poll(async () => (await asked()).length).toBe(2);
       await expect(window.getByTestId("library-row-count")).toHaveText("1");
       const row = window.getByTestId("document-list-item");

@@ -55,6 +55,18 @@ describe("shortModelName", () => {
     expect(shortModelName(name)).toBe(short);
   });
 
+  test("a name with neither a Claude nor a version before its tier stays whole", () => {
+    for (const name of [
+      "GPT-6 Luna",
+      "GPT-6.1 Sol",
+      "Kimi K3",
+      "Gemini 3.5 Flash",
+      "Qwen3.5 Plus",
+    ]) {
+      expect(shortModelName(name), name).toBe(name);
+    }
+  });
+
   test("takes the names the catalog gives: the default models of two providers", () => {
     expect(shortModelName(modelName("claude-haiku-5-5", { kind: "anthropic" }))).toBe("Haiku 5.5");
     expect(shortModelName(modelName("deepseek-flash", { kind: "deepseek" }))).toBe(

@@ -115,8 +115,14 @@ test("Export waits in a strip whose group shows no Note, saying what it needs", 
     await expect(idle).toHaveCount(1);
     await expect(idle).toHaveAttribute("aria-disabled", "true");
     await expect(idle).toHaveAttribute("title", "Open a note to export it");
+    // A screen reader reads it as a disabled button, with its reason as the description.
+    await expect(window.getByRole("button", { name: "Export", disabled: true })).toHaveCount(1);
+    await expect(idle).toHaveAccessibleName("Export");
+    await expect(idle).toHaveAccessibleDescription("Open a note to export it");
     await setLanguage(window, "zh-CN");
     await expect(idle).toHaveAttribute("title", "打开一篇笔记后才能导出");
+    await expect(idle).toHaveAccessibleName("导出");
+    await expect(idle).toHaveAccessibleDescription("打开一篇笔记后才能导出");
     // It does nothing: no menu opens.
     await idle.click({ force: true });
     await expect(window.getByTestId("export-menu")).toBeHidden();
