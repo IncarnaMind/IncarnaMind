@@ -51,7 +51,7 @@ import type {
 import { InvalidInputError, NotFoundError } from "../errors";
 import { type Folders, folderIdFor } from "../folders";
 import type { Database } from "../storage";
-import { markArrived } from "../tags/held";
+import { markArrived, nextSequence } from "../tags/held";
 import {
   createIgnore,
   type FileIdentity,
@@ -156,11 +156,13 @@ interface LinkedFolderRow {
   layout: string | null;
   paused: number;
   ignore_patterns: string;
+  created_seq: number;
   created_at: string;
   updated_at: string;
 }
 
-const FOLDER_COLUMNS = "id, path, layout, paused, ignore_patterns, created_at, updated_at";
+const FOLDER_COLUMNS =
+  "id, path, layout, paused, ignore_patterns, created_seq, created_at, updated_at";
 
 /** Statuses of a Document once processing has finished with it. */
 const PROCESSED = "('ready', 'no-text', 'failed')";
@@ -1019,8 +1021,8 @@ export function createLibrary(options: LibraryOptions) {
     changes: Changes,
     explicit: boolean,
     twins: ReadonlySet<string>,
-    /** When IncarnaMind saw it arrive new (see `arrivalOf`); null when a later scan found it. */
-    arrival: string | null,
+    /** When and where IncarnaMind saw it arrive new (see `arrivalOf`); null when a later scan found it. */
+    arrival: { at: string; seq: number } | null,
   ): Promise<string | undefined> {
     if (!explicit && file.owner && removedByUser(file.path, file.owner)) return undefined;
     let hashed: Awaited<ReturnType<typeof hashFile>>;
@@ -1073,7 +1075,7 @@ export function createLibrary(options: LibraryOptions) {
         at,
       ],
     );
-    if (arrival !== null) markArrived(db, id, arrival);
+    if (arrival !== null) markArrived(db, id, arrival.at, arrival.seq);
     // Filed before it is announced: the window hears of its Folder first, so a Document added into
     // one never shows under Not in a Folder on the way (#1741).
     (changes.added ?? hooks.added)(id);
@@ -1363,16 +1365,18 @@ export function createLibrary(options: LibraryOptions) {
     }
     const twins = repeatedNames([...fresh, ...arrivals].map((file) => file.path));
     /**
-     * When IncarnaMind saw a file arrive new (#2308): a Linked folder's first scan finds what the
-     * User linked, as they linked it; after that, its watcher reports a file the moment it arrives.
-     * A later scan, on a resume or a restart, finds files that were there before, and so is an
-     * online-only file seen before that has downloaded: null.
+     * When and where IncarnaMind saw a file arrive new (#2308): a Linked folder's first scan finds
+     * what the User linked, as they linked it; after that, its watcher reports a file the moment it
+     * arrives. A later scan, on a resume or a restart, finds files that were there before, and so
+     * is an online-only file seen before that has downloaded: null.
      */
-    const arrivalOf = (file: Found): string | null => {
+    const arrivalOf = (file: Found): { at: string; seq: number } | null => {
       const { owner } = file;
       if (!owner) return null;
-      if (!baselineScanned(owner.id)) return owner.created_at;
-      return scanned.has(owner.id) || wasPlaceholder.has(file.path) ? null : now();
+      if (!baselineScanned(owner.id)) return { at: owner.created_at, seq: owner.created_seq };
+      if (scanned.has(owner.id) || wasPlaceholder.has(file.path)) return null;
+      const at = now();
+      return { at, seq: nextSequence(db, at) };
     };
     announceFolders();
     try {
@@ -1565,8 +1569,9 @@ export function createLibrary(options: LibraryOptions) {
       const taken: string[] = [];
       db.transaction(() => {
         db.run(
-          `INSERT INTO linked_folders (id, path, created_at, updated_at) VALUES (?, ?, ?, ?)`,
-          [id, path, at, at],
+          `INSERT INTO linked_folders (id, path, created_seq, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?)`,
+          [id, path, nextSequence(db, at), at, at],
         );
         for (const inner of linked.filter((row) => isInside(path, row.path))) {
           stopWatcher(inner.id);
@@ -1880,7 +1885,13 @@ export function createLibrary(options: LibraryOptions) {
             }
             continue;
           }
-          results.push((await addFound(file, [], changes, true, twins, now())) ?? "unreadable");
+          const at = now();
+          results.push(
+            (await addFound(file, [], changes, true, twins, {
+              at,
+              seq: nextSequence(db, at),
+            })) ?? "unreadable",
+          );
         }
         finish(changes, new Set());
         return results;
