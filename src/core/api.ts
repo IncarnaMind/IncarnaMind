@@ -2628,6 +2628,12 @@ export interface QuotedWords {
   answer: QuotedPiece[];
   /** The Document's words nearest them, the matching stretch `found: true`; null when none is near. */
   closest: QuotedPiece[] | null;
+  /**
+   * The Document's own words for the Answer's quote, when they differ only in the kind of their
+   * quotation marks (#2605): what Use the Document's wording puts in the sentence. Absent for any
+   * other difference, which the card offers nothing for.
+   */
+  documentWording?: string;
 }
 
 /** The Answer's quoted words, found where they run on past the page the Citation cites (#2504). */

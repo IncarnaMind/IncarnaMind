@@ -4246,6 +4246,8 @@ export const en = {
   "citation.closest.document": "Closest words in {document}",
   "citation.closest.transcript": "Closest words in the transcript at {location}",
   "citation.quoted.why": "Words in quotation marks are checked word for word.",
+  "citation.useDocumentWording": "Use the Document’s wording",
+  "citation.usedDocumentWording": "Used the Document’s wording",
   "citation.quotedWordsRunOn": "The quote continues on {place}.",
   "citation.meaning":
     "“Quote found” means the words are there, not that they support the sentence.",

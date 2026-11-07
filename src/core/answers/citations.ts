@@ -44,6 +44,7 @@ import {
   withoutArea,
 } from "../../shared/locations";
 import { citesSource, type NamedSource } from "../../shared/namedSources";
+import { documentWordingIn } from "../../shared/quoteMarks";
 import {
   findQuote,
   lostLigatures,
@@ -2302,10 +2303,12 @@ export function createCitationSession(
      * that start on the one page cited may run on to the next page (#2504).
      * One found changes nothing. One not found makes the Citation whose Units
      * are nearest it "not found", with the Answer's words and the Document's
-     * nearest for its card. Where a Citation of the sentence couldn't be
-     * checked, no span of it is. Words in another language than every page
-     * cited are a translation: they aren't checked, and are returned to lose
-     * their quotation marks.
+     * nearest for its card, and with the Document's own words where only the
+     * kind of their quotation marks differs, for the card to offer them
+     * (#2605). Where a Citation of the sentence couldn't be checked, no span
+     * of it is. Words in another language than every page cited are a
+     * translation: they aren't checked, and are returned to lose their
+     * quotation marks.
      */
     checkQuotedWords(quoted: readonly { words: string; markers: readonly number[] }[]): string[] {
       /**
@@ -2387,14 +2390,24 @@ export function createCitationSession(
           translated.push(words);
           continue;
         }
-        let nearest: { record: Accepted; closest: ReturnType<typeof closestWords> } | undefined;
+        let nearest:
+          | {
+              record: Accepted;
+              units: readonly PageText[];
+              closest: ReturnType<typeof closestWords>;
+            }
+          | undefined;
         for (const { record, units, matching } of cited) {
           const closest = closestWords(units, words, matching);
-          if (!nearest || closest.near > nearest.closest.near) nearest = { record, closest };
+          if (!nearest || closest.near > nearest.closest.near) nearest = { record, units, closest };
         }
         if (nearest?.record.result?.check !== "found") continue;
         nearest.record.result = { check: "not-found", checkReason: "quoted-words-not-on-pages" };
-        nearest.record.quotedWords = nearest.closest.shown;
+        // The page's own marks for the same words, for the User to choose (#2605).
+        const wording = documentWordingIn(words, joinUnits(nearest.units).text);
+        nearest.record.quotedWords = wording
+          ? { ...nearest.closest.shown, documentWording: wording }
+          : nearest.closest.shown;
       }
       return translated;
     },

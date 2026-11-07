@@ -4054,6 +4054,8 @@ export const zhCN = {
   "citation.closest.document": "“{document}”中最接近的文字",
   "citation.closest.transcript": "转写稿 {location} 处最接近的文字",
   "citation.quoted.why": "引号里的文字会逐字核对。",
+  "citation.useDocumentWording": "改用文档原文",
+  "citation.usedDocumentWording": "已改用文档原文",
   "citation.quotedWordsRunOn": "引文接续到{place}。",
   "citation.meaning": "“找到引文”表示文字在那里，不表示它支持这句话。",
   "citation.open.page": "打开该页",

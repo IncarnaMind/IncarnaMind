@@ -687,9 +687,13 @@ export function parseQuotedWords(value: unknown): QuotedWords | null {
     }
   }
   if (typeof value !== "object" || value === null) return null;
-  const { answer, closest } = value as Record<string, unknown>;
+  const { answer, closest, documentWording } = value as Record<string, unknown>;
   if (!isPieces(answer) || answer.length === 0) return null;
-  return { answer, closest: isPieces(closest) && closest.length > 0 ? closest : null };
+  return {
+    answer,
+    closest: isPieces(closest) && closest.length > 0 ? closest : null,
+    ...(typeof documentWording === "string" && documentWording !== "" && { documentWording }),
+  };
 }
 
 /** The page a Citation's quoted words were found running on to (#2504), checked; null if none. */
