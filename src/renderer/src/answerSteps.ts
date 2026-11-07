@@ -526,7 +526,8 @@ export function foldedLine(input: StepsInput): FoldedLine | null {
 /**
  * The step an Answer being written is on, from its phase, its calls, its
  * text and its Citations: waiting for the User first; then loading,
- * checking quotes or figures, searching or another call running; then writing, which
+ * checking quotes or figures, searching or another call running; then a write being
+ * checked after the reply streamed; then writing, which
  * becomes checking once every marker in the text has its Citation; before
  * any text, thinking once the model has been asked, else reading the Mind it
  * reads, else searching.
@@ -553,6 +554,10 @@ export function liveStep({
   if (phase === "searching" || running.some(isSearch)) return { kind: "searching" };
   const call = running.find((each) => !isSearch(each));
   if (call) return { kind: "call", call };
+  // A write whose Citations came after it is checked once the reply has streamed (#1635): the
+  // line words it as its call still at work, while its row keeps what the call did.
+  const checking = answer.toolCalls.find((each) => (each.mindChange?.checking ?? 0) > 0);
+  if (checking) return { kind: "call", call: { ...checking, status: "running" } };
   if (answer.text.trim()) {
     const markers = markersIn(answer.text);
     const cited = new Set(answer.citations.map((citation) => citation.marker));

@@ -48,6 +48,14 @@ export function figuresInClaim(text: string, context: FigureContext): Figure[] {
   ].sort((a, b) => a.start - b.start);
 }
 
+/**
+ * Whether a text before a single period makes it say which one, not how many: "这一年", "那一年",
+ * "每一年", "同一年", "另一年", "哪一年" and "当一年" are this, that, every, the same, another,
+ * which and a year. A 当 that ends a word ("应当") is no prefix; 前 and 后 stay out because
+ * "前后一年" counts a year or so (#2215).
+ */
+const PERIOD_DEMONSTRATIVE = /(?:[这那每同另哪]|(?<!\p{Script=Han})当)\s*$/u;
+
 export function periodCounts(text: string, context: FigureContext): Figure[] {
   const counts: Figure[] = [];
   const count = (start: number, end: number, value: number, unit: string): Figure => ({
@@ -108,6 +116,9 @@ export function periodCounts(text: string, context: FigureContext): Figure[] {
       continue;
     const start = from + figure.start;
     const before = text.slice(0, start);
+    // "这一年", "那一年", "每一年" and "当一年" say which year, not how many: one period behind a
+    // demonstrative is no count (#2215).
+    if (figure.value === 1 && PERIOD_DEMONSTRATIVE.test(before)) continue;
     const consecutive = /(?:连续|接连|相继)\s*$/u.test(before);
     if (/第\s*$/u.test(before)) continue;
     if (match[0] === "年" && figure.value >= 1000 && !consecutive) continue;
@@ -185,6 +196,9 @@ function namedCount(sentence: string, stated: string, context: FigureContext): F
     figure.value < 0
   )
     return null;
+  // A period that says which one ("在这一年里") is no quantity, and the date read would make a
+  // plain 1 of it to match an unrelated unit (#2215).
+  if (figure.value === 1 && PERIOD_DEMONSTRATIVE.test(sentence.slice(0, start))) return null;
   if (
     figure.start !== 0 ||
     readFigures(stated, { ...context, dates: false, midLine: true, header: null }).length !== 0

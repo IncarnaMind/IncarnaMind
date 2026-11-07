@@ -35,7 +35,7 @@ import { repeatChecks } from "../repeats/repeat";
 import { verdictOf } from "../repeats/score";
 import { SIGNS } from "./flows";
 import type { Expectation, Grade } from "./judge";
-import { citedText, falseSupportedIn } from "./unstated";
+import { citedText, type UnstatedSentence, unstatedSentences } from "./unstated";
 
 export const SET_IDS = [
   "gating",
@@ -234,6 +234,13 @@ function questionItem(
   };
 }
 
+/** Each sentence the false-Supported judge listed, with the quotes it read, for reading by hand. */
+const flaggedLines = (unstated: readonly UnstatedSentence[] | null) =>
+  (unstated ?? []).map(
+    ({ sentence, quotes }) =>
+      `[unstated] ${sentence} ‖ ${quotes.map((quote) => `“${quote}”`).join(" · ")}`,
+  );
+
 /** What a Question's Answer is read for: its Citations, grade, false Supported and claimed changes. */
 export async function measuredAnswer(
   answer: Pick<
@@ -246,7 +253,7 @@ export async function measuredAnswer(
 ): Promise<Measured> {
   const done = answer.status === "done";
   const unstated = done
-    ? await falseSupportedIn(
+    ? await unstatedSentences(
         judge,
         answer.citations.map((citation, index) => ({
           // A result from before sentences were numbered keeps each Citation apart.
@@ -256,7 +263,7 @@ export async function measuredAnswer(
           found: citation.outcome === "found",
         })),
       )
-    : 0;
+    : [];
   // A Question asked in a Note is offered no Tool that changes one: any change it claims is unmade.
   const claimed = done ? (await judgeClaims(judge, answer.text, [])).unbacked : [];
   return {
@@ -272,7 +279,7 @@ export async function measuredAnswer(
     found: answer.citations.filter((citation) => citation.outcome === "found").length,
     cited: done && answer.expected ? answer.expected.cited === answer.expected.needed : null,
     grade: done ? await grade(expected, answer.text) : null,
-    falseSupported: unstated ?? 0,
+    falseSupported: unstated?.length ?? 0,
     duplicate: answer.timing?.writtenTwice ?? false,
     // A Tool's call written as text that still shows fails the Answer, whatever it is graded.
     failures: [
@@ -283,6 +290,7 @@ export async function measuredAnswer(
     // Each Citation not found, to tell a quote the model changed from one it put on the wrong page.
     text: [
       answer.text,
+      ...flaggedLines(unstated),
       ...claimed.map((sentence) => `[unbacked] ${sentence}`),
       ...answer.citations
         .filter((citation) => citation.outcome !== "found")
@@ -314,7 +322,7 @@ export async function measuredCell(
   // Each Citation on the line of the cell it sits in, as the judge reads it.
   const lines = shown.text.split("\n");
   const unstated = answered
-    ? await falseSupportedIn(
+    ? await unstatedSentences(
         judge,
         shown.citations.map((citation, index) => {
           const at = lines.findIndex((line) => line.includes(`[${index + 1}]`));
@@ -326,7 +334,7 @@ export async function measuredCell(
           };
         }),
       )
-    : 0;
+    : [];
   return {
     ...NOTHING,
     status: answered ? "done" : "failed",
@@ -346,13 +354,13 @@ export async function measuredCell(
     grade: answered
       ? await grade({ question, quotes: needed.map((each) => each.quote) }, text)
       : null,
-    falseSupported: unstated ?? 0,
+    falseSupported: unstated?.length ?? 0,
     duplicate: isWrittenTwice(text),
     failures: [
       ...(toolTextIn(text).length > 0 ? ["tool-text"] : []),
       ...(unstated === null ? ["false-supported-unread"] : []),
     ],
-    text,
+    text: [text, ...flaggedLines(unstated)].join("\n"),
   };
 }
 
