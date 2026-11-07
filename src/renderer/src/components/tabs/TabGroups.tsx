@@ -17,8 +17,11 @@ import { TabStrip } from "./TabStrip";
 import { TabPlaceContext } from "./tabItems";
 import { type DropTarget, type TabDrag, useTabDrag } from "./useTabDrag";
 
-/** A group is never dragged narrower than this. */
-const GROUP_MIN_PX = 220;
+/**
+ * A group is never dragged narrower than this: 220px, and the 10px a tab list now keeps before its
+ * first tab. Narrower, the shown tab at its least width is too short for its own icon and ✕.
+ */
+const GROUP_MIN_PX = 230;
 
 /**
  * The card's content: up to three groups side by side, each with its tab

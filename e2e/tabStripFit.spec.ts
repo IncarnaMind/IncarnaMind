@@ -547,7 +547,7 @@ for (const language of LANGUAGES) {
         .first()
         .evaluate((group) => group.getBoundingClientRect().width);
     await divider.focus();
-    while ((await widthOf()) > 225) {
+    while ((await widthOf()) > 235) {
       const before = await widthOf();
       await window.keyboard.press("ArrowLeft");
       await expect.poll(widthOf).not.toBe(before);
@@ -683,7 +683,7 @@ for (const language of LANGUAGES) {
         .first()
         .evaluate((group) => group.getBoundingClientRect().width);
     await divider.focus();
-    while ((await widthOf()) > 225) {
+    while ((await widthOf()) > 235) {
       const before = await widthOf();
       await window.keyboard.press("ArrowLeft");
       await expect.poll(widthOf).not.toBe(before);
