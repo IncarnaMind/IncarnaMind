@@ -110,3 +110,12 @@ export function fillNextIn(editor: object, step: "undo" | "redo"): boolean {
   }
   return false;
 }
+
+/** Where `editor`'s meeting fill stands in its history: in the Note, taken back, or neither. */
+export function fillStateIn(editor: object): "done" | "undone" | null {
+  for (const holders of held.values()) {
+    const state = holders.get(editor)?.steps.state();
+    if (state === "done" || state === "undone") return state;
+  }
+  return null;
+}

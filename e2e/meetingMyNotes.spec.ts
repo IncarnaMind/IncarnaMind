@@ -244,6 +244,18 @@ for (const language of ["en", "zh-CN"] as const) {
     await pointAndClick(window, window.getByTestId("my-notes-show-notes"));
     await expect(chip).toHaveText(words.recorded);
     await expect(overview).toBeVisible();
+
+    // An input method over a selection across hidden lines writes in the lines that show.
+    await window.keyboard.press("ControlOrMeta+Alt+ArrowRight");
+    await expect(chip).toHaveText(words.mine);
+    await pointAndClick(window, shown.first());
+    await window.keyboard.press("ControlOrMeta+a");
+    const cdp = await window.context().newCDPSession(window);
+    await cdp.send("Input.imeSetComposition", { text: "上", selectionStart: 1, selectionEnd: 1 });
+    await cdp.send("Input.insertText", { text: "上线" });
+    await expect(shown.first()).toHaveText(starts("上线"));
+    await window.keyboard.press("ControlOrMeta+Alt+ArrowLeft");
+    await expect(overview).toBeVisible();
     await app.close();
   });
 }

@@ -164,7 +164,7 @@ import { useFirstOpen } from "../firstOpen";
 import { translateNow, useT } from "../i18n";
 import { useKeptScope, useMindScope } from "../keptScope";
 import { markSelectionAsMine } from "../markAsMine";
-import { fillNextIn } from "../meetingFillSteps";
+import { fillNextIn, fillStateIn } from "../meetingFillSteps";
 import { useMeetingOf, useMeetings } from "../meetings";
 import {
   focusTaken,
@@ -530,6 +530,7 @@ function MindEditorView({
         MyNotes,
         MyNotesHistory.configure({
           fillNext: fillNextIn,
+          fillState: fillStateIn,
           tell: (said) => tellMyNotes.current(said),
         }),
         FigureEvidence.configure({ doc }),
