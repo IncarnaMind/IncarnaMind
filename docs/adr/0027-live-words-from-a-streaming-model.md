@@ -12,7 +12,17 @@ Strong products all show provisional words at once and replace them in place whe
 - **Two passes.** A streaming model gives the draft, and a stronger model reads each segment again once it ends. Google's on-device RNN-T + LAS works this way, as does FunASR's "2pass" runtime.
 - **Decoding a non-streaming model again over a growing window.** WhisperKit does this, and it is what this computer did.
 
-The survey, with sources, is in the research note behind #2662.
+Sources, checked 2026-11-07:
+
+- Apple SpeechTranscriber's volatile and finalized results: https://developer.apple.com/videos/play/wwdc2025/277/ and https://developer.apple.com/documentation/speech/speechtranscriber/reportingoption/volatileresults
+- Handy 0.9.0's streaming models through transcribe.cpp: https://github.com/cjpais/Handy/blob/main/src/content/release-notes/0.9.0.md and https://github.com/handy-computer/transcribe.cpp
+- Superwhisper's realtime mode, streaming models only: https://superwhisper.com/docs/common-issues/realtime
+- Google's two-pass RNN-T + LAS, and on device: https://arxiv.org/abs/1908.10992 and https://arxiv.org/abs/2003.12710
+- FunASR's "2pass" runtime: https://github.com/modelscope/FunASR/blob/main/runtime/docs/SDK_advanced_guide_online.md
+- WhisperKit's re-decoding with confirmed prefixes: https://arxiv.org/abs/2507.10860
+- The streaming models sherpa-onnx runs: https://k2-fsa.github.io/sherpa/onnx/pretrained_models/online-transducer/zipformer-transducer-models.html, https://k2-fsa.github.io/sherpa/onnx/pretrained_models/online-paraformer/paraformer-models.html and https://k2-fsa.github.io/sherpa/onnx/nemo/nemotron-streaming.html
+- Nemotron 3.5 ASR streaming and its licence: https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b and https://openmdw.ai/license/1-1/
+- FunASR's model licence: https://github.com/modelscope/FunASR/blob/main/MODEL_LICENSE
 
 ## Decision
 
@@ -33,14 +43,27 @@ The survey, with sources, is in the research note behind #2662.
   - Qwen3-ASR keeps decoding on sherpa's own threads (`decodeAsync`), so the two passes overlap.
 - **English in capitals.** The model writes English in capitals, so its live words are shown in lower case.
 - **A slow computer.** The streaming model's reading time is measured against the audio's time, every stream counted, over the last minute.
-  - If it takes more than half, live words go back to decoding the speech again, for the rest of that engine's life. The app's log records this.
-  - The same happens if the model fails.
+  - If it takes more than half, live words go back to decoding the speech again until no stream is open, so the next Meeting starts with them again. The app's log records this.
+  - The same happens if the model fails while reading. If it can't load at all, the engine loads without it, and live words are decoded again as before.
   - Falling behind is still said as before (#462): when finished lines fall 30 s behind, the meeting bar says "Recording…" and the rest is transcribed after Stop.
 - **The download.**
   - The streaming model is part of the speech model's download: a pinned revision, each file's size and SHA-256 checked, and the same fallback sources (#1578).
   - Its size is in the total the meeting bar shows. The first-recording sheet now says the speech models are about 1.2 GB.
   - On an installation that already has the speech model, the streaming model downloads on its own when a Meeting starts. Transcription goes on meanwhile without it, and the next Meeting uses it.
+  - Its part of a first download is optional: if it fails, the speech model is still ready, the log says why, and the next Meeting asks for it again.
   - Its licence, with Qwen3-ASR's and Silero VAD's, ships in `notices/speech-models.txt`.
+- **Memory.** Both models stay loaded until IncarnaMind quits, as Qwen3-ASR already did, so the process keeps its extra memory after the first Meeting transcribed here. Unloading them when idle is a follow-up.
+
+## The licence and where the model comes from
+
+- **The weights are Apache-2.0.**
+  - The model card's front matter says `license: apache-2.0` on the upstream, https://huggingface.co/pfluo/k2fsa-zipformer-chinese-english-mixed.
+  - It says the same on sherpa-onnx's export the app downloads, https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20.
+  - It was trained with icefall (`pruned_transducer_stateless7_streaming`), which is Apache-2.0: https://github.com/k2-fsa/icefall/blob/master/LICENSE.
+  - Neither model repository has a LICENSE file of its own. The app ships the Apache-2.0 text in `notices/speech-models.txt`.
+- **Caveat: where its training data came from isn't documented.** The upstream says only that it was trained on "tens of thousands hours of some internal dataset", and its training configuration names the subset `12k_hour`. Its published scores are on WenetSpeech, which is licensed CC BY 4.0 for non-commercial use only.
+  - That is a risk about the data's provenance, not a limit on the weights' licence, which is Apache-2.0 as stated.
+  - If a model with documented training data and the same quality appears, it should replace this one. The speech host takes any streaming reader.
 
 ## The numbers it rests on
 

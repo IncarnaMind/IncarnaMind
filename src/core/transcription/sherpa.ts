@@ -178,6 +178,22 @@ async function liveReadings(
   };
 }
 
+/** The streaming model's readings, or none if it can't load: live words are then read again as before. */
+async function liveReadingsOrNone(
+  live: NonNullable<TranscriptionModelFiles["live"]>,
+): Promise<(() => LiveReading) | undefined> {
+  try {
+    return await liveReadings(live);
+  } catch (error) {
+    // The process has no logger of its own: its output goes to the app's log.
+    console.warn(
+      "The streaming speech model couldn't load; live words are read again as speech goes on.",
+      error instanceof Error ? error.message : String(error),
+    );
+    return undefined;
+  }
+}
+
 export async function createSherpaEngine(model: TranscriptionModelFiles): Promise<SpeechEngine> {
   if (model.engine !== QWEN3_ASR)
     throw new Error(`Unknown speech-to-text engine "${model.engine}".`);
@@ -206,7 +222,7 @@ export async function createSherpaEngine(model: TranscriptionModelFiles): Promis
   });
 
   const detector = () => sileroDetector(sherpa, model.vad, STRETCH_MIN_SPEECH);
-  const live = model.live && (await liveReadings(model.live));
+  const live = model.live && (await liveReadingsOrNone(model.live));
 
   async function read(samples: Float32Array, words: readonly string[]): Promise<string> {
     const stream = recognizer.createStream();

@@ -3341,7 +3341,7 @@ export const zhCN = {
     "有文档可搜索时下载一次内置排序模型；如果这台电脑能用 GPU，还会下载它的 GPU 版本。",
   "privacy.traffic.transcription-model": "下载语音模型",
   "privacy.traffic.transcription-model.tip":
-    "会议的语音模型，以及区分说话人的模型，只在第一次录制或转写会议时下载一次。你说的内容不会发送出去。",
+    "会议的语音模型、写出实时文字的流式模型，以及区分说话人的模型，只在第一次录制或转写会议时下载一次。如果语音模型之前已经下载，流式模型会在之后某次会议开始时下载。你说的内容不会发送出去。",
   "privacy.traffic.python-runtime": "下载数据分析用的 Python",
   "privacy.traffic.python-runtime.tip":
     "对整个文件运行数据分析时所用的 Python，只在第一次运行时从此版本的发布地址下载一次。你的文件不会发送出去。",

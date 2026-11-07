@@ -3509,7 +3509,7 @@ export const en = {
     "Downloads the built-in ordering model once, when there are Documents to search, and its GPU version if your computer can use it.",
   "privacy.traffic.transcription-model": "Speech model download",
   "privacy.traffic.transcription-model.tip":
-    "The speech model for meetings, and the models that tell speakers apart, are downloaded once, the first time a meeting is recorded or transcribed. Nothing you say is sent.",
+    "The speech model for meetings, the streaming model that writes their live words, and the models that tell speakers apart are downloaded once, the first time a meeting is recorded or transcribed. Where the speech model was already here, the streaming model downloads when a later meeting starts. Nothing you say is sent.",
   "privacy.traffic.python-runtime": "Python download for analyses",
   "privacy.traffic.python-runtime.tip":
     "IncarnaMind’s own Python, which analyses of whole files run in, is downloaded once from where this version came from, the first time one runs. None of your files are sent.",

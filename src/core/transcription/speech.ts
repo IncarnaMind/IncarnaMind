@@ -151,7 +151,6 @@ interface Stream {
   reading: { live: LiveReading; text: string } | null;
   /** The live words of each stretch whose final text hasn't come, by id. */
   drafts: Map<number, { start: number; text: string }>;
-  /** The live text last reported. */
   shown: string;
   level: (samples: Float32Array) => Float32Array;
   nextId: number;
@@ -161,7 +160,6 @@ interface Stream {
    * faster than it is spoken, as from a file, counts at the time it covers.
    */
   work: { atMs: number; ms: number }[];
-  /** The streaming model's reading time, as `work`. */
   liveWork: { atMs: number; ms: number }[];
   /** Final decodes queued or running, by where they start. */
   unfinished: Set<number>;
@@ -176,7 +174,10 @@ export function createSpeechHost(engine: SpeechEngine, report: SpeechReport) {
   const partials = new Map<string, Job>();
   let decoding = false;
   let closed = false;
-  /** Live words come from the streaming model, until it fails or can't keep up. */
+  /**
+   * Live words come from the streaming model, until it fails or can't keep up; tried again once
+   * no stream is open, so each Meeting starts with them.
+   */
   let reads = engine.live !== undefined;
 
   /** The kept samples from `from` to `to` (exclusive), in the stream's samples. */
@@ -416,6 +417,7 @@ export function createSpeechHost(engine: SpeechEngine, report: SpeechReport) {
   function streamOf(name: string): Stream {
     let stream = streams.get(name);
     if (!stream) {
+      if (streams.size === 0) reads = engine.live !== undefined;
       stream = {
         name,
         detector: engine.detector(),

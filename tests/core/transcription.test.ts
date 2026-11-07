@@ -392,6 +392,29 @@ describe("Live words from a streaming model (#2662)", () => {
     warn.mockRestore();
   });
 
+  test("live words are tried again once no stream is open, so the next Meeting starts with them", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const reader = countingReader({ fails: true });
+    const host = createSpeechHost(
+      {
+        ...lengthEngine([
+          [0, 1],
+          [2, 3],
+        ]),
+        live: reader.live,
+      },
+      { segment: () => {}, progress: () => {}, failed: () => {} },
+    );
+    await pushPaced(host, "meeting-1:microphone", 4);
+    // It failed on the first stretch, so the second was read again instead.
+    expect(reader.readings).toHaveLength(1);
+    await host.finish("meeting-1:microphone");
+
+    await pushPaced(host, "meeting-2:microphone", 1.5);
+    expect(reader.readings).toHaveLength(2);
+    warn.mockRestore();
+  });
+
   test("a streaming model that fails leaves the stream going on, its live words read again instead", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const segments: SpeechSegment[] = [];
@@ -644,6 +667,29 @@ describe("Downloading the speech models", () => {
       expect(loaded.at(-1)?.live?.engine).toBe("streaming-transducer");
     });
     expect(served.model.requests).toHaveLength(1);
+    model.close();
+  });
+
+  test("on a first download, a streaming model that can't be downloaded doesn't hold up the speech model", async () => {
+    const dataDir = await createTempDataFolder();
+    const served = await servers();
+    served.live.behave("encoder.onnx", { corrupt: true });
+    const { log, entries } = recordingLog();
+    const { loaded, transcriber } = loadingTranscriber();
+    const model = createTranscriptionModel({
+      dataDir,
+      transcriber,
+      source: { model: served.model.source, vad: served.vad.source, live: served.live.source },
+      speed: () => ({}),
+      emitStatus: () => {},
+      log,
+    });
+    model.ensure();
+    await vi.waitFor(() => expect(model.status().state).toBe("ready"));
+    expect(model.status().error).toBeNull();
+    expect(entries.map((entry) => entry.event)).toContain("transcription.liveModelDownload");
+    expect(await model.load()).toBe(true);
+    expect(loaded[0]?.live).toBeUndefined();
     model.close();
   });
 

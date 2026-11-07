@@ -87,7 +87,6 @@ declare module "sherpa-onnx-node" {
   export interface OnlineStream {
     acceptWaveform(waveform: Waveform): void;
     inputFinished(): void;
-    /** The native stream. */
     handle: unknown;
   }
 
@@ -111,7 +110,6 @@ declare module "sherpa-onnx-node" {
     isReady(stream: OnlineStream): boolean;
     decode(stream: OnlineStream): void;
     getResult(stream: OnlineStream): { text: string };
-    /** The native recognizer. */
     handle: unknown;
   }
 

@@ -7,8 +7,14 @@ import { listParts, meetingFolder } from "../../src/core/meetings/audioFiles";
 import { FAKE_LINES, FAKE_THEIR_LINES } from "../../src/core/transcription/fake";
 import { askAndFinish, citingModel, onlyCitation, type ShownPassage } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
+import { startModelServer } from "../helpers/embedding";
 import { connectToMind } from "../helpers/mindClient";
-import { transcribingCore, transcriptOf, until } from "../helpers/transcription";
+import {
+  NO_TRANSCRIPTION_FILES,
+  transcribingCore,
+  transcriptOf,
+  until,
+} from "../helpers/transcription";
 
 const SECOND = 1000;
 
@@ -504,6 +510,30 @@ describe("Who said each line (#941)", { timeout: 60_000 }, () => {
     if (!partial) throw new Error("Nothing was being transcribed.");
     expect(partial.speaker === "Me" ? FAKE_LINES : FAKE_THEIR_LINES).toContain(partial.text);
     expect(["Me", "Them"]).toContain(partial.speaker);
+  });
+
+  test("a speech model from before live words gets its streaming model when a Meeting starts, and that Meeting is transcribed meanwhile (#2662)", async () => {
+    const dataDir = await createTempDataFolder();
+    const streaming = await startModelServer({ "encoder.onnx": 600 });
+    // The streaming model's download waits until the test lets it go.
+    streaming.behave("encoder.onnx", { held: true });
+    const { core, record } = await transcribingCore(dataDir, {
+      transcriptionModelSource: { ...NO_TRANSCRIPTION_FILES, live: streaming.source },
+    });
+    expect((await core.getTranscriptionModel())?.state).toBe("ready");
+    const meeting = await core.createMeeting();
+    await core.startMeeting({ meetingId: meeting.id, systemAudio: true });
+    record(5 * SECOND);
+
+    await until(core, meeting.id, (transcript) => transcript.lines >= 2);
+    await vi.waitFor(() =>
+      expect(streaming.requests.map((request) => request.path)).toEqual(["encoder.onnx"]),
+    );
+    expect((await core.getTranscriptionModel())?.state).toBe("ready");
+
+    streaming.release();
+    const file = join(dataDir, "models", "streaming-zipformer-zh-en-int8", "encoder.onnx");
+    await vi.waitFor(() => expect(existsSync(file)).toBe(true));
   });
 
   test("with a streaming model, the words being said show as they are heard, then the finished line takes their place (#2662)", async () => {

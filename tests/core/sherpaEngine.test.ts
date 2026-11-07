@@ -35,7 +35,11 @@ vi.mock("sherpa-onnx-node", () => ({
         },
       }),
     },
-    OnlineRecognizer: class {},
+    OnlineRecognizer: class {
+      constructor() {
+        throw new Error("Could not load the streaming model's encoder.");
+      }
+    },
     Vad: class {},
     OfflineSpeakerDiarization: class {},
     SpeakerEmbeddingExtractor: class {},
@@ -100,6 +104,28 @@ describe("The sherpa-onnx recognizer", () => {
 
     expect(text).toBe("Voss said 6.8% to 18.4 million, and 9.3% before the 30th of November.");
     expect(text).toContain("6.8%");
+  });
+
+  test("a streaming model that can't load leaves the engine as before, its live words read again, and says why in the log (#2662)", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const engine = await createSherpaEngine({
+      ...model,
+      live: {
+        engine: "streaming-transducer",
+        files: { encoder: "e", decoder: "f", joiner: "g", tokens: "h" },
+      },
+    });
+    RESULTS.push('{"lang": "", "text": "Plain words.", "tokens": []}');
+
+    expect(engine.live).toBeUndefined();
+    expect(await engine.recognizer.decode(samples, "meeting:1:microphone", [])).toBe(
+      "Plain words.",
+    );
+    expect(warn).toHaveBeenCalledWith(
+      "The streaming speech model couldn't load; live words are read again as speech goes on.",
+      "Could not load the streaming model's encoder.",
+    );
+    warn.mockRestore();
   });
 
   test("fails for a result it can't read at all, as before", async () => {

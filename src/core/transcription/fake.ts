@@ -50,7 +50,6 @@ export interface FakeSpeechOptions {
   failToLoad?: string;
   /** Names it writes as these other words unless it was told them (#1031): { Dana: "Donna" }. */
   mishears?: Readonly<Record<string, string>>;
-  /** It has a streaming model for the live words. */
   live?: boolean;
 }
 

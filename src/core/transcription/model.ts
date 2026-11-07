@@ -289,15 +289,27 @@ export function createTranscriptionModel(options: TranscriptionModelOptions) {
       report();
     };
     for (const part of parts) {
-      await downloadModel({
-        directory: part.directory,
-        source: part.source,
-        ...(options.sources && { sources: options.sources }),
-        signal: lifetime.signal,
-        onProgress: progress,
-      });
+      try {
+        await downloadModel({
+          directory: part.directory,
+          source: part.source,
+          ...(options.sources && { sources: options.sources }),
+          signal: lifetime.signal,
+          onProgress: progress,
+        });
+      } catch (error) {
+        if (part !== livePart || lifetime.signal.aborted) throw error;
+        liveMissed(error);
+      }
       base += part.source.files.reduce((sum, file) => sum + file.size, 0);
     }
+  }
+
+  /** Transcription goes on without the streaming model, its live words read again; it is asked for again at the next Meeting. */
+  function liveMissed(error: unknown): void {
+    options.log.warn("transcription.liveModelDownload", {
+      message: error instanceof Error ? error.message : String(error),
+    });
   }
 
   function start(): void {
@@ -341,11 +353,7 @@ export function createTranscriptionModel(options: TranscriptionModelOptions) {
       onProgress: () => {},
     })
       .catch((error: unknown) => {
-        if (lifetime.signal.aborted) return;
-        // Asked for again at the next Meeting; live text is read again meanwhile, as before it.
-        options.log.warn("transcription.liveModelDownload", {
-          message: error instanceof Error ? error.message : String(error),
-        });
+        if (!lifetime.signal.aborted) liveMissed(error);
       })
       .finally(() => {
         fetchingLive = false;

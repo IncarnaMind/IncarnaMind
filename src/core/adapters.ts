@@ -1260,7 +1260,11 @@ export interface CoreAdapters {
    * Defaults to the pinned Hugging Face revisions; tests give no files for a
    * fake that needs none.
    */
-  transcriptionModelSource?: { model: EmbeddingModelSource; vad: EmbeddingModelSource };
+  transcriptionModelSource?: {
+    model: EmbeddingModelSource;
+    vad: EmbeddingModelSource;
+    live?: EmbeddingModelSource;
+  };
   /**
    * Asks a cloud transcription service whether it takes a key of its own (#141), before it is
    * kept. The global `fetch` by default; tests answer without the network.

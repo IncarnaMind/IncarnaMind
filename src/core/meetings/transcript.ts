@@ -891,9 +891,10 @@ export function createTranscripts(options: TranscriptsOptions) {
       startCloud(state, live);
       return;
     }
+    // Ready too: a speech model from before #2662 gets its streaming model in the background.
+    model.ensure();
     if (model.status().state !== "ready") {
       state.state = "preparing";
-      model.ensure();
       return;
     }
     if (state.state !== "behind") state.state = "preparing";
