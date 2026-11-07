@@ -4,12 +4,12 @@
   "model": "deepseek-flash",
   "label": "DeepSeek V4.1 Flash 1017",
   "callIds": [
-    "reserved-en-structured-g",
-    "reserved-en-structured-h",
-    "reserved-en-structured-i",
-    "reserved-zh-structured-g",
-    "reserved-zh-structured-h",
-    "reserved-zh-structured-i"
+    "reserved-en-structured-j",
+    "reserved-en-structured-k",
+    "reserved-en-structured-l",
+    "reserved-zh-structured-j",
+    "reserved-zh-structured-k",
+    "reserved-zh-structured-l"
   ],
   "repliesPerCall": 1,
   "perObservationCapUsd": 0.25,
