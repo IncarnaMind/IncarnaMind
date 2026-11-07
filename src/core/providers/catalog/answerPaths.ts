@@ -37,10 +37,11 @@ const WRITES_THEN_CITES: readonly Admitted[] = [];
  * ADR-0007). No model is listed (2026-11-07), on paired runs against
  * eval/speed/gates/retrieve-first.md:
  * - Claude Haiku 5.5 came off on 2026-11-04 (judged right fell from 60 to 57 of 65 on the gating
- *   set, with 2 allowed) and stays off with the second search. Measured with false Supported, it
- *   had one the loop didn't on the held-out set's second Question. Run whole, it was 1.1 s sooner
- *   on the gating set, but judged right fell from 62 to 57: five of the Answers that went partly
- *   came from the Question's own search alone, where the loop searched twice.
+ *   set, with 2 allowed) and stays off with the second search. Its rerun with false Supported
+ *   measured stopped at the held-out set's second Question, where the judge flagged one the loop
+ *   didn't have. Run whole, it was 1.1 s sooner on the gating set, but judged right fell from 62
+ *   to 57: five of the Answers that went partly came from the Question's own search alone, where
+ *   the loop searched twice.
  * - DeepSeek V4.1 Flash 1017 (2026-11-07), with the second search, held the held-out set but not
  *   the gating set: expected Passages cited fell from 64 to 61 of 65, with 2 allowed, three of
  *   them on quoted words the quote check misreads (#2504).
