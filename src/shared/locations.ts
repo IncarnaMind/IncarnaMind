@@ -712,7 +712,7 @@ export function parseRequestedLocation(input: string): RequestedLocation | null 
   const cueLabel =
     written.startsWith("[") && written.endsWith("]") ? written.slice(1, -1).trim() : written;
   const timePattern =
-    /^(?:at\s+)?(\d{1,2}(?::\d{2}){1,2})(?:\s*[-–—]\s*(\d{1,2}(?::\d{2}){1,2}))?(?:[ \t]+([^\s[\]][^\r\n[\]]*))?$/iu;
+    /^(?:at\s+)?(\d{1,2}(?::\d{2}){1,2})(?:\s*[-–—]\s*(\d{1,2}(?::\d{2}){1,2}))?(?:[ \t]+(?!\d{1,2}:\d{2})([^\s[\]][^\r\n[\]]*))?$/iu;
   const times = timePattern.exec(cueLabel) ?? timePattern.exec(text);
   if (times) {
     const from = parseClockTime(times[1] as string);
