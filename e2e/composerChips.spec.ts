@@ -1,6 +1,7 @@
 import { expect, type Locator, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import {
+  acceptPlainTextKeys,
   useLocalChatModel as connectLocalChatModel,
   createDataFolder,
   dismissChatSetup,
@@ -34,6 +35,8 @@ test("the model chip shows the model's short name, its full name in the tooltip 
   try {
     await setWindowSize(app, window, 1440, 900);
     await dismissChatSetup(window);
+    // Linux runners have no keyring: the key is kept in plain text, as the User would accept.
+    await acceptPlainTextKeys(window);
     await window.evaluate(async () => {
       const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
       await bridge.saveChatProvider({
