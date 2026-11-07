@@ -818,6 +818,8 @@ describe("Usage data: a week's model spend (#1993)", { timeout: 30_000 }, () => 
     if (!asked.asked) throw new Error("The Question wasn't asked.");
     await answerEnded(core, asked.answerId);
 
+    // Usage data is flowing in the new week, so the empty week above is not an unwired test.
+    expect(sent.map((message) => message.event)).toContain("question_asked");
     expect(fieldsOf(sent, "model_spend_week")).toEqual([]);
   });
 });

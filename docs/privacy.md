@@ -140,7 +140,7 @@ Your Documents, their text or names, Folder and Tag names, Questions, Answers, q
 Events go to [PostHog](https://posthog.com), an open-source analytics service, to the project the maintainer set in the build (PostHog's EU cloud or a self-hosted server), using PostHog's open-source Node.js library in the app's main process. The window never talks to the network itself.
 
 - Each event carries a random install ID, made the first time an event is sent. It lets one install's steps be followed, and nothing else. **Reset install ID** in Settings → Privacy gives a new one.
-- While usage data is on, one number stays on this computer for the weekly event: how many Questions have started in the current week, so `model_spend_week` can give the week's count. It holds no Question, and it is replaced each week.
+- While usage data is on, a count stays on this computer for the weekly event, with the week it is for: how many Questions have started in it, so `model_spend_week` can give that week's count. It holds no Question, and it is replaced each week.
 - No person profile is made, no location is looked up, and PostHog stores `0.0.0.0` instead of your IP address.
 - Events wait in a short queue in memory (at most 100), and are sent together every 30 seconds or every 20 events. If a send fails, for example offline, those events are dropped. No event is written to disk.
 
@@ -179,7 +179,7 @@ And PostHog's library adds the same values to every event: `$process_person_prof
 
 ### For maintainers
 
-The weekly `model_spend_week` event is built in [`src/core/modelSpend.ts`](../src/core/modelSpend.ts): `spend_range` and `route` from the cost record's rows and their billing, `provider_kind` from the provider catalog's group, `questions` from a per-device count kept as an Answer starts, and `checks` from the AI use record's `sentence-checked` rows. It is sent once for a completed week (Monday to the next Monday, in this computer's time zone), at the next start or within the hour.
+The weekly `model_spend_week` event is built in [`src/core/modelSpend.ts`](../src/core/modelSpend.ts): `spend_range` and `route` from the cost record's rows and their billing, in US dollars (another currency at the cost cap's fixed rate), `provider_kind` from the provider catalog's group, `questions` from a per-device count kept as an Answer starts, and `checks` from the AI use record's `sentence-checked` rows. It is sent once for a completed week (Monday to the next Monday, in this computer's time zone), at the next start or within the hour.
 
 A build sends usage data only when it's built with both of these set (electron-vite reads them from the environment or a `.env.local` file, never from the code):
 
