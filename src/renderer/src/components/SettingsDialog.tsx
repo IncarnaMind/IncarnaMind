@@ -5,6 +5,7 @@ import { core, files } from "../core";
 import { useT } from "../i18n";
 import { offeredSettingsPages, type SettingsPage, settingsPageLabels } from "../settingsPages";
 import { recordUsage, useAppStore } from "../store";
+import { AppearanceSettings } from "./AppearanceSettings";
 import { AuthorNameSettings } from "./AuthorNameSettings";
 import { AgentsSettings } from "./agents/AgentsSettings";
 import { ConnectorsSettings } from "./connectors/ConnectorsSettings";
@@ -145,6 +146,7 @@ function PageContent({ page }: { page: SettingsPage }) {
       return (
         <Page>
           <LanguageSettings />
+          <AppearanceSettings />
           <SpendingCapSettings />
           <MotionSettings />
           <TaskNotificationSettings />

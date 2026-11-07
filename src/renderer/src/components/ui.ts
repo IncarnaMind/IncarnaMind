@@ -22,11 +22,11 @@ const buttonSizes: Record<ButtonSize, string> = {
 };
 
 const buttonVariants: Record<ButtonVariant, string> = {
-  primary: "bg-ink text-white hover:bg-ink-strong disabled:hover:bg-ink",
+  primary: "bg-ink text-on-primary hover:bg-ink-strong disabled:hover:bg-ink",
   secondary:
     "border border-rule-strong bg-sheet text-ink-strong hover:bg-frame disabled:hover:bg-sheet",
   ghost: "text-ink-secondary hover:bg-chip hover:text-ink disabled:hover:bg-transparent",
-  danger: "bg-danger text-white hover:bg-[#912018] disabled:hover:bg-danger",
+  danger: "bg-danger text-on-primary hover:bg-danger-strong disabled:hover:bg-danger",
 };
 
 /** A button's classes: primary (ink), secondary (outlined), ghost or danger. */

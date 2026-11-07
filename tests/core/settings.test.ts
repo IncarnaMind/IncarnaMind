@@ -108,6 +108,7 @@ describe("Settings", () => {
         meetingPanelHidden: true,
         meetingHelpKeys: {},
         motion: "system",
+        appearance: "system",
         lastChatModel: null,
       },
       language: "en",
@@ -234,6 +235,7 @@ describe("Settings", () => {
       meetingPanelHidden: true,
       meetingHelpKeys: {},
       motion: "system",
+      appearance: "system",
       lastChatModel: null,
     });
   });
@@ -521,6 +523,7 @@ describe("Settings", () => {
       meetingPanelHidden: false,
       meetingHelpKeys: { say: "Ctrl+Alt+Q" },
       motion: "reduced" as const,
+      appearance: "dark" as const,
       lastChatModel: null,
     };
     await before.updateSettings({
@@ -608,6 +611,7 @@ describe("Settings", () => {
       patch: { device: { skillScriptTimeoutSeconds: 1.5 } },
     },
     { name: "an unknown motion choice", patch: { device: { motion: "slow" } } },
+    { name: "an unknown appearance", patch: { device: { appearance: "sepia" } } },
     { name: "Words to know that aren't a list", patch: { user: { meetingWords: "Priya" } } },
     { name: "a blank word to know", patch: { user: { meetingWords: ["Priya", " "] } } },
     { name: "a word to know twice", patch: { user: { meetingWords: ["Lumen", "lumen"] } } },

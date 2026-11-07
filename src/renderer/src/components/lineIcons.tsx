@@ -425,7 +425,7 @@ export function AppMark() {
     <span
       aria-hidden="true"
       data-testid="app-mark"
-      className="app-mark flex size-4 shrink-0 items-center justify-center rounded-sm bg-ink font-serif text-[12px] leading-none font-bold text-white"
+      className="app-mark flex size-4 shrink-0 items-center justify-center rounded-sm bg-ink font-serif text-[12px] leading-none font-bold text-on-primary"
     >
       I
     </span>

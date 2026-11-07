@@ -144,9 +144,9 @@ function GuideStep({
         aria-hidden="true"
         className={`flex size-6 items-center justify-center rounded-full text-[12px] font-bold ${
           state === "next"
-            ? "bg-ink text-white"
+            ? "bg-ink text-on-primary"
             : state === "done"
-              ? "bg-success text-white"
+              ? "bg-success text-on-primary"
               : "border-[1.5px] border-tab-divider text-ink-meta"
         }`}
       >
@@ -252,7 +252,7 @@ export function StartGuide({ mindId }: { mindId: string }) {
             aria-hidden="true"
             className="relative rounded-lg bg-frame py-2 pr-3 pl-11 text-[15px] leading-6 text-ink-placeholder"
           >
-            <span className="absolute top-2 left-2.5 flex size-6 items-center justify-center rounded-md bg-tab-divider text-white">
+            <span className="absolute top-2 left-2.5 flex size-6 items-center justify-center rounded-md bg-tab-divider text-on-primary">
               <AskIcon className="size-3" />
             </span>
             {t("startGuide.ask.example")}
