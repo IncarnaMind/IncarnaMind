@@ -327,18 +327,17 @@ async function webGpuFile(
   if (await stat(copy).catch(() => null))
     return { model: copy, copy: { opened: true, ...problem } };
   const begun = performance.now();
-  const model = await readFile(file).catch(() => null);
-  if (!model) return { model: file };
-  const rewritten = withoutHostCopies(model);
-  if (rewritten === model) return { model: file };
   const part = `${copy}.${randomUUID()}.part`;
   try {
     const { bavail, bsize } = await statfs(folder);
-    if (bavail * bsize < rewritten.length + SPACE_LEFT_BYTES) {
+    if (bavail * bsize < source.size + SPACE_LEFT_BYTES) {
       throw new Error(
         `Writing it would leave less than ${sizeOf(SPACE_LEFT_BYTES)} free on its disk.`,
       );
     }
+    const model = await readFile(file);
+    const rewritten = withoutHostCopies(model);
+    if (rewritten === model) return { model: file };
     const handle = await open(part, "w");
     try {
       await handle.writeFile(rewritten);
@@ -389,15 +388,23 @@ export function createOnnxCrossEncoder(options: OnnxCrossEncoderOptions = {}): C
     const opened = await openOnGpu(file.model, gpu.check, tokenizer, tokenizerConfig, pairs);
     if (file.model === gpu.model || "session" in opened)
       return { ...opened, ...(file.copy && { copy: file.copy }) };
-    // A copy that won't open, or scores off, is removed, and the file opened as downloaded.
+    const failed = `The copy failed (${opened.fallback.message})`;
+    const downloaded = await openOnGpu(gpu.model, gpu.check, tokenizer, tokenizerConfig, pairs);
+    // A GPU that can't run the model fails both: the copy isn't at fault, and writing it again at
+    // every start would only repeat the failure.
+    if (!("session" in downloaded))
+      return {
+        ...downloaded,
+        copy: {
+          opened: false,
+          problem: `${failed}, and so did the file as downloaded; it was kept.`,
+        },
+      };
     const removed = await rm(file.model, { force: true }).then(
       () => "it was removed",
       (stuck: unknown) => `it wasn't removed: ${messageOf(stuck)}`,
     );
-    return {
-      ...(await openOnGpu(gpu.model, gpu.check, tokenizer, tokenizerConfig, pairs)),
-      copy: { opened: false, problem: `The copy failed (${opened.fallback.message}); ${removed}.` },
-    };
+    return { ...downloaded, copy: { opened: false, problem: `${failed}; ${removed}.` } };
   }
 
   /** A GPU session of `model`, once it has scored the check within `CHECK_TOLERANCE`; otherwise why not. */

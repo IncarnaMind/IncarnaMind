@@ -903,6 +903,52 @@ describe("A GPU file's copy for its WebGPU session", () => {
     expect(await copiesIn(folder)).toEqual([]);
   });
 
+  test("keeps the copy when the file as downloaded fails on the GPU too, so it isn't written again", async () => {
+    const { folder, files } = await exportedGpuFile();
+    const load = () =>
+      createOnnxCrossEncoder({
+        createSession: fakeSessions({ gpuFails: true }).createSession,
+      }).load(files);
+
+    await load();
+    const [copy] = await copiesIn(folder);
+    const written = (await stat(join(folder, copy ?? ""))).ino;
+    const again = await load();
+
+    expect(again).toEqual({
+      device: "cpu",
+      fallback: { reason: "session", message: expect.any(String) },
+      copy: {
+        opened: false,
+        problem: expect.stringMatching(/so did the file as downloaded; it was kept\.$/),
+      },
+    });
+    expect(await copiesIn(folder)).toEqual([copy]);
+    expect((await stat(join(folder, copy ?? ""))).ino).toBe(written);
+  });
+
+  test.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+    "opens the file as downloaded and says why when it can't be read for its copy",
+    async () => {
+      const { model, files } = await exportedGpuFile();
+      const sessions = fakeSessions({});
+      await chmod(model, 0o000);
+      try {
+        const device = await createOnnxCrossEncoder({ createSession: sessions.createSession }).load(
+          files,
+        );
+
+        expect(device).toEqual({
+          device: "gpu",
+          copy: { opened: false, problem: expect.stringMatching(/^The copy wasn't written: /) },
+        });
+        expect(sessions.opened.at(-1)).toBe("fp16.onnx on gpu");
+      } finally {
+        await chmod(model, 0o644);
+      }
+    },
+  );
+
   // A folder without write permission stops a write only for a user other than root.
   test.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
     "opens the file as downloaded and says why when the copy can't be written",

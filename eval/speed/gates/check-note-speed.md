@@ -154,7 +154,7 @@ Two corrections to the text above, which stands as it was written and changes no
 
 ### The reranker's own bars: met
 
-The GPU session opens a copy of its file with the twelve `MemcpyFromHost` nodes read as Identity (`src/core/reranking/hostCopies.ts`). The reranker's process writes it once beside the downloaded file, flushed to disk before it is named, and opens it by its path (`src/core/reranking/onnx.ts`). Its name holds the downloaded file's size and time and the rewrite's version. A copy that won't open, or fails the check, is removed and the downloaded file opened. It was first built to open the rewritten bytes; that keeps the model in memory a second time for as long as the session is open (the process's external memory stayed 241 MB higher, and its resident memory 60 to 110 MB higher), so the copy is a file instead.
+The GPU session opens a copy of its file with the twelve `MemcpyFromHost` nodes read as Identity (`src/core/reranking/hostCopies.ts`). The reranker's process writes it once beside the downloaded file, flushed to disk before it is named, and opens it by its path (`src/core/reranking/onnx.ts`). Its name holds the downloaded file's size and time and the rewrite's version. A copy that won't open, or fails the check, gives way to the downloaded file, and is removed only if that file passes. It was first built to open the rewritten bytes; that keeps the model in memory a second time for as long as the session is open (the process's external memory stayed 241 MB higher, and its resident memory 60 to 110 MB higher), so the copy is a file instead.
 
 Two runs, each of five runs an arm taking turns, with the copy written as the app writes it before the first; milliseconds, median (range):
 
