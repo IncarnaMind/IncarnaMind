@@ -256,6 +256,39 @@ test("an example Document with no text to read takes the Question away", async (
   });
 });
 
+test("a Document that couldn't be read says so while another is still read, rather than waiting", async () => {
+  const { recognizer, release } = heldRecognizer();
+  const [first] = NAMES;
+  const last = NAMES.at(-1);
+  const examples = await examplesFolder((name) =>
+    name === last
+      ? new TextEncoder().encode("%PDF-1.4 not a PDF")
+      : buildPdf([{ scan: picture("en-clean") }]),
+  );
+  const core = await startWith(
+    {
+      textRecognizer: recognizer,
+      textRecognitionModelSource: NO_MODEL_FILES,
+      exampleReadyWaitMs: 10_000,
+    },
+    examples,
+  );
+  await vi.waitFor(
+    async () => {
+      const listed = await exampleDocumentsOf(core);
+      expect(listed.find((each) => each.name === last)?.status).toBe("failed");
+      expect(["queued", "extracting"]).toContain(
+        listed.find((each) => each.name === first)?.status,
+      );
+    },
+    { timeout: 30_000 },
+  );
+  await expect(core.askExampleReadyQuestion()).rejects.toMatchObject({
+    wording: { key: "error.examples.unreadable" },
+  });
+  release();
+});
+
 test("a Document that can't be read takes the Question away, and asking says why", async () => {
   const examples = await examplesFolder(() => new TextEncoder().encode("%PDF-1.4 not a PDF"));
   const core = await startWith({}, examples);
