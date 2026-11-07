@@ -3,7 +3,8 @@
  * connection, the audio held until the service is ready for it, the end of the audio and the
  * wait for its last text, a new connection when the service ends its sessions by design, and
  * how the stream ended. Each service's adapter (./openai, ./soniox, ./qwen, ./deepgram,
- * ./assemblyai, ./gemini) speaks its own messages over it.
+ * ./assemblyai, ./gemini, ./elevenlabs, ./speechmatics, ./gladia, ./mistral, ./xai) speaks its own
+ * messages over it.
  */
 import { isRecord } from "../../../shared/record";
 import type { CloudLoss } from "../../adapters";
@@ -36,8 +37,16 @@ export interface LiveLink {
   readonly finishing: boolean;
 }
 
+/** Where a session's socket is, or why the service wouldn't start one. */
+export type LiveSession = { url: string } | { loss: CloudLoss };
+
 export interface LiveRoute {
-  url: string;
+  /**
+   * Where the socket connects, with the key in `auth`'s header; or, for a service that gives
+   * each session an address of its own (Gladia), the request for it, made before each
+   * connection: that socket carries no key, as its address holds the session's token.
+   */
+  url: string | (() => Promise<LiveSession>);
   auth?: CloudAuth;
   /** The socket opened: the session's setup, and `ready` when no message of the service confirms it. */
   opened(link: LiveLink): void;
@@ -154,10 +163,34 @@ export function createLiveStream(options: CloudStreamOptions, route: LiveRoute):
     const own = ++connection;
     isReady = false;
     if (connectTimer) clearTimeout(connectTimer);
+    const { url } = route;
+    if (typeof url === "string") {
+      open(own, url, options.apiKey);
+      return;
+    }
+    connectTimer = setTimeout(() => {
+      if (!isReady && own === connection) link.lose("dropped");
+    }, CONNECT_TIMEOUT_MS);
+    url().then(
+      (session) => {
+        if (own !== connection || ended) return;
+        if ("loss" in session) link.lose(session.loss);
+        else open(own, session.url, "");
+      },
+      (error: unknown) => {
+        // The process has no logger of its own: its output goes to the app's log.
+        console.error("The cloud service's session couldn't be started:", error);
+        if (own === connection) link.lose("dropped");
+      },
+    );
+  }
+
+  function open(own: number, url: string, apiKey: string): void {
+    if (connectTimer) clearTimeout(connectTimer);
     const current = () => own === connection && !ended;
     socket = options.connect(
-      route.url,
-      options.apiKey,
+      url,
+      apiKey,
       {
         open() {
           if (current()) route.opened(link);

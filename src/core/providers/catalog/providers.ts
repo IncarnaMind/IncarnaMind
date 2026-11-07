@@ -333,6 +333,7 @@ const PROVIDERS = [
     endpoints: [{ id: "global", label: GLOBAL, baseUrl: "https://api.mistral.ai/v1" }],
     apiKey: "required",
     keyUrl: "https://console.mistral.ai/api-keys",
+    billingUrl: "https://admin.mistral.ai/organization/billing",
     docsUrl: "https://docs.mistral.ai/getting-started/models/models_overview/",
     pricingUrl: "https://mistral.ai/pricing",
     request: { thinkingOff: { options: { mistral: { reasoningEffort: "none" } } } },
@@ -364,6 +365,7 @@ const PROVIDERS = [
     endpoints: [{ id: "global", label: GLOBAL, baseUrl: "https://api.x.ai/v1" }],
     apiKey: "required",
     keyUrl: "https://console.x.ai",
+    billingUrl: "https://console.x.ai/team/default/billing",
     docsUrl: "https://docs.x.ai/docs/models",
     // The Responses API keeps each request unless it says not to.
     request: {

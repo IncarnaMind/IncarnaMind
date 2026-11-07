@@ -3,15 +3,25 @@
  * speaks enough of each service's protocol for its adapter (./cloud) and never touches the
  * network. Soniox's side gives a line, with a speaker, for every two seconds of sound it is sent,
  * and Qwen's a sentence, with a heartbeat for each second of quiet; OpenAI's gives one for each
- * turn committed; Deepgram's, AssemblyAI's and Gemini's are in ./fakeLive. It can refuse the key,
- * say the account is out of credit, or drop the connection after so much audio, as a lost
- * network does.
+ * turn committed; the other services' are in ./fakeLive. It can refuse the key, say the account
+ * is out of credit, or drop the connection after so much audio, as a lost network does.
  */
 import { MEETING_SAMPLE_RATE } from "../adapters";
+import type { CloudServing } from "./channel";
 import { OPENAI_TRANSCRIPTION_URL } from "./cloud/openai";
 import { HANDSHAKE_REFUSED, QWEN_REALTIME_PATH } from "./cloud/protocol";
 import type { CloudConnect, CloudSocket } from "./cloud/socket";
-import { fakeAssemblyAi, fakeDeepgram, fakeGemini } from "./fakeLive";
+import {
+  fakeAssemblyAi,
+  fakeDeepgram,
+  fakeElevenLabs,
+  fakeGemini,
+  fakeGladia,
+  fakeGladiaFetch,
+  fakeMistral,
+  fakeSpeechmatics,
+  fakeXai,
+} from "./fakeLive";
 
 export const FAKE_CLOUD_LINES: readonly string[] = [
   "The budget holds at one point two million.",
@@ -42,6 +52,10 @@ const LINE_MS = 2000;
 
 const later = (run: () => void) => setTimeout(run, 0);
 
+/** The requests a pretend service needs before its socket (Gladia's session), as `options` says. */
+export const createFakeCloudFetch = (options: FakeCloudOptions = {}): CloudServing["fetch"] =>
+  fakeGladiaFetch(options);
+
 export function createFakeCloud(options: FakeCloudOptions = {}): CloudConnect {
   let said = 0;
   const nextLine = () => FAKE_CLOUD_LINES[said++ % FAKE_CLOUD_LINES.length] as string;
@@ -53,6 +67,13 @@ export function createFakeCloud(options: FakeCloudOptions = {}): CloudConnect {
     }
     if (hostname === "streaming.assemblyai.com") return fakeAssemblyAi(options, nextLine, events);
     if (pathname.endsWith("BidiGenerateContent")) return fakeGemini(options, nextLine, events);
+    if (hostname === "api.x.ai") return fakeXai(options, nextLine, events);
+    if (hostname.endsWith(".rt.speechmatics.com")) {
+      return fakeSpeechmatics(options, nextLine, events);
+    }
+    if (hostname === "api.elevenlabs.io") return fakeElevenLabs(options, nextLine, events);
+    if (hostname === "api.gladia.io") return fakeGladia(options, nextLine, events);
+    if (hostname === "api.mistral.ai") return fakeMistral(options, nextLine, events);
     const openai = url === OPENAI_TRANSCRIPTION_URL;
     const qwen = new URL(url).pathname === QWEN_REALTIME_PATH;
     let closed = false;
