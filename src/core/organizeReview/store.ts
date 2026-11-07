@@ -145,10 +145,25 @@ export interface OrganizeReviewProposal {
   contentHash: string | null;
   placement:
     | { kind: "folder"; folderId: string }
-    | { kind: "newFolder"; name: string; description: string; parentId?: string | null }
+    | {
+        kind: "newFolder";
+        name: string;
+        description: string;
+        /** The Library's Folder it, or the proposed Folder it goes in, would be made in. */
+        parentId?: string | null;
+        /** A proposed Folder it would be made in. */
+        parent?: { name: string; description: string } | null;
+      }
     | { kind: "leftOut"; leftOut: OrganizeReviewLeftOut }
     | { kind: "unchanged" };
   tags: ProposedTag[];
+}
+
+interface NewFolder {
+  name: string;
+  description: string;
+  parentId: string | null;
+  parent: { name: string; description: string } | null;
 }
 
 export interface TagsProposal {
@@ -193,7 +208,8 @@ const leftOutOf = (
   row: Pick<ItemRow, "left_out" | "left_out_detail">,
 ): OrganizeReviewLeftOut | null => {
   const { left_out: reason, left_out_detail: detail } = row;
-  if (reason === "doesntFit" || reason === "noText") return { reason };
+  if (reason === "doesntFit" || reason === "staysInFolder" || reason === "noText")
+    return { reason };
   if (reason === "unreachable" && detail !== null) return { reason, service: detail };
   if (reason === "walled" && detail !== null) return { reason, folderId: detail };
   return null;
@@ -213,7 +229,8 @@ function parseLeftOut(input: unknown): OrganizeReviewLeftOut {
   const invalid = new InvalidInputError("A left-out Document needs a known reason.");
   if (!isRecord(input)) throw invalid;
   const { reason } = input;
-  if (reason === "doesntFit" || reason === "noText") return { reason };
+  if (reason === "doesntFit" || reason === "staysInFolder" || reason === "noText")
+    return { reason };
   if (reason === "unreachable" && typeof input.service === "string" && input.service !== "")
     return { reason, service: input.service };
   if (reason === "walled" && typeof input.folderId === "string" && input.folderId !== "")
@@ -562,9 +579,7 @@ export function createOrganizeReviewStore(db: Database, now: () => string) {
     run: OrganizeReviewRun,
     documentId: string,
     placement: OrganizeReviewProposal["placement"],
-  ):
-    | StoredPlacement
-    | { newFolder: { name: string; description: string; parentId: string | null } } => {
+  ): StoredPlacement | { newFolder: NewFolder } => {
     if (placement.kind === "unchanged") return UNCHANGED;
     if (placement.kind === "leftOut")
       return {
@@ -602,8 +617,25 @@ export function createOrganizeReviewStore(db: Database, now: () => string) {
     if (placement.kind !== "newFolder") return UNCHANGED;
     const parentId =
       placement.parentId && liveGroup(placement.parentId) ? placement.parentId : null;
+    const parentName = placement.parent ? parseFolderName(placement.parent.name) : null;
+    // A proposed parent the Library has by now is that Folder.
+    const parentGroup =
+      parentName === null
+        ? undefined
+        : liveGroups().find((each) => sameName(each.name, parentName));
     return {
-      newFolder: { name, description: parseFolderDescription(placement.description), parentId },
+      newFolder: {
+        name,
+        description: parseFolderDescription(placement.description),
+        parentId: parentGroup?.id ?? parentId,
+        parent:
+          parentName === null || parentGroup
+            ? null
+            : {
+                name: parentName,
+                description: parseFolderDescription(placement.parent?.description),
+              },
+      },
     };
   };
 
@@ -658,16 +690,39 @@ export function createOrganizeReviewStore(db: Database, now: () => string) {
     return out;
   };
 
-  /** The proposed Folder of this name that still waits, or a new one. */
-  const proposedFolder = (folder: { name: string; description: string; parentId: string | null }) =>
-    openFolders().find((each) => sameName(each.name, folder.name))?.id ??
-    insert("folders", {
-      name: folder.name,
-      description: folder.description,
-      parent_id: folder.parentId,
-      group_id: null,
-      made: 0,
-    });
+  /** The proposed Folder of this name that still waits, or a new one, in its proposed parent if any. */
+  const proposedFolder = (folder: NewFolder): string => {
+    const parent =
+      folder.parent &&
+      proposedFolder({ ...folder.parent, parentId: folder.parentId, parent: null });
+    return (
+      openFolders().find((each) => sameName(each.name, folder.name))?.id ??
+      insert("folders", {
+        name: folder.name,
+        description: folder.description,
+        parent_id: parent ?? folder.parentId,
+        group_id: null,
+        made: 0,
+      })
+    );
+  };
+
+  /**
+   * Where a proposed Folder would be made: in a Folder of the Library, or in another proposed
+   * Folder still waiting. A proposed parent Confirm made since is the Library's Folder now.
+   */
+  const parentOf = (
+    folder: FolderRow,
+  ): Pick<OrganizeReviewFolder, "parentId" | "parentNewFolderId"> => {
+    const none = { parentId: null, parentNewFolderId: null };
+    if (folder.parent_id === null) return none;
+    if (liveGroup(folder.parent_id)) return { parentId: folder.parent_id, parentNewFolderId: null };
+    const parent = folderRow(folder.parent_id);
+    if (!parent) return none;
+    if (parent.group_id !== null && liveGroup(parent.group_id))
+      return { parentId: parent.group_id, parentNewFolderId: null };
+    return { parentId: null, parentNewFolderId: parent.id };
+  };
 
   const addTags = (itemId: string, tags: ReturnType<typeof tagsFor>) => {
     const there = tagRowsOf(itemId);
@@ -831,19 +886,33 @@ export function createOrganizeReviewStore(db: Database, now: () => string) {
           }),
         };
       });
-      const folderIds = new Set(
+      const shown = new Set(
         rows.flatMap((row) =>
           row.placement === "newFolder" && row.folder_id ? [row.folder_id] : [],
         ),
       );
-      const folders = openFolders()
-        .filter((folder) => folderIds.has(folder.id))
+      // A proposed parent shows with its subfolders, though its Documents are all in them.
+      for (const id of [...shown]) {
+        let folder = folderRow(id);
+        while (folder) {
+          const parent = parentOf(folder).parentNewFolderId;
+          if (parent === null || shown.has(parent)) break;
+          shown.add(parent);
+          folder = folderRow(parent);
+        }
+      }
+      const folders = db
+        .all<FolderRow>(
+          `SELECT * FROM organize_review_folders WHERE deleted_at IS NULL
+             AND id IN (SELECT value FROM json_each(?)) ORDER BY created_at, rowid`,
+          [JSON.stringify([...shown])],
+        )
         .map(
           (folder): OrganizeReviewFolder => ({
             id: folder.id,
             name: folder.name,
             description: folder.description,
-            parentId: folder.parent_id && liveGroup(folder.parent_id) ? folder.parent_id : null,
+            ...parentOf(folder),
           }),
         );
       return { items, folders, count: organizeReviewCount(db) };
@@ -965,6 +1034,13 @@ export function createOrganizeReviewStore(db: Database, now: () => string) {
                 group_id: into.kind === "folder" ? into.folderId : null,
                 folder_id: into.kind === "newFolder" ? into.newFolderId : null,
                 edited: 1,
+              });
+            for (const child of db.all<{ id: string }>(
+              "SELECT id FROM organize_review_folders WHERE parent_id = ? AND deleted_at IS NULL",
+              [folder.id],
+            ))
+              update("folders", child.id, {
+                parent_id: into.kind === "folder" ? into.folderId : into.newFolderId,
               });
             remove("folders", folder.id);
             return;

@@ -23,6 +23,8 @@ import {
   tagsToOffer,
 } from "../tags/suggest";
 import type { DocumentPageImage } from "./pdfImages";
+import type { PlanModel } from "./plan";
+import { chatPlanModel } from "./planModel";
 import type { ClassificationModel, LibraryGroup } from "./types";
 
 const UNSORTED = "__unsorted__";
@@ -81,6 +83,8 @@ export interface GroupClassifier {
     language: Language,
     signal: AbortSignal,
   ): Promise<ProposedFolder[]>;
+  /** The whole-Library plan's requests (./plan): the chat model's only, as with `proposeFolders`. */
+  plan?: PlanModel;
 }
 
 /**
@@ -136,6 +140,7 @@ export function chatGroupClassifier(
   return {
     local,
     ...(readsImages ? { pageImages: "no-text" as const } : {}),
+    plan: chatPlanModel(model),
     async decide(groups, excerpt, signal, images) {
       return (await this.organize(groups, [], excerpt, signal, images)).groupId;
     },
@@ -302,6 +307,7 @@ export function withPageReader(
       return (await classifier.organize(groups, [], excerpt, signal, images)).groupId;
     },
     ...(text.proposeFolders && { proposeFolders: text.proposeFolders }),
+    ...(text.plan && { plan: text.plan }),
     async organize(groups, tags, excerpt, signal, images = []) {
       if (images.length === 0) {
         if (text.model) classifier.model = text.model;
@@ -333,10 +339,18 @@ export function pacedBy(
     organize: (groups, tags, excerpt, signal, images = []) =>
       run(() => classifier.organize(groups, tags, excerpt, signal, images), signal),
   };
-  const { proposeFolders } = classifier;
+  const { proposeFolders, plan } = classifier;
   if (proposeFolders)
     paced.proposeFolders = (documents, existing, language, signal) =>
       run(() => proposeFolders(documents, existing, language, signal), signal);
+  if (plan)
+    paced.plan = {
+      sort: (request, signal) => run(() => plan.sort(request, signal), signal),
+      place: (documents, folders, signal) =>
+        run(() => plan.place(documents, folders, signal), signal),
+      nameSubfolders: (groups, language, signal) =>
+        run(() => plan.nameSubfolders(groups, language, signal), signal),
+    };
   return paced;
 }
 

@@ -110,6 +110,7 @@ import {
   type CheckRecordFormat,
   type CitationAttributes,
   type CitedArea,
+  type CloudReadPermit,
   CONTENT_SCHEMA_VERSION,
   type ConversationAskResult,
   type CoreApi,
@@ -174,6 +175,7 @@ import { createConnectorRegistry, REGISTRY, REGISTRY_SENDS } from "./connectors/
 import { createConsent, type DataFlowRegistry } from "./consent";
 import { createConversations, type QuestionInput, type Turn } from "./conversations";
 import { createMeter } from "./cost/meter";
+import { inCurrency } from "./cost/price";
 import {
   createDocuments,
   type DocumentFile,
@@ -187,6 +189,7 @@ import { statIdentity } from "./documents/files";
 import { openWordPackage } from "./documents/formats/docxPackage";
 import { readPageSetup } from "./documents/formats/docxPages";
 import { createOwnFiles } from "./documents/ownFiles";
+import { approximateTokens } from "./documents/passages";
 import { createPdfPasswords } from "./documents/pdfPasswords";
 import { READING_SPEED } from "./documents/readingSpeed";
 import {
@@ -248,10 +251,11 @@ import {
   pacedBy,
   withPageReader,
 } from "./library/classifier";
+import { createLibraryOrganizer } from "./library/organizeLibrary";
 import { documentCitedPages, documentPageImages } from "./library/pageImages";
 import { createPlanPace, type Plan } from "./library/planPace";
 import { createTagging } from "./library/tagging";
-import type { TaggingClassifier } from "./library/types";
+import type { LibrarySettings, TaggingClassifier } from "./library/types";
 import { createMeetings, isMemo, linkTranscript, meetingRecord } from "./meetings";
 import { listParts, meetingFolder } from "./meetings/audioFiles";
 import { createMeetingFill } from "./meetings/fill";
@@ -3644,6 +3648,72 @@ export function createCore(adapters: CoreAdapters): Core {
     head: (id) => documents.head(id),
     headIds: () => documents.headIds(),
   });
+  /** The classifier Organize uses with these settings, through the consent its service needs. */
+  async function prepareOrganize(
+    settings: LibrarySettings,
+    permit?: CloudReadPermit,
+  ): Promise<GroupClassifier> {
+    const classifier = organizeModelOf(settings);
+    if (!classifier) throw new TaggingNotReadyError({ key: "error.library.noClassifier" });
+    if (decisionModelElsewhere(classifier)) throw notOnThisComputer(classifier);
+    if (classifier.kind === "auto") {
+      let automatic = automaticClassifiers.get(classifier.baseUrl);
+      if (!automatic) {
+        automatic = automaticGroupClassifier(classifier.baseUrl);
+        automaticClassifiers.set(classifier.baseUrl, automatic);
+      }
+      return automatic;
+    }
+    if (classifier.kind === "ollama")
+      return decisionGroupClassifier({
+        baseUrl: classifier.baseUrl,
+        model: classifier.modelId,
+        apiKey: "ollama",
+        local: true,
+        usePageImages: classifier.usePageImages,
+      });
+    if (classifier.kind === "jev") {
+      if (embedding.localOnly() && jev.service())
+        throw new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
+      const prepared = await jev.prepareGroups(permit);
+      if (embedding.localOnly() && !prepared.local)
+        throw new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
+      return prepared;
+    }
+    if (classifier.kind === "decision") {
+      if (embedding.localOnly())
+        throw new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
+      return decisionHosts.prepareGroups(classifier.host, classifier.modelId, permit);
+    }
+    const { choice } = classifier;
+    const ready = await chat.readiness(choice, "classification");
+    if (embedding.localOnly() && "provider" in ready && ready.provider.service)
+      throw new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
+    const prepared = await chat.prepareModel(choice, "classification", undefined, { permit });
+    if (embedding.localOnly() && prepared.provider.service)
+      throw new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
+    // A scan's page images go only where the User allowed them (the "scan-images" flow).
+    const images = readsImages(prepared.capabilities) && scanImagesAllowed(choice);
+    let chosen: GroupClassifier = {
+      ...chatGroupClassifier(prepared.model, prepared.provider.service === null, images),
+      model: { id: choice.modelId, images, reason: "selected" as const },
+    };
+    // A scan goes to the image model when this one can't read its pages.
+    const imageModel = readsImages(prepared.capabilities) ? null : chat.imageModel(choice);
+    if (imageModel && scanImagesAllowed(imageModel)) {
+      chosen = withPageReader(chosen, async () => {
+        const reader = await chat.prepareModel(imageModel, "classification", undefined, {
+          permit,
+        });
+        return {
+          ...chatGroupClassifier(reader.model, reader.provider.service === null, true),
+          model: { id: imageModel.modelId, images: true, reason: "selected" as const },
+        };
+      });
+    }
+    const plan = planPaceOf(prepared.provider.kind);
+    return plan ? pacedBy(chosen, plan.run) : chosen;
+  }
   const automaticClassifiers = new Map<string, ReturnType<typeof automaticGroupClassifier>>();
   // Set below, once the examples are made: Organize leaves the example's Documents alone (#1942).
   let isExampleDocument: (documentId: string) => boolean = () => false;
@@ -3730,68 +3800,7 @@ export function createCore(adapters: CoreAdapters): Core {
         throw new Error(error instanceof Error ? error.message : String(error), { cause: error });
       }
     },
-    async prepare(settings, permit) {
-      const classifier = organizeModelOf(settings);
-      if (!classifier) throw new TaggingNotReadyError({ key: "error.library.noClassifier" });
-      if (decisionModelElsewhere(classifier)) throw notOnThisComputer(classifier);
-      if (classifier.kind === "auto") {
-        let automatic = automaticClassifiers.get(classifier.baseUrl);
-        if (!automatic) {
-          automatic = automaticGroupClassifier(classifier.baseUrl);
-          automaticClassifiers.set(classifier.baseUrl, automatic);
-        }
-        return automatic;
-      }
-      if (classifier.kind === "ollama")
-        return decisionGroupClassifier({
-          baseUrl: classifier.baseUrl,
-          model: classifier.modelId,
-          apiKey: "ollama",
-          local: true,
-          usePageImages: classifier.usePageImages,
-        });
-      if (classifier.kind === "jev") {
-        if (embedding.localOnly() && jev.service())
-          throw new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
-        const prepared = await jev.prepareGroups(permit);
-        if (embedding.localOnly() && !prepared.local)
-          throw new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
-        return prepared;
-      }
-      if (classifier.kind === "decision") {
-        if (embedding.localOnly())
-          throw new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
-        return decisionHosts.prepareGroups(classifier.host, classifier.modelId, permit);
-      }
-      const { choice } = classifier;
-      const ready = await chat.readiness(choice, "classification");
-      if (embedding.localOnly() && "provider" in ready && ready.provider.service)
-        throw new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
-      const prepared = await chat.prepareModel(choice, "classification", undefined, { permit });
-      if (embedding.localOnly() && prepared.provider.service)
-        throw new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
-      // A scan's page images go only where the User allowed them (the "scan-images" flow).
-      const images = readsImages(prepared.capabilities) && scanImagesAllowed(choice);
-      let chosen: GroupClassifier = {
-        ...chatGroupClassifier(prepared.model, prepared.provider.service === null, images),
-        model: { id: choice.modelId, images, reason: "selected" as const },
-      };
-      // A scan goes to the image model when this one can't read its pages.
-      const imageModel = readsImages(prepared.capabilities) ? null : chat.imageModel(choice);
-      if (imageModel && scanImagesAllowed(imageModel)) {
-        chosen = withPageReader(chosen, async () => {
-          const reader = await chat.prepareModel(imageModel, "classification", undefined, {
-            permit,
-          });
-          return {
-            ...chatGroupClassifier(reader.model, reader.provider.service === null, true),
-            model: { id: imageModel.modelId, images: true, reason: "selected" as const },
-          };
-        });
-      }
-      const plan = planPaceOf(prepared.provider.kind);
-      return plan ? pacedBy(chosen, plan.run) : chosen;
-    },
+    prepare: prepareOrganize,
   });
   const mindSources = createMindSources({
     dataDir,
@@ -3984,6 +3993,33 @@ export function createCore(adapters: CoreAdapters): Core {
       announceTagged(tagged);
     },
     changed: (count) => events.emit("organizeReview.changed", { count }),
+  });
+  // Organize of the whole Library, or of one Folder, planned at any size into the Review (#1569).
+  const libraryOrganizer = createLibraryOrganizer({
+    db,
+    folders: () => library.folders(),
+    settings: () => library.settings(),
+    language: () => settings.get().language,
+    isExampleDocument: (id) => isExampleDocument(id),
+    wallOf: (folderId) => library.wallOf(folderId),
+    embedding: embedding.model,
+    organizeService: (chosen) => {
+      const classifier = organizeModelOf(chosen);
+      return classifier && tagging.service(classifier);
+    },
+    prepare: (chosen) => prepareOrganize(chosen),
+    estimate: (chosen, requests) => {
+      const classifier = organizeModelOf(chosen);
+      const metered = classifier?.kind === "chat" ? chat.metered(classifier.choice) : null;
+      return metered && meter.estimateRead(metered, { likely: requests, most: requests });
+    },
+    inDollars: (estimate) =>
+      estimate.billing === "per-token" && estimate.cost
+        ? inCurrency(estimate.cost.amount, estimate.cost.currency, "USD")
+        : null,
+    tokensOf: approximateTokens,
+    propose: (run, proposals) => organizeReview.propose(run, proposals),
+    progress: (progress) => events.emit("organize.progress", progress),
   });
   try {
     recentlyDeleted.expire();
@@ -6395,6 +6431,8 @@ export function createCore(adapters: CoreAdapters): Core {
     redoOrganizeReviewConfirmation: async (id) => organizeReview.redoConfirmation(id),
     discardOrganizeReview: async (itemIds) => organizeReview.discard(itemIds),
     restoreDiscardedOrganizeReview: async (id) => organizeReview.restoreDiscarded(id),
+    organizeLibrary: (input) => libraryOrganizer.organize(input),
+    stopOrganizeLibrary: async () => libraryOrganizer.stop(),
     moveToFolder: async (input) => {
       if (!isRecord(input)) throw new InvalidInputError("moveToFolder expects an object.");
       const folderId = parseFolderChoice(input.folderId);

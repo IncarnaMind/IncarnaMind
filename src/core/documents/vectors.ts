@@ -36,7 +36,7 @@ interface DocumentVectors {
 export const encodeVector = (vector: Float32Array): Uint8Array =>
   new Uint8Array(vector.buffer, vector.byteOffset, vector.byteLength);
 
-function decodeVector(blob: Uint8Array): Float32Array {
+export function decodeVector(blob: Uint8Array): Float32Array {
   // Copied: the blob's bytes needn't be aligned for a Float32Array.
   const bytes = blob.slice();
   return new Float32Array(bytes.buffer, 0, bytes.byteLength / 4);

@@ -6448,6 +6448,41 @@ export type RunEstimate =
     }
   | { billing: "plan" | "free" };
 
+export interface OrganizeLibraryInput {
+  /** These Documents only; the Library's Documents in no Folder when left out. */
+  documentIds?: string[];
+  /** Organize This Folder: its own Documents, into subfolders inside it. */
+  folderId?: string;
+  /** The service the User allowed on the press: a run for another sends nothing (#2308). */
+  forService?: string;
+  /** The User saw the estimate and went on. */
+  costAccepted?: boolean;
+}
+
+export type OrganizeLibraryResult =
+  /** Estimated at more than $1: nothing was sent, and the User is asked first (D314's rule). */
+  | { status: "estimate"; estimate: RunEstimate }
+  | {
+      status: "done";
+      runId: string;
+      /** The Documents planned, and the rows written to the Review. */
+      documents: number;
+      proposed: number;
+      /** The Documents the model was asked about one by one, past the sample. */
+      placedByModel: number;
+      requests: number;
+    }
+  | { status: "stopped"; runId: string };
+
+/** "Organizing 12 of 40…", or the Documents still being read before it can start. */
+export interface OrganizeProgress {
+  runId: string;
+  /** Documents still being read: the plan waits for them. */
+  waiting: number;
+  done: number;
+  total: number;
+}
+
 export type ConnectionTestResult = { ok: true } | { ok: false; error: ProviderError };
 
 /** A model on a saved chat provider. */
@@ -11856,6 +11891,21 @@ export interface CoreApi {
   restoreDiscardedOrganizeReview(discardId: string): Promise<void>;
 
   /**
+   * Organize, planned from the whole set at any size, with the User's Organize model through the
+   * classification flow's consent: the Library's Documents in no Folder, `documentIds`, or with
+   * `folderId` Organize This Folder, which sorts that Folder's own Documents into subfolders
+   * inside it and moves nothing out. It waits for Documents still being read ("organize.progress"
+   * says how many), then proposes Folders, subfolders and each Document's place, or why it is
+   * left out, and returns once that is in the Review. A run estimated at more than $1 sends
+   * nothing and returns its estimate, until it is asked again with `costAccepted`. A new run
+   * stops the one under way. Throws InvalidInputError when Organize has no model, or a model
+   * that can't name Folders.
+   */
+  organizeLibrary(input?: OrganizeLibraryInput): Promise<OrganizeLibraryResult>;
+  /** Stops the Organize under way; nothing it planned goes into the Review. */
+  stopOrganizeLibrary(): Promise<void>;
+
+  /**
    * Brings back deleted Minds with their content, conversations with their messages,
    * Documents with their Passages, text and Tags, Folders with the Minds, conversations and
    * Documents their deletion took out (those in no Folder since)
@@ -14050,6 +14100,8 @@ export interface CoreEvents {
   "documents.batch": DocumentBatch;
   /** The Suggestions changed: how many Documents wait with something to confirm. */
   "organizeReview.changed": { count: number };
+  /** An Organize run's progress: Documents still being read, then "Organizing 12 of 40…". */
+  "organize.progress": OrganizeProgress;
   /**
    * Documents' Tags changed, or where automatic tagging is for them: the User
    * added or removed a Tag, automatic tagging started, waited, finished or
@@ -14454,6 +14506,8 @@ const methods: Record<CoreApiMethod, true> = {
   redoOrganizeReviewConfirmation: true,
   discardOrganizeReview: true,
   restoreDiscardedOrganizeReview: true,
+  organizeLibrary: true,
+  stopOrganizeLibrary: true,
   restore: true,
   deleteAgain: true,
   undoCommands: true,

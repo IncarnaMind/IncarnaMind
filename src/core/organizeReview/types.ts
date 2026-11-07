@@ -18,6 +18,8 @@ export type OrganizeReviewOrigin =
  */
 export type OrganizeReviewLeftOut =
   | { reason: "doesntFit" }
+  /** Organize This Folder found no subfolder for it: it stays at the Folder's top level. */
+  | { reason: "staysInFolder" }
   | { reason: "noText" }
   /** `service` is its name as the User sees it (`ExternalService.name`). */
   | { reason: "unreachable"; service: string }
@@ -57,8 +59,10 @@ export interface OrganizeReviewFolder {
   id: string;
   name: string;
   description: string;
-  /** The Folder it would be made in; null at the top level. */
+  /** The Library's Folder it would be made in; null at the top level or in a proposed Folder. */
   parentId: string | null;
+  /** The proposed Folder it would be made in, shown first: "Contracts › Leases". */
+  parentNewFolderId: string | null;
 }
 
 export interface OrganizeReview {

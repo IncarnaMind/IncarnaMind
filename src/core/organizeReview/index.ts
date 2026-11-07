@@ -6,6 +6,7 @@ import { type TagsStore, tagsOfDocument } from "../tags";
 import { tagKey } from "../tags/suggest";
 import {
   createOrganizeReviewStore,
+  type FolderRow,
   type ItemRow,
   type OrganizeReviewProposal,
   type OrganizeReviewRun,
@@ -84,6 +85,13 @@ export function createOrganizeReview(options: {
     const tagged = new Set<string>();
     let tagsMade = false;
 
+    /** The Folder a proposed one is made in: the Library's, or its proposed parent, made first. */
+    const parentFor = (row: FolderRow): string | null => {
+      if (row.parent_id === null) return null;
+      if (liveFolder(row.parent_id)) return row.parent_id;
+      return store.folderRow(row.parent_id) ? folderFor(row.parent_id) : null;
+    };
+
     const folderFor = (folderId: string): string | null => {
       const known = folders.get(folderId);
       if (known) return known;
@@ -98,6 +106,7 @@ export function createOrganizeReview(options: {
         groupId = named.id;
         made = 0;
       } else if (row.group_id !== null && row.made === 1 && deletedFolder(row.group_id)) {
+        parentFor(row);
         // Confirm made it and its Undo sent it to Recently deleted: it comes back, not a copy.
         options.restoreDeleted([{ kind: "folder", id: row.group_id }]);
         groupId = row.group_id;
@@ -105,7 +114,7 @@ export function createOrganizeReview(options: {
         groupId = library.create({
           name: row.name,
           description: row.description,
-          parentId: liveFolder(row.parent_id) ? row.parent_id : null,
+          parentId: parentFor(row),
         }).id;
         made = 1;
       }
@@ -303,10 +312,21 @@ export function createOrganizeReview(options: {
           if (store.openItem(item.document_id)) continue;
           store.update("items", item.id, { state: "open" });
         }
-        const folderIds = new Set(
-          items.flatMap((item) => (item.folder_id ? [item.folder_id] : [])),
-        );
-        for (const folderId of folderIds) {
+        // Subfolders first, so a proposed parent they emptied goes too.
+        const proposedParent = (id: string) => {
+          const parent = store.folderRow(id)?.parent_id;
+          return parent && store.folderRow(parent) ? parent : null;
+        };
+        const depth = (id: string) => {
+          let levels = 0;
+          for (let at = proposedParent(id); at; at = proposedParent(at)) levels++;
+          return levels;
+        };
+        const folderIds = new Set<string>();
+        for (const item of items)
+          for (let at = item.folder_id; at && !folderIds.has(at); at = proposedParent(at))
+            folderIds.add(at);
+        for (const folderId of [...folderIds].sort((a, b) => depth(b) - depth(a))) {
           const row = store.folderRow(folderId);
           if (!row?.group_id || !liveFolder(row.group_id)) continue;
           if (row.made === 1 && options.folderIsEmpty(row.group_id)) {
