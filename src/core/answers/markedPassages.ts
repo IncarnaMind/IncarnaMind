@@ -6,7 +6,8 @@
  * that rests on more of the Passage than that sentence (a price, its discount and its fee, one
  * line each) gets a quote for each, up to `MAX_QUOTES`, each under a marker of its own, as a model
  * citing by records gives them; so does a Passage named by claims resting on different sentences
- * of it. A marker written "[^P3]", the id itself, is read as "[^3]".
+ * of it. A marker written "[^P3]", the id itself, is read as "[^3]". A calculation's input that
+ * names a Passage the same way ("citation": 3 for P3) quotes its sentence holding the number.
  */
 import { answerSentences, MARKER } from "../../shared/answerSentences";
 import type { CitationRecordInput } from "./engine";
@@ -114,4 +115,43 @@ function quotesFor(
     for (const word of next.words) if (claim.has(word)) quoted.add(word);
   }
   return quotes;
+}
+
+const fieldsOf = (value: unknown): Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+
+/**
+ * `calculate`'s figures with each input that names a Passage by its number as a marker ("citation"
+ * 3 for P3, with no record 3) given that Passage and its first sentence holding the input's number
+ * as its quote instead; every other input as it was.
+ */
+export function namedInputs(
+  figures: readonly unknown[],
+  passages: readonly { id: string; text: string }[],
+  recorded: (marker: number) => boolean,
+): unknown[] {
+  const shown = new Map(passages.map((passage) => [passage.id.toUpperCase(), passage]));
+  const named = (value: unknown): unknown => {
+    const input = fieldsOf(value);
+    const citation = input.citation;
+    if (typeof citation !== "number" || recorded(citation) || input.passage !== undefined) {
+      return value;
+    }
+    const passage = shown.get(`P${citation}`);
+    const digits = /\d[\d,.]*\d|\d/.exec(String(input.number ?? input.value ?? ""))?.[0];
+    if (!passage || !digits) return value;
+    const holds = new RegExp(`(?<![\\d.,])${digits.replace(/[.,]/g, "\\$&")}(?!\\d)`);
+    const quote = passageSentences(passage.text)
+      .map(asQuoted)
+      .find((sentence) => holds.test(sentence));
+    if (!quote) return value;
+    const { citation: _, ...rest } = input;
+    return { ...rest, passage: passage.id, quote };
+  };
+  return figures.map((value) => {
+    const figure = fieldsOf(value);
+    return Array.isArray(figure.inputs) ? { ...figure, inputs: figure.inputs.map(named) } : value;
+  });
 }

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { markedPassages } from "../../src/core/answers/markedPassages";
+import { markedPassages, namedInputs } from "../../src/core/answers/markedPassages";
 
 const PRICES = {
   id: "P2",
@@ -87,5 +87,47 @@ describe("Records for a reply that names its Passages in its markers", () => {
         { marker: 5, passage: "P3", quote: "企业版：每名司机每月 340 元，含路线优化。" },
       ],
     });
+  });
+
+  // protects=a calculation input naming a Passage by its number as a marker, with no record of that number, quotes that Passage's first sentence holding its number (not a longer number that starts the same), and other inputs are left as given; fails_when=the input keeps an unrecorded citation the calculation refuses, quotes a sentence without its number, or an input with a record or a passage is changed; no_claim=the calculation itself (#2526).
+  test("a calculation input naming a Passage by its marker number quotes the Passage's sentence holding its number", () => {
+    const sheet = {
+      id: "P2",
+      text: "- Team plan: $450 per driver a year.\n- Enterprise plan: $45 per driver a month.\n- Volume: 10% off Enterprise from 50 drivers.",
+    };
+    const figures = [
+      {
+        marker: 1,
+        inputs: [
+          { name: "price", citation: 2, number: "$45" },
+          { name: "drivers", citation: 2, number: "50" },
+          { name: "kept", citation: 1, number: "60" },
+          { name: "given", passage: "P2", quote: "10% off", number: "10%" },
+        ],
+        formula: "price * drivers",
+      },
+    ];
+    expect(namedInputs(figures, [sheet], (marker) => marker === 1)).toEqual([
+      {
+        marker: 1,
+        inputs: [
+          {
+            name: "price",
+            passage: "P2",
+            quote: "Enterprise plan: $45 per driver a month.",
+            number: "$45",
+          },
+          {
+            name: "drivers",
+            passage: "P2",
+            quote: "Volume: 10% off Enterprise from 50 drivers.",
+            number: "50",
+          },
+          { name: "kept", citation: 1, number: "60" },
+          { name: "given", passage: "P2", quote: "10% off", number: "10%" },
+        ],
+        formula: "price * drivers",
+      },
+    ]);
   });
 });

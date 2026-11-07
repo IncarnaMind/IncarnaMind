@@ -121,7 +121,7 @@ import { calculationsSchema, checkCalculationsSchema } from "./calculationsSchem
 import { asksForFixes, WRITE_NOW } from "./citations";
 import { type AskedPicture, earlierContext, type RequestMind, withLineBefore } from "./context";
 import { retryFigures } from "./figureRetry";
-import { markedPassages } from "./markedPassages";
+import { markedPassages, namedInputs } from "./markedPassages";
 import {
   NOTHING_SHOWN_YET,
   SEARCH_QUERY_INSTRUCTIONS,
@@ -1523,6 +1523,8 @@ interface DocumentToolsHooks {
   cited(records: readonly CitationRecordInput[]): void;
   /** What to say of the Answer's language after a search's Passages, if anything, asked for each search. */
   languageNote?(): string | null;
+  /** `calculate`'s figures as it takes them, from those the model gave. */
+  figuresGiven?(figures: unknown[]): unknown[];
 }
 
 /**
@@ -1749,7 +1751,8 @@ export function documentTools(
           // Numbers, and IncarnaMind's own words.
           untrustedResult: false,
           async call({ figures }) {
-            return documents.calculate?.(givenList(figures)) ?? "";
+            const given = givenList(figures);
+            return documents.calculate?.(hooks.figuresGiven?.(given) ?? given) ?? "";
           },
         }
       : null,
@@ -1906,6 +1909,14 @@ async function* toolLoop(
             failed: (toolCallId, error) => failures.set(toolCallId, classifyProviderError(error)),
             cited: (records) => cited.push(...records),
             ...(request.languageNote && { languageNote: request.languageNote }),
+            ...(request.marksPassages && {
+              figuresGiven: (figures: unknown[]) =>
+                namedInputs(
+                  figures,
+                  request.documents.shownPassages?.() ?? [],
+                  (marker) => request.documents.hasRecord?.(marker) ?? false,
+                ),
+            }),
           },
           request.toolSet,
         )
