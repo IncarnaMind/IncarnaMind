@@ -31,6 +31,7 @@ import type {
 } from "../adapters";
 import { ONNX_RUNTIME, TOKENIZERS } from "../engineModules";
 import { isRecord } from "../errors";
+import { withoutHostCopies } from "./hostCopies";
 
 type Tokenizer = import("@huggingface/tokenizers").Tokenizer;
 
@@ -193,8 +194,8 @@ function pairTemplate(tokenizer: Tokenizer, tokens: (text: string) => number[]) 
 
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
-/** onnxruntime-node's sessions. */
-const createOrtSession: PairSessionFactory = async (model, device) => {
+/** onnxruntime-node's sessions, reading the model as it is given. */
+export const createOrtSession: PairSessionFactory = async (model, device) => {
   const ort = await ONNX_RUNTIME.load();
   const options: import("onnxruntime-node").InferenceSession.SessionOptions = {
     executionProviders: [device === "gpu" ? "webgpu" : "cpu"],
@@ -224,6 +225,15 @@ const createOrtSession: PairSessionFactory = async (model, device) => {
     release: () => session.release(),
   };
 };
+
+/** onnxruntime-node's sessions as the app opens them: a GPU session reads its file without the copies a CUDA export keeps (./hostCopies). */
+const openSession: PairSessionFactory = async (model, device) =>
+  createOrtSession(
+    device === "gpu" && typeof model === "string"
+      ? withoutHostCopies(await readFile(model))
+      : model,
+    device,
+  );
 
 /** One logit per text, in the order given. */
 async function scoreTexts(model: Scorer, query: string, texts: readonly string[]) {
@@ -272,7 +282,7 @@ type GpuAttempt =
   | { fallback: { reason: CpuFallbackReason; message: string } };
 
 export function createOnnxCrossEncoder(options: OnnxCrossEncoderOptions = {}): CrossEncoder {
-  const createSession = options.createSession ?? createOrtSession;
+  const createSession = options.createSession ?? openSession;
   let loaded: Loaded | undefined;
   let loading: Promise<Loaded> | undefined;
 
