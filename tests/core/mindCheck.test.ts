@@ -17,6 +17,7 @@ import {
   type ClaimCheckAttributes,
   MIND_SETTINGS_FIELD,
 } from "../../src/core/api";
+import { createFakeCrossEncoder } from "../../src/core/reranking/fake";
 import { createRerankQueue } from "../../src/core/reranking/order";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { claimCheckShown } from "../../src/shared/claimChecks";
@@ -320,6 +321,47 @@ test.each([
 
   expect(result).toMatchObject({ kind: "checked", sentences: 9 });
   expect(most).toBe(atOnce);
+});
+
+// protects=Check this Note loads the built-in reranker while the claims are named, so the first sentence's search doesn't start it and wait for its model (#2532), and loads nothing with reranking off; fails_when=the reranker loads only when a check's first search asks it to rerank, or loads with reranking off; no_claim=how long a real model takes to load.
+test.each([
+  ["loads the reranker before any sentence's check asks to search", true],
+  ["loads no reranker with reranking off", false],
+] as const)("Check this note %s", async (_, reranking) => {
+  const sentence = "Spring tides come at new moon.";
+  const plans: Record<string, Plan> = { [sentence]: { verdict: "supported", quote: MOON } };
+  const events: string[] = [];
+  const fake = createFakeCrossEncoder();
+  const model = scriptedModel(
+    (call) => {
+      if (isCheckRun(call) && call.results.length === 0) events.push("check asks");
+      return checkReply(call, plans);
+    },
+    { generate: checkGenerate(plans) },
+  );
+  const core = startCore(await createTempDataFolder(), {
+    createChatModel: scriptedModels(model).createChatModel,
+    crossEncoder: {
+      ...fake,
+      load: async (files) => {
+        events.push("reranker loads");
+        return fake.load(files);
+      },
+    },
+  });
+  await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+  if (!reranking) await core.removeRerankSettings();
+  const sources = await createTempDataFolder();
+  await addAndProcess(core, [await writeSourceFile(sources, TIDES.name, TIDES.contents)]);
+  const mind = await core.createMind({ title: "Tide notes" });
+  const client = await connectToMind(core, mind.id);
+  writeMind(client, [{ type: "paragraph", attrs: { id: "tide" }, content: [text(sentence)] }]);
+  await client.settled();
+
+  const result = await core.checkMind(request(mind.id, "all"));
+
+  expect(result).toMatchObject({ kind: "checked", sentences: 1 });
+  expect(events.slice(0, 2)).toEqual(reranking ? ["reranker loads", "check asks"] : ["check asks"]);
 });
 
 describe("Check this note", () => {

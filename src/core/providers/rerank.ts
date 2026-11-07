@@ -277,6 +277,14 @@ export function createRerank(options: {
       if (stored()?.kind === "built-in" && !builtIn.isReady()) builtIn.ensure();
     },
 
+    /**
+     * A search is about to need the built-in model: it loads now, if it reranks and is downloaded,
+     * so that search doesn't wait for the load (#2532). A service needs nothing.
+     */
+    warm(): void {
+      if (stored()?.kind === "built-in" && builtIn.isReady()) builtIn.warm();
+    },
+
     /** Starts the built-in model's download, or tries it again after a failure. */
     download(): Promise<RerankSettings> {
       builtIn.retry();

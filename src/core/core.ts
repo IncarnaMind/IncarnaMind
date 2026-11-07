@@ -2919,6 +2919,7 @@ export function createCore(adapters: CoreAdapters): Core {
 
   const checks = createChecks({
     language: () => settings.get().language,
+    warmReranker: () => rerank.warm(),
     // What a check reads of the Documents as it runs: their words, names and whether it may use
     // them. Its scope, their Folders and Tags are taken when the run starts (#2532).
     libraryState: () =>

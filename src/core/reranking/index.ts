@@ -52,6 +52,11 @@ export interface RerankingModel {
     hits: readonly Hit[],
     signal?: AbortSignal,
   ): Promise<(Hit & { score: number })[] | null>;
+  /**
+   * Loads the model now, if it is downloaded and not loaded yet, so the next search scores at once
+   * instead of loading it first; nothing is read. A failed load is reported as any load is.
+   */
+  warm(): void;
   /** Where it ran when it last loaded. Null before it has loaded, and once it has stopped. */
   device(): RerankingDevice["device"] | null;
   /** Stops the model, freeing its memory, e.g. when the User turns reranking off. */
@@ -209,6 +214,9 @@ export function createRerankingModel(options: RerankingModelOptions): RerankingM
         .map((hit, index) => ({ hit, index }))
         .sort((a, b) => b.hit.score - a.hit.score || a.index - b.index)
         .map(({ hit }) => hit);
+    },
+    warm() {
+      void files.load();
     },
     device: () => device?.device ?? null,
     unload() {
