@@ -781,3 +781,63 @@ describe("A figure above a sheet's header is not the table's name (#2373)", {
     },
   );
 });
+
+/**
+ * A title row whose label only looks numeric still names its table: a
+ * date-like decimal or an ID beside words is a label, not a figure (#2658).
+ */
+const LABEL_TITLE = {
+  en: { date: "2026.10 Store sales report", id: "Section 12345 sales report" },
+  zh: { date: "2026.10 门店销售报告", id: "第 12345 节销售报告" },
+} as const;
+
+describe("A title row labelled with a date or an ID still names the table (#2658)", {
+  timeout: 60_000,
+}, () => {
+  test.each([
+    ["en", "csv", "date"],
+    ["en", "xlsx", "date"],
+    ["zh", "csv", "date"],
+    ["zh", "xlsx", "date"],
+    ["en", "csv", "id"],
+    ["en", "xlsx", "id"],
+    ["zh", "csv", "id"],
+    ["zh", "xlsx", "id"],
+  ] as const)("%s, %s: a %s label names the table", async (language, format, kind) => {
+    const store = FIGURE_TITLE[language];
+    const title = LABEL_TITLE[language][kind];
+    expect(await figureTitleUnitOf(language, format, [title], title)).not.toBe(
+      await figureTitleUnitOf(language, format, [title], store.holds),
+    );
+
+    const answer =
+      language === "en"
+        ? `The “${title}” table gives Changjiang Road Flagship’s sales as ¥621,383 [^1].`
+        : `“${title}”是表格的标题，长江路旗舰店第三季度销售额为 ¥621,383[^1]。`;
+    const { citation, text } = await askFigureTitle(language, format, [title], answer);
+
+    // The label is not a figure, so the title row names the table and keeps its quotation marks.
+    expect(citation).toMatchObject({ quote: store.quote, check: "found" });
+    expect(text).toContain(`“${title}”`);
+  });
+
+  test.each([["1 234 567"], ["£45"], ["45%"]])(
+    "en, csv: a title row with a genuine amount (%s) is not the table's name",
+    async (amount) => {
+      const store = FIGURE_TITLE.en;
+      const title = `Q3 revenue ${amount} last year`;
+      expect(await figureTitleUnitOf("en", "csv", [title], title)).not.toBe(
+        await figureTitleUnitOf("en", "csv", [title], store.holds),
+      );
+
+      const answer = `The “${title}” table gives Changjiang Road Flagship’s sales as ¥621,383 [^1].`;
+      const { citation } = await askFigureTitle("en", "csv", [title], answer);
+
+      expect(citation).toMatchObject({
+        quote: store.quote,
+        check: "not-found",
+        checkReason: "quoted-words-not-on-pages",
+      });
+    },
+  );
+});

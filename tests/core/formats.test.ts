@@ -19,7 +19,7 @@ import { extractUnits } from "../../src/core/documents/formats";
 import { extractCsv, parseCsv } from "../../src/core/documents/formats/csv";
 import { extractDocx, MAX_SECTION_CHARS } from "../../src/core/documents/formats/docx";
 import { ExtractionError } from "../../src/core/documents/formats/errors";
-import { BLOCK_CHARACTERS, MAX_ROWS } from "../../src/core/documents/formats/grid";
+import { BLOCK_CHARACTERS, holdsFigure, MAX_ROWS } from "../../src/core/documents/formats/grid";
 import { formatNumber } from "../../src/core/documents/formats/numbers";
 import { extractPptx, imageDataUrl } from "../../src/core/documents/formats/pptx";
 import { lineUnits, markdownUnits } from "../../src/core/documents/formats/text";
@@ -584,6 +584,28 @@ describe("a sheet's header row is found from its shape (#2373)", () => {
     // is the same table as one without a header: its first row stays data (#2373).
     for (const unit of units) expect(unit.label?.header).toBeUndefined();
     expect(units[0]?.text.split("\n")[0]).toBe("Region\tOwner\t2025");
+  });
+});
+
+/**
+ * A title cell with a figure in it doesn't name the table (#2373), but a label
+ * that merely looks numeric does: a decimal beside words is a date-like label,
+ * and an ID is not an amount (#2658).
+ */
+describe("a title cell holds a figure, or is a label that looks numeric (#2658)", () => {
+  test.each([
+    ["2026.10 门店销售", false],
+    ["2026.10 Store sales", false],
+    ["Section 12345", false],
+    ["第 12345 节", false],
+    ["2026", false],
+    ["1 234 567", true],
+    ["£45", true],
+    ["45%", true],
+    ["4.2", true],
+    ["12345", true],
+  ])("%s holds a figure: %s", (text, held) => {
+    expect(holdsFigure(text)).toBe(held);
   });
 });
 

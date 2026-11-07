@@ -97,15 +97,23 @@ export function looksLikeFigure(value: string): boolean {
 }
 
 /**
- * A figure a title row may hold: a number with a thousands separator, a
- * currency, a decimal, a percent, or five digits or more. A bare year or a
- * small count ("2026") is a label, so it can still name a table (#2373).
+ * A title cell's amount: a number with a thousands separator, a currency, or a
+ * percent, wherever it sits in the cell. A bare year or a small count ("2026")
+ * is a label, so it can still name a table (#2373).
  */
-const FIGURE_IN_TEXT = /[£$€¥]\s*\d|(?<![\d.,])\d{1,3}(?:[ ,]\d{3})+(?!\d)|\d+\.\d+|\d+\s*%|\d{5,}/;
+const AMOUNT_IN_TEXT = /[£$€¥]\s*\d|(?<![\d.,])\d{1,3}(?:[ ,]\d{3})+(?!\d)|\d+\s*%/;
 
-/** Whether a text holds such a figure, wherever it sits in the text (#2373). */
+/** A decimal, or five digits or more: a figure only when its cell has no words. */
+const BARE_NUMBER = /\d+\.\d+|\d{5,}/;
+const LETTER_IN_TEXT = /\p{L}/u;
+
+/**
+ * Whether a title cell holds a figure, which stops it naming a table (#2373).
+ * A number beside words is part of a label instead: a date-like decimal
+ * ("2026.10 门店销售") or an ID ("Section 12345") still names the table (#2658).
+ */
 export function holdsFigure(text: string): boolean {
-  return FIGURE_IN_TEXT.test(text);
+  return AMOUNT_IN_TEXT.test(text) || (!LETTER_IN_TEXT.test(text) && BARE_NUMBER.test(text));
 }
 
 /** A value a half-filled sheet leaves where a figure would be: N/A, or a dash. */
