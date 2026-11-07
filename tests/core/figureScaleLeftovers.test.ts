@@ -279,6 +279,56 @@ describe("The scale cases #2365 still misses (#2365)", { timeout: 120_000 }, () 
     expect(recorded.statement).toBe("(in thousands)");
   });
 
+  // protects=#2365; fails_when=a row head that states only a currency ("(US$)", "(£)") takes the scale of a line that names a currency the reader can't place ("in millions of Japanese yen", "in thousands of Egyptian pounds"), so an amount in one currency is scaled by another's line, whether the row heads or the line are quoted.
+  test.each([
+    {
+      line: "(in millions of Japanese yen)",
+      heads: ["(US$)", "(USD)"],
+      quote: "heads",
+      value: null,
+    },
+    {
+      line: "(in thousands of Brazilian reais)",
+      heads: ["(US$)", "(USD)"],
+      quote: "heads",
+      value: null,
+    },
+    {
+      line: "(in thousands of Egyptian pounds)",
+      heads: ["(£)", "(£)"],
+      quote: "heads",
+      value: null,
+    },
+    {
+      line: "(IN THOUSANDS OF CONTRACTS WON)",
+      heads: ["(US$)", "(USD)"],
+      quote: "heads",
+      value: null,
+    },
+    { line: "(in millions)", heads: ["(US$)", "(USD)"], quote: "heads", value: 900_000_000 },
+    {
+      line: "(in millions of Japanese yen)",
+      heads: ["(US$)", "(US$)"],
+      quote: "line",
+      value: null,
+    },
+    { line: "(in millions)", heads: ["(US$)", "(US$)"], quote: "line", value: 900_000_000 },
+  ] as const)(
+    "a currency-only row head takes only a line's scale that names no currency: $line, $quote quoted",
+    async ({ line, heads, quote, value }) => {
+      const headRows = [`Revenue ${heads[0]} 1,234.5`, `Costs ${heads[1]} 334.5`] as const;
+      const recorded = await record({
+        file: pdf("Currency heads", [line, ...headRows]),
+        cites: headRows,
+        numbers: ["1,234.5", "334.5"],
+        ...(quote === "heads" ? { unitQuotes: heads } : { unitQuote: line }),
+        query: "currency heads revenue costs",
+      });
+
+      expect(recorded.value).toBe(value);
+    },
+  );
+
   // protects=#2365; fails_when=a row head that states only a currency borrows a scale from another table, or one below it, instead of refusing or reading the row's own currency.
   test.each([
     {

@@ -1292,7 +1292,7 @@ describe("stated units", () => {
       "Israeli shekels",
       "Polish zlotys",
       "won",
-    ])
+    ]) {
       expect([name, thousands(name)]).toEqual([
         name,
         [
@@ -1304,6 +1304,8 @@ describe("stated units", () => {
           },
         ],
       ]);
+      expect(readStatedUnits(`(in thousands of ${name})`, EN)[0]?.unplacedCurrency).toBe(name);
+    }
     for (const [name, code] of [
       ["Indian rupees", "INR"],
       ["Swiss francs", "CHF"],
@@ -1330,6 +1332,10 @@ describe("stated units", () => {
         name,
         [{ scale: 1000, unit: { kind: "other", word } }],
       ]);
+    for (const name of ["Canadian dollars", "contracts won", "tonnes"])
+      expect([name, readStatedUnits(`(in thousands of ${name})`, EN)[0]?.unplacedCurrency]).toEqual(
+        [name, undefined],
+      );
   });
 
   test("a Chinese header states a scale and a currency", () => {

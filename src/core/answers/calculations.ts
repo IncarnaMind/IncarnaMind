@@ -2322,7 +2322,8 @@ export function createCalculationSession(options: CalculationSessionOptions) {
             // currency, can scale it (#2365).
             if (
               !statesAmountScale(each.text, statement) ||
-              (statement.unit.kind === "currency" && statement.unit.code !== rowCurrency)
+              (statement.unit.kind === "currency" && statement.unit.code !== rowCurrency) ||
+              statement.unplacedCurrency !== undefined
             ) {
               otherScale = true;
               continue;
@@ -2393,7 +2394,9 @@ export function createCalculationSession(options: CalculationSessionOptions) {
         const lineScale = statedLine.find(
           (each) => each.scale !== 1 && !ownRow.ownScales.includes(each.scale),
         );
-        const lineNamesCurrency = statedLine.some((each) => each.unit.kind === "currency");
+        const lineNamesCurrency = statedLine.some(
+          (each) => each.unit.kind === "currency" || each.unplacedCurrency !== undefined,
+        );
         const headIsCurrencyOnly = ownRow.ownScales.every((each) => each === 1);
         if (
           lineScale &&

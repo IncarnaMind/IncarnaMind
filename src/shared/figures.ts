@@ -182,6 +182,12 @@ export interface StatedUnit {
    * out too; "noted", "except where noted", leaves out figures it doesn't name.
    */
   except?: "per-share" | "shares" | "noted";
+  /**
+   * A currency its line names that the reader can't place, as written ("in thousands of Japanese
+   * yen"). Its scale is a plain one, which only a figure's own sign may give a currency; to a row
+   * head's currency it is another one (#2365).
+   */
+  unplacedCurrency?: string;
 }
 
 // The text as the reader reads it ------------------------------------------
@@ -1415,6 +1421,7 @@ interface Statement extends Span {
   exponent: number;
   scaleWord: string | null;
   unit: FigureUnit;
+  unplacedCurrency?: string;
 }
 
 /** A `header` read once, for a table's many cells to share (#2523). */
@@ -1689,14 +1696,16 @@ function statementsIn(prepared: Prepared, text: string, settled: Settled): State
         groups.money ??
         null;
       let unit: FigureUnit = { kind: "plain" };
+      let unplacedCurrency: string | null = null;
       if (match[0].includes("%") || /per ?cent/i.test(match[0])) unit = { kind: "percent" };
       else if (words) {
         const codes = currencyCodes(words, settled);
         const code = codes.length === 1 ? codes[0] : undefined;
         if (code) unit = { kind: "currency", code };
-        // Money in a currency the reader can't place is a plain scale: never a currency the line
-        // and the figure don't state.
-        else if (!/[$¥]/.test(words) && !(words === groups.money && NAMED_MONEY.test(words)))
+        // A name the reader can't place gives no code: never one the line and the figure don't state.
+        else if (words === groups.money && NAMED_MONEY.test(words))
+          unplacedCurrency = written(at.money) ?? words;
+        else if (!/[$¥]/.test(words))
           unit = {
             kind: "other",
             word: written(at.unit ?? at.before ?? at.cur ?? at.money) ?? words,
@@ -1727,6 +1736,7 @@ function statementsIn(prepared: Prepared, text: string, settled: Settled): State
         exponent: scale === "T" ? 3 : scale ? scaleExponent(scale) : 0,
         scaleWord: written(at.scale),
         unit,
+        ...(unplacedCurrency !== null && { unplacedCurrency }),
       });
     }
   }
@@ -2001,6 +2011,9 @@ function statedUnitsOf(prepared: Prepared, text: string, statements: Statement[]
       scaleWord: statement.scaleWord,
       unit: statement.unit,
       ...(except && { except }),
+      ...(statement.unplacedCurrency !== undefined && {
+        unplacedCurrency: statement.unplacedCurrency,
+      }),
     };
   });
 }
