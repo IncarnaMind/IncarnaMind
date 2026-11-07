@@ -143,6 +143,7 @@ import {
 } from "./turnChecks";
 import { citeUnmarked, missingMarkerEvents, textEdits } from "./unmarkedQuotes";
 import { createWindowBudget, SEARCH_RESERVE_TOKENS, type WindowBudget } from "./window";
+import { wroteWorking } from "./workingText";
 
 /** One message of Question context. */
 export interface AnswerMessage {
@@ -745,6 +746,92 @@ export function searchToolDescription(languages: readonly DocumentLanguage[]): s
 }
 /** A Citation marker ("[^1]") or a figure marker ("[=1]"): the Answer is being written. */
 const MARKER = /\[[\^=]\d{1,4}\]/;
+
+/** A part of a step's text: where it sits, and its own text. */
+interface TextPart {
+  from: number;
+  to: number;
+  text: string;
+}
+
+/** `text`'s paragraphs, trimmed, in order. */
+function paragraphsOf(text: string): TextPart[] {
+  const out: TextPart[] = [];
+  let from = 0;
+  for (const separator of [...text.matchAll(/\r?\n[ \t]*\r?\n/g), null]) {
+    const to = separator ? separator.index : text.length;
+    const slice = text.slice(from, to);
+    const start = from + slice.length - slice.trimStart().length;
+    const end = to - (slice.length - slice.trimEnd().length);
+    if (end > start) out.push({ from: start, to: end, text: text.slice(start, end) });
+    from = separator ? separator.index + separator[0].length : text.length;
+  }
+  return out;
+}
+
+/** `text`'s lines, trimmed, in order. */
+function linesOf(text: string): TextPart[] {
+  const out: TextPart[] = [];
+  let from = 0;
+  for (const separator of [...text.matchAll(/\r?\n/g), null]) {
+    const to = separator ? separator.index : text.length;
+    const slice = text.slice(from, to);
+    const start = from + slice.length - slice.trimStart().length;
+    const end = to - (slice.length - slice.trimEnd().length);
+    if (end > start) out.push({ from: start, to: end, text: text.slice(start, end) });
+    from = separator ? separator.index + separator[0].length : text.length;
+  }
+  return out;
+}
+
+/**
+ * The parts of a recorded step's text that may be the model's working on the call it is about to
+ * make (#2371): every paragraph without a marker; the last paragraph even with one when the step
+ * holds other text before it; and, where that last paragraph mixes marked and unmarked lines, its
+ * unmarked lines. A marked paragraph before the last is the Answer's, so a note can no longer hide
+ * between two of them. An Answer alone, written beside `cite` as one marked paragraph, has nothing
+ * to judge and costs no request. Text shaped like a Tool call is never judged: its records are read
+ * at the end (`takeToolText`), and dropping the block here would lose them.
+ */
+function workingCandidates(text: string): TextPart[] {
+  const paragraphs = paragraphsOf(text);
+  const out: TextPart[] = [];
+  for (const [index, paragraph] of paragraphs.entries()) {
+    if (takeToolText(paragraph.text, TOOL_TEXT_TAGS).text !== paragraph.text) continue;
+    const last = index === paragraphs.length - 1;
+    const marked = MARKER.test(paragraph.text);
+    if (marked && !last) continue;
+    if (marked && paragraph.text.includes("\n")) {
+      const unmarked = linesOf(paragraph.text).filter(
+        (line) =>
+          !MARKER.test(line.text) && takeToolText(line.text, TOOL_TEXT_TAGS).text === line.text,
+      );
+      for (const line of unmarked) {
+        out.push({
+          from: paragraph.from + line.from,
+          to: paragraph.from + line.to,
+          text: line.text,
+        });
+      }
+      if (unmarked.length > 0) continue;
+    }
+    if (marked && paragraphs.length === 1) continue;
+    out.push(paragraph);
+  }
+  return out;
+}
+
+/** `text` without `parts`, its blank runs closed up. */
+function withoutParts(text: string, parts: readonly { from: number; to: number }[]): string {
+  let out = "";
+  let at = 0;
+  for (const part of [...parts].sort((a, b) => a.from - b.from)) {
+    out += text.slice(at, part.from);
+    at = part.to;
+  }
+  out += text.slice(at);
+  return out.replace(/(?:\r?\n[ \t]*){3,}/g, "\n\n").trim();
+}
 
 /**
  * A backstop: a step before the last that has read the Documents and has written this much with no
@@ -2198,8 +2285,50 @@ async function* toolLoop(
           if (recorded && !stepTools.some((each) => !recording(each)) && !again)
             setAside.push({ text: stepText, searched });
         } else {
-          keptText += stepText;
-          if (recorded && MARKER.test(stepText)) answered = true;
+          const candidates =
+            recorded && request.toolSet !== "check" ? workingCandidates(stepText) : [];
+          /** The candidates the judgement called the model's working. */
+          let working: TextPart[] = [];
+          if (candidates.length > 0) {
+            // The Answer before the first candidate tells the judgement what the parts are about.
+            const before = (keptText + stepText).slice(
+              0,
+              keptText.length + (candidates[0]?.from ?? 0),
+            );
+            const verdicts = await wroteWorking(
+              request,
+              before.trimEnd().slice(-800),
+              candidates.map((each) => each.text),
+              temperature,
+            );
+            if (verdicts)
+              working = candidates.filter((_, index) => verdicts.at(index) === "working");
+          }
+          if (working.length === 0) {
+            keptText += stepText;
+          } else {
+            // The text was streamed: take the parts back where they were shown, and re-stream the rest.
+            const all = keptText + stepText;
+            const shifted = working.map((each) => ({
+              from: each.from + keptText.length,
+              to: each.to + keptText.length,
+            }));
+            const shown = all.slice(0, released);
+            const shownAfter = withoutParts(
+              shown,
+              shifted
+                .filter((each) => each.from < shown.length)
+                .map((each) => ({ ...each, to: Math.min(each.to, shown.length) })),
+            );
+            yield* textEdits(shown, shownAfter);
+            released = shownAfter.length;
+            keptText = withoutParts(all, shifted);
+            setAside.push({
+              text: working.map((each) => stepText.slice(each.from, each.to)).join("\n\n"),
+              searched,
+            });
+          }
+          if (recorded && MARKER.test(keptText)) answered = true;
         }
         stepText = "";
         stepTools = [];
