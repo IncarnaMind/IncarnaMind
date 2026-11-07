@@ -4,6 +4,7 @@
  * service sent.
  */
 import { WebSocket } from "undici";
+import { OUT_OF_CREDIT } from "../../providers/creditWords";
 import { HANDSHAKE_NO_CREDIT, HANDSHAKE_REFUSED } from "./protocol";
 
 export { HANDSHAKE_NO_CREDIT, HANDSHAKE_REFUSED } from "./protocol";
@@ -43,8 +44,42 @@ export type CloudConnect = (
 ) => CloudSocket;
 
 const PROBE_TIMEOUT_MS = 5000;
+/** Of a refusal's body, only its start is read: enough for the service's words, never kept or logged. */
+const BODY_READ = 4096;
 
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
+/**
+ * A refused handshake's answer, read in the order the chat providers' errors are: no credit (a
+ * 402, or any 4xx but a 401 in credit's words, as xAI's 403), then the key (a 401 or 403, or a 400
+ * naming an API key, as xAI's), else neither (0).
+ */
+export function handshakeRefusalOf(status: number, body: string): number {
+  if (
+    status === 402 ||
+    (status >= 400 && status < 500 && status !== 401 && OUT_OF_CREDIT.test(body))
+  ) {
+    return HANDSHAKE_NO_CREDIT;
+  }
+  if (status === 401 || status === 403 || (status === 400 && /api[ _-]?key/i.test(body))) {
+    return HANDSHAKE_REFUSED;
+  }
+  return 0;
+}
+
+async function startOf(response: Response): Promise<string> {
+  const reader = response.body?.getReader();
+  if (!reader) return "";
+  const decoder = new TextDecoder();
+  let text = "";
+  while (text.length < BODY_READ) {
+    const { done, value } = await reader.read();
+    if (done) return text;
+    text += decoder.decode(value, { stream: true });
+  }
+  await reader.cancel();
+  return text.slice(0, BODY_READ);
+}
 
 /**
  * Why a handshake failed, asked again over plain HTTPS with the same key, since a WebSocket that
@@ -52,13 +87,13 @@ const messageOf = (error: unknown) => (error instanceof Error ? error.message : 
  */
 async function handshakeRefusal(url: string, headers: Record<string, string>): Promise<number> {
   try {
-    const { status } = await fetch(url.replace(/^ws/, "http"), {
+    const response = await fetch(url.replace(/^ws/, "http"), {
       headers,
       redirect: "manual",
       signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
     });
-    if (status === 401 || status === 403) return HANDSHAKE_REFUSED;
-    return status === 402 ? HANDSHAKE_NO_CREDIT : 0;
+    const { status } = response;
+    return handshakeRefusalOf(status, status >= 400 && status < 500 ? await startOf(response) : "");
   } catch (error) {
     // The process has no logger of its own: its output goes to the app's log.
     console.error("The cloud service couldn't be asked about the key:", messageOf(error));

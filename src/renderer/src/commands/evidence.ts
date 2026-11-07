@@ -1,5 +1,6 @@
 import type { Document } from "../../../core/api";
 import { countedByChoice, leftOutOfEvidence } from "../../../shared/evidence";
+import { mindName } from "../../../shared/naming";
 import { countAsEvidence, markNotCited } from "../evidence";
 import { countNow } from "../i18n";
 import { isListedDocument } from "../meetingTranscript";
@@ -13,6 +14,14 @@ function transcriptsOf(ctx: CommandContext): Document[] {
   const [mind] = minds;
   if (!mind || minds.length !== 1 || targetsOf(ctx).length !== 1) return [];
   return useAppStore.getState().documents.filter((each) => each.meetingMindId === mind.id);
+}
+
+/** The meeting's name now, which its Transcript is known by, not the name it got when recorded (#2579). */
+function meetingNameOf(ctx: CommandContext): string | undefined {
+  const minds = mindsOf(ctx);
+  const [mind] = minds;
+  if (!mind || minds.length !== 1) return undefined;
+  return mindName(mind) || undefined;
 }
 
 /** "Count it" for the files IncarnaMind wrote (#80), and taking it back. */
@@ -93,7 +102,7 @@ export const evidenceCommands: readonly Command[] = [
       return transcripts.length > 0 && transcripts.every((each) => !each.notCited);
     },
     reversible: true,
-    run: (ctx) => markNotCited(transcriptsOf(ctx), true),
+    run: (ctx) => markNotCited(transcriptsOf(ctx), true, meetingNameOf(ctx)),
   },
   {
     id: "mind.citeTranscriptAgain",
@@ -105,6 +114,6 @@ export const evidenceCommands: readonly Command[] = [
       return transcripts.length > 0 && transcripts.every((each) => each.notCited);
     },
     reversible: true,
-    run: (ctx) => markNotCited(transcriptsOf(ctx), false),
+    run: (ctx) => markNotCited(transcriptsOf(ctx), false, meetingNameOf(ctx)),
   },
 ];

@@ -9,8 +9,8 @@
  * file there before it hands the file's path to the shell adapter; only
  * this side touches dialogs.
  */
-import { mkdir, stat } from "node:fs/promises";
-import { basename } from "node:path";
+import { mkdir, stat, writeFile } from "node:fs/promises";
+import { basename, join } from "node:path";
 import {
   app,
   BrowserWindow,
@@ -18,6 +18,7 @@ import {
   type IpcMainInvokeEvent,
   ipcMain,
   type OpenDialogOptions,
+  type SaveDialogOptions,
   shell,
 } from "electron";
 import type { Core } from "../core";
@@ -33,10 +34,11 @@ import {
   setExamplesRemoved,
   setExportMenu,
   setMenuSidebarHidden,
+  setPictureViewerOpen,
 } from "./menu";
 import { rememberPick, startFolder, startNear } from "./pickerFolders";
 import { decodePictureToPng } from "./pictureDecode";
-import { showOpenDialog } from "./systemDialogs";
+import { showOpenDialog, showSaveDialog } from "./systemDialogs";
 import { saveMindCopy } from "./unsavedChanges";
 
 /** What "Import references" offers; the core reads the format from what is in the file. */
@@ -136,6 +138,39 @@ export function serveFileActions(
     if (typeof mindId !== "string") throw new Error("A Mind id must be a string.");
     return saveMindCopy(core, BrowserWindow.fromWebContents(event.sender), mindId);
   });
+
+  // A picture at its own pixels, as a PNG named after where it is from (#2377).
+  handle(
+    FILES_CHANNELS.savePicture,
+    async (event, name: unknown, bytes: unknown): Promise<boolean> => {
+      refuseUnknown(event);
+      if (typeof name !== "string" || !(bytes instanceof Uint8Array)) {
+        throw new Error("A picture needs its name and its bytes.");
+      }
+      const [{ language }, { location, suggested }] = await Promise.all([
+        core.getSettings(),
+        core.getOutputSettings(),
+      ]);
+      const clean =
+        basename(name)
+          .replace(/[\\/:*?"<>|\p{Cc}]+/gu, " ")
+          .trim()
+          .slice(0, 120) || translate(language, "pictureViewer.fileName.fallback");
+      const fileName = clean.toLowerCase().endsWith(".png") ? clean : `${clean}.png`;
+      const options: SaveDialogOptions = {
+        title: translate(language, "pictureViewer.saveTitle"),
+        defaultPath: join(location ?? suggested, fileName),
+        filters: [{ name: "PNG", extensions: ["png"] }],
+      };
+      const { canceled, filePath } = await showSaveDialog(
+        BrowserWindow.fromWebContents(event.sender),
+        options,
+      );
+      if (canceled || !filePath) return false;
+      await writeFile(filePath, bytes);
+      return true;
+    },
+  );
 
   handle(FILES_CHANNELS.openDataFolder, async (event) => {
     refuseUnknown(event);
@@ -359,6 +394,10 @@ export function serveFileActions(
 
   ipcMain.on(FILES_CHANNELS.sidebarHidden, (event, hidden: unknown) => {
     if (trusted(event) && typeof hidden === "boolean") setMenuSidebarHidden(hidden);
+  });
+
+  ipcMain.on(FILES_CHANNELS.pictureViewer, (event, open: unknown) => {
+    if (trusted(event) && typeof open === "boolean") setPictureViewerOpen(open);
   });
 
   ipcMain.on(FILES_CHANNELS.editMenu, (event, state: unknown) => {

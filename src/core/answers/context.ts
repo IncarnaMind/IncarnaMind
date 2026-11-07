@@ -372,9 +372,10 @@ function readText(block: Y.XmlElement, piece: Piece): string {
  * excluded stay out and earlier Answers keep their Citations as plain
  * references. Every change still waiting is read as a change, as the User
  * sees it: the AI's as waiting, someone's from a Word file with who
- * made it (#734), so the assistant knows what it has proposed. `focus` is
- * where the User is in it: the text they selected is read first, unless it
- * is in a Note they excluded. Its Citations name their Documents as
+ * made it (#734), so the assistant knows what it has proposed; one of
+ * `applied` reads as applied, as the window takes it in at once (#2321).
+ * `focus` is where the User is in it: the text they selected is read first,
+ * unless it is in a Note they excluded. Its Citations name their Documents as
  * `documents` names them now, each with its id in `ids`.
  */
 export function readMind(
@@ -385,6 +386,8 @@ export function readMind(
   ids?: ContextCitations,
   /** Whether the model reads images: one that can't is sent no picture, even one the User selected. */
   readsPictures = true,
+  /** The requests whose changes are read as applied at once, as the User asked (#2321). */
+  applied: ReadonlySet<string> = new Set(),
 ): MindReading {
   const recordedOrigins = blocks.doc?.getMap<unknown>(MIND_TEXT_ORIGINS_FIELD);
   const recorded = recordedOrigins && recordedOrigins.size > 0 ? recordedOrigins : null;
@@ -395,7 +398,7 @@ export function readMind(
    */
   const byId = new Map<string, { index: number; excluded: boolean }>();
   const picturesById = new Map<string, Y.XmlElement>();
-  const review = reviewReading(blocks);
+  const review = reviewReading(blocks, applied);
   for (const block of blocks.toArray()) {
     if (!(block instanceof Y.XmlElement)) continue;
     const piece = pieceOf(block, documents, review, ids);

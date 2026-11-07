@@ -233,6 +233,34 @@ describe("with Organize moving new Documents by itself", () => {
     await filed(core, [document.id], reports.id);
     expect(chat.calls.slice(before).map((call) => call.purpose)).toEqual(["organize"]);
   });
+
+  test("a refused key, saved again for the same service, files the Document by itself", async () => {
+    const { core, chat, reports } = await start(true);
+    chat.fail(
+      new APICallError({
+        message: "Incorrect API key provided",
+        url: "http://127.0.0.1:11434/v1/chat/completions",
+        requestBodyValues: {},
+        statusCode: 401,
+        isRetryable: false,
+      }),
+    );
+    const [document] = await add(core, { "One.txt": "The first report, about revenue." });
+    if (!document) throw new Error("Nothing was added.");
+    const [waiting] = await waitForTagging(
+      core,
+      [document.id],
+      (each) => each.tagging === "waiting-for-provider",
+    );
+    expect(waiting?.taggingError).toMatchObject({ kind: "auth" });
+    const before = chat.calls.length;
+
+    chat.fail(null);
+    await core.saveChatProvider(LOCAL);
+
+    await filed(core, [document.id], reports.id);
+    expect(chat.calls.slice(before).map((call) => call.purpose)).toEqual(["organize"]);
+  });
 });
 
 describe("with the switch on, the work a quit or a hand interrupts", () => {

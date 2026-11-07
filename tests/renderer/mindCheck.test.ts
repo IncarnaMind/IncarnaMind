@@ -13,6 +13,9 @@ const bridge = vi.hoisted(() => ({
   cancelCheck: vi.fn<CoreBridge["cancelCheck"]>(),
 }));
 const running = vi.hoisted(() => ({ current: {} as Record<string, unknown> }));
+const rewriting = vi.hoisted(() => ({ current: {} as Record<string, string> }));
+const { noteBusy } = vi.hoisted(() => ({ noteBusy: vi.fn() }));
+vi.mock("../../src/renderer/src/editWithAi", () => ({ noteBusy }));
 vi.mock("../../src/renderer/src/core", () => ({ core: bridge }));
 const store = vi.hoisted(() => ({ language: "en" as "en" | "zh-CN" }));
 vi.mock("../../src/renderer/src/store", () => ({
@@ -23,7 +26,7 @@ vi.mock("../../src/renderer/src/store", () => ({
 vi.mock("../../src/renderer/src/checks", () => ({
   withCheckAll: (problem: { kind: string; chosen?: unknown }, checkAll: () => void) =>
     problem.kind === "no-documents" && problem.chosen ? { ...problem, checkAll } : problem,
-  useChecks: { getState: () => ({ running: running.current }) },
+  useChecks: { getState: () => ({ running: running.current, rewriting: rewriting.current }) },
   dismissCheckProblem: vi.fn(),
   setCheckCardOpen: vi.fn(),
   setCheckProblem: vi.fn(),
@@ -172,6 +175,19 @@ describe("Asking before checking against Documents added since", () => {
 });
 
 describe("Check this note", () => {
+  test("asked for while a rewrite works in the Note, says the Note is busy and plans nothing", async () => {
+    rewriting.current = { mind: "check-rent" };
+    try {
+      const { startMindCheck } = await import("../../src/renderer/src/mindCheck");
+      expect(await startMindCheck("mind", "changed")).toEqual({ kind: "busy" });
+      expect(noteBusy).toHaveBeenCalledWith("mind");
+      expect(bridge.holdMindCheck).not.toHaveBeenCalled();
+      expect(bridge.planMindCheck).not.toHaveBeenCalled();
+    } finally {
+      rewriting.current = {};
+    }
+  });
+
   const SINCE = "2026-10-02T14:20:00.000Z";
   const unchanged: MindCheckPlan = { kind: "unchanged", since: SINCE };
 

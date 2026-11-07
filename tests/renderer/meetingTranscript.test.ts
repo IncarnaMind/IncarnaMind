@@ -109,17 +109,14 @@ describe("A meeting's Transcript in the lists", () => {
 });
 
 describe("A hit inside a meeting's Transcript", () => {
-  const notesOf = (found: DocumentTextMatch[], translate: typeof en) =>
-    palette.noteGroup(
-      [],
-      [weekly],
-      translate,
+  const meetingGroupsOf = (found: DocumentTextMatch[], translate: typeof en) =>
+    palette.meetingTextGroup(
       palette.meetingTextItems(found, [transcript, lease, orphan], [weekly], translate),
     );
 
-  test("is its Note's, in the Notes' group, with the time as its Transcript shows it, in English and Chinese", () => {
-    const [english] = notesOf([hit(transcript.id, 7_000)], en);
-    expect(english?.id).toBe("notes");
+  test("is its Note's, in its own Said in meetings group, with the time as its Transcript shows it, in English and Chinese", () => {
+    const [english] = meetingGroupsOf([hit(transcript.id, 7_000)], en);
+    expect(english?.id).toBe("meetingText");
     expect(english?.items).toEqual([
       expect.objectContaining({
         kind: "passage",
@@ -129,9 +126,9 @@ describe("A hit inside a meeting's Transcript", () => {
         meta: "",
       }),
     ]);
-    const [chinese] = notesOf([hit(transcript.id, 727_000)], zh);
+    const [chinese] = meetingGroupsOf([hit(transcript.id, 727_000)], zh);
     expect(chinese?.items[0]).toMatchObject({ name: "Weekly call · 转写稿 12:07" });
-    const [timeless] = notesOf([hit(transcript.id, null)], en);
+    const [timeless] = meetingGroupsOf([hit(transcript.id, null)], en);
     expect(timeless?.items[0]).toMatchObject({ name: "Weekly call · Transcript" });
   });
 
@@ -148,7 +145,7 @@ describe("A hit inside a meeting's Transcript", () => {
   });
 
   test("of a Note that isn't here shows nothing", () => {
-    expect(notesOf([hit(orphan.id, 1_000)], en)).toEqual([]);
+    expect(meetingGroupsOf([hit(orphan.id, 1_000)], en)).toEqual([]);
   });
 });
 

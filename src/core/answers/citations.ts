@@ -45,6 +45,7 @@ import {
   withoutArea,
 } from "../../shared/locations";
 import { citesSource, type NamedSource } from "../../shared/namedSources";
+import { documentWordingIn } from "../../shared/quoteMarks";
 import {
   findQuote,
   lostLigatures,
@@ -73,6 +74,7 @@ import {
 } from "../api";
 import type { CitationSource, DocumentDate } from "../documents";
 import { BOILERPLATE_PARAMETERS } from "../documents/boilerplate";
+import { holdsFigure } from "../documents/formats/grid";
 import type { PageText } from "../documents/passages";
 import { unsureSpansIn } from "../documents/scan/layout";
 import type { WindowedPassage } from "../documents/search";
@@ -1727,7 +1729,8 @@ export function createCitationSession(
    * The text of a sheet's title rows, above its header, by Document version
    * and sheet: the rows that name the table a Citation's rows are in, which an
    * Answer may quote as the table's title while citing one of its rows (#2358).
-   * A sheet read in one block keeps its title rows in the cited Unit itself.
+   * A title row that holds a figure names nothing (#2373). A sheet read in one
+   * block keeps its title rows in the cited Unit itself.
    */
   const titles = new Map<string, string>();
   function titleRows(record: Pick<Accepted, "source">, sheet: string | null): string {
@@ -1749,9 +1752,9 @@ export function createCitationSession(
         ? ""
         : first.text
             .split("\n")
-            .filter((_, at) => {
+            .filter((line, at) => {
               const row = rows[at] ?? 0;
-              return row > 0 && row < header;
+              return row > 0 && row < header && !line.split("\t").some((cell) => holdsFigure(cell));
             })
             .join("\n");
     titles.set(key, text);
@@ -2588,10 +2591,12 @@ export function createCitationSession(
      * One found keeps its words with the Citation whose Units state them, which its sentence's
      * figures are counted against (#2602). One not found makes the Citation whose Units
      * are nearest it "not found", with the Answer's words and the Document's
-     * nearest for its card. Where a Citation of the sentence couldn't be
-     * checked, no span of it is. Words in another language than every page
-     * cited are a translation: they aren't checked, and are returned to lose
-     * their quotation marks.
+     * nearest for its card, and with the Document's own words where only the
+     * kind of their quotation marks differs, for the card to offer them
+     * (#2605). Where a Citation of the sentence couldn't be checked, no span
+     * of it is. Words in another language than every page cited are a
+     * translation: they aren't checked, and are returned to lose their
+     * quotation marks.
      */
     checkQuotedWords(quoted: readonly { words: string; markers: readonly number[] }[]): string[] {
       /**
@@ -2696,14 +2701,24 @@ export function createCitationSession(
           translated.push(words);
           continue;
         }
-        let nearest: { record: Accepted; closest: ReturnType<typeof closestWords> } | undefined;
+        let nearest:
+          | {
+              record: Accepted;
+              units: readonly PageText[];
+              closest: ReturnType<typeof closestWords>;
+            }
+          | undefined;
         for (const { record, units, matching } of cited) {
           const closest = closestWords(units, words, matching);
-          if (!nearest || closest.near > nearest.closest.near) nearest = { record, closest };
+          if (!nearest || closest.near > nearest.closest.near) nearest = { record, units, closest };
         }
         if (nearest?.record.result?.check !== "found") continue;
         nearest.record.result = { check: "not-found", checkReason: "quoted-words-not-on-pages" };
-        nearest.record.quotedWords = nearest.closest.shown;
+        // The page's own marks for the same words, for the User to choose (#2605).
+        const wording = documentWordingIn(words, joinUnits(nearest.units).text);
+        nearest.record.quotedWords = wording
+          ? { ...nearest.closest.shown, documentWording: wording }
+          : nearest.closest.shown;
       }
       return translated;
     },

@@ -428,7 +428,7 @@ describe.each(LIVE)("What the reply says an edit did, live: $name", (live) => {
               if (process.env.INCARNAMIND_LIVE_REPORT) {
                 await appendFile(
                   process.env.INCARNAMIND_LIVE_REPORT,
-                  `run ${each.language} “${followUp.ask}”: made ${made}, clean ${clean}, accepted ${accepted}, duplicate ${duplicate}, englishText ${englishText}, targetStill ${targetStill}, status says not all done ${flagged}, reply says waits or not made ${denied}, removes_only ${JSON.stringify(removes)}, sentences ${JSON.stringify(sentences)}, held ${held?.why ?? "no"}: ${JSON.stringify(second.answer.text).slice(0, 300)}\n`,
+                  `run ${each.language} “${followUp.ask}”: made ${made}, clean ${clean}, accepted ${accepted}, duplicate ${duplicate}, englishText ${englishText}, targetStill ${targetStill}, status says not all done ${flagged}, claims ${JSON.stringify(second.answer.steps?.unbackedClaims ?? [])}, reply says waits or not made ${denied}, removes_only ${JSON.stringify(removes)}, sentences ${JSON.stringify(sentences)}, held ${held?.why ?? "no"}: ${JSON.stringify(second.answer.text).slice(0, 300)}\n`,
                 );
               }
               if (made && (flagged || denied)) {

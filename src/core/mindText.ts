@@ -65,7 +65,9 @@ import {
   isNumberingScheme,
   itemLevel,
   type NumberingScheme,
+  nextNumbers,
   numberingMarker,
+  startingNumbers,
 } from "../shared/numbering";
 import {
   readParagraphFormat,
@@ -442,10 +444,11 @@ export interface ReadOptions {
    * waiting add is read too, and each part of one is marked (`Pendings`), and
    * AI text is marked `ai`. One of the AI's out of date is read as if it
    * weren't there, as accepting every change leaves it; someone's change from
-   * the Word file stays theirs to resolve (#108). Or read with someone's
-   * changes from a Word file as changes, and the AI's as everywhere else
-   * (`theirChangesReading`, #734). Absent everywhere else: a change's words
-   * aren't the Mind's until it is accepted.
+   * the Word file stays theirs to resolve (#108). One the User asked for that
+   * applies at once is read as applied while its marks are still there, when
+   * `applies` says so (#2321). Or read with someone's changes from a Word file
+   * as changes, and the AI's as everywhere else (`theirChangesReading`, #734).
+   * Absent everywhere else: a change's words aren't the Mind's until it is accepted.
    */
   review?: ReviewReading;
   /** The sentence checks that aren't good, by check id: their text is read with `sentenceCheck`. */
@@ -464,18 +467,27 @@ export interface ReadOptions {
 export interface ReviewReading {
   /** Whether a change, by id, is read as if it weren't there: one of the AI's out of date. */
   skips(id: string): boolean;
+  /**
+   * Whether a request's changes are read as applied though their marks are still in the Mind: the
+   * User asked for them in the turn that reads it, and the window applies them at once (#2321).
+   */
+  applies(request: string): boolean;
   /** When a request's changes were made, and by whom if not by IncarnaMind. */
   made(request: string): Omit<Pending, "id">;
 }
 
 /** What a Mind's Blocks need for reading them for review (`ReadOptions.review`). */
-export function reviewReading(blocks: Y.XmlFragment): ReviewReading {
+export function reviewReading(
+  blocks: Y.XmlFragment,
+  applied: ReadonlySet<string> = new Set(),
+): ReviewReading {
   const { doc } = blocks;
   const stale = new Set(
     [...outOfDateProposals(blocks)].filter((id) => !id.startsWith(WORD_CHANGE_ID)),
   );
   return {
     skips: (id) => stale.has(id),
+    applies: (request) => applied.has(request),
     made: (request) => madeBy(doc ? proposalRequestOf(doc, request) : null),
   };
 }
@@ -489,6 +501,7 @@ export function reviewReading(blocks: Y.XmlFragment): ReviewReading {
 export function theirChangesReading(doc: Y.Doc): ReviewReading {
   return {
     skips: (id) => !id.startsWith(WORD_CHANGE_ID),
+    applies: () => false,
     made: (request) => madeBy(proposalRequestOf(doc, request)),
   };
 }
@@ -520,15 +533,31 @@ export const isWordChange = (pending: Pending | undefined): pending is Pending =
 
 const pendingIn = (value: unknown, options: ReadOptions) => pendingOf(value, options.review);
 
+/** How a change reads for review: still waiting, applied at once as asked, or not the Mind's. */
+type ChangeReading = "waiting" | "applied" | "gone";
+
+/** How a change a mark or an attribute names reads; null when the value names no change. */
+function changeReading(value: unknown, review: ReviewReading | undefined): ChangeReading | null {
+  const ref = review ? readProposalRef(value) : null;
+  if (!review || !ref) return null;
+  if (review.skips(ref.id)) return "gone";
+  return review.applies(ref.request) ? "applied" : "waiting";
+}
+
 /**
- * What a change does to an element: null for one it adds that isn't read
- * (never, read for review, unless it is out of date).
+ * What a change does to an element: null for one it adds that isn't read, or
+ * one it removes that is read as applied.
  */
 function changeOf(element: Y.XmlElement, options: ReadOptions): Pendings | null {
   const attribute = readProposalAttribute(element.getAttribute(PROPOSAL_ATTRIBUTE));
   if (!attribute) return {};
-  const pending = pendingIn(attribute, options);
-  if (attribute.kind === "insert") return pending ? { inserted: pending } : null;
+  const reading = changeReading(attribute, options.review);
+  const pending = reading === "waiting" ? pendingIn(attribute, options) : undefined;
+  if (attribute.kind === "insert") {
+    if (reading === "applied") return {};
+    return pending ? { inserted: pending } : null;
+  }
+  if (reading === "applied") return null;
   return pending ? { deleted: pending } : {};
 }
 
@@ -741,20 +770,28 @@ function numberingOf(
 ): { scheme: NumberingScheme; level: number; numbers: number[] } {
   if (outer) {
     const level = Math.min(outer.level, 8);
-    const numbers = [...outer.numbers];
-    numbers[level] = startOf(element) - 1;
-    return { scheme: outer.scheme, level, numbers };
+    return {
+      scheme: outer.scheme,
+      level,
+      numbers: startingNumbers({ start: startOf(element), level, from: outer.numbers }),
+    };
   }
   const scheme = element.getAttribute("numbering");
   const level = itemLevel(0, Number(element.getAttribute("startLevel")) || 0);
-  const numbers = Array.from({ length: level }, () => 1);
   const before =
     (element.getAttributes() as Record<string, unknown>).continues === true
       ? lastNumbersBefore(element)
       : null;
-  numbers[level] = before ? (before[level] ?? 0) : startOf(element) - 1;
-  if (before) for (let at = 0; at < level; at++) numbers[at] = before[at] || 1;
-  return { scheme: isNumberingScheme(scheme) ? scheme : "default", level, numbers };
+  return {
+    scheme: isNumberingScheme(scheme) ? scheme : "default",
+    level,
+    numbers: startingNumbers({
+      start: startOf(element),
+      level,
+      from: before,
+      continues: before !== null,
+    }),
+  };
 }
 
 /**
@@ -767,30 +804,15 @@ export function firstNumberOf(element: Y.XmlElement, nested: boolean): number {
   return (numbers[level] ?? 0) + 1;
 }
 
+/** The numbers the closest earlier numbered list among `element`'s siblings ended with, or null. */
 function lastNumbersBefore(element: Y.XmlElement): number[] | null {
   for (let at = element.prevSibling; at; at = at.prevSibling) {
     if (!(at instanceof Y.XmlElement) || at.nodeName !== "orderedList") continue;
     const { level, numbers } = numberingOf(at, undefined);
-    const last = [...numbers];
-    const count = (list: Y.XmlElement, depth: number) => {
-      for (const item of list.toArray()) {
-        if (!(item instanceof Y.XmlElement)) continue;
-        last[depth] = (last[depth] ?? 0) + 1;
-        last.length = depth + 1;
-        for (const inner of item.toArray()) {
-          if (inner instanceof Y.XmlElement && inner.nodeName === "orderedList") {
-            const next = Math.min(depth + 1, 8);
-            const own: number | undefined = last[depth];
-            last[next] = startOf(inner) - 1;
-            count(inner, next);
-            last[depth] = own ?? 0;
-          }
-        }
-      }
-    };
-    count(at, level);
-    last.length = level + 1;
-    return last;
+    let ended = numbers;
+    for (const item of at.toArray())
+      if (item instanceof Y.XmlElement) ended = nextNumbers(ended, level);
+    return ended;
   }
   return null;
 }
@@ -827,8 +849,8 @@ function readBlockElement(element: Y.XmlElement, options: ReadOptions): Block[] 
     case "orderedList": {
       const ordered = element.nodeName === "orderedList";
       const numbering = ordered ? numberingOf(element, options.outerList) : null;
-      let number = numbering ? (numbering.numbers[numbering.level] ?? 0) : 0;
-      const start = numbering ? number + 1 : 1;
+      let numbers = numbering?.numbers ?? [];
+      const start = numbering ? (numbers[numbering.level] ?? 0) + 1 : 1;
       const markers: string[] = [];
       const items = element
         .toArray()
@@ -841,8 +863,7 @@ function readBlockElement(element: Y.XmlElement, options: ReadOptions): Block[] 
             ? { ...options, outerList: undefined }
             : options;
           if (numbering) {
-            number++;
-            const numbers = [...numbering.numbers.slice(0, numbering.level), number];
+            numbers = nextNumbers(numbers, numbering.level);
             markers.push(numberingMarker(numbering.scheme, numbering.level, numbers));
             inside = {
               ...options,
@@ -1259,10 +1280,13 @@ function readInline(
     if (child instanceof Y.XmlText) {
       for (const run of child.toDelta() as Run[]) {
         const attributes = run.attributes ?? {};
-        const inserted = pendingIn(attributes[PROPOSAL_INSERT_MARK], options);
-        if (PROPOSAL_INSERT_MARK in attributes && !inserted) continue;
+        const added = changeReading(attributes[PROPOSAL_INSERT_MARK], options.review);
+        if (PROPOSAL_INSERT_MARK in attributes && added !== "waiting" && added !== "applied") {
+          continue;
+        }
         if (typeof run.insert === "string" && run.insert !== "") {
-          const deleted = pendingIn(attributes[PROPOSAL_DELETE_MARK], options);
+          const removed = changeReading(attributes[PROPOSAL_DELETE_MARK], options.review);
+          if (removed === "applied") continue;
           const ai =
             options.review !== undefined &&
             (options.wholeAnswerAi === true || GENERATED_MARK in attributes);
@@ -1275,8 +1299,12 @@ function readInline(
             marks: marksOf(run.attributes),
             ...(ai && { ai: true }),
             ...(sentenceCheck && { sentenceCheck }),
-            ...(inserted && { inserted }),
-            ...(deleted && { deleted }),
+            ...(added === "waiting" && {
+              inserted: pendingIn(attributes[PROPOSAL_INSERT_MARK], options),
+            }),
+            ...(removed === "waiting" && {
+              deleted: pendingIn(attributes[PROPOSAL_DELETE_MARK], options),
+            }),
           });
         }
       }

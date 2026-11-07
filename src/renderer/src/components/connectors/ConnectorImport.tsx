@@ -18,6 +18,7 @@ import {
   ruledListClass,
 } from "../ui";
 import { commandLine } from "./commandLine";
+import { importNeedsKeychain } from "./importNeeds";
 
 /**
  * Imports Connectors from Claude Desktop's or Cursor's `mcpServers` JSON,
@@ -56,9 +57,7 @@ export function ConnectorImport({ onDone }: { onDone(): void }) {
   };
 
   const adding = preview?.filter((entry) => entry.action === "add") ?? [];
-  const needsKeychain = adding.some(
-    (entry) => entry.env.length > 0 || (entry.headers?.length ?? 0) > 0,
-  );
+  const needsKeychain = importNeedsKeychain(adding);
   const blocked = needsKeychain && secretStorage !== null && !secretStorage.canSave;
 
   const confirm = async () => {
@@ -180,6 +179,15 @@ export function ConnectorImport({ onDone }: { onDone(): void }) {
                     })}
                   </p>
                 )}
+                {entry.placeholders?.map((each) => (
+                  <p
+                    key={`${each.header}:${each.variable}`}
+                    data-testid="connector-import-placeholder"
+                    className="text-[12px] leading-[18px] text-ink-meta"
+                  >
+                    {t("connectors.import.placeholder", { name: each.variable })}
+                  </p>
+                ))}
               </li>
             ))}
           </ul>

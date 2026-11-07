@@ -148,8 +148,11 @@ export interface LaunchOptions {
    * always a fake that makes a tone: no test opens a device.
    */
   computerSound?: "allowed" | "denied" | "silent";
-  /** Whether the Meeting's fake microphone is denied: no tone, and the line that says so. */
-  microphone?: "allowed" | "denied";
+  /**
+   * What the Meeting's fake microphone does: makes a tone (by default), is denied and says so,
+   * or waits for the system's permission prompt until the test answers it.
+   */
+  microphone?: "allowed" | "denied" | "waiting";
   /**
    * Where the guide for a permission added by hand opens, whatever the screen: in a window
    * beside System Settings, or as text in the app's window. Without it, the system decides.
@@ -2210,11 +2213,11 @@ export async function expectDotsBetweenParts(line: Locator): Promise<boolean> {
 }
 
 /**
- * Checks that the window's first group's tabs start at the card's left edge:
- * flush with it on macOS, where the sidebar's button sits in the sidebar's
- * header beside the traffic lights; on Windows and Linux just after that
- * button, which starts the strip there (SidebarToggle), 8px in and 6px before
- * the first tab (styles.css).
+ * Checks where the window's first group's tabs start, 10px in as in every
+ * group, room for the shown tab's left foot: from the card's left edge on
+ * macOS, where the sidebar's button sits in the sidebar's header beside the
+ * traffic lights; on Windows and Linux from that button, which starts the
+ * strip there (SidebarToggle) 8px in, with its own 6px after it.
  */
 export async function expectFirstTabAtCardStart(window: Page, firstTab: Locator): Promise<void> {
   const card = await window.getByTestId("card").boundingBox();
@@ -2223,13 +2226,13 @@ export async function expectFirstTabAtCardStart(window: Page, firstTab: Locator)
   const toggle = window.getByTestId("tab-strip").first().getByTestId("sidebar-toggle");
   if (process.platform === "darwin") {
     await expect(toggle).toHaveCount(0);
-    expect(tab.x).toBeCloseTo(card.x, 0);
+    expect(tab.x - card.x).toBeCloseTo(10, 0);
     return;
   }
   const button = await toggle.boundingBox();
   if (!button) throw new Error("The sidebar's button isn't at the start of the strip.");
   expect(button.x - card.x).toBeCloseTo(8, 0);
-  expect(tab.x - (button.x + button.width)).toBeCloseTo(6, 0);
+  expect(tab.x - (button.x + button.width)).toBeCloseTo(16, 0);
 }
 
 /**
