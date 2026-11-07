@@ -2004,6 +2004,15 @@ export function createDocuments(options: DocumentsOptions) {
          AND processing_version < ?`,
       [now(), BigInt(CURRENT_SINCE.xlsx)],
     );
+    // A Word file, deck or workbook that failed as unreadable may keep its parts under other
+    // names than the usual ones, which an older pipeline didn't look for (#2620): read once more.
+    db.run(
+      `UPDATE documents SET status = 'queued', updated_at = ?
+       WHERE deleted_at IS NULL AND kind IN ('docx', 'pptx', 'xlsx') AND status = 'failed'
+         AND failure_reason = 'unreadable'
+         AND processing_version < coalesce(json_extract(?, '$.' || kind), ?)`,
+      [now(), JSON.stringify(CURRENT_SINCE), BigInt(PROCESSING_VERSION)],
+    );
     // PDFs with a page of little or no text, or one read from its picture by an older
     // reader, are processed again, so their scanned pages are read (#397): only when there is
     // a model to read them. A page of text comes out as it was (see `samePassages`).

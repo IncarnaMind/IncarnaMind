@@ -85,7 +85,9 @@ test("typing on the 304-page contract in its look takes each key in a moment, as
 
   const word = [await typeAt(window, 2), await typeAt(window, clauses - 2)];
   await chooseLook(window, "plain");
-  await expect(window.locator(".mind-editor-frame > style")).toHaveCount(0);
+  // Redrawing all 304 pages plain takes about 1.5 s on a laptop and several times that on a loaded
+  // runner, past the 5 s default.
+  await expect(window.locator(".mind-editor-frame > style")).toHaveCount(0, { timeout: 30_000 });
   const plain = [await typeAt(window, 2), await typeAt(window, clauses - 2)];
   const result = { short, word, plain };
   console.log(`Typing on the 304-page contract (ms): ${JSON.stringify(result)}`);
