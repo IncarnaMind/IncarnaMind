@@ -346,6 +346,29 @@ describe("Which text is tool-call text", () => {
       expect(takeToolText(kept).text).toBe(kept);
   });
 
+  // protects=a tag holding its records in an attribute ends at its own end, so the words after it stay, whether it is escaped, wraps words, has broken JSON or never ends; fails_when=visible words are taken with the tag, or a stray quote or closing tag shows; no_claim=none beyond protects.
+  test("a tag holding its records in an attribute takes only itself", () => {
+    const records = [{ marker: 1, passage: "P1", quote: "收入增长了百分之十二。" }];
+    const json = JSON.stringify(records);
+    const escaped = `&lt;cite citations='${json.replace(/"/g, "&quot;")}'&gt;&lt;/cite&gt; Revenue grew &gt; 10% here.`;
+    const taken = takeToolText(escaped);
+    expect(taken.text.trim()).toBe("Revenue grew &gt; 10% here.");
+    expect(taken.records).toEqual(records);
+    expect(takeToolText(`<cite citations='${json}'>收入增长了[^1]。</cite> 更多。`)).toEqual({
+      text: "收入增长了[^1]。 更多。",
+      records,
+    });
+    expect(
+      takeToolText(
+        `<cite citations='[{"marker":1}'> The figure is [^1] {see note}]. Last.`,
+      ).text.trim(),
+    ).toBe("The figure is [^1] {see note}]. Last.");
+    expect(takeToolText(`A [^1].\n\n<cite citations='${json}'`)).toEqual({
+      text: "A [^1].",
+      records,
+    });
+  });
+
   // protects=two blocks side by side on a line leave the line and paragraph breaks after them; fails_when=the next line is joined to the sentence; no_claim=none beyond protects.
   test("blocks side by side keep the breaks after them", () => {
     expect(takeToolText('S.<cite>[{"a":1}]</cite><cite>[{"a":2}]</cite>\n- item').text).toBe(

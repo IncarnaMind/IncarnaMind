@@ -488,6 +488,30 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
   );
 
   test.each([
+    { language: "en", reason: "the model found nothing to add." },
+    { language: "zh-CN", reason: "模型没有找到可补充的内容。" },
+  ] as const)(
+    "a fill whose model wrote no items at all still says it found nothing to add ($language)",
+    async ({ language, reason }) => {
+      const model = scriptedModel((call) => {
+        if (isCheckRun(call)) return checkReply(call, {});
+        if (!isFill(call)) return { text: "OK" };
+        return { text: "Nothing came up worth noting." };
+      });
+      const { core, meeting } = await recorded(
+        model,
+        [note("price"), note("rollout")],
+        async (core) => {
+          await core.updateSettings({ user: { language } });
+        },
+      );
+      const fill = await settledFill(core, meeting);
+      expect(fill).toMatchObject({ state: "failed", problem: { kind: "model", message: reason } });
+      core.close();
+    },
+  );
+
+  test.each([
     {
       language: "en",
       reason: "none of what the model wrote could be checked against the transcript.",

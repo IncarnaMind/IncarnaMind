@@ -582,7 +582,9 @@ export function createMeetingFill(options: MeetingFillOptions) {
         problem ?? {
           kind: "model",
           message: words(
-            omitted > 0 ? "meetings.fill.problem.unchecked" : "meetings.fill.problem.empty",
+            ledger.omitted(false) > 0
+              ? "meetings.fill.problem.unchecked"
+              : "meetings.fill.problem.empty",
           ),
         },
       );

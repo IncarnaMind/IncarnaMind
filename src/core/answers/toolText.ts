@@ -72,7 +72,7 @@ function blocksIn(text: string, names: readonly string[]): Block[] {
     const json = jsonEnd(text, start);
     const paragraph = text.indexOf("\n\n", start);
     if (each[4] !== undefined) {
-      apart.push(attributeBlock(text, each, start, json, paragraph));
+      apart.push(...attributeBlocks(text, each, start, json, paragraph));
       continue;
     }
     const call = each[1] === undefined;
@@ -104,31 +104,46 @@ function blocksIn(text: string, names: readonly string[]): Block[] {
   return apart.filter((_, index) => shown[index]);
 }
 
-/** A tag whose attribute holds the JSON: it runs to the tag's end, and its closing tag after. */
-function attributeBlock(
+/**
+ * A tag whose attribute holds the JSON: it runs to the tag's own end on its line, and takes its
+ * closing tag, right after it or later in its paragraph, with it. Its records are read only when
+ * the JSON closes right before the attribute's quote; a tag that never ends is the rest of its
+ * paragraph, as a cut-off block is.
+ */
+function attributeBlocks(
   text: string,
   opener: RegExpExecArray,
   start: number,
   json: number | undefined,
   paragraph: number,
-): Block {
+): Block[] {
   const tag = (opener[4] ?? "").toLowerCase();
-  const end = json ?? (paragraph === -1 ? text.length : paragraph);
-  const rest =
-    json === undefined
-      ? null
-      : new RegExp(
-          `^\\s*${opener[5]}[^<>\\n]*${CLOSE}(?:\\s*${OPEN}/${escapeRegExp(tag)}\\s*${CLOSE})?`,
-          "i",
-        ).exec(text.slice(json));
-  const content = text.slice(start, end);
-  return {
+  const closing = new RegExp(`${OPEN}/${escapeRegExp(tag)}\\s*${CLOSE}`, "i");
+  const tagEnd = (pattern: string, from: number) =>
+    new RegExp(`^${pattern}[^<>\\n]*?${CLOSE}`, "i").exec(text.slice(from));
+  const wellFormed = json === undefined ? null : tagEnd(`\\s*${opener[5]}`, json);
+  const ended = wellFormed ? null : tagEnd("", start);
+  const paragraphEnd = paragraph === -1 ? text.length : paragraph;
+  const to =
+    json !== undefined && wellFormed
+      ? json + wellFormed[0].length
+      : ended
+        ? start + ended[0].length
+        : paragraphEnd;
+  const content = wellFormed || !ended ? text.slice(start, json ?? to) : "";
+  const block: Block = {
     from: opener.index,
-    to: end + (rest?.[0].length ?? 0),
+    to,
     tag,
     content,
     escaped: opener[0].startsWith("&") || content.includes("&quot;"),
   };
+  if (to >= paragraphEnd) return [block];
+  const after = closing.exec(text.slice(to, paragraphEnd));
+  if (!after) return [block];
+  const at = to + after.index;
+  if (text.slice(to, at).trim() === "") return [{ ...block, to: at + after[0].length }];
+  return [block, { from: at, to: at + after[0].length, tag, content: "", escaped: false }];
 }
 
 const decoded = (text: string) =>
