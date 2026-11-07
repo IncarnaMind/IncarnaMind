@@ -235,6 +235,8 @@ export function CitationView({
   /** Hovered or focused, with the card, the marker or its mark. */
   const { peeking, hold, clear: clearPeek } = useCitationPeek();
   const open = pinned || peeking;
+  /** Shown, and what ⌘K's "Open cited page" acts on: not while it waits in a folded assistant (#2270). */
+  const cardShown = open && !assistantFolded;
   const marker = useRef<HTMLButtonElement>(null);
   /** Whether the editor took the marker's last press to extend the selection. */
   const pressTaken = useRef(false);
@@ -443,7 +445,7 @@ export function CitationView({
   choicesRef.current = choices;
   // "Open cited page" (a command) opens the Citation whose card shows.
   useEffect(() => {
-    if (!open) return;
+    if (!cardShown) return;
     const handle = {
       open: () => openFromCardRef.current(),
       choices: () => choicesRef.current,
@@ -453,7 +455,7 @@ export function CitationView({
     return () => {
       if (citationHandle.current === handle) citationHandle.current = null;
     };
-  }, [open]);
+  }, [cardShown]);
 
   // The User's own "Checked by me" (#1933): in a Note they can change, not in a footnote's text.
   const { records } = useContext(SignOffsContext);
@@ -626,8 +628,7 @@ export function CitationView({
         className="citation-menu-anchor"
         tabIndex={-1}
       />
-      {open &&
-        !assistantFolded &&
+      {cardShown &&
         marker.current &&
         // In the body, not the editor: ProseMirror must not see the card's events.
         createPortal(

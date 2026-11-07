@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import type { AssistantDock, LayoutGroup, LayoutTab, WindowLayout } from "../../core/api";
 import {
   GAP,
@@ -124,8 +124,9 @@ export function citationPageOpened(layout: WindowLayout): void {
 
 /**
  * Keeps the yield honest as the window changes (#2270): the assistant comes back when the page
- * goes or the room is there again, and a User's unfold while the page is open hands the page
- * the narrower share instead. A User's own fold leaves the assistant alone.
+ * goes or the room is there again, and any unfold while the page is open, whoever folded it and
+ * by whichever way it is reopened, hands the page the narrower share instead. A User's own fold
+ * leaves the assistant alone.
  */
 export function useAssistantYields({
   dock,
@@ -144,18 +145,21 @@ export function useAssistantYields({
 }): void {
   const layout = useAppStore((state) => state.layout);
   const side = isSide(dock);
+  const wasFolded = useRef(folded);
   useEffect(() => {
-    if (!yielded) return;
+    const unfolded = wasFolded.current && !folded;
+    wasFolded.current = folded;
     const { placeAssistant, changeLayout } = useAppStore.getState();
     const card = room - GAP - width;
     if (!folded) {
       yielded = false;
-      if (!side || quiet || room <= 0 || !layout) return;
+      if (!unfolded || !side || quiet || room <= 0 || !layout) return;
       const pair = notePagePair(layout);
       const widths = pair ? pageYieldsWidths(layout, pair, card) : null;
       if (widths) void changeLayout({ type: "resize", widths });
       return;
     }
+    if (!yielded) return;
     const pair = layout ? notePagePair(layout) : null;
     const fits =
       layout !== null &&

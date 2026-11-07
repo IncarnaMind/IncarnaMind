@@ -299,6 +299,7 @@ test("a contradicted Citation's words are outlined in red on the page, never was
   await setCheck(answer, { check: "contradicted" });
   await answer.getByTestId("citation-chip").click();
   // The assistant folds to give the page its room; unfolding it brings the card back (#2270).
+  await expect(window.getByTestId("assistant")).toHaveAttribute("data-folded", "true");
   await showAssistant(window);
   await window.getByTestId("citation-card").getByTestId("citation-open").click();
 

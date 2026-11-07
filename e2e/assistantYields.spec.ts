@@ -213,6 +213,22 @@ for (const language of ["en", "zh-CN"] as const) {
     await closePage(window);
     await motionSettled(window);
     await expect(assistantOf(window)).toHaveAttribute("data-folded", "true");
+
+    // Folded by the User, not by the page, and reopened while the page shows: the page takes the narrower share.
+    await pointAndClick(window, editorOf(window).getByTestId("citation-chip"));
+    await expect(window.getByTestId("viewer-title")).toHaveText("Tides");
+    await expect(assistantOf(window)).toHaveAttribute("data-folded", "true");
+    await pointAndClick(window, window.getByTestId("assistant-fold"));
+    await expect(assistantOf(window)).not.toHaveAttribute("data-folded");
+    await expect
+      .poll(async () => {
+        const split = await splitOf(window);
+        return split.note - split.page;
+      })
+      .toBeGreaterThan(20);
+    const shown = await splitOf(window);
+    expect(shown.note).toBeGreaterThanOrEqual(480);
+    expect(shown.page).toBeLessThan(shown.note);
     await app.close();
   });
 }
