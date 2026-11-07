@@ -517,25 +517,25 @@ describe("The assistant's commands are the window's one list (#1421)", () => {
       "mind.exportAs.pdf",
       "mind.exportAs.source-pack",
       "mind.exportAs.html",
-      "mind.exportAs.share-page",
       "mind.exportAs.markdown",
+      "mind.shareWebPage",
     ])
       expect(offered.has(id as OfferedCommand["id"]), id).toBe(false);
     expect(offered.has("mind.export")).toBe(true);
     expect(offered.has("mind.exportOptions")).toBe(true);
   });
 
-  // protects=every format the window's Export as… saves, the core's export takes too, so leaving Export as… out takes no format away from the assistant; fails_when=the core's format list narrows; no_claim=the files each format makes.
-  test("the core's export takes every format Export as… saves", () => {
+  // protects=every format the window saves, the core's export takes too, the web page's included, which its Share sheet saves with the core's export; fails_when=the core's format list narrows; no_claim=the files each format makes.
+  test("the core's export takes every format the window saves", () => {
     const formats = registry.commands
       .all()
       .flatMap((command) =>
         command.id.startsWith("mind.exportAs.") ? [command.id.slice("mind.exportAs.".length)] : [],
       )
       .sort();
-    expect(formats).toEqual(["docx", "html", "markdown", "pdf", "share-page", "source-pack"]);
+    expect(formats).toEqual(["docx", "html", "markdown", "pdf", "source-pack"]);
     const taken: readonly string[] = COMMAND_EXPORT_FORMATS;
-    for (const format of formats) expect(taken, format).toContain(format);
+    for (const format of [...formats, "share-page"]) expect(taken, format).toContain(format);
   });
 
   // protects=what the core asks before running a window command comes from the real list's marks: every one that can turn recording on, can't be taken back or deletes asks, stopping a recording does only once the Answer read text the User didn't write, and the rest of what acts on the window runs at once; fails_when=a mark is lost between the list and the core's policy; no_claim=the card's words.
