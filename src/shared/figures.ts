@@ -199,7 +199,7 @@ export const countFigureSteps = (count: number): void => {
 };
 
 /** A footnote mark or a circled number, which NFKC would otherwise turn into a digit beside the figure. */
-const MARK = "\ue000";
+export const FOOTNOTE_MARK_CHAR = "\ue000";
 /** A no-break or thin space: nobody puts one between two separate numbers, so it always groups. */
 const NBSP = "\u00a0";
 
@@ -211,6 +211,17 @@ const FULL_WIDTH_DIGIT = /^[\uff10-\uff19]$/;
 const LATIN_LETTER = /^[A-Za-z]$/;
 /** A length that "²" or "³" raises to a power ("m²", "km³"): there they are digits, not footnote marks. */
 const POWER_AFTER = /(?<![A-Za-z])(?:m|km|cm|mm|ft)$/;
+
+/** Whether `text` at `start`–`end` is a superscript read as a footnote mark, not a digit ("1,240.50¹", not "m²"). */
+export const isFootnoteMark = (text: string, start: number, end: number): boolean =>
+  SUPERSCRIPT.test(text.slice(start, end)) &&
+  !POWER_AFTER.test(text.slice(Math.max(0, start - 3), start));
+
+/** `text` with each footnote mark read as `FOOTNOTE_MARK_CHAR`, which NFKC keeps apart from the figure ("1,240.50¹"). */
+export const markedFootnotes = (text: string): string =>
+  text.replace(/./gu, (char, at: number) =>
+    isFootnoteMark(text, at, at + char.length) ? FOOTNOTE_MARK_CHAR : char,
+  );
 
 interface Prepared {
   /** The normalised text (./text, ADR-0009), one character per character read. */
@@ -269,11 +280,8 @@ function prepare(text: string, midLine = false): Prepared {
       if (LINE_BREAK.test(original)) char = "\n";
       else if (original === " ") char = " ";
       else char = SPACE_LIKE.test(original) ? NBSP : "\t";
-    } else if (
-      SUPERSCRIPT.test(original) &&
-      !POWER_AFTER.test(text.slice(Math.max(0, unit.start - 3), unit.start))
-    ) {
-      char = MARK;
+    } else if (isFootnoteMark(text, unit.start, unit.end)) {
+      char = FOOTNOTE_MARK_CHAR;
     } else if (original === "。" || original === "｡") {
       char = "。";
     } else if (original === "、" || original === "､") {
@@ -1269,7 +1277,7 @@ const APPROXIMATE_AFTER =
 
 /** A footnote mark stuck to a figure: "¹", "*", "†", "(a)", "[1]", "(1)". */
 const FOOTNOTE_AFTER = new RegExp(
-  `${MARK}+|\\*+(?![\\d])|[†‡]|\\([a-z]\\)|\\[(?:\\d{1,3}|[a-z])\\]|\\(\\d{1,2}\\)(?![\\d.,])`,
+  `${FOOTNOTE_MARK_CHAR}+|\\*+(?![\\d])|[†‡]|\\([a-z]\\)|\\[(?:\\d{1,3}|[a-z])\\]|\\(\\d{1,2}\\)(?![\\d.,])`,
   "y",
 );
 

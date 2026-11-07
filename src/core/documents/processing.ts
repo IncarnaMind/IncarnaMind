@@ -77,9 +77,11 @@ import type { PictureProblem } from "./web/pictures";
  * merged cells keep their columns; raised digits stay raised). 24: #1979 (a
  * workbook's rows Units name the rows the file strikes through or hides). 25:
  * #2620 (a Word file's, a deck's and a workbook's parts are read where its
- * package's relationships say they are, not only at their usual names).
+ * package's relationships say they are, not only at their usual names). 26:
+ * #2474 (a PDF page's raised footnote digit after an amount stays apart from
+ * the amount, written as Unicode's superscript digit).
  */
-export const PROCESSING_VERSION = 25;
+export const PROCESSING_VERSION = 26;
 
 /**
  * Per kind, the oldest version whose Passages and Units are still what this
@@ -123,10 +125,12 @@ export const PROCESSING_VERSION = 25;
  * Version 25 Word files', decks' and workbooks': one whose main part, styles,
  * comments or notes have names other than the usual ones is read, where it
  * failed or lost its headings before; one with the usual names comes out as
- * it was, its Passages and embeddings too (#2620).
+ * it was, its Passages and embeddings too (#2620). Version 26 only PDFs': a
+ * page's raised footnote digit after an amount keeps apart from it, so its
+ * Passages come out as they are now (#2474).
  */
 export const CURRENT_SINCE: Readonly<Record<DocumentKind, number>> = {
-  pdf: 23,
+  pdf: 26,
   text: 5,
   markdown: 5,
   docx: 25,
@@ -144,8 +148,10 @@ export const CURRENT_SINCE: Readonly<Record<DocumentKind, number>> = {
  * For a PDF, the oldest version whose Passages are still what this version
  * builds: version 23 changes only the labels of a PDF's Units (their tables),
  * not the text its Passages are built from, so a PDF kept at 21 or 22 keeps
- * its Passage windows rather than being embedded again (#448). Bump this when
- * a PDF's Passages change.
+ * its Passage windows rather than being embedded again (#448). A page whose
+ * text changes, as when a raised footnote digit is read apart from its amount
+ * (#2474), is told by `pageTextChange` and its Passages are built again. Bump
+ * this when the Passages built from the same page text change.
  */
 export const PDF_PASSAGES_CURRENT_SINCE = 21;
 
