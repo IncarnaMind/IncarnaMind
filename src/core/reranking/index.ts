@@ -6,8 +6,6 @@
  * file is downloaded only once a load has found a GPU adapter, and the model
  * runs on the GPU from the next load (see ./onnx).
  */
-import { statSync } from "node:fs";
-import { readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { normaliseText } from "../../shared/text";
 import { silentLogger } from "../activityLog";
@@ -22,7 +20,6 @@ import type { EmbeddingModelStatus } from "../api";
 import { downloadModel, isModelDownloaded } from "../embedding/download";
 import { createDownloadableModel } from "../embedding/downloadable";
 import type { ModelSources } from "../embedding/modelSources";
-import { withoutHostCopies } from "./hostCopies";
 import type { RerankingModelDefinition } from "./model";
 import { createRerankQueue } from "./order";
 
@@ -84,15 +81,7 @@ export const rerankText = (hit: Rerankable) =>
 /** A logit as a score from 0 to 1, so scores stay positive and comparable, as search's are. */
 const sigmoid = (logit: number) => 1 / (1 + Math.exp(-logit));
 
-const modifiedMs = (path: string) => statSync(path, { throwIfNoEntry: false })?.mtimeMs;
-const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
-
-/**
- * A model's GPU file, from `baseUrl` into its own folder: downloaded once asked, then kept, with
- * a copy written beside it once for the WebGPU session to open, its copies between host and GPU
- * memory read as Identity (./hostCopies). The copy is opened by its path: a session opened from
- * bytes keeps the whole model in memory a second time while it runs (#2532).
- */
+/** A model's GPU file, from `baseUrl` into its own folder: downloaded once asked, then kept. */
 function createGpuFile(
   gpu: NonNullable<RerankingModelDefinition["gpu"]>,
   baseUrl: string,
@@ -101,49 +90,14 @@ function createGpuFile(
   sources: ModelSources | undefined,
 ) {
   const directory = join(dataDir, "models", gpu.folder);
-  const downloaded = join(directory, gpu.file.path);
-  const forWebGpu = `${downloaded.replace(/\.onnx$/, "")}.webgpu.onnx`;
   const lifetime = new AbortController();
   let ready = isModelDownloaded(directory, [gpu.file]);
   let downloading = false;
-  /** Written from the file as downloaded now, or tried already while IncarnaMind runs. */
-  const written = () => (modifiedMs(forWebGpu) ?? -1) >= (modifiedMs(downloaded) ?? 0);
-  let copy: "written" | "none" | undefined = ready && written() ? "written" : undefined;
-  let writing: Promise<void> | undefined;
-
-  async function writeCopy() {
-    const part = `${forWebGpu}.part`;
-    try {
-      const model = await readFile(downloaded);
-      const rewritten = withoutHostCopies(model);
-      if (rewritten === model) {
-        copy = "none";
-        log.info("reranking.gpuOpenedAsDownloaded");
-        return;
-      }
-      await writeFile(part, rewritten);
-      await rename(part, forWebGpu);
-      copy = "written";
-    } catch (error) {
-      copy = "none";
-      log.warn("reranking.gpuCopyFailed", { message: messageOf(error) });
-      await rm(part, { force: true }).catch((left: unknown) =>
-        log.warn("reranking.gpuCopyLeft", { message: messageOf(left) }),
-      );
-    }
-  }
-
   return {
     files: (): NonNullable<RerankingModelFiles["gpu"]> => ({
-      model: ready ? (copy === "written" ? forWebGpu : downloaded) : null,
+      model: ready ? join(directory, gpu.file.path) : null,
       check: gpu.check,
     }),
-    /** Writes the copy the first time the downloaded file is about to be opened. */
-    async prepare(): Promise<void> {
-      if (!ready || copy !== undefined) return;
-      writing ??= writeCopy();
-      await writing;
-    },
     download(): void {
       if (ready || downloading) return;
       downloading = true;
@@ -199,6 +153,10 @@ export function createRerankingModel(options: RerankingModelOptions): RerankingM
       reason: fallback?.reason,
       message: fallback?.message,
     });
+    if (found.copy) {
+      const { opened, writtenMs, problem } = found.copy;
+      log[problem ? "warn" : "info"]("reranking.gpuCopy", { opened, writtenMs, problem });
+    }
     if (fallback?.reason === "not-downloaded") gpuFile?.download();
     options.emitStatus(files.status());
   };
@@ -215,11 +173,12 @@ export function createRerankingModel(options: RerankingModelOptions): RerankingM
     source,
     ...(options.sources && { sources: options.sources }),
     dataDir: options.dataDir,
-    loadRunner: async (paths) => {
-      const onGpu = gpuFile && gpuFailed === undefined ? gpuFile : undefined;
-      await onGpu?.prepare();
-      onLoaded(await crossEncoder.load(onGpu ? { ...paths, gpu: onGpu.files() } : paths));
-    },
+    loadRunner: async (paths) =>
+      onLoaded(
+        await crossEncoder.load(
+          gpuFile && gpuFailed === undefined ? { ...paths, gpu: gpuFile.files() } : paths,
+        ),
+      ),
     emitStatus: options.emitStatus,
     reportError: options.reportError,
   });

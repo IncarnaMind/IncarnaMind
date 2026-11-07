@@ -9,15 +9,21 @@
  * their recorded SHA-256 instead of downloaded. The built-in model's GPU file
  * (235 MB) is taken from a folder named like its id and "-gpu" there.
  */
-import { cp, readFile, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { existsSync } from "node:fs";
+import { cp, readdir, readFile, stat } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { describe, expect, test, vi } from "vitest";
 import { RERANKING_MODEL_CANDIDATES } from "../../eval/lib/rerankingModels";
 import { BUILT_IN_RERANKING_MODEL } from "../../src/core";
 import type { RerankingModelFiles } from "../../src/core/adapters";
 import { downloadModel } from "../../src/core/embedding/download";
 import { createRerankingModel, rerankText } from "../../src/core/reranking/index";
-import { createOnnxCrossEncoder, pairEncoder, pairIds } from "../../src/core/reranking/onnx";
+import {
+  createOnnxCrossEncoder,
+  createOrtSession,
+  pairEncoder,
+  pairIds,
+} from "../../src/core/reranking/onnx";
 import { createTempDataFolder } from "../helpers/core";
 
 const ids = (process.env.INCARNAMIND_REAL_RERANKER_IDS ?? BUILT_IN_RERANKING_MODEL.id).split(",");
@@ -126,17 +132,30 @@ describe.runIf(process.env.INCARNAMIND_REAL_RERANKER === "1")(
       const folder = join(dataDir, "models", definition.folder);
       const gpuFolder = join(dataDir, "models", gpu.folder);
       const cached = process.env.INCARNAMIND_RERANKER_MODEL_DIR;
-      if (cached) {
-        await cp(join(cached, definition.id), folder, { recursive: true });
-        await cp(join(cached, `${definition.id}-gpu`), gpuFolder, { recursive: true });
-      }
+      const copyIn = async (from: string, to: string) => {
+        if (cached && existsSync(join(cached, from)))
+          await cp(join(cached, from), to, { recursive: true });
+      };
       const signal = new AbortController().signal;
+      await copyIn(definition.id, folder);
       await downloadModel({
         directory: folder,
         source: definition.source,
         signal,
         onProgress: () => {},
       });
+      const files = (model: string | null): RerankingModelFiles => ({
+        model: join(folder, definition.files.model),
+        tokenizer: join(folder, definition.files.tokenizer),
+        tokenizerConfig: join(folder, definition.files.tokenizerConfig),
+        maxTokens: definition.maxTokens,
+        gpu: { model, check: gpu.check },
+      });
+      const probe = createOnnxCrossEncoder();
+      const found = await probe.load(files(null));
+      probe.close();
+      if (found.fallback?.reason === "no-adapter") context.skip();
+      await copyIn(`${definition.id}-gpu`, gpuFolder);
       await downloadModel({
         directory: gpuFolder,
         source: { baseUrl: definition.source.baseUrl, files: [gpu.file] },
@@ -144,13 +163,23 @@ describe.runIf(process.env.INCARNAMIND_REAL_RERANKER === "1")(
         onProgress: () => {},
       });
       const downloaded = join(gpuFolder, gpu.file.path);
-      const files = (model: string): RerankingModelFiles => ({
-        model: join(folder, definition.files.model),
-        tokenizer: join(folder, definition.files.tokenizer),
-        tokenizerConfig: join(folder, definition.files.tokenizerConfig),
-        maxTokens: definition.maxTokens,
-        gpu: { model, check: gpu.check },
+
+      // As the app starts it: its GPU file in place, so the copy is written before it opens.
+      const asApp = createRerankingModel({
+        definition,
+        dataDir,
+        crossEncoder: createOnnxCrossEncoder(),
+        emitStatus: () => {},
       });
+      await asApp.rerank("What is the capital of France?", HITS);
+      expect(asApp.device()).toBe("gpu");
+      asApp.close();
+      const beside = dirname(downloaded);
+      const copies = (await readdir(beside)).filter((name) => name.includes(".webgpu-"));
+      expect(copies).toHaveLength(1);
+      // Its twelve MemcpyFromHost nodes each read Identity, six letters shorter.
+      expect((await stat(join(beside, copies[0] ?? ""))).size).toBe(gpu.file.size - 72);
+
       const texts = [
         ...HITS,
         { documentName: "Long", text: "Paris is on the Seine. ".repeat(400) },
@@ -167,37 +196,33 @@ describe.runIf(process.env.INCARNAMIND_REAL_RERANKER === "1")(
         "中国古代修建了什么防御工程？",
         "When is rent due?",
       ];
-      const scores = async (model: string) => {
-        const crossEncoder = createOnnxCrossEncoder();
-        expect(await crossEncoder.load(files(model))).toEqual({ device: "gpu" });
+      const scores = async (crossEncoder: ReturnType<typeof createOnnxCrossEncoder>) => {
         const all = [];
         for (const query of queries) all.push(await crossEncoder.score(query, texts));
         crossEncoder.close();
         return all.flat();
       };
-      const probe = createOnnxCrossEncoder();
-      const found = await probe.load(files(downloaded));
-      probe.close();
-      if (found.fallback?.reason === "no-adapter") context.skip();
-      // As the app starts it: the GPU file in place, so its copy is written before it opens.
-      const asApp = createRerankingModel({
-        definition,
-        dataDir,
-        crossEncoder: createOnnxCrossEncoder(),
-        emitStatus: () => {},
+      const fromCopy = createOnnxCrossEncoder();
+      expect(await fromCopy.load(files(downloaded))).toEqual({
+        device: "gpu",
+        copy: { opened: true },
       });
-      await asApp.rerank(queries[0] ?? "", HITS);
-      expect(asApp.device()).toBe("gpu");
-      asApp.close();
-      const copy = join(gpuFolder, gpu.file.path.replace(/\.onnx$/, ".webgpu.onnx"));
-      // Its twelve MemcpyFromHost nodes each read Identity, six letters shorter.
-      expect((await stat(copy)).size).toBe(gpu.file.size - 72);
-
-      const asDownloaded = await scores(downloaded);
-      const withoutCopies = await scores(copy);
+      const withoutCopies = await scores(fromCopy);
+      const asDownloaded = createOnnxCrossEncoder({
+        createSession: (model, device) =>
+          createOrtSession(
+            device === "gpu" && typeof model === "string" ? downloaded : model,
+            device,
+          ),
+      });
+      expect(await asDownloaded.load(files(downloaded))).toEqual({
+        device: "gpu",
+        copy: { opened: true },
+      });
+      const fromDownloaded = await scores(asDownloaded);
 
       expect(withoutCopies).toHaveLength(queries.length * texts.length);
-      expect(withoutCopies.map((score, at) => Object.is(score, asDownloaded[at]))).not.toContain(
+      expect(withoutCopies.map((score, at) => Object.is(score, fromDownloaded[at]))).not.toContain(
         false,
       );
     });

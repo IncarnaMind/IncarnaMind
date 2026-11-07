@@ -3,17 +3,17 @@
  * the built-in reranker on this computer, scoring one search for each of Check this Note's ten
  * sentences, the sentence as its query, over the mixed sample set, in English and Chinese: from
  * its GPU file as downloaded, and from the copy the app opens now, with the copies between host
- * and GPU memory read as Identity (src/core/reranking/hostCopies.ts). The two take turns, `RUNS`
- * times each (5 by default), and any score that differs between them fails the run.
+ * and GPU memory read as Identity (src/core/reranking/hostCopies.ts), written into the model
+ * cache as the app writes it. The two take turns, `RUNS` times each (5 by default), and any score
+ * that differs between them fails the run.
  */
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "vitest";
 import type { CrossEncoder, RerankingModelFiles } from "../../src/core/adapters";
-import { withoutHostCopies } from "../../src/core/reranking/hostCopies";
 import { BUILT_IN_RERANKING_MODEL } from "../../src/core/reranking/model";
-import { createOnnxCrossEncoder } from "../../src/core/reranking/onnx";
+import { createOnnxCrossEncoder, createOrtSession } from "../../src/core/reranking/onnx";
 import { buildPdf } from "../../tests/helpers/pdf";
 import { reports } from "../everyday/asking";
 import { readConfig } from "../lib/config";
@@ -99,30 +99,45 @@ timedThroughput(
     const config = readConfig(ROOT);
     const searches = await noteSearches();
     const runs = Number(env("RUNS") ?? "5");
+    if (!Number.isInteger(runs) || runs < 1)
+      throw new Error("INCARNAMIND_EVAL_SPEED_RUNS must be a whole number, 1 or more.");
     const { gpu, folder, files: paths, maxTokens } = BUILT_IN_RERANKING_MODEL;
     if (!gpu) throw new Error("The built-in reranking model has no GPU file.");
     const models = join(config.cacheDir, "models");
     const downloaded = join(models, gpu.folder, gpu.file.path);
-    const copyFolder = await mkdtemp(join(tmpdir(), "incarnamind-rerank-copy-"));
-    const copy = join(copyFolder, "model.webgpu.onnx");
-    await writeFile(copy, withoutHostCopies(await readFile(downloaded)));
-    const files = (model: string): RerankingModelFiles => ({
+    const files: RerankingModelFiles = {
       model: join(models, folder, paths.model),
       tokenizer: join(models, folder, paths.tokenizer),
       tokenizerConfig: join(models, folder, paths.tokenizerConfig),
       maxTokens,
-      gpu: { model, check: gpu.check },
-    });
-    const arms = { "as downloaded": downloaded, "host copies as Identity": copy };
+      gpu: { model: downloaded, check: gpu.check },
+    };
+    const arms = {
+      "as downloaded": () =>
+        createOnnxCrossEncoder({
+          createSession: (model, device) =>
+            createOrtSession(
+              device === "gpu" && typeof model === "string" ? downloaded : model,
+              device,
+            ),
+        }),
+      "host copies as Identity": () => createOnnxCrossEncoder(),
+    };
+    // The app writes its copy the first time; written here first, so no run's load holds it.
+    const first = arms["host copies as Identity"]();
+    const prepared = await first.load(files);
+    first.close();
+    if (!prepared.copy?.opened)
+      throw new Error(`The copy wasn't opened: ${prepared.copy?.problem ?? "nothing to rewrite"}.`);
     type Arm = keyof typeof arms;
     const times = new Map<Arm, { load: number[]; oneByOne: number[]; atOnce: number[] }>();
     const scores = new Map<Arm, number[][]>();
     for (let run = 0; run < runs; run++) {
       const order = Object.keys(arms) as Arm[];
       for (const arm of run % 2 === 0 ? order : order.reverse()) {
-        const crossEncoder = createOnnxCrossEncoder();
+        const crossEncoder = arms[arm]();
         const begun = performance.now();
-        const device = await crossEncoder.load(files(arms[arm]));
+        const device = await crossEncoder.load(files);
         if (device.device !== "gpu")
           throw new Error(`The reranker loaded on the ${device.device}.`);
         const loaded = performance.now();
@@ -149,7 +164,6 @@ timedThroughput(
         );
       }
     }
-    await rm(copyFolder, { recursive: true, force: true });
     const asDownloaded = scores.get("as downloaded")?.flat() ?? [];
     const identity = scores.get("host copies as Identity")?.flat() ?? [];
     const differing = identity.filter((score, at) => !Object.is(score, asDownloaded[at])).length;
