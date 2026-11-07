@@ -1,8 +1,8 @@
 /**
  * A quote that differs from the page only in the kind of its quotation marks (#2605): the
- * Citation's check says not found, as it must, and stores the Document's own words for the card
- * to offer Use the Document's wording. A word, a number, a letter's case or an apostrophe read as
- * a mark offers nothing. English and Chinese.
+ * Citation's check says not found, as it must, and stores the quote in the Document's marks for
+ * the card to offer Use the Document's wording. A word, a number, a letter's case, a punctuation
+ * mark or an apostrophe read as a mark offers nothing. English and Chinese.
  */
 import { describe, expect, test } from "vitest";
 import { parseQuotedWords } from "../../src/shared/citations";
@@ -126,3 +126,83 @@ test("an apostrophe inside a word is never read as a mark, so no Document's word
   expect(result).toMatchObject({ check: "not-found", checkReason: "quoted-words-not-on-pages" });
   expect(result.quotedWords?.documentWording).toBeUndefined();
 });
+
+/** An apostrophe inside a span the page marks with the other kind of quotation marks. */
+const APOSTROPHES = {
+  en: {
+    file: {
+      name: "Clients.md",
+      contents: "# Clients\n\nSection 5: the “clients’ files” rule applies to 4 orders.\n",
+    },
+    query: "clients files rule",
+    question: "What rule applies to the clients' files?",
+    quote: "the “clients’ files” rule applies to 4 orders",
+    sentence: "The policy says “the ‘clients’ files’ rule applies to 4 orders” [^1].",
+    wording: "the “clients’ files” rule applies to 4 orders",
+  },
+  zh: {
+    file: {
+      name: "客户.md",
+      contents: "# 客户\n\n第 5 节：the “clients’ files” rule 适用于 4 个订单。\n",
+    },
+    query: "clients files 规则",
+    question: "文件规则适用于什么？",
+    quote: "the “clients’ files” rule 适用于 4 个订单",
+    sentence: "报告称“the ‘clients’ files’ rule 适用于 4 个订单”[^1]。",
+    wording: "the “clients’ files” rule 适用于 4 个订单",
+  },
+} as const;
+
+describe.each(["en", "zh"] as const)(
+  "an apostrophe inside a span whose marks alone differ (%s)",
+  (language) => {
+    const sample = APOSTROPHES[language];
+
+    test("keeps the apostrophe, and stores the quote in the Document's marks", async () => {
+      const result = await checkOf(sample, sample.sentence);
+      expect(result).toMatchObject({
+        check: "not-found",
+        checkReason: "quoted-words-not-on-pages",
+      });
+      expect(result.quotedWords?.documentWording).toBe(sample.wording);
+    });
+  },
+);
+
+/** A punctuation mark changed beside the marks: a non-mark character changed, so nothing is offered. */
+const PUNCTUATION = {
+  en: {
+    file: {
+      name: "Monthly.md",
+      contents:
+        "# Monthly\n\nSection 5: the “soft weight” rule, applied monthly, covers 4 orders.\n",
+    },
+    query: "soft weight monthly",
+    question: "What rule covers orders?",
+    quote: "the “soft weight” rule, applied monthly, covers 4 orders",
+    sentence: "The policy says “the ‘soft weight’ rule; applied monthly; covers 4 orders” [^1].",
+  },
+  zh: {
+    file: {
+      name: "月度.md",
+      contents: "# 月度\n\n第 5 节：注意力机制的灵活性来自于它的“软权重”特性，即 4 个 AI 模型。\n",
+    },
+    query: "软权重 特性 模型",
+    question: "灵活性来自什么特性？",
+    quote: "注意力机制的灵活性来自于它的“软权重”特性，即 4 个 AI 模型",
+    sentence: "报告称“注意力机制的灵活性来自于它的‘软权重’特性；即 4 个 AI 模型”[^1]。",
+  },
+} as const;
+
+describe.each(["en", "zh"] as const)(
+  "a punctuation mark changed beside the marks (%s)",
+  (language) => {
+    const sample = PUNCTUATION[language];
+
+    test("is not found, and offers no Document's wording", async () => {
+      const result = await checkOf(sample, sample.sentence);
+      expect(result).toMatchObject({ check: "not-found" });
+      expect(result.quotedWords?.documentWording).toBeUndefined();
+    });
+  },
+);

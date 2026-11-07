@@ -995,19 +995,23 @@ function CitationCard({
       {state.reason === "unsure-word" && (
         <ScanPagePicture attributes={attributes} scanned={scannedText} />
       )}
-      {state.check === "not-found" && <CitationQuotedWords attributes={attributes} />}
-      {onUseDocumentWording && (
-        // Under the two texts, beside what differs: the one fix for a quote whose marks alone are the Answer's.
-        <div className="citation-card-actions">
-          <button
-            type="button"
-            data-testid="citation-use-document-wording"
-            className="citation-card-action"
-            onClick={onUseDocumentWording}
-          >
-            {t("citation.useDocumentWording")}
-          </button>
-        </div>
+      {state.check === "not-found" && (
+        <>
+          <CitationQuotedWords attributes={attributes} />
+          {onUseDocumentWording && (
+            // Under the two texts, beside what differs: the one fix for a quote whose marks alone are the Answer's.
+            <div className="citation-card-actions">
+              <button
+                type="button"
+                data-testid="citation-use-document-wording"
+                className="citation-card-action"
+                onClick={onUseDocumentWording}
+              >
+                {t("citation.useDocumentWording")}
+              </button>
+            </div>
+          )}
+        </>
       )}
       {changed && (
         <div data-testid="citation-changed" className="citation-card-changed">

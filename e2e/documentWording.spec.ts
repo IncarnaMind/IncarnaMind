@@ -82,7 +82,9 @@ test.afterEach(async () => {
 });
 
 /** A note whose one sentence quotes the page with the other kind of marks inside. */
-async function noteQuotingPolicy(window: Page): Promise<Locator> {
+async function noteQuotingPolicy(
+  window: Page,
+): Promise<{ line: Locator; documentId: string | undefined }> {
   await writeFile(join(sources, "Policy.md"), POLICY);
   await addDocuments(window, [join(sources, "Policy.md")]);
   await newMind(window);
@@ -135,7 +137,7 @@ async function noteQuotingPolicy(window: Page): Promise<Locator> {
   );
   const line = editor.locator(":scope > p").first();
   await expect(line.getByTestId("citation")).toHaveAttribute("data-check", "not-found");
-  return line;
+  return { line, documentId: policy?.id };
 }
 
 /** The words of a line, without its Citations' markers. */
@@ -179,7 +181,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await dismissChatSetup(window);
       await useLocalChatModel(window);
       await setLanguage(window, language);
-      const line = await noteQuotingPolicy(window);
+      const { line, documentId } = await noteQuotingPolicy(window);
 
       const citation = line.getByTestId("citation");
       await pointAndClick(window, citation.getByTestId("citation-chip"));
@@ -227,6 +229,20 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect.poll(() => wordsOf(line)).toBe(SENTENCE);
       await expect(citation).toHaveAttribute("data-check", "not-found");
       await expect(citation).toHaveAttribute("data-reason", "quoted-words-not-on-pages");
+
+      // A Document removed after that: the card can't check it, and offers no wording.
+      if (language === "en" && width === 1600) {
+        await window.evaluate(async (id) => {
+          if (!id) return;
+          const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+          await core.deleteDocument(id);
+        }, documentId);
+        await expect(citation).toHaveAttribute("data-check", "cant-check");
+        await citation.getByTestId("citation-chip").focus();
+        await expect(card).toBeVisible();
+        await expect(card.getByTestId("citation-use-document-wording")).toHaveCount(0);
+        await expect(card.getByTestId("citation-closest-words")).toHaveCount(0);
+      }
     });
   }
 }
@@ -238,7 +254,7 @@ test("the action is reachable by the keyboard, and Enter takes it", async () => 
   await dismissChatSetup(window);
   await useLocalChatModel(window);
   await setLanguage(window, "en");
-  const line = await noteQuotingPolicy(window);
+  const { line } = await noteQuotingPolicy(window);
   const citation = line.getByTestId("citation");
   await pointAndClick(window, citation.getByTestId("citation-chip"));
   const card = window.getByTestId("citation-card");

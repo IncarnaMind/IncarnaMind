@@ -7,7 +7,7 @@
 import type { Editor } from "@tiptap/core";
 import type * as Y from "yjs";
 import { CITATION_NODE } from "../../core/api";
-import { parseQuotedWords, quotedWordsFoundIn } from "../../shared/citations";
+import { parseQuotedWords } from "../../shared/citations";
 import { differsOnlyInMarks } from "../../shared/quoteMarks";
 import { findQuote } from "../../shared/quoteMatch";
 import { checkAgain, fixesFree, restoreCheck } from "./checks";
@@ -49,9 +49,6 @@ export function citationWordingFix(editor: Editor, citation: number): CitationWo
   const words = quoted.answer.map((piece) => piece.text).join("");
   // Marks are one character each, so the sentence keeps its length and nothing after it moves.
   if (!differsOnlyInMarks(words, wording) || wording.length !== words.length) return null;
-  // The check must find the Document's own words in them: a text match, not a verdict.
-  if (!quotedWordsFoundIn(wording, { answer: [{ text: wording, found: true }], closest: null }))
-    return null;
   const claim = shownClaims(editor.state).find(
     (each) => each.sentence.from <= citation && citation < each.sentence.to,
   );

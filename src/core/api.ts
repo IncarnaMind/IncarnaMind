@@ -2635,9 +2635,10 @@ export interface QuotedWords {
   /** The Document's words nearest them, the matching stretch `found: true`; null when none is near. */
   closest: QuotedPiece[] | null;
   /**
-   * The Document's own words for the Answer's quote, when they differ only in the kind of their
-   * quotation marks (#2605): what Use the Document's wording puts in the sentence. Absent for any
-   * other difference, which the card offers nothing for.
+   * The Answer's quote in the Document's own marks, where the two differ only in the kind of
+   * their quotation marks (#2605): what Use the Document's wording puts in the sentence. The
+   * quote's other characters are its own, so only its marks change. Absent for any other
+   * difference, which the card offers nothing for.
    */
   documentWording?: string;
 }

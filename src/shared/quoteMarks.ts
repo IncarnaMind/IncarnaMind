@@ -29,15 +29,45 @@ interface Item {
 const NO_APOSTROPHE = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
 const LETTER_OR_DIGIT = /[\p{L}\p{N}]/u;
 
+/** How far ahead a closing mark that would make a plural possessive an apostrophe is looked for. */
+const LOOKAHEAD = 200;
+
 const wordish = (char: string | undefined) =>
   char !== undefined && LETTER_OR_DIGIT.test(char) && !NO_APOSTROPHE.test(char);
 
 /** Whether the character at `at` sits between two letters or digits of a word: it’s. */
 const inWord = (text: string, at: number) => wordish(text[at - 1]) && wordish(text[at + 1]);
 
+/** Whether the ' at `at` closes a single mark there: it follows a word and no word follows it. */
+const closesSingle = (text: string, at: number) => {
+  const char = text[at];
+  if (char === "’") return true;
+  if (char === "‘") return false;
+  return char === "'" && wordish(text[at - 1]) && !wordish(text[at + 1]);
+};
+
+/**
+ * Whether a ’ or ' with a single mark open ends a plural possessive (the bosses’, clients’)
+ * rather than closing that mark, as it does in ‘the bosses’ rule’: it ends in s and a later
+ * closing mark waits for the one that is open.
+ */
+function pluralPossessive(text: string, at: number): boolean {
+  if (!/[sS]/.test(text[at - 1] ?? "")) return false;
+  const limit = Math.min(text.length, at + LOOKAHEAD);
+  for (let next = at + 1; next < limit; next++) {
+    const char = text[next];
+    if (char !== "’" && char !== "'" && char !== "‘") continue;
+    // An apostrophe inside another word says nothing of the mark that is open.
+    if (inWord(text, next)) continue;
+    return closesSingle(text, next);
+  }
+  return false;
+}
+
 /**
  * `text` read as marks and characters, in order. A ' or ’ opens or closes a single mark unless
- * it is an apostrophe: inside a word, or at a word's end with no single mark open (the bosses’).
+ * it is an apostrophe: inside a word, or at a word's end with no single mark open (the bosses’),
+ * or a plural possessive followed by the mark that closes the span (the ‘clients’ files’).
  */
 function itemsOf(text: string): Item[] {
   const items: Item[] = [];
@@ -61,13 +91,22 @@ function itemsOf(text: string): Item[] {
       items.push({ char, start, end });
       continue;
     }
+    if (original === "‘") {
+      singles++;
+      items.push({ mark: "single", start, end });
+      continue;
+    }
     if (singles > 0) {
+      if (pluralPossessive(text, start)) {
+        items.push({ char, start, end });
+        continue;
+      }
       singles--;
       items.push({ mark: "single", start, end });
       continue;
     }
     // A ’ or ' after a word, with none open, is the word's own: the bosses’ vote.
-    if (original !== "‘" && wordish(text[start - 1])) {
+    if (wordish(text[start - 1])) {
       items.push({ char, start, end });
       continue;
     }
@@ -111,8 +150,9 @@ export function differsOnlyInMarks(answer: string, page: string): boolean {
 }
 
 /**
- * The page's own words where it holds `words` with only the kind of their quotation marks
- * changed, or null: more than one place is no place to take, and neither is none.
+ * The quote with the page's own marks where the page holds it differing only in the kind of
+ * their quotation marks, or null: more than one place is no place to take, and neither is none.
+ * Its other characters are the quote's own, so only its marks change in the sentence.
  */
 export function documentWordingIn(words: string, page: string): string | null {
   const wanted = itemsOf(words);
@@ -122,10 +162,25 @@ export function documentWordingIn(words: string, page: string): string | null {
   for (let at = 0; at + wanted.length <= hay.length; at++) {
     const { matches, differs } = readsAs(wanted, hay, at);
     if (!matches || !differs) continue;
+    const marks: { start: number; end: number; mark: string }[] = [];
+    for (const [index, left] of wanted.entries()) {
+      if (left.mark === undefined) continue;
+      const right = hay[at + index] as Item;
+      const mark = page.slice(right.start, right.end);
+      // Every mark takes one character where a mark stood, so the sentence keeps its length.
+      if (mark.length !== left.end - left.start) {
+        marks.length = 0;
+        break;
+      }
+      marks.push({ start: left.start, end: left.end, mark });
+    }
+    if (marks.length === 0) continue;
+    let wording = words;
+    for (const { start, end, mark } of [...marks].sort((a, b) => b.start - a.start)) {
+      wording = `${wording.slice(0, start)}${mark}${wording.slice(end)}`;
+    }
     if (found !== null) return null;
-    const first = hay[at] as Item;
-    const last = hay[at + wanted.length - 1] as Item;
-    found = page.slice(first.start, last.end);
+    found = wording;
   }
   return found;
 }
