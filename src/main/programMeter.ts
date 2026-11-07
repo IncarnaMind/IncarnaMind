@@ -691,7 +691,6 @@ interface Watched {
   readingSince: number | null;
   /** The app's CPU time, in ms, as that read began. */
   readingCpu: number;
-  /** The soonest its next read of open files may begin. */
   nextReadAt: number;
   /** How its last read ended, and when that read began, until a tick acts on it. */
   ended: { ok: boolean; startedAt: number } | null;
@@ -715,6 +714,7 @@ export interface MetersOptions {
   platform?: NodeJS.Platform;
   folder?: (folder: string) => Promise<number>;
   reader?: ProcReader;
+  /** A monotonic clock in ms, unmoved by the system clock's steps and the computer's sleep. */
   now?: () => number;
   /** The CPU time the app has used, in ms. */
   cpu?: () => number;
@@ -736,10 +736,10 @@ export const UNKNOWN_DISK_MS = 10_000;
 /**
  * A run's next read of its open files begins no sooner than this many times its last read's cost
  * after that read began, the cost being the longer of its wall time and the CPU time the app used
- * meanwhile, on every thread: a read of 30 MB of maps took about 1.8 times its wall time in CPU. A
- * cost counts up to the read's 2 s deadline, so the wait is 8 s at most. While a read costs no
- * more, a run that makes its reads heavy keeps the app reading a quarter of the time and a quarter
- * of a core at most (#2351).
+ * meanwhile, on every thread: a read of 30 MB of maps took about 1.8 times its wall time in CPU. So
+ * a run that makes its reads heavy keeps the app reading a quarter of the time and a quarter of a
+ * core at most, and runs whose reads overlap pace each other. A read that costs more than its 2 s
+ * deadline leaves the disk unknown, so a run whose reads stay that heavy is stopped (#2351).
  */
 export const READ_PACE = 4;
 
@@ -759,7 +759,7 @@ export function createMeters(options: MetersOptions = {}): Meters {
   const platform = options.platform ?? process.platform;
   const sizeOf = options.folder ?? folderSize;
   const reader = options.reader ?? procReader;
-  const now = options.now ?? Date.now;
+  const now = options.now ?? (() => performance.now());
   const cpu = options.cpu ?? appCpu;
   const watched = new Set<Watched>();
   let timer: ReturnType<typeof setInterval> | undefined;
@@ -799,11 +799,13 @@ export function createMeters(options: MetersOptions = {}): Meters {
     );
   }
 
-  function readEnded(each: Watched, startedAt: number) {
+  /** Paces the run's next read by this one's cost; false when that cost passed the deadline. */
+  function readEnded(each: Watched, startedAt: number): boolean {
     const at = now();
     each.readingSince = null;
     const cost = Math.max(at - startedAt, cpu() - each.readingCpu);
     each.nextReadAt = startedAt + READ_PACE * Math.min(cost, DISK_DEADLINE_MS);
+    return cost <= DISK_DEADLINE_MS;
   }
 
   /** Records how a run's read of its open files ended; a failed one stops the run before it's told. */
@@ -829,11 +831,12 @@ export function createMeters(options: MetersOptions = {}): Meters {
       each.unmeasured(error);
       return;
     }
-    readEnded(each, startedAt);
+    // Past its deadline a read is slow though it ended: a run whose reads stay that heavy is stopped.
+    const good = readEnded(each, startedAt) && !result.partial;
     if (!watched.has(each)) return;
     const bytes = heldBytes(result.files, new Set(pids), device);
-    each.unlinked = result.partial ? Math.max(each.unlinked, bytes) : bytes;
-    each.ended = { ok: !result.partial, startedAt };
+    each.unlinked = good ? bytes : Math.max(each.unlinked, bytes);
+    each.ended = { ok: good, startedAt };
   }
 
   async function readShared(batch: readonly { each: Watched; pids: number[] }[], at: number) {

@@ -1292,6 +1292,39 @@ describe("the meter, on Linux's /proc", () => {
 });
 
 describe("the 10 s clock", () => {
+  test("the meter's own clock is monotonic: the system clock set back 60 s holds back no read, so a file that grows meanwhile is counted", async () => {
+    const wall = Date.now.bind(Date);
+    let setBack = 0;
+    const system = vi.spyOn(Date, "now").mockImplementation(() => wall() - setBack);
+    onTestFinished(() => system.mockRestore());
+    const leader: ProcNode = { ...deleted(5 * MB) };
+    const { command } = computer({ ps: () => `600 1 600 501 1024\n${HELPER} 600 600 501 1024` });
+    const { reader } = fakeProc({
+      600: { leader },
+      [HELPER]: { leader: { fdsErr: "EACCES" }, status: nested(2, 1) },
+    });
+    const meters = createMeters({
+      command,
+      platform: "linux",
+      interval: false,
+      reader,
+      folder: async () => 0,
+    });
+    const each = watcher();
+    meters.meter().watch(600, "/w", each.use, each.unmeasured);
+    const counted = (bytes: number) =>
+      vi.waitFor(async () => {
+        await meters.tick();
+        await meters.settle();
+        expect(each.uses.at(-1)?.folder).toBe(bytes);
+      });
+    await counted(5 * MB);
+    setBack = 60_000;
+    leader.sizes = { 3: { device: 9, inode: "42", bytes: 900 * MB } };
+    await counted(900 * MB);
+    expect(each.peak().unknown).toBe(false);
+  });
+
   test("unknown for exactly 10,000 ms isn't stopped; the next tick, past it, is", async () => {
     const { c, meters, each } = linux({ 600: { leader: { maps: capped() } } });
     // Every read passes the cap. The first began at 0 ms, so the clock starts there.
@@ -1407,6 +1440,54 @@ describe("a run's reads, paced by their cost", () => {
     const busy = linux({ 600: { leader: { ...deleted(5 * MB), takes: 100, burns: 60_000 } } });
     await run(busy.meters, busy.c, 33, 250);
     expect(sinceFirst(busy.fdReadAt.get(600))).toEqual([0, 8100]);
+  });
+
+  test.each([
+    ["2,001 ms of CPU in 100 ms", { takes: 100, burns: 2001 }, 40],
+    ["2,001 ms of wall time", { takes: 2001 }, 25],
+  ])(
+    "a read that costs more than its 2 s deadline, %s, leaves the disk unknown though it ends, its bytes still counted; a run whose reads all do is stopped at the tick past 10 s",
+    async (_name, cost, stopped) => {
+      const { c, meters, each } = linux({ 600: { leader: { ...deleted(5 * MB), ...cost } } });
+      await run(meters, c, 45, 250);
+      expect(each.uses[stopped - 1]?.folder).toBe(5 * MB);
+      expect(stoppedAt(each)).toBe(stopped);
+      expect(each.reports).toEqual([]);
+    },
+  );
+
+  test("a read that costs 2,000 ms of CPU, its deadline, is a good one: never stopped", async () => {
+    const { c, meters, each } = linux({
+      600: { leader: { ...deleted(5 * MB), takes: 100, burns: 2000 } },
+    });
+    await run(meters, c, 45, 250);
+    expect(each.peak().unknown).toBe(false);
+    expect(each.uses.at(-1)?.folder).toBe(5 * MB);
+  });
+
+  test("a read that timed out paces the next as one that ended would: a killed lsof and the run's own, 1 s in all, are tried again 4 s after they began", async () => {
+    const c = clock();
+    const { command, lsofPids } = computer({
+      ps: () => "600 1 600 501 1024",
+      lsof: () => {
+        c.advance(500);
+        return killedLsof();
+      },
+    });
+    const meters = createMeters({
+      command,
+      platform: "darwin",
+      interval: false,
+      now: c.now,
+      cpu: c.cpu,
+      folder: async () => 0,
+    });
+    const each = watcher();
+    meters.meter().watch(600, "/w", each.use, each.unmeasured);
+    // lsof's turns are the odd ticks: read at 250 ms, then none before 4,250, the 13th tick.
+    await run(meters, c, 20, 250);
+    expect(lsofPids).toEqual(["600", "600", "600", "600"]);
+    expect(each.peak().unknown).toBe(false);
   });
 
   test("an ordinary run's read, 3 ms, is followed on the next tick, as without pacing", async () => {
