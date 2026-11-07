@@ -447,6 +447,146 @@ describe("CSV", () => {
   });
 });
 
+/**
+ * The header is the row whose words stand over the figures below it (#2373),
+ * not the first row: a table of data without a header keeps its first row as
+ * data, and a title row of two cells above the header is not the header. The
+ * sheet is long enough for a later block, which shows the row it repeats.
+ */
+describe("a sheet's header row is found from its shape (#2373)", () => {
+  type Row = (string | number)[];
+
+  async function unitsOf(format: "csv" | "xlsx", rows: Row[]): Promise<TextUnit[]> {
+    if (format === "csv")
+      return extractCsv(new TextEncoder().encode(rows.map((row) => row.join(",")).join("\n")))
+        .units;
+    return (await extractXlsx(xlsxOf([{ name: "Data", rows }]))).units;
+  }
+
+  const stores = (language: "en" | "zh") =>
+    Array.from({ length: 120 }, (_, index) =>
+      language === "en"
+        ? [`Store ${index + 1}`, "Hangzhou", 1000 + index]
+        : [`门店${index + 1}`, "杭州", 1000 + index],
+    );
+
+  test.each([
+    ["csv", "en"],
+    ["csv", "zh"],
+    ["xlsx", "en"],
+    ["xlsx", "zh"],
+  ] as const)(
+    "%s, %s: a table with no header row keeps its first data row as data",
+    async (format, language) => {
+      const first = language === "en" ? ["Alice", 30, "Paris"] : ["张三", 30, "北京"];
+      const second = language === "en" ? ["Bob", 25, "London"] : ["李四", 25, "上海"];
+      const units = await unitsOf(format, [first, second, ...stores(language)]);
+
+      expect(units.length).toBeGreaterThan(1);
+      for (const unit of units) {
+        // No block opens with a header line of its own: each holds exactly the rows it names.
+        expect(unit.label?.header).toBeUndefined();
+        expect(unit.text.split("\n")).toHaveLength(unit.label?.rows?.length ?? 0);
+      }
+      expect(units[0]?.text.split("\n")[0]).toBe([...first].join("\t"));
+    },
+  );
+
+  test.each([
+    ["csv", "en"],
+    ["csv", "zh"],
+    ["xlsx", "en"],
+    ["xlsx", "zh"],
+  ] as const)(
+    "%s, %s: a title row of two cells above the header is not the header",
+    async (format, language) => {
+      const title =
+        language === "en" ? ["Store sales report", "Q3 2026"] : ["门店销售报告", "2026年第三季度"];
+      const header = language === "en" ? ["Store", "City", "Sales"] : ["门店", "城市", "销售额"];
+      const units = await unitsOf(format, [title, header, ...stores(language)]);
+
+      // The title stays data in the first block, and every block after repeats row 2.
+      expect(units.length).toBeGreaterThan(1);
+      expect(units[0]?.label?.rows?.[0]).toBe(1);
+      expect(units[0]?.label?.header).toBeUndefined();
+      const later = units[1];
+      expect(later?.label?.header).toBe(true);
+      expect(later?.label?.rows?.[0]).toBe(2);
+      expect(later?.text.split("\n")[0]).toBe(header.join("\t"));
+    },
+  );
+
+  test("a one-cell section label under the header leaves it the header", async () => {
+    const units = await unitsOf("xlsx", [
+      ["Year", "Q1", "Q2"],
+      ["2025"],
+      ...Array.from({ length: 120 }, (_, index) => [
+        `Region ${index + 1}`,
+        100 + index,
+        200 + index,
+      ]),
+    ]);
+
+    expect(units[1]?.label?.header).toBe(true);
+    expect(units[1]?.label?.rows?.[0]).toBe(1);
+    expect(units[1]?.text.split("\n")[0]).toBe("Year\tQ1\tQ2");
+  });
+
+  test("a table of words alone keeps its first header-like row", async () => {
+    const units = await unitsOf("csv", [
+      ["Name", "City"],
+      ...Array.from({ length: 120 }, (_, index) => [`Person ${index + 1}`, "Hangzhou"]),
+    ]);
+
+    expect(units[1]?.label?.header).toBe(true);
+    expect(units[1]?.label?.rows?.[0]).toBe(1);
+    expect(units[1]?.text.split("\n")[0]).toBe("Name\tCity");
+  });
+
+  test.each([
+    { format: "csv", missing: "", label: "a blank" },
+    { format: "xlsx", missing: "", label: "a blank" },
+    { format: "csv", missing: "N/A", label: "N/A" },
+    { format: "xlsx", missing: "—", label: "a dash" },
+  ] as const)(
+    "$format: a first data row with $label under the figure column leaves the header heading it",
+    async ({ format, missing }) => {
+      const first = missing === "" ? ["Alice", "Paris"] : ["Alice", "Paris", missing];
+      const units = await unitsOf(format, [
+        ["Store", "City", "Sales"],
+        first,
+        ...Array.from({ length: 120 }, (_, index) => [
+          `Store ${index + 1}`,
+          "Hangzhou",
+          100 + index,
+        ]),
+      ]);
+
+      // Half-filled sheets are normal: the first data row lacks the figure, and the rows below
+      // give the column its kind.
+      expect(units[1]?.label?.header).toBe(true);
+      expect(units[1]?.label?.rows?.[0]).toBe(1);
+      expect(units[1]?.text.split("\n")[0]).toBe("Store\tCity\tSales");
+    },
+  );
+
+  test("a header whose only figure cell already sits over figures is not told from a table without one", async () => {
+    const units = await unitsOf("xlsx", [
+      ["Region", "Owner", "2025"],
+      ...Array.from({ length: 120 }, (_, index) => [
+        `Region ${index + 1}`,
+        `Owner ${index + 1}`,
+        100 + index,
+      ]),
+    ]);
+
+    // "2025" is a figure in its own cell, and the data rows have the same kinds, so by shape this
+    // is the same table as one without a header: its first row stays data (#2373).
+    for (const unit of units) expect(unit.label?.header).toBeUndefined();
+    expect(units[0]?.text.split("\n")[0]).toBe("Region\tOwner\t2025");
+  });
+});
+
 describe("Files that can't be read fail cleanly, with a reason", () => {
   test.each([
     ["docx", "password-protected", encryptedOfficeFile()],
