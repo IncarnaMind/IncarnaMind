@@ -292,13 +292,13 @@ export function createExamples(options: ExamplesOptions) {
     // waits behind another still being read.
     const gone = cited.find((each) => !each.document);
     if (gone) return { kind: "gone", document: gone.quote.document };
-    const isReading = (document: Document | undefined) =>
-      document?.status === "queued" || document?.status === "extracting";
     const unread = cited.find(
-      ({ document }) => document && !isReading(document) && !hasText(document),
+      ({ document }) => document?.status === "failed" || document?.status === "no-text",
     );
     if (unread) return { kind: "unreadable", document: unread.quote.document };
-    const reading = cited.find(({ document }) => isReading(document));
+    const reading = cited.find(
+      ({ document }) => document?.status === "queued" || document?.status === "extracting",
+    );
     if (reading) return { kind: "reading", document: reading.quote.document };
     const citations: MarkedCitation[] = [];
     for (const [index, { quote, document }] of cited.entries()) {
