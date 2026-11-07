@@ -1,6 +1,6 @@
 /**
  * `npm run eval:speed` (eval/speed/README.md): the speed baseline of #1624. Each flow in ./flows,
- * on each model, in each language, a few times, over the mixed sample set in data/ and data/real/,
+ * on each model, in each language, a few times, over the mixed sample set in eval/data/ and eval/data/real/,
  * with the built-in reranker on this computer as Users have it. Prints the tables of ./report and
  * writes them to eval/results/speed-<time>/.
  *

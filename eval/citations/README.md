@@ -218,19 +218,19 @@ is fixed and a run says which version it answered.
 ### The Documents
 
 Twelve Documents in English and Chinese, 435 pages. Six are the real Documents #2019 added to
-`data/real`, referenced from there and not copied; six are added for this set in `documents/`. Each
+`eval/data/real`, referenced from there and not copied; six are added for this set in `documents/`. Each
 is a text PDF that the app reads; the one page without a text layer, a CIA Reading Room scan, is part
 of the library and no gold quote cites it. That page, and the blank last page of the 2023 NBS
 communiqué, were read from their images for the scan (`scan-allowed.json`).
 
 | Key | File | Pages | Language | Source | Licence (read) | SHA-256 |
 |---|---|---|---|---|---|---|
-| `mamba` | `data/real/Mamba Linear-Time Sequence Modeling with Selective State Spaces.pdf` | 36 | en | https://arxiv.org/abs/2312.00752 | CC BY 4.0 (2026-10-26) | `adf70ed1803c85b1899dec3e21f3af0b124411439e8654b840ea65f7b9f52b2e` |
-| `world-development-report` | `data/real/World Development Report 2023 Overview.pdf` | 20 | en | https://openknowledge.worldbank.org/bitstreams/95ff039b-394f-4dc6-9ad9-b85da5a0b0d3/download | CC BY 3.0 IGO (2026-10-26) | `28f967181d2aeaab9b28e4ef463aa66a6ef4f72a0ad54e119b19d3681af992e7` |
-| `national-risk-register` | `data/real/National Risk Register 2023.pdf` | 192 | en | https://assets.publishing.service.gov.uk/government/uploads/system/uploads/attachment_data/file/1175834/2023_NATIONAL_RISK_REGISTER_NRR.pdf | Open Government Licence v3.0 (2026-10-26) | `4d3a29e5eb530efeb78bccf574521699c7f7df6fa15b614f8a22aabf203094cd` |
-| `nbs-communique-2023` | `data/real/中华人民共和国2023年国民经济和社会发展统计公报.pdf` | 22 | zh | https://www.stats.gov.cn/xxgk/sjfb/tjgb2020/202402/t20240229_1947923.html | Copyright Law of the PRC, article 5 (2026-10-26) | `a3561d2f63273957f84bd9a4d7374d0e57bae45f70c96b0a6b561c1020c8675f` |
-| `fomc-minutes-1950` | `data/real/FOMC Historical Minutes 13 June 1950.pdf` | 14 | en | https://www.federalreserve.gov/monetarypolicy/files/FOMChistmin19500614.pdf | US federal public domain, 17 U.S.C. 105 (2026-10-26) | `d74aea9b91bcb79836ab6e9cdc8c45942b3b4fecb9eb0840dc7e168370f0027e` |
-| `cia-reading-room-scan` | `data/real/scanned/CIA Reading Room record 22 October 1965.pdf` | 1 | en | https://www.cia.gov/readingroom/document/cia-rdp75-00149r000800170070-2 (file: https://archive.org/download/cia-readingroom-document-cia-rdp75-00149r000800170070-2/cia-rdp75-00149r000800170070-2.pdf) | US federal public domain, 17 U.S.C. 105 (2026-10-26) | `764e4ea530cbcb4818c31f21481e596eb119004deadea43e6f7247260407e9ba` |
+| `mamba` | `eval/data/real/Mamba Linear-Time Sequence Modeling with Selective State Spaces.pdf` | 36 | en | https://arxiv.org/abs/2312.00752 | CC BY 4.0 (2026-10-26) | `adf70ed1803c85b1899dec3e21f3af0b124411439e8654b840ea65f7b9f52b2e` |
+| `world-development-report` | `eval/data/real/World Development Report 2023 Overview.pdf` | 20 | en | https://openknowledge.worldbank.org/bitstreams/95ff039b-394f-4dc6-9ad9-b85da5a0b0d3/download | CC BY 3.0 IGO (2026-10-26) | `28f967181d2aeaab9b28e4ef463aa66a6ef4f72a0ad54e119b19d3681af992e7` |
+| `national-risk-register` | `eval/data/real/National Risk Register 2023.pdf` | 192 | en | https://assets.publishing.service.gov.uk/government/uploads/system/uploads/attachment_data/file/1175834/2023_NATIONAL_RISK_REGISTER_NRR.pdf | Open Government Licence v3.0 (2026-10-26) | `4d3a29e5eb530efeb78bccf574521699c7f7df6fa15b614f8a22aabf203094cd` |
+| `nbs-communique-2023` | `eval/data/real/中华人民共和国2023年国民经济和社会发展统计公报.pdf` | 22 | zh | https://www.stats.gov.cn/xxgk/sjfb/tjgb2020/202402/t20240229_1947923.html | Copyright Law of the PRC, article 5 (2026-10-26) | `a3561d2f63273957f84bd9a4d7374d0e57bae45f70c96b0a6b561c1020c8675f` |
+| `fomc-minutes-1950` | `eval/data/real/FOMC Historical Minutes 13 June 1950.pdf` | 14 | en | https://www.federalreserve.gov/monetarypolicy/files/FOMChistmin19500614.pdf | US federal public domain, 17 U.S.C. 105 (2026-10-26) | `d74aea9b91bcb79836ab6e9cdc8c45942b3b4fecb9eb0840dc7e168370f0027e` |
+| `cia-reading-room-scan` | `eval/data/real/scanned/CIA Reading Room record 22 October 1965.pdf` | 1 | en | https://www.cia.gov/readingroom/document/cia-rdp75-00149r000800170070-2 (file: https://archive.org/download/cia-readingroom-document-cia-rdp75-00149r000800170070-2/cia-rdp75-00149r000800170070-2.pdf) | US federal public domain, 17 U.S.C. 105 (2026-10-26) | `764e4ea530cbcb4818c31f21481e596eb119004deadea43e6f7247260407e9ba` |
 | `scotus-biden-nebraska` | `documents/Biden v. Nebraska 600 U.S. (2023) 22-506.pdf` | 77 | en | https://www.supremecourt.gov/opinions/22pdf/22-506_nmip.pdf | US federal public domain, 17 U.S.C. 105 (2026-10-26) | `ac5cb286b5795e18e1942c5dc066750b64ccbbcd1de71e1400fcb264a3730003` |
 | `guiding-case-2` | `documents/指导案例2号 吴梅诉四川省眉山西城纸业有限公司买卖合同纠纷案.pdf` | 2 | zh | https://www.court.gov.cn/shenpan/xiangqing/4215.html | Copyright Law of the PRC, article 5 (2026-10-26) | `51962a5a05009a1e8ce513e402dc37b1663c19346adf5ba9ced01816d1da3319` |
 | `nbs-communique-2024` | `documents/中华人民共和国2024年国民经济和社会发展统计公报.pdf` | 34 | zh | https://www.stats.gov.cn/sj/zxfb/202502/t20250228_1958817.html | Copyright Law of the PRC, article 5 (2026-10-26) | `9c204863ab9362e68db5023f464b0f72db934a16258022c18a0c753d4fbe1ccd` |
@@ -238,11 +238,11 @@ communiqué, were read from their images for the scan (`scan-allowed.json`).
 | `cern-soil-elements` | `documents/1995-2011年CERN土壤环境元素含量数据集.pdf` | 16 | zh | https://doi.org/10.11922/csdata.170.2016.0102 (file: https://www.chinaflux.org/upload/accessory/20195/2019571530435901963.pdf) | CC BY 4.0 (2026-10-26) | `5c6c3cb9bfd4c30cf39cf5997b5e79a29bc8f904a76d79a8ba3c317b0293a24a` |
 | `treasury-financial-statements-2023` | `documents/Treasury Financial Statements of the United States Government FY2023.pdf` | 20 | en | https://fiscal.treasury.gov/system/files/files/reports-statements/financial-report/2023/financial-statements-2023.pdf | US federal public domain, 17 U.S.C. 105 (2026-10-26) | `aa8e8d0eb839c0ac2cfdb5db3716f7c2baa84dfc193d3af434df3dbaa8278a19` |
 
-Retrieved 2026-10-26. The six `data/real/` Documents are recorded in full in
-[`data/README.md`](../../data/README.md); that file holds the same SHA-256 values, and
+Retrieved 2026-10-26. The six `eval/data/real/` Documents are recorded in full in
+[`eval/data/README.md`](../data/README.md); that file holds the same SHA-256 values, and
 `tests/eval/realDocuments.test.ts` checks them against the files too. The two new NBS prints and the
 Supreme People's Court print are prints of the official pages, made for this set without changing
-their text; the 2023 communiqué's print was made the same way for `data/real/`. The page's own text
+their text; the 2023 communiqué's print was made the same way for `eval/data/real/`. The page's own text
 is the Document.
 
 #### Why each may be published here

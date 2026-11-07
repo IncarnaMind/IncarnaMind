@@ -1,5 +1,5 @@
 /**
- * The sample PDFs in `data/` (data/README.md): each is the file
+ * The sample PDFs in `eval/data/` (eval/data/README.md): each is the file
  * `npm run samples:generate` writes, and the processing pipeline stores the
  * text its tests and evaluations quote on the pages they cite, and nowhere
  * else. A change to a sample's content is a change to what those tests read.
@@ -43,11 +43,11 @@ function runsOf(text: string): { digest: string; words: string }[] {
   return runs;
 }
 
-describe("The sample Documents in data/", { timeout: 600_000 }, () => {
+describe("The sample Documents in eval/data/", { timeout: 600_000 }, () => {
   for (const document of SAMPLE_DOCUMENTS) {
     test(`${document.file} is generated, and keeps its quoted text on its pages`, async () => {
       const bytes = bytesOf(document);
-      const stored = readFileSync(join(ROOT, "data", document.file));
+      const stored = readFileSync(join(ROOT, "eval", "data", document.file));
       expect(Buffer.from(bytes).equals(stored)).toBe(true);
 
       // The file must present its fictional organisation in its metadata too, not only on its pages.
@@ -60,7 +60,7 @@ describe("The sample Documents in data/", { timeout: 600_000 }, () => {
         task: "process",
         documentId: document.file,
         kind: "pdf",
-        file: join(ROOT, "data", document.file),
+        file: join(ROOT, "eval", "data", document.file),
       });
       if (result.outcome !== "ready") throw new Error(`${document.file}: ${result.outcome}`);
       expect(result.pages.map((page) => page.page)).toEqual(
@@ -92,7 +92,7 @@ describe("The sample Documents in data/", { timeout: 600_000 }, () => {
         task: "process",
         documentId: document.file,
         kind: "pdf",
-        file: join(ROOT, "data", document.file),
+        file: join(ROOT, "eval", "data", document.file),
       });
       if (result.outcome !== "ready") throw new Error(`${document.file}: ${result.outcome}`);
       for (const page of result.pages) {

@@ -1,7 +1,7 @@
 /**
- * The three sample reports in `data/`: made for this repository, each in a
+ * The three sample reports in `eval/data/`: made for this repository, each in a
  * fictional organisation's voice, with the sentences the sample test and the
- * evaluations quote kept on the pages they cite (data/README.md).
+ * evaluations quote kept on the pages they cite (eval/data/README.md).
  */
 import type { PdfSymbol } from "../../tests/helpers/pdf";
 import { at, type SamplePage } from "./layout";

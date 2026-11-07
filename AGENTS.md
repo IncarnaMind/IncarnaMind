@@ -56,7 +56,7 @@ Single-context: `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/
 
 Read [`docs/agents/testing.md`](docs/agents/testing.md). Work is done when its pull request's CI is green, not when one test passes on your computer.
 
-- On your computer, run `npm run typecheck`, `npm run lint` and the unit tests of the files you changed. CI runs the whole unit suite and the smoke specs your pull request adds or changes; every spec runs nightly and before a release. To check specs your change doesn't touch, run them on GitHub with `node scripts/run-specs.mjs`, not on your computer.
+- On your computer, run `npm run typecheck`, `npm run lint` and the unit tests of the files you changed. CI runs the unit tests your changes reach and the smoke specs your pull request adds or changes; every test runs nightly and before a release. To check specs your change doesn't touch, run them on GitHub with `node scripts/run-specs.mjs`, not on your computer.
 - Try the edge cases in `docs/agents/testing.md` that apply (empty and huge input, Chinese, broken files, offline, failing models, quitting halfway, twice and Undo), and say which in the pull request.
 - Update or remove the tests for UI you changed.
 - A feature with a real engine (transcription, OCR, embeddings, the reranker, Python analysis) also needs a test that loads the real module the way the built app does. The fake engines are for everything else.
