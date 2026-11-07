@@ -15,6 +15,7 @@ import type { MessageKey } from "../../../shared/i18n";
 import { organizeHeld, organizes, organizesNewDocuments } from "../../../shared/libraryModels";
 import { mindName } from "../../../shared/naming";
 import { allowAndSort } from "../allowSorting";
+import { attentionIds } from "../attention";
 import { commands } from "../commands/registry";
 import { core } from "../core";
 import { Popover } from "../editor/Popover";
@@ -59,7 +60,7 @@ import { useTaggingService } from "./useTaggingService";
 import { useTip } from "./useTip";
 
 const statusActionClass =
-  "group inline-flex h-7 min-w-7 shrink-0 items-center justify-center rounded-md text-[12px] font-semibold text-ink-secondary focus-visible:outline-offset-0";
+  "group inline-flex h-7 min-w-7 shrink-0 items-center justify-center rounded-md text-[12px] font-semibold text-ink-secondary focus-visible:outline-offset-0 aria-disabled:cursor-default aria-disabled:opacity-50";
 
 const statusActionPillClass =
   "inline-flex h-6 items-center rounded-md px-2 group-hover:bg-rule group-hover:text-ink";
@@ -101,7 +102,8 @@ interface Status {
   figure?: string;
   /** All of it: the tooltip, and what a screen reader reads. */
   full: string;
-  action?: { label: string; testId?: string; title?: string; run(): void };
+  /** `busy`: its work is under way, so the action shows it and takes no second press. */
+  action?: { label: string; testId?: string; title?: string; busy?: boolean; run(): void };
   dismiss?: () => void;
   /** What the dismissing control says, where "Dismiss" isn't what it does. */
   dismissLabel?: string;
@@ -215,7 +217,9 @@ function StatusRow({ status, children }: { status: Status; children?: ReactNode 
                 data-testid={action.testId}
                 title={action.title}
                 onClick={action.run}
-                className="rounded-sm px-0.5 font-semibold text-accent hover:text-accent-strong"
+                aria-busy={action.busy || undefined}
+                aria-disabled={action.busy || undefined}
+                className="rounded-sm px-0.5 font-semibold text-accent hover:text-accent-strong aria-disabled:cursor-default aria-disabled:opacity-50"
               >
                 {action.label}
               </button>
@@ -260,6 +264,8 @@ function StatusRow({ status, children }: { status: Status; children?: ReactNode 
             data-testid={action.testId}
             title={action.title}
             onClick={action.run}
+            aria-busy={action.busy || undefined}
+            aria-disabled={action.busy || undefined}
             className={statusActionClass}
           >
             <span className={statusActionPillClass}>{action.label}</span>
@@ -438,10 +444,18 @@ function useStatuses(): Status[] {
     const held = new Map((library?.assignments ?? []).map((item) => [item.documentId, item]));
     return ownDocuments.map((doc) => {
       const item = held.get(doc.id);
-      return { item, state: organizeStateOf(doc, item) };
+      return { id: doc.id, item, state: organizeStateOf(doc, item) };
     });
   }, [ownDocuments, library]);
   const organizing = organizes(library);
+  const reviewedAttention = useAppStore((state) => state.reviewedAttention);
+  const needingAttention = attentionIds(ownDocuments, library?.assignments ?? []);
+  const needingAttentionKey = needingAttention.join("\n");
+  // A Document that stops needing attention is forgotten, so a later failure shows again.
+  useEffect(() => {
+    const live = needingAttentionKey === "" ? [] : needingAttentionKey.split("\n");
+    useAppStore.getState().keepReviewedAttention(new Set(live));
+  }, [needingAttentionKey]);
   const organizesNew = organizesNewDocuments(library);
   const capturing = useCapturing();
   const counts = useAppStore(
@@ -828,21 +842,35 @@ function useStatuses(): Status[] {
   // gone once the User moves the Note, as Undo can no longer put it back.
   for (const join of joined) {
     const mind = minds.find((each) => each.id === join.mindId);
+    if (!mind) continue;
+    if (join.undone) {
+      // Undo says it worked on the same line, for its few seconds, with the meeting's name (#2579).
+      const text = t("meetings.joined.undone", { meeting: mindName(mind) || t("mind.untitled") });
+      statuses.push({
+        testId: `meeting-joined-undone-${join.id}`,
+        tone: "info",
+        short: text,
+        full: text,
+        wraps: true,
+      });
+      continue;
+    }
     const folder = library?.groups.find((each) => each.id === join.folderId);
-    if (!mind || !folder || mind.folderId !== join.folderId) continue;
+    if (!folder || mind.folderId !== join.folderId) continue;
     const text = t(join.noteMoved ? "meetings.joined" : "meetings.joined.transcript", {
       meeting: mindName(mind) || t("mind.untitled"),
       folder: folder.name,
     });
     statuses.push({
       testId: `meeting-joined-${join.id}`,
-      tone: "info",
+      tone: join.undoing ? "progress" : "info",
       short: text,
       full: text,
       wraps: true,
       action: {
         label: t("meetings.joined.undo"),
         testId: "meeting-joined-undo",
+        busy: join.undoing === true,
         run: () => {
           useJoinedMeetings.getState().undo(join.id).catch(useAppStore.getState().reportError);
         },
@@ -1098,23 +1126,19 @@ function useStatuses(): Status[] {
 
   if (organizing && library) {
     const pending = liveStates.filter(({ state }) => state.run === "working").length;
-    const attention = liveStates.filter(
-      ({ item, state }) =>
-        !state.manual &&
-        (state.run === "failed" ||
-          (state.run === "waiting" &&
-            item?.error?.kind !== "rate-limit" &&
-            item?.error?.kind !== "auth" &&
-            item?.error?.kind !== "plan-limit")),
-    ).length;
+    const attention = needingAttention.filter((id) => !reviewedAttention.has(id)).length;
     if (attention)
       statuses.push({
         testId: "organization-attention",
         tone: "waiting",
         alerts: true,
         short: t("library.needsAttention"),
-        full: t("library.waiting", { count: attention }),
-        action: { label: t("library.review"), run: () => useAppStore.getState().openLibrary() },
+        full: t(attention === 1 ? "library.waiting.one" : "library.waiting", { count: attention }),
+        action: {
+          label: t("library.review"),
+          testId: "organization-attention-review",
+          run: () => useAppStore.getState().reviewAttention(),
+        },
       });
     if (pending) {
       const service =

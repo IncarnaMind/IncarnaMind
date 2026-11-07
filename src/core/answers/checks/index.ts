@@ -31,6 +31,7 @@ import { keepRecordCites, restsOn } from "../../../shared/claimChecks";
 import {
   boundedCheck,
   boundedCheckParts,
+  checkedCitation,
   checkWithParts,
   figuresByPart,
   partWithResult,
@@ -88,6 +89,7 @@ import {
   type DocumentCheckProgress,
   type ExternalService,
   type Money,
+  type RewriteFromDocumentsResult,
   type RunEstimate,
   type SearchScope,
   type TextPlace,
@@ -145,6 +147,7 @@ import {
   unplacedRecordCites,
   withRecordCites,
 } from "./recordCites";
+import { REWRITE_TIMEOUT_MS, rewriteFromPassage } from "./rewrite";
 import { pendingParts } from "./runChecks";
 import {
   markedSentences as allMarks,
@@ -301,6 +304,14 @@ export interface ChecksOptions
         leftOut: readonly string[],
       ): boolean;
     };
+  /** A Citation checked again in its Document's current version, at the Units it cites. */
+  recheckCitation(citation: {
+    documentId: string;
+    quote: string;
+    pageFrom: number | null;
+    pageTo: number | null;
+    contentHash: string;
+  }): { check: CitationAttributes["check"]; contentHash: string | null };
   /** The estimate of a whole read's requests. */
   estimateRead(model: ChatModelChoice | null, read: EstimatedRead): RunEstimate | null;
   /** What a whole read's requests have settled at, by its request id, in `currency`. */
@@ -1857,6 +1868,53 @@ export function createChecks(options: ChecksOptions) {
         ...(checksDocument && { thirdParty: [{ via: "read", source: "checked-document" }] }),
         signal: new AbortController().signal,
       });
+    },
+
+    async rewriteFromDocuments(input: unknown): Promise<RewriteFromDocumentsResult> {
+      if (!isRecord(input) || typeof input.checkId !== "string" || input.checkId === "") {
+        throw new InvalidInputError({ key: "error.check.partChanged" });
+      }
+      const mindId = parseMindId(input.mindId);
+      options.requireMind(mindId);
+      const { checkId } = input;
+      const stored = content.read(mindId, (blocks) =>
+        checkedSentences(blocks).find(({ check }) => check.id === checkId),
+      );
+      const evidence = checkedCitation(stored?.check.evidence ?? undefined);
+      if (
+        !stored ||
+        !evidence ||
+        stored.check.state !== "unsupported" ||
+        stored.cited.length > 0 ||
+        stored.sentence !== stored.check.text ||
+        // Filed behind a Folder wall since the check, the Passage stays on its side (#1934).
+        options.walledDocument(evidence.documentId) !== options.walledFolder(mindId)
+      )
+        return { kind: "changed" };
+      // The quote is taken again from the Document as it is now, never from the Mind's copy of it.
+      const source = options.documents.citationSource(evidence.passageId);
+      const now = options.recheckCitation(evidence);
+      // A Document gone to Recently deleted is no longer found there, so its recheck refuses it.
+      if (
+        !source ||
+        source.notCited ||
+        now.check !== "found" ||
+        now.contentHash !== evidence.contentHash
+      )
+        return { kind: "changed" };
+      const ready = await prepare(parseModel(input.model) ?? options.defaultModel());
+      if (!ready.ok) return ready.result;
+      const rewritten = await rewriteFromPassage({
+        sentence: stored.sentence,
+        evidence,
+        passage: source.text,
+        model: ready.prepared,
+        documentDate: options.documents.documentDate,
+        signal: AbortSignal.timeout(REWRITE_TIMEOUT_MS),
+      });
+      return rewritten.kind === "rewritten"
+        ? { ...rewritten, providerId: ready.prepared.provider.id, modelId: ready.prepared.modelId }
+        : rewritten;
     },
 
     async chooseRecordCiteSource(value: unknown) {

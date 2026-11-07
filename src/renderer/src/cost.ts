@@ -1,34 +1,68 @@
 import type { ClaimCheckFailure, Money, RunEstimate, RunStop } from "../../core/api";
 import type { Language } from "../../core/language";
 import { formatDateTime } from "../../shared/dates";
-import type { MessageKey, MessageParams } from "../../shared/i18n";
+import { type MessageKey, type MessageParams, translate } from "../../shared/i18n";
 import { citationLocation, formatLocation } from "../../shared/locations";
 import { budgetStopOf } from "../../shared/readBudget";
 import { unreadFiguresOf } from "../../shared/unreadFigures";
 
 type Translate = (key: MessageKey, params?: MessageParams) => string;
 
+const CENT = 0.01;
+
 /**
- * An amount in its currency: cents, and a small amount to its first figures
- * rather than "$0.00", so one short Answer still shows ("$0.0013"). Each
- * currency has its one symbol in every language: "$", never "US$", and "¥".
+ * An amount in its currency, in cents, wherever the app shows money: one under a cent reads
+ * "under $0.01" (不到 $0.01), as "$0.01" would overstate it and "$0.00" call it free (#1554).
+ * Each currency has its one symbol in every language: "$", never "US$", and "¥".
  */
 export function formatMoney({ amount, currency }: Money, language: Language): string {
-  const small = amount > 0 && amount < 0.01;
-  return new Intl.NumberFormat(language, {
-    style: "currency",
-    currency,
-    currencyDisplay: "narrowSymbol",
-    minimumFractionDigits: amount === 0 ? 0 : 2,
-    maximumFractionDigits: small ? 4 : 2,
-  }).format(amount);
+  const shown = (value: number) =>
+    new Intl.NumberFormat(language, {
+      style: "currency",
+      currency,
+      currencyDisplay: "narrowSymbol",
+      minimumFractionDigits: value === 0 ? 0 : 2,
+      maximumFractionDigits: 2,
+    }).format(value);
+  return amount > 0 && amount < CENT
+    ? translate(language, "cost.underCent", { amount: shown(CENT) })
+    : shown(amount);
 }
 
 /**
+ * What an estimate from `cost` up to `most` says: "About $1.40", "About $0.40, up to $0.55";
+ * "Up to $0.55" when only its low end is under a cent, and "Under $0.01" when all of it is, never
+ * "About under $0.01". Null for a cost of exactly nothing, which shows no amount.
+ */
+export function estimateText(
+  cost: Money,
+  most: Money | null,
+  t: Translate,
+  language: Language,
+): string | null {
+  const top = most && most.amount > cost.amount ? most : cost;
+  if (top.amount === 0) return null;
+  if (top.amount < CENT) {
+    return t("cost.estimate.under", {
+      amount: formatMoney({ amount: CENT, currency: top.currency }, language),
+    });
+  }
+  if (cost.amount < CENT) return t("cost.estimate.upTo", { most: formatMoney(top, language) });
+  const about = formatMoney(cost, language);
+  return top === cost
+    ? t("cost.estimate.price", { cost: about })
+    : t("cost.estimate.priceUpTo", { cost: about, most: formatMoney(top, language) });
+}
+
+/** A line that begins with an amount, its first letter in capitals: "Under $0.01 so far". */
+export const atLineStart = (text: string): string =>
+  text.charAt(0).toLocaleUpperCase() + text.slice(1);
+
+/**
  * What a check's reason says (`claim.reason.*`): a whole read stopped at its budget says what it
- * spent and the most it may spend, kept in `detail`, or that it stopped there when the detail
- * can't be read; figures that couldn't be read name the Document and the place kept in `detail`;
- * any other reason says its `detail` as it is.
+ * spent, kept in `detail`, or that it stopped there when the detail can't be read; the most it
+ * may spend goes on the action that reads the rest (`readRestText`). Figures that couldn't be read
+ * name the Document and the place kept in `detail`; any other reason says its `detail` as it is.
  */
 export function reasonText(
   t: Translate,
@@ -42,12 +76,28 @@ export function reasonText(
     return t(`claim.reason.${reason}`, { detail: detail ?? "", ...params });
   const stop = budgetStopOf(detail);
   return stop
-    ? t("claim.reason.read-budget", {
-        spent: formatMoney(stop.spent, language),
-        most: formatMoney(stop.most, language),
-      })
+    ? t("claim.reason.read-budget", { spent: atLineStart(formatMoney(stop.spent, language)) })
     : t("claim.reason.read-budget.unknown");
 }
+
+/** The action that reads the rest of a read stopped at its budget, with the most it may spend. */
+export function readRestText(t: Translate, language: Language, detail: string | null): string {
+  const stop = budgetStopOf(detail);
+  return stop
+    ? t("claim.readBudget.readRest", { most: formatMoney(stop.most, language) })
+    : t("claim.readBudget.continue");
+}
+
+/**
+ * A model's estimate where models are compared, for 100 Answers, under a heading that says so, so
+ * those under a cent an Answer still differ: "About $0.40". Null for one of exactly nothing.
+ */
+export const perHundredAnswers = (
+  perAnswer: Money,
+  t: Translate,
+  language: Language,
+): string | null =>
+  estimateText({ ...perAnswer, amount: perAnswer.amount * 100 }, null, t, language);
 
 function figuresNotReadText(t: Translate, detail: string | null): string {
   const place = unreadFiguresOf(detail);
@@ -82,7 +132,7 @@ export function setAsideText(
     t,
     language,
   );
-  return amount && t("cost.setAside", { amount });
+  return amount && atLineStart(t("cost.setAside", { amount }));
 }
 
 /** When a plan's limit resets: the time today, else the day and time. */
@@ -158,18 +208,16 @@ export function estimateLine(
   const month =
     estimate.cap && estimate.spentTowardCap
       ? [
-          t("cost.estimate.month", {
-            spent: formatMoney(estimate.spentTowardCap, language),
-            cap: formatMoney(estimate.cap, language),
-          }),
+          atLineStart(
+            t("cost.estimate.month", {
+              spent: formatMoney(estimate.spentTowardCap, language),
+              cap: formatMoney(estimate.cap, language),
+            }),
+          ),
           ...(aside ? [aside] : []),
         ]
       : [];
-  const cost = estimate.cost && formatMoney(estimate.cost, language);
-  const price =
-    cost && most && estimate.cost && most.amount > estimate.cost.amount
-      ? t("cost.estimate.priceUpTo", { cost, most: formatMoney(most, language) })
-      : cost && t("cost.estimate.price", { cost });
+  const price = estimate.cost && estimateText(estimate.cost, most, t, language);
   const run = price ? [price, tokens] : [tokens];
   const parts = [...run, ...month];
   return { parts, title: joinMeta(parts) };

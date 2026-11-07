@@ -7333,6 +7333,35 @@ export interface PlanDocumentCheckInput {
   model?: ChatModelChoice | null;
 }
 
+/** Rewrite with what the Documents say (#1554): one sentence check of a Mind whose card offers it. */
+export interface RewriteFromDocumentsInput {
+  mindId: string;
+  /** The check: unsupported, with no Citation, beside a Passage that gives another value (#770). */
+  checkId: string;
+  /** The model to use: the Mind's own; none, or null, the default chat model. */
+  model?: ChatModelChoice | null;
+}
+
+export type RewriteFromDocumentsResult =
+  /**
+   * The sentence's old words and the Passage's for them, held by every rule a correction is, and
+   * the model that wrote them.
+   */
+  | { kind: "rewritten"; correction: ClaimCorrection; providerId: string; modelId: string }
+  /** The reply gave no rewrite the rules hold: the sentence stays. */
+  | { kind: "kept" }
+  /**
+   * The model found nothing to change, and the sentence already gives the Passage's figure, of
+   * what the Passage gives it for: the Documents give the same value.
+   */
+  | { kind: "same" }
+  /** The model found nothing to change, but the sentence doesn't give the Passage's value: it stays. */
+  | { kind: "none" }
+  /** The sentence, its check or its Passage changed since the check: nothing was sent. */
+  | { kind: "changed" }
+  | Extract<CheckSentencesResult, { kind: "not-ready" | "local-mode" | "cancelled" }>
+  | { kind: "failed"; error: ProviderError };
+
 export interface DocumentToRead {
   documentId: string;
   name: string;
@@ -11483,15 +11512,18 @@ export interface CoreApi {
    * language, and makes them. `classifyDocuments` then suggests one for each. Returns the
    * Folders made, none when no Document has text to read. Throws InvalidInputError with no
    * model for Organize, or one that can't name Folders (a decision model), and what the
-   * provider throws; nothing is made then.
+   * provider throws; nothing is made then. With `forService`, a continuation of a press
+   * authorized for that service: Organize sending elsewhere proposes nothing.
    */
-  proposeFolders(documentIds: string[]): Promise<LibraryGroup[]>;
+  proposeFolders(documentIds: string[], options?: { forService?: string }): Promise<LibraryGroup[]>;
   /**
    * Queues selected documents, or all. Organize suggests a Folder for each
    * (a Suggested Folder) and its Tags; manual assignments are preserved, and
-   * only their Tags suggested.
+   * only their Tags suggested. With `forService`, a continuation of a press
+   * authorized for that service: a different destination queues and clears
+   * nothing, and a change while the run waits sends nothing there.
    */
-  classifyDocuments(documentIds?: string[]): Promise<void>;
+  classifyDocuments(documentIds?: string[], options?: { forService?: string }): Promise<void>;
   /**
    * Stops automatic Tagging with AI where the Documents waiting to be
    * tagged, or being tagged, are: each of their Folders, and Not in a Folder
@@ -12320,6 +12352,8 @@ export interface CoreApi {
   citeSelection(input: {
     documentId: string;
     parts: SelectedPart[];
+    /** The Note the Citation is for: refused from a Document behind a Folder wall it is outside. */
+    mindId?: string;
     area?: CitedArea;
     /** The Unit the area is on, when its text found no place there: a picture of that page or slide. */
     unit?: number | null;
@@ -12696,6 +12730,14 @@ export interface CoreApi {
    * and stops a whole read already running there.
    */
   planDocumentCheck(input: PlanDocumentCheckInput): Promise<DocumentCheckPlan>;
+  /**
+   * Rewrite with what the Documents say (#1554): asks the Mind's model (the default one when it
+   * has none) for the words of the sentence to change to what the Passage beside its check says,
+   * on the "checks" flow, and keeps
+   * them only when the Passage's quote holds them and gives every figure the rewritten sentence
+   * gives. Nothing in the Mind changes: the editor writes it, cited, as one step of Undo.
+   */
+  rewriteFromDocuments(input: RewriteFromDocumentsInput): Promise<RewriteFromDocumentsResult>;
   /** Stops a `checkSentences` request: it gives "cancelled". Stopping one that ended does nothing. */
   cancelCheck(requestId: string): Promise<void>;
   /**
@@ -13978,6 +14020,7 @@ const methods: Record<CoreApiMethod, true> = {
   respondToEditAsk: true,
   checkSentences: true,
   planDocumentCheck: true,
+  rewriteFromDocuments: true,
   cancelCheck: true,
   checkClaim: true,
   chooseRecordCiteSource: true,

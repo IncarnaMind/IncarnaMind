@@ -5,11 +5,14 @@ import type { CoreBridge, Meeting } from "../src/core/api";
 import { openDatabase } from "../src/core/storage";
 import { migrations } from "../src/core/storage/migrations";
 import {
+  acceptPlainTextKeys,
   addDocuments,
   createDataFolder,
   dismissChatSetup,
   launchApp,
+  motionSettled,
   pointAndClick,
+  pointAt,
   recordMeetingNow,
   removeDataFolder,
   setLanguage,
@@ -122,7 +125,7 @@ test("a meeting's Transcript has no row; a ⌘K hit inside it is the Note's and 
   await window.getByTestId("palette-search").fill("eighteenth");
   const hits = window
     .getByTestId("palette")
-    .locator('[data-testid="palette-group"][data-group="notes"]')
+    .locator('[data-testid="palette-group"][data-group="meetingText"]')
     .getByTestId("palette-item");
   await expect(hits).toHaveCount(1);
   // A meeting is a Note: never under the Documents' words, and timed as its Transcript shows it.
@@ -135,6 +138,9 @@ test("a meeting's Transcript has no row; a ⌘K hit inside it is the Note's and 
     new RegExp(`^${escaped(title)} · Transcript, \\d{2}:\\d{2}`),
   );
   await shot(window, "one-item-palette-en");
+  await setWindowSize(app, window, 900, 700);
+  await shot(window, "one-item-palette-narrow-en");
+  await setWindowSize(app, window, 1440, 900);
   await window.keyboard.press("Enter");
   // The Note in front, its Transcript beside it, at the words.
   const transcript = window.getByTestId("viewer-transcript");
@@ -187,6 +193,14 @@ test("a meeting's Transcript has no row; a ⌘K hit inside it is the Note's and 
   await expect(window.getByTestId("scope-picker")).toContainText(
     new RegExp(`${escaped(title)} · Transcript, \\d{2}:\\d{2}`),
   );
+  // A meeting is its Note's choice: under the sidebar's Notes group, never Documents (#2579).
+  await expect(
+    window.getByTestId("scope-picker").getByRole("group", { name: "Notes" }),
+  ).toContainText(new RegExp(`${escaped(title)} · Transcript, \\d{2}:\\d{2}`));
+  await shot(window, "one-item-at-picker-en");
+  await setWindowSize(app, window, 900, 700);
+  await shot(window, "one-item-at-picker-narrow-en");
+  await setWindowSize(app, window, 1440, 900);
   await window.keyboard.press("Escape");
   await window.keyboard.press("ControlOrMeta+a");
   await window.keyboard.press("Backspace");
@@ -196,13 +210,118 @@ test("a meeting's Transcript has no row; a ⌘K hit inside it is the Note's and 
   await window.getByTestId("palette-search").fill("eighteenth");
   await expect(hits.first()).toContainText(new RegExp(`^${escaped(title)} · 转写稿 \\d{2}:\\d{2}`));
   await shot(window, "one-item-palette-zh");
+  await setWindowSize(app, window, 900, 700);
+  await shot(window, "one-item-palette-narrow-zh");
+  await setWindowSize(app, window, 1440, 900);
   await window.keyboard.press("Escape");
+  await window.keyboard.press("ControlOrMeta+j");
+  await window.keyboard.type("@eighteenth");
+  await expect(
+    window.getByTestId("scope-picker").getByRole("group", { name: "笔记" }),
+  ).toContainText(new RegExp(`${escaped(title)} · 转写稿`));
+  await shot(window, "one-item-at-picker-zh");
+  await setWindowSize(app, window, 900, 700);
+  await shot(window, "one-item-at-picker-narrow-zh");
+  await setWindowSize(app, window, 1440, 900);
+  await window.keyboard.press("Escape");
+  await window.keyboard.press("ControlOrMeta+a");
+  await window.keyboard.press("Backspace");
   await pointAndClick(window, window.getByTestId("open-library"));
   await librarySearch.fill("eighteenth");
   await expect(meetingsFound.getByRole("heading")).toHaveText("笔记");
   await expect(meetingsFound.getByTestId("library-meeting-hit")).toContainText(
     new RegExp(`^${escaped(title)} · 转写稿 \\d{2}:\\d{2}`),
   );
+
+  // A renamed Note takes its Transcript's name with it, and Don't cite says the current name (#2579).
+  const renamed = "Weekly tide review";
+  await (await core(window)).evaluate(
+    async (bridge, mindId) => bridge.renameMind(mindId, "Weekly tide review"),
+    recorded.mindId,
+  );
+  await expect(header).toContainText(`转写稿 · ${renamed}`);
+  await pointAndClick(window, window.getByTestId("mind-tab").first(), { button: "right" });
+  await pointAndClick(window, window.getByRole("menuitem", { name: "不引用转写稿" }));
+  await expect.poll(notCited).toBe(true);
+  await expect(window.getByTestId("undo-message").last()).toHaveText(
+    `“${renamed}”不再作为引用来源`,
+  );
+  await shot(window, "one-item-renamed-dont-cite-zh");
+  await setWindowSize(app, window, 900, 700);
+  await shot(window, "one-item-renamed-dont-cite-narrow-zh");
+  await setWindowSize(app, window, 1440, 900);
+  await pointAndClick(window, window.getByTestId("mind-tab").first(), { button: "right" });
+  await pointAndClick(window, window.getByRole("menuitem", { name: "重新引用转写稿" }));
+  await expect.poll(notCited).toBe(false);
+
+  // In Chinese too, the joined Transcript has no Tags of its own: no Tags button, no 标签… in its
+  // menu, and a Tag asked for it through the bridge is refused (“请改为给会议的笔记加标签。”), so it
+  // stays untagged.
+  await expect(header.getByTestId("document-tags")).toHaveCount(0);
+  await pointAndClick(window, header.getByTestId("document-file-menu"));
+  await expect(header.getByTestId("document-file-actions").getByTestId("file.info")).toBeVisible();
+  await expect(
+    header.getByTestId("document-file-actions").getByTestId("document.tags"),
+  ).toHaveCount(0);
+  await window.keyboard.press("Escape");
+  const refused = await (await core(window)).evaluate(async (bridge, id) => {
+    const tag = await bridge.createTag({ name: "Harbour" });
+    const said = await bridge.addTagToDocuments([id], tag.id).then(
+      () => "tagged",
+      (error: unknown) => String(error),
+    );
+    const tags = (await bridge.listDocuments()).find((each) => each.id === id)?.tags ?? null;
+    return { said, tags };
+  }, transcriptId);
+  expect(refused.said).toContain("error.transcript.tagWithNote");
+  expect(refused.tags).toEqual([]);
+
+  // In English too: a rename made in English names the Transcript in English, and Don't cite
+  // says the Note's current name (#2579).
+  await setLanguage(window, "en");
+  await (await core(window)).evaluate(
+    async (bridge, mindId) => bridge.renameMind(mindId, "Weekly tide review"),
+    recorded.mindId,
+  );
+  await expect(header).toContainText(`Transcript · ${renamed}`);
+  await pointAndClick(window, window.getByTestId("mind-tab").first(), { button: "right" });
+  await pointAndClick(window, window.getByRole("menuitem", { name: "Don’t cite the Transcript" }));
+  await expect.poll(notCited).toBe(true);
+  await expect(window.getByTestId("undo-message").last()).toHaveText(`“${renamed}” won’t be cited`);
+  await shot(window, "one-item-renamed-dont-cite-en");
+  await setWindowSize(app, window, 900, 700);
+  await shot(window, "one-item-renamed-dont-cite-narrow-en");
+  await app.close();
+});
+
+test("the @ picker's arrows walk the order it draws: a meeting under Notes first, the Document below it next (#2579)", async () => {
+  const { app, window } = await launchApp(dataDir);
+  await dismissChatSetup(window);
+  await setWindowSize(app, window, 1440, 900);
+  const { title } = await recordAndStop(window);
+  const path = join(sources, "eighteenth-notes.txt");
+  await writeFile(path, "Eighteenth notes for the tide review.");
+  await addDocuments(window, [path]);
+  await expect
+    .poll(async () =>
+      (await core(window)).evaluate(async (bridge) =>
+        (await bridge.listDocuments()).some(
+          (each) => each.name === "eighteenth-notes" && each.status === "ready",
+        ),
+      ),
+    )
+    .toBe(true);
+
+  await pointAndClick(window, window.getByTestId("mind-tab").first());
+  await window.keyboard.press("ControlOrMeta+j");
+  await window.keyboard.type("@eighteenth");
+  const options = window.getByTestId("scope-picker").getByTestId("scope-choice");
+  await expect(options.first()).toContainText(new RegExp(`${escaped(title)} · Transcript`));
+  await expect(options.first()).toHaveAttribute("aria-selected", "true");
+  await shot(window, "one-item-picker-order-en");
+  await window.keyboard.press("ArrowDown");
+  await expect(options.nth(1)).toHaveAttribute("aria-selected", "true");
+  await expect(options.nth(1)).toContainText("eighteenth-notes");
   await app.close();
 });
 
@@ -311,9 +430,10 @@ test("a meeting an earlier version filed apart, one wall between, joins on the w
   };
   const whoseLine = async (line: ReturnType<Page["getByTestId"]>) => {
     const text = (await line.getByTestId("status-label").textContent()) ?? "";
-    const found = text.includes(weekly.title) ? said[weekly.title] : said[standup.title];
+    const title = text.includes(weekly.title) ? weekly.title : standup.title;
+    const found = said[title];
     if (!found) throw new Error(`No meeting says “${text}”.`);
-    return found;
+    return { title, ...found };
   };
 
   const { app, window } = await launchApp(dataDir);
@@ -346,8 +466,17 @@ test("a meeting an earlier version filed apart, one wall between, joins on the w
   await pointAndClick(window, line.getByTestId("meeting-joined-undo"));
   await expect.poll(() => placeOf(window, shown.mindId, shown.transcript)).toEqual(shown.undone);
   await expect(window.getByTestId(lineId)).toHaveCount(0);
+  // Undo says it worked on the same line, for its few seconds, with the meeting's name (#2579).
+  const undoneLine = window.getByTestId(
+    `meeting-joined-undone-${lineId.replace("meeting-joined-", "")}`,
+  );
+  await expect(undoneLine.getByTestId("status-label")).toHaveText(
+    `“${shown.title}” and its Transcript are back where they were`,
+  );
+  await shot(window, "one-item-joined-undone-en");
+  await expect(undoneLine).toHaveCount(0, { timeout: 5_000 });
 
-  // The other meeting's line, naming the other half, in both languages; left alone.
+  // The other meeting's line, naming the other half, in both languages; its Undo confirms in Chinese.
   const otherLine = window.getByTestId(/^meeting-joined-[0-9a-f]{8}-/).first();
   await expect(otherLine).toBeVisible();
   const other = await whoseLine(otherLine);
@@ -355,13 +484,24 @@ test("a meeting an earlier version filed apart, one wall between, joins on the w
   await expect(otherLine.getByTestId("status-label")).toHaveText(other.en);
   await setLanguage(window, "zh-CN");
   await expect(otherLine.getByTestId("status-label")).toHaveText(other.zh);
+  const otherLineId = (await otherLine.getAttribute("data-testid")) as string;
+  await pointAndClick(window, otherLine.getByTestId("meeting-joined-undo"));
+  await expect.poll(() => placeOf(window, other.mindId, other.transcript)).toEqual(other.undone);
+  const otherUndone = window.getByTestId(
+    `meeting-joined-undone-${otherLineId.replace("meeting-joined-", "")}`,
+  );
+  await expect(otherUndone.getByTestId("status-label")).toHaveText(
+    `“${other.title}”和转写稿已回到原处`,
+  );
+  await shot(window, "one-item-joined-undone-zh");
+  await expect(otherUndone).toHaveCount(0, { timeout: 5_000 });
   await app.close();
 
-  // Said once, the next start says nothing, and the one left alone stays joined.
+  // Said once, the next start says nothing; the pair Undone stays as it was put back.
   const again = await launchApp(dataDir);
   await expect(again.window.getByTestId("sidebar-status")).toBeVisible();
   await expect(again.window.getByTestId(/^meeting-joined-[0-9a-f]{8}-/)).toHaveCount(0);
-  expect(await placeOf(again.window, other.mindId, other.transcript)).toEqual(other.joined);
+  expect(await placeOf(again.window, other.mindId, other.transcript)).toEqual(other.undone);
   await again.app.close();
 });
 
@@ -447,11 +587,113 @@ test("a meeting two walls keep apart from its Transcript stays where it is, and 
       .getByTestId("palette-item"),
   ).toContainText([/^Transcript/]);
   await window.keyboard.press("Escape");
-  await app.close();
 
-  // Said once, and left alone: the next start says nothing.
+  // Left apart, the Transcript is a Document of its own: its viewer offers Tags (#2579).
+  await window.keyboard.press("ControlOrMeta+k");
+  await window.getByTestId("palette-search").fill("eighteenth");
+  const apartHit = window
+    .getByTestId("palette")
+    .locator('[data-testid="palette-group"][data-group="documentText"]')
+    .getByTestId("palette-item")
+    .first();
+  await expect(apartHit).toContainText(/^Transcript/);
+  await pointAndClick(window, apartHit);
+  const apartHeader = window.getByTestId("viewer-header");
+  await expect(apartHeader).toContainText("Transcript");
+  await expect(apartHeader.getByTestId("document-tags")).toHaveCount(1);
+  const documentName = await (await core(window)).evaluate(
+    async (bridge, id) => (await bridge.listDocuments()).find((each) => each.id === id)?.name ?? "",
+    documentId,
+  );
+  // It takes a Tag as any Document does, from its row in the Library, in English and in Chinese.
+  await pointAndClick(window, window.getByTestId("open-library"));
+  const apartRow = window
+    .getByTestId("library")
+    .getByTestId("library-document")
+    .filter({ hasText: documentName });
+  await expect(apartRow).toHaveCount(1);
+  const tagIt = async (name: string) => {
+    await pointAt(window, apartRow);
+    await pointAndClick(window, apartRow.getByTestId("document-tags-menu"));
+    await expect(window.getByTestId("tag-picker-input")).toBeFocused();
+    await window.keyboard.type(name);
+    await window.keyboard.press("Enter");
+    await window.keyboard.press("Escape");
+    await expect(apartRow.getByTestId("document-tags")).toContainText(name);
+  };
+  await tagIt("Harbour");
+  await setLanguage(window, "zh-CN");
+  await expect(apartRow.getByTestId("document-tags-menu")).toHaveAttribute("aria-label", /标签/);
+  await tagIt("港口");
+  await expect(window.getByTestId("tag-picker-input")).toHaveCount(0);
+  await motionSettled(window);
+  await shot(window, "one-item-left-apart-tagged-zh");
+  await app.close();
+  const tagsOf = async (page: Page) =>
+    (await core(page)).evaluate(async (bridge, id) => {
+      const tags = await bridge.listTags();
+      const document = (await bridge.listDocuments()).find((each) => each.id === id);
+      return (document?.tags ?? [])
+        .map((applied) => tags.find((tag) => tag.id === applied.tagId)?.name)
+        .sort();
+    }, documentId);
+
+  // Said once, and left alone: the next start says nothing; the Tags it took are still on it.
   const again = await launchApp(dataDir);
   await expect(again.window.getByTestId("sidebar-status")).toBeVisible();
   await expect(again.window.getByTestId("meetings-left-apart")).toHaveCount(0);
+  expect(await tagsOf(again.window)).toEqual(["Harbour", "港口"].sort());
   await again.app.close();
+});
+
+test("with a cloud tagging model, a dropped Document waits for Allow, which tags it, and the meeting's Transcript stays untagged", async () => {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await acceptPlainTextKeys(window);
+  await setWindowSize(app, window, 1440, 900);
+  await window.evaluate(async () => {
+    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    const provider = await bridge.saveChatProvider({
+      kind: "deepseek",
+      apiKey: "sk-test-not-a-real-key",
+      modelId: "deepseek-flash",
+    });
+    await bridge.createLibraryGroup({ name: "Research", description: "" });
+    const library = await bridge.getLibrary();
+    await bridge.saveLibrarySettings({
+      ...library.settings,
+      classifier: {
+        kind: "chat",
+        choice: { providerId: provider.id, modelId: "deepseek-flash" },
+      },
+    });
+  });
+
+  const { meeting } = await recordAndStop(window);
+  const transcriptId = meeting.transcript?.documentId as string;
+
+  const path = join(sources, "Research notes.txt");
+  await writeFile(path, "Research report about membrane separation and water filtration.");
+  await addDocuments(window, [path]);
+  const consent = window.getByTestId("sort-consent");
+  await expect(consent).toBeVisible({ timeout: 15_000 });
+  await expect(consent).toContainText("1 to organize");
+  await expect(consent.getByTestId("sort-consent-allow")).toHaveText("Allow DeepSeek");
+  const before = await (await core(window)).evaluate(async (bridge) => bridge.listDocuments());
+  expect(before.find((each) => each.name === "Research notes")?.tagging).toBe("off");
+  expect(before.find((each) => each.id === transcriptId)?.tagging).not.toBe("tagged");
+
+  await pointAndClick(window, consent.getByTestId("sort-consent-allow"));
+  await expect(consent).toHaveCount(0, { timeout: 15_000 });
+  await expect(window.getByRole("treeitem", { name: /^Report 1/ })).toBeVisible({
+    timeout: 30_000,
+  });
+  const after = await (await core(window)).evaluate(async (bridge) => bridge.listDocuments());
+  const afterDoc = after.find((each) => each.name === "Research notes");
+  expect(afterDoc?.tagging).toBe("tagged");
+  expect((afterDoc?.tags ?? []).length).toBeGreaterThan(0);
+  const transcript = after.find((each) => each.id === transcriptId);
+  expect(transcript?.tagging).not.toBe("tagged");
+  expect(transcript?.tags).toEqual([]);
+  await app.close();
 });

@@ -6,7 +6,7 @@ import { formatDateTime } from "../../../../shared/dates";
 import { RESEARCH_TASK } from "../../../../shared/research";
 import { shortcutLabel } from "../../commands/keymap";
 import { core } from "../../core";
-import { formatMoney } from "../../cost";
+import { atLineStart, formatMoney } from "../../cost";
 import { withShortcut } from "../../editor/withShortcut";
 import { useLanguage, useT } from "../../i18n";
 import type { Translate } from "../../objects";
@@ -77,7 +77,9 @@ function details(task: Task, t: Translate, language: Language): string[] {
     parts.push(t("task.details.cells", { done: task.progress.done, total: task.progress.total }));
   }
   parts.push(t("task.details.started", { time: formatDateTime(task.startedAt, language) }));
-  if (task.cost) parts.push(t("task.details.cost", { cost: formatMoney(task.cost, language) }));
+  if (task.cost) {
+    parts.push(atLineStart(t("task.details.cost", { cost: formatMoney(task.cost, language) })));
+  }
   return parts;
 }
 
