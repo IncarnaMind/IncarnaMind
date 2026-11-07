@@ -50,10 +50,11 @@ export function figuresInClaim(text: string, context: FigureContext): Figure[] {
 
 /**
  * Whether a text before a single period makes it say which one, not how many: "这一年", "那一年",
- * "每一年" and "当一年" are this, that, every and a year. A 当 that ends a word ("应当") is no
- * prefix (#2215).
+ * "每一年", "同一年", "另一年", "哪一年" and "当一年" are this, that, every, the same, another,
+ * which and a year. A 当 that ends a word ("应当") is no prefix; 前 and 后 stay out because
+ * "前后一年" counts a year or so (#2215).
  */
-const PERIOD_DEMONSTRATIVE = /(?:[这那每]|(?<!\p{Script=Han})当)\s*$/u;
+const PERIOD_DEMONSTRATIVE = /(?:[这那每同另哪]|(?<!\p{Script=Han})当)\s*$/u;
 
 export function periodCounts(text: string, context: FigureContext): Figure[] {
   const counts: Figure[] = [];
