@@ -1,15 +1,17 @@
 /**
- * A pretend cloud transcription service, for the tests and the smoke tests (#141): it speaks
- * enough of OpenAI's, Soniox's and Qwen's protocols for their adapters (./cloud) and never
- * touches the network. Soniox's side gives a line, with a speaker, for every two seconds of
- * sound it is sent, and Qwen's a sentence, with a heartbeat for each second of quiet; OpenAI's
- * gives one for each turn committed. It can refuse the key, or drop the connection after so much
- * audio, as a lost network does.
+ * A pretend cloud transcription service, for the tests and the smoke tests (#141, #866): it
+ * speaks enough of each service's protocol for its adapter (./cloud) and never touches the
+ * network. Soniox's side gives a line, with a speaker, for every two seconds of sound it is sent,
+ * and Qwen's a sentence, with a heartbeat for each second of quiet; OpenAI's gives one for each
+ * turn committed; Deepgram's, AssemblyAI's and Gemini's are in ./fakeLive. It can refuse the key,
+ * say the account is out of credit, or drop the connection after so much audio, as a lost
+ * network does.
  */
 import { MEETING_SAMPLE_RATE } from "../adapters";
 import { OPENAI_TRANSCRIPTION_URL } from "./cloud/openai";
 import { HANDSHAKE_REFUSED, QWEN_REALTIME_PATH } from "./cloud/protocol";
 import type { CloudConnect, CloudSocket } from "./cloud/socket";
+import { fakeAssemblyAi, fakeDeepgram, fakeGemini } from "./fakeLive";
 
 export const FAKE_CLOUD_LINES: readonly string[] = [
   "The budget holds at one point two million.",
@@ -23,6 +25,10 @@ export interface FakeCloudOptions {
   dropAfterMs?: number;
   /** The service refuses the key. */
   refuse?: boolean;
+  /** The account the key is for has no credit left. */
+  noCredit?: boolean;
+  /** Gemini's side says the connection ends (`goAway`) after this much audio. */
+  goAwayAfterMs?: number;
   /** How many voices Soniox's side tells apart, taking turns line by line: 2 by default. */
   voices?: number;
   /** A first Qwen sentence that stays partial, so a drop leaves its speech unfinished. */
@@ -41,6 +47,12 @@ export function createFakeCloud(options: FakeCloudOptions = {}): CloudConnect {
   const nextLine = () => FAKE_CLOUD_LINES[said++ % FAKE_CLOUD_LINES.length] as string;
 
   return (url, _apiKey, events) => {
+    const { hostname, pathname } = new URL(url);
+    if (pathname.endsWith("/v1/listen") || pathname.includes("/ai/run/@cf/deepgram/")) {
+      return fakeDeepgram(options, nextLine, events);
+    }
+    if (hostname === "streaming.assemblyai.com") return fakeAssemblyAi(options, nextLine, events);
+    if (pathname.endsWith("BidiGenerateContent")) return fakeGemini(options, nextLine, events);
     const openai = url === OPENAI_TRANSCRIPTION_URL;
     const qwen = new URL(url).pathname === QWEN_REALTIME_PATH;
     let closed = false;
@@ -104,6 +116,18 @@ export function createFakeCloud(options: FakeCloudOptions = {}): CloudConnect {
         }
         if (qwen && typeof data === "string") {
           const { action } = (JSON.parse(data) as { header: { action: string } }).header;
+          if (action === "run-task" && options.noCredit) {
+            reply({
+              header: {
+                event: "task-failed",
+                error_code: "Arrearage",
+                error_message: "Access denied, please make sure your account is in good standing.",
+              },
+              payload: {},
+            });
+            close(1000);
+            return;
+          }
           if (action === "run-task") reply({ header: { event: "task-started" }, payload: {} });
           if (action === "finish-task") {
             if (options.latePartial?.dropOnFinish) {
@@ -126,6 +150,9 @@ export function createFakeCloud(options: FakeCloudOptions = {}): CloudConnect {
             close(1000);
           } else if (options.refuse) {
             reply({ tokens: [], error_code: 401, error_message: "Incorrect API key provided." });
+            later(() => close(1000));
+          } else if (options.noCredit) {
+            reply({ tokens: [], error_code: 402, error_message: "Payment required." });
             later(() => close(1000));
           }
           return;
@@ -235,6 +262,10 @@ export function createFakeCloud(options: FakeCloudOptions = {}): CloudConnect {
       events.open();
       if (openai && options.refuse) {
         reply({ type: "error", error: { type: "invalid_request_error", code: "invalid_api_key" } });
+        later(() => close(3000));
+      }
+      if (openai && options.noCredit) {
+        reply({ type: "error", error: { type: "insufficient_quota", code: "insufficient_quota" } });
         later(() => close(3000));
       }
     });

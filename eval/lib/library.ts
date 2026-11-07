@@ -297,6 +297,8 @@ export async function openLibrary(options: LibraryOptions): Promise<Library> {
     ...(options.codeRuntime && { codeRuntime: options.codeRuntime }),
     ...(options.modelFacts && { modelFacts: options.modelFacts }),
     ...options.meetings,
+    // The Web pages come from a server on this computer, standing in for the web (./webPageServer).
+    webPages: { fetch },
     // The core reranks by default: with the real built-in model when asked for, as in the app
     // (Answers' searches); otherwise a fake, with nothing to download.
     ...(options.reranker

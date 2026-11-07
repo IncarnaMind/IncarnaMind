@@ -38,7 +38,12 @@ import type {
   ProviderError,
 } from "../api";
 import type { Consent } from "../consent";
-import { ConsentDeclinedError, EmbeddingModelNotReadyError, InvalidInputError } from "../errors";
+import {
+  ConsentDeclinedError,
+  ConsentNeededError,
+  EmbeddingModelNotReadyError,
+  InvalidInputError,
+} from "../errors";
 import { storedApiKey } from "../providers/apiKey";
 import {
   type ApiEmbeddingChoice,
@@ -114,8 +119,11 @@ export interface SearchEmbedder {
    * when the model can't be used now; another error fails this Document.
    */
   embedPassages(documentName: string, texts: readonly string[]): Promise<Float32Array[]>;
-  /** A search query's vector. L2-normalised. */
-  embedQuery(query: string): Promise<Float32Array>;
+  /**
+   * A search query's vector. L2-normalised. `background`: a search no one is
+   * waiting on (writing suggestions), which waits rather than asks.
+   */
+  embedQuery(query: string, background?: boolean): Promise<Float32Array>;
   /** What a vector search throws while the model can't be used. */
   notReadyError(): Error;
   /** Calls `listener` each time the model becomes ready: downloaded, or recovered from an error. */
@@ -132,7 +140,7 @@ interface ProviderModel {
   ensure(): void;
   load(): Promise<boolean>;
   embedPassages(documentName: string, texts: readonly string[]): Promise<Float32Array[]>;
-  embedQuery(query: string): Promise<Float32Array>;
+  embedQuery(query: string, background?: boolean): Promise<Float32Array>;
   notReadyError(): Error;
   /** No longer in use: stop its requests, free its memory. */
   release(): void;
@@ -293,16 +301,23 @@ export function createActiveEmbedding(options: {
     };
 
     /** Runs a request; a failure becomes the provider's error, and `EmbeddingUnavailableError`. */
-    const request = async <T>(send: (apiKey: string | null) => Promise<T>): Promise<T> => {
+    const request = async <T>(
+      send: (apiKey: string | null) => Promise<T>,
+      background: boolean,
+    ): Promise<T> => {
       try {
         const apiKey = await key();
-        if (service) await consent.ensure("embeddings", service);
+        if (service) await consent.ensure("embeddings", service, undefined, { background });
         const result = await send(apiKey);
         if (current === provider && error !== null) setError(null);
         return result;
       } catch (failure) {
         // Switched away, or the core closed: the caller notices and drops the result.
         if (inUse.signal.aborted || signal.aborted) throw new EmbeddingUnavailableError("Stopped.");
+        // Documents wait without the provider reading as failed: the User hasn't allowed it yet.
+        if (failure instanceof ConsentNeededError) {
+          throw new EmbeddingUnavailableError(failure.message);
+        }
         const classified =
           failure instanceof EmbeddingUnavailableError
             ? { kind: "auth" as const, message: failure.message }
@@ -356,8 +371,8 @@ export function createActiveEmbedding(options: {
             );
           }
           return checked(embeddings);
-        }),
-      embedQuery: (query) =>
+        }, true),
+      embedQuery: (query, background = false) =>
         request(async (apiKey) => {
           const { embedding } = await embed({
             model: gated(createModel({ ...choice, apiKey })),
@@ -367,7 +382,7 @@ export function createActiveEmbedding(options: {
             providerOptions: embeddingProviderOptions(choice.kind, "query"),
           });
           return checked([embedding])[0] as Float32Array;
-        }),
+        }, background),
       notReadyError: () => new EmbeddingModelNotReadyError(null, error),
       release: () => inUse.abort(),
     };
@@ -439,7 +454,7 @@ export function createActiveEmbedding(options: {
     ensure: () => current.ensure(),
     load: () => current.load(),
     embedPassages: (documentName, texts) => current.embedPassages(documentName, texts),
-    embedQuery: (query) => current.embedQuery(query),
+    embedQuery: (query, background) => current.embedQuery(query, background),
     notReadyError: () => current.notReadyError(),
     onReady(listener) {
       readyListeners.add(listener);
