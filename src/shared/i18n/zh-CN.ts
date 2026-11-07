@@ -4486,6 +4486,7 @@ export const zhCN = {
   "export.options.html": "可在任何浏览器打开，引用变为可跳转的脚注。",
   "export.options.share-page": "一个文件，任何人都能用浏览器打开。不会上传任何内容。",
   "export.share.menu": "导出为可分享的网页…",
+  "export.share.keywords": "fenxiang 分享 wangye 网页 html daochu 导出",
   "export.share.title": "可分享的网页",
   "export.share.save": "保存",
   "export.share.nothing": "只保存一个文件，不会上传任何内容。",

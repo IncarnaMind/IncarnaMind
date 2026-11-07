@@ -4697,6 +4697,7 @@ export const en = {
   "export.options.html": "Opens in any browser; Citations become linked footnotes.",
   "export.options.share-page": "One file anyone opens in a browser. Nothing is uploaded.",
   "export.share.menu": "Share as a web page…",
+  "export.share.keywords": "share web page html send email readers citations",
   "export.share.title": "Share as a web page",
   "export.share.save": "Save",
   "export.share.nothing": "Saves one file. Nothing is uploaded.",

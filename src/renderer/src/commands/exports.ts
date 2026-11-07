@@ -97,7 +97,7 @@ export const exportCommands: readonly Command[] = [
     // A web page is shared from its own sheet, not exported as one of Export options' formats (#1258).
     id: "mind.shareWebPage",
     label: "export.share.menu",
-    keywords: ["export.keywords"],
+    keywords: ["export.keywords", "export.share.keywords"],
     group: "main",
     // Only opens the sheet; nothing is saved until Save.
     reversible: true,
