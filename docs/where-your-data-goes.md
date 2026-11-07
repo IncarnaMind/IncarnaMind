@@ -29,7 +29,7 @@ Also on the chat flow: a Note the assistant reads, what a command found, and the
 
 With `Keep everything on this computer` on, every cloud flow above stops or uses a local model. Still happening: update checks to GitHub at startup in the installed app, unless off; model downloads from huggingface.co and its mirrors, and IncarnaMind's copies once set up, plus Ollama pulls (nothing of yours); crash reports, if you turned them on (stripped of your content first; they hold the error, when and where it happened, the app version, your system and its version, your computer's chip type and model family, its processor count and memory size, and the versions of Electron, Chrome and Node); a page you name waits for you to let it go; and a local Connector keeps working and can reach the network itself.
 
-Usage data goes only from a build with an analytics project and only if you choose Send (a test build sends until you turn it off); crash reports only if you turn them on; sign-ins to ChatGPT, a Claude account or GitHub go only to that service.
+Usage data goes only from a build with an analytics project and only if you choose Send (a test build sends until you turn it off); while it is on, one event a week also says roughly what that week's model calls cost, as a range, the kind of route that paid, and how many Answers and checks there were; [privacy.md](privacy.md) lists every field. Crash reports only if you turn them on; sign-ins to ChatGPT, a Claude account or GitHub go only to that service.
 
 An export you send yourself carries quotes from your Documents with their names; a web page to share also holds the passage around each quote and a picture of part of its page.
 

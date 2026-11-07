@@ -124,7 +124,14 @@ function showCard(anchor: HTMLElement | null, source: FigureSource): void {
     open.textContent = translateNow("citation.open.page");
     open.addEventListener("click", () => {
       hideCard();
-      openCited({ ...source.citation, documentId }, { check: "cant-check", withQuote: true });
+      openCited(
+        { ...source.citation, documentId },
+        {
+          origin: anchor.closest("[data-assistant]") ? "assistant" : "note",
+          check: "cant-check",
+          withQuote: true,
+        },
+      );
     });
     actions.append(open);
   }

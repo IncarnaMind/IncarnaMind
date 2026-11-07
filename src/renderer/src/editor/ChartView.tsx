@@ -57,6 +57,7 @@ import {
   withKind,
 } from "./chartCommands";
 import { type ChartHandle, chartHandles } from "./chartHandles";
+import { useCitedOrigin } from "./mindContext";
 import { Popover } from "./Popover";
 
 /** As a Citation's card: the pointer rests a moment before it shows, and may leave a moment before it goes. */
@@ -174,6 +175,7 @@ export function ChartView({
   deleteNode,
   doc,
 }: ReactNodeViewProps & { doc: Y.Doc | null }) {
+  const origin = useCitedOrigin();
   const t = useT();
   const language = useLanguage();
   const chart = useMemo(() => readChart(node.attrs), [node.attrs]);
@@ -409,6 +411,7 @@ export function ChartView({
     void openCited(
       { ...citation, documentId },
       {
+        origin,
         check: state.check,
         withQuote: quoteSaysSo(state.check) || state.reason === "document-removed",
         label: location ? formatLocation(location, t) : null,

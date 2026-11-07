@@ -161,6 +161,7 @@ export async function transcribingCore(
     keychain,
     speakerSeparator,
     speakerModelSource = NO_SPEAKER_FILES,
+    transcriptionModelSource = NO_TRANSCRIPTION_FILES,
     cloud,
     systemLanguages,
     answerPaths,
@@ -187,6 +188,8 @@ export async function transcribingCore(
     speakerSeparator?: SpeakerSeparator;
     /** Where the speaker models come from: none to download by default. */
     speakerModelSource?: CoreAdapters["speakerModelSource"];
+    /** Where the speech models come from: none to download by default, and no streaming model. */
+    transcriptionModelSource?: CoreAdapters["transcriptionModelSource"];
     /** Which models take the faster Answer paths, instead of the lists beside the catalog. */
     answerPaths?: CoreAdapters["answerPaths"];
     /** The shipped examples' folder, for a core that makes them. */
@@ -207,7 +210,7 @@ export async function transcribingCore(
   const core = startCore(dataDir, {
     audioCapture: audioCapture ?? capture,
     transcriber: engineHost.transcriber,
-    transcriptionModelSource: NO_TRANSCRIPTION_FILES,
+    transcriptionModelSource,
     transcriptionKeyFetch: async () => new Response(null, { status: 200 }),
     now: clock.now,
     ...(models && { createChatModel: models.createChatModel }),

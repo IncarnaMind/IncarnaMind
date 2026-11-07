@@ -3433,7 +3433,7 @@ export const zhCN = {
     "有文档可搜索时下载一次内置排序模型；如果这台电脑能用 GPU，还会下载它的 GPU 版本。",
   "privacy.traffic.transcription-model": "下载语音模型",
   "privacy.traffic.transcription-model.tip":
-    "会议的语音模型，以及区分说话人的模型，只在第一次录制或转写会议时下载一次。你说的内容不会发送出去。",
+    "会议的语音模型、写出实时文字的流式模型，以及区分说话人的模型，只在第一次录制或转写会议时下载一次。如果语音模型之前已经下载，流式模型会在之后某次会议开始时下载。你说的内容不会发送出去。",
   "privacy.traffic.python-runtime": "下载数据分析用的 Python",
   "privacy.traffic.python-runtime.tip":
     "对整个文件运行数据分析时所用的 Python，只在第一次运行时从此版本的发布地址下载一次。你的文件不会发送出去。",
@@ -3465,7 +3465,8 @@ export const zhCN = {
     "技能脚本在这台电脑上运行，可发送它读取的内容。每个脚本运行前都会询问，除非你设为“始终允许”。",
   "privacy.aiUse.title": "AI 使用记录",
   "privacy.aiUse.body": "记录 AI 写了什么、核对了什么。",
-  "privacy.aiUse.private": "不含任何文字，绝不发送。",
+  "privacy.aiUse.private":
+    "留在这台电脑上：不会发送任何一条记录。开启使用数据后，每周发送核对次数。",
   "privacy.aiUse.entries": "共 {count} 条",
   "privacy.aiUse.clear": "清除记录",
   "privacy.aiUse.cleared": "已清除 AI 使用记录。",
@@ -6009,7 +6010,7 @@ export const zhCN = {
   "meetings.notice.microphone": "IncarnaMind 会录制你的麦克风。",
   "meetings.notice.tell": "开始前告诉所有人你在录制：很多地方法律有此要求。",
   "meetings.notice.model": "在这台电脑上转写。",
-  "meetings.notice.modelSize": "语音模型约 1 GB。",
+  "meetings.notice.modelSize": "语音模型约 1.2 GB。",
   "meetings.start.downloadAndStart": "下载并开始",
   "meetings.notice.cancel": "取消",
   "meetings.bar.label": "会议录制",

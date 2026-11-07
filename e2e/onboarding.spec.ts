@@ -572,6 +572,12 @@ for (const { language, name, text, asks, question } of OWN_FILES) {
     await expect(
       window.getByTestId("citation-card").getByText(name.replace(/\.md$/, ""), { exact: true }),
     ).toBeVisible();
+    // Its page opens beside the Note; clicked in the assistant, the assistant stays open with the
+    // Answer, and the steps stay in view (#2270).
+    await expect(window.getByTestId("viewer")).toBeVisible();
+    await expect(window.getByTestId("assistant")).not.toHaveAttribute("data-folded");
+    await expect(answer).toBeInViewport();
+    await expect(window.getByTestId("first-open-steps")).toBeInViewport();
     // The Answer that arrived is what ticks the step, not the click.
     await expect(step(window, "question")).toHaveAttribute("data-state", "done");
     await app.close();

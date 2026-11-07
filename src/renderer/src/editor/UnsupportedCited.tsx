@@ -5,6 +5,7 @@ import { LineAction } from "../components/ProblemLine";
 import { useT } from "../i18n";
 import { openCited, quoteSaysSo } from "../openCited";
 import type { NumberedCitation } from "./citationNumbers";
+import { useCitedOrigin } from "./mindContext";
 
 /**
  * What a cited sentence's Unsupported card says in place of where the check
@@ -101,6 +102,7 @@ export function OpenCitation({
   onOpen(): void;
   children: ReactNode;
 }) {
+  const origin = useCitedOrigin();
   const t = useT();
   const { documentId, quote } = attributes;
   return documentId ? (
@@ -113,7 +115,7 @@ export function OpenCitation({
       onClick={() => {
         void openCited(
           { ...attributes, documentId },
-          { check: attributes.check, withQuote: quoteSaysSo(attributes.check), number },
+          { origin, check: attributes.check, withQuote: quoteSaysSo(attributes.check), number },
         );
         onOpen();
       }}
