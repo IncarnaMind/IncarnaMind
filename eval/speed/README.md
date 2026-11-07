@@ -4,7 +4,7 @@
 
 ## What it measures
 
-- **Each flow** (`flows.ts`), from the User's action: the first sign of work the window shows (a step, a spinner, the first words), the first words (in the panel or the page), the first change in the page, the end, and the longest wait with no new sign. Every flow is held to one rule: a sign within 0.5 s, and no silent wait over 2 s.
+- **Each flow** (`flows.ts`, and the Library's in `libraryFlows.ts`), from the User's action: the first sign of work the window shows (a step, a spinner, the first words), the first words (in the panel or the page), the first change in the page, the end, and the longest wait with no new sign, each as the median and 95th percentile of its runs. The flows are #1624's list: a Question, the assistant writing, editing and lengthening, Edit with AI, Find support, Check this Mind, a suggestion as you write, a comparison table, a Calculated figure, a chart, contradictions, verifying a short document, a Research plan and Task, the Library's Folders proposed, Organize and Tags. Every flow is held to one rule: a sign within 0.5 s, and no silent wait over 2 s. The flows #1624 gives a budget (a Question on a Haiku-class and on a Sonnet-class model, and the edits) are held to it in the report's budget table; Check this Mind on 10 sentences is in "Where a check's time goes", and call help and the notes after Stop in the paired sets below.
 - **Each model request and local step** the flows made, from the core's own timing records (`src/core/timing`): by flow and step, the times to the first byte, the first reasoning, the first text and the end, with the tokens and the reasoning setting. A request made outside any tagged flow shows under its data flow (`tagging` for Tags, `classification` for Organize), so a new flow appears by itself.
 
 The core keeps these records for any use of the app, in its own database, for 30 days: times, tokens and names, never text, and nothing is sent anywhere.
@@ -36,7 +36,7 @@ INCARNAMIND_EVAL_SPEED_KEY_ANTHROPIC=sk-ant-... \
 npm run eval:speed
 ```
 
-- **The sets.** `gating`: the gating set's 65 Questions (`eval/retrieval`), each asked in a Mind of its own. The sample reports, which `gating` and `everyday` also read, are the mixed set: the generated PDFs in `eval/data/` beside the real Documents in `eval/data/real/` (#2019). `hard`: the hard tier's Questions over its library (`eval/hard`, fetched into the cache; indexing it takes a few minutes), those whose quotes the stored text holds. `everyday`: the everyday requests (`eval/everyday`), held to their own guards. `checks`: Check this Mind on each Mind of `eval/repeats`, once a run. `written`: sentences the assistant writes into a Note, checked before they land (below). `call-help`: a help button pressed during a call (below).
+- **The sets.** `gating`: the gating set's 65 Questions (`eval/retrieval`), each asked in a Mind of its own. The sample reports, which `gating` and `everyday` also read, are the mixed set: the generated PDFs in `eval/data/` beside the real Documents in `eval/data/real/` (#2019). `hard`: the hard tier's Questions over its library (`eval/hard`, fetched into the cache; indexing it takes a few minutes), those whose quotes the stored text holds. `everyday`: the everyday requests (`eval/everyday`), held to their own guards. `checks`: Check this Mind on each Mind of `eval/repeats`, once a run. `written`: sentences the assistant writes into a Note, checked before they land (below). `call-help`: a help button pressed during a call (below). `meeting-notes`: a call stopped and its notes filled in (below).
 
 The sets' baselines, and which set each is (#2019). Re-baselined on the mixed set on 2026-10-26: `gating`, the search Tool 38 of 40 (18 English + 20 Chinese; the bar is 15 + 20); `hard`, keyword + rerank 133 of 200 at the top 5 (measured before the licence check replaced two real Documents; the hard tier is reported, never gates); `everyday`, the reports library 45 of 50 requests at their floor, Supported 91% English and 92% Chinese. The generated samples alone give 35 of 40, 131 of 200 and 48 of 50 (92% and 91%). Every number here from these sets is the mixed set's; a number from the generated samples alone says so.
 - `cells`: the gating set's 65 Questions, each asked as a comparison table's one cell over the Document that holds its Passages, as a Task asks it (#1631). Cited is a Citation in the cell that the core's Citation check marked found, over each Passage's pages; every Citation found is by that check too; judged right as for `gating`. A cell ends when its table's fill does; its first words aren't told apart from the empty table.
@@ -68,6 +68,17 @@ The sets' baselines, and which set each is (#2019). Re-baselined on the mixed se
 - **False Supported:** a sentence the panel shows with a found Citation, so with its green check, that states something its quoted words don't say, as the same judge reads each one. The run stops at the first that today's path didn't give, or, for the call-help set, counts them over the set with `INCARNAMIND_EVAL_SPEED_FALSE_SUPPORTED=counted`.
 - **Other guards:** a Tool call left as text, a reply that showed nothing, the live text behind.
 - **Its arms** (`gates/call-help.md` says how each ships): `newest-stretch` sends only the newest 400 tokens of the live transcript, the newest Passage at least; `write-then-cite` has the reply written and shown first, its records after it. The press already searches once before its first call, for the newest lines, and searches again only if those Passages don't answer: the report's "Searched more than once" counts how often it did.
+
+### The meeting-notes set
+
+`meeting-notes` stops a call and fills its notes in from its Transcript (#142), as Stop does, on the User's Answers model. Each case (`meetingNotesCases.ts`) is one of the call-help set's long calls, heard live through the same fake capture and engine, in a Library of only its own Documents, with what its notes must give: the case's own lines (an offer, a worry, a date, an owner, a request) and two lines of the rollout talk (the trial workspace, and the onboarding contact put in writing). The cases were written and committed before any run, and no prompt has seen them. Each case is stopped once a run, so `RUNS` stays 1: run the set again for more pairs.
+
+- **The times,** from Stop: the first sign the meeting bar shows (the notes waiting or being filled in), when the notes go into the page, and the end.
+- **Cited:** each line the case rests on is quoted by a found Citation of the Transcript in the notes.
+- **Judged right:** the judge grades the notes, as the page shows them, against what the case says they must give.
+- **False Supported:** a sentence with a found Citation that states something its quoted words don't say, as the same judge reads each one.
+- **Other guards:** a Tool call left as text, notes with a problem, or nothing written.
+- Pair `today` with `write-then-cite` (#489) to measure writing the notes before their records; the gate is `gates/write-then-cite-tasks.md`.
 
 ### Adding an arm
 

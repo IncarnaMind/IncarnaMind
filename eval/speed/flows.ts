@@ -7,103 +7,19 @@
  * (src/core/timing), tagged with the flow.
  */
 import { randomUUID } from "node:crypto";
-import { type Core, type CoreEventName, type Document, messageReference } from "../../src/core";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { JSONContent } from "@tiptap/core";
+import { type Core, type Document, messageReference } from "../../src/core";
 import { pageBlocks } from "../../src/shared/answerBlocks";
 import { connectToMind } from "../../tests/helpers/mindClient";
 import { note, writeMind } from "../../tests/helpers/minds";
 import { ask } from "../everyday/asking";
+import { LIBRARY_FLOWS } from "./libraryFlows";
+import { type Flow, type FlowContext, type Language, timed, wordsAtEnd } from "./signs";
 
-export type Language = "en" | "zh-CN";
-
-export interface FlowContext {
-  core: Core;
-  language: Language;
-  /** The mixed sample set: the generated PDFs in eval/data/ and the readable Documents in eval/data/real/. */
-  documents: ReadonlyMap<string, Document>;
-}
-
-/** When the window saw each kind of sign, in milliseconds from the User's action. */
-export interface FlowSigns {
-  /** The User's action, after whatever the flow set up first. */
-  startedAt: string;
-  firstSignMs: number | null;
-  firstWordsMs: number | null;
-  /** The first change in the page, which an Answer's words in the panel may come before. */
-  firstChangeMs: number | null;
-  doneMs: number;
-  /** The longest stretch with no new sign of work, from the action to the end. */
-  longestQuietMs: number;
-}
-
-export interface Flow {
-  id: string;
-  /** What a User does, for the report. */
-  label: string;
-  run(context: FlowContext): Promise<FlowSigns>;
-}
-
-// A suggestion and a Research plan arrive whole, when the call returns: their words come at the end.
-const wordsAtEnd = (signs: FlowSigns): FlowSigns => ({
-  ...signs,
-  firstWordsMs: signs.firstWordsMs ?? signs.doneMs,
-});
-
-/** The events that show the User something is happening; those in `WORDS` carry words. */
-export const SIGNS: readonly CoreEventName[] = [
-  "answer.started",
-  "answer.phase",
-  "answer.reasoning",
-  "answer.delta",
-  "answer.toolCallStarted",
-  "answer.toolCallFinished",
-  "answer.citationAdded",
-  "mind.writing",
-  "mind.update",
-  "comparison.filling",
-  "task.changed",
-];
-const WORDS: ReadonlySet<CoreEventName> = new Set(["answer.delta", "mind.update"]);
-
-/** Times `act` by the signs the core sends while it runs, those of the Mind `mindId` only. */
-export async function timed(
-  core: Core,
-  mindId: string,
-  act: () => Promise<unknown>,
-): Promise<FlowSigns> {
-  const startedAt = new Date().toISOString();
-  const start = performance.now();
-  const at = () => performance.now() - start;
-  const signs: number[] = [];
-  let firstWordsMs: number | null = null;
-  let firstChangeMs: number | null = null;
-  const stops = SIGNS.map((event) =>
-    core.on(event, (payload: unknown) => {
-      const place = payload as { mindId?: string | null };
-      if (typeof place.mindId === "string" && place.mindId !== mindId) return;
-      signs.push(at());
-      if (WORDS.has(event)) firstWordsMs ??= at();
-      if (event === "mind.update") firstChangeMs ??= at();
-    }),
-  );
-  try {
-    await act();
-  } finally {
-    for (const stop of stops) stop();
-  }
-  const doneMs = at();
-  const marks = [0, ...signs, doneMs];
-  const longestQuietMs = marks
-    .slice(1)
-    .reduce((longest, mark, index) => Math.max(longest, mark - (marks[index] ?? 0)), 0);
-  return {
-    startedAt,
-    firstSignMs: signs[0] ?? null,
-    firstWordsMs,
-    firstChangeMs,
-    doneMs,
-    longestQuietMs,
-  };
-}
+export { type Flow, type FlowContext, type FlowSigns, type Language, SIGNS, timed } from "./signs";
 
 const inLanguage = <T>(language: Language, words: Record<Language, T>): T => words[language];
 
@@ -138,6 +54,79 @@ const LONGER = { en: "Make the summary longer.", "zh-CN": "把摘要写长一点
 const UN_CLAIM = {
   en: "The Norvath Assembly's 2022 annual report covers its work in more than 90 countries.",
   "zh-CN": "Norvath Assembly 2022 年度报告介绍了它在 90 多个国家的工作。",
+};
+
+/** Two sentences of the Vantrell report, each with the words of it a Citation quotes and its page. */
+const CITED = [
+  {
+    en: "Vantrell aims to finance more than $1.4 trillion for sustainable development over eight years.",
+    "zh-CN": "Vantrell 计划在八年内为可持续发展提供超过 1.4 万亿美元的资金。",
+    quote: "more than $1.4 trillion over eight years",
+    page: 8,
+  },
+  {
+    en: "Vantrell plans to cut its Scope 1 and 2 emissions by 45% by 2032.",
+    "zh-CN": "Vantrell 计划到 2032 年将范围一和范围二排放减少 45%。",
+    quote: "cutting Scope 1 and 2 emissions by 45% by 2032",
+    page: 20,
+  },
+] as const;
+
+/** A paragraph of `sentence` with a found Citation of `document`, as an Answer added to a Note writes one. */
+function citedParagraph(
+  sentence: string,
+  document: Document,
+  quote: string,
+  page: number,
+): JSONContent {
+  return {
+    type: "paragraph",
+    attrs: { id: randomUUID() },
+    content: [
+      { type: "text", text: `${sentence} ` },
+      {
+        type: "citation",
+        attrs: {
+          passageId: randomUUID(),
+          documentId: document.id,
+          documentName: document.name,
+          contentHash: document.contentHash,
+          pageFrom: page,
+          pageTo: page,
+          location: null,
+          quote,
+          check: "found",
+          checkReason: null,
+        },
+      },
+    ],
+  };
+}
+
+/** A short document someone else wrote, to verify: what the sample reports say, in four sentences. */
+const BRIEFING_NOTE = {
+  en: [
+    "# Briefing note",
+    "",
+    "Vantrell aims to finance more than $1.4 trillion for sustainable development over eight years.",
+    "",
+    "In 2022 Vantrell financed and facilitated about $118 billion toward that target.",
+    "",
+    "Vantrell plans to cut the emissions of its own operations by 45% by 2032.",
+    "",
+    "The Norvath Assembly's Stability Fund approved $142 million in programming in 2022.",
+  ],
+  "zh-CN": [
+    "# 简报",
+    "",
+    "Vantrell 计划在八年内为可持续发展提供超过 1.4 万亿美元的资金。",
+    "",
+    "2022 年，Vantrell 为该目标提供和促成了约 1180 亿美元的资金。",
+    "",
+    "Vantrell 计划到 2032 年将自身运营的排放减少 45%。",
+    "",
+    "Norvath Assembly 的稳定基金在 2022 年批准了 1.42 亿美元的项目资金。",
+  ],
 };
 
 function asked(text: Record<Language, string>, paragraphs: (language: Language) => string[]) {
@@ -317,6 +306,95 @@ export const FLOWS: readonly Flow[] = [
     },
   },
   {
+    id: "calculation",
+    label: "Ask a Question whose answer is a Calculated figure",
+    run: asked(
+      {
+        en: "What share of the roughly $118 billion Vantrell financed toward its target in 2022 went to green financing?",
+        "zh-CN": "Vantrell 2022 年为其目标提供的约 1180 亿美元中，绿色融资占多大比例？",
+      },
+      (language) => [NOTES[language]],
+    ),
+  },
+  {
+    id: "chart",
+    label: "Ask the assistant to add a chart to the page",
+    run: asked(
+      {
+        en: "Add a bar chart of what Vantrell financed toward its target in 2022, green and development, to my notes",
+        "zh-CN": "把 Vantrell 2022 年为目标提供的绿色融资和发展融资做成柱状图，加到我的笔记里",
+      },
+      (language) => [NOTES[language]],
+    ),
+  },
+  {
+    id: "contradictions",
+    label:
+      "Check for contradictions: two cited sentences against the other Documents in their Folder",
+    async run({ core, language, documents }) {
+      const [vantrell, ...others] = documentsNamed(
+        documents,
+        "Vantrell",
+        "Norvath",
+        "National Risk",
+      );
+      const report = [...documents.values()].find((document) => document.id === vantrell);
+      if (!report || others.length === 0) throw new Error("The sample reports aren't all here.");
+      const folder = await core.createLibraryGroup({
+        name: inLanguage(language, { en: "Climate finance", "zh-CN": "气候金融" }),
+        description: "",
+      });
+      try {
+        await core.moveToFolder({ documentIds: [report.id, ...others], folderId: folder.id });
+        const mind = await core.createMind({
+          title: inLanguage(language, BRIEFING),
+          folderId: folder.id,
+        });
+        const client = await connectToMind(core, mind.id);
+        writeMind(
+          client,
+          CITED.map((each) => citedParagraph(each[language], report, each.quote, each.page)),
+        );
+        await client.settled();
+        return await timed(core, mind.id, () =>
+          core.checkContradictions({ requestId: randomUUID(), mindId: mind.id }),
+        );
+      } finally {
+        // Its Documents go back to Not in a Folder, so the flows after it search and sort as before.
+        await core.deleteLibraryGroup(folder.id);
+      }
+    },
+  },
+  {
+    id: "verify-document",
+    label: "Verify a short document someone else wrote: read it, find its claims, check them",
+    async run({ core, language }) {
+      const folder = await mkdtemp(join(tmpdir(), "incarnamind-speed-verify-"));
+      const path = join(folder, `${inLanguage(language, BRIEFING)} ${randomUUID().slice(0, 8)}.md`);
+      await writeFile(path, BRIEFING_NOTE[language].join("\n"));
+      let documentId: string | null = null;
+      try {
+        return await timed(core, null, async () => {
+          const verified = await core.verifyDocument({ path });
+          if (!verified.ok) throw new Error(`Not verified: ${verified.reason}`);
+          documentId = verified.documentId;
+          const mindId = verified.mind.id;
+          const found = await core.findClaims({
+            requestId: randomUUID(),
+            mindId,
+            allDocuments: true,
+          });
+          if (found.kind !== "found") throw new Error(`No claims found: ${JSON.stringify(found)}`);
+          await core.verifyClaims({ requestId: randomUUID(), mindId, allDocuments: true });
+        });
+      } finally {
+        // A new file each run, so each is read for the first time, and out of the Library after.
+        if (documentId) await core.deleteDocument(documentId);
+        await rm(folder, { recursive: true, force: true });
+      }
+    },
+  },
+  {
     id: "research-task",
     label: "A Research Task of one step from the Library, to its draft in the page",
     async run({ core, language }) {
@@ -386,4 +464,5 @@ export const FLOWS: readonly Flow[] = [
       );
     },
   },
+  ...LIBRARY_FLOWS,
 ];

@@ -44,6 +44,7 @@ export const SET_IDS = [
   "cells",
   "written",
   "call-help",
+  "meeting-notes",
 ] as const;
 export type SetId = (typeof SET_IDS)[number];
 export type Language = "en" | "zh-CN";
@@ -103,7 +104,8 @@ export interface ArmRun {
 
 /**
  * What an item measures itself; the times and calls come from the run around it, but for the
- * first words of an item that tells them itself (`words: "item"`).
+ * first sign and words of an item that tells them itself (`words: "item"`): a sign a window shows
+ * that no Note's event carries, such as the meeting bar's.
  */
 export type Measured = Omit<
   ArmRun,
@@ -114,7 +116,7 @@ export type Measured = Omit<
   | "answerCalls"
   | "inputTokens"
   | "outputTokens"
-> & { firstWordsMs?: number | null };
+> & { firstSignMs?: number | null; firstWordsMs?: number | null };
 
 export interface ItemContext {
   /** The library, whose `timings.begin()` marks the User's action. */
@@ -686,7 +688,8 @@ export async function runOnArm(
   return {
     ...measured,
     answerCalls: own.length,
-    firstSignMs: sign,
+    firstSignMs:
+      item.words === "item" && measured.firstSignMs !== undefined ? measured.firstSignMs : sign,
     firstWordsMs:
       item.words === "item"
         ? (measured.firstWordsMs ?? null)
