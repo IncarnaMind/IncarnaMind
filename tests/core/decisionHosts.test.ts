@@ -60,6 +60,8 @@ const tagOf = (instructions: string) => /“(.+)”/.exec(instructions)?.[1] ?? 
 /** Every host's decision endpoint on one server, each checked and answered as its docs say. */
 async function startFakeHosts() {
   const requests: HostRequest[] = [];
+  /** OpenRouter's model listing, asked for: its own count, as it sends nothing of the User's. */
+  const listings: (string | undefined)[] = [];
   let probabilities: Record<string, number> = {};
   const probability = (instructions: string) =>
     instructions.includes("connection check") ? 0.9 : (probabilities[tagOf(instructions)] ?? 0.02);
@@ -68,14 +70,34 @@ async function startFakeHosts() {
     for await (const chunk of request) text += chunk;
     const body = JSON.parse(text || "{}") as Record<string, unknown>;
     const path = request.url ?? "";
-    requests.push({ path, authorization: request.headers.authorization, body });
     const send = (status: number, payload: unknown) => {
       response.writeHead(status, { "content-type": "application/json" });
       response.end(JSON.stringify(payload));
     };
+    // OpenRouter's public listing: a model released since this copy, and a free variant.
+    if (request.method === "GET" && path === "/api/v1/models?output_modalities=decisions") {
+      listings.push(request.headers.authorization);
+      send(200, {
+        data: [
+          {
+            id: "perplexity/pplx-decider-v1.2",
+            name: "Perplexity: Decider V1.2",
+            pricing: { prompt: "0.00000002" },
+          },
+          { id: "newco/decide-9", name: "NewCo: Decide 9", pricing: { prompt: "0.00000003" } },
+          { id: "newco/decide-9:free", name: "NewCo: Decide 9 (free)", pricing: { prompt: "0" } },
+        ],
+      });
+      return;
+    }
+    requests.push({ path, authorization: request.headers.authorization, body });
     const bearer = request.headers.authorization?.replace(/^Bearer /, "") ?? "";
     if (!Object.values(KEYS).includes(bearer)) {
       send(401, { error: { message: "Invalid API key." } });
+      return;
+    }
+    if (body.model === "gone-model") {
+      send(400, { detail: "Unknown model: gone-model" });
       return;
     }
     if (path === "/v1/decisions" && Array.isArray(body.questions)) {
@@ -147,6 +169,7 @@ async function startFakeHosts() {
   return {
     url,
     requests,
+    listings,
     answer(next: Record<string, number>) {
       probabilities = next;
     },
@@ -221,7 +244,9 @@ describe("Decision model hosts (#1907)", { timeout: 30_000 }, () => {
       .map((option) => option.name);
     expect(offered[0]).toBe("Decider v1.2");
     expect(offered).toContain("d1-ultra");
-    expect(offered).toHaveLength(9);
+    // The measured nine, then what OpenRouter's own listing adds: never its free variants.
+    expect(offered).toHaveLength(10);
+    expect(offered.at(-1)).toBe("Decide 9");
     // A key given for chat doesn't cover sending Documents: Automatic keeps to what it used.
     expect(models.automatic?.classifier.kind).not.toBe("decision");
     expect(hosts.requests).toEqual([]);
@@ -272,6 +297,52 @@ describe("Decision model hosts (#1907)", { timeout: 30_000 }, () => {
         destination: { kind: "service", service: { id: "https://api.liquid.ai" } },
       },
     });
+  });
+
+  test("a model a host released since is offered and used by name; one it doesn't serve fails in its words", async () => {
+    const { core, hosts } = await startWithHosts();
+    await core.saveChatProvider({ ...PROVIDERS.openrouter, keepDefault: true });
+    expect(
+      (await status(core, "openrouter"))?.models.map((model) => `${model.maker}: ${model.name}`),
+    ).toContain("NewCo: Decide 9");
+    hosts.answer({ Paper: 0.93 });
+    await chooseAndTurnOn(core, {
+      kind: "decision",
+      host: "openrouter",
+      modelId: "newco/decide-9",
+    });
+    const paper = await addDocument(core, "Attention.md", PAPER_TEXT);
+    await waitForTagging(core, [paper.id]);
+    expect(await tagNamesOf(core, paper.id)).toEqual(["Paper"]);
+    expect(hosts.tagging().at(-1)?.body.model).toBe("newco/decide-9");
+
+    await core.setDecisionKey({ host: "liquid", apiKey: KEYS.liquid });
+    await chooseAndTurnOn(core, { kind: "decision", host: "liquid", modelId: "gone-model" });
+    const notes = await addDocument(core, "Notes.md", "Notes from the weekly call.");
+    const [failed] = await waitForTagging(core, [notes.id], (each) => each.tagging === "failed");
+    expect(failed?.taggingError?.message).toContain("Unknown model: gone-model");
+  });
+
+  test("OpenRouter's list is read only where a Question could go, without the key, and once for a while", async () => {
+    const { core, hosts } = await startWithHosts();
+    await core.listDecisionHosts();
+    expect(hosts.listings).toEqual([]);
+
+    await core.saveChatProvider({ ...PROVIDERS.openrouter, keepDefault: true });
+    await core.listDecisionHosts();
+    await core.getTaggingModels();
+    expect(hosts.listings).toEqual([undefined]);
+
+    // With its chat flow withdrawn on the Privacy page, or in Local mode, it isn't asked for.
+    const restricted = await startWithHosts();
+    await restricted.core.saveChatProvider({ ...PROVIDERS.openrouter, keepDefault: true });
+    await restricted.core.revokeConsent("chat", "https://openrouter.ai");
+    expect((await status(restricted.core, "openrouter"))?.models).toHaveLength(9);
+    const local = await startWithHosts();
+    await local.core.saveChatProvider({ ...PROVIDERS.openrouter, keepDefault: true });
+    await local.core.setLocalOnly(true);
+    expect((await status(local.core, "openrouter"))?.models).toHaveLength(9);
+    expect([restricted.hosts.listings, local.hosts.listings]).toEqual([[], []]);
   });
 
   test("a refused key is kept nowhere, and says why in words", async () => {

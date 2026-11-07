@@ -5560,7 +5560,6 @@ export const zhCN = {
   "error.tagging.jevKeyUnreadable": "无法在这台设备上读取 Jev 密钥。",
   "error.tagging.decisionKeyMissing": "添加你的 {provider} 密钥后才能用它整理。",
   "error.tagging.decisionAccountMissing": "填写 {provider} 的账户信息后才能用它整理。",
-  "error.tagging.decisionModelGone": "{provider} 已不再提供 {model}。请选择其他模型。",
   "error.decision.keyRefused": "{provider} 不接受这个密钥：{message}",
   "error.decision.checkFailed": "无法通过 {provider} 检查密钥：{message}",
   "error.decision.cloudflareAccount":
