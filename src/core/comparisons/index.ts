@@ -538,6 +538,16 @@ function labelLine(value: string): string {
   return value.replace(/\s+/g, " ").trim().slice(0, MAX_COMPARISON_LABEL);
 }
 
+/** A new table's column, asked for as its Question's words or as those and its own label. */
+function columnDraft(value: unknown): { text: string; label?: string } {
+  if (!isRecord(value)) {
+    return { text: oneLine(value, "A Question", "error.comparison.questionTooLong") };
+  }
+  const text = oneLine(value.text, "A Question", "error.comparison.questionTooLong");
+  const label = typeof value.label === "string" ? labelLine(value.label) : "";
+  return label ? { text, label } : { text };
+}
+
 function withLabel<T extends { label?: string }>(question: T, label: string): T {
   if (label) return { ...question, label };
   const { label: _gone, ...rest } = question;
@@ -2225,9 +2235,7 @@ export function createComparisons(options: ComparisonsOptions) {
       if (!isRecord(input)) throw new InvalidInputError("compareDocuments expects an object.");
       const mindId = options.requireMind(input.mindId);
       if (!Array.isArray(input.questions)) throw new InvalidInputError("questions must be a list.");
-      const questions = input.questions
-        .map((each) => oneLine(each, "A Question", "error.comparison.questionTooLong"))
-        .filter((each) => each !== "");
+      const questions = input.questions.map(columnDraft).filter((each) => each.text !== "");
       if (questions.length === 0)
         throw new InvalidInputError({ key: "error.comparison.noQuestion" });
       if (questions.length > MAX_COMPARISON_QUESTIONS) {
@@ -2272,7 +2280,11 @@ export function createComparisons(options: ComparisonsOptions) {
 
       const tableId = randomUUID();
       const request = randomUUID();
-      const columns = questions.map((text) => ({ id: randomUUID(), text }));
+      const columns = questions.map((question) => ({
+        id: randomUUID(),
+        text: question.text,
+        ...(question.label && { label: question.label }),
+      }));
       const proposal: ProposalAttribute = {
         id: randomUUID(),
         request,

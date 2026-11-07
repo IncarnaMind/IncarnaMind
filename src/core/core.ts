@@ -6868,6 +6868,20 @@ export function createCore(adapters: CoreAdapters): Core {
       );
       return saved.status === "saved" ? { ...saved, unverifiedCitations, hiddenColumns } : saved;
     },
+    saveComparisonCsvExport: async (input) => {
+      const ref: Record<string, unknown> = isRecord(input) ? input : {};
+      const { fileName, data, unverifiedCitations, hiddenColumns } = comparisonExport.csv(
+        ref.mindId,
+        ref.tableId,
+        ref.documentIds,
+      );
+      const saved = await saveExport(
+        fileName,
+        data,
+        typeof ref.mindId === "string" ? ref.mindId : null,
+      );
+      return saved.status === "saved" ? { ...saved, unverifiedCitations, hiddenColumns } : saved;
+    },
     saveSkillExport: async (skillId) => {
       const { fileName, data } = await skills.exportZip(skillId);
       return saveExport(fileName, data, null);

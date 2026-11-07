@@ -13,6 +13,7 @@ import {
   launchApp,
   motionSettled,
   newMind,
+  openDocumentAt,
   pointAndClick,
   pointAt,
   removeDataFolder,
@@ -2754,12 +2755,17 @@ test("a cell opens its Citation, checks hand edits, protects reviewed cells in b
 
   await pointAndClick(window, table.getByTestId("comparison-table-menu"));
   const estimates = window.getByTestId("comparison-refill-estimate");
-  await expect(estimates).toHaveCount(2);
-  await expect(estimates.nth(0)).toContainText("Fill all: 6 cells");
-  await expect(estimates.nth(1)).toContainText("Problems: 1 cell");
+  // The cell checked by me is the User's own: Fill all leaves it, and its own line counts it.
+  await expect(estimates).toHaveCount(3);
+  await expect(estimates.nth(0)).toContainText("Fill all: 5 cells");
+  await expect(estimates.nth(1)).toContainText("Including mine: 6 cells");
+  await expect(estimates.nth(2)).toContainText("Problems: 1 cell");
   await refillEnded(window, table, async () => {
-    await pointAndClick(window, window.getByRole("menuitem", { name: "Fill all again" }));
-    await expect(window.getByTestId("undo-message")).toContainText("Fill 6 cells again");
+    await pointAndClick(
+      window,
+      window.getByRole("menuitem", { name: "Fill all again", exact: true }),
+    );
+    await expect(window.getByTestId("undo-message")).toContainText("Fill 5 cells again");
   });
   // Written again in the same words from the same version, the cell is still as its mark checked it.
   await expect(first.locator(".comparison-cell-flags")).toContainText("✓");
@@ -2943,3 +2949,287 @@ for (const { language, refill, count, one, checkedByMe } of [
     await expect(window.getByTestId("comparison-refill-estimate")).toContainText(one);
   });
 }
+
+test("the whole table: a copy goes below it, a plain table keeps its words, and delete takes it out, each from its menu and undone", async () => {
+  test.setTimeout(180_000);
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await setWindowSize(app, window, 1600, 900);
+  await acceptPlainTextKeys(window);
+  await useLocalChatModel(window);
+  const table = await filledSuppliersTable(window);
+  const tables = window.getByTestId("comparison-table");
+  const words = await cellTexts(table);
+
+  // Duplicate, from the ⋯ menu: the copy goes below, with the table's words.
+  await pointAndClick(window, table.getByTestId("comparison-table-menu"));
+  await pointAndClick(
+    window,
+    window.getByTestId("comparison-table-actions").getByTestId("comparison.table.duplicate"),
+  );
+  await expect(tables).toHaveCount(2);
+  await expect(tables.nth(1).getByTestId("comparison-name")).toHaveText("Comparison table (copy)");
+  await expect(window.getByTestId("undo-message")).toContainText("Duplicated “Comparison table”");
+  expect(await cellTexts(tables.nth(1))).toEqual(words);
+  await screenshot(window, "compare-table-copy-en-1600");
+  await window.keyboard.press("ControlOrMeta+z");
+  await expect(tables).toHaveCount(1);
+
+  // Turn into a plain table: its words and Citations stay, its Questions and fills go.
+  await pointAndClick(window, table.getByTestId("comparison-table-menu"));
+  await pointAndClick(
+    window,
+    window.getByTestId("comparison-table-actions").getByTestId("comparison.table.plain"),
+  );
+  await expect(tables).toHaveCount(0);
+  await expect(window.locator('[data-testid="mind-editor"] table').first()).toBeVisible();
+  const note = window.getByTestId("mind-editor").first();
+  for (const word of ["Document", "Termination notice", "Corvane", "90 days"])
+    await expect(note).toContainText(word);
+  await expect(window.getByTestId("undo-message")).toContainText(
+    "Turned “Comparison table” into a plain table",
+  );
+  await screenshot(window, "compare-table-plain-en-1600");
+  await window.keyboard.press("ControlOrMeta+z");
+  await expect(tables).toHaveCount(1);
+  await expect(tables.getByTestId("comparison-question")).toHaveCount(2);
+
+  // In the expanded view the table's own menu is the same one.
+  await pointAndClick(window, table.getByTestId("comparison-expand"));
+  await pointAndClick(window, table.getByTestId("comparison-table-menu"));
+  await pointAndClick(
+    window,
+    window.getByTestId("comparison-table-actions").getByTestId("comparison.table.duplicate"),
+  );
+  await expect(tables).toHaveCount(2);
+  await window.keyboard.press("ControlOrMeta+z");
+  await expect(tables).toHaveCount(1);
+  await pointAndClick(window, table.getByTestId("comparison-back"));
+
+  // Delete table, the last row of the menu, and ⌘Z brings it back whole.
+  await pointAndClick(window, table.getByTestId("comparison-table-menu"));
+  await pointAndClick(
+    window,
+    window.getByTestId("comparison-table-actions").getByTestId("comparison.table.delete"),
+  );
+  await expect(tables).toHaveCount(0);
+  await expect(window.getByTestId("undo-message")).toContainText("Deleted “Comparison table”");
+  await window.keyboard.press("ControlOrMeta+z");
+  await expect(tables).toHaveCount(1);
+  expect(await cellTexts(tables)).toEqual(words);
+
+  // In Chinese, the lines say the same in its words.
+  await setLanguage(window, "zh-CN");
+  await pointAndClick(window, tables.getByTestId("comparison-table-menu"));
+  await pointAndClick(
+    window,
+    window.getByTestId("comparison-table-actions").getByTestId("comparison.table.duplicate"),
+  );
+  await expect(window.getByTestId("undo-message")).toContainText("已复制“对比表”");
+  await expect(tables).toHaveCount(2);
+  await window.keyboard.press("ControlOrMeta+z");
+  await expect(tables).toHaveCount(1);
+});
+
+test("⌘K reaches Duplicate, Turn into a plain table and Delete table, and each is undone", async () => {
+  test.setTimeout(180_000);
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await setWindowSize(app, window, 900, 860);
+  await acceptPlainTextKeys(window);
+  await useLocalChatModel(window);
+  const table = await filledSuppliersTable(window);
+  const tables = window.getByTestId("comparison-table");
+  const palette = window.getByTestId("palette");
+
+  for (const [typed, id] of [
+    ["Duplicate", "command:comparison.table.duplicate"],
+    ["Turn into a plain table", "command:comparison.table.plain"],
+    ["Delete table", "command:comparison.table.delete"],
+  ] as const) {
+    await table.getByTestId("comparison-head").focus();
+    await window.keyboard.press("ControlOrMeta+k");
+    await window.keyboard.type(typed);
+    await expect(palette.locator(`[data-key="${id}"]`)).toBeVisible();
+    await window.keyboard.press("Enter");
+    await expect(tables).toHaveCount(id.endsWith("duplicate") ? 2 : 0);
+    await window.keyboard.press("ControlOrMeta+z");
+    await expect(tables).toHaveCount(1);
+  }
+});
+
+test("Export to CSV is beside Export to Excel: the table as shown with a Sources column, read right with Chinese, in English and Chinese", async () => {
+  test.setTimeout(180_000);
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await setWindowSize(app, window, 1440, 860);
+  await acceptPlainTextKeys(window);
+  await useLocalChatModel(window);
+  const table = await filledSuppliersTable(window);
+  await useOutputLocation(window, sources);
+  await pointAndClick(window, table.getByTestId("comparison-expand"));
+  await expect(table.getByTestId("comparison-export-csv")).toBeVisible();
+
+  const exported = async (name: RegExp) => {
+    const result = window.getByTestId("export-result");
+    await expect(result).toHaveAttribute("data-state", "saved", { timeout: 20_000 });
+    const shown = await result.innerText();
+    const file = name.exec(shown)?.[1];
+    if (!file) throw new Error(`No file name in “${shown}”.`);
+    const bytes = await readFile(join(sources, file));
+    return { file, bytes };
+  };
+
+  await pointAndClick(window, table.getByTestId("comparison-export-csv"));
+  const { file, bytes } = await exported(/“([^”]+\.csv)”/);
+  expect(file).toBe("Comparison table.csv");
+  // A byte order mark, so Excel and Numbers read Chinese as it is.
+  expect([...bytes.subarray(0, 3)]).toEqual([0xef, 0xbb, 0xbf]);
+  const lines = bytes.toString("utf8").replace(/^﻿/, "").split("\r\n").filter(Boolean);
+  expect(lines[0]).toBe("Document,Termination notice,Liability cap,Sources");
+  expect(lines).toHaveLength(4);
+  expect(lines.slice(1).map((line) => line.split(",")[0])).toEqual([
+    "Corvane Agreement",
+    "Halvard MSA",
+    "Lumeric Order Form",
+  ]);
+  expect(lines[1]).toContain("90 days");
+  expect(lines[1]).toContain(
+    "Termination notice: Corvane Agreement, line 2 · “Termination notice: 90 days.”",
+  );
+  expect(lines[3]).toContain("not found");
+  await screenshot(window, "compare-csv-en-1440");
+
+  // The expanded head keeps both exports and its way back at the narrow width.
+  await setWindowSize(app, window, 900, 860);
+  for (const id of ["comparison-export-excel", "comparison-export-csv", "comparison-back"])
+    await expect(table.getByTestId(id)).toBeVisible();
+  await screenshot(window, "compare-csv-expanded-900");
+  await setWindowSize(app, window, 1440, 860);
+
+  // In Chinese the headings are its words, and the file still opens right.
+  await setLanguage(window, "zh-CN");
+  await pointAndClick(window, table.getByTestId("comparison-export-csv"));
+  const chinese = await exported(/“([^”]+\.csv)”/);
+  expect([...chinese.bytes.subarray(0, 3)]).toEqual([0xef, 0xbb, 0xbf]);
+  const chineseLines = chinese.bytes.toString("utf8").replace(/^﻿/, "").split("\r\n");
+  expect(chineseLines[0]).toBe("文档,Termination notice,Liability cap,来源");
+  expect(chinese.file).toBe("对比表.csv");
+});
+
+test("Use these columns for another table starts Compare Documents with the same labels and Questions, and nothing else", async () => {
+  test.setTimeout(180_000);
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await setWindowSize(app, window, 1440, 860);
+  await acceptPlainTextKeys(window);
+  await useLocalChatModel(window);
+  const table = await filledSuppliersTable(window);
+  const fields = await editColumn(window, headingAt(table, 0));
+  await fields.label.fill("Notice");
+  await window.keyboard.press("Enter");
+  await expect(headingAt(table, 0)).toHaveText("Notice");
+
+  await pointAndClick(window, table.getByTestId("comparison-table-menu"));
+  await pointAndClick(
+    window,
+    window.getByTestId("comparison-table-actions").getByTestId("comparison.table.useColumns"),
+  );
+  const sheet = window.getByTestId("compare-sheet");
+  await expect(sheet).toBeVisible();
+  await expect(sheet.getByTestId("compare-sheet-question").nth(0)).toHaveValue(
+    "Termination notice",
+  );
+  await expect(sheet.getByTestId("compare-sheet-question").nth(1)).toHaveValue("Liability cap");
+  await pointAndClick(window, sheet.getByTestId("compare-sheet-make"));
+
+  const tables = window.getByTestId("comparison-table");
+  await expect(tables).toHaveCount(2);
+  await expect(tables.nth(1).getByTestId("comparison-progress")).toHaveCount(0, {
+    timeout: 30_000,
+  });
+  await expect(headingAt(tables.nth(1), 0)).toHaveText("Notice");
+  await expect(headingAt(tables.nth(1), 1)).toHaveText("Liability cap");
+  await screenshot(window, "compare-reused-columns-en-1440");
+});
+
+test("Fill all again leaves the cells the User wrote or checked, and writes them only when they pick “including mine”", async () => {
+  test.setTimeout(180_000);
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await setWindowSize(app, window, 1440, 860);
+  await acceptPlainTextKeys(window);
+  await useLocalChatModel(window);
+  const table = await filledSuppliersTable(window);
+  const first = cellAt(table, 0, 0);
+  await first.focus();
+  await window.keyboard.press("F2");
+  const input = first.getByTestId("comparison-cell-input");
+  await expect(input).toBeFocused();
+  await input.fill("Ninety days");
+  await window.keyboard.press("Enter");
+  await expect(first).toContainText("Ninety days");
+
+  await pointAndClick(window, table.getByTestId("comparison-table-menu"));
+  const estimates = window.getByTestId("comparison-refill-estimate");
+  await expect(estimates.nth(0)).toContainText("Fill all: 5 cells");
+  await expect(estimates.nth(1)).toContainText("Including mine: 6 cells");
+  await refillEnded(window, table, async () => {
+    await pointAndClick(
+      window,
+      window.getByRole("menuitem", { name: "Fill all again", exact: true }),
+    );
+    await expect(window.getByTestId("undo-message")).toContainText("Fill 5 cells again");
+  });
+  // The User's own words stay.
+  await expect(first).toContainText("Ninety days");
+
+  await pointAndClick(window, table.getByTestId("comparison-table-menu"));
+  await refillEnded(window, table, async () => {
+    await pointAndClick(
+      window,
+      window.getByRole("menuitem", { name: "Fill all again, including mine" }),
+    );
+    await expect(window.getByTestId("undo-message")).toContainText("Fill 6 cells again");
+  });
+  await expect(first).toContainText("90 days");
+});
+
+test("Make the table says what is missing with no model, and the Ask pill never covers it at 900 and 1,440 with the viewer open", async () => {
+  test.setTimeout(180_000);
+  // A first open, where the Ask pill is shown.
+  const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+  await setWindowSize(app, window, 1440, 860);
+  await expect(window.getByTestId("ask-pill")).toBeVisible();
+  await acceptPlainTextKeys(window);
+  await addSuppliers(window);
+  await expect(window.getByTestId("ask-pill")).toBeVisible();
+
+  const sheet = await openSheetFromSlash(window);
+  const line = sheet.getByTestId("compare-sheet-model-line");
+  await expect(line).toContainText("Making a table needs an AI model");
+  await expect(line).toContainText("Set one up");
+  await expect(sheet.getByTestId("compare-sheet-make")).toBeVisible();
+  // The pill had floated where the sheet's primary button is: it steps aside.
+  await expect(window.getByTestId("ask-pill")).toHaveCount(0);
+  await screenshot(window, "compare-needs-model-en-1440");
+
+  const documentId = await bridge(window).documentId("Corvane Agreement");
+  await openDocumentAt(window, { documentId });
+  await expect(window.getByTestId("viewer-header")).toBeVisible({ timeout: 20_000 });
+  for (const width of [1440, 900]) {
+    await setWindowSize(app, window, width, 860);
+    await expect(sheet.getByTestId("compare-sheet-make")).toBeVisible();
+    await expect(window.getByTestId("ask-pill")).toHaveCount(0);
+    await screenshot(window, `compare-needs-model-en-${width}-viewer`);
+  }
+
+  // In Chinese the line says the same in its words.
+  await setLanguage(window, "zh-CN");
+  await expect(line).toContainText("生成表格需要 AI 模型");
+  await expect(line).toContainText("设置");
+
+  // Closed, the sheet leaves the pill's place as it was.
+  await pointAndClick(window, sheet.getByTestId("compare-sheet-close"));
+  await expect(window.getByTestId("ask-pill")).toBeVisible();
+});

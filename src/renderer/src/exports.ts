@@ -69,12 +69,14 @@ export const exportPreferences = (): ExportPreferences => {
 };
 
 export const COMPARISON_EXCEL = "comparison-xlsx";
+export const COMPARISON_CSV = "comparison-csv";
 export const FIGURE_SCHEDULE_EXCEL = "figure-schedule-xlsx";
 
 export type ExportKind =
   | ExportFormat
   | "check-record"
   | typeof COMPARISON_EXCEL
+  | typeof COMPARISON_CSV
   | typeof FIGURE_SCHEDULE_EXCEL;
 
 export const isCheckRecord = (kind: ExportKind): kind is "check-record" => kind === "check-record";
@@ -599,6 +601,44 @@ export async function exportComparison(
   }
 }
 
+/**
+ * Saves a comparison table as CSV (#1839) beside Export to Excel, the rows `documentIds` names
+ * when a filter hides some; the result line says how it went.
+ */
+export async function exportComparisonCsv(
+  mindId: string,
+  tableId: string,
+  documentIds?: readonly string[],
+  first?: () => Promise<boolean>,
+): Promise<void> {
+  const settle = begin(mindId, COMPARISON_CSV, tableId);
+  if (!settle) return;
+  try {
+    if (first && !(await first())) {
+      settle(null);
+      return;
+    }
+    const saved = savedResult(
+      mindId,
+      COMPARISON_CSV,
+      await core.saveComparisonCsvExport({
+        mindId,
+        tableId,
+        ...(documentIds && { documentIds }),
+      }),
+    );
+    settle(saved && { ...saved, tableId });
+  } catch (failure) {
+    settle({
+      mindId,
+      state: "failed",
+      format: COMPARISON_CSV,
+      tableId,
+      message: errorMessage(failure, translateNow),
+    });
+  }
+}
+
 export async function exportFigureSchedule(
   mindId: string,
   first?: () => Promise<boolean>,
@@ -626,6 +666,9 @@ export function exportAgain(
   first: () => Promise<boolean>,
 ): Promise<void> {
   const { mindId, format: kind } = result;
+  // A CSV exported again keeps every row: the filter it followed may be gone.
+  if (kind === COMPARISON_CSV)
+    return exportComparisonCsv(mindId, result.tableId ?? "", undefined, first);
   if (kind === COMPARISON_EXCEL) return exportComparison(mindId, result.tableId ?? "", first);
   if (kind === FIGURE_SCHEDULE_EXCEL) return exportFigureSchedule(mindId, first);
   if (!isCheckRecord(kind)) return exportMind(mindId, kind, first);
