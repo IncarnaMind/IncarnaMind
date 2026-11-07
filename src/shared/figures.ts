@@ -1475,7 +1475,7 @@ const STATEMENTS: readonly RegExp[] = [
   // a CJK line to the next ("单位：万平方米收入"), so the common measures are known by name, and any
   // other only where its word ends.
   new RegExp(
-    `(?:金额|货币|数量)?单位[:：](?<scale>万亿|千亿|百亿|十亿|亿|千万|百万|十万|万|千|仟|百)(?<unit>(?!${CN_UNIT_WORDS})(?:(?:${CN_MEASURE_WORDS})${CN_PER_TIME}?|[\\u4e00-\\u9fff]{1,4}${CN_PER_TIME}?(?![\\u4e00-\\u9fff])))`,
+    `(?:金额|货币|数量)?单位[:：](?<scale>万亿|千亿|百亿|十亿|亿|千万|百万|十万|万|千|仟|百)(?<unit>(?:(?:${CN_MEASURE_WORDS})${CN_PER_TIME}?|(?!${CN_UNIT_WORDS}|[万亿千仟百十])[\\u4e00-\\u9fff]{1,4}${CN_PER_TIME}?(?![\\u4e00-\\u9fff])))`,
     "dg",
   ),
   new RegExp(`币种[:：]?(?<before>${HAN_CURRENCIES})`, "dg"),
@@ -1842,16 +1842,32 @@ export function statesForWholeDocument(text: string): boolean {
   return wholeDocumentLine(line);
 }
 
-// What may stand before a bare scale that states amounts' scale: nothing, a framing word ("All
-// amounts", "Figures are expressed"), a currency's name ("Dollars in thousands") or "Unit:".
+// What may stand before a bare scale in its own clause: nothing, a framing word ("All amounts",
+// "Figures are expressed"), a currency's name ("Dollars in thousands") or "Unit:".
 const AMOUNT_FRAME_BEFORE = new RegExp(
-  `^[ \\u00a0]*(?:(?:all|the)[ \\u00a0]+)*(?:(?:amounts?|figures?|sums?|values?|numbers?|totals?|${WORD_CURRENCIES})[ \\u00a0]+)?(?:(?:are|is|were|was)[ \\u00a0]+)?(?:(?:expressed|stated|shown|presented|reported|given)[ \\u00a0]+)?(?:units?[ \\u00a0]?[:：][ \\u00a0]*)?$|^[ \\u00a0]*(?:所有|全部|一切)?(?:金额|金額|货币|貨幣)?(?:均|一律|都)?(?:以|为|為)?[ \\u00a0]*$`,
+  `^\\s*(?:(?:all|the)\\s+)*(?:(?:amounts?|figures?|sums?|values?|numbers?|totals?|${WORD_CURRENCIES})\\s+)?(?:(?:are|is|were|was)\\s+)?(?:(?:expressed|stated|shown|presented|reported|given)\\s+)?(?:units?\\s?[:：]\\s*)?$|^\\s*(?:所有|全部|一切)?(?:金额|金額|货币|貨幣)?(?:均|一律|都)?(?:以|为|為)?\\s*$`,
   "iu",
 );
-// What may follow it: the end of its line, cell or bracket, a figure or a year, a conventional
-// exception, or another statement after a comma ("金额单位：万元，数量单位：吨").
-const AMOUNT_FRAME_AFTER =
-  /^[ \u00a0]*(?:$|[\t)）\]|;；。\d]|\.(?!\d)|[,，(（]?[ \u00a0]*(?:(?:except|unless|save|other[ \u00a0]+than|excluding)\b|除|但|惟|另有|每股[^\n,，。]{0,8}?除外)|[,，][ \u00a0]*(?:$|[^\n,，]{0,4}?(?:单位|單位)))/i;
+
+// The clauses a line that states amounts' scale may hold beside it: a declaration of their
+// currency, a note on their audit, presentation, exceptions or rounding, or a period (#2365).
+const CURRENCY_CLAUSE = `(?:(?:币种|幣種|货币|貨幣|货币单位|貨幣單位|报告货币|记账本位币|currency|reporting\\s+currency)\\s*[:：]?\\s*)?(?:in\\s+)?(?:${STATED_CURRENCY}|${WORD_CURRENCIES}|${HAN_CURRENCIES}|元)`;
+const NOTE_CLAUSE =
+  "(?:un)?audited|(?:as\\s+)?(?:restated|re-?presented|reclassified)|(?:un)?reviewed|未经审计|未經審計|经审计|經審計|已审计|未经审阅|(?:经|已)?重述|审计类型\\s*[:：]\\s*(?:未经审计|经审计|已审计|审计)|(?:except|excluding|other\\s+than|save)\\b.*|除.{0,16}外|.{0,16}除外|unless\\s+otherwise\\s+(?:stated|noted|indicated|specified|disclosed)|.*\\bround(?:ed|ing)\\b.*|四舍五入";
+const CN_PERIOD_CLAUSE = "\\d{4}年(?:\\d{1,2}(?:[—\\-~至]\\d{1,2})?月(?:\\d{1,2}日)?)?(?:度|末)?";
+const BESIDE_AMOUNT_SCALE = new RegExp(
+  `^(?:${CURRENCY_CLAUSE}|${NOTE_CLAUSE}|${CN_PERIOD_CLAUSE}|[\\d.,%\\s-]+)$`,
+  "iu",
+);
+// A PDF joins the next line to a CJK one: a clause it starts ("币种：人民币营业收入…") ends there.
+const BESIDE_AMOUNT_SCALE_JOINED = new RegExp(
+  `^(?:${CURRENCY_CLAUSE}|${NOTE_CLAUSE}|${CN_PERIOD_CLAUSE})(?=\\p{Script=Han})`,
+  "iu",
+);
+const PERIOD_WORDS =
+  /(?:(?:19|20)\d{2}|\b\d{1,2}\b|\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|q[1-4]|h[12]|fy|three|six|nine|twelve|months?|weeks?|years?|quarters?|periods?|half|ended|ending|as|at|of|for|the|fiscal|financial)\b\.?|[\s,–-])/giu;
+const CLAUSE_SEPARATOR =
+  /[,，;；、()（）[\]【】]|\s{2,}|(?<=[\p{Script=Han}：:）)])\s|\s(?=[\p{Script=Han}（(])/u;
 
 /** Where the bracket open around `at` on its line starts, or null when none is. */
 function openBracketBefore(text: string, from: number, at: number): number | null {
@@ -1868,43 +1884,97 @@ function openBracketBefore(text: string, from: number, at: number): number | nul
 }
 
 /**
- * Whether `statement`, read from `text`, states the scale of amounts of money: a scale with its
- * currency ("US$ thousands", "单位：万元", "（人民币，百万）"), or a bare scale nothing but a framing
- * word stands beside ("(in thousands)", "单位：千", "All amounts in thousands"). A scale with any
- * other word beside it, whatever the word is (a measure, a rate, one the reader doesn't read, or
- * the next line a PDF joins to a CJK one), states none for amounts, so no spelling of a measure
- * can reach an amount (#2365).
+ * Whether `statement`, read from `text`, states the scale of amounts of money. Its line is read
+ * as clauses, within its cell, and within its bracket when it is in one: the scale's own clause
+ * holds the scale with its currency ("US$ thousands", "单位：万元"), or a bare scale with only a
+ * framing word ("(in thousands)", "单位：千", "All amounts in thousands"); every other clause
+ * declares the currency ("币种：人民币"), notes the figures' audit, presentation, exceptions or
+ * rounding ("unaudited", "as restated", "除每股数据外"), names a period, or is another statement of
+ * amounts' scale. Any other clause, whatever its words (a measure in any spelling, a rate, one the
+ * reader doesn't read, or the next line a PDF joins to a CJK one), means the line states no scale
+ * of amounts (#2365).
  */
 export function statesAmountScale(text: string, statement: StatedUnit): boolean {
+  return amountScaleIn(text, statement, true);
+}
+
+function amountScaleIn(text: string, statement: StatedUnit, withOthers: boolean): boolean {
   const { unit, chars } = statement;
   if (unit.kind !== "plain" && unit.kind !== "currency") return false;
   const simplified = chars.replace(/\p{Script=Han}/gu, (char) => SIMPLIFIED.get(char) ?? char);
   if (/^数量单位/.test(simplified)) return false;
+  if (/^[(（]/.test(chars) && /[)）]$/.test(chars)) return true;
   const lineFrom = text.lastIndexOf("\n", statement.start - 1) + 1;
   const lineBreak = text.indexOf("\n", statement.end);
-  const open = openBracketBefore(text, lineFrom, statement.start);
-  let after = text.slice(statement.end, lineBreak < 0 ? text.length : lineBreak);
-  const close = open === null ? -1 : after.search(/[)）]/);
-  if (close >= 0) after = after.slice(0, close);
-  // A PDF joins the next line to a CJK one: what follows a Han currency word is that line's.
-  const joined =
+  const lineTo = lineBreak < 0 ? text.length : lineBreak;
+  const cellFrom = Math.max(
+    lineFrom,
+    text.lastIndexOf("\t", statement.start - 1) + 1,
+    text.lastIndexOf("|", statement.start - 1) + 1,
+  );
+  const cellBreak = text.slice(statement.end, lineTo).search(/[\t|]/);
+  const cellTo = cellBreak < 0 ? lineTo : statement.end + cellBreak;
+  const open = openBracketBefore(text, cellFrom, statement.start);
+  const closeAt = open === null ? -1 : text.slice(statement.end, cellTo).search(/[)）]/);
+  const scopeFrom = open === null ? cellFrom : open + 1;
+  const scopeTo = closeAt < 0 ? cellTo : statement.end + closeAt;
+  const after = text.slice(statement.end, scopeTo);
+  // What follows a Han currency word with no space is the next line, which a PDF joined to it.
+  if (
     unit.kind === "currency" &&
     open === null &&
     /\p{Script=Han}$/u.test(chars) &&
     /^\p{Script=Han}/u.test(after) &&
-    !after.startsWith("每");
-  if (!/[)）]$/.test(chars) && !joined && !AMOUNT_FRAME_AFTER.test(after)) return false;
-  if (unit.kind === "currency" || /^(?:金额|货币)?单位|^以/.test(simplified)) return true;
-  const clauseFrom =
-    open !== null
-      ? open + 1
-      : Math.max(
-          lineFrom,
-          ...["\t", ";", "；", "|"].map((sep) => text.lastIndexOf(sep, statement.start - 1) + 1),
-        );
-  return AMOUNT_FRAME_BEFORE.test(text.slice(clauseFrom, statement.start));
+    !after.startsWith("每")
+  )
+    return true;
+  let others: StatedUnit[] | null = null;
+  const isOther = (from: number, to: number): boolean => {
+    others ??= readStatedUnits(text.slice(lineFrom, lineTo)).map((each) => ({
+      ...each,
+      start: each.start + lineFrom,
+      end: each.end + lineFrom,
+    }));
+    return others.some(
+      (other) =>
+        (other.start !== statement.start || other.end !== statement.end) &&
+        other.start < to &&
+        other.end > from &&
+        // Judged one level deep: the other statement's own neighbours include this one.
+        (withOthers
+          ? amountScaleIn(text, other, false)
+          : other.unit.kind === "plain" || other.unit.kind === "currency"),
+    );
+  };
+  const besideOk = (part: string, at: number): boolean => {
+    let from = 0;
+    for (const match of [...part.matchAll(new RegExp(CLAUSE_SEPARATOR.source, "gu")), null]) {
+      const to = match ? match.index : part.length;
+      const raw = part.slice(from, to);
+      const start = at + from + (raw.length - raw.trimStart().length);
+      from = match ? match.index + match[0].length : part.length;
+      const clause = raw.trim();
+      if (clause === "" || BESIDE_AMOUNT_SCALE.test(clause) || isPeriod(clause)) continue;
+      if (BESIDE_AMOUNT_SCALE_JOINED.test(clause)) return true;
+      if (isOther(start, start + clause.length)) continue;
+      return false;
+    }
+    return true;
+  };
+  if (!besideOk(after, statement.end)) return false;
+  if (/^(?:金额|货币)?单位|^以/.test(simplified)) return true;
+  const before = text.slice(scopeFrom, statement.start);
+  const parts = before.split(new RegExp(CLAUSE_SEPARATOR.source, "gu"));
+  const own = parts.at(-1) ?? "";
+  if (unit.kind === "plain" && !AMOUNT_FRAME_BEFORE.test(own)) return false;
+  return besideOk(before.slice(0, before.length - own.length), scopeFrom);
 }
 
+/** Whether `clause` names a period: "Three months ended March 31", "2024 2023", "Q3 2024". */
+function isPeriod(clause: string): boolean {
+  if (!/(?:19|20)\d{2}|\b(?:ended|ending)\b/i.test(clause)) return false;
+  return clause.replace(PERIOD_WORDS, "") === "";
+}
 function statedUnitsOf(prepared: Prepared, text: string, statements: Statement[]): StatedUnit[] {
   return statements.map((statement) => {
     const start = prepared.from[statement.from] as number;

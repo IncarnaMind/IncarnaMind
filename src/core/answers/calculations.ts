@@ -702,16 +702,20 @@ const RATE_ROW =
 // A price or a cost per unit, which a caption's money scale doesn't scale: "Average selling price
 // (£)", "Closing share price (p)", "Unit cost (US$)".
 const PRICE_ROW =
-  /\b(?:average|unit|selling|closing|opening)\s+(?:selling\s+|unit\s+)?(?:share\s+)?(?:price|cost)\b|\bshare\s+price\b|[(（]\s*p\s*[)）]|\bpence\b/i;
+  /\b(?:average|unit|selling|closing|opening)\s+(?:selling\s+|unit\s+)?(?:share\s+)?(?:price|cost)\b|\bshare\s+price\b|\bpence\b/i;
 
-// A currency's minor unit, which the reader doesn't read as a currency: "US cents", "pence", "港仙".
+// A currency's minor unit, by a word that means nothing else: "US cents", "pence", "港仙".
 const MINOR_UNIT = "(?:[A-Z]{2,3}[ \\u00a0])?cents\\b|\\bpence\\b|¢|港仙|美分|便士";
-// In a row head, "(US cents)", "(pence)", "(p)", "（港仙）"; as a unit column's whole cell, "US cents".
+// In a row head, "(US cents)", "(pence)", "（港仙）"; as a unit column's whole cell, "US cents".
 const MINOR_UNIT_HEAD = new RegExp(
-  `[(（](?:[^()（）\\n]{0,20}?(${MINOR_UNIT})[^()（）\\n]{0,20}|\\s*(p)\\s*)[)）]`,
+  `[(（][^()（）\\n]{0,20}?(${MINOR_UNIT})[^()（）\\n]{0,20}[)）]`,
   "iu",
 );
-const MINOR_UNIT_CELL = new RegExp(`^\\s*(?:${MINOR_UNIT}|p)\\s*$`, "iu");
+const MINOR_UNIT_CELL = new RegExp(`^\\s*(?:${MINOR_UNIT})\\s*$`, "iu");
+// A "(p)" that ends a row's label, or a "p" unit cell, is pence only in a table in pounds: "(P)"
+// also writes Private in a name ("Sun (P) Ltd") (#2365).
+const PENCE_HEAD = /[(（]\s*p\s*[)）]\s*[:：]?\s*$/i;
+const PENCE_CELL = /^\s*p\s*$/i;
 
 /** The kind of row `label` names that a scale line's amounts don't include, or null for an amount's. */
 function notAnAmount(label: string): string | null {
@@ -935,13 +939,14 @@ function withoutStatement(text: string): RowLabel {
   ];
   const [first, more] = currencies;
   const ownCurrency = first !== undefined && more === undefined ? first : null;
-  const minor = MINOR_UNIT_HEAD.exec(label);
-  const ownMinor = minor ? (minor[1] ?? minor[2] ?? null) : null;
+  const ownMinor = MINOR_UNIT_HEAD.exec(label)?.[1] ?? null;
+  const ownPence = PENCE_HEAD.test(label);
   return {
     label,
     ownScales,
     ownCurrency,
     ownMinor,
+    ownPence,
     ownUnsettled: unsettled?.[1] ?? null,
     ownBracket,
   };
@@ -955,6 +960,8 @@ interface RowLabel {
   ownCurrency: string | null;
   /** The minor unit its head writes ("US cents", "pence", "港仙"), which no line's whole currency is. */
   ownMinor: string | null;
+  /** Whether its label ends in "(p)", or its unit cell is "p": pence in a table in pounds. */
+  ownPence: boolean;
   ownUnsettled: string | null;
   /** A scale inside the row head's own bracket ("(K)", "(millions of m2)"). */
   ownBracket: { statement: string; exponent: number } | null;
@@ -1496,6 +1503,26 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     );
   }
 
+  /** A row's minor unit: its head's or unit column's own word, or its "(p)" in a table in pounds. */
+  function minorUnitOf(
+    row: RowLabel | null,
+    quoted: Quoted,
+    context: FigureContext,
+    line: readonly StatedUnit[],
+  ): string | null {
+    if (!row) return null;
+    if (row.ownMinor !== null) return row.ownMinor;
+    if (!row.ownPence) return null;
+    const inPounds =
+      line.some((each) => each.unit.kind === "currency" && each.unit.code === "GBP") ||
+      namedCurrencies(
+        quoted.passageText,
+        context,
+        readFigures(quoted.passageText, { ...context, header: null }),
+      ).has("GBP");
+    return inPounds ? "pence" : null;
+  }
+
   /**
    * A scale line in the figure's own Unit that the figure may take though the model quoted
    * another line: judged as a quoted line is, and every line between it and the figure must be an
@@ -1826,10 +1853,16 @@ export function createCalculationSession(options: CalculationSessionOptions) {
         .filter((cell) => /\p{L}/u.test(cell) && !NOTE_REF.test(cell.trim()));
       // A unit column's minor unit ("Basic EPS | US cents | 24.7") is the row's unit; its label
       // is the cell before it (#2365).
-      const unitCell = nearest !== undefined && MINOR_UNIT_CELL.test(nearest) ? nearest : null;
+      const unitCell =
+        nearest !== undefined && (MINOR_UNIT_CELL.test(nearest) || PENCE_CELL.test(nearest))
+          ? nearest
+          : null;
       const cell = withoutStatement((unitCell === null ? nearest : next) ?? "");
       if (!named(cell)) return null;
-      return unitCell === null ? cell : { ...cell, ownMinor: unitCell.trim() };
+      if (unitCell === null) return cell;
+      return PENCE_CELL.test(unitCell)
+        ? { ...cell, ownPence: true }
+        : { ...cell, ownMinor: unitCell.trim() };
     }
     const own = betweenNumbers(before).map(withoutStatement).findLast(named);
     if (own !== undefined) return own;
@@ -2209,7 +2242,8 @@ export function createCalculationSession(options: CalculationSessionOptions) {
       )
         return `${figure.chars} is in one column of a row whose head states the scale of another ("${unit.citation.quote}"); the text doesn't say which column it is, so its scale can't be settled.`;
       const at = page.at + figure.start;
-      const minor = base.unit.kind === "currency" ? null : (ownRow?.ownMinor ?? null);
+      const minor =
+        base.unit.kind === "currency" ? null : minorUnitOf(ownRow, quoted, context, statedLine);
       const money =
         base.unit.kind === "currency"
           ? base.unit.code
@@ -2460,6 +2494,7 @@ export function createCalculationSession(options: CalculationSessionOptions) {
           stated: { ...base, unit: { kind: "currency", code: ownRow.ownCurrency } },
           currencyChars: null,
         };
+      const rowMinor = base.unit.kind === "plain" ? minorUnitOf(ownRow, quoted, context, []) : null;
       const numbersUnit = unitOf(quoted, figure);
       const numberIndex = numbersUnit ? quoted.units.indexOf(numbersUnit) : -1;
       const { starts } = joinUnits(quoted.units);
@@ -2467,7 +2502,7 @@ export function createCalculationSession(options: CalculationSessionOptions) {
         numberIndex >= 0 ? onPage(quoted).at + figure.start - (starts[numberIndex] ?? 0) : -1;
       for (const [unitIndex, unit] of quoted.units.entries()) {
         for (const statement of readStatedUnits(unit.text, context)) {
-          if (exceptedBy(statement, rowLabel) || ownRow?.ownMinor) continue;
+          if (exceptedBy(statement, rowLabel) || rowMinor !== null) continue;
           if (notedOut(statement, rowLabel)) {
             noted = noted ?? statement.chars;
             continue;
