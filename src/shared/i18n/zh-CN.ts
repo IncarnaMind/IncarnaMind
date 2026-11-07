@@ -4453,6 +4453,7 @@ export const zhCN = {
   "aiStatement.citations.contradicted": "与文档矛盾",
   "aiStatement.citations.checking": "正在核对",
   "aiStatement.sentences.intro": "以下是“对照文档核对”的结果：",
+  "aiStatement.sentences.carried.intro": "以下句子已随其来源回答一并核对，按结果列出：",
   "aiStatement.sentences.column.count": "说法（条）",
   "aiStatement.sentences.supported": "有依据",
   "aiStatement.sentences.notFound": "未找到",

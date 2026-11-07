@@ -39,17 +39,16 @@
  */
 import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
-import { readCalculatedFigureEvidence } from "../../../shared/calculatedFigures";
 import { citationAttributesOf } from "../../../shared/citations";
 import { SENTENCES_CHECKED_AT_MOST } from "../../../shared/claimChecks";
 import { planOf } from "../../../shared/claimParts";
 import { beginFigureCheck } from "../../../shared/figureChecks";
 import { readTableBinding } from "../../../shared/figureRuns";
 import {
-  type InlineTextPiece,
   type InlineTextProjection,
+  inlineLayout,
   inlineSpan,
-  projectInlineText,
+  projectedContent,
   sliceInlineText,
 } from "../../../shared/inlineText";
 import { INLINE_NODE, isClaim, onlyNamesItsTable, sentenceSpans } from "../../../shared/sentences";
@@ -58,7 +57,6 @@ import {
   ANALYSIS_TABLE_ATTRIBUTE,
   ANALYSIS_TABLE_NODE,
   BLOCK_ID_ATTRIBUTE,
-  CALCULATED_FIGURE_NODE,
   CITATION_NODE,
   type CitationAttributes,
   type CitedQuote,
@@ -195,31 +193,6 @@ function paragraphText(content: readonly NodeJSON[]): string {
       node.type === "text" ? (node.text ?? "") : node.type === "hardBreak" ? "\n" : INLINE_NODE,
     )
     .join("");
-}
-
-function inlineLayout(content: readonly NodeJSON[]): { node: NodeJSON; start: number }[] {
-  let at = 0;
-  return content.map((node) => {
-    const start = at;
-    at += node.type === "text" ? (node.text ?? "").length : 1;
-    return { node, start };
-  });
-}
-
-function projectedContent(content: readonly NodeJSON[]) {
-  const pieces = inlineLayout(content).map(({ node, start }): InlineTextPiece => {
-    const place = {
-      from: start,
-      to: start + (node.type === "text" ? (node.text ?? "").length : 1),
-    };
-    if (node.type === "text") return { kind: "text", text: node.text ?? "", ...place };
-    if (node.type === CITATION_NODE) return { kind: "citation", ...place };
-    if (node.type === "hardBreak") return { kind: "break", ...place };
-    const figure =
-      node.type === CALCULATED_FIGURE_NODE ? readCalculatedFigureEvidence(node.attrs ?? {}) : null;
-    return { kind: "atom", ...place, ...(figure && { shown: figure.figure.shown }) };
-  });
-  return { pieces, projection: projectInlineText(pieces) };
 }
 
 /** An Analysis's own table: its cells are its run's, never claims a check reads (#2378). */

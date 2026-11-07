@@ -4666,6 +4666,8 @@ export const en = {
   "aiStatement.citations.checking": "Still being checked",
   "aiStatement.sentences.intro":
     "Sentences the author had checked against the Documents, with Check against Documents, by result:",
+  "aiStatement.sentences.carried.intro":
+    "Sentences checked with the Answer they came from, by result:",
   "aiStatement.sentences.column.count": "Sentences",
   "aiStatement.sentences.supported": "Supported",
   "aiStatement.sentences.notFound": "Not found",

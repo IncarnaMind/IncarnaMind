@@ -31,6 +31,7 @@ import { calculatedFigureNode, figureShownText } from "./calculatedFigures";
 import { citedSentences } from "./citedSentences";
 import { withFigures } from "./figureMarkers";
 import { figureRunId } from "./figureRuns";
+import { inlineLayout, inlineRange, projectedContent } from "./inlineText";
 import { withoutFraming } from "./noteBlocks";
 import { printedValue } from "./printedFigures";
 import { comparableSentence, INLINE_NODE, sentenceSpans } from "./sentences";
@@ -214,26 +215,31 @@ export function withAnswerChecks(
   };
   const markedContent = (content: readonly NodeJSON[]): NodeJSON[] => {
     const widths = content.map((node) => (node.type === "text" ? (node.text ?? "").length : 1));
-    const projected = content
-      .map((node) => (node.type === "text" ? (node.text ?? "") : INLINE_NODE))
-      .join("");
+    // Found and marked as a check of the sentence finds and marks it (claimFrame in
+    // core/answers/checks/sentences.ts): over its words, the Citations left out, and the mark on
+    // the words alone, so a check the author runs later takes the whole mark's place.
+    const { pieces, projection } = projectedContent(content);
+    const spans = sentenceSpans(projection.text);
     const marks: { from: number; to: number; mark: NodeJSON }[] = [];
     const beforeMarker = new RegExp(`\\s+(?=${INLINE_NODE})`, "gu");
-    for (const span of sentenceSpans(projected)) {
-      const text = projected.slice(span.from, span.to);
+    spans.forEach((span, index) => {
+      const range = inlineRange(projection, span.from, span.to);
+      if (!range) return;
+      const next = projection.starts[spans[index + 1]?.from ?? projection.text.length] ?? Infinity;
+      const extent = pieces
+        .filter((piece) => piece.kind === "citation" && piece.from >= range.to && piece.to <= next)
+        .reduce((end, piece) => Math.max(end, piece.to), range.to);
+      const cited = inlineLayout(content).flatMap(({ node, start }) =>
+        node.type === CITATION_NODE && start >= range.from && start < extent
+          ? [identityOfCitation(node.attrs ?? {})]
+          : [],
+      );
       // The Answer's own reading drops the space a marker leaves before it: so does this key.
-      const comparable = comparableSentence(text.replace(beforeMarker, ""));
-      const cited: CitationIdentity[] = [];
-      let offset = 0;
-      for (const node of content) {
-        const width = node.type === "text" ? (node.text ?? "").length : 1;
-        if (node.type === CITATION_NODE && offset >= span.from && offset < span.to)
-          cited.push(identityOfCitation(node.attrs ?? {}));
-        offset += width;
-      }
-      const mark = markFor(identityOf(comparable, cited), text);
-      if (mark) marks.push({ from: span.from, to: span.to, mark });
-    }
+      const words = projection.rawText.slice(range.from, extent).replace(beforeMarker, "");
+      const text = projection.text.slice(span.from, span.to);
+      const mark = markFor(identityOf(comparableSentence(words), cited), text);
+      if (mark) marks.push({ from: range.from, to: range.to, mark });
+    });
     if (marks.length === 0) return [...content];
     const out: NodeJSON[] = [];
     let offset = 0;
