@@ -78,6 +78,32 @@ core.on("organizeReview.changed", ({ count }) => {
   void refreshReview().catch(report);
 });
 
+let reading: Promise<unknown> | null = null;
+let readAgain = false;
+/** Reads the Suggestions again once a read under way has ended: changes come in bursts. */
+function refreshSoon(): void {
+  if (reading) {
+    readAgain = true;
+    return;
+  }
+  reading = refreshReview()
+    .catch(report)
+    .finally(() => {
+      reading = null;
+      if (readAgain) {
+        readAgain = false;
+        refreshSoon();
+      }
+    });
+}
+
+// A Document deleted or restored leaves or rejoins the Suggestions with no change of their own.
+core.on("documents.removed", refreshSoon);
+core.on("library.changed", () => {
+  const { review, count } = useOrganizeReview.getState();
+  if (review !== null || (count ?? 0) > 0) refreshSoon();
+});
+
 core.on("organize.progress", (progress) => {
   const { run } = useOrganizeReview.getState();
   if (!run || (run.runId !== null && run.runId !== progress.runId)) return;
@@ -385,17 +411,19 @@ export async function replan(kind: Replan): Promise<void> {
     earlier = null;
   };
   let result: OrganizeLibraryResult | null = null;
+  // A plan that proposes nothing keeps the earlier one, as a stopped or failed one does.
+  const planned = () => result?.status === "done" && result.proposed > 0;
   try {
     result = await organize(input);
   } finally {
-    if (result?.status !== "done") {
+    if (!planned()) {
       await putBack();
       const back = await refreshReview();
       if (libraryShown() && back.items.length > 0 && result?.status !== "estimate")
         useOrganizeReview.setState({ open: true });
     }
   }
-  if (result?.status !== "done") return;
+  if (!planned()) return;
   let later: string | null = null;
   const swap = async (from: "later" | "earlier") => {
     const now = await refreshReview();
