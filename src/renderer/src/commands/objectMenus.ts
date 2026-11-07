@@ -186,9 +186,16 @@ registerMenu("comparisonColumn", [
 
 registerMenu("comparisonTable", [
   "comparison.table.addDocuments",
-  "comparison.table.rename",
   "comparison.table.refillAll",
+  "comparison.table.refillAllIncludingMine",
   "comparison.table.refillProblems",
+  "comparison.table.duplicate",
+  "comparison.table.useColumns",
+  "comparison.table.rename",
+  "comparison.table.plain",
+  "comparison.exportExcel",
+  "comparison.exportCsv",
+  "comparison.table.delete",
 ]);
 
 registerMenu("comparisonCell", [
