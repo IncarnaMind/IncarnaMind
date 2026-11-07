@@ -1101,6 +1101,21 @@ function readCorrection(
   return choices.some((choice) => choice.wording === "") ? null : { from, choices };
 }
 
+/**
+ * The Change and To lines of a reply that gives nothing else, read as a contradiction's are; null
+ * when it gives none, or not as one plain answer.
+ */
+export function readChangeLines(reply: string): ReadCorrection | null {
+  const lines = reply
+    .replace(THINKING, "")
+    .replace(DISPLAY_MARKERS, "")
+    .split("\n")
+    .flatMap(fieldLines)
+    .map((line) => line.trim())
+    .filter((line) => line !== "");
+  return readCorrection("contradicted", lines, reply) ?? null;
+}
+
 /** null: the reply gives no one plain answer, so whether the sentence asserts an absence is unknown. */
 export type AbsenceAnswer = "yes" | "no" | null;
 

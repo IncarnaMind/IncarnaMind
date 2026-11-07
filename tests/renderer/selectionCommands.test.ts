@@ -10,6 +10,7 @@ import {
 import type { ObjectRef } from "../../src/renderer/src/objects";
 import type { CommandId } from "../../src/shared/commands";
 import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
+import { documentOf } from "../helpers/storeDocuments";
 
 /*
  * The selection bar and the right-click menu offer the same commands for the
@@ -39,47 +40,6 @@ const mindOf = (id: string): Mind => ({
   folderId: null,
 });
 
-/** A ready Document as the store holds one. */
-const documentOf = (id: string): Document => ({
-  id,
-  name: `Doc ${id}`,
-  kind: "pdf",
-  contentHash: "",
-  path: `/${id}.pdf`,
-  fileStatus: "available",
-  keptByApp: false,
-  linkedFolderId: null,
-  size: 0,
-  pageCount: null,
-  status: "ready",
-  progress: null,
-  scan: null,
-  failure: null,
-  unreadParts: null,
-  unreadPartsUnknown: false,
-  readHiddenSheets: false,
-  convertedFrom: null,
-  folderId: null,
-  tags: [],
-  tagging: "off",
-  taggingError: null,
-  creationDate: null,
-  modifiedAt: null,
-  fileCreatedAt: null,
-  properties: null,
-  title: null,
-  web: null,
-  reference: null,
-  ownFile: null,
-  yourNote: null,
-  meetingMindId: null,
-  notCited: false,
-  found: null,
-  importedAs: null,
-  createdAt: "",
-  updatedAt: "",
-});
-
 beforeAll(async () => {
   const bridge = new Proxy({}, { get: () => () => () => undefined });
   (globalThis as unknown as { window: unknown }).window = {
@@ -90,7 +50,7 @@ beforeAll(async () => {
   const { useAppStore } = await import("../../src/renderer/src/store");
   useAppStore.setState({
     minds: ["m", "n"].map(mindOf),
-    documents: ["a", "b", "c"].map(documentOf),
+    documents: ["a", "b", "c"].map((id) => documentOf(id)),
   });
 });
 
