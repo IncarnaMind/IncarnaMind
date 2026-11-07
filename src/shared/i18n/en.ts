@@ -321,6 +321,7 @@ export const en = {
   "palette.group.foldersAndTags": "Folders and Tags",
   "palette.group.actions": "Actions",
   "palette.group.notes": "In your text",
+  "palette.group.meetingText": "Said in meetings",
   "palette.group.documentText": "In your Documents",
   "palette.group.conversationText": "In your conversations",
   "palette.group.ask": "Assistant",
@@ -6294,6 +6295,7 @@ export const en = {
   "meetings.joined.transcript":
     "The Transcript of “{meeting}” moved to “{folder}”, beside its note",
   "meetings.joined.undo": "Undo",
+  "meetings.joined.undone": "“{meeting}” and its Transcript are back where they were",
   "meetings.leftApart.one":
     "1 meeting left apart from its Transcript, since each Folder keeps its work inside it",
   "meetings.leftApart.other":
