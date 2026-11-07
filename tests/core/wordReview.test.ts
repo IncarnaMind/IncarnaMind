@@ -297,6 +297,9 @@ describe("IncarnaMind's comments", () => {
   test("without any option, a Mind with no change waiting is the file it was before #107", async () => {
     const core = startCore(await createTempDataFolder());
     const { id } = await mindWith(core, [paragraph(text("AI words", ai)), paragraph(text("Mine"))]);
+    // Page numbers and a watermark are the Note's own choice (#1258), off so only #107's own
+    // parts are compared.
+    await core.setExportMarks(id, { pageNumbers: false, watermark: "none" });
 
     const { files } = await word(core, id);
 

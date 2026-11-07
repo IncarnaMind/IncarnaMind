@@ -269,11 +269,22 @@ test("help during the call: the panel folds to level bars that become Stop, ⌘K
   const panel = await panelOf(app);
   await expectLines(await pressIn(panel, "Sum up so far"));
 
-  // Folded to a pill: the level bars move with the voices, and pointed at or focused, are Stop.
+  // Folded to a pill: only the dot, the time, the level bars and expand show; the rest is in its
+  // name. The level bars move with the voices, and pointed at or focused, are Stop.
   await pointAndClick(panel, panel.getByTestId("panel-collapse"));
   const pill = panel.getByTestId("panel-pill");
   await expect(pill).toBeVisible();
-  await expect(pill.getByTestId("panel-keys")).toHaveText(mac ? "⌃⌥1–7" : "Ctrl+Alt+1–7");
+  const keys = mac ? "⌃⌥1–7" : "Ctrl\\+Alt\\+1–7";
+  await expect(pill).toHaveText(/^\d+:\d\d$/);
+  await expect(pill).toHaveAccessibleName(
+    new RegExp(`^Call help · Recording \\d+:\\d\\d · ${keys} for help$`),
+  );
+  await setLanguage(window, "zh-CN");
+  await expect(pill).toHaveAccessibleName(
+    new RegExp(`^通话助手 · 正在录制 \\d+:\\d\\d · ${keys} 获取帮助$`),
+  );
+  await expect(pill).toHaveText(/^\d+:\d\d$/);
+  await setLanguage(window, "en");
   const stop = pill.getByTestId("level-stop");
   await expect(stop.getByTestId("level-bar")).toHaveCount(5);
   await shot(panel, "help-panel-pill-en");
@@ -523,6 +534,49 @@ test("help during the call: Answer their question cites the price sheet, checked
   await bar.getByTestId("meeting-stop").click();
   await expect.poll(() => held(app, "Ctrl+Alt+9")).toBe(false);
   await app.close();
+  await removeDataFolder(sources);
+});
+
+// protects=the notes a model writes before its records, which the core takes back, never show in the panel: its outline holds until the first option, then the options stand; fails_when=the notes are drawn and then vanish; no_claim=what a real model writes (#2526).
+test("help during the call: a model's notes before its records never show, the outline holding until its first option", async () => {
+  const sources = await createDataFolder();
+  const { app, window } = await launchApp(dataDir, {
+    fakeChat: true,
+    transcriber: { theirLines: BUYER },
+  });
+  await setWindowSize(app, window, 1440, 900);
+  await dismissChatSetup(window);
+  await useLocalChatModel(window, "fake-model-notes-first");
+  const sheet = join(sources, "Price sheet.txt");
+  await writeFile(sheet, `Price sheet 2026\n\nTeam plan: $25 per seat a month.\n${PRICE}\n`);
+  await (await core(window)).evaluate((bridge, path) => bridge.addDocuments([path]), sheet);
+  await expect
+    .poll(async () =>
+      (await core(window)).evaluate(async (bridge) =>
+        (await bridge.listDocuments()).map((document) => document.status),
+      ),
+    )
+    .toEqual(["ready"]);
+  await recordingMeeting(window);
+  const panel = await panelOf(app);
+
+  await pointAndClick(
+    panel,
+    panel.getByTestId("help-button").filter({ hasText: "Answer their question" }),
+  );
+  const suggestion = panel.getByTestId("help-suggestion").last();
+  await expect(suggestion).toHaveAttribute("data-status", "streaming", { timeout: 20_000 });
+  const seen: string[] = [];
+  while ((await suggestion.getAttribute("data-status")) === "streaming") {
+    seen.push(await suggestion.innerText());
+    if (seen.length === 1) await expect(suggestion.getByTestId("help-outline")).toHaveCount(2);
+    if (seen.length === 12) await shot(panel, "help-panel-notes-streaming");
+  }
+  expect(seen.some((text) => /newest lines ask|最新的几句/.test(text))).toBe(false);
+  await expect(suggestion).toHaveAttribute("data-status", "done");
+  await expect(suggestion.getByTestId("help-option-say").first()).toContainText("$45 per seat");
+  await expect(suggestion).not.toContainText("newest lines ask");
+  await shot(panel, "help-panel-notes-done");
   await removeDataFolder(sources);
 });
 

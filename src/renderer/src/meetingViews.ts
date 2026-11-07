@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import type { Meeting } from "../../core/api";
 
-export type MeetingNoteView = "notes" | "transcript";
+export type MeetingNoteView = "notes" | "mine" | "transcript";
 type Views = Record<string, { mindId: string; view: MeetingNoteView }>;
 
 /**
@@ -29,8 +29,9 @@ export function showMeetingDetails(mindId: string): void {
   }));
 }
 
-/** The order ⌥⌘← and ⌥⌘→ go through. */
-export const MEETING_NOTE_VIEWS: readonly MeetingNoteView[] = ["notes", "transcript"];
+/** A Meeting's views, in the order ⌥⌘← and ⌥⌘→ go through: My notes once the call is over. */
+export const meetingViewsOf = (meeting: Meeting): readonly MeetingNoteView[] =>
+  meeting.status === "stopped" ? ["notes", "mine", "transcript"] : ["notes", "transcript"];
 
 /** Whether a Meeting's Note has views to switch: a call while it records and after it. */
 export const hasMeetingViews = (meeting: Meeting | undefined): meeting is Meeting =>
@@ -70,10 +71,10 @@ export function showMeetingNoteView(
 }
 
 /** The view before or after the one shown, staying at the ends. */
-export function stepMeetingNoteView(tabId: string, mindId: string, by: -1 | 1): void {
-  const index = MEETING_NOTE_VIEWS.indexOf(meetingNoteViewFor(tabId, mindId));
-  const next = MEETING_NOTE_VIEWS[index + by];
-  if (next) showMeetingNoteView(tabId, mindId, next, { focus: true });
+export function stepMeetingNoteView(tabId: string, meeting: Meeting, by: -1 | 1): void {
+  const views = meetingViewsOf(meeting);
+  const next = views[views.indexOf(meetingNoteViewFor(tabId, meeting.mindId)) + by];
+  if (next) showMeetingNoteView(tabId, meeting.mindId, next, { focus: true });
 }
 
 /** A view asked to take the focus once it shows, in this tab: the request's number, else null. */

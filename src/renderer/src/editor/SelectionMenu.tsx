@@ -25,6 +25,7 @@ import { CustomSpacing, FormatMenu } from "./FormatMenu";
 import { footnotePlace, insertFootnote } from "./footnoteSchema";
 import { FORMAT_OPEN, setLineSpacing } from "./formatCommands";
 import { caretAnchor, LinkField } from "./LinkField";
+import { VisibleTextSelection } from "./myNotes";
 import { Popover } from "./Popover";
 import { canInsertPageBreak, insertPageBreak, PAGE_BREAK_KEYS } from "./pageBreakSchema";
 import {
@@ -172,6 +173,8 @@ function showsOver(editor: Editor, pressed: boolean): boolean {
   if (pressed || editor.view.composing || !editor.isEditable) return false;
   if (menuClosedOver(editor)) return false;
   if (selection.empty || !(selection instanceof TextSelection)) return false;
+  // Across lines My notes hides, only what Delete, typing and the marks keys do applies.
+  if (selection instanceof VisibleTextSelection) return false;
   if (editor.isActive("codeBlock")) return false;
   return doc.textBetween(selection.from, selection.to).length > 0;
 }

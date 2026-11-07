@@ -73,7 +73,11 @@ async function importFile(core: Core, bytes: Buffer, origin: "own" | "someone-el
 async function setUp(input: WordFileInput, origin: "own" | "someone-else" = "own") {
   const core = startCore(await createTempDataFolder());
   const bytes = wordFile(input);
-  return { core, bytes, ...(await importFile(core, bytes, origin)) };
+  const imported = await importFile(core, bytes, origin);
+  // Page numbers and a watermark are the Note's own choice (#1258), off here so a file nothing
+  // changed is still byte for byte the one it was; their tests turn them on.
+  await core.setExportMarks(imported.mindId, { pageNumbers: false, watermark: "none" });
+  return { core, bytes, ...imported };
 }
 
 async function exported(core: Core, mindId: string) {
@@ -206,6 +210,7 @@ describe("what the Mind didn't change", () => {
         core,
         wordFile({ body: paragraph("Text."), sectPr }),
       );
+      await core.setExportMarks(mindId, { pageNumbers: false, watermark: "none" });
       editText(client, (value) => `${value} Edited.`);
       await client.settled();
 
@@ -1604,6 +1609,49 @@ describe("what can't be kept", () => {
       "word/document.xml",
     );
     expect(await readdir(output)).toEqual([]);
+  });
+
+  test("an imported file with no header or footer gets the Note's page numbers and watermark, as Word's own", async () => {
+    const { core, mindId } = await setUp({ body: paragraph("Body.") });
+    await core.setExportMarks(mindId, { pageNumbers: true, watermark: "draft" });
+    const { document, part } = await exported(core, mindId);
+    expect(document).toMatch(/<w:headerReference w:type="default" r:id="rId\d+"\/>/);
+    expect(document).toMatch(/<w:footerReference w:type="default" r:id="rId\d+"\/>/);
+    const footer = part("word/footer1.xml");
+    expect(footer).toContain('<w:instrText xml:space="preserve"> PAGE </w:instrText>');
+    const header = part("word/header1.xml");
+    expect(header).toContain('id="PowerPlusWaterMarkObject357477219"');
+    expect(header).toContain('string="DRAFT"');
+    expect(part("word/settings.xml")).toContain("<w:displayBackgroundShape/>");
+    expect(part("word/_rels/document.xml.rels")).toMatch(
+      /Type="[^"]*\/footer" Target="footer1\.xml"/,
+    );
+    expect(part("word/_rels/document.xml.rels")).toMatch(
+      /Type="[^"]*\/header" Target="header1\.xml"/,
+    );
+    expect(part("[Content_Types].xml")).toContain('PartName="/word/footer1.xml"');
+    expect(part("[Content_Types].xml")).toContain('PartName="/word/header1.xml"');
+  });
+
+  test("an imported file's own header and footer are kept, not replaced by the Note's marks", async () => {
+    const { core, mindId } = await setUp({
+      body: paragraph("Body."),
+      headers: { rIdH1: paragraph("Letterhead") },
+      footers: { rIdF1: paragraph("Page footer") },
+      sectPr:
+        '<w:headerReference w:type="default" r:id="rIdH1"/><w:footerReference w:type="default" r:id="rIdF1"/><w:pgSz w:w="11906" w:h="16838"/>',
+    });
+    await core.setExportMarks(mindId, { pageNumbers: true, watermark: "draft" });
+    const { files, document, part } = await exported(core, mindId);
+    expect(part("word/header1.xml")).toContain("Letterhead");
+    expect(part("word/header1.xml")).not.toContain("PowerPlusWaterMarkObject");
+    expect(part("word/footer1.xml")).toContain("Page footer");
+    expect(files.has("word/header2.xml")).toBe(false);
+    expect(files.has("word/footer2.xml")).toBe(false);
+    expect([...document.matchAll(/<w:headerReference\b/g)]).toHaveLength(1);
+    expect([...document.matchAll(/<w:footerReference\b/g)]).toHaveLength(1);
+    expect(document).toContain('<w:headerReference w:type="default" r:id="rIdH1"/>');
+    expect(document).toContain('<w:footerReference w:type="default" r:id="rIdF1"/>');
   });
 });
 

@@ -40,7 +40,7 @@ import {
   callOf,
   TRANSCRIPT,
 } from "./callHelpCases";
-import type { GroupOptions, Measured, PairedGroup, RequestTiming } from "./paired";
+import type { GroupOptions, Measured, OpenedGroup, PairedGroup, RequestTiming } from "./paired";
 
 const STEP_MS = 500;
 /**
@@ -63,12 +63,16 @@ function spokenMs(text: string): number {
 }
 
 /** The fake capture and engine of one call: the engine says the case's lines in turn on each side. */
-function callRig(turns: readonly CallTurn[]) {
+export function callRig(turns: readonly CallTurn[]) {
   const capture = createFakeCapture();
   const host = inProcessTranscriber({
     lines: turns.filter((turn) => turn.who === "me").map((turn) => turn.text),
     theirLines: turns.filter((turn) => turn.who === "them").map((turn) => turn.text),
     maxSpeechMs: LONGEST_TURN_MS + 1000,
+    // Partial words come from the streaming model: otherwise a turn longer than a partial's 2.5 s
+    // is decoded again for each partial, each decode says the next line, and the call is heard
+    // out of order, some lines twice and others never.
+    live: true,
   });
   return {
     capture,
@@ -91,7 +95,7 @@ function hear(capture: FakeCapture, ms: number, speaking: "microphone" | "system
 }
 
 /** Starts the case's Meeting and says its call, waiting for each line to be written. */
-async function recordCall(core: Core, capture: FakeCapture, turns: readonly CallTurn[]) {
+export async function recordCall(core: Core, capture: FakeCapture, turns: readonly CallTurn[]) {
   await core.updateSettings({ device: { meetingNoticeAccepted: true } });
   const meeting = await core.createMeeting();
   await core.startMeeting({ meetingId: meeting.id, systemAudio: true });
@@ -109,8 +113,11 @@ const comparable = (text: string) =>
     .replace(/[\p{P}\p{S}\s]+/gu, "");
 
 /** A found Citation quotes this line: its quote is in the line, or holds it. */
-function quotes(
-  citation: ConversationAnswer["citations"][number],
+export function quotes(
+  citation: Pick<
+    ConversationAnswer["citations"][number],
+    "check" | "location" | "documentName" | "quote"
+  >,
   rest: { in: string; line: string },
 ) {
   if (citation.check !== "found") return false;
@@ -161,13 +168,13 @@ const JUDGE = [
   'Reply with JSON and nothing else: {"grade": "right" | "partly" | "wrong", "unstated": [n, ...]}',
 ].join("\n");
 
-interface Judged {
+export interface Judged {
   grade: "right" | "partly" | "wrong" | "unread";
   unstated: number[];
 }
 
 /** The judge's grade and the numbers it lists, or null when its reply holds no such JSON. */
-function readJudged(text: string): Judged | null {
+export function readJudged(text: string): Judged | null {
   try {
     const read: unknown = JSON.parse(text.match(/\{[\s\S]*\}/)?.[0] ?? "");
     if (typeof read !== "object" || read === null || !("grade" in read)) return null;
@@ -215,21 +222,36 @@ async function judge(
   });
   const judged = readJudged(first.text);
   if (judged) return judged;
-  // A judge that answered in prose is asked once more for the JSON alone, its reasons kept.
-  const again = await generateText({
-    model,
-    instructions: JUDGE,
-    messages: [
-      { role: "user", content: prompt },
-      { role: "assistant", content: first.text },
-      { role: "user", content: "Now give only the JSON object, as the instructions say." },
-    ],
-    maxOutputTokens: 200,
-    maxRetries: 1,
-  });
+  // A judge that answered in prose is asked once more for the JSON alone, its reasons kept. Claude
+  // Opus 5.5 can't stop thinking, and its thinking can take all of a 400-token reply: asked again,
+  // it needs the room to think and still answer (#2701).
+  const again =
+    first.text.trim() === ""
+      ? await generateText({
+          model,
+          instructions: JUDGE,
+          prompt,
+          maxOutputTokens: 1_200,
+          maxRetries: 1,
+        })
+      : await generateText({
+          model,
+          instructions: JUDGE,
+          messages: [
+            { role: "user", content: prompt },
+            { role: "assistant", content: first.text },
+            { role: "user", content: "Now give only the JSON object, as the instructions say." },
+          ],
+          maxOutputTokens: 200,
+          maxRetries: 1,
+        });
   const read = readJudged(again.text);
   if (read) return read;
-  console.error(`The judge's reply couldn't be read: ${again.text.slice(0, 200)}`);
+  console.error(
+    again.text.trim() === ""
+      ? `The judge's reply was empty twice (${again.finishReason}).`
+      : `The judge's reply couldn't be read: ${again.text.slice(0, 200)}`,
+  );
   return { grade: "unread", unstated: [] };
 }
 
@@ -451,47 +473,57 @@ function item(each: CallHelpCase): PairedGroup["items"][number] {
   };
 }
 
-/** One group a case: its own Library, its own Meeting heard before the press. */
-export function callHelpSet(): PairedGroup[] {
-  return CALL_HELP_CASES.map((each): PairedGroup => {
-    const turns = callOf(each);
+/**
+ * A call-help case's call heard in a Library of only its Documents, in the case's language: the
+ * Library opened, its Meeting recording with every line of the call written.
+ */
+export async function openCall(
+  base: GroupOptions,
+  each: CallHelpCase,
+  name: string,
+): Promise<OpenedGroup> {
+  const turns = callOf(each);
+  const folder = await mkdtemp(join(tmpdir(), "incarnamind-paired-call-"));
+  const documents: EvalDocument[] = [];
+  for (const document of each.documents) {
+    const path = join(folder, document.file);
+    await writeFile(path, document.text);
+    documents.push({ key: document.file, path });
+  }
+  const rig = callRig(turns);
+  const library = await openLibrary({
+    ...base,
+    name,
+    documents,
+    meetings: rig.adapters,
+  });
+  try {
+    const { core } = library;
+    await core.updateSettings({ user: { language: each.language } });
+    await core.setOutputLocation(join(library.dataDir, "Documents", "IncarnaMind"));
+    const meeting = await recordCall(core, rig.capture, turns);
     return {
-      name: `call-help-${each.id}`,
-      items: [item(each)],
-      async open(base: GroupOptions) {
-        const folder = await mkdtemp(join(tmpdir(), "incarnamind-paired-call-help-"));
-        const documents: EvalDocument[] = [];
-        for (const document of each.documents) {
-          const path = join(folder, document.file);
-          await writeFile(path, document.text);
-          documents.push({ key: document.file, path });
-        }
-        const rig = callRig(turns);
-        const library = await openLibrary({
-          ...base,
-          name: `paired-call-help-${each.id}`,
-          documents,
-          meetings: rig.adapters,
-        });
-        try {
-          const { core } = library;
-          await core.updateSettings({ user: { language: each.language } });
-          await core.setOutputLocation(join(library.dataDir, "Documents", "IncarnaMind"));
-          const meeting = await recordCall(core, rig.capture, turns);
-          return {
-            library,
-            meeting,
-            async close() {
-              await library.close();
-              await rm(folder, { recursive: true, force: true });
-            },
-          };
-        } catch (error) {
-          await library.close();
-          await rm(folder, { recursive: true, force: true });
-          throw error;
-        }
+      library,
+      meeting,
+      async close() {
+        await library.close();
+        await rm(folder, { recursive: true, force: true });
       },
     };
-  });
+  } catch (error) {
+    await library.close();
+    await rm(folder, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+/** One group a case: its own Library, its own Meeting heard before the press. */
+export function callHelpSet(): PairedGroup[] {
+  return CALL_HELP_CASES.map(
+    (each): PairedGroup => ({
+      name: `call-help-${each.id}`,
+      items: [item(each)],
+      open: (base) => openCall(base, each, `paired-call-help-${each.id}`),
+    }),
+  );
 }
