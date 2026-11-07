@@ -82,3 +82,14 @@ The same step, arms, set, fixed rig, samples and bar as above, on DeepSeek V4.1 
 ## The second run restarted whole (written on 2026-11-07, before it)
 
 The key that ran the second run (direct Anthropic) ran out of credit after English and 4 of Chinese's cases. The runs that decide are now one whole run of the second run's design on another key of the same direct Anthropic route (the owner's word of 2026-11-07 allows it): the account that pays doesn't change the model, the endpoint or the request. It starts whole rather than finishing Chinese, because the evaluation's judge changed in between (a judge whose first reply is empty is asked again without it, #2701), and one Chinese case was cut off mid-run. The bar, the set, the fixed rig, the arms, the model and the judge are as above; the partial run is reported, not used.
+
+## DeepSeek V4.1 Flash 1017, 2026-11-07: one line missed; not listed
+
+At bb7b63aab, DeepSeek's own key, judge DeepSeek V4 Pro, fixed rig, one-minute load 6.1–22.9 (median 12.1); $0.34 (the judge $0.28). Today → the step, all 90 pairs finished:
+
+| DeepSeek V4.1 Flash | First whole option | Done | False Supported | Cited | Judged right | Every Citation found |
+|---|---|---|---|---|---|---|
+| en | 2.54 → 1.74 s | 2.97 → 2.14 s | 2–4 → 1–4 | 13–14 → 14–14 | 9–12 → 11–14 | 14–15 → 14–15 |
+| zh-CN | **1.45 → 1.72 s** | 2.97 → 1.97 s | 2–3 → 2–3 | 12–15 → 13–14 | 10–12 → 11–12 | 15–15 → 15–15 |
+
+Every quality line holds and done is a second sooner in both languages (sooner in 83 of 90 pairs, one request in 89 of 90), but in Chinese the first whole option comes later: on today's path DeepSeek already writes its Chinese reply in its first request, and the records now come before it. Today's path here is also call help's measure on DeepSeek: the first whole option at 2.54 s (English) and 1.45 s (Chinese), done at 2.97 s in both.
