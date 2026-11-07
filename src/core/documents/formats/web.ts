@@ -172,6 +172,15 @@ function inlineText(nodes: readonly XmlNode[]): string {
     .trim();
 }
 
+/** The most columns a cell spans, as a browser shows it: a damaged page's count doesn't fill a row. */
+const MAX_COLSPAN = 1000;
+
+/** A cell's columns: its `colspan`, from 1. */
+const colspanOf = (cell: XmlElement): number => {
+  const span = Number(cell.attrs.colspan);
+  return Number.isInteger(span) ? Math.min(Math.max(span, 1), MAX_COLSPAN) : 1;
+};
+
 function tableText(table: XmlElement): string {
   const rows: string[] = [];
   const walk = (element: XmlElement) => {
@@ -180,7 +189,10 @@ function tableText(table: XmlElement): string {
       if (name === "tr") {
         const cells = elements(child)
           .filter((cell) => nameOf(cell) === "td" || nameOf(cell) === "th")
-          .map((cell) => inlineText(cell.children).replace(/\s*\n\s*/g, " "));
+          .flatMap((cell) => [
+            inlineText(cell.children).replace(/\s*\n\s*/g, " "),
+            ...Array.from({ length: colspanOf(cell) - 1 }, () => ""),
+          ]);
         if (cells.some(Boolean)) rows.push(cells.join("\t"));
       } else if (name === "thead" || name === "tbody" || name === "tfoot") walk(child);
     }

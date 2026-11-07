@@ -96,6 +96,34 @@ describe("A web page's snapshot", () => {
     expect(steeping?.text).toContain("water = 250 ml\nleaves = 2.5 g");
   });
 
+  test("a table's blank and merged cells keep its columns, so a row lines up with its headings (#2426)", () => {
+    const read = (heading: string, rows: string) =>
+      webUnits(
+        `<html><head><title>Depots</title></head><body><article><h1>${heading}</h1><table>${rows}</table></article></body></html>`,
+      )[0]?.text;
+
+    expect(
+      read(
+        "Depots",
+        "<tr><td></td><td>On-time rate</td><td>Space occupancy</td></tr><tr><td>Felixstowe</td><td>94%</td><td>81%</td></tr>",
+      ),
+    ).toBe("Depots\n\tOn-time rate\tSpace occupancy\nFelixstowe\t94%\t81%");
+
+    expect(
+      read(
+        "Rates",
+        '<tr><td>Depot</td><td colspan="2">Rates</td></tr><tr><td></td><td>On-time</td><td>Late</td></tr><tr><td>Felixstowe</td><td>94%</td><td>81%</td></tr><tr><td>Southampton</td><td>88%</td><td>79%</td></tr>',
+      ),
+    ).toBe("Rates\nDepot\tRates\t\n\tOn-time\tLate\nFelixstowe\t94%\t81%\nSouthampton\t88%\t79%");
+
+    expect(
+      read(
+        "费率",
+        '<tr><td>仓库</td><td colspan="2">费率</td></tr><tr><td></td><td>准点</td><td>迟到</td></tr><tr><td>费利克斯托</td><td>94%</td><td>81%</td></tr>',
+      ),
+    ).toBe("费率\n仓库\t费率\t\n\t准点\t迟到\n费利克斯托\t94%\t81%");
+  });
+
   test("a Chinese page in GBK is decoded, with no spaces put between its characters", () => {
     const chinese = snapshotOf(
       page("chinese-gbk.html"),

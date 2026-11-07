@@ -433,14 +433,19 @@ function seriesUnit(data: ChartData, series: number): { key: string; unit: Figur
   const units = new Map<string, FigureUnit>();
   data.rows.forEach((row, index) => {
     const value = row.values[series];
-    if (!value || value.value === null || unitless.has(index) || !saysUnit(value)) return;
-    const key = unitKey(value);
+    if (!value || value.value === null || unitless.has(index)) return;
+    // A drawn bare number is its own unit, as the Switch counts it: beside a
+    // unit it isn't drawn on that unit's scale, so it can't share its caption (#2055).
+    const key = saysUnit(value) ? unitKey(value) : "none";
     if (!units.has(key)) units.set(key, value.unit ?? { kind: "plain" });
   });
   const entries = [...units.entries()];
   const only = entries[0];
   if (entries.length === 1 && only) {
-    return { key: only[0], unit: only[1].kind === "plain" ? null : only[1] };
+    return {
+      key: only[0],
+      unit: only[0] === "none" || only[1].kind === "plain" ? null : only[1],
+    };
   }
   const keys = entries.map(([key]) => key).sort();
   return { key: keys.length === 0 ? "none" : `mixed:${keys.join(",")}`, unit: null };
