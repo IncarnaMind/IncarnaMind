@@ -276,6 +276,29 @@ describe("the store follows the Library's assignments", () => {
   });
 });
 
+describe("the sidebar's Review (#2308)", () => {
+  test("a second press before the Library has shown the first Document keeps it; the next press after goes on", () => {
+    useAppStore.setState({
+      library: snapshot([assignment("a", "failed"), assignment("b", "failed")]),
+      reviewTarget: null,
+      reviewedAttention: new Set(),
+    });
+    const { reviewAttention } = useAppStore.getState();
+
+    // A double click: the Library opens only once the layout answers, so it hasn't taken "a" yet.
+    reviewAttention();
+    reviewAttention();
+    expect(useAppStore.getState().reviewTarget).toBe("a");
+    expect([...useAppStore.getState().reviewedAttention]).toEqual(["a"]);
+
+    // The Library shows "a" and clears the target, as LibraryPane does.
+    useAppStore.setState({ reviewTarget: null });
+    reviewAttention();
+    expect(useAppStore.getState().reviewTarget).toBe("b");
+    expect([...useAppStore.getState().reviewedAttention]).toEqual(["a", "b"]);
+  });
+});
+
 describe("undoing a move", () => {
   test("moves each Mind back, and puts each Document's assignment back with who chose it", async () => {
     const { useUndo } = await import("../../src/renderer/src/undo");

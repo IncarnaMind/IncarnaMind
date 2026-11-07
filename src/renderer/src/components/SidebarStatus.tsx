@@ -15,6 +15,7 @@ import type { MessageKey } from "../../../shared/i18n";
 import { organizeHeld, organizes, organizesNewDocuments } from "../../../shared/libraryModels";
 import { mindName } from "../../../shared/naming";
 import { allowAndSort } from "../allowSorting";
+import { attentionIds } from "../attention";
 import { commands } from "../commands/registry";
 import { core } from "../core";
 import { Popover } from "../editor/Popover";
@@ -438,10 +439,18 @@ function useStatuses(): Status[] {
     const held = new Map((library?.assignments ?? []).map((item) => [item.documentId, item]));
     return ownDocuments.map((doc) => {
       const item = held.get(doc.id);
-      return { item, state: organizeStateOf(doc, item) };
+      return { id: doc.id, item, state: organizeStateOf(doc, item) };
     });
   }, [ownDocuments, library]);
   const organizing = organizes(library);
+  const reviewedAttention = useAppStore((state) => state.reviewedAttention);
+  const needingAttention = attentionIds(ownDocuments, library?.assignments ?? []);
+  const needingAttentionKey = needingAttention.join("\n");
+  // A Document that stops needing attention is forgotten, so a later failure shows again.
+  useEffect(() => {
+    const live = needingAttentionKey === "" ? [] : needingAttentionKey.split("\n");
+    useAppStore.getState().keepReviewedAttention(new Set(live));
+  }, [needingAttentionKey]);
   const organizesNew = organizesNewDocuments(library);
   const capturing = useCapturing();
   const counts = useAppStore(
@@ -1098,23 +1107,19 @@ function useStatuses(): Status[] {
 
   if (organizing && library) {
     const pending = liveStates.filter(({ state }) => state.run === "working").length;
-    const attention = liveStates.filter(
-      ({ item, state }) =>
-        !state.manual &&
-        (state.run === "failed" ||
-          (state.run === "waiting" &&
-            item?.error?.kind !== "rate-limit" &&
-            item?.error?.kind !== "auth" &&
-            item?.error?.kind !== "plan-limit")),
-    ).length;
+    const attention = needingAttention.filter((id) => !reviewedAttention.has(id)).length;
     if (attention)
       statuses.push({
         testId: "organization-attention",
         tone: "waiting",
         alerts: true,
         short: t("library.needsAttention"),
-        full: t("library.waiting", { count: attention }),
-        action: { label: t("library.review"), run: () => useAppStore.getState().openLibrary() },
+        full: t(attention === 1 ? "library.waiting.one" : "library.waiting", { count: attention }),
+        action: {
+          label: t("library.review"),
+          testId: "organization-attention-review",
+          run: () => useAppStore.getState().reviewAttention(),
+        },
       });
     if (pending) {
       const service =

@@ -19,8 +19,9 @@
  * a test's hold stops every sentence judgement until it releases it.
  * A Document whose text says "slowly" takes a moment to tag or organize; one whose text says "unreachable"
  * can't reach the model the first time it is tagged or organized (nor on the retry that follows; one that
- * says "stays unreachable" never can), and one that says
- * "rate-limited" meets its rate limit.
+ * says "stays unreachable" never can), one that says
+ * "rate-limited" meets its rate limit, and one that says "out of credit" meets an account with none
+ * the first time it is tagged or organized.
  */
 
 import { APICallError, StreamProviderError } from "ai";
@@ -48,6 +49,7 @@ import { refusal, replyParts, streamedText } from "./stream";
 import {
   fakeStructuredOutput,
   SLOW_TAGGING_MS,
+  tagsOutOfCredit,
   tagsRateLimited,
   tagsSlowly,
   tagsUnreachable,
@@ -176,6 +178,22 @@ export const createFakeChatModel: ChatModelFactory = (spec) => {
         statusCode: 429,
         responseHeaders: { "retry-after": "600" },
         isRetryable: true,
+      });
+    }
+    if (tagsOutOfCredit(options)) {
+      throw new APICallError({
+        message: "You exceeded your current quota, please check your plan and billing details.",
+        url: "https://fake.invalid/chat",
+        requestBodyValues: {},
+        statusCode: 429,
+        responseBody: JSON.stringify({
+          error: {
+            message: "You exceeded your current quota, please check your plan and billing details.",
+            type: "insufficient_quota",
+            code: "insufficient_quota",
+          },
+        }),
+        isRetryable: false,
       });
     }
     // A model id ending "-always-thinks" thinks through its whole reply to a plan, as one with no off switch may (#1369).

@@ -5979,9 +5979,10 @@ export function createCore(adapters: CoreAdapters): Core {
       }
       return routeOf(classifier);
     },
-    proposeFolders: async (ids) => library.propose(ids, settings.get().language),
-    classifyDocuments: async (ids) => {
-      library.classify(ids);
+    proposeFolders: async (ids, options) =>
+      library.propose(ids, settings.get().language, undefined, options?.forService),
+    classifyDocuments: async (ids, options) => {
+      library.classify(ids, options?.forService);
       const classifier = organizeModelOf(library.settings());
       if (classifier) {
         usageData.record({

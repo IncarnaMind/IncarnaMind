@@ -11475,15 +11475,18 @@ export interface CoreApi {
    * language, and makes them. `classifyDocuments` then suggests one for each. Returns the
    * Folders made, none when no Document has text to read. Throws InvalidInputError with no
    * model for Organize, or one that can't name Folders (a decision model), and what the
-   * provider throws; nothing is made then.
+   * provider throws; nothing is made then. With `forService`, a continuation of a press
+   * authorized for that service: Organize sending elsewhere proposes nothing.
    */
-  proposeFolders(documentIds: string[]): Promise<LibraryGroup[]>;
+  proposeFolders(documentIds: string[], options?: { forService?: string }): Promise<LibraryGroup[]>;
   /**
    * Queues selected documents, or all. Organize suggests a Folder for each
    * (a Suggested Folder) and its Tags; manual assignments are preserved, and
-   * only their Tags suggested.
+   * only their Tags suggested. With `forService`, a continuation of a press
+   * authorized for that service: a different destination queues and clears
+   * nothing, and a change while the run waits sends nothing there.
    */
-  classifyDocuments(documentIds?: string[]): Promise<void>;
+  classifyDocuments(documentIds?: string[], options?: { forService?: string }): Promise<void>;
   /**
    * Stops automatic Tagging with AI where the Documents waiting to be
    * tagged, or being tagged, are: each of their Folders, and Not in a Folder
