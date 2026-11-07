@@ -34,6 +34,7 @@ export const CLAUDE_LOW_EFFORT: ProviderOptions = {
 };
 
 const GEMINI_LOW: ProviderOptions = { google: { thinkingConfig: { thinkingLevel: "low" } } };
+const DEEPSEEK_LOW: ProviderOptions = { deepseek: { reasoningEffort: "low" } };
 const QWEN_THINKING_BUDGET = 512;
 const QWEN_BUDGET: ProviderOptions = { alibaba: { thinkingBudget: QWEN_THINKING_BUDGET } };
 const OPENROUTER_LOW: ProviderOptions = { openrouter: { reasoning: { effort: "low" } } };
@@ -438,7 +439,10 @@ const PROVIDERS = [
     // (#1631): Answers finished 1.5 to 5 s sooner, but on the everyday requests one claimed a change
     // it hadn't made and one asked instead of writing, and its comparison cells were judged right
     // less often. So every kind thinks at its default.
-    request: { thinkingOff: { options: { deepseek: { thinking: { type: "disabled" } } } } },
+    request: {
+      thinkingOff: { options: { deepseek: { thinking: { type: "disabled" } } } },
+      effort: { models: { "deepseek-flash": { answer: DEEPSEEK_LOW, check: DEEPSEEK_LOW } } },
+    },
     roles: {
       answers: "deepseek-flash",
       strongest: "deepseek-v4-pro",

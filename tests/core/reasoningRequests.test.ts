@@ -288,29 +288,21 @@ describe("An Answer's request to a model that thinks", () => {
     expect(deepseek[0]?.reasoning_effort).toBeUndefined();
   });
 
-  // protects=DeepSeek Flash, which thinks by default, keeps DeepSeek's default for every kind of call: low was measured and failed the gate (#1631); fails_when=any kind sends thinking, reasoning or reasoning_effort; no_claim=the fake API doesn't check what DeepSeek accepts.
-  test.each(["answer", "careful", "task", "summary"] as const)(
-    "DeepSeek Flash, %s: none of thinking, reasoning or reasoning_effort",
-    async (thinking) => {
-      const bodies = fakeApi(() =>
-        Response.json({
-          id: "c1",
-          object: "chat.completion",
-          created: 1_790_000_000,
-          model: "deepseek-flash",
-          choices: [
-            { index: 0, message: { role: "assistant", content: "OK" }, finish_reason: "stop" },
-          ],
-          usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
-        }),
-      );
-      await generateText({ model: modelOf("deepseek", "deepseek-flash", thinking), prompt: "OK?" });
-      expect(bodies).toHaveLength(1);
-      expect(bodies[0]?.thinking).toBeUndefined();
-      expect(bodies[0]?.reasoning).toBeUndefined();
-      expect(bodies[0]?.reasoning_effort).toBeUndefined();
-    },
-  );
+  // protects=DeepSeek Flash's Answers and the check of an Answer's sentences ask for reasoning_effort low, and its Tasks, careful Answers and calls of no kind keep DeepSeek's default (#1631); fails_when=an Answer or a check lacks effort "low", or another kind carries thinking, reasoning or an effort; no_claim=the fake API doesn't check what DeepSeek accepts.
+  test.each([
+    ["answer", "low"],
+    ["check", "low"],
+    ["careful", undefined],
+    ["task", undefined],
+    ["summary", undefined],
+  ] as const)("DeepSeek Flash, %s: reasoning_effort %s", async (thinking, effort) => {
+    const bodies = fakeApi(completion);
+    await generateText({ model: modelOf("deepseek", "deepseek-flash", thinking), prompt: "OK?" });
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0]?.thinking).toBeUndefined();
+    expect(bodies[0]?.reasoning).toBeUndefined();
+    expect(bodies[0]?.reasoning_effort).toBe(effort);
+  });
 });
 
 /** A chat completion as OpenAI-compatible APIs (Qwen, GLM, OpenRouter) give it, not streamed. */
