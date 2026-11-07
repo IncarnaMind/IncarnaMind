@@ -274,6 +274,7 @@ export interface ComparisonsOptions {
       model: ChatModelChoice;
       signal: AbortSignal;
       onText(streamed: Pick<CellAnswer, "markdown" | "blocks">): void;
+      cell: true;
     }): Promise<CellAnswer>;
   };
   chat: {
@@ -1117,6 +1118,7 @@ export function createComparisons(options: ComparisonsOptions) {
       documentIds,
       model: fill.model,
       signal,
+      cell: true,
       onText(streamed) {
         if (signal.aborted || !hasMarker(streamed.markdown) || isNotFoundReply(streamed.markdown)) {
           return;

@@ -7,8 +7,18 @@
  */
 import { withoutDateSuffix } from ".";
 
-/** The flows an Answer runs in, as its timing records name them: "question" is one asked in a Mind or the assistant. */
-export type AnswerFlow = "question" | "outside-agent" | "task-answer" | "check" | "call-help";
+/**
+ * The flows an Answer runs in, as its timing records name them: "question" is one asked in a Mind
+ * or the assistant; "check" a check Run, a Meeting's notes among them. A comparison table's cell
+ * is a check Run too, but the lists know it apart, as "comparison-cell".
+ */
+export type AnswerFlow =
+  | "question"
+  | "outside-agent"
+  | "task-answer"
+  | "check"
+  | "comparison-cell"
+  | "call-help";
 
 interface Admitted {
   /** "<catalog provider>/<model id>". */
@@ -23,7 +33,9 @@ interface Admitted {
  * Writes the Answer, then gives its records in one `cite` call in the same reply (#489). Claude
  * Sonnet 5.5 was measured and left out (2026-10-26): it still gave its records first, drafting
  * the Answer in its thinking, and came out slower (+1.2 s, 3.25 → 3.34 calls) with fewer
- * expected Passages cited on the gating set (62 → 59).
+ * expected Passages cited on the gating set (62 → 59). A Meeting's notes were measured and left
+ * out on Claude Haiku 5.5 (2026-11-07): their first case gave 10 sentences a found Citation that
+ * didn't state them, against 1 citing first (#1624).
  */
 const WRITES_THEN_CITES: readonly Admitted[] = [
   {
@@ -31,6 +43,18 @@ const WRITES_THEN_CITES: readonly Admitted[] = [
     since: "2026-10-26",
     flows: ["question"],
     gate: "Against citing first, paired, within one item in 30: gating 65 on this code (load median 6), 2.89 → 2.20 calls, done −0.4 s, cited 61 → 61, judged right 61 → 59, every Citation found 63 → 62; on its earlier endings, gating 65 three times, cited 183 → 184, right 184 → 182, found 188 → 190; on earlier wordings, hard tier 225, cited 150 → 155, right 207 → 209, and everyday 39; no new duplicate, false Supported, unmade change or tool text.",
+  },
+  {
+    model: "anthropic/claude-haiku-5-5",
+    since: "2026-11-07",
+    flows: ["comparison-cell"],
+    gate: "eval/speed/gates/write-then-cite-tasks.md, against citing first, paired, within one item in 30: the cells set's 65 Questions (load median 6), 2.83 → 2.11 calls, done −0.3 s (sooner in 40), cited 65 → 63, judged right 57 → 60, every Citation found 64 → 64; no new false Supported, duplicate, unmade change or tool text.",
+  },
+  {
+    model: "deepseek/deepseek-flash",
+    since: "2026-11-07",
+    flows: ["comparison-cell"],
+    gate: "eval/speed/gates/write-then-cite-tasks.md, against citing first, paired, within one item in 30: the cells set's 65 Questions (load median 5.7), 2.89 → 2.11 calls, done −0.8 s (sooner in 58), cited 65 → 64, judged right 59 → 57, every Citation found 65 → 65; no new false Supported, duplicate, unmade change or tool text.",
   },
 ];
 

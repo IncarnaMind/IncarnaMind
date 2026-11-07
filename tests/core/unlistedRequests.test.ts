@@ -2,8 +2,8 @@
  * A model the lists beside the catalog don't name, and a listed one in a flow they don't admit it
  * to, is sent what main sends it, word for word (#489): every request of a Question, a follow-up
  * that keeps a Citation, an assistant turn, an assistant follow-up, and a Question and a check
- * whose record is fixed before the model writes on; and Claude Haiku 5.5's in a comparison
- * table's cell and a Meeting's notes. Each with its system prompt, messages, Tool definitions and
+ * whose record is fixed before the model writes on; Claude Sonnet 5.5's in a comparison table's
+ * cell; and Claude Haiku 5.5's in a Meeting's notes. Each with its system prompt, messages, Tool definitions and
  * Tool results, against the requests recorded on main: so its Runs also end where main's do. A
  * change meant for every model, a prompt's or a Tool description's, records them again in the
  * same pull request: `npx vitest run tests/core/unlistedRequests.test.ts -u`.
@@ -87,24 +87,20 @@ const fixingModel = (first: string, then: string) =>
     { judgesItsAnswers: true },
   );
 
-/** Claude Haiku 5.5, saved as the User saves it, its service allowed. */
-async function withHaiku(core: Core) {
+/** A Claude model, Claude Haiku 5.5 unless named, saved as the User saves it, its service allowed. */
+async function withClaude(core: Core, modelId = "claude-haiku-5-5") {
   core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
-  const saved = await core.saveChatProvider({
-    kind: "anthropic",
-    apiKey: "sk-test",
-    modelId: "claude-haiku-5-5",
-  });
+  const saved = await core.saveChatProvider({ kind: "anthropic", apiKey: "sk-test", modelId });
   if (saved.service) await core.allowDataFlow("chat", saved.service.id);
 }
 
-/** One cell of a comparison table, filled by Claude Haiku 5.5: every request it made. */
+/** One cell of a comparison table, filled by Claude Sonnet 5.5, which no list admits there: every request it made. */
 async function cellFilled() {
   const model = cellModel();
   const core = startCore(await createTempDataFolder(), {
     createChatModel: scriptedModels(model).createChatModel,
   });
-  await withHaiku(core);
+  await withClaude(core, "claude-sonnet-5-5");
   const sources = await createSourceFolder();
   const [corvane] = await addAndProcess(core, [
     await writeSourceFile(
@@ -164,7 +160,7 @@ async function notesFilled() {
       theirLines: ["The budget is approved for this year"],
     },
   });
-  await withHaiku(core);
+  await withClaude(core);
   const meeting = await core.createMeeting();
   const client = await connectToMind(core, meeting.mindId);
   writeMind(client, [heading(2, "Pricing"), note("price")]);
@@ -272,7 +268,7 @@ const normalised = (value: unknown) =>
 describe("A model no list names, or one in a flow no list admits it to", {
   timeout: 60_000,
 }, () => {
-  test("is sent main's requests, word for word, for Questions, follow-ups, fixes and checks, as is Claude Haiku 5.5 for a cell and a Meeting's notes", async () => {
+  test("is sent main's requests, word for word, for Questions, follow-ups, fixes and checks, as is Claude Sonnet 5.5 for a cell and Claude Haiku 5.5 for a Meeting's notes", async () => {
     const asked = tidesModel();
     const inMind = await setUpWithDocuments(asked, [TIDES]);
     await askAndFinish(inMind.core, inMind.client, inMind.mind.id, FIRST);
@@ -327,7 +323,7 @@ describe("A model no list names, or one in a flow no list admits it to", {
         assistantFollowUp: requests(inAssistant, turn),
         fixedThenWritten: requests(fixed),
         checkFixedThenVerdict: requests(checked),
-        haikuComparisonCell: await cellFilled(),
+        sonnetComparisonCell: await cellFilled(),
         haikuMeetingNotes: await notesFilled(),
       }),
     ).toMatchFileSnapshot("../fixtures/answers/unlisted-requests.json.snap");

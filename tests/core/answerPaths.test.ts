@@ -1,6 +1,7 @@
 /**
  * The faster Answer paths beside the catalog (#489): a listed model writes the Answer, then
- * cites it. Every other model is sent what main sends it (./unlistedRequests.test.ts).
+ * cites it, in the flows its gate measured: a Question, or a comparison table's cell. Every other
+ * model is sent what main sends it (./unlistedRequests.test.ts).
  */
 import { describe, expect, test } from "vitest";
 import { retrievesFirst, writesThenCites } from "../../src/core/providers/catalog/answerPaths";
@@ -11,8 +12,18 @@ import {
   setUpWithDocuments,
   shownPassages,
 } from "../helpers/citations";
+import { cellModel, compare, comparisonRowsIn } from "../helpers/comparisons";
+import { createTempDataFolder, startCore } from "../helpers/core";
+import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
+import { connectToMind } from "../helpers/mindClient";
 import { answerText } from "../helpers/minds";
-import { type ModelCall, promptOf, type ScriptedReply, scriptedModel } from "../helpers/models";
+import {
+  type ModelCall,
+  promptOf,
+  type ScriptedReply,
+  scriptedModel,
+  scriptedModels,
+} from "../helpers/models";
 import { buildPdf } from "../helpers/pdf";
 
 const SPRING = "Spring tides happen at new moon and at full moon.";
@@ -53,6 +64,19 @@ describe("The Answer paths beside the catalog", { timeout: 30_000 }, () => {
     },
   );
 
+  test("Claude Haiku 5.5 and DeepSeek Flash write then cite in a comparison cell; DeepSeek Flash cites first in a Question and a check, and Sonnet 5.5 in a cell", () => {
+    const deepseek = { catalogId: "deepseek", modelId: "deepseek-flash" };
+    expect(
+      writesThenCites({ catalogId: "anthropic", modelId: "claude-haiku-5-5" }, "comparison-cell"),
+    ).toBe(true);
+    expect(writesThenCites(deepseek, "comparison-cell")).toBe(true);
+    expect(writesThenCites(deepseek, "question")).toBe(false);
+    expect(writesThenCites(deepseek, "check")).toBe(false);
+    expect(
+      writesThenCites({ catalogId: "anthropic", modelId: "claude-sonnet-5-5" }, "comparison-cell"),
+    ).toBe(false);
+  });
+
   test("no model retrieves first by the list, in any flow; an override still can", () => {
     const haiku = { catalogId: "anthropic", modelId: "claude-haiku-5-5" };
     for (const flow of [
@@ -60,6 +84,7 @@ describe("The Answer paths beside the catalog", { timeout: 30_000 }, () => {
       "outside-agent",
       "task-answer",
       "check",
+      "comparison-cell",
       "call-help",
     ] as const) {
       expect(retrievesFirst(haiku, flow)).toBe(false);
@@ -119,4 +144,54 @@ describe("The Answer paths beside the catalog", { timeout: 30_000 }, () => {
     expect(system).toContain("- Then, in the same reply, right after the Answer's text, call cite");
     expect(system).toContain("copy them as its Passage reads, even where garbled");
   });
+
+  test("a comparison cell on a model listed for cells is told to write then cite, and still fills when the model cites first", async () => {
+    const haiku = await cellFilledBy("claude-haiku-5-5");
+    const sonnet = await cellFilledBy("claude-sonnet-5-5");
+
+    expect(haiku.system).toContain(
+      "- Then, in the same reply, right after the Answer's text, call cite",
+    );
+    expect(haiku.system).not.toContain("- Before writing the Answer, call cite once");
+    expect(haiku.cells).toEqual([{ status: "done", text: expect.stringContaining("90 days") }]);
+    expect(sonnet.system).toContain("- Before writing the Answer, call cite once");
+    expect(sonnet.system).not.toContain("right after the Answer's text, call cite");
+  });
 });
+
+/** One comparison cell filled on a Claude model by a model that searches, cites, then writes: its first instructions and the row's cells. */
+async function cellFilledBy(modelId: string) {
+  const model = cellModel();
+  const core = startCore(await createTempDataFolder(), {
+    createChatModel: scriptedModels(model).createChatModel,
+  });
+  try {
+    core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
+    const saved = await core.saveChatProvider({ kind: "anthropic", apiKey: "sk-test", modelId });
+    if (saved.service) await core.allowDataFlow("chat", saved.service.id);
+    const sources = await createSourceFolder();
+    const [agreement] = await addAndProcess(core, [
+      await writeSourceFile(
+        sources,
+        "Corvane.txt",
+        "Corvane Agreement.\nTermination notice: 90 days.",
+      ),
+    ]);
+    if (!agreement) throw new Error("The Document wasn't added.");
+    const mind = await core.createMind({ title: "Shortlist" });
+    const client = await connectToMind(core, mind.id);
+    await compare(core, client, {
+      mindId: mind.id,
+      documentIds: [agreement.id],
+      questions: ["Termination notice"],
+    });
+    return {
+      system: promptOf(model)[0]?.text ?? "",
+      cells: comparisonRowsIn(client).flatMap((row) =>
+        row.cells.map((cell) => ({ status: cell.status, text: cell.text })),
+      ),
+    };
+  } finally {
+    core.close();
+  }
+}

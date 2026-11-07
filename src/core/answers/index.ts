@@ -1269,6 +1269,12 @@ export function createAnswers(options: AnswersOptions) {
     /** A comparison table's cell (#1798): an amount it writes at another scale than its Citations give is asked about once. */
     checkScales?: boolean;
     /**
+     * The flow the lists beside the catalog know it by, where its kind's is shared: a comparison
+     * table's cell is a check Run, as a Meeting's notes and a check's own Run are, but was
+     * admitted to writing first on its own gate.
+     */
+    listedAs?: AnswerFlow;
+    /**
      * Asked from a Mind whose Meeting may be recording (#144): its live Transcript, indexed up
      * to now, to go with the Question. Absent: none.
      */
@@ -3413,7 +3419,7 @@ export function createAnswers(options: AnswersOptions) {
         (options.retrievesFirst?.(prepared, flow) ?? false);
       // A model cites as the write-then-cite list says, whichever way it searches, so it never
       // cites in a way that list didn't admit it to (#1633).
-      const writeFirst = options.writesThenCites?.(prepared, flow) ?? false;
+      const writeFirst = options.writesThenCites?.(prepared, input.listedAs ?? flow) ?? false;
       for await (const event of engine.generate({
         instructions: (
           mode,
@@ -4865,6 +4871,8 @@ export function createAnswers(options: AnswersOptions) {
       onText?(streamed: Pick<CellAnswer, "markdown" | "blocks">): void;
       /** How much it thinks first, when not as a comparison cell does. */
       thinking?: "summary";
+      /** Written as a comparison table's cell, not as another Task's text written as one (a Research draft). */
+      cell?: boolean;
     }): Promise<CellAnswer> {
       const answerId = randomUUID();
       return new Promise<CellAnswer>((resolve) => {
@@ -4900,6 +4908,7 @@ export function createAnswers(options: AnswersOptions) {
           toolSet: "check",
           checkScales: true,
           task: true,
+          ...(input.cell && { listedAs: "comparison-cell" }),
           ...(input.thinking && { thinking: input.thinking }),
         });
         const stop = () => active.get(answerId)?.finish({ status: "stopped" });
