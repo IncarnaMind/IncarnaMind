@@ -9,7 +9,6 @@ import { usePopoverMenu } from "../usePopoverMenu";
 const FOLDING = [
   { fold: "mark", id: "meeting.mark" },
   { fold: "help", id: "meeting.panel" },
-  { fold: "transcript", id: "meeting.transcript" },
   { fold: "details", id: "meeting.details" },
 ] as const;
 

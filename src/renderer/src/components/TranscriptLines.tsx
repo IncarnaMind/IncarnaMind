@@ -18,11 +18,14 @@ export function TranscriptLines({
   meeting,
   className = "meeting-line",
   over = false,
+  problemsOnly = false,
 }: {
   meeting: Meeting;
   className?: string;
   /** In the meeting bar, a status line that comes and goes with the engine hangs below the bar, so the page never moves. A problem never hangs: it has the bar's own row, whole. */
   over?: boolean;
+  /** Above a stopped call's notes, which stay bare (#2527): what went wrong, and nothing else. */
+  problemsOnly?: boolean;
 }) {
   const t = useT();
   const place = useTabPlace();
@@ -54,7 +57,7 @@ export function TranscriptLines({
         testId: "meeting-transcript-open",
         onClick: () => {
           if (meeting.kind === "meeting" && meeting.status === "stopped" && place) {
-            showMeetingNoteView(place.tabId, meeting.mindId, "transcript");
+            showMeetingNoteView(place.tabId, meeting.mindId, "transcript", { focus: true });
           } else showTranscript(documentId, place?.groupId);
         },
       }
@@ -66,6 +69,7 @@ export function TranscriptLines({
     also?: ProblemAction;
     role: "alert" | "status";
   } | null = null;
+  if (problemsOnly && !problem) return null;
   if (problem) {
     const message = problem.message;
     if (problem.kind === "speakers") {

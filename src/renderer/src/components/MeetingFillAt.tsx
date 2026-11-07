@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Meeting } from "../../../core/api";
 import { MEETING_FILL_SLOT, setMeetingFillPlace } from "../editor/meetingFillPlace";
+import { takeFillInEditor } from "../editor/meetingFillUndo";
 import { MeetingFillLine } from "./MeetingFillLine";
 
 export function MeetingFillAt({ editor, meeting }: { editor: Editor; meeting: Meeting }) {
@@ -21,6 +22,8 @@ export function MeetingFillAt({ editor, meeting }: { editor: Editor; meeting: Me
     };
   }, [editor]);
 
+  useEffect(() => takeFillInEditor(editor, meeting.id), [editor, meeting.id]);
+
   useEffect(() => {
     setMeetingFillPlace(
       editor,
@@ -29,6 +32,6 @@ export function MeetingFillAt({ editor, meeting }: { editor: Editor; meeting: Me
   }, [editor, meeting.kind, meeting.fill]);
 
   return slot && meeting.kind === "meeting" && meeting.fill
-    ? createPortal(<MeetingFillLine meeting={meeting} />, slot, "meeting-fill-line")
+    ? createPortal(<MeetingFillLine meeting={meeting} editor={editor} />, slot, "meeting-fill-line")
     : null;
 }

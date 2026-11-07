@@ -86,8 +86,19 @@ export function CaptureDetails({ meeting }: { meeting: Meeting }) {
   );
 }
 
-/** Audio that couldn't be saved, once the line saying so while it happened has gone. */
-export function CaptureProblem({ meeting, className }: { meeting: Meeting; className?: string }) {
+/**
+ * Audio that couldn't be saved, once the line saying so while it happened has gone. `onDetails`:
+ * where its Details opens, when the details aren't drawn under it (a stopped call's chip).
+ */
+export function CaptureProblem({
+  meeting,
+  className,
+  onDetails,
+}: {
+  meeting: Meeting;
+  className?: string;
+  onDetails?: () => void;
+}) {
   const t = useT();
   const shown = useShown(meeting);
   const unsaved = unsavedAudioMs(meeting);
@@ -98,12 +109,12 @@ export function CaptureProblem({ meeting, className }: { meeting: Meeting; class
       testId="meeting-line-unsaved"
       className={className}
       action={
-        shown
+        shown && !onDetails
           ? undefined
           : {
               label: t("meetings.health.details"),
               testId: "meeting-line-details",
-              onClick: () => useMeetings.getState().showDetails(meeting.id, true),
+              onClick: onDetails ?? (() => useMeetings.getState().showDetails(meeting.id, true)),
             }
       }
     >

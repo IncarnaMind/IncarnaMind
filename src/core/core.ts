@@ -6968,6 +6968,13 @@ export function createCore(adapters: CoreAdapters): Core {
     stopMeeting: async (meetingId) => stopMeeting(meetingId),
     fillMeetingNotes: async (meetingId) => meetingFill.retry(meetings.get(meetingId).id),
     undoMeetingFill: async (meetingId) => meetingFill.undo(meetings.get(meetingId).id),
+    followMeetingFillUndo: async (input) => {
+      const invalid = () => new InvalidInputError({ key: "error.meeting.fillUndo" });
+      if (!isRecord(input)) throw invalid();
+      const { id } = meetings.get(input.meetingId);
+      if (typeof input.undone !== "boolean") throw invalid();
+      return meetingFill.followUndo(id, input.undone);
+    },
     deleteMeetingAudio: async (meetingId) => meetings.deleteAudio(meetingId),
     retryTranscript: async (meetingId) => meetings.retryTranscript(meetingId),
     listTranscriptionServices: () => cloudTranscription.list(),

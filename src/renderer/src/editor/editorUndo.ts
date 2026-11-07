@@ -57,7 +57,7 @@ export function asOneStep<T>(editor: Editor, change: () => T): T {
  * `onUndone` puts back what the step left behind outside the note's history,
  * such as a check's result the core wrote over (#1247), and `onRedone` makes
  * that again once the step is done again: without it, only the note's own
- * ⇧⌘Z does the step again.
+ * ⇧⌘Z does the step again. Returns what takes it off the stack.
  */
 export function offerEditorUndo(
   editor: Editor,
@@ -65,10 +65,10 @@ export function offerEditorUndo(
   shownAt?: string,
   onUndone?: () => void,
   onRedone?: () => void,
-): void {
+): () => void {
   const manager = undoStackOf(editor);
   const last = manager?.undoStack.at(-1);
-  if (!manager || last === undefined) return;
+  if (!manager || last === undefined) return () => undefined;
   let step = last;
   /** What brings the step back, on the note's redo stack, while it is taken back. */
   let reversal: UndoStep | undefined;
@@ -126,6 +126,7 @@ export function offerEditorUndo(
   manager.on("stack-cleared", onCleared);
   editor.on("destroy", forget);
   useUndo.getState().push(change);
+  return forget;
 }
 
 /**
@@ -146,7 +147,15 @@ export interface FollowedSteps {
   observe(listener: () => void): () => void;
 }
 
-export function followSteps(editor: Editor, first: readonly UndoStep[]): FollowedSteps | null {
+/** Steps followed in one note's history, which can also be taken out of it. */
+export interface NoteSteps extends FollowedSteps {
+  /** The steps whose changes are in the note now: none while they are taken back. */
+  inNote(): readonly UndoStep[];
+  /** Takes the steps out of the note's history: ⌘Z and ⇧⌘Z no longer reach them. */
+  drop(): void;
+}
+
+export function followSteps(editor: Editor, first: readonly UndoStep[]): NoteSteps | null {
   const manager = undoStackOf(editor);
   if (!manager) return null;
   const done = new Set(first);
@@ -179,7 +188,7 @@ export function followSteps(editor: Editor, first: readonly UndoStep[]): Followe
   manager.on("stack-cleared", changed);
   editor.on("destroy", closed);
   const inStack = () => manager.undoStack.filter((step) => done.has(step));
-  const followed: FollowedSteps = {
+  const followed: NoteSteps = {
     state() {
       if (editor.isDestroyed) return "gone";
       if (inStack().length > 0) return "done";
@@ -208,6 +217,16 @@ export function followSteps(editor: Editor, first: readonly UndoStep[]): Followe
     observe(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);
+    },
+    inNote: inStack,
+    drop() {
+      const without = (stack: UndoStep[], steps: ReadonlySet<UndoStep>) =>
+        stack.splice(0, stack.length, ...stack.filter((step) => !steps.has(step)));
+      without(manager.undoStack, done);
+      without(manager.redoStack, undone);
+      done.clear();
+      undone.clear();
+      changed();
     },
   };
   return followed;
