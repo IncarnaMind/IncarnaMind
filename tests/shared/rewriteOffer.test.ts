@@ -128,6 +128,12 @@ describe("Rewrite is offered", () => {
       "Either party may end it by giving 45 days' notice.",
       true,
     ],
+    [
+      "The project was funded by borrowing 500 million.",
+      "The project was funded by issuing 600 million.",
+      false,
+    ],
+    ["项目通过借款筹集5亿元。", "项目通过发债筹集6亿元。", false],
     ["由市场部承担的费用为120万元。", "由工程部承担的费用为810万元。", false],
     ["由市场部承担的费用为120万元。", "由市场部承担的费用为810万元。", true],
     ["注册资本增加1000万元。", "注册资本增加为2000万元。", false],

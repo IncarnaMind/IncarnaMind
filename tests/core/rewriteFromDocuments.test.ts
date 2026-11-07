@@ -1323,6 +1323,14 @@ describe("rewriteFromDocuments", () => {
       "45",
       "rewritten",
     ],
+    [
+      "The project was funded by borrowing 500 million.",
+      "The project was funded by issuing 600 million.",
+      "500",
+      "600",
+      "kept",
+    ],
+    ["项目通过借款筹集5亿元。", "项目通过发债筹集6亿元。", "5", "6", "kept"],
     ["由市场部承担的费用为120万元。", "由工程部承担的费用为810万元。", "120", "810", "kept"],
     ["由市场部承担的费用为120万元。", "由市场部承担的费用为810万元。", "120", "810", "rewritten"],
   ])(
