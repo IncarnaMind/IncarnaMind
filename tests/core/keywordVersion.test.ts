@@ -288,11 +288,12 @@ describe("A Document's keyword version", { timeout: 60_000 }, () => {
         .join("\n"),
     );
 
-    // The file is away, and no model can read its pictures yet: nothing reads the page, and the
+    // The file is away, and no model can read its pictures yet: the page can't be read, and the
     // rewrite that runs anyway must not say it was read.
     const pagePath = page.path;
     await rename(pagePath, `${pagePath}.away`);
     const second = startCore(dataDir, web.adapters);
+    await waitForProcessing(second, [page.id]);
     expect((await second.listDocuments())[0]?.status).toBe("ready");
     second.upgradeKeywordIndex();
     await vi.waitFor(
