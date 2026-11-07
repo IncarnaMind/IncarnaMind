@@ -251,7 +251,7 @@ import {
 import { documentCitedPages, documentPageImages } from "./library/pageImages";
 import { createPlanPace, type Plan } from "./library/planPace";
 import { createTagging } from "./library/tagging";
-import type { TaggingClassifier } from "./library/types";
+import type { LibraryClassifier, TaggingClassifier } from "./library/types";
 import { createMeetings, isMemo, linkTranscript, meetingRecord } from "./meetings";
 import { listParts, meetingFolder } from "./meetings/audioFiles";
 import { createMeetingFill } from "./meetings/fill";
@@ -3996,6 +3996,21 @@ export function createCore(adapters: CoreAdapters): Core {
     await taggingChanged();
     return hosts;
   };
+  /**
+   * Before a key or workspace goes, sorting, and Organize's kept model, stop naming what it reached
+   * (#1907): back to Automatic, which starts no host and turns nothing on. The app never picks
+   * another host in its place, so nothing goes anywhere the User hasn't allowed.
+   */
+  const stopSortingWith = async (reached: (classifier: LibraryClassifier | null) => boolean) => {
+    const saved = library.settings();
+    if (!reached(saved.classifier) && !reached(saved.organizeWith)) return;
+    library.saveSettings({
+      ...saved,
+      classifier: reached(saved.classifier) ? { kind: "automatic" } : saved.classifier,
+      organizeWith: reached(saved.organizeWith) ? null : saved.organizeWith,
+    });
+    await dataFlowsChanged();
+  };
   /** Jev was set up, changed or removed: say so, and Documents waiting may go on. */
   const jevChanged = async () => {
     const status = await jev.status();
@@ -6477,13 +6492,19 @@ export function createCore(adapters: CoreAdapters): Core {
       return jevChanged();
     },
     removeJevSettings: async () => {
+      await stopSortingWith((classifier) => classifier?.kind === "jev");
       await jev.remove();
       return jevChanged();
     },
     testJevConnection: (input) => loggingTest("jev")(jev.test(input)),
     listDecisionHosts: () => decisionHosts.list(),
     setDecisionKey: async (input) => decisionsChanged(await decisionHosts.setKey(input)),
-    removeDecisionKey: async (host) => decisionsChanged(await decisionHosts.removeKey(host)),
+    removeDecisionKey: async (host) => {
+      await stopSortingWith(
+        (classifier) => classifier?.kind === "decision" && classifier.host === host,
+      );
+      return decisionsChanged(await decisionHosts.removeKey(host));
+    },
 
     listConnectors: async () => connectors.list(),
     addConnector: async (input) => {

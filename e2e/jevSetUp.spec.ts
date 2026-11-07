@@ -402,3 +402,67 @@ for (const language of ["en", "zh-CN"] as const) {
     }
   });
 }
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`Settings › Models: Alibaba's workspace sits on its own Qwen row; Change workspace… edits it in place, and Remove gives sorting back to Automatic (${language}) (#1907)`, async () => {
+    const { app, window } = await launch("en", 900, 800);
+    try {
+      const modelId = await window.evaluate(async (key) => {
+        const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        await core.saveChatProvider({
+          kind: "qwen",
+          endpoint: "cn",
+          apiKey: key,
+          modelId: "qwen3.7-plus",
+        });
+        const hosts = await core.setDecisionKey({ host: "alibaba", account: "llm-test" });
+        const alibaba = hosts.find((each) => each.host === "alibaba");
+        const chosen = alibaba?.models[0]?.id ?? "";
+        await core.saveLibrarySettings({
+          ...(await core.getLibrary()).settings,
+          classifier: { kind: "decision", host: "alibaba", modelId: chosen },
+        });
+        return chosen;
+      }, JEV_KEY);
+      const settings = await openSettings(window, "models");
+      await setLanguage(window, language);
+      const providers = settings.getByTestId("your-providers");
+      const qwen = providers.locator('[data-testid="sorting-key-row"][data-host="alibaba"]');
+      await expect(qwen).toContainText(
+        language === "zh-CN" ? "通义千问（阿里云百炼）" : "Qwen (Alibaba Cloud Model Studio)",
+      );
+      await expect(qwen.getByTestId("sorting-key-status")).toHaveText(
+        translate(language, "models.providers.forSorting.workspace", { id: "llm-test" }),
+      );
+      // Set up, it isn't offered again in the picker's fold.
+      const picker = settings
+        .getByTestId("model-default-row-sorting")
+        .getByTestId("models-sorting");
+      await expect(picker.locator("optgroup option")).toHaveText(setUpRows(language));
+
+      await pointAndClick(window, qwen.getByTestId("sorting-key-change"));
+      const field = qwen.getByTestId("decision-account-input");
+      await expect(field).toBeFocused();
+      await expect(field).toHaveValue("llm-test");
+      await field.fill("llm-two");
+      await pointAndClick(window, qwen.getByTestId("decision-key-save"));
+      await expect(qwen.getByTestId("sorting-key-status")).toHaveText(
+        translate(language, "models.providers.forSorting.workspace", { id: "llm-two" }),
+      );
+      expect((await library(window)).classifier).toEqual({
+        kind: "decision",
+        host: "alibaba",
+        modelId,
+      });
+
+      await pointAndClick(window, qwen.getByTestId("sorting-key-remove"));
+      await expect(qwen).toHaveCount(0);
+      expect((await library(window)).classifier).toEqual({ kind: "automatic" });
+      // The Qwen key stays for chat, and the fold offers Alibaba's workspace again.
+      await expect(providers.getByTestId("provider-row")).toHaveCount(1);
+      await expect(picker.locator("optgroup option")).toHaveCount(setUpRows(language).length + 1);
+    } finally {
+      await app.close();
+    }
+  });
+}

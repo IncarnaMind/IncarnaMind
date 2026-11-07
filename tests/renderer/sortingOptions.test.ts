@@ -10,6 +10,7 @@ import {
   automaticRow,
   hostSetUpOffers,
   jevStateOf,
+  keptForSorting,
   keyProviderOf,
   offersJevSetUp,
   sortingOptions,
@@ -226,7 +227,7 @@ describe("the sorting picker's hosts (#1907)", () => {
     expect(hostSetUpOffers([status("perplexity")], true, () => "")).toEqual([]);
   });
 
-  test("Alibaba's row stays while the Qwen key is there, as its workspace is changed where it was entered", () => {
+  test("a set-up host leaves the fold, Alibaba with its workspace too; Your providers keeps what each has of its own", () => {
     const alibaba = status("alibaba", {
       key: "provider",
       provider: "qwen",
@@ -234,15 +235,24 @@ describe("the sorting picker's hosts (#1907)", () => {
       ready: true,
       account: { kind: "alibaba-workspace", value: "ws-1" },
     });
-    const offers = hostSetUpOffers(
-      [alibaba, status("cloudflare", { hasKey: true, ready: true })],
-      false,
-      (host) => host.host,
+    const cloudflare = status("cloudflare", {
+      hasKey: true,
+      ready: true,
+      account: { kind: "cloudflare-account", value: "acc-1" },
+    });
+    const openrouter = status("openrouter", {
+      key: "provider",
+      provider: "openrouter",
+      hasKey: true,
+      ready: true,
+    });
+    expect(hostSetUpOffers([alibaba, cloudflare, openrouter], false, (host) => host.host)).toEqual(
+      [],
     );
-    expect(offers).toEqual([{ id: "alibaba", label: "alibaba" }]);
-    expect(
-      hostSetUpOffers([{ ...alibaba, hasKey: false, ready: false }], false, (host) => host.host),
-    ).toEqual([]);
+    expect([alibaba, cloudflare, openrouter, status("liquid")].filter(keptForSorting)).toEqual([
+      alibaba,
+      cloudflare,
+    ]);
   });
 
   test("the sorting row names the chat key a host uses, and no other", () => {

@@ -2828,6 +2828,7 @@ export const en = {
   "decisions.account.hint.cloudflare-account":
     "On the Workers AI page of your Cloudflare dashboard.",
   "decisions.account.hint.alibaba-workspace": "Model Studio shows it in your workspace’s endpoint.",
+  "decisions.account.change": "Change workspace…",
   "decisions.form.apiKey": "{provider} API key",
   "decisions.setUp.line": "{maker}’s model for sorting and meeting hints, through {provider}",
   "decisions.setUp.lineOwn": "{maker}’s model for sorting and meeting hints, with your key",
@@ -3835,6 +3836,8 @@ export const en = {
   "models.providers.keyUnreadable": "Can’t be read. Enter it again.",
   "models.providers.onThisComputer": "On this computer",
   "models.providers.forSorting": "For sorting and meeting hints",
+  "models.providers.forSorting.account": "For sorting and meeting hints · account ID {id}",
+  "models.providers.forSorting.workspace": "For sorting and meeting hints · workspace {id}",
   "models.providers.changeKey": "Change key",
   "models.providers.removeKey": "Remove key",
   "models.providers.inMenu.one": "1 model in the menu",

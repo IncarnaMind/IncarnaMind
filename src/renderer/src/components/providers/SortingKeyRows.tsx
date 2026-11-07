@@ -1,38 +1,22 @@
 import { type ReactNode, useState } from "react";
-import type { DecisionHostStatus, JevSettings, LibraryClassifier } from "../../../../core/api";
+import type { DecisionHostStatus, JevSettings } from "../../../../core/api";
+import { catalogProvider } from "../../../../core/providers/catalog/providers";
 import { core } from "../../core";
 import { errorMessage } from "../../errors";
 import { useLanguage, useT } from "../../i18n";
-import { useAppStore } from "../../store";
 import { ProblemLine } from "../ProblemLine";
 import { buttonStyle, rowButtonsClass } from "../ui";
 import { DecisionKeyForm, hostName } from "./DecisionKeyForm";
 import { JevForm } from "./JevSettings";
 import { ProviderLogo } from "./ProviderLogo";
+import { keptForSorting } from "./sortingOptions";
 
 /**
- * Before a key goes, sorting and Organize stop naming the model it reached, so the sorting row
- * shows what sorts next: Automatic's pick, which starts no host by itself (#1907). Nothing is
- * turned on, and nothing is sent anywhere new.
- */
-async function stopUsing(reached: (classifier: LibraryClassifier | null) => boolean) {
-  const settings = useAppStore.getState().library?.settings;
-  if (!settings || !(reached(settings.classifier) || reached(settings.organizeWith))) return;
-  await core.saveLibrarySettings({
-    ...settings,
-    classifier: reached(settings.classifier) ? { kind: "automatic" } : settings.classifier,
-    organizeWith: reached(settings.organizeWith) ? null : settings.organizeWith,
-  });
-}
-
-const isHost = (host: DecisionHostStatus["host"]) => (classifier: LibraryClassifier | null) =>
-  classifier?.kind === "decision" && classifier.host === host;
-const isJev = (classifier: LibraryClassifier | null) => classifier?.kind === "jev";
-
-/**
- * The keys saved only for sorting and meeting hints (#1907), each a row of Your providers: a
- * host's own key (Perplexity, Liquid AI, Cloudflare with its account) and TypeSafe Jev's. A host
- * that uses a chat provider's key has none: that provider's row is its key.
+ * What Your providers keeps only for sorting and meeting hints (#1907), each its own row: a host's
+ * own key (Perplexity, Liquid AI, Cloudflare with its account ID), Alibaba's workspace beside the
+ * Qwen key, and TypeSafe Jev's key. Another host that uses a chat key has nothing of its own to
+ * keep: that provider's row is its key. Removing one that sorting uses gives sorting back to
+ * Automatic, in the core.
  */
 export function SortingKeyRows({
   hosts,
@@ -47,20 +31,35 @@ export function SortingKeyRows({
 }) {
   const t = useT();
   const language = useLanguage();
+  const lang = language === "zh-CN" ? "zh" : "en";
   return (
     <>
-      {hosts
-        .filter((host) => host.key === "own" && host.hasKey)
-        .map((host) => (
+      {hosts.filter(keptForSorting).map((host) => {
+        const account = host.account?.value;
+        const workspace = host.key === "provider";
+        return (
           <SortingKeyRow
             key={host.host}
             id={host.host}
-            name={hostName(host, language)}
-            logo={host.host}
-            remove={async () => {
-              await stopUsing(isHost(host.host));
-              onHosts(await core.removeDecisionKey(host.host));
-            }}
+            name={
+              workspace && host.provider
+                ? (catalogProvider(host.provider)?.name[lang] ?? hostName(host, language))
+                : hostName(host, language)
+            }
+            logo={workspace ? host.provider : host.host}
+            status={
+              !account
+                ? t("models.providers.forSorting")
+                : t(
+                    workspace
+                      ? "models.providers.forSorting.workspace"
+                      : "models.providers.forSorting.account",
+                    { id: account },
+                  )
+            }
+            change={t(workspace ? "decisions.account.change" : "models.providers.changeKey")}
+            remove={t(workspace ? "providers.settings.remove" : "models.providers.removeKey")}
+            onRemove={async () => onHosts(await core.removeDecisionKey(host.host))}
             form={(done) => (
               <DecisionKeyForm
                 host={host}
@@ -72,16 +71,17 @@ export function SortingKeyRows({
               />
             )}
           />
-        ))}
+        );
+      })}
       {jev?.enabled && jev.hasApiKey && (
         <SortingKeyRow
           id="jev"
           name={t("jev.settings.title")}
           logo={null}
-          remove={async () => {
-            await stopUsing(isJev);
-            onJev(await core.removeJevSettings());
-          }}
+          status={t("models.providers.forSorting")}
+          change={t("models.providers.changeKey")}
+          remove={t("models.providers.removeKey")}
+          onRemove={async () => onJev(await core.removeJevSettings())}
           form={(done) => (
             <JevForm
               current={jev}
@@ -102,13 +102,19 @@ function SortingKeyRow({
   id,
   name,
   logo,
+  status,
+  change,
   remove,
+  onRemove,
   form,
 }: {
   id: string;
   name: string;
   logo: string | null;
-  remove(): Promise<void>;
+  status: string;
+  change: string;
+  remove: string;
+  onRemove(): Promise<void>;
   /** The form that changes the key in place; `done` puts it away. */
   form(done: () => void): ReactNode;
 }) {
@@ -118,7 +124,7 @@ function SortingKeyRow({
   const removeKey = async () => {
     setProblem(null);
     try {
-      await remove();
+      await onRemove();
     } catch (failure) {
       setProblem(errorMessage(failure, t));
     }
@@ -131,8 +137,12 @@ function SortingKeyRow({
           <span className="truncate text-ui font-semibold text-ink" title={name}>
             {name}
           </span>
-          <span className="truncate text-[13px] leading-5 text-ink-meta">
-            {t("models.providers.forSorting")}
+          <span
+            data-testid="sorting-key-status"
+            className="truncate text-[13px] leading-5 text-ink-meta"
+            title={status}
+          >
+            {status}
           </span>
         </span>
         {!changing && (
@@ -146,7 +156,7 @@ function SortingKeyRow({
               }}
               className={buttonStyle("secondary")}
             >
-              {t("models.providers.changeKey")}
+              {change}
             </button>
             <button
               type="button"
@@ -154,7 +164,7 @@ function SortingKeyRow({
               onClick={() => void removeKey()}
               className={buttonStyle("ghost")}
             >
-              {t("models.providers.removeKey")}
+              {remove}
             </button>
           </span>
         )}

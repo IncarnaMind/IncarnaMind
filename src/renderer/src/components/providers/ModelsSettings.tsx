@@ -37,6 +37,7 @@ import { logoIdOf, ProviderLogo } from "./ProviderLogo";
 import { ProviderPage, providerName, type RemovedProvider } from "./ProviderPage";
 import { SortingKeyRows } from "./SortingKeyRows";
 import { catalogIdOf, MODELS_UNDO_PLACE, regionFor, savedProviderFor } from "./shared";
+import { keptForSorting } from "./sortingOptions";
 import { useJevSettings } from "./useJevSettings";
 
 type View =
@@ -262,8 +263,7 @@ function YourProviders({
   onAdd(): void;
 }) {
   const t = useT();
-  const sortingKeys =
-    hosts.some((host) => host.key === "own" && host.hasKey) || (jev?.enabled && jev.hasApiKey);
+  const sortingKeys = hosts.some(keptForSorting) || (jev?.enabled && jev.hasApiKey);
   return (
     <section data-testid="your-providers" className="flex flex-col gap-2">
       <h4 className={sectionTitleClass}>{t("models.providers.title")}</h4>

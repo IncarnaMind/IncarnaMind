@@ -170,11 +170,10 @@ export interface SetUpOffer {
 }
 
 /**
- * The hosts the picker can set up in place, after Jev (#1907): one with a key of its own until it
- * has one (its row in Your providers changes it then), and one whose chat provider's key is there
- * and that asks for an account (Alibaba Cloud's workspace), which stays here to be changed. A host
- * that uses a chat provider's key is set up where that key is added. None in Local mode: each is
- * a cloud service.
+ * The hosts the picker can set up in place, after Jev (#1907): one with a key of its own, or one
+ * whose chat provider's key is there and that still asks for an account (Alibaba Cloud's
+ * workspace). A host that uses a chat provider's key is set up where that key is added. None in
+ * Local mode: each is a cloud service.
  */
 export function hostSetUpOffers(
   hosts: readonly DecisionHostStatus[] | null,
@@ -183,7 +182,7 @@ export function hostSetUpOffers(
 ): SetUpOffer[] {
   if (!hosts || localMode) return [];
   return hosts
-    .filter((host) => (host.key === "own" ? !host.ready : host.hasKey && host.account !== null))
+    .filter((host) => !host.ready && (host.key === "own" || (host.hasKey && host.account)))
     .map((host) => ({ id: host.host, label: label(host) }));
 }
 
@@ -201,6 +200,13 @@ export function keyProviderOf(
   const host = hosts?.find((each) => each.host === classifier.host);
   return host?.key === "provider" ? host.provider : null;
 }
+
+/**
+ * Whether Your providers keeps something for this host only for sorting (#1907): its own key, or
+ * Alibaba's workspace beside the Qwen key.
+ */
+export const keptForSorting = (host: DecisionHostStatus): boolean =>
+  host.key === "own" ? host.hasKey : host.account?.value != null;
 
 /** Whether Jev can run here, set up with its key on this device, and whether its server is on this computer. */
 export interface JevState {

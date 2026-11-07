@@ -519,3 +519,70 @@ describe("Decision model hosts (#1907)", { timeout: 30_000 }, () => {
     await changed;
   });
 });
+
+/*
+ * Removing a key or workspace that sorting uses gives sorting back to Automatic (#1907), which
+ * starts no host and turns nothing on: what it picks instead, the User's AI here, reads a new
+ * Document only where the User has allowed that service.
+ */
+describe("Removing what sorting uses (#1907)", { timeout: 30_000 }, () => {
+  const ANTHROPIC = {
+    kind: "anthropic",
+    apiKey: "sk-ant-test",
+    modelId: "claude-haiku-5-5",
+  } as const;
+
+  /**
+   * Liquid chosen with its Use this, then its key removed; Anthropic is the User's AI. `allowed`:
+   * sorting was turned on with it before Liquid, the consent the footer's Allow gives.
+   */
+  async function liquidInUse(allowed: boolean) {
+    const hosts = await startFakeHosts();
+    const tagging = taggingModel(["Notes"]);
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: scriptedModels(tagging.model).createChatModel,
+      keychain: createMemoryKeychain(),
+      decisionOrigins: { liquid: hosts.url },
+    });
+    await core.saveChatProvider(ANTHROPIC);
+    await core.createLibraryGroup({ name: "Research", description: "Papers and studies." });
+    if (allowed) {
+      const { settings } = await core.getLibrary();
+      await core.saveLibrarySettings({ ...settings, automatic: true, turnOn: true });
+    }
+    await core.setDecisionKey({ host: "liquid", apiKey: KEYS.liquid });
+    await chooseAndTurnOn(core, { kind: "decision", host: "liquid", modelId: "d1-ultra" });
+    await core.removeDecisionKey("liquid");
+    return { core, hosts, tagging };
+  }
+
+  test("with the User's AI service not allowed, a new Document waits with tagging off and nothing is sent", async () => {
+    const { core, hosts, tagging } = await liquidInUse(false);
+    expect((await core.getLibrary()).settings.classifier).toEqual({ kind: "automatic" });
+
+    const document = await addDocument(core, "Attention.md", PAPER_TEXT);
+    const [waiting] = await waitForTagging(core, [document.id], (each) => each.tagging === "off");
+    expect(waiting?.tagging).toBe("off");
+    // The switch was turned on for Liquid only, so it reads off for Anthropic until it is turned
+    // on there (#2308); and Organize asks its "Use Anthropic" before it keeps a model.
+    expect((await core.getLibrary()).settings).toMatchObject({
+      automatic: false,
+      organizeWith: null,
+    });
+    expect(tagging.requests).toHaveLength(0);
+    expect(hosts.tagging()).toEqual([]);
+  });
+
+  test("with the User's AI service allowed, the new Document is sorted by it, and Liquid gets nothing", async () => {
+    const { core, hosts, tagging } = await liquidInUse(true);
+    expect((await core.getLibrary()).settings.classifier).toEqual({ kind: "automatic" });
+
+    const document = await addDocument(core, "Attention.md", PAPER_TEXT);
+    const [sorted] = await waitForTagging(core, [document.id]);
+    expect(sorted?.tagging).toBe("tagged");
+    expect(await tagNamesOf(core, document.id)).toEqual(["Notes"]);
+    expect(tagging.requests.length).toBeGreaterThan(0);
+    expect((await core.getLibrary()).sortWaitsFor).toBeUndefined();
+    expect(hosts.tagging()).toEqual([]);
+  });
+});
