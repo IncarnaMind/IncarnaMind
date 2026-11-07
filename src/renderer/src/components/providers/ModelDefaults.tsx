@@ -15,10 +15,17 @@ import { type ServicesView, useTranscriptionServicesRead } from "../../transcrip
 import { TranscriptionRouteSelect } from "../meetings/TranscriptionRouteSelect";
 import { TranscriptionRouteConsent } from "../meetings/TranscriptionSettings";
 import { ReadProblem } from "../ReadProblem";
-import { buttonStyle, fieldClass, hintClass, ruledListClass, sectionTitleClass } from "../ui";
+import { PopUpSelect } from "../settings/PopUpButton";
+import {
+  SettingsGroup,
+  SettingsHelp,
+  SettingsRow,
+  SettingsSection,
+} from "../settings/SettingsGroup";
+import { buttonStyle } from "../ui";
 import { DecisionSortingSetUp, firstModelOf } from "./DecisionKeyForm";
 import { JevSortingSetUp } from "./JevSortingSetUp";
-import { ModelHealthLine } from "./ModelHealthLine";
+import { ModelHealthLine, useModelHealthFailure } from "./ModelHealthLine";
 import { providerName } from "./ProviderPage";
 import { SortingLine, SortingSelect, useSorting } from "./SortingChoice";
 import { keyProviderOf, type SetUpOffer, type SortingOption } from "./sortingOptions";
@@ -47,9 +54,8 @@ export function useModelRoles(groups: readonly ChatModelGroup[]): ModelRoles | n
   return roles;
 }
 
-export const jobSelectClass = `${fieldClass} w-full max-w-[26rem] min-w-0 flex-1 basis-60`;
-/** A row of its own: the field keeps one line's height, where the flex row above grows sideways. */
-const rowSelectClass = `${fieldClass} w-full max-w-[26rem]`;
+/** A long model name is cut inside its pop-up button, not let to push the row's label aside. */
+const popUpWidth = "max-w-64";
 
 /**
  * Settings › Models: the same three rows as first run (#1922), each editable in place — your AI,
@@ -70,15 +76,16 @@ export function ModelDefaults({
   const services = useTranscriptionServicesRead();
 
   return (
-    <section data-testid="model-defaults" className="flex flex-col gap-2">
-      <h4 className={sectionTitleClass}>{t("models.defaults.title")}</h4>
-      <div className={ruledListClass}>
+    <SettingsSection title={t("models.defaults.title")} testId="model-defaults">
+      <SettingsGroup>
         <YourAiRow id={`${id}-ai`} groups={groups} providers={providers} roles={roles} />
         <TranscriptionRow id={`${id}-meetings`} services={services} />
         <SortingRow id={`${id}-sorting`} />
-      </div>
-      <TranscriptionRouteConsent read={services} />
-    </section>
+      </SettingsGroup>
+      <SettingsHelp className="flex flex-col gap-1 empty:hidden">
+        <TranscriptionRouteConsent read={services} />
+      </SettingsHelp>
+    </SettingsSection>
   );
 }
 
@@ -98,24 +105,28 @@ function YourAiRow({
   const following = useAppStore(
     (state) => !state.settings?.user.quickTasksModel && !state.settings?.user.imageModel,
   );
+  const health = useModelHealthFailure();
   return (
-    <div data-testid="model-default-row-chatModel" className="flex flex-col gap-0.5 py-2">
-      <label htmlFor={id} className="text-ui font-semibold text-ink">
-        {t("models.defaults.yourAi")}
-      </label>
-      <span id={`${id}-tip`} className="sr-only">
-        {t("models.defaults.answers.tip")}
-      </span>
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-        <RoleSelect id={id} job="chatModel" groups={groups} providers={providers} roles={roles} />
-        <ModelHealthLine />
-      </div>
-      {following && (
-        <p data-testid="models-follow-answers" className={hintClass}>
-          {t("models.defaults.followAnswers")}
-        </p>
-      )}
-    </div>
+    <SettingsRow
+      data-testid="model-default-row-chatModel"
+      label={t("models.defaults.yourAi")}
+      htmlFor={id}
+      detail={
+        following ? (
+          <span data-testid="models-follow-answers">{t("models.defaults.followAnswers")}</span>
+        ) : undefined
+      }
+      control={
+        <>
+          <span id={`${id}-tip`} className="sr-only">
+            {t("models.defaults.answers.tip")}
+          </span>
+          <RoleSelect id={id} job="chatModel" groups={groups} providers={providers} roles={roles} />
+        </>
+      }
+    >
+      {health && <ModelHealthLine />}
+    </SettingsRow>
   );
 }
 
@@ -123,21 +134,21 @@ function TranscriptionRow({ id, services }: { id: string; services: ServicesView
   const t = useT();
   const localOnly = useAppStore((state) => state.embedding?.localOnly === true);
   return (
-    <div
+    <SettingsRow
       data-testid="model-default-row-transcription"
       data-read-host
-      className="flex flex-col gap-0.5 py-2"
-    >
-      <label htmlFor={id} className="text-ui font-semibold text-ink">
-        {t("models.defaults.transcription")}
-      </label>
-      <TranscriptionRouteSelect
-        id={id}
-        className={rowSelectClass}
-        localOnly={localOnly}
-        read={services}
-      />
-    </div>
+      label={t("models.defaults.transcription")}
+      htmlFor={id}
+      control={
+        <TranscriptionRouteSelect
+          id={id}
+          popUp
+          className={popUpWidth}
+          localOnly={localOnly}
+          read={services}
+        />
+      }
+    />
   );
 }
 
@@ -161,26 +172,19 @@ function SortingRow({ id }: { id: string }) {
   };
   const host = decisionHosts?.find((each) => each.host === settingUp);
   const keyProvider = keyProviderOf(current, decisionHosts);
+  const failed = read.state === "failed";
   return (
-    <div
+    <SettingsRow
       data-testid="model-default-row-sorting"
       data-read-host
-      className="flex flex-col gap-0.5 py-2"
-    >
-      <label htmlFor={id} className="text-ui font-semibold text-ink">
-        {t("models.defaults.sorting")}
-      </label>
-      {read.state === "failed" ? (
-        <ReadProblem
-          words={t("setup.sorting.failed")}
-          read={read}
-          testId="models-sorting-problem"
-        />
-      ) : (
-        <>
+      label={t("models.defaults.sorting")}
+      htmlFor={failed ? undefined : id}
+      control={
+        failed ? undefined : (
           <SortingSelect
             id={id}
-            className={rowSelectClass}
+            popUp
+            className={popUpWidth}
             options={options}
             current={current}
             setUp={{ offers: setUpOffers, open: settingUp, onChoose: setSettingUp }}
@@ -189,45 +193,52 @@ function SortingRow({ id }: { id: string }) {
               void choose(option);
             }}
           />
-          {settingUp === "jev" && jevSettings ? (
-            // Choosing here never turns tagging on: Turn on… does, once Jev is chosen (#2308).
-            <JevSortingSetUp
-              jev={jevSettings}
-              choosing={false}
-              choose={async () => {
-                const chosen = await choose({ classifier: { kind: "jev" } });
-                reread();
-                return chosen;
-              }}
-              onChosen={close}
-              onCancel={close}
-            />
-          ) : host ? (
-            // As for Jev: choosing here never turns tagging on; Turn on… does (#2308).
-            <DecisionSortingSetUp
-              key={host.host}
-              host={host}
-              choosing={false}
-              choose={async () => {
-                const chosen = await choose({ classifier: firstModelOf(host) });
-                reread();
-                return chosen;
-              }}
-              onChosen={close}
-              onCancel={close}
-            />
-          ) : (
-            <>
-              {keyProvider && !current?.unresolved && <UsesKeyLine catalogId={keyProvider} />}
-              <SortingLine option={current} reading={read.state === "loading"} choosing={false} />
-              {library && !library.settings.automatic && current && !current.unresolved && (
-                <TurnOnTagging option={current} />
-              )}
-            </>
+        )
+      }
+    >
+      {failed ? (
+        <ReadProblem
+          words={t("setup.sorting.failed")}
+          read={read}
+          testId="models-sorting-problem"
+        />
+      ) : settingUp === "jev" && jevSettings ? (
+        // Choosing here never turns tagging on: Turn on… does, once Jev is chosen (#2308).
+        <JevSortingSetUp
+          jev={jevSettings}
+          choosing={false}
+          choose={async () => {
+            const chosen = await choose({ classifier: { kind: "jev" } });
+            reread();
+            return chosen;
+          }}
+          onChosen={close}
+          onCancel={close}
+        />
+      ) : host ? (
+        // As for Jev: choosing here never turns tagging on; Turn on… does (#2308).
+        <DecisionSortingSetUp
+          key={host.host}
+          host={host}
+          choosing={false}
+          choose={async () => {
+            const chosen = await choose({ classifier: firstModelOf(host) });
+            reread();
+            return chosen;
+          }}
+          onChosen={close}
+          onCancel={close}
+        />
+      ) : (
+        <div className="flex flex-col gap-1">
+          {keyProvider && !current?.unresolved && <UsesKeyLine catalogId={keyProvider} />}
+          <SortingLine option={current} reading={read.state === "loading"} choosing={false} />
+          {library && !library.settings.automatic && current && !current.unresolved && (
+            <TurnOnTagging option={current} />
           )}
-        </>
+        </div>
       )}
-    </div>
+    </SettingsRow>
   );
 }
 
@@ -338,7 +349,7 @@ export function RoleSelect({
   groups,
   providers,
   roles,
-  className = jobSelectClass,
+  className = popUpWidth,
   labelledBy,
   focusOnShow,
   onChosen,
@@ -422,7 +433,7 @@ export function RoleSelect({
   };
 
   return (
-    <select
+    <PopUpSelect
       ref={field}
       id={id}
       aria-describedby={`${id}-tip`}
@@ -456,6 +467,6 @@ export function RoleSelect({
           {labelOf(choice)}
         </option>
       ))}
-    </select>
+    </PopUpSelect>
   );
 }

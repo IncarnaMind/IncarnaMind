@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useId, useState } from "react";
 import type {
   ChatProvider,
   LibraryClassifier,
@@ -24,20 +24,14 @@ import { placesText, stoppedPlaces, tagWithAi } from "../taggingStop";
 import { useUndo } from "../undo";
 import { ProblemMark } from "./ProblemLine";
 import { JevSettingsSection } from "./providers/JevSettings";
+import { PopUpSelect } from "./settings/PopUpButton";
 import {
-  buttonClass,
-  choiceListClass,
-  choiceRadioClass,
-  choiceRowClass,
-  choiceTextClass,
-  choiceTitleClass,
-  errorTextClass,
-  fieldLabelClass,
-  inputClass,
-  menuTitleClass,
-  sectionNoteClass,
-  sectionTitleClass,
-} from "./ui";
+  SettingsGroup,
+  SettingsRow,
+  SettingsSection,
+  SettingsSwitchRow,
+} from "./settings/SettingsGroup";
+import { buttonStyle, compactChoiceRadioClass, errorTextClass, rowFieldClass } from "./ui";
 
 /** The groups of models, as the composer's model chip groups them. */
 const GROUPS: readonly TaggingModelGroup[] = ["keys", "plan", "local"];
@@ -95,7 +89,6 @@ export const providerOf = (option: TaggingModelOption, language: Language) =>
  * is saved as it is made.
  */
 export function TaggingSettings() {
-  const switchId = useId();
   const t = useT();
   const language = useLanguage();
   const library = useAppStore((state) => state.library);
@@ -192,34 +185,29 @@ export function TaggingSettings() {
   const stopped = stoppedPlaces(library);
 
   return (
-    <section ref={section} data-testid="tagging-settings" className="flex scroll-mt-8 flex-col">
-      <h4 className={sectionTitleClass}>{t("tagging.title")}</h4>
-      <p className={sectionNoteClass}>{t("tagging.intro")}</p>
-      <div role="radiogroup" aria-label={t("tagging.model")} className="flex flex-col gap-3">
-        <div className={choiceListClass}>
-          <label className={choiceRowClass} data-testid="tagging-automatic">
-            <input
-              type="radio"
-              name="tagging-model"
+    <section
+      ref={section}
+      data-testid="tagging-settings"
+      className="flex scroll-mt-8 flex-col gap-6"
+    >
+      <div role="radiogroup" aria-label={t("tagging.model")} className="flex flex-col gap-6">
+        <SettingsSection title={t("tagging.title")} help={t("tagging.intro")}>
+          <SettingsGroup>
+            <ChoiceRow
+              testId="tagging-automatic"
               checked={current.kind === "automatic" && !otherOpen}
-              onChange={() => choose({ kind: "automatic" })}
-              className={choiceRadioClass}
+              onChoose={() => choose({ kind: "automatic" })}
+              label={t("tagging.automatic")}
+              detail={<span data-testid="tagging-automatic-line">{automaticLine}</span>}
             />
-            <span className="flex min-w-0 flex-col">
-              <span className={choiceTitleClass}>{t("tagging.automatic")}</span>
-              <span className={choiceTextClass} data-testid="tagging-automatic-line">
-                {automaticLine}
-              </span>
-            </span>
-          </label>
-        </div>
+          </SettingsGroup>
+        </SettingsSection>
         {GROUPS.map((group) => {
           const inGroup = models.options.filter((option) => option.group === group);
           if (inGroup.length === 0) return null;
           return (
-            <div key={group} className="flex flex-col">
-              <p className={`${menuTitleClass} px-0`}>{t(GROUP_NAMES[group])}</p>
-              <div className={choiceListClass}>
+            <SettingsSection key={group} title={t(GROUP_NAMES[group])}>
+              <SettingsGroup>
                 {inGroup.map((option) => (
                   <ModelRow
                     key={JSON.stringify(option.classifier)}
@@ -228,115 +216,152 @@ export function TaggingSettings() {
                     onChoose={() => choose(option.classifier)}
                   />
                 ))}
-              </div>
-            </div>
+              </SettingsGroup>
+            </SettingsSection>
           );
         })}
-        <div className={choiceListClass}>
-          <label className={choiceRowClass} data-testid="tagging-other">
-            <input
-              type="radio"
-              name="tagging-model"
-              checked={other}
-              onChange={() => setOtherOpen(true)}
-              className={choiceRadioClass}
-            />
-            <span className="flex min-w-0 flex-col">
-              <span className={choiceTitleClass}>{t("tagging.other")}</span>
-              <span className={choiceTextClass}>
-                {custom ? customName(current, t) : t("tagging.other.hint")}
-              </span>
-            </span>
-          </label>
-          {other && (
-            <OtherModelForm
-              current={custom ? current : null}
-              onSave={(classifier) => choose(classifier)}
-            />
-          )}
-        </div>
-      </div>
-      <div className="mt-3 flex flex-col gap-1 text-[13px] leading-5 text-ink-secondary">
-        <p data-testid="tagging-organize">{organizesWith}</p>
-        {models.localMode && <p data-testid="tagging-local-mode">{t("tagging.localMode")}</p>}
-        {onPlan && <p data-testid="tagging-plan">{t("tagging.plan")}</p>}
-        {onPlan && localDecision && (
-          <p>
-            {t("tagging.plan.local", { model: nameOf(localDecision, t) })}{" "}
-            <button
-              type="button"
-              data-testid="tagging-use-local"
-              onClick={() => choose(localDecision.classifier)}
-              className="text-accent underline-offset-2 hover:text-accent-strong hover:underline"
-            >
-              {t("tagging.plan.useLocal", { model: nameOf(localDecision, t) })}
-            </button>
-          </p>
-        )}
-        {models.planPausedUntil && (
-          <p data-testid="tagging-plan-paused">
-            {t("tagging.plan.paused", { time: formatTime(models.planPausedUntil, language) })}
-          </p>
-        )}
-        {inUse && (
-          <p data-testid="tagging-review">
-            {t(inUse.likelihoods ? "tagging.review.marked" : "tagging.review.kept")}
-          </p>
-        )}
-        {stopped.length > 0 && (
-          <p data-testid="tagging-stopped">
-            {t("tagging.stoppedIn", { places: placesText(stopped, library, t, language) })}{" "}
-            <button
-              type="button"
-              data-testid="tagging-restart"
-              onClick={() =>
-                void tagWithAi(stopped).then(
-                  (change) => useUndo.getState().push(change),
-                  (failure: unknown) => setError(errorMessage(failure, t)),
-                )
-              }
-              className="text-accent underline-offset-2 hover:text-accent-strong hover:underline"
-            >
-              {t("folder.tagWithAi")}
-            </button>
-          </p>
-        )}
-      </div>
-      <div className="mt-3 flex items-start gap-2 text-[13px] leading-5 text-ink-secondary">
-        <input
-          id={`${switchId}-switch`}
-          type="checkbox"
-          data-testid="tagging-automatic-organize"
-          checked={settings.automatic}
-          aria-describedby={sendsLine ? `${switchId}-sends` : undefined}
-          onChange={(event) =>
-            void save(
-              event.target.checked ? { automatic: true, turnOn: true } : { automatic: false },
-            )
+        <SettingsSection
+          help={
+            <div className="flex flex-col gap-1">
+              <p data-testid="tagging-organize">{organizesWith}</p>
+              {models.localMode && <p data-testid="tagging-local-mode">{t("tagging.localMode")}</p>}
+              {onPlan && <p data-testid="tagging-plan">{t("tagging.plan")}</p>}
+              {onPlan && localDecision && (
+                <p>
+                  {t("tagging.plan.local", { model: nameOf(localDecision, t) })}{" "}
+                  <button
+                    type="button"
+                    data-testid="tagging-use-local"
+                    onClick={() => choose(localDecision.classifier)}
+                    className="text-accent underline-offset-2 hover:text-accent-strong hover:underline"
+                  >
+                    {t("tagging.plan.useLocal", { model: nameOf(localDecision, t) })}
+                  </button>
+                </p>
+              )}
+              {models.planPausedUntil && (
+                <p data-testid="tagging-plan-paused">
+                  {t("tagging.plan.paused", {
+                    time: formatTime(models.planPausedUntil, language),
+                  })}
+                </p>
+              )}
+              {inUse && (
+                <p data-testid="tagging-review">
+                  {t(inUse.likelihoods ? "tagging.review.marked" : "tagging.review.kept")}
+                </p>
+              )}
+              {stopped.length > 0 && (
+                <p data-testid="tagging-stopped">
+                  {t("tagging.stoppedIn", { places: placesText(stopped, library, t, language) })}{" "}
+                  <button
+                    type="button"
+                    data-testid="tagging-restart"
+                    onClick={() =>
+                      void tagWithAi(stopped).then(
+                        (change) => useUndo.getState().push(change),
+                        (failure: unknown) => setError(errorMessage(failure, t)),
+                      )
+                    }
+                    className="text-accent underline-offset-2 hover:text-accent-strong hover:underline"
+                  >
+                    {t("folder.tagWithAi")}
+                  </button>
+                </p>
+              )}
+            </div>
           }
-          className="mt-0.5 size-4 accent-ink"
-        />
-        <span className="flex min-w-0 flex-col">
-          <label htmlFor={`${switchId}-switch`}>{t("tagging.automatic.switch")}</label>
-          {sendsLine && (
-            <span
-              id={`${switchId}-sends`}
-              data-testid="tagging-automatic-sends"
-              className="text-ink-meta"
-            >
-              {sendsLine}
-            </span>
-          )}
-        </span>
+        >
+          <SettingsGroup>
+            <ChoiceRow
+              testId="tagging-other"
+              checked={other}
+              onChoose={() => setOtherOpen(true)}
+              label={t("tagging.other")}
+              detail={custom ? customName(current, t) : t("tagging.other.hint")}
+            />
+            {other && (
+              <OtherModelForm
+                current={custom ? current : null}
+                onSave={(classifier) => choose(classifier)}
+              />
+            )}
+          </SettingsGroup>
+        </SettingsSection>
       </div>
-      {error && (
-        <p role="alert" className={`mt-2 ${errorTextClass}`}>
-          <ProblemMark />
-          {error}
-        </p>
-      )}
-      <JevSettingsSection embedded />
+      <SettingsSection
+        help={
+          error && (
+            <p role="alert" className={errorTextClass}>
+              <ProblemMark />
+              {error}
+            </p>
+          )
+        }
+      >
+        <SettingsGroup>
+          <SettingsSwitchRow
+            label={t("tagging.automatic.switch")}
+            detail={sendsLine && <span data-testid="tagging-automatic-sends">{sendsLine}</span>}
+            checked={settings.automatic}
+            onChange={(on) =>
+              void save(on ? { automatic: true, turnOn: true } : { automatic: false })
+            }
+            switchTestId="tagging-automatic-organize"
+          />
+        </SettingsGroup>
+      </SettingsSection>
+      <JevSettingsSection />
     </section>
+  );
+}
+
+/**
+ * One choice of the list: its radio before the words, and the whole row the radio's label (the
+ * label's own box stretched over it), so a click anywhere on the row chooses it.
+ */
+function ChoiceRow({
+  testId,
+  model,
+  checked,
+  onChoose,
+  label,
+  detail,
+}: {
+  testId: string;
+  model?: string;
+  checked: boolean;
+  onChoose(): void;
+  label: ReactNode;
+  detail: ReactNode;
+}) {
+  const id = useId();
+  const detailId = `${id}-detail`;
+  return (
+    <SettingsRow
+      data-testid={testId}
+      data-model={model}
+      className="cursor-pointer hover:bg-frame active:bg-hover"
+      htmlFor={id}
+      label={
+        <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 after:absolute after:inset-0 after:cursor-pointer after:content-['']">
+          {label}
+        </span>
+      }
+      detail={detail}
+      detailId={detailId}
+      leading={
+        <input
+          id={id}
+          type="radio"
+          name="tagging-model"
+          checked={checked}
+          onChange={onChoose}
+          aria-describedby={detail ? detailId : undefined}
+          className={compactChoiceRadioClass}
+        />
+      }
+    />
   );
 }
 
@@ -353,18 +378,18 @@ function ModelRow({
   const t = useT();
   const language = useLanguage();
   const provider = providerOf(option, language);
+  const cost = costText(option.cost, t, language);
+  const sends =
+    provider && option.group !== "local" ? t("setup.sorting.sends", { service: provider }) : null;
   return (
-    <label className={choiceRowClass} data-testid="tagging-option" data-model={option.name}>
-      <input
-        type="radio"
-        name="tagging-model"
-        checked={checked}
-        onChange={onChoose}
-        className={choiceRadioClass}
-      />
-      <span className="flex min-w-0 flex-col">
-        <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
-          <span className="min-w-0 truncate text-ui text-ink" title={option.name}>
+    <ChoiceRow
+      testId="tagging-option"
+      model={option.name}
+      checked={checked}
+      onChoose={onChoose}
+      label={
+        <>
+          <span className="min-w-0 truncate" title={option.name}>
             {nameOf(option, t)}
           </span>
           {provider && <span className="text-[13px] leading-5 text-ink-meta">{provider}</span>}
@@ -373,15 +398,21 @@ function ModelRow({
           ) : (
             option.goodForTagging && <span className={labelClass}>{t("tagging.label.good")}</span>
           )}
-        </span>
-        <span className={choiceTextClass}>{costText(option.cost, t, language)}</span>
-        {provider && option.group !== "local" && (
-          <span className={choiceTextClass} data-testid="tagging-option-sends">
-            {t("setup.sorting.sends", { service: provider })}
-          </span>
-        )}
-      </span>
-    </label>
+        </>
+      }
+      detail={
+        (cost || sends) && (
+          <>
+            {cost && <span className="block">{cost}</span>}
+            {sends && (
+              <span className="block" data-testid="tagging-option-sends">
+                {sends}
+              </span>
+            )}
+          </>
+        )
+      }
+    />
   );
 }
 
@@ -414,7 +445,8 @@ function OtherModelForm({
 }) {
   const t = useT();
   const language = useLanguage();
-  const listId = useId();
+  const id = useId();
+  const listId = `${id}-models`;
   const [providers, setProviders] = useState<ChatProvider[]>([]);
   const [decisionHosts] = useDecisionHosts();
   const localMode = useAppStore((state) => state.embedding?.localOnly === true);
@@ -463,7 +495,7 @@ function OtherModelForm({
   return (
     <form
       data-testid="tagging-other-form"
-      className="flex flex-col gap-3 px-4 pt-1 pb-4 pl-11"
+      className="settings-row"
       onSubmit={(event) => {
         event.preventDefault();
         if (where === "auto") {
@@ -488,94 +520,109 @@ function OtherModelForm({
         );
       }}
     >
-      <label className={fieldLabelClass}>
-        {t("library.connection")}
-        <select
-          aria-label={t("library.connection")}
-          className={inputClass}
-          value={where}
-          onChange={(event) => setWhere(event.target.value)}
-        >
-          {providers.map((provider) => (
-            <option key={provider.id} value={provider.id}>
-              {provider.service?.name ?? (provider.kind === "ollama" ? "Ollama" : provider.kind)}
-              {provider.baseUrl ? ` · ${provider.baseUrl}` : ""}
-            </option>
-          ))}
-          {hosts.map((each) => (
-            <option key={each.host} value={`decision:${each.host}`}>
-              {each.name[language === "zh-CN" ? "zh" : "en"]}
-            </option>
-          ))}
-          <option value="ollama">{t("library.ollama")}</option>
-          <option value="auto">{t("tagging.other.auto")}</option>
-        </select>
-      </label>
-      {service && (
-        <p data-testid="tagging-other-sends" className={choiceTextClass}>
-          {t("setup.sorting.sends", { service })}
-        </p>
-      )}
+      <SettingsRow
+        label={t("library.connection")}
+        htmlFor={`${id}-connection`}
+        detail={
+          service && (
+            <span data-testid="tagging-other-sends">{t("setup.sorting.sends", { service })}</span>
+          )
+        }
+        control={
+          <PopUpSelect
+            id={`${id}-connection`}
+            className="max-w-64"
+            value={where}
+            onChange={(event) => setWhere(event.target.value)}
+          >
+            {providers.map((provider) => (
+              <option key={provider.id} value={provider.id}>
+                {provider.service?.name ?? (provider.kind === "ollama" ? "Ollama" : provider.kind)}
+                {provider.baseUrl ? ` · ${provider.baseUrl}` : ""}
+              </option>
+            ))}
+            {hosts.map((each) => (
+              <option key={each.host} value={`decision:${each.host}`}>
+                {each.name[language === "zh-CN" ? "zh" : "en"]}
+              </option>
+            ))}
+            <option value="ollama">{t("library.ollama")}</option>
+            <option value="auto">{t("tagging.other.auto")}</option>
+          </PopUpSelect>
+        }
+      />
       {where !== "auto" && (
-        <label className={fieldLabelClass}>
-          {t("library.model")}
-          <input
-            className={inputClass}
-            required
-            maxLength={200}
-            value={modelId}
-            spellCheck={false}
-            list={host ? listId : undefined}
-            data-testid="tagging-other-model"
-            onChange={(event) => setModelId(event.target.value)}
-          />
-          {host && (
-            <datalist id={listId}>
-              {host.models.map((model) => (
-                <option key={model.id} value={model.id}>
-                  {model.maker ? `${model.name} · ${model.maker}` : model.name}
-                </option>
-              ))}
-            </datalist>
-          )}
-        </label>
+        <SettingsRow
+          label={t("library.model")}
+          htmlFor={`${id}-model`}
+          control={
+            <>
+              <input
+                id={`${id}-model`}
+                className={`${rowFieldClass} w-64`}
+                required
+                maxLength={200}
+                value={modelId}
+                spellCheck={false}
+                list={host ? listId : undefined}
+                data-testid="tagging-other-model"
+                onChange={(event) => setModelId(event.target.value)}
+              />
+              {host && (
+                <datalist id={listId}>
+                  {host.models.map((model) => (
+                    <option key={model.id} value={model.id}>
+                      {model.maker ? `${model.name} · ${model.maker}` : model.name}
+                    </option>
+                  ))}
+                </datalist>
+              )}
+            </>
+          }
+        />
       )}
       {(where === "ollama" || where === "auto") && (
-        <>
-          <label className={fieldLabelClass}>
-            {t("library.server")}
+        <SettingsRow
+          label={t("library.server")}
+          htmlFor={`${id}-server`}
+          control={
             <input
+              id={`${id}-server`}
               required
               type="url"
-              className={inputClass}
+              className={`${rowFieldClass} w-64`}
               value={baseUrl}
               onChange={(event) => setBaseUrl(event.target.value)}
             />
-          </label>
-          {where === "ollama" && supportsLibraryImages(modelId) && (
-            <label className="flex items-start gap-2 text-[13px] text-ink-secondary">
-              <input
-                type="checkbox"
-                checked={usePageImages}
-                onChange={(event) => setUsePageImages(event.target.checked)}
-                className="mt-0.5 size-4 accent-ink"
-              />
-              {t("library.pageImages")}
-            </label>
-          )}
-        </>
+          }
+        />
       )}
-      <div>
-        <button type="submit" className={buttonClass} data-testid="tagging-other-save">
-          {t("tagging.other.save")}
-        </button>
-      </div>
-      {error && (
-        <p role="alert" className={errorTextClass}>
-          <ProblemMark />
-          {error}
-        </p>
+      {where === "ollama" && supportsLibraryImages(modelId) && (
+        <SettingsSwitchRow
+          label={t("library.pageImages")}
+          checked={usePageImages}
+          onChange={setUsePageImages}
+          switchTestId="tagging-other-page-images"
+        />
       )}
+      <SettingsRow
+        control={
+          <button
+            type="submit"
+            className={buttonStyle("secondary", "sm")}
+            data-testid="tagging-other-save"
+          >
+            {t("tagging.other.save")}
+          </button>
+        }
+      >
+        {error && (
+          <p role="alert" className={errorTextClass}>
+            <ProblemMark />
+            {error}
+          </p>
+        )}
+      </SettingsRow>
     </form>
   );
 }

@@ -3,12 +3,12 @@ import { useModelHealth } from "../../modelHealth";
 import { useModelInUse } from "../../modelInUse";
 import { useAppStore } from "../../store";
 
-export function ModelHealthLine() {
+/** The failure of the model in use that the line says, for the row that makes room for it. */
+export function useModelHealthFailure() {
   const choice = useModelInUse(null);
   const failure = useModelHealth((state) =>
     choice ? state.failures[choice.providerId] : undefined,
   );
-  const openSettings = useAppStore((state) => state.openSettings);
   // A model that failed as a model says nothing of another of the provider's models.
   if (
     !choice ||
@@ -17,6 +17,14 @@ export function ModelHealthLine() {
   ) {
     return null;
   }
+  return { choice, failure };
+}
+
+export function ModelHealthLine() {
+  const shown = useModelHealthFailure();
+  const openSettings = useAppStore((state) => state.openSettings);
+  if (!shown) return null;
+  const { choice, failure } = shown;
   return (
     <div data-testid="model-health" className="flex basis-full items-start gap-2">
       <span

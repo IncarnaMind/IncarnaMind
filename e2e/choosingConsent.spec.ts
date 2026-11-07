@@ -138,7 +138,7 @@ test("first run: choosing a provider with a key is the consent for what runs by 
   const models = await openSettings(window, "models");
   const tagging = await openAdvancedModels(models);
   await tagging.scrollIntoViewIfNeeded();
-  const automatic = tagging.getByRole("checkbox", {
+  const automatic = tagging.getByRole("switch", {
     name: /^Tag and sort new Documents automatically/,
   });
   await expect(automatic).toBeChecked();

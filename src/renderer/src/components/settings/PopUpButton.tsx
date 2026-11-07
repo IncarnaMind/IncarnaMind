@@ -1,4 +1,4 @@
-import { type KeyboardEvent, type SelectHTMLAttributes, useId } from "react";
+import { type KeyboardEvent, type Ref, type SelectHTMLAttributes, useId } from "react";
 import { CheckLineIcon, ChevronUpDownLineIcon } from "../lineIcons";
 import { menuClass, menuItemClass } from "../ui";
 import { usePopoverMenu } from "../usePopoverMenu";
@@ -150,7 +150,7 @@ export function PopUpSelect({
   className = "",
   children,
   ...rest
-}: SelectHTMLAttributes<HTMLSelectElement>) {
+}: SelectHTMLAttributes<HTMLSelectElement> & { ref?: Ref<HTMLSelectElement> }) {
   return (
     <span className="relative inline-flex max-w-full min-w-0">
       <select {...rest} className={`min-w-0 appearance-none pr-7 pl-2.5 ${popUpLook} ${className}`}>

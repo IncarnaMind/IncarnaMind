@@ -10,16 +10,8 @@ import {
 import { core } from "../../core";
 import { useLanguage, useT } from "../../i18n";
 import { useAppStore } from "../../store";
-import {
-  buttonStyle,
-  ghostButtonClass,
-  hintClass,
-  inputClass,
-  rowButtonsClass,
-  rowTextClass,
-  rowTitleClass,
-  ruledRowClass,
-} from "../ui";
+import { SettingsRow } from "../settings/SettingsGroup";
+import { buttonStyle, rowFieldClass } from "../ui";
 import { AgentFolderList, useAgentFolderRows } from "./AgentFolderList";
 import { activityWords, doneWords, helpUrl, pairingInSentence, timeWords } from "./agentWords";
 import { LaunchDetails } from "./LaunchDetails";
@@ -114,9 +106,11 @@ export function AgentPairingRow({
   const toggle = (what: "folders" | "activity") => setOpen(open === what ? null : what);
 
   return (
-    <li data-testid="agent-pairing" data-name={pairing.name} className={ruledRowClass}>
-      <div className="flex min-w-0 flex-col gap-0.5">
-        {renaming ? (
+    <SettingsRow
+      data-testid="agent-pairing"
+      data-name={pairing.name}
+      label={
+        renaming ? (
           <RenameAgent pairing={pairing} onDone={() => setRenaming(false)} />
         ) : (
           <button
@@ -130,154 +124,167 @@ export function AgentPairingRow({
                 setRenaming(true);
               }
             }}
-            className={`${rowTitleClass} cursor-default truncate text-left`}
+            className="block max-w-full cursor-default truncate text-left"
           >
             {pairing.name}
           </button>
-        )}
-        <span data-testid="agent-pairing-reads" className={rowTextClass}>
-          {names.length > 0
-            ? t("agents.pairing.reads", { folders: names.join(", ") })
-            : t("agents.pairing.readsNothing")}
-        </span>
-        {propose && (
-          <span data-testid="agent-pairing-proposes" className={rowTextClass}>
-            {t("agents.pairing.proposes")}
+        )
+      }
+      detail={
+        <>
+          <span data-testid="agent-pairing-reads" className="block">
+            {names.length > 0
+              ? t("agents.pairing.reads", { folders: names.join(", ") })
+              : t("agents.pairing.readsNothing")}
           </span>
-        )}
-        <span className={hintClass}>
-          {pairing.lastUsedAt
-            ? t("agents.pairing.lastUsed", { when: timeWords(pairing.lastUsedAt, language) })
-            : t("agents.pairing.notUsed")}
-        </span>
-        {skillInstalled && (
-          <span data-testid="agent-pairing-skill" className={hintClass}>
-            {t("agents.pairing.skill", { agent: pairingInSentence(pairing, t) })}
+          {propose && (
+            <span data-testid="agent-pairing-proposes" className="block">
+              {t("agents.pairing.proposes")}
+            </span>
+          )}
+          <span className="block">
+            {pairing.lastUsedAt
+              ? t("agents.pairing.lastUsed", { when: timeWords(pairing.lastUsedAt, language) })
+              : t("agents.pairing.notUsed")}
           </span>
-        )}
-        {done && (
-          <p data-testid="agent-setup-done" role="status" className={`${rowTextClass} mt-1`}>
-            {doneWords(done, pairing, t)}
-            {done.kind === "wrote" && (
-              <>
-                <span aria-hidden="true"> · </span>
-                <button
-                  type="button"
-                  data-testid="agent-setup-undo"
-                  onClick={() => core.undoAgentSetup(pairing.id).then(onUndone, reportError)}
-                  className="rounded-sm font-semibold text-accent underline-offset-2 hover:underline"
-                >
-                  {t("agents.done.undo")}
-                </button>
-              </>
-            )}
-            {pairing.client && done.kind === "copy" && (
-              <>
-                <span aria-hidden="true"> · </span>
-                <a
-                  href={helpUrl(pairing.client as AgentClientId, language)}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="font-semibold text-accent underline-offset-2 hover:underline"
-                >
-                  {t("agents.settings.help")}
-                </a>
-              </>
-            )}
-          </p>
-        )}
-        {open === "folders" && (
-          <fieldset data-testid="agent-pairing-folders" className="mt-2 flex min-w-0 flex-col">
-            <legend className="text-[13px] leading-5 font-semibold text-ink">
-              {t("agents.pairing.foldersTitle", { agent: pairingInSentence(pairing, t) })}
-            </legend>
-            <AgentFolderList
-              rows={rows}
-              agent={pairingInSentence(pairing, t)}
-              chosen={new Set(chosen)}
-              onToggle={setFolder}
-            />
-            <div className="mt-2">
-              <ProposeChoice checked={propose} onChange={changePropose} />
-            </div>
-          </fieldset>
-        )}
-        {open === "activity" && (
-          <ol
-            data-testid="agent-activity"
-            className="mt-2 flex max-h-64 flex-col gap-1 overflow-y-auto"
-          >
-            {activity?.length === 0 && <li className={hintClass}>{t("agents.activity.empty")}</li>}
-            {activity?.map((call) => (
-              <li
-                key={call.id}
-                data-testid="agent-activity-call"
-                data-outcome={call.outcome}
-                className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 text-[13px] leading-5"
-              >
-                <span className="text-ink-meta">{timeWords(call.at, language)}</span>
-                <span className="break-words text-ink-secondary">{activityWords(call, t)}</span>
-              </li>
-            ))}
-          </ol>
-        )}
-        <details className="mt-1">
-          <summary className="cursor-pointer text-[12px] leading-[18px] text-ink-meta">
-            {t("agents.pairing.details")}
-          </summary>
+          {skillInstalled && (
+            <span data-testid="agent-pairing-skill" className="block">
+              {t("agents.pairing.skill", { agent: pairingInSentence(pairing, t) })}
+            </span>
+          )}
+          {done && (
+            <p data-testid="agent-setup-done" role="status" className="mt-1">
+              {doneWords(done, pairing, t)}
+              {done.kind === "wrote" && (
+                <>
+                  <span aria-hidden="true"> · </span>
+                  <button
+                    type="button"
+                    data-testid="agent-setup-undo"
+                    onClick={() => core.undoAgentSetup(pairing.id).then(onUndone, reportError)}
+                    className="rounded-sm font-semibold text-accent underline-offset-2 hover:underline"
+                  >
+                    {t("agents.done.undo")}
+                  </button>
+                </>
+              )}
+              {pairing.client && done.kind === "copy" && (
+                <>
+                  <span aria-hidden="true"> · </span>
+                  <a
+                    href={helpUrl(pairing.client as AgentClientId, language)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-semibold text-accent underline-offset-2 hover:underline"
+                  >
+                    {t("agents.settings.help")}
+                  </a>
+                </>
+              )}
+            </p>
+          )}
+        </>
+      }
+      control={
+        <>
           <button
             type="button"
-            data-testid="agent-copy-settings"
-            onClick={() => void copySettings("settings")}
-            className={`${ghostButtonClass} mt-1`}
+            data-testid="agent-folders"
+            aria-expanded={open === "folders"}
+            onClick={() => toggle("folders")}
+            className={buttonStyle("secondary", "sm")}
           >
-            {copied === "settings" ? t("agents.pairing.copied") : t("agents.pairing.copySettings")}
+            {t("agents.pairing.folders")}
           </button>
-          {pairing.client === "other" && <LaunchDetails pairingId={pairing.id} />}
-          {!skillInstalled && (
-            <>
-              <button
-                type="button"
-                data-testid="agent-copy-skill"
-                onClick={() => void copySettings("skill")}
-                className={`${ghostButtonClass} mt-1 ml-2`}
-              >
-                {copied === "skill" ? t("agents.pairing.copied") : t("agents.pairing.copySkill")}
-              </button>
-              <p className={hintClass}>{t("agents.pairing.copySkill.hint")}</p>
-            </>
+          <button
+            type="button"
+            data-testid="agent-activity-toggle"
+            aria-expanded={open === "activity"}
+            onClick={() => toggle("activity")}
+            className={buttonStyle("secondary", "sm")}
+          >
+            {t("agents.pairing.activity")}
+          </button>
+          <button
+            type="button"
+            data-testid="agent-disconnect"
+            onClick={() => core.disconnectAgent(pairing.id).catch(reportError)}
+            className={buttonStyle("ghost", "sm")}
+          >
+            {t("agents.pairing.disconnect")}
+          </button>
+        </>
+      }
+    >
+      {open === "folders" && (
+        <fieldset data-testid="agent-pairing-folders" className="mb-2 flex min-w-0 flex-col">
+          <legend className="text-[13px] leading-5 font-semibold text-ink">
+            {t("agents.pairing.foldersTitle", { agent: pairingInSentence(pairing, t) })}
+          </legend>
+          <AgentFolderList
+            rows={rows}
+            agent={pairingInSentence(pairing, t)}
+            chosen={new Set(chosen)}
+            onToggle={setFolder}
+          />
+          <div className="mt-2">
+            <ProposeChoice checked={propose} onChange={changePropose} />
+          </div>
+        </fieldset>
+      )}
+      {open === "activity" && (
+        <ol
+          data-testid="agent-activity"
+          className="mb-2 flex max-h-64 flex-col gap-1 overflow-y-auto"
+        >
+          {activity?.length === 0 && (
+            <li className="text-[12px] leading-[18px] text-ink-meta">
+              {t("agents.activity.empty")}
+            </li>
           )}
-        </details>
-      </div>
-      <div className={rowButtonsClass}>
+          {activity?.map((call) => (
+            <li
+              key={call.id}
+              data-testid="agent-activity-call"
+              data-outcome={call.outcome}
+              className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 text-[13px] leading-5"
+            >
+              <span className="text-ink-meta">{timeWords(call.at, language)}</span>
+              <span className="break-words text-ink-secondary">{activityWords(call, t)}</span>
+            </li>
+          ))}
+        </ol>
+      )}
+      <details>
+        <summary className="cursor-pointer text-[12px] leading-[18px] text-ink-meta">
+          {t("agents.pairing.details")}
+        </summary>
         <button
           type="button"
-          data-testid="agent-folders"
-          aria-expanded={open === "folders"}
-          onClick={() => toggle("folders")}
-          className={buttonStyle("secondary", "sm")}
+          data-testid="agent-copy-settings"
+          onClick={() => void copySettings("settings")}
+          className={`${buttonStyle("ghost", "sm")} mt-1`}
         >
-          {t("agents.pairing.folders")}
+          {copied === "settings" ? t("agents.pairing.copied") : t("agents.pairing.copySettings")}
         </button>
-        <button
-          type="button"
-          data-testid="agent-activity-toggle"
-          aria-expanded={open === "activity"}
-          onClick={() => toggle("activity")}
-          className={buttonStyle("secondary", "sm")}
-        >
-          {t("agents.pairing.activity")}
-        </button>
-        <button
-          type="button"
-          data-testid="agent-disconnect"
-          onClick={() => core.disconnectAgent(pairing.id).catch(reportError)}
-          className={buttonStyle("ghost", "sm")}
-        >
-          {t("agents.pairing.disconnect")}
-        </button>
-      </div>
-    </li>
+        {pairing.client === "other" && <LaunchDetails pairingId={pairing.id} />}
+        {!skillInstalled && (
+          <>
+            <button
+              type="button"
+              data-testid="agent-copy-skill"
+              onClick={() => void copySettings("skill")}
+              className={`${buttonStyle("ghost", "sm")} mt-1 ml-2`}
+            >
+              {copied === "skill" ? t("agents.pairing.copied") : t("agents.pairing.copySkill")}
+            </button>
+            <p className="mt-1 text-[12px] leading-[18px] text-ink-meta">
+              {t("agents.pairing.copySkill.hint")}
+            </p>
+          </>
+        )}
+      </details>
+    </SettingsRow>
   );
 }
 
@@ -325,7 +332,7 @@ function RenameAgent({ pairing, onDone }: { pairing: AgentPairing; onDone(): voi
         }
       }}
       onBlur={() => finish(true)}
-      className={inputClass}
+      className={`${rowFieldClass} w-56 max-w-full`}
     />
   );
 }

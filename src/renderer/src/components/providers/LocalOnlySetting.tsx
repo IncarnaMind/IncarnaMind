@@ -5,8 +5,9 @@ import { localModeChosen } from "../../localMode";
 import { useSettingsTarget } from "../../settingsTarget";
 import { useAppStore } from "../../store";
 import { DetailsLine } from "../DetailsLine";
+import { SettingsGroup, SettingsRow } from "../settings/SettingsGroup";
 import { UndoLineAt } from "../UndoLine";
-import { noticeClass, rowTextClass, rowTitleClass, ruledRowClass } from "../ui";
+import { noticeClass } from "../ui";
 
 const PRIVACY_UNDO_PLACE = "settings:privacy";
 const TARGET = ["local-mode"] as const;
@@ -42,40 +43,43 @@ export function LocalOnlySetting() {
   };
 
   return (
-    <div ref={row} data-testid="local-only-setting" className="flex flex-col">
-      <div className={ruledRowClass}>
-        <div className="flex min-w-0 flex-col gap-0.5">
-          <label htmlFor={id} className={rowTitleClass}>
-            {t("embeddingProviders.localOnly.label")}
-          </label>
-          <DetailsLine
-            id={`${id}-description`}
-            testId="embedding-local-only-description"
-            className={rowTextClass}
-            details={t("embeddingProviders.localOnly.body.details")}
-          >
-            {t("embeddingProviders.localOnly.body")}
-          </DetailsLine>
+    <div ref={row} data-testid="local-only-setting">
+      <SettingsGroup>
+        <SettingsRow
+          label={t("embeddingProviders.localOnly.label")}
+          htmlFor={id}
+          detail={
+            <DetailsLine
+              id={`${id}-description`}
+              testId="embedding-local-only-description"
+              details={t("embeddingProviders.localOnly.body.details")}
+            >
+              {t("embeddingProviders.localOnly.body")}
+            </DetailsLine>
+          }
+          control={
+            <input
+              ref={field}
+              id={id}
+              type="checkbox"
+              role="switch"
+              data-testid="local-only"
+              aria-describedby={`${id}-description`}
+              checked={localOnly}
+              aria-checked={localOnly}
+              aria-busy={busy}
+              onChange={(event) => void change(event.target.checked)}
+              className="switch"
+            />
+          }
+        >
           {localOnly && chatService && (
-            <p className={`mt-1.5 ${noticeClass}`}>
+            <p className={noticeClass}>
               {t("embeddingProviders.localOnly.cloudChat", { service: chatService.name })}
             </p>
           )}
-        </div>
-        <input
-          ref={field}
-          id={id}
-          type="checkbox"
-          role="switch"
-          data-testid="local-only"
-          aria-describedby={`${id}-description`}
-          checked={localOnly}
-          aria-checked={localOnly}
-          aria-busy={busy}
-          onChange={(event) => void change(event.target.checked)}
-          className="switch"
-        />
-      </div>
+        </SettingsRow>
+      </SettingsGroup>
       <UndoLineAt place={PRIVACY_UNDO_PLACE} />
     </div>
   );

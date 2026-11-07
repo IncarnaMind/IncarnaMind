@@ -157,9 +157,7 @@ function PageContent({ page }: { page: SettingsPage }) {
     case "search":
       return (
         <Page>
-          <Titled title="embeddingProviders.settings.title">
-            <EmbeddingSettingsSection />
-          </Titled>
+          <EmbeddingSettingsSection />
           <RerankSettingsSection />
           <WebSearchSettings />
           <SavedWebPagesSettings />
@@ -198,24 +196,6 @@ function PageContent({ page }: { page: SettingsPage }) {
         </Page>
       );
   }
-}
-
-/** A section under its title, for a part of a page that has none of its own. */
-function Titled({
-  title,
-  testId,
-  children,
-}: {
-  title: MessageKey;
-  testId?: string;
-  children: ReactNode;
-}) {
-  const t = useT();
-  return (
-    <SettingsSection title={t(title)} testId={testId}>
-      {children}
-    </SettingsSection>
-  );
 }
 
 /** A page's sections, 24px apart. */

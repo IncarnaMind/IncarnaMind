@@ -41,18 +41,17 @@ for (const language of ["en", "zh-CN"] as const) {
     await settings.getByTestId("settings-nav-privacy").click();
     const page = settings.getByTestId("privacy-settings");
     const setting = page.getByTestId("local-only-setting");
+    const flowsSection = page.getByTestId("consent-settings");
     await expect(page.getByTestId("local-only")).toHaveCount(1);
 
     const [flows, row, traffic] = await Promise.all([
-      page.getByTestId("consent-settings").boundingBox(),
+      flowsSection.boundingBox(),
       setting.boundingBox(),
       page.getByTestId("network-traffic").boundingBox(),
     ]);
     if (!flows || !row || !traffic) throw new Error("Privacy isn't laid out.");
-    // The statement is the page's first line; the switch comes after it and its services.
-    await expect(
-      page.locator("p").first().locator("xpath=ancestor::*[@data-testid='privacy-flows-intro']"),
-    ).toHaveCount(1);
+    // The statement is the services' help, under them; the switch comes after both.
+    await expect(flowsSection.getByTestId("privacy-flows-intro")).toHaveCount(1);
     expect(row.y).toBeGreaterThanOrEqual(flows.y + flows.height);
     expect(row.y + row.height).toBeLessThanOrEqual(traffic.y);
 

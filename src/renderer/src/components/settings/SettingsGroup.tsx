@@ -19,6 +19,7 @@ const present = (node: ReactNode) =>
 export function SettingsSection({
   title,
   titleId,
+  titleAs: Title = "h4",
   tip,
   help,
   helpId,
@@ -29,6 +30,8 @@ export function SettingsSection({
   title?: ReactNode;
   /** The id of the title, for a group it names (`aria-labelledby`). */
   titleId?: string;
+  /** `h5` for a section on a subpage, which has its own `h4` heading. */
+  titleAs?: "h4" | "h5";
   /** A tooltip beside the title, for what a row's own lines don't say. */
   tip?: string;
   help?: ReactNode;
@@ -40,13 +43,13 @@ export function SettingsSection({
   return (
     <section ref={ref} data-testid={testId}>
       {title !== undefined && (
-        <h4
+        <Title
           id={titleId}
           className="mb-2 flex items-center px-4 text-[13px] leading-5 font-semibold text-ink-secondary"
         >
           {title}
           {tip !== undefined && <InfoTip text={tip} />}
-        </h4>
+        </Title>
       )}
       {children}
       {present(help) && <SettingsHelp id={helpId}>{help}</SettingsHelp>}
@@ -145,6 +148,7 @@ export function SettingsRow({
   leading?: ReactNode;
   align?: "center" | "start";
   children?: ReactNode;
+  ref?: Ref<HTMLDivElement>;
 } & Omit<HTMLAttributes<HTMLDivElement>, "children">) {
   return (
     <div
@@ -177,11 +181,12 @@ export function SettingsRow({
 }
 
 const rowActionClass =
-  "settings-row flex min-h-11 w-full items-center gap-3 px-4 py-2 text-left hover:bg-frame active:bg-hover focus-visible:-outline-offset-2";
+  "flex min-h-11 w-full items-center gap-3 px-4 py-2 text-left hover:bg-frame active:bg-hover focus-visible:-outline-offset-2";
 
 /**
  * A row that is itself the button (or the link, with `href`): it opens a provider, a Connector, a
- * folder. `trailing` is what sits at its end, a chevron unless it says otherwise.
+ * folder. `trailing` is what sits at its end, a chevron unless it says otherwise. `listItem`: the
+ * row is an item of a `role="list"` group, so its button sits in a `role="listitem"`.
  */
 export function SettingsRowAction({
   label,
@@ -191,6 +196,7 @@ export function SettingsRowAction({
   href,
   onClick,
   testId,
+  listItem = false,
   ...rest
 }: {
   label: ReactNode;
@@ -200,6 +206,7 @@ export function SettingsRowAction({
   href?: string;
   onClick?(): void;
   testId?: string;
+  listItem?: boolean;
 } & Omit<HTMLAttributes<HTMLElement>, "children" | "onClick">) {
   const inner = (
     <>
@@ -215,20 +222,30 @@ export function SettingsRowAction({
       {trailing ?? <ChevronRightLineIcon className="size-4 shrink-0 text-ink-placeholder" />}
     </>
   );
+  const inset = insetOf(leading !== undefined);
   const common = {
     ...rest,
     "data-testid": testId,
-    style: insetOf(leading !== undefined),
-    className: rowActionClass,
+    style: listItem ? undefined : inset,
+    className: listItem ? `${rowActionClass} rounded-[inherit]` : `settings-row ${rowActionClass}`,
   };
-  return href !== undefined ? (
-    <a {...common} href={href} target="_blank" rel="noreferrer">
-      {inner}
-    </a>
+  const action =
+    href !== undefined ? (
+      <a {...common} href={href} target="_blank" rel="noreferrer">
+        {inner}
+      </a>
+    ) : (
+      <button {...common} type="button" onClick={onClick}>
+        {inner}
+      </button>
+    );
+  return listItem ? (
+    // biome-ignore lint/a11y/useSemanticElements: the group is a div, as a group's rows split by hairlines are.
+    <div role="listitem" style={inset} className="settings-row">
+      {action}
+    </div>
   ) : (
-    <button {...common} type="button" onClick={onClick}>
-      {inner}
-    </button>
+    action
   );
 }
 
