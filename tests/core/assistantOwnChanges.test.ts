@@ -2341,10 +2341,15 @@ describe("New text coming in over the assistant's own text (#1635)", { timeout: 
       model: null,
     });
     await client.settled();
+    const seen: string[][] = [];
+    client.blocks.observeDeep(() => seen.push(applied(client)));
 
     const answer = await askAssistant(core, { text: "Make the summary longer.", mindId: mind.id });
 
     await client.settled();
+    expect(
+      seen.some((lines) => lines.includes(NEW[0] as string) && lines.includes(OLD[2] as string)),
+    ).toBe(true);
     const [, retried] = mindCalls(answer);
     expect(retried?.mindProblem).toBeUndefined();
     expect(retried?.mindChange).toMatchObject({ request: expect.any(String) });

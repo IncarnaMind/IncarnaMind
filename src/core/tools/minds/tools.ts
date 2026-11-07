@@ -1628,8 +1628,9 @@ export function mindTools(options: MindToolsOptions): {
       revisions.set(toolCallId, null);
       if (!revision?.written) continue;
       try {
-        if (takeBack(revision))
-          options.failed(toolCallId, { kind: "stopped", mindId: revision.mind.id });
+        // Changed by the User, what came in stays waiting for them, as when the call refuses.
+        const kind = takeBack(revision) ? "stopped" : "changed";
+        options.failed(toolCallId, { kind, mindId: revision.mind.id });
       } catch (error) {
         console.error(
           `What came in of call ${toolCallId}'s new text for Mind ${revision.mind.id} couldn't be taken back:`,
