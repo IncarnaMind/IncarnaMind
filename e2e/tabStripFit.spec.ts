@@ -1145,9 +1145,13 @@ for (const language of LANGUAGES) {
                   const at = element.getBoundingClientRect();
                   const whole = at.left >= view.left - 1 && at.right <= view.right + 1;
                   // A tab wider than the strip can't be whole: it is shown from its start, and
-                  // "Show all tabs" reaches everything.
-                  const tooWide = at.width > view.width + 1;
-                  const atStart = Math.abs(at.left - view.left) <= 1;
+                  // "Show all tabs" reaches everything. The first tab starts after the strip's own
+                  // start padding, which is part of what it needs.
+                  const lead = element.previousElementSibling
+                    ? 0
+                    : Number.parseFloat(getComputedStyle(strip).paddingLeft);
+                  const tooWide = at.width + lead > view.width + 1;
+                  const atStart = Math.abs(at.left - view.left - lead) <= 1;
                   return whole || (tooWide && atStart);
                 }),
               { message: `"${name}" at ${width} px` },
