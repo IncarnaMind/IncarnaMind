@@ -830,6 +830,8 @@ interface Settled {
   negativeBrackets: boolean;
   /** A header of periods ("2025 2024", "本期 上期", "２０２５ ２０２４") applies to the text read, or stands above it on the page. */
   periodColumns: boolean;
+  /** A stated unit or scale applies to the text read, in the text or in its header ("单位：万元"). */
+  statedAmount: boolean;
   /** The page above a quote runs on past the 400 characters read with no blank line in them. */
   pageCut: boolean;
   /** Up to 400 characters of the Document before and after the text read, in NFKC, dashes as "-". */
@@ -918,6 +920,7 @@ function settle(context: FigureContext): Settled {
     periodColumns:
       context.headerRead?.periodColumns ??
       headsPeriods(`${context.header ?? ""}\n${context.around?.before ?? ""}`.normalize("NFKC")),
+    statedAmount: false,
     before: (context.around?.before ?? "").slice(-400).normalize("NFKC").replace(DASHES, "-"),
     after: (context.around?.after ?? "").slice(0, 400).normalize("NFKC").replace(DASHES, "-"),
   };
@@ -2667,6 +2670,15 @@ function cnInteger(run: string): number | null {
   return low === null ? null : high * 1e8 + low;
 }
 
+/** Whether the 半 at `at` ends the figure: a Han word after it ("两千半导体") keeps it that word's own. */
+function halfEnds(s: string, at: number): boolean {
+  return (
+    !/\p{Script=Han}/u.test(s[at + 1] ?? "") ||
+    matchAt(CN_CURRENCY_AFTER, s, at + 1) !== null ||
+    matchAt(APPROXIMATE_AFTER, s, at + 1) !== null
+  );
+}
+
 /** A Chinese numeral starting at `start`, read with the scale it ends in, or null. */
 function lexChinese(s: string, start: number): Core | null {
   let end = start;
@@ -2677,30 +2689,38 @@ function lexChinese(s: string, start: number): Core | null {
   const capitals = CAPITALS.test(run);
   const digit = CN_DIGITS[run[0] ?? ""];
   const place = run[1] ?? "";
-  // "两万半" is 25,000, but "两千半导体" is 2,000 semiconductors.
-  const halfEnds =
-    !/\p{Script=Han}/u.test(s[end + 1] ?? "") ||
-    matchAt(CN_CURRENCY_AFTER, s, end + 1) !== null ||
-    matchAt(APPROXIMATE_AFTER, s, end + 1) !== null;
-  if (s[end] === "半" && run.length === 2 && digit && halfEnds) {
+  // "两万半" is 25,000, but "两千半导体" is 2,000 semiconductors; a longer numeral ("十二万半",
+  // "一万二千半") takes half of its last place, never the value the 半 would be dropped from (#2215).
+  if (s[end] === "半" && halfEnds(s, end)) {
     const halfSpan = { from: start, to: end + 1 };
-    const exponent = place === "万" || place === "亿" ? CN_SCALES[place] : undefined;
-    if (exponent !== undefined) {
-      return core(
-        halfSpan,
-        { digits: `${digit}5`, point: 1 },
-        {
+    if (run.length === 2 && digit) {
+      const exponent = place === "万" || place === "亿" ? CN_SCALES[place] : undefined;
+      if (exponent !== undefined) {
+        return core(
+          halfSpan,
+          { digits: `${digit}5`, point: 1 },
+          {
+            chinese: true,
+            capitals,
+            exponent,
+            scaleWord: place,
+            scaleAt: { from: end - 1, to: end },
+          },
+        );
+      }
+      const unit = CN_PLACES[place];
+      if (unit !== undefined && unit >= 100) {
+        return core(halfSpan, integer(String(digit * unit + unit / 2)), {
           chinese: true,
           capitals,
-          exponent,
-          scaleWord: place,
-          scaleAt: { from: end - 1, to: end },
-        },
-      );
+        });
+      }
     }
-    const unit = CN_PLACES[place];
-    if (unit !== undefined && unit >= 100) {
-      return core(halfSpan, integer(String(digit * unit + unit / 2)), { chinese: true, capitals });
+    const last = run.at(-1) ?? "";
+    const halfPlace = last === "万" ? 1e4 : last === "亿" ? 1e8 : CN_PLACES[last];
+    const value = cnInteger(run);
+    if (halfPlace !== undefined && value !== null) {
+      return core(halfSpan, integer(String(value + halfPlace / 2)), { chinese: true, capitals });
     }
   }
   if (point >= 0) {
@@ -3028,6 +3048,23 @@ function restates(
     : null;
 }
 
+/**
+ * Whether `run` is an 18-character Chinese resident ID number (居民身份证): 17 digits and a digit
+ * or X, where an ID carries its birth date. Read by its structure alone, so no list of the words
+ * before it ("身份证号") has to grow (#2215).
+ */
+function isResidentId(run: string): boolean {
+  const match = /^\d{6}(\d{4})(\d{2})(\d{2})\d{3}[\dXx]$/.exec(run);
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  return year >= 1800 && year <= 2099 && month >= 1 && month <= 12 && day >= 1 && day <= 31;
+}
+
+/** An 11-digit mainland mobile number: 1, then 3–9, then nine digits. */
+const MOBILE_NUMBER = /^1[3-9]\d{9}$/;
+
 /** Reads the words around a number into a figure; null when it isn't one (a year, a reference, a word). */
 function readAround(
   prepared: Prepared,
@@ -3149,7 +3186,7 @@ function readAround(
       draft.scaleWord = scale.word;
       draft.scaleAt = scale.at;
       draft.exponent = scaleExponent(scale.word);
-      // "2万5千", "2亿5000万": the lower places go on with the same amount, at its scale.
+      // "2万5千", "2亿5000万", "2万三千": the lower places go on with the same amount, at its scale.
       let place =
         found.number.point === found.number.digits.length && !found.otherReading
           ? CN_SCALES[scale.word]
@@ -3161,19 +3198,39 @@ function readAround(
         const digits = take(/\d{1,4}(?![\d.,])/y);
         const lower = digits ? take(CN_SCALE_AFTER) : null;
         const exponent = lower ? CN_SCALES[lower.word] : undefined;
-        if (
-          !digits ||
-          exponent === undefined ||
-          Number(digits.word) * 10 ** exponent >= 10 ** place
-        ) {
+        const chinese = digits ? null : lexChinese(s, right);
+        // A lone numeral is a word or a count ("2万五" could start a date), so it joins only with its place.
+        const chineseValue =
+          chinese && !chinese.single ? decimalValue(chinese.number, chinese.exponent, false) : null;
+        const lowerValue = digits
+          ? exponent === undefined
+            ? null
+            : Number(digits.word) * 10 ** exponent
+          : chineseValue;
+        // A lower place at or above the place already read would be another number, not part of this one.
+        if (lowerValue === null || lowerValue >= 10 ** place) {
           right = at;
           break;
         }
-        value += Number(digits.word) * 10 ** exponent;
-        place = exponent;
+        if (digits) {
+          value += lowerValue;
+          place = exponent;
+        } else if (chinese !== null) {
+          value += lowerValue;
+          place = chinese.exponent;
+          right = chinese.to;
+        }
         joined = true;
       }
       if (joined) {
+        const [whole = "", fraction = ""] = String(value / 10 ** draft.exponent).split(".");
+        draft.core = { ...draft.core, number: { digits: whole + fraction, point: whole.length } };
+      }
+      // "2万半", "1万2千半": 半 after a mixed amount takes half of the last place read (#2215).
+      const halfPlace = place ?? (CN_SCALES[scale.word] === undefined ? undefined : draft.exponent);
+      if (halfPlace !== undefined && halfPlace > 0 && s[right] === "半" && halfEnds(s, right)) {
+        value += 10 ** halfPlace / 2;
+        right++;
         const [whole = "", fraction = ""] = String(value / 10 ** draft.exponent).split(".");
         draft.core = { ...draft.core, number: { digits: whole + fraction, point: whole.length } };
       }
@@ -3242,6 +3299,21 @@ function readAround(
   }
   if (draft.currencies.length > 0)
     draft.unit = { kind: "currency", code: draft.currencies[0] as string };
+  // A mobile or ID number written bare identifies someone; only a currency, a scale or another
+  // unit makes those digits an amount ("人民币13800138000元", a cell under "单位：万元"), whatever
+  // word comes before (#2215).
+  const idTail = draft.unit.kind === "times" && /^[Xx]$/.test(s.slice(found.to, found.to + 1));
+  if (
+    !settled.statedAmount &&
+    !found.formatted &&
+    found.number.point === found.number.digits.length &&
+    draft.currencies.length === 0 &&
+    draft.scaleWord === null &&
+    (draft.unit.kind === "plain" || idTail)
+  ) {
+    const run = s.slice(found.from, found.to + (idTail ? 1 : 0));
+    if (MOBILE_NUMBER.test(run) || isResidentId(run)) return null;
+  }
   if (take(APPROXIMATE_AFTER)) draft.approximate = true;
   let ledger = takeLedger();
 
@@ -3711,6 +3783,9 @@ function figuresIn(text: string, context: FigureContext): Figure[] {
     (context.header ? headerStatements(context.header, context, plain) : []);
   const settled = {
     ...plain,
+    statedAmount: [...statements, ...header].some(
+      (statement) => statement.exponent !== 0 || statement.unit.kind !== "percent",
+    ),
     accounts: context.accounts ?? writesAccounts(s, [...statements, ...header]),
     negativeBrackets: context.negativeBrackets ?? SAYS_BRACKETS_NEGATIVE.test(s),
   };
