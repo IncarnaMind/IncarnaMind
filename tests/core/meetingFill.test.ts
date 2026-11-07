@@ -446,6 +446,105 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     core.close();
   });
 
+  test.each([
+    { language: "en", attribute: "citations='{records}'" },
+    { language: "zh-CN", attribute: 'records="{records}"' },
+  ] as const)(
+    "Citations written inside a cite tag's attribute are recorded as its call's would be ($language)",
+    async ({ language, attribute }) => {
+      const body = [
+        lineFact("L1", "pricing", "The enterprise price is 45 dollars a seat [^1]."),
+        overview("The call covered commercial planning [^1]."),
+      ].join("\n\n");
+      const model = scriptedModel((call) => {
+        if (isCheckRun(call)) return checkReply(call, {});
+        if (!isFill(call)) return { text: "OK" };
+        const passage = shownPassages(block(call.prompt, "live-transcript") ?? "").find((each) =>
+          each.text.includes(MY_LINES[0] as string),
+        );
+        const line = passage?.text.split("\n").find((each) => each.includes(MY_LINES[0] as string));
+        const location = /^\[([\d:]+)/.exec(line ?? "")?.[1];
+        const records = JSON.stringify([
+          { marker: 1, passage: passage?.id, location, quote: MY_LINES[0] },
+        ]);
+        return { text: `${body}\n\n<cite ${attribute.replace("{records}", records)}></cite>` };
+      });
+      const { core, meeting, client } = await recorded(
+        model,
+        [note("price"), note("rollout")],
+        async (core) => {
+          await core.updateSettings({ user: { language } });
+        },
+      );
+      const before = exactly(client);
+      const fill = await settledFill(core, meeting);
+      expect(fill).toMatchObject({ state: "filled", omitted: 0 });
+      expect(shown(client)).toContain("«The enterprise price is 45 dollars a seat »￼«.»");
+      expect(shown(client).join("\n")).not.toMatch(/cite|records/);
+      await core.undoMeetingFill(meeting.id);
+      await vi.waitFor(() => expect(exactly(client)).toEqual(before));
+      core.close();
+    },
+  );
+
+  test.each([
+    { language: "en", reason: "the model found nothing to add." },
+    { language: "zh-CN", reason: "模型没有找到可补充的内容。" },
+  ] as const)(
+    "a fill whose model wrote no items at all still says it found nothing to add ($language)",
+    async ({ language, reason }) => {
+      const model = scriptedModel((call) => {
+        if (isCheckRun(call)) return checkReply(call, {});
+        if (!isFill(call)) return { text: "OK" };
+        return { text: "Nothing came up worth noting." };
+      });
+      const { core, meeting } = await recorded(
+        model,
+        [note("price"), note("rollout")],
+        async (core) => {
+          await core.updateSettings({ user: { language } });
+        },
+      );
+      const fill = await settledFill(core, meeting);
+      expect(fill).toMatchObject({ state: "failed", problem: { kind: "model", message: reason } });
+      core.close();
+    },
+  );
+
+  test.each([
+    {
+      language: "en",
+      reason: "none of what the model wrote could be checked against the transcript.",
+    },
+    { language: "zh-CN", reason: "模型写的内容都没能在转写稿中核对上。" },
+  ] as const)(
+    "a fill whose every item is left out says it couldn't check them, not that there was nothing to add ($language)",
+    async ({ language, reason }) => {
+      const model = scriptedModel((call) => {
+        if (isCheckRun(call)) return checkReply(call, {});
+        if (!isFill(call)) return { text: "OK" };
+        return {
+          text: [
+            lineFact("L1", "pricing", "The enterprise price is 45 dollars a seat [^1]."),
+            overview("The call covered commercial planning [^1]."),
+          ].join("\n\n"),
+        };
+      });
+      const { core, meeting, client } = await recorded(
+        model,
+        [note("price"), note("rollout")],
+        async (core) => {
+          await core.updateSettings({ user: { language } });
+        },
+      );
+      const before = exactly(client);
+      const fill = await settledFill(core, meeting);
+      expect(fill).toMatchObject({ state: "failed", problem: { kind: "model", message: reason } });
+      expect(exactly(client)).toEqual(before);
+      core.close();
+    },
+  );
+
   test.each(
     (["en", "zh-CN"] as const).flatMap((language) =>
       [false, true].flatMap((withValid) =>
