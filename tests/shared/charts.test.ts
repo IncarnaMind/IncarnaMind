@@ -610,7 +610,7 @@ const SWITCH_CASES: readonly SwitchCase[] = [
         ["三季度", "38.1", "3.4"],
       ],
     },
-    before: { drawn: [0.412, 39, 38.1, 2.8, 3.1, 3.4], panels: ["percent", null] },
+    before: { drawn: [0.412, 39, 38.1, 2.8, 3.1, 3.4], panels: [null, null] },
     after: null,
   },
   {
@@ -710,6 +710,146 @@ for (const [language, table] of [
     expect(drawnOf({ ...stored, ...back })).toEqual([0.412, 2.8]);
     expect(panelUnits({ ...stored, ...back })).toEqual(["percent", null]);
   });
+}
+
+/**
+ * A drawn bare number is its own unit (#2055): a column that states its unit
+ * in one value and draws the others bare is not captioned with that unit, so
+ * neither the caption nor the axis calls mixed numbers by one unit's name.
+ * Each row in English and Simplified Chinese, the same table and answer.
+ */
+const MIXED_VALUE_CASES: readonly {
+  name: string;
+  en: Words;
+  zh: Words;
+  drawn: number[];
+}[] = [
+  {
+    name: "a percent beside bare numbers",
+    en: {
+      head: ["Metric", "Margin", "Leverage"],
+      rows: [
+        ["Q1", "41.2%", "2.8"],
+        ["Q2", "39.0", "3.1"],
+        ["Q3", "38.1", "3.4"],
+      ],
+    },
+    zh: {
+      head: ["指标", "毛利率", "杠杆"],
+      rows: [
+        ["一季度", "41.2%", "2.8"],
+        ["二季度", "39.0", "3.1"],
+        ["三季度", "38.1", "3.4"],
+      ],
+    },
+    drawn: [0.412, 39, 38.1, 2.8, 3.1, 3.4],
+  },
+  {
+    name: "a currency beside bare numbers",
+    en: {
+      head: ["Metric", "Revenue", "Cost"],
+      rows: [
+        ["Q1", "$289.4 million", "330.6"],
+        ["Q2", "341.5", "350.2"],
+        ["Q3", "350.2", "362.0"],
+      ],
+    },
+    zh: {
+      head: ["指标", "营业收入", "成本"],
+      rows: [
+        ["一季度", "$289.4 million", "330.6"],
+        ["二季度", "341.5", "350.2"],
+        ["三季度", "350.2", "362.0"],
+      ],
+    },
+    drawn: [289_400_000, 341.5, 350.2, 330.6, 350.2, 362.0],
+  },
+];
+
+for (const { name, en, zh, drawn } of MIXED_VALUE_CASES) {
+  for (const [language, table] of [
+    ["en", en],
+    ["zh-CN", zh],
+  ] as const) {
+    test(`${language}: ${name} is drawn on a plain axis, with no unit caption`, () => {
+      const chart = tableChart(table, language);
+      expect(drawnOf(chart)).toEqual(drawn);
+      expect(panelUnits(chart)).toEqual([null, null]);
+    });
+  }
+}
+
+const UNIT_SAFE_CASES: readonly {
+  name: string;
+  en: Words;
+  zh: Words;
+  panels: (string | null)[];
+}[] = [
+  {
+    name: "a column of percentages keeps its caption",
+    en: {
+      head: ["Quarter", "Gross margin", "Forward margin"],
+      rows: [
+        ["Q1", "41.2%", "42.0%"],
+        ["Q2", "43.5%", "44.1%"],
+      ],
+    },
+    zh: {
+      head: ["季度", "毛利率", "预测毛利率"],
+      rows: [
+        ["一季度", "41.2%", "42.0%"],
+        ["二季度", "43.5%", "44.1%"],
+      ],
+    },
+    panels: ["percent"],
+  },
+  {
+    name: "a column of plain numbers keeps its plain axis",
+    en: {
+      head: ["Quarter", "Revenue", "Cost"],
+      rows: [
+        ["Q1", "289.4", "301.2"],
+        ["Q2", "309.8", "330.6"],
+      ],
+    },
+    zh: {
+      head: ["季度", "营业收入", "成本"],
+      rows: [
+        ["一季度", "289.4", "301.2"],
+        ["二季度", "309.8", "330.6"],
+      ],
+    },
+    panels: [null],
+  },
+  {
+    name: "a column of dollars keeps its caption",
+    en: {
+      head: ["Quarter", "2024", "2025"],
+      rows: [
+        ["Q1", "$289.4 million", "$341.5 million"],
+        ["Q2", "$301.2 million", "$362.0 million"],
+      ],
+    },
+    zh: {
+      head: ["季度", "2024年", "2025年"],
+      rows: [
+        ["一季度", "$289.4 million", "$341.5 million"],
+        ["二季度", "$301.2 million", "$362.0 million"],
+      ],
+    },
+    panels: ["currency"],
+  },
+];
+
+for (const { name, en, zh, panels } of UNIT_SAFE_CASES) {
+  for (const [language, table] of [
+    ["en", en],
+    ["zh-CN", zh],
+  ] as const) {
+    test(`${language}: ${name}`, () => {
+      expect(panelUnits(tableChart(table, language))).toEqual(panels);
+    });
+  }
 }
 
 const YEARS_BY_METRICS: SourceGrid = [
