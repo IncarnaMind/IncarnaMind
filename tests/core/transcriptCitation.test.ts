@@ -268,6 +268,22 @@ for (const language of ["en", "zh-CN"] as const) {
     });
   });
 
+  test(`in the version it quoted, a cited cue under a speaker the Transcript never had is not found, ${language}`, async () => {
+    const { core, citations } = await selectSecond();
+    const citation = citations[0];
+    if (!citation?.documentId) throw new Error("No Citation");
+    const checked = checkedResult(
+      await core.recheckCitation({
+        ...citation,
+        documentId: citation.documentId,
+        quote: repeated,
+        mindId: null,
+        location: { kind: "time", from: 7000, to: 10_000, speaker: "Nobody" },
+      }),
+    );
+    expect(checked.check).toBe("not-found");
+  });
+
   test(`a time range takes in the cue that starts within its last second, ${language}`, async () => {
     const { citations } = await ask(
       citingModel({

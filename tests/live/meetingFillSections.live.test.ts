@@ -2002,11 +2002,14 @@ function placements(
   }
   // A decision or an action is written whole in its section; the typed line it answers then has
   // a short pointer citing the same turn (#2306).
+  const pointers = (["above", "below"] as const).map((direction) =>
+    translate(call.language, `meetings.fill.reference.${direction}`, { topic: "" }).trim(),
+  );
   const pointed = units.some(
     (unit) =>
       outside(unit) &&
       unit.afterLine === fact.underLine &&
-      !says(fact, unit.text) &&
+      pointers.some((pointer) => unit.text.trim().endsWith(pointer)) &&
       citesRightly(unit, fact, call, cues),
   );
   return {
@@ -2605,6 +2608,7 @@ test.each(["en", "zh-CN"] as const)(
     const { unit, text, score } = splitDecision(language);
     const inSection = (each: Unit): Unit => ({ ...each, section: "Decisions", afterLine: null });
     const pointer = language === "en" ? "Budget — see below" : "预算，详见下文";
+    const unrelated = language === "en" ? "The van is booked." : "车已经订好了。";
     expect(score([unit(pointer), inSection(unit(text.whole))])).toEqual({
       count: 1,
       inPlace: true,
@@ -2612,6 +2616,7 @@ test.each(["en", "zh-CN"] as const)(
     });
     expect(score([unit(pointer, 0), inSection(unit(text.whole))]).inPlace).toBe(false);
     expect(score([unit(pointer)]).inPlace).toBe(false);
+    expect(score([unit(unrelated), inSection(unit(text.whole))]).inPlace).toBe(false);
   },
 );
 

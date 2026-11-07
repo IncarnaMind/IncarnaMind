@@ -386,38 +386,6 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     core.close();
   });
 
-  // protects=the name the User set in Settings reaches the fill, so their own actions carry it even when the transcript mishears it; fails_when=the name is left out, or the computer's login name is sent when none was set; no_claim=a real model's wording, which tests/live/meetingFillSections.live.test.ts measures.
-  test("the name the User set is the one the fill is told, and none is told when they set none", async () => {
-    for (const authorName of ["Maren Okafor", null]) {
-      const prompts: string[] = [];
-      const model = fillingModel(
-        [
-          overview("The call settled the price [^1]."),
-          fact("P1_contract", "Contract", "Send the contract by Friday [^2].", {
-            sections: ["actions"],
-          }),
-        ].join("\n"),
-        { 1: MY_LINES[0] as string, 2: MY_LINES[1] as string },
-        {},
-        {
-          seen: (call) => {
-            if (isFill(call)) prompts.push(call.prompt);
-          },
-        },
-      );
-      const { core, meeting } = await recorded(model, [note(""), note("")], async (core) => {
-        await core.updateSettings({ user: { authorName } });
-      });
-      expect(await settledFill(core, meeting)).toMatchObject({ state: "filled" });
-      if (authorName) {
-        expect(prompts.at(-1)).toContain('set their name as "Maren Okafor"');
-      } else {
-        expect(prompts.at(-1)).not.toContain("set their name as");
-      }
-      core.close();
-    }
-  });
-
   // protects=in Simplified Chinese, with no notes taken, the sections start the Note where its blank lines were, with none above them, and the model is told the Transcript's own Chinese words for who spoke, so it writes 我 and 对方 rather than Me, Them or 用户 (#2305); fails_when=a blank line is left above the first section, or the model is shown only the English marks; no_claim=a real model's wording, which tests/live/meetingNotes.live.test.ts measures.
   test("in Simplified Chinese, the sections start the Note with no blank line above, and the model is told the Transcript's words for who spoke", async () => {
     const prompts: string[] = [];

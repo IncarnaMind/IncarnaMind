@@ -50,12 +50,3 @@ test("a section-only fill uses the same fact and overview protocol", () => {
   expect(prompt).toContain("### OVERVIEW");
   expect(prompt).not.toContain("HEADINGS: H1=ACTIONS");
 });
-
-test("the User's own name, when set, is given as data and wins over how the transcript spells it", () => {
-  const name = 'Maren "M." Okafor';
-  const named = notesContext([], "Fill the note", undefined, name).messages[0]?.content;
-  expect(named).toContain(`set their name as ${JSON.stringify(name)}`);
-  expect(named).toContain("however the transcript spells it");
-  const unnamed = notesContext([], "Fill the note", undefined, null).messages[0]?.content;
-  expect(unnamed).not.toContain("set their name as");
-});

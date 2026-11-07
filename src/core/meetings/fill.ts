@@ -88,8 +88,6 @@ export interface MeetingFillOptions {
   transcript(documentId: string): Promise<WindowedPassage[]>;
   /** The model to fill with: the one the Mind uses (#1379), as Local mode and consent allow. */
   route(mindId: string): Promise<FillRoute>;
-  /** The name the User set for themselves, or null: never the computer's login name. */
-  userName(): string | null;
   answers: {
     answerMeetingFill(input: {
       context: QuestionContext;
@@ -515,8 +513,8 @@ export function createMeetingFill(options: MeetingFillOptions) {
       };
       const context =
         mode === "notes"
-          ? notesContext(lines, question, history, options.userName())
-          : sectionsContext(question, history, options.userName());
+          ? notesContext(lines, question, history)
+          : sectionsContext(question, history);
       let answer: CellAnswer;
       try {
         answer = await ask(context, part, transcriptId, route, signal);
