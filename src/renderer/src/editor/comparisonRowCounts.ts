@@ -43,6 +43,19 @@ export function rowShows(
   return [...filters].some((problem) => counts[problem] > 0);
 }
 
+/** The Documents whose rows show with these counts clicked, in the table's order. */
+export function shownDocumentIds(
+  node: ProseMirrorNode,
+  hidden: ReadonlySet<string>,
+  filters: ReadonlySet<RowProblem>,
+): string[] {
+  const ids: string[] = [];
+  node.forEach((row) => {
+    if (rowShows(row, hidden, filters)) ids.push(String(row.attrs.documentId ?? ""));
+  });
+  return ids;
+}
+
 /** How many of a table's rows show with these counts clicked. */
 export function shownRowCount(
   node: ProseMirrorNode,

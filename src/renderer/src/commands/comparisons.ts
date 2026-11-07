@@ -27,7 +27,7 @@ import {
   stepColumn,
 } from "../comparisonColumns";
 import { fittedColumnWidth } from "../comparisonColumnWidth";
-import { refillComparison } from "../comparisonRefill";
+import { ownComparisonCells, refillComparison } from "../comparisonRefill";
 import { openRowDocument, removeRow, stepRow } from "../comparisonRows";
 import { comparisonCellsInTable } from "../comparisonSelection";
 import { startCompareDocuments, useComparisons } from "../comparisons";
@@ -37,9 +37,15 @@ import {
   comparisonTableHandles,
   useComparisonTables,
 } from "../comparisonTableState";
-import { comparisonTableAt } from "../editor/comparisonCommands";
+import {
+  duplicateComparisonTable,
+  plainComparisonTable,
+  removeComparisonTable,
+} from "../comparisonTableWhole";
+import { comparisonTableAt, comparisonTableIn } from "../editor/comparisonCommands";
 import { comparisonRowCount, comparisonRowHere } from "../editor/comparisonRowCommands";
-import { exportComparison } from "../exports";
+import { shownDocumentIds } from "../editor/comparisonRowCounts";
+import { exportComparison, exportComparisonCsv } from "../exports";
 import { currentMindIdOf } from "../layoutSlice";
 import { useAppStore } from "../store";
 import { noteHandle } from "./handles";
@@ -52,6 +58,25 @@ function cursorBlockIn(mindId: string | null): string | null {
   const { $from } = note.editor.state.selection;
   const id = $from.depth > 0 ? $from.node(1).attrs.id : null;
   return typeof id === "string" ? id : null;
+}
+
+const NOTHING_FILTERED: ReadonlySet<never> = new Set();
+
+const cellKey = (cell: { documentId: string; questionId: string }) =>
+  `${cell.documentId}\n${cell.questionId}`;
+
+/** The Documents whose rows the table shows now, for a CSV that is the table as shown. */
+function rowsShownNow(table: { mindId: string; tableId: string }): string[] | undefined {
+  const note = noteHandle.current;
+  if (note?.mindId !== table.mindId || note.editor.isDestroyed) return undefined;
+  const node = comparisonTableIn(note.editor, table.tableId)?.table;
+  if (!node) return undefined;
+  const state = useComparisonTables.getState();
+  return shownDocumentIds(
+    node,
+    state.hiddenColumns.get(table.tableId) ?? NOTHING_FILTERED,
+    state.filters.get(table.tableId) ?? NOTHING_FILTERED,
+  );
 }
 
 function tableToExport(): { mindId: string; tableId: string } | null {
@@ -212,7 +237,7 @@ export const comparisonCommands: readonly Command[] = [
     id: "comparison.exportExcel",
     label: "export.excel.command",
     keywords: ["export.excel.keywords"],
-    group: "main",
+    group: "file",
     // A new file under a free name: nothing is replaced, and the file stays the User's to delete.
     reversible: true,
     when: () => tableToExport() !== null,
@@ -452,12 +477,26 @@ export const comparisonCommands: readonly Command[] = [
     group: "main",
     appliesTo: ["comparisonTable"],
     reversible: true,
-    enabled: tableEnabled,
+    enabled: (ctx) => {
+      const here = tableHere(ctx);
+      if (!here) return tableUnavailable;
+      const requested = comparisonCellsInTable(here, false);
+      const mine = new Set(ownComparisonCells(here, requested).map(cellKey));
+      return requested.some((cell) => !mine.has(cellKey(cell)))
+        ? true
+        : ({ reason: "comparison.nothingToFill" } as const);
+    },
+    // The cells the User wrote or checked go only when they pick "including mine".
     run: (ctx) => {
       const here = tableHere(ctx);
-      if (here) {
-        refillComparison(here, "refill-all", comparisonCellsInTable(here, false));
-      }
+      if (!here) return;
+      const requested = comparisonCellsInTable(here, false);
+      const mine = new Set(ownComparisonCells(here, requested).map(cellKey));
+      refillComparison(
+        here,
+        "refill-all",
+        requested.filter((cell) => !mine.has(cellKey(cell))),
+      );
     },
   },
   {
@@ -472,6 +511,93 @@ export const comparisonCommands: readonly Command[] = [
       if (here) {
         refillComparison(here, "refill-problems", comparisonCellsInTable(here, false));
       }
+    },
+  },
+  {
+    id: "comparison.table.refillAllIncludingMine",
+    label: "comparison.table.refillAllIncludingMine",
+    group: "main",
+    appliesTo: ["comparisonTable"],
+    reversible: true,
+    when: (ctx) => {
+      const here = tableHere(ctx);
+      return (
+        here !== null && ownComparisonCells(here, comparisonCellsInTable(here, false)).length > 0
+      );
+    },
+    run: (ctx) => {
+      const here = tableHere(ctx);
+      if (here) {
+        refillComparison(here, "refill-all", comparisonCellsInTable(here, false));
+      }
+    },
+  },
+  {
+    id: "comparison.table.duplicate",
+    label: "comparison.table.duplicate",
+    group: "main",
+    appliesTo: ["comparisonTable"],
+    reversible: true,
+    enabled: tableEnabled,
+    run: (ctx) => {
+      const here = tableHere(ctx);
+      if (here) duplicateComparisonTable(here);
+    },
+  },
+  {
+    id: "comparison.table.useColumns",
+    label: "comparison.table.useColumns",
+    group: "main",
+    appliesTo: ["comparisonTable"],
+    reversible: true,
+    enabled: tableEnabled,
+    run: (ctx) => {
+      const here = tableHere(ctx);
+      const node = here ? comparisonTableIn(here.editor, here.tableId)?.table : null;
+      if (!here || !node) return;
+      const questions = comparisonQuestionsOf(node.attrs).map((question) => ({
+        text: question.text,
+        ...(question.label && { label: question.label }),
+      }));
+      void startCompareDocuments(here.mindId, here.tableId, questions);
+    },
+  },
+  {
+    id: "comparison.table.plain",
+    label: "comparison.table.toPlain",
+    group: "edit",
+    appliesTo: ["comparisonTable"],
+    reversible: true,
+    enabled: tableEnabled,
+    run: (ctx) => {
+      const here = tableHere(ctx);
+      if (here) plainComparisonTable(here);
+    },
+  },
+  {
+    id: "comparison.exportCsv",
+    label: "export.csv.command",
+    keywords: ["export.csv.keywords"],
+    group: "file",
+    // A new file under a free name: nothing is replaced, and the file stays the User's to delete.
+    reversible: true,
+    when: () => tableToExport() !== null,
+    run: () => {
+      const table = tableToExport();
+      if (table) void exportComparisonCsv(table.mindId, table.tableId, rowsShownNow(table));
+    },
+  },
+  {
+    id: "comparison.table.delete",
+    label: "comparison.table.remove",
+    group: "danger",
+    appliesTo: ["comparisonTable"],
+    reversible: true,
+    destructive: true,
+    enabled: tableEnabled,
+    run: (ctx) => {
+      const here = tableHere(ctx);
+      if (here) removeComparisonTable(here);
     },
   },
   {

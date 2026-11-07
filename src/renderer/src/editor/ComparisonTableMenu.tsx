@@ -1,6 +1,7 @@
 import type { ComparisonQuestion } from "../../../core/api";
 import { comparisonLabelOf } from "../../../shared/comparisons";
 import { showColumn } from "../comparisonColumns";
+import { ownComparisonCells } from "../comparisonRefill";
 import { comparisonCellsInTable } from "../comparisonSelection";
 import type { ComparisonTableHandle } from "../comparisonStructure";
 import { ObjectMenu } from "../components/ObjectMenu";
@@ -21,6 +22,13 @@ export function ComparisonTableMenu({
   hidden: readonly ComparisonQuestion[];
 }) {
   const t = useT();
+  const requested = comparisonCellsInTable(handle, false);
+  const mine = new Set(
+    ownComparisonCells(handle, requested).map((cell) => `${cell.documentId}\n${cell.questionId}`),
+  );
+  const withoutMine = requested.filter(
+    (cell) => !mine.has(`${cell.documentId}\n${cell.questionId}`),
+  );
   return (
     <ObjectMenu
       target={{ kind: "comparisonTable", id: handle.tableId }}
@@ -57,7 +65,7 @@ export function ComparisonTableMenu({
           <ComparisonRefillEstimate
             handle={handle}
             mode="refill-all"
-            requested={comparisonCellsInTable(handle, false)}
+            requested={withoutMine}
             label={(count) =>
               t(
                 count === 1 ? "comparison.refill.allCells.one" : "comparison.refill.allCells.other",
@@ -67,6 +75,21 @@ export function ComparisonTableMenu({
               )
             }
           />
+          {mine.size > 0 && (
+            <ComparisonRefillEstimate
+              handle={handle}
+              mode="refill-all"
+              requested={requested}
+              label={(count) =>
+                t(
+                  count === 1
+                    ? "comparison.refill.includingMine.one"
+                    : "comparison.refill.includingMine.other",
+                  { count },
+                )
+              }
+            />
+          )}
           <ComparisonRefillEstimate
             handle={handle}
             mode="refill-problems"

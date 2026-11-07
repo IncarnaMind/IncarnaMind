@@ -5912,13 +5912,19 @@ export type RunStop = { reason: "cost-cap" } | { reason: "plan-limit"; resetsAt:
  */
 export type WatchStop = RunStop | { reason: "cancelled" } | { reason: "consent-widened" };
 
+/** A column Compare Documents makes, with the label a table's columns already had (#1839). */
+export interface ComparisonQuestionDraft {
+  text: string;
+  label?: string;
+}
+
 /** What Compare Documents makes a comparison table of (#98). */
 export interface CompareDocumentsInput {
   mindId: string;
   /** The rows, in order: Documents IncarnaMind wrote that checks leave out are dropped (#80). */
   documentIds: string[];
-  /** The columns, in order. */
-  questions: string[];
+  /** The columns, in order, each its Question or also the heading a table's columns came with. */
+  questions: (string | ComparisonQuestionDraft)[];
   /** What else the table should show, for every cell. */
   instruction?: string | null;
   /** The model its cells are written with; the default model when left out. */
@@ -5934,6 +5940,12 @@ export interface CompareDocumentsInput {
 export interface ComparisonTableRef {
   mindId: string;
   tableId: string;
+}
+
+/** A comparison table saved as CSV, with the rows the User sees when a filter hides some. */
+export interface ComparisonCsvRequest extends ComparisonTableRef {
+  /** The Documents whose rows the file keeps, in the table's order; absent: every row. */
+  documentIds?: readonly string[];
 }
 
 /** What to stop of a table's fill: all of it, or one refill pass alone, as its Undo asks. */
@@ -13626,6 +13638,13 @@ export interface CoreApi {
   saveComparisonExport(input: ComparisonTableRef): Promise<SavedComparisonExport>;
 
   /**
+   * Saves a comparison table as CSV (#1839) into the Output location, beside Export to Excel:
+   * the table as shown, a Sources column with each row's Citations, UTF-8 with a byte order
+   * mark so Excel opens Chinese, and only the rows `documentIds` names when a filter hides some.
+   */
+  saveComparisonCsvExport(input: ComparisonCsvRequest): Promise<SavedComparisonExport>;
+
+  /**
    * Formats Citations and their Bibliography in a citation style (#289), from the cited
    * Documents' reference records as they are now. The work is done off the main thread, and a
    * request like the last ones is answered from memory.
@@ -14437,6 +14456,7 @@ const methods: Record<CoreApiMethod, true> = {
   setCheckComments: true,
   saveCheckRecord: true,
   saveComparisonExport: true,
+  saveComparisonCsvExport: true,
   formatCitations: true,
   getMindCitationStyle: true,
   setMindCitationStyle: true,
