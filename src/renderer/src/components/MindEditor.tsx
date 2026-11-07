@@ -120,6 +120,7 @@ import { askInEditor, QuestionCommands } from "../editor/questionCommands";
 import { QuestionFold } from "../editor/questionFold";
 import { ReferencesBlock } from "../editor/ReferencesBlock";
 import { ReviewFold, ReviewPane } from "../editor/ReviewPane";
+import { RedoKeys } from "../editor/redoKeys";
 import { ReviewPick } from "../editor/reviewPick";
 import { ScopePicker } from "../editor/ScopePicker";
 import { type SelectionAction, SelectionMenu } from "../editor/SelectionMenu";
@@ -495,6 +496,7 @@ function MindEditorView({
             ),
         }),
         Collaboration.configure({ document: doc, field: MIND_CONTENT_FIELD }),
+        RedoKeys,
         FigureEvidence.configure({ doc }),
         // Notes added from an Answer, with their links back to it (#201).
         BlockOrigins.configure({ doc }),
