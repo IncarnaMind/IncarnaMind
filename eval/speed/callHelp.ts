@@ -215,9 +215,9 @@ async function judge(
   });
   const judged = readJudged(first.text);
   if (judged) return judged;
-  // A judge that answered in prose is asked once more for the JSON alone, its reasons kept. One whose
-  // thinking took its room and left no text can't have that reply sent back: Anthropic refuses the
-  // cache mark on its empty text block (#2701).
+  // A judge that answered in prose is asked once more for the JSON alone, its reasons kept. Claude
+  // Opus 5.5 can't stop thinking, and its thinking can take all of a 400-token reply: asked again,
+  // it needs the room to think and still answer (#2701).
   const again =
     first.text.trim() === ""
       ? await generateText({
