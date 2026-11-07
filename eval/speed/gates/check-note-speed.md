@@ -116,3 +116,34 @@ The runs were made at a9bc9b0bc (twelve) against 7cb76c42a (six), on Claude Haik
 - **The end:** 14.7 → 8.9, 11.5 → 7.9, 17.0 → 16.0 and 14.3 → 14.4 s.
 
 **Decision, 2026-11-06:** Check this Note stays at six, with steps 1 and 2. Twelve's end comes sooner, but the User sees the first verdict, and on a Library of real size twelve makes it later, because every search waits for the one reranker. The false Supported isn't the reason: `main` Supports that sentence too, in 2 of gate A's 3 runs. That doesn't waive it: it stays a false Supported on `main`, and twelve's one counts against twelve. What could bring twelve back is a staggered start, with the first sentence's searches scored first, or more rerank throughput. Twelve goes back to #2532.
+
+## Gate C, written on 2026-11-07 before its runs: twelve at once again, on a reranker that no longer drains the GPU twelve times a search
+
+What changed since the rerun above: the built-in reranker's GPU file is Optimum's O4 export, made for CUDA, and it keeps twelve copies between host and GPU memory as nodes, one after each layer's attention scale. On WebGPU each made the session read a value back from the GPU, waiting for all it had been given, twelve times a batch. The GPU session now reads them as Identity (`src/core/reranking/hostCopies.ts`). A copy changes no value, so no search, Passage or verdict can change for it; what it changes is how soon a search is scored.
+
+### The reranker's own bars, before the check's runs
+
+`INCARNAMIND_EVAL_SPEED_RERANK=1` (`../rerankThroughput.speed.ts`), five runs an arm taking turns, on the twenty searches Check this Note makes over the mixed Library (ten sentences in English and ten in Chinese):
+
+- **Every score the same, bit for bit,** in every search, as the GPU file was downloaded and with its copies read as Identity. One differing score fails it, and the copies stay.
+- **Twelve searches at once no slower:** the median with the copies read as Identity is not above the median as downloaded.
+- **Memory:** the change keeps one session and reads the GPU file into memory once to rewrite it in place, so it adds no session. The report says what it measured.
+
+### The runs
+
+`INCARNAMIND_EVAL_SPEED_CHECK_TIMES=note`, on a direct Anthropic key, as gate B:
+
+- `six` is this pull request's commit with the copies read as Identity and Check this Note at six; `twelve` is the commit after it, with Check this Note at twelve. The write, Verify and the background watch keep six on both. Both run the same `checkTimes.ts` and `checkTimes.speed.ts`.
+- **Order:** one process per arm and run, alternating `six`, `twelve`, `six`, `twelve`; each process runs English, then Chinese, once.
+- **Cells,** three runs per arm: Claude Haiku 5.5 on the timing's Library and on the mixed Library (`INCARNAMIND_EVAL_SPEED_LIBRARY=mixed`); Claude Sonnet 5.5 on the timing's Library.
+- **Load:** a process starts only once the 15-minute load is 24 or less, and a run whose 15-minute load was above 24 is run again. Each run's load is in the table.
+- **Reported, not gated:** each run's rerank median and its first rerank, which loads the model; Haiku's arms once each on DeepSeek V4.1 Flash 1017 (`deepseek-flash`).
+- **Cost:** about $2.20. The runs stop before this work's spend passes its $12 cap.
+
+### The bars
+
+Gate B's bars, unchanged: per cell, twelve's median end comes before six's; twelve's median first verdict is not later than six's by more than six's spread in that cell (its runs' largest minus smallest first verdict), and never by more than 1.0 s; no request fails and no rate limit is met at twelve. Per model, both languages and Libraries together: no sentence the Documents don't state is Supported in more of twelve's runs than of six's; judged right no lower, and Not checked no higher, than six's by more than one in 30, rounded down.
+
+### What decides
+
+Check this Note takes twelve only if every cell holds every bar and each model holds the verdict bars. Otherwise it stays at six and the failing cell is named. The copies read as Identity ship either way if the reranker's own bars hold, since they change no score.
