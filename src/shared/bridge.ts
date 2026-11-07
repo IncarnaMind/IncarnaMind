@@ -67,6 +67,11 @@ export interface FilesBridge {
    * changes storage refused (#1119). False when they chose nowhere.
    */
   saveMindCopy(mindId: string): Promise<boolean>;
+  /**
+   * Saves a picture at its own pixels as a PNG where the User chooses, in the system's save
+   * dialog, starting with `name` (#2377). False when they chose nowhere.
+   */
+  savePicture(name: string, bytes: Uint8Array): Promise<boolean>;
   /** Shows the data folder in the system's file manager, e.g. to back it up. */
   openDataFolder(): Promise<void>;
   /** Shows the data folder's `logs/` in the system's file manager, e.g. to attach the log to a bug report. */
@@ -147,6 +152,11 @@ export interface FilesBridge {
   onMenuCommand(listener: (command: MenuCommand) => void): () => void;
   /** Tells the application menu whether the sidebar is hidden, so View says "Hide Sidebar" or "Show Sidebar". */
   setSidebarHidden(hidden: boolean): void;
+  /**
+   * Tells the application menu whether the picture viewer is open, so View's
+   * zoom items step aside and its ⌘+, ⌘− and ⌘0 reach the picture (#2377).
+   */
+  setPictureViewer(open: boolean): void;
   /** Tells the Edit menu where Undo and Redo go now, and what they would take back or do again. */
   setEditMenu(state: EditMenuState): void;
   /** Pastes where the focus is, as Edit › Paste does, for a menu's Paste: the page can't read the clipboard. */
@@ -233,6 +243,7 @@ export const FILES_CHANNELS = {
   openSavedFile: "files:openSavedFile",
   pickOutputLocation: "files:pickOutputLocation",
   saveMindCopy: "files:saveMindCopy",
+  savePicture: "files:savePicture",
   openDataFolder: "files:openDataFolder",
   openLogsFolder: "files:openLogsFolder",
   pickSkill: "files:pickSkill",
@@ -250,6 +261,8 @@ export const FILES_CHANNELS = {
   logError: "files:logError",
   /** From the page: the sidebar is hidden (true) or shown (false), for the View menu's label. */
   sidebarHidden: "app:sidebarHidden",
+  /** From the page: the picture viewer is open (true) or closed (false), for the View menu's zoom items. */
+  pictureViewer: "app:pictureViewer",
   /** From the page: where the Edit menu's Undo and Redo go now (`EditMenuState`). */
   editMenu: "app:editMenu",
   /** From the page: paste where the focus is (`paste`). */

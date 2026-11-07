@@ -16,6 +16,7 @@ import { findQuoteInPages } from "../../../shared/quoteMatch";
 import { DocumentFix } from "../components/DocumentFix";
 import { files } from "../core";
 import { useT } from "../i18n";
+import { openDocumentPicture, pictureClickHandlers } from "../pictureViewer";
 import type { ViewerTarget } from "../store";
 import { loadDocumentBytes, MissingDocumentError, TooLargeDocumentError } from "./documentBytes";
 import { FitWidthIcon, ZoomInIcon, ZoomOutIcon } from "./icons";
@@ -217,6 +218,7 @@ export function ImageView({ document, target }: { document: Document; target: Vi
   }, [page, natural.width, natural.height, highlights, loaded.kind]);
 
   const mark = useMemo(() => quoteMarkOf(target.citation), [target.citation]);
+  const pictureClick = useMemo(() => pictureClickHandlers(openDocumentPicture), []);
 
   // Places the Citation's mark beside the quote's first line.
   // biome-ignore lint/correctness/useExhaustiveDependencies: placed again for each new text layer
@@ -353,6 +355,7 @@ export function ImageView({ document, target }: { document: Document; target: Vi
           ref={scroller}
           data-testid="image-scroller"
           className="viewer-backdrop relative min-w-0 flex-1 overflow-auto [overflow-anchor:none]"
+          {...pictureClick}
         >
           <div
             className="flex min-h-full w-max min-w-full items-start justify-center"
@@ -371,6 +374,8 @@ export function ImageView({ document, target }: { document: Document; target: Vi
                 alt={displayName(document)}
                 draggable={false}
                 data-testid="image-picture"
+                data-picture-viewer=""
+                tabIndex={-1}
                 className="absolute inset-0 size-full select-none object-contain"
                 onError={() => setLoaded({ kind: "failed", key: "viewer.pictureNotShown" })}
                 onLoad={(event) => {

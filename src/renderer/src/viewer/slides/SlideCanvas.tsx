@@ -345,6 +345,8 @@ function PictureView({ item, context }: { item: PictureItem; context: Context })
             src={url}
             alt={item.alt}
             draggable={false}
+            data-picture-viewer=""
+            tabIndex={-1}
             style={{
               position: "absolute",
               left: shown > 0 ? (-crop.left / shown) * box.w : 0,

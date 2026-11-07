@@ -322,6 +322,9 @@ function MarkdownImage({ src, alt }: { src: string; alt: string }) {
         alt={alt}
         className="document-image"
         data-testid="viewer-markdown-image"
+        data-picture-viewer=""
+        tabIndex={-1}
+        draggable={false}
       />
     );
   }

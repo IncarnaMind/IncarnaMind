@@ -5,6 +5,7 @@ import type { XmlNode } from "../../../core/documents/formats/xml";
 import { documentImageUrl } from "../../../shared/documentViewer";
 import type { MessageKey } from "../../../shared/i18n";
 import { useLanguage, useT } from "../i18n";
+import { openDocumentPicture, pictureClickHandlers } from "../pictureViewer";
 import type { ViewerTarget } from "../store";
 import { pageDate } from "../webPages";
 import { useCitedArea } from "./citedArea";
@@ -108,6 +109,8 @@ function savedPicture(
   picture.className = "document-image document-web-picture";
   picture.dataset.quoteSkip = "";
   picture.dataset.testid = "web-picture";
+  picture.dataset.pictureViewer = "";
+  picture.tabIndex = -1;
   context.pictures += 1;
   picture.dataset.figure = String(context.pictures);
   if (size.width && size.height) {
@@ -258,6 +261,7 @@ function WebPageContent({
   const [markTop, setMarkTop] = useState<number | null>(null);
   const [markRoom, setMarkRoom] = useState(0);
   const mark = quoteMarkOf(target.citation);
+  const pictureClick = useMemo(() => pictureClickHandlers(openDocumentPicture), []);
   const blocks = useMemo(
     () => new Map<XmlNode, number>(page.blocks.map((block, index) => [block.element, index])),
     [page],
@@ -433,6 +437,7 @@ function WebPageContent({
                 data-testid="viewer-web-article"
                 data-area-unit=""
                 className="document-markdown"
+                {...pictureClick}
               />
               {mark && markTop !== null && (
                 <CitationMark

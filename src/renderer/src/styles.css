@@ -5197,7 +5197,8 @@
   .mind-picture-block {
     margin: 16px 0;
 
-    &.ProseMirror-selectednode .mind-picture-block-image {
+    &.ProseMirror-selectednode .mind-picture-block-image,
+    &[data-picture-selected] .mind-picture-block-image {
       outline: 2px solid var(--color-accent);
       outline-offset: 2px;
     }
