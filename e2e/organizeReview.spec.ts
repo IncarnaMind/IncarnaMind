@@ -67,8 +67,11 @@ const core = (window: Page) => ({
   waiting: () =>
     window.evaluate(
       async () =>
-        (await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.getOrganizeReview())
-          .count,
+        (
+          await (
+            globalThis as unknown as { incarnamind: CoreBridge }
+          ).incarnamind.getOrganizeReview()
+        ).count,
     ),
 });
 
@@ -163,9 +166,7 @@ for (const [language, width, height] of [
           documents: say("organizeReview.documents", { count: documents }),
           into,
         });
-      await expect(willMove).toHaveText(
-        sentence(8, say("organizeReview.into.new", { count: 2 })),
-      );
+      await expect(willMove).toHaveText(sentence(8, say("organizeReview.into.new", { count: 2 })));
       await expect(card(window, "Kitchen").getByTestId("organize-review-row")).toHaveCount(4);
       await expect(card(window, "Race").getByTestId("organize-review-row")).toHaveCount(4);
       await expect(window.getByTestId("organize-review-left-out-row")).toHaveCount(2);
@@ -185,9 +186,7 @@ for (const [language, width, height] of [
       // Untick one Document: Confirm will leave it where it is.
       await pointAndClick(window, row(window, "Race 4").getByTestId("organize-review-tick"));
       await expect(row(window, "Race 4")).toHaveAttribute("data-ticked", "false");
-      await expect(willMove).toHaveText(
-        sentence(7, say("organizeReview.into.new", { count: 2 })),
-      );
+      await expect(willMove).toHaveText(sentence(7, say("organizeReview.into.new", { count: 2 })));
 
       // Rename a new Folder in place.
       await pointAndClick(window, card(window, "Kitchen").getByTestId("organize-review-card-name"));
@@ -234,60 +233,64 @@ for (const [language, width, height] of [
   });
 }
 
-test("Organize This Folder proposes subfolders inside it, and moves nothing out of it", async () => {
-  test.setTimeout(120_000);
-  const language: Language = "en";
-  const say = t(language);
-  let app: ElectronApplication | undefined;
-  try {
-    const started = await start(language, 1440, 900);
-    app = started.app;
-    const { window } = started;
-    const paths: string[] = [];
-    for (let at = 1; at <= 3; at++) {
-      for (const [name, text] of [
-        [`Lease ${at}.txt`, `Lease of the Harbour Street office, schedule ${at}.`],
-        [`NDA ${at}.txt`, `Mutual NDA with a supplier, clause ${at}.`],
-      ]) {
-        const path = join(sources, name);
-        await writeFile(path, text);
-        paths.push(path);
+for (const language of ["en", "zh-CN"] as const) {
+  test(`${language}: Organize This Folder proposes subfolders inside it, and moves nothing out of it`, async () => {
+    test.setTimeout(120_000);
+    const say = t(language);
+    let app: ElectronApplication | undefined;
+    try {
+      const started = await start(language, 1440, 900);
+      app = started.app;
+      const { window } = started;
+      const paths: string[] = [];
+      for (let at = 1; at <= 3; at++) {
+        for (const [name, text] of [
+          [`Lease ${at}.txt`, `Lease of the Harbour Street office, schedule ${at}.`],
+          [`NDA ${at}.txt`, `Mutual NDA with a supplier, clause ${at}.`],
+        ]) {
+          const path = join(sources, name);
+          await writeFile(path, text);
+          paths.push(path);
+        }
       }
+      await addDocuments(window, paths);
+      await window.evaluate(async () => {
+        const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        const folder = await bridge.createLibraryGroup({ name: "Contracts", description: "" });
+        for (const document of await bridge.listDocuments())
+          await bridge.assignDocumentGroup(document.id, folder.id);
+      });
+      await runCommand(window, "library.open", say("library.open"));
+      // The Folder's ⋯ in the Library has it, as its right-click menu and ⌘K do.
+      const head = window
+        .getByTestId("library")
+        .getByTestId("library-section")
+        .filter({ hasText: "Contracts" })
+        .getByTestId("library-section-head");
+      await head.hover();
+      await pointAndClick(window, head.getByTestId("folder-menu"));
+      await pointAndClick(
+        window,
+        window
+          .getByTestId("folder-actions")
+          .filter({ visible: true })
+          .getByTestId("folder.organize"),
+      );
+      await expect(window.getByTestId("organize-review-title")).toHaveText(
+        say("organizeReview.title.sub", { folder: "Contracts" }),
+        { timeout: 30_000 },
+      );
+      await expect(window.getByTestId("organize-review-proposed")).toContainText(
+        say("organizeReview.section.newSubfolders"),
+      );
+      await expect(card(window, "Lease")).toContainText("Contracts ›");
+      await screenshot(window, `organize-this-folder-${language}`);
+      expect(await core(window).folders()).toEqual(["Contracts"]);
+    } finally {
+      await app?.close();
     }
-    await addDocuments(window, paths);
-    await window.evaluate(async () => {
-      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-      const folder = await bridge.createLibraryGroup({ name: "Contracts", description: "" });
-      for (const document of await bridge.listDocuments())
-        await bridge.assignDocumentGroup(document.id, folder.id);
-    });
-    await runCommand(window, "library.open", say("library.open"));
-    // The Folder's ⋯ in the Library has it, as its right-click menu and ⌘K do.
-    const head = window
-      .getByTestId("library")
-      .getByTestId("library-section")
-      .filter({ hasText: "Contracts" })
-      .getByTestId("library-section-head");
-    await head.hover();
-    await pointAndClick(window, head.getByTestId("folder-menu"));
-    await pointAndClick(
-      window,
-      window.getByTestId("folder-actions").filter({ visible: true }).getByTestId("folder.organize"),
-    );
-    await expect(window.getByTestId("organize-review-title")).toHaveText(
-      say("organizeReview.title.sub", { folder: "Contracts" }),
-      { timeout: 30_000 },
-    );
-    await expect(window.getByTestId("organize-review-proposed")).toContainText(
-      say("organizeReview.section.newSubfolders"),
-    );
-    await expect(card(window, "Lease")).toContainText("Contracts ›");
-    await screenshot(window, "organize-this-folder-en");
-    expect(await core(window).folders()).toEqual(["Contracts"]);
-  } finally {
-    await app?.close();
-  }
-});
+  });
+}
 
 test("Move to, Try Again and Discard change the Suggestions, each taken back by one Undo", async () => {
   test.setTimeout(150_000);
