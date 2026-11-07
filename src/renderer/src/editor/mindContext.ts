@@ -25,6 +25,16 @@ export const JudgedAnswerContext = createContext<{ id: string; conversationId: s
 export const AssistantFoldedContext = createContext<boolean | null>(null);
 
 /**
+ * Where a Citation's page is opened from (#2270): inside the assistant, where the User is reading,
+ * or the Note and what acts beside it (its Citations, cards, tabs and commands).
+ */
+export type CitedOrigin = "note" | "assistant";
+
+/** The origin of a page opened from this component: the assistant it is drawn in, else the Note. */
+export const useCitedOrigin = (): CitedOrigin =>
+  useContext(AssistantFoldedContext) === null ? "note" : "assistant";
+
+/**
  * Whether an editor holds one Answer's Blocks alone, as the assistant's does:
  * its pictures are that Answer's, whatever Block they are in (#2377). Null in
  * a Mind, where a picture's own Answer around it decides.

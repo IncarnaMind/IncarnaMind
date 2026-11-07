@@ -3,8 +3,9 @@ import type { UnsupportedReason } from "../../../core/api";
 import { MetaLine } from "../components/MetaLine";
 import { LineAction } from "../components/ProblemLine";
 import { useT } from "../i18n";
-import { openCited, quoteSaysSo, useCitedOrigin } from "../openCited";
+import { openCited, quoteSaysSo } from "../openCited";
 import type { NumberedCitation } from "./citationNumbers";
+import { useCitedOrigin } from "./mindContext";
 
 /**
  * What a cited sentence's Unsupported card says in place of where the check

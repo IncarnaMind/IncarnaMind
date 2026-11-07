@@ -9,8 +9,8 @@ import {
   shownDock,
   sideWidth,
 } from "./assistantPlace";
-import { GROUP_MIN_WIDTH, useCardWidth } from "./layoutSlice";
-import type { CitedOrigin } from "./openCited";
+import type { CitedOrigin } from "./editor/mindContext";
+import { useCardWidth } from "./layoutSlice";
 import { quietAssistantNow } from "./quietAssistant";
 import { useAppStore } from "./store";
 
@@ -20,13 +20,22 @@ import { useAppStore } from "./store";
  * Note too narrow to write in, the assistant folds to its rail. Closing the
  * page, or room enough again, brings it back; the User's own fold or unfold
  * wins, and unfolding it while the page is open gives the page the narrower
- * share instead. A page opened from inside the assistant leaves it open, as
- * the User is reading there, and the Note and the page share what is left.
+ * share instead, down to what its toolbar holds. A page opened from inside
+ * the assistant leaves it open, as the User is reading there, and the Note
+ * and the page share what is left.
  * Nothing new is worded: the rail and its own button are used.
  */
 
 /** The narrowest the Note's share of an even split is written at; narrower, its text wraps too tightly (#2270). */
 export const NOTE_MIN = 480;
+
+/**
+ * The narrowest share a Citation's page yields to (#2270): its toolbar, given way as far as it goes,
+ * still shows every control that stays at every width. 439px was measured on a PDF with an outline
+ * and Keep open, in English and Chinese alike since its words have gone by then; a four-digit page
+ * number takes 13px more.
+ */
+export const PAGE_MIN = 452;
 
 /** The Note and the page it is shown beside: the split a Citation's page opens as. */
 export interface NotePagePair {
@@ -80,7 +89,10 @@ export const evenSplit = (widths: SplitWidths): boolean => Math.abs(widths.note 
 export const noteLacksRoom = (widths: SplitWidths): boolean =>
   evenSplit(widths) && widths.note < NOTE_MIN;
 
-/** The widths that keep the Note at `NOTE_MIN`, the page taking the narrower share of the pair. */
+/**
+ * The widths that give the Note up to `NOTE_MIN`, the page keeping `PAGE_MIN`; null where that
+ * leaves the Note no wider than the even split.
+ */
 export function pageYieldsWidths(
   layout: WindowLayout,
   pair: NotePagePair,
@@ -89,7 +101,7 @@ export function pageYieldsWidths(
   const widths = splitWidths(layout, pair, cardWidth);
   if (!noteLacksRoom(widths) || widths.room === 0) return null;
   const pairRoom = widths.note + widths.page;
-  const note = Math.min(NOTE_MIN, pairRoom - GROUP_MIN_WIDTH);
+  const note = Math.min(NOTE_MIN, pairRoom - PAGE_MIN);
   if (note <= widths.note) return null;
   const next = layout.groups.map((group) => group.width);
   next[pair.noteIndex] = note / widths.room;

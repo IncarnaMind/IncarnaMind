@@ -14,9 +14,10 @@ import { formulaText } from "../../../shared/formula";
 import { sourceText } from "../../../shared/sources";
 import { buttonStyle } from "../components/ui";
 import { useLanguage, useT } from "../i18n";
-import { openCited, useCitedOrigin } from "../openCited";
+import { openCited } from "../openCited";
 import { useAppStore } from "../store";
 import { QuoteWithUnsureWords, ScanLine, useScannedQuote } from "./citationScan";
+import { useCitedOrigin } from "./mindContext";
 import { SignOffLine, SignOffToggle } from "./SignOff";
 
 export function CalculatedFigureCard({

@@ -37,7 +37,7 @@ import { citationLocation, formatLocation } from "../../../shared/locations";
 import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
 import { useTabPlace } from "../components/tabs/tabItems";
 import { useLanguage, useT } from "../i18n";
-import { openCited, quoteSaysSo, useCitedOrigin } from "../openCited";
+import { openCited, quoteSaysSo } from "../openCited";
 import { useAppStore } from "../store";
 import { useKeptInsideOf } from "../turnWall";
 import { ChartFoot } from "./ChartFoot";
@@ -57,6 +57,7 @@ import {
   withKind,
 } from "./chartCommands";
 import { type ChartHandle, chartHandles } from "./chartHandles";
+import { useCitedOrigin } from "./mindContext";
 import { Popover } from "./Popover";
 
 /** As a Citation's card: the pointer rests a moment before it shows, and may leave a moment before it goes. */

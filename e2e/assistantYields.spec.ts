@@ -24,8 +24,9 @@ import {
  * and the page cannot keep their even split beside the open assistant, so it folds to its rail
  * and comes back when the page closes; at 1,600px it stays open. A Citation clicked inside the
  * assistant leaves it open, and the Note and the page share what is left. The User's own fold or
- * unfold wins, and unfolding it while the page is open gives the page the narrower share. Set
- * INCARNAMIND_SCREENSHOTS to a folder to also save screenshots there.
+ * unfold wins, and unfolding it while the page is open gives the page the narrower share, never so
+ * narrow that its toolbar is cut. Set INCARNAMIND_SCREENSHOTS to a folder to also save screenshots
+ * there.
  */
 
 const TIDES = buildPdf([
@@ -71,6 +72,39 @@ async function splitOf(window: Page): Promise<{ note: number; page: number }> {
     note: await widthOf(notePane(window)),
     page: await widthOf(window.getByTestId("viewer")),
   };
+}
+
+/** Whether the page's toolbar shows its ⋯ whole, inside the page's box. */
+async function menuWhole(window: Page): Promise<boolean> {
+  const page = await window.getByTestId("viewer").boundingBox();
+  const menu = await window
+    .getByTestId("viewer-header")
+    .getByTestId("document-file-menu")
+    .boundingBox();
+  if (!page || !menu) return false;
+  return menu.x >= page.x && menu.x + menu.width <= page.x + page.width + 0.5;
+}
+
+/**
+ * Unfolds the assistant the User's way while a Citation's page shows: once it has taken its room
+ * back, the page, a preview with Keep open, shows its toolbar's ⋯ whole, and the Note has at least
+ * its share of the even split.
+ */
+async function unfoldBesidePage(window: Page): Promise<void> {
+  const folded = await splitOf(window);
+  await pointAndClick(window, window.getByTestId("assistant-fold"));
+  await expect(assistantOf(window)).not.toHaveAttribute("data-folded");
+  await expect
+    .poll(async () => {
+      const split = await splitOf(window);
+      return split.note + split.page;
+    })
+    .toBeLessThan(folded.note + folded.page - 100);
+  await motionSettled(window);
+  await expect(window.getByTestId("viewer-keep")).toBeVisible();
+  await expect.poll(() => menuWhole(window)).toBe(true);
+  const split = await splitOf(window);
+  expect(split.note).toBeGreaterThanOrEqual(split.page - 2);
 }
 
 async function closePage(window: Page): Promise<void> {
@@ -196,7 +230,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await app.close();
   });
 
-  test(`the User's own fold and unfold win, and a reopen gives the page the narrower share (${language})`, async () => {
+  test(`the User's own fold and unfold win, and a reopen keeps the page's toolbar whole (${language})`, async () => {
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
     await dismissChatSetup(window);
     await useLocalChatModel(window);
@@ -209,19 +243,8 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(window.getByTestId("viewer-title")).toHaveText("Tides");
     await expect(assistantOf(window)).toHaveAttribute("data-folded", "true");
 
-    // The User unfolds it: the page takes the narrower share instead.
-    await pointAndClick(window, window.getByTestId("assistant-fold"));
-    await expect(assistantOf(window)).not.toHaveAttribute("data-folded");
-    await expect
-      .poll(async () => {
-        const split = await splitOf(window);
-        return split.note - split.page;
-      })
-      .toBeGreaterThan(20);
-    const reopened = await splitOf(window);
-    expect(reopened.note).toBeGreaterThanOrEqual(480);
-    expect(reopened.page).toBeLessThan(reopened.note);
-    await motionSettled(window);
+    // The User unfolds it: the page gives the Note no share its toolbar can't spare.
+    await unfoldBesidePage(window);
     await screenshot(window, `assistant-yields-user-unfolded-${language}`);
 
     // Closing the page leaves the assistant as the User left it.
@@ -239,21 +262,35 @@ for (const language of ["en", "zh-CN"] as const) {
     await motionSettled(window);
     await expect(assistantOf(window)).toHaveAttribute("data-folded", "true");
 
-    // Folded by the User, not by the page, and reopened while the page shows: the page takes the narrower share.
+    // Folded by the User, not by the page, and reopened while the page shows: the same.
     await pointAndClick(window, editorOf(window).getByTestId("citation-chip"));
     await expect(window.getByTestId("viewer-title")).toHaveText("Tides");
     await expect(assistantOf(window)).toHaveAttribute("data-folded", "true");
-    await pointAndClick(window, window.getByTestId("assistant-fold"));
-    await expect(assistantOf(window)).not.toHaveAttribute("data-folded");
+    await unfoldBesidePage(window);
+    await app.close();
+  });
+
+  test(`a reopen at 1520px gives the page the narrower share, its toolbar whole (${language})`, async () => {
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    await dismissChatSetup(window);
+    await useLocalChatModel(window);
+    await setLanguage(window, language);
+    await setWindowSize(app, window, 1520, 760);
+    await draftCiting(window);
+
+    await pointAndClick(window, editorOf(window).getByTestId("citation-chip"));
+    await expect(window.getByTestId("viewer-title")).toHaveText("Tides");
+    await expect(assistantOf(window)).toHaveAttribute("data-folded", "true");
+    await unfoldBesidePage(window);
     await expect
       .poll(async () => {
         const split = await splitOf(window);
         return split.note - split.page;
       })
-      .toBeGreaterThan(20);
-    const shown = await splitOf(window);
-    expect(shown.note).toBeGreaterThanOrEqual(480);
-    expect(shown.page).toBeLessThan(shown.note);
+      .toBeGreaterThan(2);
+    await motionSettled(window);
+    expect(await menuWhole(window)).toBe(true);
+    await screenshot(window, `assistant-yields-user-unfolded-${language}-1520`);
     await app.close();
   });
 }

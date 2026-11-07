@@ -100,15 +100,38 @@ describe("when the assistant must yield", () => {
   });
 });
 
+const sharesOf = (widths: number[] | null, room: number): [number, number] => {
+  if (!widths) throw new Error("The pair kept its even split.");
+  return [(widths[0] as number) * room, (widths[1] as number) * room];
+};
+
 describe("the page takes the narrower share instead", () => {
-  test("gives the Note 480px and the page the rest, when the even split is too narrow for both", () => {
+  test("gives the Note 480px and the page the rest, when the even split is too narrow for the Note", () => {
+    // A 1,520px window with the assistant open.
     const layout = layoutOf(note(0.5), page(0.5));
-    const widths = yields.pageYieldsWidths(layout, pairOf(layout), 860);
-    expect(widths).not.toBeNull();
-    const [noteShare, pageShare] = widths as number[];
-    expect((noteShare as number) * 859).toBeCloseTo(480, 0);
-    expect((pageShare as number) * 859).toBeCloseTo(379, 0);
-    expect(pageShare as number).toBeLessThan(noteShare as number);
+    const [noteWidth, pageWidth] = sharesOf(
+      yields.pageYieldsWidths(layout, pairOf(layout), 940),
+      939,
+    );
+    expect(noteWidth).toBeCloseTo(480, 0);
+    expect(pageWidth).toBeCloseTo(459, 0);
+  });
+
+  test("never narrows the page below the 452px its toolbar holds; the Note gets what is left", () => {
+    // A 1,500px window with the assistant open: the even split is 459.5px each.
+    const layout = layoutOf(note(0.5), page(0.5));
+    const [noteWidth, pageWidth] = sharesOf(
+      yields.pageYieldsWidths(layout, pairOf(layout), 920),
+      919,
+    );
+    expect(pageWidth).toBeCloseTo(452, 0);
+    expect(noteWidth).toBeCloseTo(467, 0);
+    expect(yields.PAGE_MIN).toBe(452);
+  });
+
+  test("keeps the even split where the page's toolbar leaves the Note no more (a 1,440px window)", () => {
+    const layout = layoutOf(note(0.5), page(0.5));
+    expect(yields.pageYieldsWidths(layout, pairOf(layout), 860)).toBeNull();
   });
 
   test("keeps a split the User dragged, even a narrow Note", () => {
@@ -122,7 +145,7 @@ describe("the page takes the narrower share instead", () => {
   });
 
   test("leaves the pair alone where even the page's minimum would not fit", () => {
-    // Three groups: the Note and page share half the card, too little for 480px and a 220px page.
+    // Three groups: the Note and the page share half the card, too little for 480px and a 452px page.
     const layout = layoutOf(note(0.25), page(0.25), library(0.5));
     expect(yields.pageYieldsWidths(layout, pairOf(layout), 800)).toBeNull();
   });

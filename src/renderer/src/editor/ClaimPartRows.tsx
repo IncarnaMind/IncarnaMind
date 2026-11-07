@@ -22,7 +22,7 @@ import { rowActionButtonClass } from "../components/sidebarRows";
 import type { PartCorrection } from "../correctionFixes";
 import { reasonText } from "../cost";
 import { useLanguage, useT } from "../i18n";
-import { openCited, quoteSaysSo, useCitedOrigin } from "../openCited";
+import { openCited, quoteSaysSo } from "../openCited";
 import { useScopeName } from "../scopeDocuments";
 import { useAppStore } from "../store";
 import { type CitationDecision, partDecisions } from "./alreadyCited";
@@ -32,7 +32,7 @@ import { useReadableQuote } from "./citationScan";
 import type { ShownClaim } from "./claimChecks";
 import { ClaimMarkIcon } from "./icons";
 import { LibrarySource } from "./LibrarySource";
-import { SignOffsContext } from "./mindContext";
+import { SignOffsContext, useCitedOrigin } from "./mindContext";
 import { PropertySource, showFileProperties } from "./PropertySource";
 import { SignOffLine, SignOffToggle } from "./SignOff";
 import {

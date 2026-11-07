@@ -14,13 +14,14 @@ import {
   type NoteState,
   setFigureTotalRole,
 } from "../../editor/figureActions";
+import { useCitedOrigin } from "../../editor/mindContext";
 import { currentSigner, figureMarkOf, setFigureSignOffs } from "../../editor/signOffActions";
 import { exportFigureSchedule } from "../../exports";
 import { focusFigure, useFigureSchedule } from "../../figures";
 import { translateNow, useLanguage, useT } from "../../i18n";
 import { startChangedCheckAsking, startFigureCheckAsking } from "../../mindCheck";
 import { openMindCopy } from "../../mindCopies";
-import { openCited, quoteSaysSo, useCitedOrigin } from "../../openCited";
+import { openCited, quoteSaysSo } from "../../openCited";
 import { useAppStore } from "../../store";
 import { type Undoable, useUndo } from "../../undo";
 import { ExportResultLine } from "../ExportResultLine";

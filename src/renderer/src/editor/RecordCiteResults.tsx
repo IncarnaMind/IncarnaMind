@@ -4,8 +4,9 @@ import { citationLocation, formatLocation, openKind } from "../../../shared/loca
 import { SearchPicker } from "../components/SearchPicker";
 import { errorMessage } from "../errors";
 import { useT } from "../i18n";
-import { openCited, useCitedOrigin } from "../openCited";
+import { openCited } from "../openCited";
 import { useAppStore } from "../store";
+import { useCitedOrigin } from "./mindContext";
 import {
   chooseRecordCite,
   recordCiteCandidateOptions,

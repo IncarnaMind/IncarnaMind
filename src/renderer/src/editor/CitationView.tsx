@@ -63,7 +63,7 @@ import { useJudgementLimit } from "../judgementLimit";
 import { currentTabOf, groupsMerged } from "../layoutSlice";
 import { useBreathing } from "../motion";
 import type { ObjectRef } from "../objects";
-import { openCited as openCitedPlace, useCitedOrigin } from "../openCited";
+import { openCited as openCitedPlace } from "../openCited";
 import {
   pinCitation,
   pinnedMind,
@@ -100,6 +100,7 @@ import {
   MindIdContext,
   RegenerateAnswerContext,
   SignOffsContext,
+  useCitedOrigin,
 } from "./mindContext";
 import { Popover } from "./Popover";
 import { onPeek, peekCitation, useCitationPeek } from "./peek";
