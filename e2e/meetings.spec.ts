@@ -1,9 +1,10 @@
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
 import type { Editor } from "@tiptap/core";
 import type { CoreBridge } from "../src/core/api";
+import { readVtt } from "../src/core/documents/formats/vtt";
 import type { FakeCapture } from "../src/core/meetings/fakeCapture";
 import type { TestHooks } from "../src/shared/testHooks";
 import {
@@ -281,6 +282,77 @@ test("a meeting records from the + menu, after the one-time notice: the bar, ⌘
   await recordMeetingNow(window);
   await expect(window.getByTestId("meeting-notice")).toBeHidden();
   await expect(window.getByTestId("meeting-start")).toHaveCount(0);
+});
+
+test("the first Record waits for macOS: the page says so with no timer or meter, and the Transcript gap says it waited, in English and Chinese", async () => {
+  test.setTimeout(150_000);
+  const { app, window } = await launchApp(dataDir, { microphone: "waiting" });
+  await setWindowSize(app, window, 1440, 900);
+  await dismissChatSetup(window);
+  await useOutputLocation(window, sources);
+  const bar = await startRecording(window, await recordMeeting(window), { notice: true });
+  const [meeting] = await bridge(window);
+  if (!meeting) throw new Error("No Meeting.");
+
+  // While the system's prompt is open the page waits: no running timer, no level meter.
+  await expect(bar.getByTestId("meeting-state")).toHaveText("Waiting for macOS…");
+  await expect(bar.getByTestId("meeting-time")).toHaveCount(0);
+  await expect(bar.getByTestId("level-bars")).toHaveCount(0);
+  await expect(window.getByTestId("mind-tab-time")).toHaveCount(0);
+  await shot(window, "meeting-waiting-permission-en");
+  await setLanguage(window, "zh-CN");
+  await expect(bar.getByTestId("meeting-state")).toHaveText("正在等待 macOS 授权…");
+  await shot(window, "meeting-waiting-permission-zh");
+  await setLanguage(window, "en");
+
+  // The prompt is answered after a second or more: recording starts, and the page shows it.
+  await expect
+    .poll(async () => {
+      const current = (await bridge(window)).find((each) => each.id === meeting.id);
+      const since = current?.recordingSince ? Date.parse(current.recordingSince) : 0;
+      return since === 0 ? 0 : Date.now() - since;
+    })
+    .toBeGreaterThanOrEqual(1500);
+  await app.evaluate(() => {
+    const fake = (globalThis as { incarnamindFakeAudio?: FakeCapture }).incarnamindFakeAudio;
+    if (!fake) throw new Error("The app isn't recording with the fake capture.");
+    fake.answerPermission();
+  });
+  await expect(bar.getByTestId("meeting-state")).toHaveText("Recording");
+  await expect(bar.getByTestId("meeting-time")).toHaveText(/^\d+:\d\d$/);
+  await expect(bar.getByTestId("level-bars")).toHaveCount(1);
+  await expect(window.getByTestId("mind-tab-time")).toHaveText(/^\d+:\d\d$/);
+  await shot(window, "meeting-permission-answered-en");
+
+  // The live Transcript says what happened in the stretch with no audio, never that it was deleted.
+  const toggle = bar.getByTestId("meeting-transcript-toggle");
+  await expect(toggle).toBeEnabled({ timeout: 20_000 });
+  await toggle.click();
+  const transcript = window.getByTestId("viewer-transcript");
+  const gap = transcript.locator('[data-testid="transcript-gap"][data-reason="permission"]');
+  await expect(gap).toHaveCount(1);
+  await expect(gap).toContainText(/not transcribed: waiting for permission$/);
+  await expect(transcript).not.toContainText("its audio was deleted");
+  await setLanguage(window, "zh-CN");
+  await expect(gap).toContainText(/未转写：等待麦克风授权$/);
+  await shot(window, "meeting-permission-gap-zh");
+  await setLanguage(window, "en");
+
+  await bar.getByTestId("meeting-stop").click();
+  await expect(bar).toBeHidden();
+  await expect
+    .poll(async () => {
+      const current = (await bridge(window)).find((each) => each.id === meeting.id);
+      return current?.transcript?.state;
+    })
+    .toBe("saved");
+  const saved = readVtt(readFileSync(join(dataDir, "Transcripts", `${meeting.id}.vtt`), "utf8"));
+  const permission = saved.gaps.filter((each) => each.reason === "permission");
+  expect(permission).toHaveLength(1);
+  expect((permission[0]?.toMs ?? 0) - (permission[0]?.fromMs ?? 0)).toBeGreaterThanOrEqual(1000);
+  expect(saved.gaps.map((each) => each.reason)).not.toContain("lost");
+  expect(saved.gaps.every((each) => each.toMs - each.fromMs >= 1000)).toBe(true);
+  await shot(window, "meeting-permission-saved-en");
 });
 
 test("an engine that can't start says so in plain words, never in its JavaScript error, in English and Chinese", async () => {

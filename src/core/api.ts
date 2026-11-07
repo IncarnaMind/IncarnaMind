@@ -2641,6 +2641,13 @@ export interface QuotedWords {
   answer: QuotedPiece[];
   /** The Document's words nearest them, the matching stretch `found: true`; null when none is near. */
   closest: QuotedPiece[] | null;
+  /**
+   * The Answer's quote in the Document's own marks, where the two differ only in the kind of
+   * their quotation marks (#2605): what Use the Document's wording puts in the sentence. The
+   * quote's other characters are its own, so only its marks change. Absent for any other
+   * difference, which the card offers nothing for.
+   */
+  documentWording?: string;
 }
 
 /** The Answer's quoted words, found where they run on past the page the Citation cites (#2504). */
@@ -10843,6 +10850,7 @@ export type MeetingKind = "meeting" | "memo";
 /**
  * How one source is recorded right now:
  * - "off": not asked for ("Only me"), or the Meeting isn't recording.
+ * - "waiting": the system's permission prompt is open, and nothing is captured until it is answered.
  * - "starting": asked for, not heard from yet.
  * - "recording": its audio is coming in.
  * - "silent": the computer's sound has been nothing but silence for a minute,
@@ -10854,6 +10862,7 @@ export type MeetingKind = "meeting" | "memo";
  */
 export type MeetingSourceState =
   | "off"
+  | "waiting"
   | "starting"
   | "recording"
   | "silent"
