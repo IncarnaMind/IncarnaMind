@@ -14,6 +14,8 @@ import { type MessageKey, type MessageParams, translate } from "../../src/shared
 // The drop's picture shrinking or fading, the motion module stood in for: there is no page here.
 const settled: unknown[] = [];
 const faded: unknown[] = [];
+// What the browser was asked to draw under the pointer, for the drag's own picture to be the only one.
+const dragImages: { image: FakeElement; x: number; y: number }[] = [];
 vi.mock("../../src/renderer/src/motion", () => ({
   exitToward: (element: unknown) => settled.push(element),
   exit: (element: unknown) => faded.push(element),
@@ -81,6 +83,7 @@ beforeEach(() => {
   layer.useDragState.setState({ over: null, at: null, source: null });
   settled.length = 0;
   faded.length = 0;
+  dragImages.length = 0;
 });
 afterEach(() => {
   vi.useRealTimers();
@@ -113,7 +116,9 @@ function dragEvent(
         store[type] = value;
         if (!types.includes(type)) types.push(type);
       },
-      setDragImage() {},
+      setDragImage(image: FakeElement, x: number, y: number) {
+        dragImages.push({ image, x, y });
+      },
     },
     preventDefault() {
       event.defaultPrevented = true;
@@ -278,6 +283,23 @@ describe("a drag let go where nothing takes it", () => {
     vi.unstubAllGlobals();
   });
 
+  test("draws its picture itself, with the browser's own image left invisible, and fades it where the pointer is", () => {
+    const { types, data } = startDragging([doc("a")]);
+    expect(dragImages).toHaveLength(1);
+    const browserImage = dragImages[0]?.image;
+    // Not the picture: an empty 1×1 element the browser may draw, which the layer never waits on.
+    expect(browserImage?.className).not.toContain("flex");
+    expect(dragImages[0]).toMatchObject({ x: 0, y: 0 });
+    const over = dragEvent(types, { data });
+    onWindow("dragover", over);
+    onWindow("dragend", {});
+    expect(faded).toHaveLength(1);
+    expect(faded[0]).not.toBe(browserImage);
+    expect((faded[0] as FakeElement).style).toMatchObject({ left: "28px", top: "46px" });
+    expect(layer.draggedIn({ types })).toBeNull();
+    expect(layer.useDragState.getState().source).toBeNull();
+  });
+
   describe("on macOS", () => {
     beforeEach(() => {
       vi.stubGlobal("navigator", { platform: "MacIntel" });
@@ -322,7 +344,7 @@ describe("a drag let go where nothing takes it", () => {
   });
 
   for (const platform of ["Win32", "Linux x86_64"]) {
-    test(`stays refused on ${platform}, with the system's no-drop cursor, and the drag still ends`, () => {
+    test(`stays refused on ${platform}, with the system's no-drop cursor, while this layer's picture still ends with the drag`, () => {
       vi.stubGlobal("navigator", { platform });
       const { types, data } = startDragging([mind("m")]);
       const tag = layer.dropProps("tag", documentsTarget());
@@ -335,7 +357,7 @@ describe("a drag let go where nothing takes it", () => {
       tag.onDrop(drop);
       onWindow("drop", drop);
       expect(drop.defaultPrevented).toBe(false);
-      expect(faded).toEqual([]);
+      expect(faded).toHaveLength(1);
       expect(settled).toEqual([]);
       expect(layer.draggedIn({ types })).toBeNull();
     });
