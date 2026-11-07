@@ -100,22 +100,18 @@ export const LIBRARY_FLOWS: readonly Flow[] = [
     async run(context) {
       const { core } = context;
       const ids = sortedIds(context);
-      let made: LibraryGroup[] = [];
-      return sorting(core, async () => {
-        try {
-          return await timedInLibrary(context, async () => {
-            made = await core.proposeFolders(ids);
-            if (made.length === 0) throw new Error("No Folder was proposed.");
-          }, ["library.changed"]);
-        } finally {
-          await withoutFolders(core, made);
-        }
-      });
+      // Proposed Folders wait in Suggestions and none is made, so there is nothing to clear (#1569).
+      return sorting(core, () =>
+        timedInLibrary(context, async () => {
+          const proposed = await core.proposeFolders(ids);
+          if (proposed.length === 0) throw new Error("No Folder was proposed.");
+        }, ["organizeReview.changed"]),
+      );
     },
   },
   {
     id: "organize",
-    label: "Organize: five Documents filed into three Folders, with their Tags",
+    label: "Organize: five Documents proposed for three Folders, with their Tags",
     async run(context) {
       const { core, language } = context;
       const ids = sortedIds(context);
