@@ -789,4 +789,35 @@ describe("Usage data: a week's model spend (#1993)", { timeout: 30_000 }, () => 
     expect(fieldsOf((await week(true, "off", false)).sent, "model_spend_week")).toEqual([]);
     expect(fieldsOf((await week(true, "on", true)).sent, "model_spend_week")).toEqual([]);
   });
+
+  test("turning usage data on after a week ended sends nothing from that week", async () => {
+    const clock = manualClock(TUESDAY);
+    const dataDir = await createTempDataFolder();
+    const { sender, sent } = fakeSender();
+    const core = startCore(dataDir, {
+      now: clock.now,
+      createChatModel: () => okModel(),
+      usageData: sender,
+    });
+
+    // One model call while usage data is off.
+    const provider = await core.saveChatProvider({ kind: "ollama", modelId: "qwen3.5:4b" });
+    const { model } = await core.prepareChatModel({
+      providerId: provider.id,
+      modelId: "qwen3.5:4b",
+    });
+    await generateText({ model, prompt: "Hello", maxRetries: 0 });
+
+    // The app stays open across the week boundary, and only then does the User agree.
+    clock.advance(WEEK_MS);
+    await core.updatePrivacySettings({ usageData: true });
+
+    // The first Question of the new week checks for a completed week: it must not send the one before.
+    const mind = await core.createMind({ title: "Tide notes" });
+    const asked = await core.askInConversation({ text: "Hello", mindId: mind.id });
+    if (!asked.asked) throw new Error("The Question wasn't asked.");
+    await answerEnded(core, asked.answerId);
+
+    expect(fieldsOf(sent, "model_spend_week")).toEqual([]);
+  });
 });

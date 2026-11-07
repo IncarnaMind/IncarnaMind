@@ -234,14 +234,27 @@ export function createModelSpend(options: {
       timer = setInterval(check, CHECK_EVERY_MS);
       timer.unref?.();
     },
-    /** An Answer to a Question started: counted for the week it starts in. */
+    /** An Answer to a Question started: counted for the week it starts in, while usage data is on. */
     questionAsked(): void {
       try {
         // A completed week is read before the tally moves on, even if the app stayed open.
         check();
+        if (!options.sending()) return;
         const week = weekStarts(options.now()).thisWeek.toISOString();
         const tally: QuestionTally = { week, questions: questionsIn(options.settings, week) + 1 };
         options.settings.writeDeviceValue(QUESTIONS, tally);
+      } catch (error) {
+        reportError(error);
+      }
+    },
+    /** The User just turned usage data on: the completed week before that is not sent. */
+    skipLastWeek(): void {
+      try {
+        const last = weekStarts(options.now()).lastWeek.toISOString();
+        const reported = options.settings.readDeviceValue(REPORTED);
+        if (typeof reported !== "string" || reported < last) {
+          options.settings.writeDeviceValue(REPORTED, last);
+        }
       } catch (error) {
         reportError(error);
       }

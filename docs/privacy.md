@@ -129,7 +129,7 @@ Usage data is a small set of anonymous product events, such as "a Question was a
 - **A test build, for invited testers,** sends usage data until you turn it off, as testers agree to when they join. Its first run says so, in a notice at the bottom of the sidebar with the switch to turn it off.
 - **Local mode** ("Keep everything on this computer", in Settings → Privacy) turns usage data off, and it stays off.
 - **You can change it any time** in Settings → Privacy, under "Usage data". Turning it off stops sending at once and drops anything still waiting to be sent.
-- **A completed week is sent once.** A week with no model call sends nothing, and a week you had usage data off for is not sent later.
+- **A completed week is sent once.** A week with no model call sends nothing, and turning usage data on doesn't send a week from before you agreed.
 
 ### What's never sent
 
@@ -140,7 +140,7 @@ Your Documents, their text or names, Folder and Tag names, Questions, Answers, q
 Events go to [PostHog](https://posthog.com), an open-source analytics service, to the project the maintainer set in the build (PostHog's EU cloud or a self-hosted server), using PostHog's open-source Node.js library in the app's main process. The window never talks to the network itself.
 
 - Each event carries a random install ID, made the first time an event is sent. It lets one install's steps be followed, and nothing else. **Reset install ID** in Settings → Privacy gives a new one.
-- One number stays on this computer for the weekly event: how many Questions have started in the current week, so `model_spend_week` can give the week's count. It holds no Question, and it is replaced each week.
+- While usage data is on, one number stays on this computer for the weekly event: how many Questions have started in the current week, so `model_spend_week` can give the week's count. It holds no Question, and it is replaced each week.
 - No person profile is made, no location is looked up, and PostHog stores `0.0.0.0` instead of your IP address.
 - Events wait in a short queue in memory (at most 100), and are sent together every 30 seconds or every 20 events. If a send fails, for example offline, those events are dropped. No event is written to disk.
 

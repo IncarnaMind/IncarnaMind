@@ -5961,8 +5961,11 @@ export function createCore(adapters: CoreAdapters): Core {
     getModelRuntimeFolder: () => modelRuntimeFolder.present(),
     showModelRuntimeFolder: () => modelRuntimeFolder.show(),
     updatePrivacySettings: async (patch) => {
+      const before = privacy.status();
       const { changed, settings: updated } = privacy.update(patch);
       if (changed) privacyChanged();
+      // Turning usage data on never sends a completed week from before the User agreed.
+      if (!before.usageData.enabled && updated.usageData.enabled) modelSpend.skipLastWeek();
       return updated;
     },
     recordUsage: async (event) => usageData.recordFromUi(event),
