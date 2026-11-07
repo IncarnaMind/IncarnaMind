@@ -288,6 +288,40 @@ describe("Migrations", () => {
     db.close();
   });
 
+  test("the item index on deleted_folder_items is added to an existing database, and its lookup uses it", async () => {
+    const db = openDatabase(join(await createTempDataFolder(), "test.db"));
+    migrate(
+      db,
+      migrations.filter((migration) => migration.version < 131),
+    );
+    const at = "2026-10-01T00:00:00.000Z";
+    db.run(
+      `INSERT INTO deleted_folder_items
+         (id, folder_id, item_kind, item_id, suggested, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 0, ?, ?)`,
+      ["00000000-0000-4000-8000-000000000001", "folder-a", "document", "document-a", at, at],
+    );
+
+    migrate(db);
+
+    expect(userVersion(db)).toBe(migrations.at(-1)?.version);
+    expect(db.all("SELECT id FROM deleted_folder_items")).toEqual([
+      { id: "00000000-0000-4000-8000-000000000001" },
+    ]);
+    const plan = db
+      .all<{ detail: string }>(
+        `EXPLAIN QUERY PLAN SELECT f.folder_id FROM deleted_folder_items f
+         WHERE f.item_kind = 'document' AND f.item_id = 'document-a' AND f.deleted_at IS NULL
+           AND f.created_at >= ?
+         ORDER BY f.rowid DESC LIMIT 1`,
+        [at],
+      )
+      .map((row) => row.detail)
+      .join("\n");
+    expect(plan).toContain("deleted_folder_items_by_item");
+    db.close();
+  });
+
   test("all pending migrations share one transaction", async () => {
     const db = openDatabase(join(await createTempDataFolder(), "test.db"));
     const one = { version: 1, description: "one", sql: "CREATE TABLE one (id TEXT) STRICT;" };

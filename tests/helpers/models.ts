@@ -337,7 +337,7 @@ export type ScriptedReply =
   | { error: { status: number; message: string } };
 
 /** A prompt's text but the system prompt: each message's, a blank line apart. */
-function promptText(prompt: CallOptions["prompt"]): string {
+export function promptText(prompt: CallOptions["prompt"]): string {
   return prompt
     .filter((message) => message.role !== "system")
     .map((message) =>
@@ -415,53 +415,67 @@ export function scriptedModel(
   } = {},
 ): MockLanguageModelV4 {
   let index = 0;
-  return new MockLanguageModelV4({
-    modelId,
-    doGenerate: async (options) => {
-      if (judgesItsAnswers && systemOf(options.prompt) === SENTENCE_BATCH_INSTRUCTIONS) {
-        return {
-          content: [{ type: "text", text: allSupported(promptText(options.prompt)) }],
-          finishReason: { unified: "stop", raw: undefined },
-          usage,
-          warnings: [],
-        };
-      }
-      if (!generate && systemOf(options.prompt).startsWith("You sort the sentences")) {
-        const sentences = listedSentences(promptText(options.prompt)).map(({ number, text }) => ({
-          number,
-          parts: [{ kind: "fact", text }],
-        }));
-        return {
-          content: [{ type: "text", text: JSON.stringify({ sentences }) }],
-          finishReason: { unified: "stop", raw: undefined },
-          usage,
-          warnings: [],
-        };
-      }
-      if (!generate && systemOf(options.prompt).includes(CLAIM_CHECK_INSTRUCTIONS)) {
-        return {
-          content: [{ type: "text", text: '{"claims":[]}' }],
-          finishReason: { unified: "stop", raw: undefined },
-          usage,
-          warnings: [],
-        };
-      }
-      if (!generate) throw new Error("This scripted model only streams.");
-      const reply = generate({
-        system: systemOf(options.prompt),
-        prompt: promptText(options.prompt),
-        options,
-      });
-      if ("error" in reply) throw providerError(reply.error);
-      if (reply.until) await heldUntil(reply.until, options.abortSignal);
+  const generated = async (
+    options: GenerateCall["options"],
+  ): Promise<Awaited<ReturnType<MockLanguageModelV4["doGenerate"]>>> => {
+    if (judgesItsAnswers && systemOf(options.prompt) === SENTENCE_BATCH_INSTRUCTIONS) {
       return {
-        content: [{ type: "text", text: reply.text }],
-        finishReason: { unified: reply.cutOff ? "length" : "stop", raw: undefined },
-        usage: reply.usage ?? usage,
+        content: [{ type: "text", text: allSupported(promptText(options.prompt)) }],
+        finishReason: { unified: "stop", raw: undefined },
+        usage,
         warnings: [],
       };
-    },
+    }
+    if (!generate && systemOf(options.prompt).startsWith("You sort the sentences")) {
+      const sentences = listedSentences(promptText(options.prompt)).map(({ number, text }) => ({
+        number,
+        parts: [{ kind: "fact", text }],
+      }));
+      return {
+        content: [{ type: "text", text: JSON.stringify({ sentences }) }],
+        finishReason: { unified: "stop", raw: undefined },
+        usage,
+        warnings: [],
+      };
+    }
+    if (!generate && systemOf(options.prompt).includes(CLAIM_CHECK_INSTRUCTIONS)) {
+      return {
+        content: [{ type: "text", text: '{"claims":[]}' }],
+        finishReason: { unified: "stop", raw: undefined },
+        usage,
+        warnings: [],
+      };
+    }
+    if (!generate) throw new Error("This scripted model only streams.");
+    const reply = generate({
+      system: systemOf(options.prompt),
+      prompt: promptText(options.prompt),
+      options,
+    });
+    if ("error" in reply) throw providerError(reply.error);
+    if (reply.until) await heldUntil(reply.until, options.abortSignal);
+    return {
+      content: [{ type: "text", text: reply.text }],
+      finishReason: { unified: reply.cutOff ? "length" : "stop", raw: undefined },
+      usage: reply.usage ?? usage,
+      warnings: [],
+    };
+  };
+  return new MockLanguageModelV4({
+    modelId,
+    doGenerate: generated,
     doStream: async (options) => {
+      // A Note's sort streams its reply (#2532): it is answered as when it was generated.
+      if (systemOf(options.prompt).startsWith("You sort the sentences")) {
+        const reply = await generated(options);
+        const text = reply.content.flatMap((part) => (part.type === "text" ? [part.text] : []));
+        return {
+          stream: streamedReply(text.join(""), options.abortSignal, {
+            chunkSize,
+            finished: reply.finishReason.unified === "length" ? "length" : "stop",
+          }),
+        };
+      }
       const call: ModelCall = {
         index: index++,
         tools: (options.tools ?? []).map((each) => each.name),

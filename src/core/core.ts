@@ -498,6 +498,13 @@ const isBehind = (meeting: Meeting) => meeting.transcript?.state === "behind";
 /** The longest password a PDF is unlocked with: far beyond any real one, short enough to refuse junk. */
 const MAX_PDF_PASSWORD = 1_024;
 
+/**
+ * How much of Recently deleted's 30 days an item must have left for Undo of a Restore to keep its
+ * deletion time: with less, it is deleted at the Undo's own moment, so the Redo that follows isn't
+ * refused once those last seconds pass (#2274).
+ */
+const DELETE_AGAIN_MARGIN_MS = 24 * 60 * 60 * 1000;
+
 const parseDocumentId = (input: unknown): string => {
   if (typeof input !== "string" || input === "") {
     throw new InvalidInputError({ key: "error.document.notFound" });
@@ -629,6 +636,7 @@ export function createCore(adapters: CoreAdapters): Core {
     throw error;
   }
   const events = createEventHub();
+
   const knownSecrets = new Set<string>();
   // Logs what happens from here on, from the events: never the User's content.
   const activity = logActivity(events, adapters.log ?? silentLogger, knownSecrets);
@@ -2822,6 +2830,23 @@ export function createCore(adapters: CoreAdapters): Core {
 
   const checks = createChecks({
     language: () => settings.get().language,
+    // What a check reads of the Documents as it runs: their words, names and whether it may use
+    // them. Its scope, their Folders and Tags are taken when the run starts (#2532).
+    libraryState: () =>
+      JSON.stringify(
+        documents
+          .list()
+          .map((document) => [
+            document.id,
+            document.name,
+            document.title,
+            document.contentHash,
+            document.status,
+            document.notCited,
+            document.ownFile,
+            document.readHiddenSheets,
+          ]),
+      ),
     content,
     requireMind: (mindId) => {
       writableMind(mindId);
@@ -5970,11 +5995,14 @@ export function createCore(adapters: CoreAdapters): Core {
       const current = now();
       const nowMs = Date.parse(current);
       const earliest = nowMs - RECENTLY_DELETED_DAYS * 24 * 60 * 60 * 1000;
-      // A time outside Recently deleted's 30 days would list it expired or purge it at once:
-      // deleting it again at `current` keeps it restorable (#2238).
+      // A time outside Recently deleted's 30 days, or with less than a day of them left, would
+      // list it expired or purge it at once: deleting it again at `current` keeps it restorable
+      // and its Redo possible (#2238, #2274).
       const atOf = (item: DeletedAgainRef) => {
         const time = Date.parse(item.deletedAt);
-        return time >= earliest && time <= nowMs ? item.deletedAt : current;
+        return time >= earliest + DELETE_AGAIN_MARGIN_MS && time <= nowMs
+          ? item.deletedAt
+          : current;
       };
       // Documents go back together, as their deletion did (#1349), before what came after them.
       const byTime = new Map<string, string[]>();
