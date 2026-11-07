@@ -207,3 +207,127 @@ Tags if applied from each probability, over the 80 Documents:
 ### Limits
 
 80 synthetic Documents labelled by one person, and some labels are debatable. Single runs, except the repeats listed. The Claude models, Kimi and the decision models were each run with one prompt wording; the decision models' Tag questions were not tuned (OpenAI's wording was written for this run, Jev's is the app's). Prices are the catalog's list prices, not a bill. The local routes were not rerun here, and nothing here measures Local mode.
+
+---
+
+## 2026-11-07: Organize as a new User meets it, baseline
+
+The new-User mode ([README.md](README.md#as-a-new-user-meets-it)) on commit `2afea5b0f`, as `main` was: no Folders, the held-out half added to a fresh Library, and Organize run through the app's own flow ("Sort these into Folders", then "Use Anthropic"), with Claude Haiku 5.5 as the User's model. Topic Tags were judged by Claude Sonnet 5.5. Once in English and once in Simplified Chinese; the Documents are the same 40 both times (24 English, 16 Chinese), and 38 are readable (the two scans have no text). Single runs.
+
+| Bar | Pass | English | Simplified Chinese |
+|---|---|---|---|
+| Filed: readable Documents in a Folder | ≥ 80% | 12/38 (32%) FAIL | 19/38 (50%) FAIL |
+| Smallest Folder | every Folder ≥ 3 | 1 (sizes 1, 3, 5, 3) FAIL | 1 (sizes 5, 1, 6, 7) FAIL |
+| Same-label pairs sharing a Folder | ≥ 90% | 6/99 (6%) FAIL | 46/99 (46%) FAIL |
+| Different-label pairs sharing a Folder | ≤ 10% | 4/429 (1%) PASS | 0/429 (0%) PASS |
+| Kind Tag F1 | ≥ 0.80 | 0.33 (P 0.71, R 0.21) FAIL | 0.31 (P 0.82, R 0.19) FAIL |
+| Topic Tags off-topic | ≤ 5% | 16/52 (31%) FAIL | 13/44 (30%) FAIL |
+| Distinct Tag names | ≤ 10 (7 kinds + 3) | 40 FAIL | 35 FAIL |
+
+| | English | Simplified Chinese |
+|---|---|---|
+| From the press: Folders made, first Document placed, all settled | 3.1 s, 13.2 s, 75.8 s | 2.3 s, 20.8 s, 66.2 s |
+| Haiku 5.5: requests, input / output tokens, cost | 39, 151,087 / 4,273, $0.018 | 39, 141,112 / 3,796, $0.015 |
+| The judge, Sonnet 5.5: requests, cost | 52, $0.074 | 44, $0.064 |
+
+What it shows:
+
+- **Folders.** The proposal makes at most four Folders. In English it made them for the outliers and one group: Allotment Garden (1), Fiction Manuscript (3), Travel Planning (3) and Personal Finance and Bills (5). No Folder took the research papers, the reports, the contracts or the meeting notes, so 26 of 38 readable Documents were left in no Folder. In Chinese the four Folders followed the labels (contracts 5 of 5, finance 6 of 6, reports 7 of 7, and a garden Folder of 1), and research and meetings got none. Neither run put two different labels together much, which is the one bar passed.
+- **Kind Tags are rarely applied.** Recall is about 0.2: most Documents got only topic Tags, and a paper, a report or minutes seldom got Paper, Report or Notes.
+- **Topic Tags are made per Document and reused where they don't fit.** Coral Reef Monitoring went on a novel and a bird-call paper, Field service scheduling on a utility bill, a grant report and a statement of work, 预算执行 on a novel; about 30% were judged off-topic. Tags follow each Document's language, not the interface's, by the app's tagging rules, so each language has its own set of names.
+- **Each sorting request grows.** About 3,900 input tokens a Document, against about 1,700 in the classifier route, as every Tag made so far is sent with each request.
+
+Both runs together cost about $0.17.
+
+Every mistake: a Document not filed, in a Folder mostly of another label, with a kind missing or not labelled, or with a Tag judged off-topic. "none": it fits none of the five starter Folders; (topic): a Tag that names no kind.
+
+<details><summary>English: 39 Documents</summary>
+
+| Document | Labelled: Folder; kinds | Proposed: Folder; Tags | What is wrong |
+|---|---|---|---|
+| en-garden-plan (en, markdown) | none; notes | Allotment Garden; Retail Sales Performance (topic) | kind missing: notes; off-topic: Retail Sales Performance |
+| en-novel-chapter (en, text) | none; book | Fiction Manuscript; Coral Reef Monitoring (topic) | kind missing: book; off-topic: Coral Reef Monitoring |
+| zh-novel-chapter (zh, docx) | none; book | Fiction Manuscript; 雾港小说 (topic) | kind missing: book |
+| zh-packing-list (zh, xlsx) | none; notes | Travel Planning; Trip Packing and Itinerary (topic) | kind missing: notes |
+| zh-near-empty (zh, markdown) | none; notes | Travel Planning; – | kind missing: notes |
+| en-hiring-debrief (en, docx) | meetings; notes | –; Hiring and Recruitment (topic) | not filed; kind missing: notes |
+| zh-retro-deck (zh, pptx) | meetings; slides, notes | –; 迭代回顾 (topic) | not filed; kind missing: slides, notes |
+| en-board-minutes (en, pdf) | meetings; notes | –; Board Governance (topic), Website Performance (topic) | not filed; kind missing: notes; off-topic: Website Performance |
+| en-sync-deck (en, pptx) | meetings; slides, notes | –; Data Platform (topic), Facilities Management (topic) | not filed; kind missing: slides, notes; off-topic: Facilities Management |
+| zh-whiteboard-scan (zh, pdf (scan)) | meetings; notes | –; – | no text, not measured |
+| en-facilities-minutes-injection (en, text) | meetings; notes | –; Facilities Management (topic), Slides | not filed; kind missing: notes; kind not labelled: slides |
+| zh-travel-reimbursement (zh, docx) | finance; report, invoice | Personal Finance and Bills; 差旅报销 (topic), 预算执行 (topic) | kind missing: report, invoice; off-topic: 预算执行 |
+| zh-financial-statements (zh, pdf) | finance; report | –; 年度财务报表 (topic), 预算执行 (topic) | not filed; kind missing: report; off-topic: 预算执行 |
+| en-grant-financial-report (en, xlsx) | finance; report | –; Bioacoustics Research (topic), Grant Reporting (topic) | not filed; kind missing: report |
+| zh-budget-execution (zh, xlsx) | finance; report | Personal Finance and Bills; 销售分析 (topic), 预算执行 (topic) | kind missing: report; off-topic: 销售分析 |
+| en-expense-claim (en, xlsx) | finance; report, invoice | Personal Finance and Bills; Expense Claims (topic), Notes | kind missing: report, invoice; kind not labelled: notes |
+| en-dpa (en, docx) | contracts; contract | –; Contract, Data Protection (topic) | not filed |
+| en-freelance-sow (en, markdown) | contracts; contract | –; Contract, UX Design Services (topic) | not filed |
+| zh-purchase-contract-payment (zh, markdown) | contracts; contract, invoice | Personal Finance and Bills; 设备采购 (topic) | in a Folder mostly of finance; kind missing: contract, invoice |
+| en-contract-scan (en, pdf (scan)) | contracts; contract | –; – | no text, not measured |
+| zh-nda (zh, docx) | contracts; contract | –; 保密协议 (topic), 销售分析 (topic) | not filed; kind missing: contract; off-topic: 销售分析 |
+| en-nda (en, pdf) | contracts; contract | –; Contract | not filed |
+| zh-east-region-review (zh, pptx) | reports; slides, report | –; 华东区业务 (topic), 运营月报 (topic), 销售分析 (topic) | not filed; kind missing: slides, report; off-topic: 运营月报 |
+| zh-ops-monthly (zh, xlsx) | reports; report | –; 运营月报 (topic), 销售分析 (topic) | not filed; kind missing: report; off-topic: 销售分析 |
+| en-web-analytics-deck (en, pdf) | reports; slides, report | –; Report, Retail Sales Performance (topic), Website Performance (topic) | not filed; kind missing: slides; off-topic: Retail Sales Performance |
+| en-sales-by-region (en, xlsx) | reports; report | –; Report, Retail Sales Performance (topic) | not filed |
+| en-kickoff-deck (en, pptx) | reports; slides | –; Field Service Scheduling (topic), Slides | not filed |
+| en-ev-market-report (en, pdf) | reports; report | –; EV Charging Infrastructure (topic) | not filed; kind missing: report |
+| zh-q1-sales-report (zh, pdf) | reports; report | –; 销售分析 (topic) | not filed; kind missing: report |
+| en-q1-sales-report (en, docx) | reports; report | –; Notes, Retail Sales Performance (topic) | not filed; kind missing: report; kind not labelled: notes |
+| en-birdcall-dataset-paper (en, docx) | research; paper | –; Coral Reef Monitoring (topic), Paper | not filed; off-topic: Coral Reef Monitoring |
+| zh-sealing-tech-report (zh, pdf) | research; paper, report | –; 密封件老化 (topic) | not filed; kind missing: paper, report |
+| en-readability-preprint (en, text) | research; paper | –; Coral Reef Monitoring (topic), Paper, Readability of Health Notices (topic) | not filed; off-topic: Coral Reef Monitoring |
+| zh-reading-notes (zh, text) | research; notes | Travel Planning; 钙钛矿电池稳定性 (topic) | kind missing: notes |
+| en-lit-review-notes (en, markdown) | research; notes | Fiction Manuscript; Federated Learning Privacy (topic), Notes, Sleep and Memory (topic) | off-topic: Sleep and Memory |
+| zh-protein-talk-deck (zh, pptx) | research; slides | –; 学术报告 (topic), 药物分子结合预测 (topic) | not filed; kind missing: slides |
+| en-reef-talk-deck (en, pptx) | research; slides | –; Coral Reef Monitoring (topic), Corrosion Testing (topic) | not filed; kind missing: slides; off-topic: Corrosion Testing |
+| en-corrosion-tech-report (en, pdf) | research; paper, report | –; Corrosion Testing (topic), Sleep and Memory (topic) | not filed; kind missing: paper, report; off-topic: Sleep and Memory |
+| en-sleep-preprint (en, markdown) | research; paper | –; Sleep and Memory (topic), Slides | not filed; kind missing: paper; kind not labelled: slides |
+
+</details>
+
+<details><summary>Simplified Chinese: 38 Documents</summary>
+
+| Document | Labelled: Folder; kinds | Proposed: Folder; Tags | What is wrong |
+|---|---|---|---|
+| en-garden-plan (en, markdown) | none; notes | 园艺种植; Allotment gardening (topic) | kind missing: notes |
+| en-novel-chapter (en, text) | none; book | –; Lighthouse fiction (topic) | kind missing: book |
+| zh-novel-chapter (zh, docx) | none; book | –; 小说创作 (topic), 预算执行 (topic) | kind missing: book; off-topic: 预算执行 |
+| zh-packing-list (zh, xlsx) | none; notes | –; 旅行规划 (topic) | kind missing: notes |
+| en-hiring-debrief (en, docx) | meetings; notes | –; Hiring and recruitment (topic) | not filed; kind missing: notes |
+| zh-retro-deck (zh, pptx) | meetings; slides, notes | –; 笔记, 迭代回顾 (topic) | not filed; kind missing: slides |
+| en-board-minutes (en, pdf) | meetings; notes | –; Charity board governance (topic) | not filed; kind missing: notes |
+| en-sync-deck (en, pptx) | meetings; slides, notes | –; Data platform team (topic) | not filed; kind missing: slides, notes |
+| zh-whiteboard-scan (zh, pdf (scan)) | meetings; notes | –; – | no text, not measured |
+| en-facilities-minutes-injection (en, text) | meetings; notes | –; 社区中心设施管理 (topic) | not filed; kind missing: notes |
+| zh-travel-reimbursement (zh, docx) | finance; report, invoice | 财务报销与账单; 差旅报销 (topic), 预算执行 (topic) | kind missing: report, invoice; off-topic: 预算执行 |
+| en-utility-bill (en, text) | finance; invoice | 财务报销与账单; Field service scheduling (topic) | kind missing: invoice; off-topic: Field service scheduling |
+| zh-financial-statements (zh, pdf) | finance; report | 财务报销与账单; 财务报表 (topic), 预算执行 (topic) | kind missing: report; off-topic: 预算执行 |
+| en-grant-financial-report (en, xlsx) | finance; report | 财务报销与账单; Field service scheduling (topic), Grant financial reporting (topic) | kind missing: report; off-topic: Field service scheduling |
+| zh-budget-execution (zh, xlsx) | finance; report | 财务报销与账单; 报告, 青禾家居销售 (topic), 预算执行 (topic) | off-topic: 青禾家居销售 |
+| en-expense-claim (en, xlsx) | finance; report, invoice | 财务报销与账单; Materials testing (topic) | kind missing: report, invoice; off-topic: Materials testing |
+| en-dpa (en, docx) | contracts; contract | 合同与保密协议; Non-disclosure agreements (topic) | kind missing: contract; off-topic: Non-disclosure agreements |
+| en-freelance-sow (en, markdown) | contracts; contract | 合同与保密协议; Driver app redesign (topic), Field service scheduling (topic) | kind missing: contract; off-topic: Field service scheduling |
+| zh-purchase-contract-payment (zh, markdown) | contracts; contract, invoice | 合同与保密协议; 合同 | kind missing: invoice |
+| en-contract-scan (en, pdf (scan)) | contracts; contract | –; – | no text, not measured |
+| en-nda (en, pdf) | contracts; contract | 合同与保密协议; Non-disclosure agreements (topic) | kind missing: contract |
+| zh-east-region-review (zh, pptx) | reports; slides, report | 销售与运营报告; 幻灯片, 青禾家居销售 (topic) | kind missing: report; off-topic: 青禾家居销售 |
+| zh-ops-monthly (zh, xlsx) | reports; report | 销售与运营报告; 青禾家居销售 (topic) | kind missing: report; off-topic: 青禾家居销售 |
+| en-web-analytics-deck (en, pdf) | reports; slides, report | 销售与运营报告; Quarterly sales review (topic), Website analytics (topic) | kind missing: slides, report; off-topic: Quarterly sales review |
+| en-sales-by-region (en, xlsx) | reports; report | 销售与运营报告; Quarterly sales review (topic) | kind missing: report |
+| en-kickoff-deck (en, pptx) | reports; slides | –; Field service scheduling (topic) | not filed; kind missing: slides |
+| en-ev-market-report (en, pdf) | reports; report | 销售与运营报告; EV charging market (topic), Quarterly sales review (topic) | kind missing: report; off-topic: Quarterly sales review |
+| zh-q1-sales-report (zh, pdf) | reports; report | 销售与运营报告; 幻灯片, 青禾家居销售 (topic) | kind missing: report; kind not labelled: slides |
+| en-q1-sales-report (en, docx) | reports; report | 销售与运营报告; Quarterly sales review (topic) | kind missing: report |
+| en-birdcall-dataset-paper (en, docx) | research; paper | –; Bird song monitoring (topic) | not filed; kind missing: paper |
+| zh-sealing-tech-report (zh, pdf) | research; paper, report | –; 密封件老化试验 (topic), 报告 | not filed; kind missing: paper |
+| en-readability-preprint (en, text) | research; paper | –; Readability research (topic) | not filed; kind missing: paper |
+| zh-reading-notes (zh, text) | research; notes | –; 笔记, 钙钛矿电池稳定性 (topic) | not filed |
+| en-lit-review-notes (en, markdown) | research; notes | –; Federated learning privacy (topic) | not filed; kind missing: notes |
+| zh-protein-talk-deck (zh, pptx) | research; slides | –; 幻灯片, 论文 | not filed; kind not labelled: paper |
+| en-reef-talk-deck (en, pptx) | research; slides | –; Coral reef monitoring (topic) | not filed; kind missing: slides |
+| en-corrosion-tech-report (en, pdf) | research; paper, report | –; Materials testing (topic), Weld corrosion testing (topic) | not filed; kind missing: paper, report |
+| en-sleep-preprint (en, markdown) | research; paper | –; 睡眠与记忆 (topic), 认知科学研究 (topic) | not filed; kind missing: paper |
+
+</details>
