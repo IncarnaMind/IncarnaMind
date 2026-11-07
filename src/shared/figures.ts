@@ -213,14 +213,28 @@ const LATIN_LETTER = /^[A-Za-z]$/;
 const POWER_AFTER = /(?<![A-Za-z])(?:m|km|cm|mm|ft)$/;
 
 /** Whether `text` at `start`–`end` is a superscript read as a footnote mark, not a digit ("1,240.50¹", not "m²"). */
-export const isFootnoteMark = (text: string, start: number, end: number): boolean =>
+const isFootnoteMark = (text: string, start: number, end: number): boolean =>
   SUPERSCRIPT.test(text.slice(start, end)) &&
   !POWER_AFTER.test(text.slice(Math.max(0, start - 3), start));
 
-/** `text` with each footnote mark read as `FOOTNOTE_MARK_CHAR`, which NFKC keeps apart from the figure ("1,240.50¹"). */
+/** The superscript digits NFKC writes as digits ("¹²³", "⁰", "⁴" to "⁹"). */
+const SUPERSCRIPT_DIGIT = /^[¹²³⁰⁴-⁹]$/u;
+/** What a figure ends in: a digit, a closing bracket, or a percent. */
+const ENDS_FIGURE = /[\p{Nd})）%]$/u;
+
+/**
+ * Whether `text` at `start`–`end` is a footnote's mark directly after a
+ * figure ("1,240.50¹"): not a power or a unit's sign elsewhere ("x²",
+ * "Ca²⁺", "2ⁿᵈ", "see note¹").
+ */
+export const isFootnoteAfterFigure = (text: string, start: number, end: number): boolean =>
+  SUPERSCRIPT_DIGIT.test(text.slice(start, end)) &&
+  ENDS_FIGURE.test(text.slice(Math.max(0, start - 1), start));
+
+/** `text` with each footnote's mark read as `FOOTNOTE_MARK_CHAR`, which NFKC keeps apart from the figure ("1,240.50¹"). */
 export const markedFootnotes = (text: string): string =>
   text.replace(/./gu, (char, at: number) =>
-    isFootnoteMark(text, at, at + char.length) ? FOOTNOTE_MARK_CHAR : char,
+    isFootnoteAfterFigure(text, at, at + char.length) ? FOOTNOTE_MARK_CHAR : char,
   );
 
 interface Prepared {

@@ -6,6 +6,7 @@
 import { describe, expect, test } from "vitest";
 import { extractText } from "../../src/core/documents/extract";
 import { extractDocx } from "../../src/core/documents/formats/docx";
+import { readFigures } from "../../src/shared/figures";
 import { buildPdf, type PdfPage } from "../helpers/pdf";
 import { paragraph, STYLES, wordFile } from "../helpers/word";
 
@@ -44,6 +45,20 @@ describe("A PDF page's footnote mark (#2474)", () => {
         { text: "1", x: 112, y: 703, size: 7 },
       ]),
     ).toBe("Grants paid 2025\nSee the note1");
+  });
+
+  test("a raised digit after a bare number is a footnote's mark, never the joined 106", async () => {
+    // A power ("10⁶") is set the same way as a footnote's mark; the page can't tell them apart, so the
+    // mark is kept apart and the figure is read as 10 with a mark, rather than as the joined 106.
+    expect(
+      await pageText([
+        { text: "Total 10", x: 72, y: 700 },
+        { text: "6", x: 108, y: 703, size: 7 },
+      ]),
+    ).toBe("Grants paid 2025\nTotal 10⁶");
+    expect(readFigures("Total 10⁶").map((each) => [each.value, each.footnote])).toEqual([
+      [10, "⁶"],
+    ]);
   });
 });
 

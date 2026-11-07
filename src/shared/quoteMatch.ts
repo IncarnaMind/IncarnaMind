@@ -19,11 +19,12 @@
  * - a reference or footnote mark "[^36]" reads "[36]": models write a paper's
  *   reference "[36]" in the syntax of our own Citation markers. Only matching
  *   reads it so: the markers in an Answer's text are never touched;
- * - a superscript digit reads as a footnote's mark, not a digit, as the figure
- *   reader reads one: a quote that joins the mark to the figure in front of it
- *   ("1,240.501") is not in "1,240.50¹", while a quote that keeps the mark is
- *   found where a drawn page keeps the mark a digit ("1,240.50¹" in
- *   "1,240.501", as a Word page draws one);
+ * - a superscript digit directly after a figure reads as a footnote's mark, not
+ *   a digit, as the figure reader reads one: a quote that joins the mark to the
+ *   figure ("1,240.501") is not in "1,240.50¹", while a quote that keeps the
+ *   mark is found where a drawn page keeps the mark a digit ("1,240.50¹" in
+ *   "1,240.501", as a Word page draws one). A superscript elsewhere is no mark:
+ *   "x²", "Ca²⁺" and "2ⁿᵈ" read "x2", "Ca2+" and "2nd";
  * - a soft hyphen that ends a line is read as a hyphen, so the word split
  *   there is joined like any other ("inter\u00ad\nnational");
  * - a pipe that breaks a table's cells, a lone "|" with whitespace or a
@@ -89,7 +90,7 @@
  * and so quoted, in its number format ("Jun: 1,560") (#76). A quote found as
  * it is stays found, so a slide's other text is matched as before.
  */
-import { FOOTNOTE_MARK_CHAR, isFootnoteMark, numberFormatting } from "./figures";
+import { FOOTNOTE_MARK_CHAR, isFootnoteAfterFigure, numberFormatting } from "./figures";
 import { SIMPLIFIED } from "./hanVariants";
 import { type NormalisedUnit, normaliseWithOffsets } from "./text";
 
@@ -270,7 +271,9 @@ function matchUnits(text: string, numbers?: GroupSpaces): NormalisedUnit[] {
   const { units } = normaliseWithOffsets(cellBreaksAsSpaces(original));
   const folded = units.map((unit) => ({
     ...unit,
-    char: isFootnoteMark(original, unit.start, unit.end) ? FOOTNOTE_MARK_CHAR : fold(unit.char),
+    char: isFootnoteAfterFigure(original, unit.start, unit.end)
+      ? FOOTNOTE_MARK_CHAR
+      : fold(unit.char),
   }));
   for (let at = 0; at + 3 < folded.length; at++) {
     if (folded[at]?.char !== "[" || folded[at + 1]?.char !== "^") continue;
