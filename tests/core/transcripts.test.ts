@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test, vi } from "vitest";
 import type { Core } from "../../src/core";
@@ -548,7 +548,7 @@ describe("Pausing my microphone, in the Transcript", { timeout: 60_000 }, () => 
     expect(gaps).toEqual([{ fromMs: PAUSED_AT, toMs: RESUMED_AT, reason: "muted" }]);
   });
 
-  test("a .vtt the User added keeps its file and its path; a Meeting's Transcript is the Library's, and its file goes at permanent delete (#763)", async () => {
+  test("a .vtt the User added keeps its file and its path; a Meeting's Transcript is IncarnaMind's, and its file goes when its Note is deleted permanently (#763, #2528)", async () => {
     const dataDir = await createTempDataFolder();
     const sourcesDir = await createTempDataFolder();
     const { core, record } = await transcribingCore(dataDir);
@@ -575,9 +575,10 @@ describe("Pausing my microphone, in the Transcript", { timeout: 60_000 }, () => 
 
     const ownFile = join(dataDir, "Transcripts", `${meeting.id}.vtt`);
     expect(existsSync(ownFile)).toBe(true);
-    await core.deleteDocuments([own.id, user.id]);
+    await core.deleteDocuments([user.id]);
+    await core.deleteMind(meeting.mindId);
     await core.deletePermanently([
-      { kind: "document", id: own.id },
+      { kind: "mind", id: meeting.mindId },
       { kind: "document", id: user.id },
     ]);
     // IncarnaMind's own Transcript goes; the .vtt the User added stays theirs.
@@ -595,20 +596,17 @@ describe("Pausing my microphone, in the Transcript", { timeout: 60_000 }, () => 
     await core.stopMeeting(meeting.id);
     const saved = await until(core, meeting.id, (transcript) => transcript.state === "saved");
     if (!saved.documentId) throw new Error("The Transcript has no Document.");
-    await core.deleteDocuments([saved.documentId]);
+    await core.deleteMind(meeting.mindId);
 
-    const folder = join(dataDir, "Transcripts");
-    const file = join(folder, `${meeting.id}.vtt`);
-    // A folder that can't be written to: removing the file fails with EACCES, and must not throw.
-    chmodSync(folder, 0o500);
-    try {
-      await expect(
-        core.deletePermanently([{ kind: "document", id: saved.documentId }]),
-      ).resolves.toBeUndefined();
-    } finally {
-      chmodSync(folder, 0o700);
-    }
+    // Something in its place that can't be removed as a file: removing it fails, and must not throw.
+    const file = join(dataDir, "Transcripts", `${meeting.id}.vtt`);
+    rmSync(file);
+    mkdirSync(join(file, "kept"), { recursive: true });
+    await expect(
+      core.deletePermanently([{ kind: "mind", id: meeting.mindId }]),
+    ).resolves.toBeUndefined();
     expect(existsSync(file)).toBe(true);
+    expect(await core.listDeleted()).toEqual([]);
   });
 
   test("Stop says the Transcript is saved only once its finished text is read, so the notes are filled from it (#763)", async () => {

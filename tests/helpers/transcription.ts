@@ -1,5 +1,6 @@
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { vi } from "vitest";
+import { expect, vi } from "vitest";
 import type {
   ChatModelFactory,
   Core,
@@ -12,6 +13,8 @@ import type {
   TranscriptionModelFiles,
   VoiceTurn,
 } from "../../src/core";
+import { hashBytes } from "../../src/core/documents/files";
+import type { Language } from "../../src/core/language";
 import { createFakeCapture, type FakeCaptureOptions } from "../../src/core/meetings/fakeCapture";
 import {
   createChannelTranscriber,
@@ -27,7 +30,7 @@ import {
 } from "../../src/core/transcription/fake";
 import { createFakeCloud } from "../../src/core/transcription/fakeCloud";
 import type { SpeechEngine } from "../../src/core/transcription/speech";
-import { manualClock, startCore } from "./core";
+import { createTempDataFolder, manualClock, startCore } from "./core";
 import { scriptedModels } from "./models";
 
 /** No files to download: the fake engine needs none. */
@@ -153,6 +156,8 @@ export async function transcribingCore(
     keychain,
     speakerSeparator,
     speakerModelSource = NO_SPEAKER_FILES,
+    answerPaths,
+    examples,
   }: {
     engine?: FakeTranscriberOptions;
     /** What the fake capture does, e.g. the computer's sound denied. */
@@ -170,6 +175,10 @@ export async function transcribingCore(
     speakerSeparator?: SpeakerSeparator;
     /** Where the speaker models come from: none to download by default. */
     speakerModelSource?: CoreAdapters["speakerModelSource"];
+    /** Which models take the faster Answer paths, instead of the lists beside the catalog. */
+    answerPaths?: CoreAdapters["answerPaths"];
+    /** The shipped examples' folder, for a core that makes them. */
+    examples?: string;
   } = {},
 ) {
   const clock = manualClock();
@@ -190,6 +199,8 @@ export async function transcribingCore(
     ...(log && { log }),
     ...(keychain && { keychain }),
     ...(speakerSeparator && { speakerSeparator, speakerModelSource }),
+    ...(answerPaths && { answerPaths }),
+    ...(examples && { paths: { dataDir, examples } }),
   });
   await core.updateSettings({ device: { meetingNoticeAccepted: true } });
   await core.setOutputLocation(join(dataDir, "Documents", "IncarnaMind"));
@@ -225,4 +236,58 @@ export async function until(
     },
     { timeout: 20_000, interval: 20 },
   );
+}
+
+/**
+ * A Meeting recording for 9 seconds in a new Note, its first four lines transcribed. With
+ * `createChatModel`, its models are there for a provider the test saves.
+ */
+export async function recordedMeeting(
+  language: Language,
+  engine: FakeTranscriberOptions = {},
+  createChatModel?: ChatModelFactory,
+) {
+  const dataDir = await createTempDataFolder();
+  const recording = await transcribingCore(dataDir, {
+    engine,
+    ...(createChatModel && { createChatModel }),
+  });
+  await recording.core.updateSettings({ user: { language } });
+  const meeting = await recording.core.createMeeting();
+  await recording.core.startMeeting({ meetingId: meeting.id });
+  recording.record(9_000);
+  await until(recording.core, meeting.id, (transcript) => transcript.lines >= 4);
+  return { ...recording, dataDir, meeting };
+}
+
+/** Waits until the Transcript Document holds its file as it is now, read and ready. */
+export async function transcriptRead(
+  core: Core,
+  dataDir: string,
+  meetingId: string,
+  documentId: string,
+) {
+  const file = join(dataDir, "Transcripts", `${meetingId}.vtt`);
+  return vi.waitFor(
+    async () => {
+      const document = (await core.listDocuments()).find((each) => each.id === documentId);
+      expect(document).toMatchObject({
+        status: "ready",
+        contentHash: hashBytes(readFileSync(file)),
+      });
+      return document as NonNullable<typeof document>;
+    },
+    { timeout: 20_000, interval: 20 },
+  );
+}
+
+/** Stops the Meeting and waits for all Stop does: the Transcript saved and read, the notes tried. */
+export async function stoppedMeeting(core: Core, dataDir: string, meetingId: string) {
+  const meetingOf = async () =>
+    (await core.listMeetings()).find((each) => each.id === meetingId) as Meeting;
+  await core.stopMeeting(meetingId);
+  const { documentId } = await until(core, meetingId, (transcript) => transcript.state === "saved");
+  const document = await transcriptRead(core, dataDir, meetingId, documentId as string);
+  await vi.waitFor(async () => expect((await meetingOf()).fill?.state).toBe("off"));
+  return { meeting: await meetingOf(), document };
 }

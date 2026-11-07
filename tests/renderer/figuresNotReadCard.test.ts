@@ -58,6 +58,7 @@ beforeEach(() => {
     "listUserQuestions",
     "listApprovalRequests",
     "listConsentRequests",
+    "listRegisteredDataFlows",
     "listFileWriteRequests",
   ]);
   const bridge = new Proxy(

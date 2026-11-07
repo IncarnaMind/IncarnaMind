@@ -65,6 +65,8 @@ export interface QueuedClaim {
   place?: RecordCitePlace;
   /** Where it is checked, when not where the run's other claims are. */
   scope?: ClaimCheckRequest["scope"];
+  /** The Search scope `scope` was resolved from, when it isn't the run's. */
+  searched?: ClaimCheckRequest["searched"];
   parts?: readonly ClaimPartPlan[];
   only?: ClaimPartSpan;
   previous?: readonly ClaimCheckPart[];
@@ -95,6 +97,7 @@ export async function runChecks(
     mindId: string;
     queued: readonly QueuedClaim[];
     scope: ClaimCheckRequest["scope"];
+    searched?: ClaimCheckRequest["searched"];
     prepared: PreparedChatModel;
     thirdParty?: readonly ThirdPartyReason[];
     signal: AbortSignal;
@@ -146,6 +149,9 @@ export async function runChecks(
         ...(claim.previous && { previous: claim.previous }),
         ...(claim.figures && { figures: claim.figures }),
         scope: claim.scope ?? run.scope,
+        ...((claim.searched ?? run.searched) !== undefined && {
+          searched: claim.searched ?? run.searched,
+        }),
         model: prepared,
         ...(run.thirdParty && { thirdParty: run.thirdParty }),
         mindId,

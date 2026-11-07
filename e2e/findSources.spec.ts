@@ -131,7 +131,7 @@ test("Add Documents ▾ → Find sources… asks each provider once, then adds a
     await allowProviders(
       window,
       ["OpenAlex", "arXiv", "PubMed"],
-      "What you search for: the words and filters, such as years",
+      "What you or an Answer search for: the words and filters, such as years",
     );
     await expect(panel.getByTestId("find-sources-count")).toHaveText("9 results");
     const openalex = services.requests.find((request) => request.path.startsWith("/openalex/"));
@@ -225,7 +225,7 @@ test("in Chinese at the narrowest window, Find sources from + fits and speaks Ch
     await allowProviders(
       window,
       ["OpenAlex", "arXiv", "PubMed"],
-      "你搜索的内容：关键词和筛选条件，例如年份",
+      "你或回答要搜索的内容：关键词和筛选条件，例如年份",
     );
     await expect(panel.getByTestId("find-sources-count")).toHaveText("9 个结果");
     const nature = result(panel, "Improving the sensitivity of in vivo CRISPR");
@@ -281,7 +281,7 @@ test("an Answer asked to find papers searches the providers, and Show results op
     await allowProviders(
       window,
       ["OpenAlex", "arXiv", "PubMed"],
-      "What you search for: the words and filters, such as years",
+      "What you or an Answer search for: the words and filters, such as years",
     );
     const answer = assistantAnswers(window).last();
     await expect(answer).toHaveAttribute("data-status", "done", { timeout: 15_000 });
@@ -392,7 +392,11 @@ test("choosing the eCFR finds a regulation marked as an unofficial compilation; 
     // A citation is looked up at the eCFR; GovInfo, with no key, is off and says why.
     await panel.getByTestId("find-sources-query").fill("17 CFR 240.10b-5");
     await panel.getByTestId("find-sources-query").press("Enter");
-    await allowProviders(window, ["eCFR"], "What you search for: the words and filters");
+    await allowProviders(
+      window,
+      ["eCFR"],
+      "What you or an Answer search for: the words and filters",
+    );
     const rule = result(panel, "17 CFR 240.10b-5 Employment of manipulative and deceptive devices");
     await expect(rule.getByTestId("find-sources-result-facts")).toHaveText(
       "Open access · full text · Public domain · Unofficial compilation, not the official edition · Found on eCFR",

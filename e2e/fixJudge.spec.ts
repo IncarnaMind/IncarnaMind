@@ -19,8 +19,9 @@ import {
 
 /*
  * The walk's sentence (#2313): its figure's part is contradicted and the part that says when it
- * happened is Supported on the Document, as the judge now reads it. One press on Change leaves
- * the sentence Supported, and the card never offers Cut on the words the Document states.
+ * happened is Supported on the Document, as the judge now reads it. One press on Change writes
+ * the Document's words and asks the sentence's check; the model's verdict is the one shown
+ * (#2563), and the card never offers Cut on the words the Document states.
  */
 
 const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
@@ -74,7 +75,7 @@ for (const [language, width] of [
   ["zh-CN", 1440],
   ["zh-CN", 900],
 ] as const) {
-  test(`the walk's sentence ends Supported after the one press, never Cut (${language}, ${width}px)`, async () => {
+  test(`the walk's sentence is changed and the model checks it, never Cut (${language}, ${width}px)`, async () => {
     test.setTimeout(240_000);
     const words = TEXT[language];
     await writeFile(
@@ -175,15 +176,17 @@ for (const [language, width] of [
     await expect(card).not.toContainText(words.cut);
     await screenshot(window, `fix-judge-before-${language}-${width}`);
 
+    const earlierId = await mark.getAttribute("data-claim");
     await pointAndClick(window, contradicting.getByTestId("claim-part-correct"));
     await expect(line).toContainText(words.to);
     await expect(line).not.toContainText(words.from);
     await expect(line.getByTestId("citation")).toHaveCount(1);
-    await expect(mark).toHaveAttribute("data-check", "supported");
+    // The words are written at once; the verdict then comes from the check the press asked for.
+    await expect(mark).not.toHaveAttribute("data-claim", earlierId ?? "", { timeout: 30_000 });
+    await expect(mark).toHaveAttribute("data-check", "supported", { timeout: 30_000 });
     await pointAndClick(window, mark);
     await expect(card.getByTestId("claim-badge")).toHaveAttribute("data-check", "supported");
     await expect(card.getByTestId("claim-badge")).toContainText(words.supported);
-    await expect(card.getByTestId("claim-part").nth(1)).toContainText(words.supported);
     await expect(card.getByTestId("claim-cut")).toHaveCount(0);
     await expect(card).not.toContainText(words.cut);
     await screenshot(window, `fix-judge-after-${language}-${width}`);

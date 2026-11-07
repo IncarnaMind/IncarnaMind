@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import type { Document, LibraryGroup, Mind } from "../../core/api";
 import { useLanguage } from "./i18n";
+import { isListedDocument } from "./meetingTranscript";
 import { sorted } from "./sort";
 import { sortOf, useSort } from "./sortChoices";
 import { folderFields } from "./sortFields";
@@ -26,6 +27,7 @@ export function useFolderContents(documents: readonly Document[], { hideExamples
     const folderOf = new Map(assignments?.map((item) => [item.documentId, item.groupId]));
     const grouped = new Map<string | null, Document[]>();
     for (const doc of documents) {
+      if (!isListedDocument(doc)) continue;
       const key = folderOf.get(doc.id) ?? null;
       const list = grouped.get(key);
       if (list) list.push(doc);

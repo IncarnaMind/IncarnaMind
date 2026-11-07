@@ -239,6 +239,13 @@ export interface LibrarySnapshot {
    * each Document's name and an excerpt: the Library says so once, until the User closes the line.
    */
   automaticOffNotice?: boolean;
+  /**
+   * The cloud service Organize would sort new Documents on, while sorting them by itself isn't
+   * on for it (#2308, ADR-0022): Documents in no Folder held "off" wait for the User's Allow,
+   * which turns it on for that service and sorts them. Absent in Local mode, with no Folder, and
+   * for a model on this computer.
+   */
+  sortWaitsFor?: ExternalService;
 }
 
 export interface LibraryGroupInput {

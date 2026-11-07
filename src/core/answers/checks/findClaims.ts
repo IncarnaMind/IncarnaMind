@@ -14,6 +14,7 @@ import {
   CLAIM_BATCH,
   FIND_CLAIMS_INSTRUCTIONS,
   FIND_OWN_CLAIMS_INSTRUCTIONS,
+  FIND_OWN_LIBRARY_CLAIMS_INSTRUCTIONS,
   findClaimsPrompt,
   readClaimParts,
   type SortedText,
@@ -43,6 +44,8 @@ export async function claimsAmong(
   texts: readonly SortedText[],
   whose: "someone-else" | "own",
   signal: AbortSignal,
+  /** Its sentences' checks may show the Library's facts, so it sorts as those checks do (#2525). */
+  library = false,
 ): Promise<ClaimsFound> {
   // A sort's reply repeats each part's words, so a batch takes as long as its words: batches go
   // at once, within the provider's limit, and the first that fails ends the rest.
@@ -54,7 +57,12 @@ export async function claimsAmong(
       try {
         const { text } = await generateText({
           model: prepared.model,
-          instructions: whose === "own" ? FIND_OWN_CLAIMS_INSTRUCTIONS : FIND_CLAIMS_INSTRUCTIONS,
+          instructions:
+            whose === "someone-else"
+              ? FIND_CLAIMS_INSTRUCTIONS
+              : library
+                ? FIND_OWN_LIBRARY_CLAIMS_INSTRUCTIONS
+                : FIND_OWN_CLAIMS_INSTRUCTIONS,
           prompt: findClaimsPrompt(batch),
           temperature: answerTemperature(prepared.capabilities.facts.temperature),
           maxOutputTokens: outputTokens("find-claims"),

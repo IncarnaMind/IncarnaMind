@@ -3,6 +3,7 @@ import { verificationOf } from "../../../shared/verification";
 import { documentsAdded, useAddedDocuments } from "../addedDocuments";
 import {
   checkSentences,
+  fixesFree,
   requestDocumentPicker,
   setCheckCardOpen,
   setClaimFocus,
@@ -24,7 +25,6 @@ import {
   documentWordingAt,
   figureAt,
   findSourcesAt,
-  fixesFree,
   keepAsView,
   notFoundAt,
   searchAllDocuments,
@@ -276,7 +276,8 @@ export const checkCommands: readonly Command[] = [
     when: () => withCorrection() !== null,
     run() {
       const at = withCorrection();
-      if (at) applyCorrection(at.editor, at.mindId, at.claim);
+      if (at)
+        applyCorrection(at.editor, at.mindId, at.doc, at.claim, null, () => showClaimCard(at));
     },
   },
   {

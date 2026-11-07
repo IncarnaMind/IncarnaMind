@@ -1,3 +1,4 @@
+import { isRecord } from "../../shared/record";
 /**
  * Check against Documents (`checkReply`): a sentence that shares
  * three words with a Passage's line is supported, or contradicted when it has a
@@ -361,6 +362,8 @@ function figuresReply(
         verdict: "supported",
         topic: "found",
         ...judged,
+        // An Analysis's figure: the scripted judge reads the sentence as naming it.
+        ...(isRecord(figure.saved) && figure.saved.analysis != null && { names: "same" }),
         source: null,
         calculation: marker > 0 ? marker : null,
       };

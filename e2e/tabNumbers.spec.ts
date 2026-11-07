@@ -240,9 +240,11 @@ test("in a second and third group they act on that group's tabs; ⌘1–⌘3 sti
   await expect(first).toHaveAttribute("data-focused", "true");
   await expect(shownIn(second)).toHaveAttribute("title", names[6] ?? "");
 
-  // ⌘2 and ⌘3 too: a third group from the second's shown tab.
+  // ⌘2 and ⌘3 too: a third group from the second's shown tab. ⌥⌘\ copies the keyboard's tab,
+  // so wait for ⌘2's move; until it lands, the copy is the old group's tab instead (#1741).
   await window.keyboard.press("ControlOrMeta+2");
   await expect(second).toHaveAttribute("data-focused", "true");
+  await expect(shownIn(second)).toBeFocused();
   await window.keyboard.press("ControlOrMeta+Alt+Backslash");
   await expect(window.getByTestId("tab-group")).toHaveCount(3);
   const third = groupAt(window, 2);

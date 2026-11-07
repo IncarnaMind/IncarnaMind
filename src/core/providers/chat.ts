@@ -18,6 +18,7 @@ import {
   type CloudReadPermit,
   type ConnectionTestResult,
   type DataFlowId,
+  type DataKind,
   type ExternalService,
   type ModelAbout,
   type ModelCost,
@@ -99,19 +100,24 @@ interface ListAsked {
 /**
  * The chat flow: what a Question sends to a cloud chat provider. While a
  * Connector is on, the core adds "tool-results" (what its Tools return),
- * which makes it ask again. The names of Documents, another Mind a Question
- * names and a Meeting's live Transcript went before the lines named them:
- * a User who allowed the flow earlier is asked once more.
+ * which makes it ask again. Skill files and Analysis reports are named
+ * whatever else is on: an Answer may send them with no Connector or script.
+ * The names of Documents, another Mind a Question names and a Meeting's live
+ * Transcript went before the lines named them: a User who allowed the flow
+ * earlier is asked once more.
  */
 export const CHAT_FLOW_SENDS = [
   "blocks",
   "passages",
   "document-names",
   "other-minds",
+  "note-catalogue",
   "live-transcript",
   // A picture the User selects in a Note to ask about (#1937): it goes only when they ask, never
   // as part of the note's text.
   "pictures",
+  "skill-files",
+  "analysis-results",
 ] as const;
 
 const TEST_TIMEOUT_MS = 30_000;
@@ -1424,14 +1430,15 @@ export function createChat(options: {
      * thinking where the model can, for a short request on the chat flow;
      * the chat flow's other requests ask for a summary of the model's
      * reasoning, at the effort the catalog gives their kind of call (an
-     * Answer, a careful one, a Task's).
+     * Answer, a careful one, a Task's). `sends`: the kinds of the flow's data this work sends,
+     * when that is less than all, so consent to those alone is enough.
      * Throws `ChatNotReadyError` or `ConsentDeclinedError`; nothing is sent then.
      */
     async prepareModel(
       choice?: ChatModelChoice,
       flow: DataFlowId = "chat",
       thinking?: Exclude<ChatModelSpec["thinking"], undefined>,
-      permit?: CloudReadPermit,
+      { permit, sends }: { permit?: CloudReadPermit; sends?: readonly DataKind[] } = {},
     ): Promise<PreparedChatModel> {
       const readiness = await readinessFor(choice ?? settings.get().user.chatModel, flow);
       const permitted = (service: ExternalService | null | undefined) =>
@@ -1452,7 +1459,7 @@ export function createChat(options: {
       }
       if (provider.service && !permitted(provider.service)) {
         try {
-          await consent.ensure(flow, provider.service);
+          await consent.ensure(flow, provider.service, sends);
         } catch (error) {
           // Its prompt closed as Local mode came on: a Question says so as it does when asked in Local mode.
           if (error instanceof LocalModeError && flow === "chat") {

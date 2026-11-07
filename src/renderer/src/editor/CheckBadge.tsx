@@ -18,6 +18,7 @@ import { setCheckCardOpen, stopCheck, useChecks } from "../checks";
 import { MetaLine } from "../components/MetaLine";
 import { useTabPlace } from "../components/tabs/tabItems";
 import { buttonStyle } from "../components/ui";
+import { useScrollFade } from "../components/useScrollFade";
 import { useContradictions } from "../contradictions";
 import { correctableCount, correctContradictions } from "../correctionFixes";
 import type { EstimateLine } from "../cost";
@@ -33,7 +34,7 @@ import {
   useMindCheckRun,
 } from "../mindCheck";
 import { useFade } from "../motion";
-import { type NoteState, noteStateOf, noteStateParts } from "../noteState";
+import { checkedCaveat, type NoteState, noteStateOf, noteStateParts } from "../noteState";
 import { useAppStore } from "../store";
 import { useCheckUnread } from "../unreadFiles";
 import { useGroupsMerged } from "../useWindowWidth";
@@ -264,7 +265,7 @@ export function CheckActions({
             disabled={running || editing}
             className={buttonStyle("primary", "sm")}
             onClick={() => {
-              if (correctContradictions(editor, mindId) === 0) return;
+              if (correctContradictions(editor, mindId, doc) === 0) return;
               setCheckCardOpen(place, false);
               requestAnimationFrame(() => {
                 if (!editor.isDestroyed) editor.view.focus();
@@ -461,30 +462,7 @@ function BadgeFrame({
     const element = body.current;
     if (element) setHeldHeight(element.offsetHeight);
   }, [open, heldHeight]);
-  // Its cut edge fades while there is more under it, and not when everything fits or the body
-  // has been scrolled to its end.
-  const [cut, setCut] = useState(false);
-  const content = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => {
-    const element = body.current;
-    const inner = content.current;
-    if (!open || !element || !inner) {
-      setCut(false);
-      return;
-    }
-    const measure = () =>
-      setCut(element.scrollHeight - element.scrollTop - element.clientHeight > 1);
-    measure();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(measure);
-    observer.observe(element);
-    observer.observe(inner);
-    element.addEventListener("scroll", measure, { passive: true });
-    return () => {
-      observer.disconnect();
-      element.removeEventListener("scroll", measure);
-    };
-  }, [open]);
+  useScrollFade(body, open && anchor !== null);
   useEffect(() => {
     if (ask && front) setCheckCardOpen(place, true);
   }, [ask, front, place]);
@@ -539,10 +517,10 @@ function BadgeFrame({
         >
           <div
             ref={body}
-            className={cut ? "check-card-body scroll-fade" : "check-card-body"}
+            className="check-card-body scroll-fade"
             style={heldHeight !== null ? { height: heldHeight, overflowY: "auto" } : undefined}
           >
-            <div ref={content}>
+            <div>
               {children}
               {foot && (
                 <>
@@ -672,26 +650,10 @@ function BadgePill({
           <span className="check-badge-short">{formatDateTime(state.checkedAt, language)}</span>
         )}
         {/* Under 400 px the full words are hidden, so what is left is said in its short form. */}
-        {state.kind === "checked" && (state.cantCheck > 0 || state.needsCheck > 0) && (
+        {state.kind === "checked" && checkedCaveat(state, t, format) && (
           <span className="check-badge-short check-badge-short-caveat">
             {" · "}
-            {state.cantCheck > 0
-              ? t(
-                  state.cantCheck === 1
-                    ? "health.state.cantCheck.short.one"
-                    : "health.state.cantCheck.short",
-                  { count: format(state.cantCheck) },
-                )
-              : null}
-            {state.cantCheck > 0 && state.needsCheck > 0 ? " · " : null}
-            {state.needsCheck > 0
-              ? t(
-                  state.needsCheck === 1
-                    ? "health.state.needsCheck.short.one"
-                    : "health.state.needsCheck.short",
-                  { count: format(state.needsCheck) },
-                )
-              : null}
+            {checkedCaveat(state, t, format)}
           </span>
         )}
         {resting.slice(1).map((part) => (

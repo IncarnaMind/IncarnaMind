@@ -96,6 +96,18 @@ describe("one sentence's numerical results", () => {
     expect(claimCheckShown(check([figure("revenue")], null), now)).toEqual({ state: "supported" });
     expect(aggregateFigureStates([], null)).toEqual({ state: "not-checked", reason: "malformed" });
   });
+  test("an Analysis's figure not worked out again never stands for the rest of its sentence (#2378)", () => {
+    const analysis = { state: "not-checked", reason: "analysis" } as const;
+    expect(aggregateFigureStates([analysis], null)).toEqual(analysis);
+    expect(aggregateFigureStates([analysis], { state: "not-checked", reason: "failed" })).toEqual({
+      state: "not-checked",
+      reason: "failed",
+    });
+    expect(aggregateFigureStates([analysis], undefined)).toEqual({
+      state: "not-checked",
+      reason: "malformed",
+    });
+  });
   test("checking one figure again leaves its kept sibling kept", () => {
     const sibling = { ...figure("revenue"), kept: true as const };
     const selected = figure("profit", "checking");

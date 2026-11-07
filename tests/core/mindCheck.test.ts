@@ -1484,8 +1484,8 @@ describe("Checking selected figures in one sentence", () => {
     expect(
       runsIn(calls)
         .slice(count)
-        .map((call) => requestedFigures(call).map(({ id }) => id)),
-    ).toEqual([[cash.id]]);
+        .map((call) => requestedFigures(call).map(({ shown }) => shown)),
+    ).toEqual([["£7"]]);
   });
 
   test("checking one figure after whole-sentence Keep leaves its siblings and remainder kept", async () => {

@@ -26,8 +26,8 @@ import * as Y from "yjs";
 import { citedCases } from "../../../shared/caseCitations";
 import type { SourceGrid } from "../../../shared/charts";
 import { addedCouldChange, checkedSentence, claimCheckShown } from "../../../shared/claimChecks";
-import { withFigureFacts } from "../../../shared/claimParts";
-import { beginFigureCheck } from "../../../shared/figureChecks";
+import { planOf, withFigureFacts } from "../../../shared/claimParts";
+import { ANALYSIS_REASONS, beginFigureCheck } from "../../../shared/figureChecks";
 import { readMindCheck, sentenceKey, writeMindCheck } from "../../../shared/mindCheck";
 import { mindModelOf } from "../../../shared/mindModel";
 import { mindScopeIn } from "../../../shared/mindScope";
@@ -221,6 +221,7 @@ export function createMindCheck(options: MindCheckOptions) {
         })),
         "own",
         signal,
+        true,
       );
       if (found.kind !== "found") return found;
       for (const [index, sentence] of unsorted.entries()) {
@@ -489,24 +490,32 @@ export function createMindCheck(options: MindCheckOptions) {
           if (mark.check.scope.widened) widened.add(sentence);
           continue;
         }
+        const shown = mark
+          ? claimCheckShown(mark.check, {
+              text: sentence.text,
+              versions,
+              folderId,
+              scope,
+              figureContexts,
+              figured: inTableCell(sentence.figures),
+              note: note({ blockId: sentence.blockId, from: sentence.from }),
+              noteText: () => noteTextOf(sentence),
+            })
+          : null;
         const state = checkedSentence({
           text: sentence.text,
           hasFigures: (sentence.figures?.length ?? 0) > 0,
-          check: mark
-            ? claimCheckShown(mark.check, {
-                text: sentence.text,
-                versions,
-                folderId,
-                scope,
-                figureContexts,
-                figured: inTableCell(sentence.figures),
-                note: note({ blockId: sentence.blockId, from: sentence.from }),
-                noteText: () => noteTextOf(sentence),
-              })
-            : null,
+          check: shown,
           skipped: leftOut(sentence),
           kept: keptAsView(marks, sentence),
         });
+        // An Analysis's figure no check can change (#2378): not worked out again, or its record
+        // gone. An edit of the sentence shows it to check again.
+        const settled = shown?.state === "not-checked" && ANALYSIS_REASONS.has(shown.reason);
+        if (mark && settled) {
+          held.push(mark.check.checkedAt);
+          continue;
+        }
         if (state.kind === "to-check") {
           if (state.fresh || (mark?.check.text !== sentence.text && isClaim(sentence.text)))
             fresh.push(sentence);
@@ -619,9 +628,7 @@ export function createMindCheck(options: MindCheckOptions) {
         );
         const previousParts = owners.find((each) => each.check.text === sentence.text)?.check.parts;
         const priorParts = owners.length === 1 ? owners[0]?.check.parts : undefined;
-        const parts =
-          sorted.get(mindId)?.get(sentence.text) ??
-          previousParts?.map(({ span, kind }) => ({ span, kind }));
+        const parts = sorted.get(mindId)?.get(sentence.text) ?? previousParts?.map(planOf);
         const within = scopeFor(claim);
         const mark: ClaimCheckAttributes = {
           id: randomUUID(),
@@ -672,6 +679,7 @@ export function createMindCheck(options: MindCheckOptions) {
             recordClaim: noteTextOf(sentence),
             place: { blockId: sentence.blockId, from: sentence.from },
             scope: within.scope,
+            searched: within.wanted,
             ...(row
               ? { parts: [{ kind: "fact" as const, span: { start: 0, end: row.claim.length } }] }
               : parts && { parts }),
@@ -698,6 +706,7 @@ export function createMindCheck(options: MindCheckOptions) {
       mindId,
       queued,
       scope: scope.scope,
+      searched: scope.wanted,
       prepared: ready.prepared,
       signal,
     });

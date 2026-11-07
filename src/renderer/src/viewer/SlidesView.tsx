@@ -57,6 +57,9 @@ const read = async (bytes: Uint8Array): Promise<Loaded> => {
   } catch {
     drawing = null;
   }
+  if (drawing && drawing.unreadable.length > 0) {
+    console.warn("viewer.pptx.partsNotRead", drawing.unreadable.join(", "));
+  }
   return { bytes, deck, drawing };
 };
 

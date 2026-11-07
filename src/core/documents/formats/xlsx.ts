@@ -21,10 +21,10 @@
 import { parseCellRef, type TextUnit, type WorkbookFacts } from "../../../shared/units";
 import type { UnreadParts } from "../../api";
 import { cellName, ERROR_CODES, moveFormula, parseFormula } from "../../workbooks/parse";
-import { ExtractionError } from "./errors";
 import { type Cell, gridUnits, MAX_CELLS, MAX_ROWS, type Sheet, type Workbook } from "./grid";
 import { displayNumber, displayText } from "./numberDisplay";
 import { builtInFormat, formatNumber, generalNumber, isDateFormat } from "./numbers";
+import { mainRootOf, OfficePackage, partOfType, relationshipOfType } from "./officePackage";
 import {
   cellIndex,
   emptyLayout,
@@ -39,7 +39,6 @@ import {
   MAX_WORKBOOK_IMAGE_BYTES,
   readDrawings,
   readNotes,
-  relationshipsOf,
 } from "./xlsxDrawings";
 import { readFont, readStyles, struckStyles, type WorkbookStyles } from "./xlsxStyles";
 import {
@@ -52,7 +51,7 @@ import {
   textOf,
   type XmlElement,
 } from "./xml";
-import { openPackage, resolvePart, type ZipArchive } from "./zip";
+import { openPackage } from "./zip";
 
 /** The largest a sheet or the shared strings may inflate to while being read. */
 const MAX_STREAMED_BYTES = 256 * 1024 * 1024;
@@ -148,9 +147,10 @@ function setAsideRows(sheet: Sheet, facts: RowFacts): void {
 }
 
 /** The AutoFilters of a sheet's Tables, which their own parts hold (`xl/tables/table1.xml`). */
-async function tableFilters(zip: ZipArchive, part: string): Promise<XmlElement[]> {
+async function tableFilters(pkg: OfficePackage, part: string): Promise<XmlElement[]> {
+  const { zip } = pkg;
   const filters: XmlElement[] = [];
-  for (const { target, type } of (await relationshipsOf(zip, part)).values()) {
+  for (const { target, type } of (await pkg.internalRelationships(part)).values()) {
     const xml = type.endsWith("/table") && zip.has(target) ? await zip.readText(target) : undefined;
     const filter = xml ? child(parseXml(xml), "autoFilter") : undefined;
     if (filter) filters.push(filter);
@@ -161,11 +161,12 @@ async function tableFilters(zip: ZipArchive, part: string): Promise<XmlElement[]
 const isHiddenSheet = (entry: XmlElement) =>
   entry.attrs.state === "hidden" || entry.attrs.state === "veryHidden";
 
-/** The sheets xl/workbook.xml lists (#2458), and how many of them are hidden; null for none. */
+/** The sheets the workbook part lists (#2458), and how many of them are hidden; null for none. */
 export async function workbookSheets(
   bytes: Uint8Array,
 ): Promise<{ count: number; hidden: number } | null> {
-  const xml = await openPackage(bytes).readText("xl/workbook.xml");
+  const pkg = new OfficePackage(openPackage(bytes));
+  const xml = await pkg.zip.readText(await pkg.mainPart("xl/workbook.xml"));
   const entries = xml === undefined ? [] : descendants(parseXml(xml), "sheet");
   if (entries.length === 0) return null;
   return { count: entries.length, hidden: entries.filter(isHiddenSheet).length };
@@ -185,28 +186,23 @@ export async function readWorkbook(
   readHidden = false,
 ): Promise<Workbook> {
   const zip = openPackage(bytes);
-  const workbookXml = await zip.readText("xl/workbook.xml");
-  if (workbookXml === undefined) {
-    throw new ExtractionError("unreadable", "Not an Excel workbook: it has no xl/workbook.xml.");
-  }
-  const workbook = parseXml(workbookXml);
+  const pkg = new OfficePackage(zip);
+  const workbookPart = await pkg.mainPart("xl/workbook.xml");
+  const workbook = mainRootOf(
+    await zip.readText(workbookPart),
+    workbookPart,
+    "workbook",
+    "Not an Excel workbook",
+  );
   const date1904 = ["1", "true"].includes(child(workbook, "workbookPr")?.attrs.date1904 ?? "");
   const calc = child(workbook, "calcPr")?.attrs ?? {};
 
-  const relsXml = await zip.readText("xl/_rels/workbook.xml.rels");
-  const targets = new Map<string, string>();
-  let themePart: string | undefined;
-  for (const rel of relsXml ? elements(parseXml(relsXml)) : []) {
-    if (rel.attrs.Id && rel.attrs.Target) {
-      const target = resolvePart("xl/workbook.xml", rel.attrs.Target);
-      targets.set(rel.attrs.Id, target);
-      if (rel.attrs.Type?.endsWith("/theme")) themePart = target;
-    }
-  }
+  const rels = await pkg.internalRelationships(workbookPart);
+  const themePart = relationshipOfType(rels, "/theme")?.target;
 
   // The number format of each cell style (by its index in cellXfs).
   const formats: (string | undefined)[] = [];
-  const stylesXml = await zip.readText("xl/styles.xml");
+  const stylesXml = await zip.readText(partOfType(rels, "/styles", "xl/styles.xml"));
   const styles = stylesXml ? parseXml(stylesXml) : undefined;
   if (styles) {
     const custom = new Map<number, string>();
@@ -228,8 +224,9 @@ export async function readWorkbook(
 
   const shared: string[] = [];
   const sharedRuns = new Map<number, TextRun[]>();
-  if (zip.has("xl/sharedStrings.xml")) {
-    const chunks = zip.textChunks("xl/sharedStrings.xml", MAX_STREAMED_BYTES);
+  const sharedPart = partOfType(rels, "/sharedStrings", "xl/sharedStrings.xml");
+  if (zip.has(sharedPart)) {
+    const chunks = zip.textChunks(sharedPart, MAX_STREAMED_BYTES);
     for await (const si of streamElements(chunks, ["si"])) {
       if (looks) {
         const runs = stringRuns(si, looks);
@@ -260,7 +257,7 @@ export async function readWorkbook(
   let visibleTruncated = false;
   let hiddenPass = false;
   for (const [index, entry] of ordered.entries()) {
-    const part = targets.get(entry.attrs["r:id"] ?? "");
+    const part = rels.get(entry.attrs["r:id"] ?? "")?.target;
     if (!part || !zip.has(part)) continue;
     const name = entry.attrs.name ?? `Sheet${(positions.get(entry) ?? 0) + 1}`;
     const hidden = isHiddenSheet(entry);
@@ -375,7 +372,7 @@ export async function readWorkbook(
       filterMode,
       filters: [
         ...(filter ? [filter] : []),
-        ...(hiddenRows.length > 0 ? await tableFilters(zip, part) : []),
+        ...(hiddenRows.length > 0 ? await tableFilters(pkg, part) : []),
       ],
     });
   }
@@ -406,12 +403,13 @@ export async function readWorkbook(
     rowsCut,
     sheetsNotRead,
     facts,
+    unreadable: pkg.unreadable,
   };
   if (!looks) return read;
   const budget: ImageBudget = { left: MAX_WORKBOOK_IMAGE_BYTES };
   for (const [index, sheet] of sheets.entries()) {
     if (sheet.layout)
-      await readSheetExtras(zip, parts[index] as string, drawingIds[index], sheet.layout, budget);
+      await readSheetExtras(pkg, parts[index] as string, drawingIds[index], sheet.layout, budget);
   }
   return {
     ...read,
@@ -532,16 +530,16 @@ function lookOfCell(
 
 /** A sheet's pictures, charts and notes, through its relationships. */
 async function readSheetExtras(
-  zip: ZipArchive,
+  pkg: OfficePackage,
   part: string,
   drawingId: string | undefined,
   look: SheetLayout,
   budget: ImageBudget,
 ): Promise<void> {
-  const rels = await relationshipsOf(zip, part);
+  const rels = await pkg.internalRelationships(part);
   const drawing = drawingId ? rels.get(drawingId) : undefined;
   if (drawing) {
-    look.drawings = await readDrawings(zip, drawing.target, budget);
+    look.drawings = await readDrawings(pkg, drawing.target, budget);
     for (const each of look.drawings) {
       const end = each.to ?? each.from;
       look.extent.rows = Math.max(look.extent.rows, end.row);
@@ -553,7 +551,7 @@ async function readSheetExtras(
   }
   for (const rel of rels.values()) {
     if (!rel.type.endsWith("/comments")) continue;
-    for (const [ref, text] of await readNotes(zip, rel.target)) {
+    for (const [ref, text] of await readNotes(pkg.zip, rel.target)) {
       const cell = parseCellRef(ref);
       if (cell) look.notes.set(cellIndex(cell.row, cell.column), text);
     }

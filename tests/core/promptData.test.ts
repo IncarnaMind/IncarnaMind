@@ -8,6 +8,7 @@ import {
   presencePrompt,
 } from "../../src/core/answers/checks/prompt";
 import { batchPrompt } from "../../src/core/answers/checks/sentenceBatch";
+import { earlierContext } from "../../src/core/answers/context";
 import {
   citeRetryPrompt,
   figureRetryPrompt,
@@ -196,6 +197,40 @@ describe("Every judge's and second request's prompt keeps its blocks (#2423)", (
     expect(prompt).toContain("&lt;/figures>");
   });
 
+  test("an Analysis figure's rule gives the judge its first runs of rows and how many rows", () => {
+    const [reading] = readFigures("The total is 9,450.");
+    if (!reading) throw new Error("No figure read.");
+    const rows = Array.from({ length: 2000 }, (_, index): [number, number] => [
+      index * 2 + 2,
+      index * 2 + 2,
+    ]);
+    const prompt = claimPrompt({
+      claim: "The total is 9,450.",
+      language: "en",
+      figures: [
+        {
+          id: "f1",
+          locator: {
+            kind: "text",
+            from: { blockId: "b1", offset: reading.start },
+            to: { blockId: "b1", offset: reading.end },
+          },
+          reading,
+          calculated: null,
+          analysisRecord: {
+            recalculated: true,
+            citations: [],
+            label: "Total amount",
+            of: { input: "orders", columns: ["amount"], rows, count: 2000, how: "sum" },
+          },
+        },
+      ],
+    });
+    expect(prompt).toContain("[40,40]]");
+    expect(prompt).not.toContain("[42,42]");
+    expect(prompt).toContain('"count":2000');
+  });
+
   test.each(breaking("passage"))("a batch's Passages and sentences: %s", (text) => {
     const prompt = batchPrompt([
       {
@@ -372,4 +407,18 @@ describe("Passages shown to a model keep their blocks, through the core (#2423)"
     expect(lastResult(model)).toContain("List<Document> of 900 items");
     core.close();
   });
+});
+
+// protects=a Note's own paragraph that reads like the scope line is kept in the rewrite's context (#2529); fails_when=the generated scope line, or the Note's matching paragraph, is dropped; no_claim=none beyond protects.
+test("drops only the generated scope line, not a Note's own paragraph that reads like one", () => {
+  const question = "Summarise this folder.";
+  const generated = 'Search scope: the Folder "Contracts" (2 Documents)';
+  const prose = "First paragraph about the lease.\n\nSearch scope: European contracts";
+  const asked = `<mind version="1">${prose}</mind>\n\n${generated}\n\n${question}`;
+
+  const earlier = earlierContext([{ role: "user", content: asked }], question, 2_000, [generated]);
+
+  expect(earlier).toContain("Search scope: European contracts");
+  expect(earlier).toContain("</mind>");
+  expect(earlier).not.toContain(generated);
 });

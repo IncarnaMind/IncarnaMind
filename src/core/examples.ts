@@ -284,13 +284,20 @@ export function createExamples(options: ExamplesOptions) {
     if (!examples || !ready || !options.mindExists(examples.mindId)) return { kind: "absent" };
     if (!options.linkedFolderExists(examples.linkedFolderId)) return { kind: "absent" };
     const documents = options.documentsIn(examples.linkedFolderId);
+    const cited = ready.quotes.map((quote) => ({
+      quote,
+      document: documents.find((each) => each.name === quote.document),
+    }));
+    // A Document that's gone is said first, so it never waits behind another still being read.
+    const gone = cited.find((each) => !each.document);
+    if (gone) return { kind: "gone", document: gone.quote.document };
+    const reading = cited.find(
+      (each) => each.document?.status === "queued" || each.document?.status === "extracting",
+    );
+    if (reading) return { kind: "reading", document: reading.quote.document };
     const citations: MarkedCitation[] = [];
-    for (const [index, quote] of ready.quotes.entries()) {
-      const document = documents.find((each) => each.name === quote.document);
+    for (const [index, { quote, document }] of cited.entries()) {
       if (!document) return { kind: "gone", document: quote.document };
-      if (document.status === "queued" || document.status === "extracting") {
-        return { kind: "reading", document: quote.document };
-      }
       if (!hasText(document)) return { kind: "unreadable", document: quote.document };
       const result = options.cite({
         documentId: document.id,
