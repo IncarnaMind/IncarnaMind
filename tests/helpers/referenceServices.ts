@@ -89,9 +89,10 @@ function bestMatches<T>(works: readonly T[], titleOf: (work: T) => string, query
 /**
  * Starts the stand-in. `crossref` maps DOIs to recorded Crossref answers (as
  * JSON text); `arxiv` maps arXiv ids to recorded Atom feeds; `works` are
- * searched, and answer their DOIs too; `registered` maps DOIs Crossref has no
- * record of to the agency that registered them ("datacite"); `openalex` are
- * OpenAlex's works, searched and answering their DOIs. Anything else is
+ * searched, and answer their DOIs too, as the list holds them when each
+ * request comes in (a test may change it); `registered` maps DOIs Crossref
+ * has no record of to the agency that registered them ("datacite"); `openalex`
+ * are OpenAlex's works, searched and answering their DOIs. Anything else is
  * a 404, as the real services answer an unknown DOI or id.
  */
 export async function startReferenceServices(answers: {
