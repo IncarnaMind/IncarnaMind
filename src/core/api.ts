@@ -2302,6 +2302,12 @@ export interface CitationToRecheck {
    * (`changed`).
    */
   contentHash?: string | null;
+  /**
+   * The words the Answer put in quotation marks that the Citation's check didn't find (#483):
+   * looked for with the quote, so a Citation not found for them stays not found until its cited
+   * Units have them (#2612).
+   */
+  quotedWords?: QuotedWordsCheck | null;
 }
 
 /** Where a Question is asked: its Note, else its conversation; null for none. */
@@ -3307,11 +3313,20 @@ export interface DeviceSettings {
 }
 
 /**
- * Where a Meeting's audio is turned into text: on this computer, or by a cloud service with the
- * User's own key (#141): OpenAI and Qwen (Alibaba Cloud Model Studio, for mainland China) with
- * the key of their provider in Settings › Models, Soniox with a key of its own.
+ * Where a Meeting's audio is turned into text: on this computer, or live by a cloud service with
+ * the User's own key (#141, #866): OpenAI, Qwen (Alibaba Cloud Model Studio, for mainland China)
+ * and Gemini with the key of their provider in Settings › Models; Soniox, Deepgram (also at
+ * Cloudflare Workers AI or a server of the User's own) and AssemblyAI with a key of their own.
  */
-export const TRANSCRIPTION_ROUTES = ["local", "openai", "soniox", "qwen"] as const;
+export const TRANSCRIPTION_ROUTES = [
+  "local",
+  "openai",
+  "soniox",
+  "qwen",
+  "deepgram",
+  "assemblyai",
+  "gemini",
+] as const;
 export type TranscriptionRoute = (typeof TRANSCRIPTION_ROUTES)[number];
 export type CloudTranscriptionRoute = Exclude<TranscriptionRoute, "local">;
 
@@ -3331,9 +3346,28 @@ export interface TranscriptionServiceStatus {
   hasKey: boolean;
   liveSpeakers: boolean;
   keyUrl: string | null;
+  /** Where credit is added to the account the key is for; null where none is known. */
+  billingUrl: string | null;
+  /**
+   * The server the audio goes to, where the User can give one (Deepgram's: Deepgram, Cloudflare
+   * Workers AI or their own); null for every other service, whose address is its own.
+   */
+  server: string | null;
+  /** Its key may be left out: a server of the User's own. */
+  keyOptional: boolean;
+  /**
+   * Saving its key first sends it to the service to check it, except in Local mode; a Deepgram
+   * key is checked only when the server saved is Deepgram's own.
+   */
+  keyChecked: boolean;
+  /** What it transcribes, as ISO 639 codes. */
+  languages: string[];
+  /** The languages the User speaks (the interface's and the computer's) that it doesn't transcribe. */
+  missingLanguages: string[];
   /**
    * It was chosen, and set back to this computer when its key began to send the audio somewhere
-   * the User hadn't chosen (a Qwen key for another region): choosing it again sends it there.
+   * the User hadn't chosen (a Qwen key for another region, another Deepgram server): choosing it
+   * again sends it there.
    */
   chooseAgain: boolean;
 }
@@ -3352,6 +3386,8 @@ export interface TranscriptionServices {
 export interface SetTranscriptionKeyInput {
   route: CloudTranscriptionRoute;
   apiKey: string;
+  /** Deepgram's server, where it isn't Deepgram's own: Cloudflare Workers AI's, or the User's. */
+  server?: string;
 }
 
 /**
@@ -4209,9 +4245,9 @@ export type WebPageLookFailure =
  * - "not-a-page": the address is a file (a PDF, an image), not a web page.
  * - "video": the page is a video, with little text to read.
  * - "not-text": the page has too little text to read, such as an app.
- * - "not-public": web search's fetcher refused it: the address is on this
- *   computer or a local network, or redirects there (#128).
- * - "too-many-redirects": it redirected more than web search's fetcher follows.
+ * - "not-public": the fetcher that reaches only the public internet refused
+ *   it: the address is on this computer or a local network, or redirects there.
+ * - "too-many-redirects": it redirected more than that fetcher follows.
  * - "not-from-search": web search fetches only the pages its search returned
  *   in the same Answer, and this wasn't one.
  * - "local-mode": "Keep everything on this computer" is on, so nothing was
@@ -11082,14 +11118,15 @@ export interface MeetingTranscript {
   /**
    * This computer took over from the cloud service the User chose, during this stretch of
    * recording: where, in the Meeting's time, and why. "dropped": the connection was lost;
-   * "refused": the service didn't accept the key; "cap": the month reached the cap;
-   * "local-mode": “Keep everything on this computer” is on; "moved": the key now sends the
-   * audio somewhere the User hasn't chosen (`TranscriptionServiceStatus.chooseAgain`). Null otherwise.
+   * "refused": the service didn't accept the key; "credit": the account has no credit left;
+   * "cap": the month reached the cap; "local-mode": “Keep everything on this computer” is on;
+   * "moved": the key now sends the audio somewhere the User hasn't chosen
+   * (`TranscriptionServiceStatus.chooseAgain`). Null otherwise.
    */
   fellBack: {
     route: CloudTranscriptionRoute;
     atMs: number;
-    reason: "dropped" | "refused" | "cap" | "local-mode" | "moved";
+    reason: "dropped" | "refused" | "credit" | "cap" | "local-mode" | "moved";
   } | null;
   /** Its own file in the data folder, once saved: kept for the Library, never shown as a path (#763). */
   savedPath: string | null;
@@ -12125,8 +12162,9 @@ export interface CoreApi {
    * only one that differs; an arXiv number on arXiv. Calling it is the
    * consent to the "reference-check" flow (ADR-0022); in local mode every
    * entry is "not-checked". One check of a Mind at a time. Answers are kept:
-   * a found record for good, a miss for seven days; `again` asks about every
-   * miss again.
+   * a found record for good, and a miss or a failure too, so an ordinary
+   * check sends nothing more; `again` asks about every kept miss and failure
+   * again.
    */
   checkReferences(mindId: string, options?: { again?: boolean }): Promise<CheckReferencesResult>;
   /** Stops a Mind's `checkReferences`: it gives "cancelled". Stopping none does nothing. */
@@ -13384,8 +13422,9 @@ export interface CoreApi {
   /** The cloud services that can transcribe meeting audio (#141), and whether each has a key. */
   listTranscriptionServices(): Promise<TranscriptionServices>;
   /**
-   * Keeps a transcription service's own key (Soniox), in the keychain, once the service accepts
-   * it. Throws `InvalidInputError` when it refuses the key.
+   * Keeps a transcription service's own key (Soniox, Deepgram, AssemblyAI), in the keychain, once
+   * the service accepts it, with Deepgram's server where it is another. Throws
+   * `InvalidInputError` when it refuses the key or the server's address isn't one.
    */
   setTranscriptionKey(input: SetTranscriptionKeyInput): Promise<TranscriptionServices>;
   /** Forgets a transcription service's own key; meeting audio is then transcribed on this computer. */

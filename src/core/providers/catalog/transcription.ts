@@ -1,10 +1,19 @@
 /**
- * The cloud services that transcribe meeting audio with the User's own key (#141), as
+ * The cloud services that transcribe meeting audio live with the User's own key (#141, #866), as
  * IncarnaMind knows them before it sends them anything: the model, what an hour costs (so the
- * monthly cap counts it) and where the audio goes.
+ * monthly cap counts it), where the audio goes and the languages it transcribes.
  */
+
+import { isDeepgramHost } from "../../../shared/deepgram";
 import type { CloudTranscriptionRoute, ExternalService, Money } from "../../api";
-import { QWEN_REALTIME_PATH } from "../../transcription/cloud/protocol";
+import {
+  ASSEMBLYAI_MODEL,
+  DEEPGRAM_MODEL,
+  DEEPGRAM_URL,
+  GEMINI_LIVE_MODEL,
+  QWEN_REALTIME_PATH,
+} from "../../transcription/cloud/protocol";
+import { serviceAt } from "../service";
 import { catalogProvider, endpointOf } from "./providers";
 import type { Localized } from "./types";
 
@@ -39,13 +48,257 @@ export interface TranscriptionService {
   service: ExternalService;
   recipient: Localized;
   dataUse?: TranscriptionDataUse;
-  /** "provider": the key of the chat provider of the same name in Settings › Models. */
+  /**
+   * "provider": the key of a chat provider in Settings › Models, the catalog's `provider` (the
+   * route's own id when absent); "own": a key of its own, kept in the keychain.
+   */
   key: "provider" | "own";
+  provider?: string;
   liveSpeakers: boolean;
   keyUrl?: string;
+  billingUrl?: string;
+  /** What it transcribes, as ISO 639 codes: a language a User speaks that isn't here is warned of. */
+  languages: readonly string[];
   /** When a person last checked this entry against the service's own pages (YYYY-MM-DD). */
   checked: string;
 }
+
+const SONIOX_LANGUAGES = [
+  "af",
+  "sq",
+  "ar",
+  "az",
+  "eu",
+  "be",
+  "bn",
+  "bs",
+  "bg",
+  "ca",
+  "zh",
+  "hr",
+  "cs",
+  "da",
+  "nl",
+  "en",
+  "et",
+  "fi",
+  "fr",
+  "gl",
+  "de",
+  "el",
+  "gu",
+  "he",
+  "hi",
+  "hu",
+  "id",
+  "it",
+  "ja",
+  "kn",
+  "kk",
+  "ko",
+  "lv",
+  "lt",
+  "mk",
+  "ms",
+  "ml",
+  "mr",
+  "no",
+  "fa",
+  "pl",
+  "pt",
+  "pa",
+  "ro",
+  "ru",
+  "sr",
+  "sk",
+  "sl",
+  "es",
+  "sw",
+  "sv",
+  "tl",
+  "ta",
+  "te",
+  "th",
+  "tr",
+  "uk",
+  "ur",
+  "vi",
+  "cy",
+];
+
+/** Nova-3's multilingual set, which `language=multi` switches between. */
+const DEEPGRAM_LANGUAGES = [
+  "af",
+  "ar",
+  "be",
+  "bn",
+  "bs",
+  "bg",
+  "ca",
+  "zh",
+  "hr",
+  "cs",
+  "da",
+  "nl",
+  "en",
+  "et",
+  "fi",
+  "fr",
+  "gl",
+  "de",
+  "el",
+  "gu",
+  "he",
+  "hi",
+  "hu",
+  "id",
+  "it",
+  "ja",
+  "kn",
+  "ko",
+  "lv",
+  "lt",
+  "mk",
+  "ms",
+  "mr",
+  "no",
+  "fa",
+  "pl",
+  "pt",
+  "ro",
+  "ru",
+  "sr",
+  "sk",
+  "sl",
+  "es",
+  "sv",
+  "tl",
+  "ta",
+  "te",
+  "th",
+  "tr",
+  "uk",
+  "vi",
+  "xh",
+  "zu",
+];
+
+/** Universal-3.6 Pro Realtime's 32. */
+const ASSEMBLYAI_LANGUAGES = [
+  "af",
+  "ar",
+  "yue",
+  "ca",
+  "da",
+  "nl",
+  "en",
+  "et",
+  "fi",
+  "fr",
+  "gl",
+  "de",
+  "he",
+  "hi",
+  "it",
+  "ja",
+  "ko",
+  "zh",
+  "mr",
+  "no",
+  "nn",
+  "fa",
+  "pt",
+  "ro",
+  "ru",
+  "es",
+  "sv",
+  "tr",
+  "ur",
+  "vi",
+  "xh",
+  "zu",
+];
+
+/** Gemini 3.5 Transcribe Live's table at https://aistudio.google.com/docs/live-api/live-transcribe. */
+const GEMINI_LANGUAGES = [
+  "af",
+  "am",
+  "ar",
+  "hy",
+  "as",
+  "az",
+  "be",
+  "bn",
+  "bs",
+  "bg",
+  "rup",
+  "my",
+  "yue",
+  "ca",
+  "ceb",
+  "km",
+  "hr",
+  "cs",
+  "da",
+  "nl",
+  "en",
+  "et",
+  "fa",
+  "tl",
+  "fi",
+  "fr",
+  "gl",
+  "ka",
+  "de",
+  "el",
+  "gu",
+  "ha",
+  "he",
+  "hi",
+  "hu",
+  "is",
+  "id",
+  "it",
+  "ja",
+  "jv",
+  "kea",
+  "kn",
+  "kk",
+  "ko",
+  "ky",
+  "lv",
+  "ln",
+  "lt",
+  "mk",
+  "ms",
+  "ml",
+  "mt",
+  "zh",
+  "mr",
+  "mn",
+  "ne",
+  "no",
+  "or",
+  "pl",
+  "pt",
+  "pa",
+  "ro",
+  "ru",
+  "sr",
+  "sd",
+  "sk",
+  "sl",
+  "es",
+  "sw",
+  "sv",
+  "tg",
+  "te",
+  "th",
+  "tr",
+  "uk",
+  "uz",
+  "vi",
+];
 
 export const TRANSCRIPTION_SERVICES: Readonly<
   Record<CloudTranscriptionRoute, TranscriptionService>
@@ -59,7 +312,9 @@ export const TRANSCRIPTION_SERVICES: Readonly<
     recipient: { en: "OpenAI", zh: "OpenAI" },
     key: "provider",
     liveSpeakers: false,
-    checked: "2026-10-18",
+    // The session is set up for these two (../../transcription/cloud/openai), whatever else Whisper knows.
+    languages: ["en", "zh"],
+    checked: "2026-11-05",
   },
   soniox: {
     route: "soniox",
@@ -71,7 +326,9 @@ export const TRANSCRIPTION_SERVICES: Readonly<
     key: "own",
     liveSpeakers: true,
     keyUrl: "https://console.soniox.com",
-    checked: "2026-10-18",
+    billingUrl: "https://console.soniox.com",
+    languages: SONIOX_LANGUAGES,
+    checked: "2026-11-05",
   },
   qwen: {
     route: "qwen",
@@ -95,9 +352,145 @@ export const TRANSCRIPTION_SERVICES: Readonly<
     },
     key: "provider",
     liveSpeakers: false,
-    checked: "2026-10-25",
+    // Chinese with its dialects, Cantonese among them, English and Japanese.
+    languages: ["zh", "yue", "en", "ja"],
+    checked: "2026-11-05",
+  },
+  deepgram: {
+    route: "deepgram",
+    name: "Deepgram",
+    model: DEEPGRAM_MODEL,
+    // Nova-3 Multilingual, $0.0092 a minute, and its speakers, $0.0020.
+    perHour: { currency: "USD", amount: 0.672 },
+    service: { id: "https://api.deepgram.com", name: "Deepgram" },
+    recipient: { en: "Deepgram", zh: "Deepgram" },
+    dataUse: {
+      summary: {
+        en: "IncarnaMind asks Deepgram to leave meeting audio out of its model improvement, so Deepgram keeps it only as long as transcribing it takes.",
+        zh: "IncarnaMind 要求 Deepgram 不把会议音频用于改进模型，Deepgram 只在转写所需的时间内保留音频。",
+      },
+      url: {
+        en: "https://developers.deepgram.com/docs/the-deepgram-model-improvement-partnership-program",
+        zh: "https://developers.deepgram.com/docs/the-deepgram-model-improvement-partnership-program",
+      },
+    },
+    key: "own",
+    liveSpeakers: true,
+    keyUrl: "https://console.deepgram.com",
+    billingUrl: "https://console.deepgram.com",
+    languages: DEEPGRAM_LANGUAGES,
+    checked: "2026-11-05",
+  },
+  assemblyai: {
+    route: "assemblyai",
+    name: "AssemblyAI",
+    model: ASSEMBLYAI_MODEL,
+    // Universal-3.6 Pro Realtime, $0.45 an hour, and its speaker labels, $0.12.
+    perHour: { currency: "USD", amount: 0.57 },
+    service: { id: "https://streaming.assemblyai.com", name: "AssemblyAI" },
+    recipient: { en: "AssemblyAI", zh: "AssemblyAI" },
+    dataUse: {
+      summary: {
+        en: "AssemblyAI may train its models on the audio unless you opt out in its Data Controls; opted out, it keeps no audio or transcript of a live meeting.",
+        zh: "除非你在 AssemblyAI 的数据控制中选择退出，否则它可能用音频训练模型；退出后，它不保留实时会议的音频和转写稿。",
+      },
+      url: {
+        en: "https://www.assemblyai.com/docs/data-retention-and-model-training",
+        zh: "https://www.assemblyai.com/docs/data-retention-and-model-training",
+      },
+    },
+    key: "own",
+    liveSpeakers: true,
+    keyUrl: "https://www.assemblyai.com/dashboard",
+    billingUrl: "https://www.assemblyai.com/dashboard",
+    languages: ASSEMBLYAI_LANGUAGES,
+    checked: "2026-11-05",
+  },
+  gemini: {
+    route: "gemini",
+    name: "Gemini",
+    model: GEMINI_LIVE_MODEL,
+    // Google's estimate for its paid tier: $0.005 a minute of audio in, $0.004 of text out.
+    perHour: { currency: "USD", amount: 0.54 },
+    service: { id: "https://generativelanguage.googleapis.com", name: "Google" },
+    recipient: { en: "Google", zh: "Google" },
+    dataUse: {
+      summary: {
+        en: "On a free key, Google may use the meeting audio to improve its products, with human review; on a paid key it doesn’t.",
+        zh: "使用免费密钥时，Google 可能用会议音频改进其产品并经人工审阅；使用付费密钥则不会。",
+      },
+      url: {
+        en: "https://ai.google.dev/gemini-api/terms",
+        zh: "https://ai.google.dev/gemini-api/terms",
+      },
+    },
+    key: "provider",
+    provider: "google",
+    liveSpeakers: false,
+    languages: GEMINI_LANGUAGES,
+    checked: "2026-11-07",
   },
 };
+
+/** Where a Deepgram-compatible server sends the audio: Deepgram's own, Cloudflare's, or the User's. */
+export interface DeepgramServer {
+  url: string;
+  /** Null for a server on this computer: the audio doesn't leave it. */
+  service: ExternalService | null;
+  recipient: Localized;
+  perHour: Money;
+  dataUse: TranscriptionDataUse | null;
+  /** Deepgram's own and Cloudflare's take a key; the User's own server may not. */
+  needsKey: boolean;
+}
+
+const CLOUDFLARE = "api.cloudflare.com";
+
+export function deepgramServer(url: string | null): DeepgramServer {
+  const address = url ?? DEEPGRAM_URL;
+  const host = new URL(address).hostname;
+  const { deepgram } = TRANSCRIPTION_SERVICES;
+  if (isDeepgramHost(host)) {
+    return {
+      url: address,
+      service: { id: `https://${host}`, name: deepgram.service.name },
+      recipient: deepgram.recipient,
+      perHour: deepgram.perHour,
+      dataUse: deepgram.dataUse ?? null,
+      needsKey: true,
+    };
+  }
+  if (host === CLOUDFLARE) {
+    return {
+      url: address,
+      service: { id: `https://${CLOUDFLARE}`, name: "Cloudflare" },
+      recipient: { en: "Cloudflare", zh: "Cloudflare" },
+      // Workers AI's Deepgram Nova-3 over a WebSocket.
+      perHour: { currency: "USD", amount: 0.552 },
+      dataUse: {
+        summary: {
+          en: "Cloudflare doesn’t train AI models on what Workers AI transcribes, and keeps it only as long as the request takes.",
+          zh: "Cloudflare 不会用 Workers AI 转写的内容训练 AI 模型，只在请求所需的时间内保留。",
+        },
+        url: {
+          en: "https://developers.cloudflare.com/workers-ai/platform/privacy/",
+          zh: "https://developers.cloudflare.com/workers-ai/platform/privacy/",
+        },
+      },
+      needsKey: true,
+    };
+  }
+  const service = serviceAt(address.replace(/^ws/, "http"), host);
+  return {
+    url: address,
+    service,
+    recipient: { en: host, zh: host },
+    // A server of the User's own costs nothing per hour that IncarnaMind could count.
+    perHour: { currency: "USD", amount: 0 },
+    dataUse: null,
+    needsKey: false,
+  };
+}
 
 /** The Qwen provider's region a key is for: where its audio goes and what the audio costs there. */
 export interface QwenRegion {

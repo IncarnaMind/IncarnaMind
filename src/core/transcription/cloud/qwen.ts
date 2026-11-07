@@ -10,18 +10,19 @@
  * Apart from that, every result, a heartbeat in a long silence included, shows the service keeps
  * up with the audio sent before it: that alone says live text isn't falling behind.
  */
+import { isRecord } from "../../../shared/record";
+import type { CloudLoss } from "../../adapters";
 import { cleanSpeech } from "../speechText";
+import { createLiveStream, pcmBytes } from "./live";
 import { HANDSHAKE_REFUSED } from "./protocol";
-import {
-  type CloudStreamHandle,
-  type CloudStreamOptions,
-  CONNECT_TIMEOUT_MS,
-  FINISH_TIMEOUT_MS,
-  msOf,
-} from "./stream";
+import { type CloudStreamHandle, type CloudStreamOptions, msOf } from "./stream";
 
-/** The key can't be used here: made in the other region, or wrong. */
-const REFUSALS = new Set(["InvalidApiKey"]);
+/**
+ * "InvalidApiKey": the key can't be used here, made in the other region, or wrong. "Arrearage":
+ * the Alibaba Cloud account is overdue (https://help.aliyun.com/zh/model-studio/error-code).
+ */
+const lossOf = (errorCode: string): CloudLoss =>
+  errorCode === "InvalidApiKey" ? "refused" : errorCode === "Arrearage" ? "credit" : "dropped";
 
 interface Sentence {
   id: number;
@@ -58,52 +59,6 @@ export function createQwenStream(options: CloudStreamOptions & { url: string }):
   let finalMs = 0;
   let furthestMs = 0;
   const open = new Map<number, Sentence>();
-  let completed = false;
-  let started = false;
-  const waiting: (Uint8Array | string)[] = [];
-  let ended = false;
-  let refused = false;
-  let finishing: { resolve(): void } | null = null;
-  let finishTimer: ReturnType<typeof setTimeout> | null = null;
-
-  const socket = options.connect(options.url, options.apiKey, {
-    open() {
-      if (ended) return;
-      socket.send(
-        JSON.stringify({
-          header: header("run-task"),
-          payload: {
-            task_group: "audio",
-            task: "asr",
-            function: "recognition",
-            model: options.model,
-            // A meeting has long silences, which the service closes a quiet connection over.
-            parameters: { format: "pcm", sample_rate: 16_000, heartbeat: true },
-            input: {},
-          },
-        }),
-      );
-    },
-    message: heard,
-    closed(code) {
-      if (ended) return;
-      end();
-      if (!completed) report.lost(refused || code === HANDSHAKE_REFUSED ? "refused" : "dropped");
-    },
-  });
-  const connectTimer = setTimeout(() => {
-    if (!started && !ended) socket.close();
-  }, CONNECT_TIMEOUT_MS);
-
-  function end(): void {
-    ended = true;
-    // What waited for the task is never sent once the stream has ended.
-    waiting.length = 0;
-    clearTimeout(connectTimer);
-    if (finishTimer) clearTimeout(finishTimer);
-    finishing?.resolve();
-    finishing = null;
-  }
 
   function doneMs(): number {
     const candidate =
@@ -135,81 +90,66 @@ export function createQwenStream(options: CloudStreamOptions & { url: string }):
     report.progress(msOf(received), msOf(received));
   }
 
-  function heard(text: string): void {
-    if (ended) return;
-    let message: { header?: Record<string, unknown>; payload?: unknown } | null;
-    try {
-      message = JSON.parse(text);
-    } catch {
-      return;
-    }
-    switch (message?.header?.event) {
-      case "task-started":
-        started = true;
-        clearTimeout(connectTimer);
-        for (const audio of waiting.splice(0)) socket.send(audio);
-        report.opened();
-        return;
-      case "result-generated": {
-        answeredMs = msOf(received);
-        const sentence = sentenceOf(message?.payload);
-        if (sentence?.ended) {
-          open.delete(sentence.id);
-          finalMs = Math.max(finalMs, sentence.endMs);
-          say(sentence, true);
-        } else if (sentence) {
-          open.set(sentence.id, sentence);
-          say(sentence, false);
-        }
-        report.progress(doneMs(), answeredMs);
-        return;
-      }
-      case "task-finished":
-        completed = true;
-        settle();
-        end();
-        socket.close();
-        return;
-      case "task-failed":
-        refused = REFUSALS.has(String(message?.header?.error_code));
-        end();
-        socket.close();
-        report.lost(refused ? "refused" : "dropped");
-        return;
-    }
-  }
-
-  return {
-    push(samples) {
-      if (ended || finishing || samples.length === 0) return;
-      received += samples.length;
-      const bytes = new Uint8Array(
-        samples.buffer.slice(samples.byteOffset, samples.byteOffset + samples.byteLength),
+  return createLiveStream(options, {
+    url: options.url,
+    opened(link) {
+      link.setup(
+        JSON.stringify({
+          header: header("run-task"),
+          payload: {
+            task_group: "audio",
+            task: "asr",
+            function: "recognition",
+            model: options.model,
+            // A meeting has long silences, which the service closes a quiet connection over.
+            parameters: { format: "pcm", sample_rate: 16_000, heartbeat: true },
+            input: {},
+          },
+        }),
       );
-      if (started) socket.send(bytes);
-      else waiting.push(bytes);
+    },
+    heard(message, link) {
+      const event = isRecord(message.header) ? message.header : {};
+      switch (event.event) {
+        case "task-started":
+          link.ready();
+          return;
+        case "result-generated": {
+          answeredMs = msOf(received);
+          const sentence = sentenceOf(message.payload);
+          if (sentence?.ended) {
+            open.delete(sentence.id);
+            finalMs = Math.max(finalMs, sentence.endMs);
+            say(sentence, true);
+          } else if (sentence) {
+            open.set(sentence.id, sentence);
+            say(sentence, false);
+          }
+          report.progress(doneMs(), answeredMs);
+          return;
+        }
+        case "task-finished":
+          settle();
+          link.complete();
+          return;
+        case "task-failed":
+          link.lose(lossOf(String(event.error_code)));
+          return;
+      }
+    },
+    audio(samples, link) {
+      received += samples.length;
+      link.send(pcmBytes(samples));
       report.progress(doneMs(), answeredMs);
     },
-
-    finish() {
-      if (ended) return Promise.resolve();
-      return new Promise<void>((resolve) => {
-        finishing = { resolve };
-        const done = JSON.stringify({ header: header("finish-task"), payload: { input: {} } });
-        if (started) socket.send(done);
-        else waiting.push(done);
-        finishTimer = setTimeout(() => {
-          end();
-          socket.close();
-          report.lost("dropped");
-        }, FINISH_TIMEOUT_MS);
-      });
+    finish(link) {
+      link.send(JSON.stringify({ header: header("finish-task"), payload: { input: {} } }));
     },
-
-    drop() {
-      if (ended) return;
-      end();
-      socket.close();
+    late(link) {
+      link.lose("dropped");
     },
-  };
+    closed(code, _reason, link) {
+      link.lose(code === HANDSHAKE_REFUSED ? "refused" : "dropped");
+    },
+  });
 }

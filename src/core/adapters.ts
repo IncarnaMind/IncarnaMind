@@ -748,21 +748,26 @@ export interface SpeechSegment {
 }
 
 /**
- * A stream's audio sent to a cloud transcription service instead (#141), with the User's key.
- * OpenAI's live model needs our own voice activity detection: `vad` is Silero's file. Qwen's
- * address is the host of the key's region: a key works in no other.
+ * A stream's audio sent to a cloud transcription service instead (#141, #866), with the User's
+ * key. OpenAI's live model needs our own voice activity detection: `vad` is Silero's file. Qwen's
+ * address is the host of the key's region: a key works in no other. Deepgram's is the server the
+ * User gave (Deepgram's own, Cloudflare Workers AI or their own server); its key may be empty
+ * for their own server.
  */
 export type CloudStream =
   | { service: "openai"; model: string; apiKey: string; vad: string }
   | { service: "soniox"; model: string; apiKey: string }
-  | { service: "qwen"; model: string; apiKey: string; url: string };
+  | { service: "qwen"; model: string; apiKey: string; url: string }
+  | { service: "deepgram"; model: string; apiKey: string; url: string }
+  | { service: "assemblyai"; model: string; apiKey: string }
+  | { service: "gemini"; model: string; apiKey: string };
 
 /**
- * Why a cloud stream ended before it was finished: the connection was lost ("dropped"), or the
- * service refused the key (Qwen: one made in the other region too) or the account has no credit
- * left ("refused").
+ * Why a cloud stream ended before it was finished: the connection was lost ("dropped"), the
+ * service refused the key (Qwen: one made in the other region too), or the account has no credit
+ * left ("credit").
  */
-export type CloudLoss = "dropped" | "refused";
+export type CloudLoss = "dropped" | "refused" | "credit";
 
 /**
  * Turns speech into text off the core's thread (#136): the desktop app runs
@@ -930,14 +935,16 @@ export interface CoreAdapters {
   /** How Linked folders are watched (see `LinkedFolderOptions`). */
   linkedFolders?: LinkedFolderOptions;
   /**
-   * How web pages are fetched (#261). Defaults to Node's fetch, within 20
-   * seconds and 10 MB; tests shorten the limits.
+   * How web pages are fetched (#261): through the public-internet fetcher by
+   * default, within 20 seconds and 10 MB. `fetch` stands another in for a
+   * test; tests shorten the limits.
    */
   webPages?: { fetch?: PageFetch; limits?: FetchLimits; pictureLimits?: PictureLimits };
   /**
-   * How web search's fetcher resolves host names and makes its connections
-   * (#128): the system's resolver and undici's by default. Tests stand a
-   * local server in for the web; the fetcher's guard still decides.
+   * How the fetcher a saved page and web search use resolves host names and
+   * makes its connections (#128): the system's resolver and undici's by
+   * default. Tests stand a local server in for the web; the fetcher's guard
+   * still decides.
    */
   web?: PublicFetchOptions;
   processes: ProcessLauncher;

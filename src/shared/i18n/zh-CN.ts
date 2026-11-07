@@ -3455,6 +3455,9 @@ export const zhCN = {
   "meetings.route.openai": "OpenAI",
   "meetings.route.soniox": "Soniox",
   "meetings.route.qwen": "通义千问",
+  "meetings.route.deepgram": "Deepgram",
+  "meetings.route.assemblyai": "AssemblyAI",
+  "meetings.route.gemini": "Gemini",
   "meetings.route.here": "在这台电脑上转写",
   "meetings.route.hereLine": "私密、免费",
   "meetings.route.otherWays": "其他方式…",
@@ -3477,8 +3480,12 @@ export const zhCN = {
   "meetings.route.providerKey": "使用你的{provider}密钥",
   "meetings.route.ownKey": "你的{provider}密钥",
   "meetings.route.speakers": "实时区分发言人",
+  "meetings.route.ownServer": "在你自己的服务器上",
+  "meetings.route.languages": "{provider}不支持转写{languages}，这些语言的内容可能缺失或有误。",
   "meetings.key.title": "{provider}密钥",
   "meetings.key.line": "保存在这台电脑上，不会再显示。",
+  "meetings.key.lineChecked":
+    "保存在这台电脑上，不会再显示。保存时会先请 {provider} 检查这个密钥，这次请求不会读取你的任何内容。",
   "meetings.key.get": "获取密钥",
   "meetings.key.placeholder": "粘贴密钥",
   "meetings.key.save": "保存",
@@ -3487,6 +3494,11 @@ export const zhCN = {
   "meetings.key.add": "添加密钥",
   "meetings.key.replace": "更换密钥",
   "meetings.key.remove": "移除",
+  "meetings.key.server": "服务器地址",
+  "meetings.key.serverPlaceholder": "Deepgram 官方",
+  "meetings.key.serverTip":
+    "使用 Deepgram 时留空。使用 Cloudflare Workers AI 时，粘贴它的 Nova-3 地址；也可以填你自己的服务器地址。",
+  "meetings.key.serverSaved": "发送到 {server}",
   "settings.advanced": "高级",
   "models.removed": "已移除{provider}。",
   "models.removed.answers": "已移除{provider}。回答现在使用 {model}。",
@@ -5318,6 +5330,9 @@ export const zhCN = {
   "error.transcription.keyRefused": "{service} 不接受这个密钥。请重新复制后粘贴到这里。",
   "error.transcription.noOwnKey": "这个转写服务使用你在“模型”中设置的密钥。",
   "error.transcription.unknownService": "这不是转写服务。",
+  "error.transcription.serverScheme": "服务器地址必须以 wss:// 或 https:// 开头。",
+  "error.transcription.serverEncrypted":
+    "会议音频只能加密发送到其他电脑：请使用 wss:// 或 https:// 地址。",
   "error.meeting.template": "这不是会议模板。请从模板菜单中选择。",
   "error.comparison.noQuestion": "先添加一个要对比的问题。",
   "error.comparison.tooManyQuestions": "对比表最多可以有 {max} 个问题。",
@@ -5850,6 +5865,7 @@ export const zhCN = {
   "meetings.line.cloudDropped": "正在这台电脑上转写（{provider}在 {time} 断开）",
   "meetings.line.cloudCap": "正在这台电脑上转写（{time} 时已达到每月上限）",
   "meetings.line.cloudRefused": "{provider}不接受这个密钥，正在这台电脑上转写。",
+  "meetings.line.cloudCredit": "{provider}提示此账户余额不足，正在这台电脑上转写。",
   "meetings.line.cloudRefusedRegion":
     "{provider}拒绝了这个密钥（密钥有误、已过期或属于其他区域）。请在“设置 › 模型”中检查密钥和区域。正在这台电脑上转写。",
   "meetings.line.cloudMoved":

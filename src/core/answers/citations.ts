@@ -574,6 +574,27 @@ const NAME_SEPARATOR = new RegExp(
 );
 
 /**
+ * A found check made not found again when the words the Answer quoted (#483), which the
+ * Citation's check didn't find before, still aren't in its cited Units of that version (#2612).
+ */
+function withQuotedWords(
+  documents: RecheckDocuments,
+  documentId: string,
+  contentHash: string,
+  range: PageRange,
+  asked: QuotedWordsCheck | null | undefined,
+  check: CheckResult,
+): CheckResult {
+  if (check.check !== "found" || !asked || !("answer" in asked)) return check;
+  const words = asked.answer.map((piece) => piece.text).join("");
+  const units = documents.pageTexts(documentId, contentHash, null, null);
+  const cited = documents.pageTexts(documentId, contentHash, range.pageFrom, range.pageTo);
+  return quoteInUnits(cited, words, matchingOf(units))
+    ? check
+    : { check: "not-found", checkReason: "quoted-words-not-on-pages" };
+}
+
+/**
  * Checks a Citation again against its Document's current version (see
  * `CoreApi.recheckCitation`): at its cited Units, without relocating it.
  * The Passage given is one of the current version that holds the
@@ -583,16 +604,35 @@ const NAME_SEPARATOR = new RegExp(
  */
 export function recheckCitation(
   documents: RecheckDocuments,
-  input: Rechecked & { contentHash?: string | null },
+  input: Rechecked & Pick<CitationToRecheck, "contentHash" | "quotedWords">,
 ): CitationRecheck {
-  const now = recheckInCurrent(documents, input);
+  const quoteOnly = recheckInCurrent(documents, input);
+  const now =
+    quoteOnly.contentHash === null
+      ? quoteOnly
+      : {
+          ...quoteOnly,
+          ...withQuotedWords(
+            documents,
+            input.documentId,
+            quoteOnly.contentHash,
+            quoteOnly,
+            input.quotedWords,
+            quoteOnly,
+          ),
+        };
   const quoted = input.contentHash ?? "";
   if (quoted === "" || now.contentHash === null || now.contentHash === quoted) return now;
+  const inQuoted = checkInVersion(documents, input, quoted);
   return {
     ...now,
-    inQuotedVersion: checkInVersion(documents, input, quoted),
+    inQuotedVersion:
+      inQuoted &&
+      withQuotedWords(documents, input.documentId, quoted, input, input.quotedWords, inQuoted),
     changed:
-      now.check === "not-found" ? changedQuote(documents, input, quoted, now.contentHash) : null,
+      quoteOnly.check === "not-found"
+        ? changedQuote(documents, input, quoted, now.contentHash)
+        : null,
   };
 }
 
@@ -1169,23 +1209,17 @@ export function recheckKept(
   if (typeof keptOver === "string" && keptOver !== "") return null;
   const page = (value: unknown) =>
     typeof value === "number" && Number.isInteger(value) && value >= 1 ? value : null;
+  // The quote being found says nothing of the words the Answer put in quotation marks (#483).
+  const { quotedWords, ...kept } = attributes;
   const now = recheckCitation(documents, {
     documentId,
     quote: typeof quote === "string" ? quote : "",
     pageFrom: page(attributes.pageFrom),
     pageTo: page(attributes.pageTo) ?? page(attributes.pageFrom),
+    quotedWords: parseQuotedWords(quotedWords),
   });
   if (now.check !== "found") return null;
   if (attributes.check === "found" && attributes.contentHash === now.contentHash) return null;
-  // The quote being found says nothing of the words the Answer put in quotation marks (#483).
-  const { quotedWords, ...kept } = attributes;
-  const asked = parseQuotedWords(quotedWords);
-  if (asked && now.contentHash !== null) {
-    const words = asked.answer.map((piece) => piece.text).join("");
-    const units = documents.pageTexts(documentId, now.contentHash, null, null);
-    const cited = documents.pageTexts(documentId, now.contentHash, now.pageFrom, now.pageTo);
-    if (!quoteInUnits(cited, words, matchingOf(units))) return null;
-  }
   return {
     ...kept,
     check: now.check,
