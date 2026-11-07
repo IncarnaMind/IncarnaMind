@@ -3140,6 +3140,7 @@ export function createDocuments(options: DocumentsOptions) {
 
     /** The first pages of a live Document whose version's rest is still being read, if they are read. */
     head(id: string): DocumentHead | null {
+      if (!heads.has(id)) return null;
       const row = find(id);
       return row ? headOf(row) : null;
     },
