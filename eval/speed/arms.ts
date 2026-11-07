@@ -30,6 +30,7 @@ export interface Arm {
   paths?: {
     writesThenCites?: boolean;
     retrievesFirst?: boolean;
+    marksPassages?: boolean;
   };
   /** Whether the quick model looks first at every written sentence (#1667); unset: the list's. */
   checks?: { quickFirstLook?: boolean };
@@ -116,6 +117,12 @@ export const ARMS: readonly Arm[] = [
       "the Question searched before the first call, answered from those Passages unless it needs more (#1633)",
     paths: { retrievesFirst: true },
   },
+  {
+    id: "help-marks-passages",
+    label:
+      "call help offered no cite: each marker names its Passage, and IncarnaMind records the quote (#2526)",
+    paths: { marksPassages: true },
+  },
 ];
 
 export function armNamed(id: string): Arm {
@@ -138,6 +145,7 @@ export function armSwitch() {
   const answerPaths: AnswerPathsOverride = {
     writesThenCites: () => current?.paths?.writesThenCites,
     retrievesFirst: () => current?.paths?.retrievesFirst,
+    marksPassages: () => current?.paths?.marksPassages,
   };
   const checkPaths: CheckPathsOverride = {
     quickFirstLook: () => current?.checks?.quickFirstLook,

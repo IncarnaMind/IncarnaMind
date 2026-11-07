@@ -165,7 +165,7 @@ function uncitedSentences(answer: string, recorded: (marker: number) => boolean)
 }
 
 /** The sentences of a Passage's text, each as it is in the text. */
-function passageSentences(text: string): string[] {
+export function passageSentences(text: string): string[] {
   return text
     .split(/\n+/)
     .flatMap((line) => sentenceSpans(line).map((span) => line.slice(span.from, span.to).trim()))

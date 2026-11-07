@@ -121,6 +121,7 @@ import { calculationsSchema, checkCalculationsSchema } from "./calculationsSchem
 import { asksForFixes, WRITE_NOW } from "./citations";
 import { type AskedPicture, earlierContext, type RequestMind, withLineBefore } from "./context";
 import { retryFigures } from "./figureRetry";
+import { markedRecords } from "./markedPassages";
 import {
   NOTHING_SHOWN_YET,
   SEARCH_QUERY_INSTRUCTIONS,
@@ -479,6 +480,11 @@ export interface AnswerRequest {
   support?: CitationSupport;
   /** In the Tool loop, the model writes the Answer, then cites it in the same reply (#489). */
   writeThenCite?: boolean;
+  /**
+   * In the Tool loop, the model is offered no `cite`: each marker names the Passage it rests on,
+   * and the quotes are recorded once the reply is written (./markedPassages, #2526).
+   */
+  marksPassages?: boolean;
   /**
    * In the Tool loop, search the Question's own words before the first call, so the model can
    * answer from those Passages without searching; it searches on when they aren't enough.
@@ -1983,6 +1989,7 @@ async function* toolLoop(
   });
   /** The Tools offered, by the name the model calls them. */
   const offered = new Map(offeredWith(documents, request.tools).map((each) => [each.name, each]));
+  if (request.marksPassages && cite) offered.delete(cite.name);
   const tools = [...offered.values()];
   const maxSteps =
     stepLimit + (tools.some((each) => each.provider.kind === "analysis") ? ANALYSIS_STEPS : 0);
@@ -2408,6 +2415,24 @@ async function* toolLoop(
             console.error(
               `The Citations written as text couldn't be recorded: ${messageOf(error)}`,
             );
+          }
+          if (request.marksPassages) {
+            const { documents } = request;
+            const marked = markedRecords(
+              taken.text,
+              documents.shownPassages?.() ?? [],
+              (passage, quote) => documents.quoteFound?.(passage, quote) ?? false,
+              (marker) => documents.hasRecord?.(marker) ?? false,
+            );
+            cited.push(...marked);
+            try {
+              documents.cite(marked, { structured: true });
+            } catch (error) {
+              if (error instanceof FiguresNotRead) throw error;
+              console.error(
+                `The Passages the reply named couldn't be recorded: ${messageOf(error)}`,
+              );
+            }
           }
         }
         const afterSearch = setAside.filter((each) => each.searched).map((each) => each.text);

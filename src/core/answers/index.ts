@@ -669,6 +669,8 @@ export interface AnswersOptions {
   writesThenCites?(prepared: PreparedChatModel, flow: AnswerFlow): boolean;
   /** Whether an Answer on this model, in this flow, searches its Question before the first call (#1633). */
   retrievesFirst?(prepared: PreparedChatModel, flow: AnswerFlow): boolean;
+  /** Whether call help on this model names its Passages in its markers and is offered no `cite` (#2526). */
+  marksPassages?(prepared: PreparedChatModel, flow: AnswerFlow): boolean;
   /** Searching the User's Documents, and what Citations point to. */
   documents: DocumentsForAnswers;
   /** Runs Analyses (#447, ADR-0023); absent: no Answer is offered `run_analysis`. */
@@ -3414,6 +3416,7 @@ export function createAnswers(options: AnswersOptions) {
       // A model cites as the write-then-cite list says, whichever way it searches, so it never
       // cites in a way that list didn't admit it to (#1633).
       const writeFirst = options.writesThenCites?.(prepared, flow) ?? false;
+      const marks = help !== undefined && (options.marksPassages?.(prepared, flow) ?? false);
       for await (const event of engine.generate({
         instructions: (
           mode,
@@ -3446,7 +3449,7 @@ export function createAnswers(options: AnswersOptions) {
                   scoped,
                   calculating,
                   withMindTools || ids.size() > 0,
-                  { writeFirst, minds: withMindTools, library },
+                  { writeFirst, marksPassages: marks, minds: withMindTools, library },
                 ),
             inAssistant && !help ? SEARCH_SCOPE_RULE : "",
             stillReadingNote(options.documents.reading(documentIds)),
@@ -3517,6 +3520,7 @@ export function createAnswers(options: AnswersOptions) {
         thirdParty: contextReasons,
         support: startingSupport(prepared.support, supportByModel.get(learntKey)),
         writeThenCite: writeFirst,
+        ...(marks && { marksPassages: true }),
         retrieveFirst,
         structuredOutput: givesStructuredOutput(prepared.capabilities),
         takesTemperature: prepared.capabilities.facts.temperature,

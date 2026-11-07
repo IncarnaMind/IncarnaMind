@@ -692,6 +692,17 @@ const writeThenCite = (keeps: boolean, minds: boolean) => [
 ];
 
 /**
+ * How a listed model cites in call help (#2526): offered no `cite`, it names each Passage in its
+ * marker and IncarnaMind records the quote (see ./markedPassages), so the reply takes one call with
+ * no Tool's result to think over.
+ */
+const MARKS_PASSAGES = [
+  "- Put a marker right after each claim a Passage supports, holding the number of that Passage's id: [^3] cites P3, [^12] cites P12. IncarnaMind records the quote. One Passage a marker: a claim resting on two gets both, as [^3][^12]. Add no list of sources.",
+  "- Use quotation marks only around a Document's exact words, in its own language.",
+  "- Write nothing before a search: only the reply, once you have what it needs.",
+];
+
+/**
  * What `cite` tells a listed model that gave its records before any of the Answer showed: Claude
  * Sonnet 5.5 wrote the Answer in its thinking and, told to write it "if you haven't yet", wrote
  * only a line pointing back to it.
@@ -844,9 +855,15 @@ export function documentInstructions(
   keeps = false,
   {
     writeFirst = false,
+    marksPassages = false,
     minds = false,
     library = { total: listed.total },
-  }: { writeFirst?: boolean; minds?: boolean; library?: LibraryDocuments } = {},
+  }: {
+    writeFirst?: boolean;
+    marksPassages?: boolean;
+    minds?: boolean;
+    library?: LibraryDocuments;
+  } = {},
 ): string {
   const dated = datedDocumentsNote(passages);
   const notes = [
@@ -868,7 +885,11 @@ export function documentInstructions(
         ...rest,
         "",
         "Cite every claim you draw from a Passage:",
-        ...(writeFirst ? writeThenCite(keeps, minds) : citeFirst(keeps)),
+        ...(marksPassages
+          ? MARKS_PASSAGES
+          : writeFirst
+            ? writeThenCite(keeps, minds)
+            : citeFirst(keeps)),
         notCovered(true, true),
         CITED_SAYS_ONLY_ITS_QUOTE,
         FIGURES_AS_STATED,

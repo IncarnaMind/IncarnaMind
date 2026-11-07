@@ -8,6 +8,7 @@
 import { describe, expect, test } from "vitest";
 import type { Core, Meeting, MeetingHelpKind } from "../../src/core";
 import { CITE_RETRY_INSTRUCTIONS } from "../../src/core/answers/prompt";
+import type { AnswerPathsOverride } from "../../src/core/providers/catalog/answerPaths";
 import { setMindModel } from "../../src/shared/mindModel";
 import { answerEnded, shownPassages } from "../helpers/citations";
 import { createTempDataFolder } from "../helpers/core";
@@ -43,19 +44,41 @@ function helpingModel(calls: ModelCall[]) {
 }
 
 /**
+ * A model that answers in the options' shape, naming the first Passage found ahead in its first
+ * option's marker and a Passage it wasn't given in its second's.
+ */
+function namingModel(calls: ModelCall[]) {
+  return scriptedModel((call) => {
+    calls.push(call);
+    const [found] = shownPassages(block(call.prompt, "found-in-documents") ?? "");
+    const named = found ? `[^${found.id.slice(1)}]` : "";
+    return {
+      text: `★ Yes, Enterprise is $45 a seat with single sign-on ${named}\n→ answers at once\n\nI'll send the price sheet today [^99]\n→ buys time`,
+    };
+  });
+}
+
+interface SetUpOptions {
+  model?: typeof helpingModel;
+  answerPaths?: AnswerPathsOverride;
+}
+
+/**
  * A meeting recording with lines from both sides; `before`, what to do first (Documents wait while
  * it records); `lines` and `theirLines`, what each side says.
  */
 async function setUp(
   before?: (core: Core) => Promise<void>,
   said: { lines?: readonly string[]; theirLines?: readonly string[] } = {},
+  { model = helpingModel, answerPaths }: SetUpOptions = {},
 ) {
   const calls: ModelCall[] = [];
   const dataDir = await createTempDataFolder();
-  const models = scriptedModels(helpingModel(calls));
+  const models = scriptedModels(model(calls));
   const { core, record } = await transcribingCore(dataDir, {
     createChatModel: models.createChatModel,
     engine: said,
+    ...(answerPaths && { answerPaths }),
   });
   await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
   await before?.(core);
@@ -173,6 +196,42 @@ describe("Help during the call", { timeout: 60_000 }, () => {
     expect(answer.citations).toEqual([
       expect.objectContaining({ documentName: "Price sheet", quote: PRICE, check: "found" }),
     ]);
+  });
+
+  // protects=on the path that names Passages in markers, a press's reply is written in one request offered no cite, each marker naming a Passage it was given becomes that Passage's Citation, quoting the sentence most like its claim and found, and a marker naming none becomes none; fails_when=cite is offered, a second request is made, a named Passage isn't cited or is cited by another sentence, or a marker naming no Passage is kept; no_claim=what a real model writes (eval/speed/gates/call-help-marks-passages.md) (#2526).
+  test("on the path that names Passages in markers, a press is offered no cite, and each marker naming a Passage becomes its Citation, quoting its sentence most like the claim", async () => {
+    const { core, meeting, calls } = await setUp(
+      async (before) => {
+        const sources = await createSourceFolder();
+        const added = await before.addDocuments([
+          await writeSourceFile(
+            sources,
+            "Price sheet.txt",
+            `Price sheet 2026\n\nTeam plan: $25 per seat a month.\n${PRICE}\nThe launch moves to the eighteenth of November for every plan.`,
+          ),
+        ]);
+        await waitForProcessing(
+          before,
+          added.documents.map((document) => document.id),
+        );
+      },
+      {},
+      { model: namingModel, answerPaths: { marksPassages: () => true } },
+    );
+
+    const { answer } = await press(core, meeting, "answer");
+
+    // The reply in one request; the request after it, offered no Tool, asks for the Citation the
+    // marker naming no Passage left out, as for any marker without a record.
+    expect(calls.filter((call) => call.tools.length > 0)).toHaveLength(1);
+    expect(calls[0]?.tools).toContain("search_documents");
+    expect(calls[0]?.tools).not.toContain("cite");
+    expect(calls[0]?.system).toContain("[^3] cites P3");
+    expect(answer.citations).toEqual([
+      expect.objectContaining({ documentName: "Price sheet", quote: PRICE, check: "found" }),
+    ]);
+    expect(answer.text).toContain("I'll send the price sheet today");
+    expect(answer.text).not.toContain("[^99]");
   });
 
   // protects=a button pressed while the live text is behind and has no line yet is answered with one plain line saying so, in the User's language, without asking the model; fails_when=the model is asked and may tell the User to retype what was said; no_claim=the panel's drawing of it (the smoke test) (#1366).

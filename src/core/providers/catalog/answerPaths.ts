@@ -52,6 +52,14 @@ const WRITES_THEN_CITES: readonly Admitted[] = [
  */
 const RETRIEVES_FIRST: readonly Admitted[] = [];
 
+/**
+ * Call help offered no `cite`: each marker carries the number of the Passage it rests on ("[^3]"
+ * for P3), and IncarnaMind records its quote, so a model that thinks after each Tool's result
+ * (Claude Sonnet 5.5 on a direct key) writes the reply in one call (#2526). No model is listed yet:
+ * eval/speed/gates/call-help-marks-passages.md.
+ */
+const MARKS_PASSAGES: readonly Admitted[] = [];
+
 /** A model as an Answer runs it. */
 export interface ListedModel {
   catalogId: string | null;
@@ -62,6 +70,7 @@ export interface ListedModel {
 export interface AnswerPathsOverride {
   writesThenCites?(model: ListedModel): boolean | undefined;
   retrievesFirst?(model: ListedModel): boolean | undefined;
+  marksPassages?(model: ListedModel): boolean | undefined;
 }
 
 const listed = (
@@ -86,3 +95,9 @@ export const retrievesFirst = (
   flow: AnswerFlow,
   override?: AnswerPathsOverride,
 ): boolean => override?.retrievesFirst?.(model) ?? listed(RETRIEVES_FIRST, model, flow);
+
+export const marksPassages = (
+  model: ListedModel,
+  flow: AnswerFlow,
+  override?: AnswerPathsOverride,
+): boolean => override?.marksPassages?.(model) ?? listed(MARKS_PASSAGES, model, flow);
