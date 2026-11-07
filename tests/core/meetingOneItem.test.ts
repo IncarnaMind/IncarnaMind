@@ -269,6 +269,9 @@ describe("A search inside a Transcript", { timeout: 60_000 }, () => {
 });
 
 const ours = migrations.find((each) => each.description.includes("(#2528)")) as Migration;
+const endsSuggestedFolders = migrations.find((each) =>
+  each.sql.includes("DROP TABLE document_group_rejections"),
+) as Migration;
 
 /**
  * Takes the data folder back to how the version before this one left it: this migration undone,
@@ -282,7 +285,7 @@ function asBefore(dataDir: string, before: (db: ReturnType<typeof openDatabase>)
     DROP TABLE meetings_left_apart;
     DROP INDEX documents_by_meeting_mind;
     ALTER TABLE documents DROP COLUMN meeting_mind_id;
-    -- That version still had what migration 136 takes away.
+    -- That version still had what a later migration takes away (#1569).
     CREATE TABLE document_group_rejections (
       id TEXT PRIMARY KEY NOT NULL,
       document_id TEXT NOT NULL,
@@ -292,7 +295,7 @@ function asBefore(dataDir: string, before: (db: ReturnType<typeof openDatabase>)
       deleted_at TEXT
     ) STRICT;
     ALTER TABLE document_groups ADD COLUMN suggested INTEGER NOT NULL DEFAULT 0;
-    DELETE FROM schema_migrations WHERE version IN (${ours.version}, 136);
+    DELETE FROM schema_migrations WHERE version IN (${ours.version}, ${endsSuggestedFolders.version});
   `);
   before(db);
   db.close();

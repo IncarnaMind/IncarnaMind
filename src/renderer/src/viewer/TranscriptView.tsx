@@ -12,10 +12,11 @@ import {
 } from "../../../core/documents/formats/vtt";
 import { clockTime, paddedClockTime } from "../../../shared/clock";
 import type { MessageKey } from "../../../shared/i18n";
-import { speakerName } from "../../../shared/speakers";
+import { shownSpeaker, speakerName, type TranscriptLine } from "../../../shared/speakers";
 import { transcriptHandle, useHandle } from "../commands/handles";
 import { MicOffLineIcon, PlusLineIcon } from "../components/lineIcons";
 import { MetaLine } from "../components/MetaLine";
+import { SpeakerMenu } from "../components/meetings/SpeakerMenu";
 import { LineAction } from "../components/ProblemLine";
 import { useDismissOnEscape } from "../escapeDismiss";
 import { useT } from "../i18n";
@@ -183,6 +184,9 @@ const ADDED_SHOWN_MS = 3000;
 /** Names a line: two can start together, so its start alone doesn't. */
 const lineId = (cue: Cue) => `${cue.startMs}-${cue.endMs}-${cue.speaker ?? ""}`;
 
+const speakerButtonOf = (line: Element | null | undefined) =>
+  line?.querySelector<HTMLButtonElement>("[data-speaker-button]") ?? null;
+
 /** The line after or before this one: the Transcript's gaps between them aren't lines. */
 function lineBeside(from: Element, direction: "next" | "previous"): HTMLElement | null {
   let each = direction === "next" ? from.nextElementSibling : from.previousElementSibling;
@@ -258,6 +262,23 @@ function TranscriptContent({
     [transcript, microphonePausedAtMs],
   );
   const units = useMemo(() => transcriptUnits(transcript), [transcript]);
+  const lines = useMemo<TranscriptLine[]>(
+    () =>
+      transcript.cues.flatMap((cue) =>
+        cue.speaker === null ? [] : [{ startMs: cue.startMs, label: cue.speaker }],
+      ),
+    [transcript],
+  );
+  // Who speaks is said on a Meeting's saved Transcript, once the speaker pass has settled (#138).
+  const nameable =
+    meeting?.kind === "meeting" &&
+    meeting.status === "stopped" &&
+    state === "saved" &&
+    !meeting.transcript?.separating &&
+    document?.kind === "transcript"
+      ? document
+      : null;
+  const speakers = document?.speakers ?? null;
 
   /** The lines of the cited Units, by the time they start. */
   const citedLines = useCallback(() => {
@@ -309,8 +330,16 @@ function TranscriptContent({
       addLine: async () => {
         if (activeRef.current) await addLine(activeRef.current);
       },
+      canChangeSpeaker: () => nameable !== null && activeRef.current?.speaker != null,
+      changeSpeaker: () => {
+        const active = activeRef.current;
+        if (!active) return;
+        speakerButtonOf(
+          list.current?.querySelector(`[data-line="${CSS.escape(lineId(active))}"]`),
+        )?.click();
+      },
     }),
-    [addLine, meetingId],
+    [addLine, meetingId, nameable],
   );
   useHandle(transcriptHandle, lend);
   const first = transcript.cues[0];
@@ -321,6 +350,11 @@ function TranscriptContent({
     if (event.key === "Enter") {
       event.preventDefault();
       void addLine(cue);
+    } else if (event.key === "F2" && nameable) {
+      const button = speakerButtonOf(event.currentTarget);
+      if (!button) return;
+      event.preventDefault();
+      button.click();
     } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       const next = lineBeside(event.currentTarget, event.key === "ArrowDown" ? "next" : "previous");
       if (!next) return;
@@ -465,6 +499,7 @@ function TranscriptContent({
                       key={`c${lineId(row.cue)}`}
                       data-testid="transcript-line"
                       data-start={row.cue.startMs}
+                      data-line={lineId(row.cue)}
                       tabIndex={
                         meetingId ? ((active ?? firstId) === lineId(row.cue) ? 0 : -1) : undefined
                       }
@@ -480,15 +515,22 @@ function TranscriptContent({
                         {paddedClockTime(row.cue.startMs)}
                       </span>
                       <div className="min-w-0">
-                        {row.cue.speaker && (
-                          <p
-                            data-testid="transcript-speaker"
-                            data-quote-skip=""
-                            className="transcript-speaker"
-                          >
-                            {speakerName(row.cue.speaker, t)}
-                          </p>
-                        )}
+                        {row.cue.speaker &&
+                          (nameable ? (
+                            <SpeakerMenu
+                              document={nameable}
+                              lines={lines}
+                              line={{ startMs: row.cue.startMs, label: row.cue.speaker }}
+                            />
+                          ) : (
+                            <p
+                              data-testid="transcript-speaker"
+                              data-quote-skip=""
+                              className="transcript-speaker"
+                            >
+                              {shownSpeaker(speakers, row.cue.startMs, row.cue.speaker, t)}
+                            </p>
+                          ))}
                         <p className="transcript-text">{row.cue.text}</p>
                       </div>
                       {meetingId && (

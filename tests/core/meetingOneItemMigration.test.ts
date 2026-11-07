@@ -185,7 +185,7 @@ const liveTags = (db: Database) =>
       "SELECT document_id FROM document_tags WHERE deleted_at IS NULL ORDER BY document_id",
     )
     .map((row) => row.document_id);
-/** What an earlier version's turned-down Folders became (migration 136). */
+/** What an earlier version's turned-down Folders became (migration 137). */
 const liveDeclines = (db: Database) =>
   db.all<{ id: string }>("SELECT id FROM organize_review_declines WHERE deleted_at IS NULL");
 

@@ -17,12 +17,13 @@ import {
   type CitationLocation,
   type CitedArea,
   filePropertyNames,
+  type TranscriptSpeakers,
 } from "../core/api";
 import { clockTime, parseClockTime } from "./clock";
 import { type MessageKey, type MessageParams, translate } from "./i18n";
 import { parseLibraryFact, parseLibrarySource } from "./libraryFacts";
 import { findQuote, type MatchOptions, type TextRange } from "./quoteMatch";
-import { speakerName } from "./speakers";
+import { shownSpeaker } from "./speakers";
 import {
   anchorsOf,
   isPrintedName,
@@ -209,12 +210,24 @@ export function citationLocation(
 /** Words a Location in a language: `t` is the renderer's `t` or the core's `translate`. */
 export type Translate = (key: MessageKey, params?: MessageParams) => string;
 
+/** How a Transcript's Location names who said its quote. */
+export interface SpeakerWording {
+  /** False: the time alone. */
+  speaker?: boolean;
+  /** The Transcript's who's who (#138), so the Speaker shows as the User named them now. */
+  speakers?: TranscriptSpeakers | null;
+}
+
 /**
  * A Location's short label, e.g. "slide 4" or "Revenue, rows 12–14", and in a
  * Transcript "Me · 12:03": who said it, then the time, unless `speaker` is false.
  * A section that names no place (see `saysWhere`) has none: its label is "".
  */
-export function formatLocation(location: CitationLocation, t: Translate, speaker = true): string {
+export function formatLocation(
+  location: CitationLocation,
+  t: Translate,
+  { speaker = true, speakers = null }: SpeakerWording = {},
+): string {
   switch (location.kind) {
     case "page": {
       const { from, to } = location.printed ?? location;
@@ -252,7 +265,7 @@ export function formatLocation(location: CitationLocation, t: Translate, speaker
     case "time":
       return speaker && location.speaker
         ? t("location.time.speaker", {
-            speaker: speakerName(location.speaker, t),
+            speaker: shownSpeaker(speakers, location.from, location.speaker, t),
             time: clockTime(location.from),
           })
         : clockTime(location.from);
@@ -306,7 +319,7 @@ export function formatLocationWithPdf(location: CitationLocation, t: Translate):
 const english: Translate = (key, params) => translate("en", key, params);
 
 /** A PDF page by its number in the PDF, which is how a model cites it. */
-export const englishLocation = (location: CitationLocation, speaker = true): string =>
+export const englishLocation = (location: CitationLocation, wording: SpeakerWording = {}): string =>
   formatLocation(
     location.kind === "page"
       ? {
@@ -318,12 +331,15 @@ export const englishLocation = (location: CitationLocation, speaker = true): str
         }
       : location,
     english,
-    speaker,
+    wording,
   );
 
 /** The English label of a place, for a prompt: null where there is none to name. */
-export const englishPlace = (location: CitationLocation | null): string | null =>
-  location && saysWhere(location) ? englishLocation(location) : null;
+export const englishPlace = (
+  location: CitationLocation | null,
+  speakers: TranscriptSpeakers | null = null,
+): string | null =>
+  location && saysWhere(location) ? englishLocation(location, { speakers }) : null;
 
 /** A Citation copied as text names the page the Document prints. */
 export const englishPrintedLocation = (location: CitationLocation): string =>
@@ -696,7 +712,7 @@ export function parseRequestedLocation(input: string): RequestedLocation | null 
   const cueLabel =
     written.startsWith("[") && written.endsWith("]") ? written.slice(1, -1).trim() : written;
   const timePattern =
-    /^(?:at\s+)?(\d{1,2}(?::\d{2}){1,2})(?:\s*[-–—]\s*(\d{1,2}(?::\d{2}){1,2}))?(?:[ \t]+(\p{L}[^\r\n[\]]*))?$/iu;
+    /^(?:at\s+)?(\d{1,2}(?::\d{2}){1,2})(?:\s*[-–—]\s*(\d{1,2}(?::\d{2}){1,2}))?(?:[ \t]+(?!\d{1,2}:\d{2})([^\s[\]][^\r\n[\]]*))?$/iu;
   const times = timePattern.exec(cueLabel) ?? timePattern.exec(text);
   if (times) {
     const from = parseClockTime(times[1] as string);

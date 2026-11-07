@@ -5844,6 +5844,11 @@ export const en = {
   "error.transcript.withNote":
     "A meeting’s Transcript goes with its note. Move or delete the note instead.",
   "error.transcript.tagWithNote": "Tag the meeting’s note instead.",
+  "error.transcript.speakersUnheld":
+    "Who speaks couldn’t be kept: a name is 1 to 60 characters, and “Me” is always you.",
+  "error.transcript.speakerNameIsLabel":
+    "“{name}” is how the Transcript marks a speaker. Type the person’s name, or choose them above.",
+  "error.transcript.speakersOfTranscript": "Only a Transcript’s speakers can be named.",
   "error.meeting.joinMoved": "The meeting has moved since, so this can’t be undone.",
   "error.transcription.keyMissing": "Paste the key first.",
   "error.transcription.unreachable":
@@ -6589,6 +6594,14 @@ export const en = {
   "transcript.speaker.them": "Them",
   "transcript.speaker.unknown": "Speaker ?",
   "transcript.speaker.numbered": "Speaker {n}",
+  "transcript.speaker.change": "Change who speaks",
+  "transcript.speaker.who": "Who speaks this line?",
+  "transcript.speaker.new": "New speaker…",
+  "transcript.speaker.name": "Name",
+  "transcript.speaker.all": "Apply to all",
+  "transcript.speaker.allHint": "Every line by this speaker.",
+  "transcript.speaker.set": "{name} speaks this line",
+  "transcript.speaker.allSet": "{name} speaks every line by this speaker",
   "transcript.recording": "Recording…",
   "transcript.lines.one": "{count} line",
   "transcript.lines.other": "{count} lines",
@@ -6819,6 +6832,8 @@ export const en = {
   "meetings.mark.noNote": "This meeting’s note didn’t open. Open its note and try again.",
   "meetings.command.addLine": "Add transcript line to note",
   "meetings.command.noLine": "Select a line in the transcript first",
+  "meetings.command.changeSpeaker": "Change who speaks…",
+  "meetings.command.noSpeaker": "Who speaks can be changed once the transcript is saved",
   "meetings.command.deleteAudio": "Delete audio",
   "meetings.command.noMeetingInView": "Open a meeting’s note to delete its audio",
   "meetings.command.audioWhileRecording": "Pause or stop the recording to delete its audio",

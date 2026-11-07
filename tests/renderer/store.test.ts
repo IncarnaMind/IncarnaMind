@@ -2223,3 +2223,74 @@ describe("the Folder the Library shows (#2529)", () => {
     expect(useAppStore.getState().libraryFolderId).toBeNull();
   });
 });
+
+describe("who's who in a Transcript (#138)", () => {
+  let useUndo: typeof import("../../src/renderer/src/undo").useUndo;
+  const transcript = { ...doc("t"), kind: "transcript", speakers: null } as Document;
+  const dana = { labels: { "Speaker 1": "Dana" }, lines: {} };
+  const shownNow = () =>
+    useAppStore.getState().documents.find((each) => each.id === "t")?.speakers ?? null;
+  const top = () => useUndo.getState().done.at(-1);
+
+  beforeAll(async () => {
+    ({ useUndo } = await import("../../src/renderer/src/undo"));
+  });
+
+  beforeEach(() => {
+    useUndo.setState({ done: [], undone: [], line: null });
+    useAppStore.setState({ documents: [transcript] });
+  });
+
+  // protects=a name shows the moment it is chosen, before the core answers, and is one step of Undo whose line says who in English and Chinese, which Undo and Redo set back and again through the core; fails_when=the name waits for the core, Undo leaves it, or the line names someone else; no_claim=the menu's own keys, which the window spec covers.
+  test("a name shows at once, and one Undo sets it back, Redo again", async () => {
+    let answer: (document: Document) => void = () => undefined;
+    method("setTranscriptSpeakers").mockImplementation(
+      () =>
+        new Promise<Document>((resolve) => {
+          answer = resolve;
+        }),
+    );
+    const choosing = useAppStore
+      .getState()
+      .setTranscriptSpeakers("t", dana, (t, cut) =>
+        t("transcript.speaker.allSet", { name: cut("Dana") }),
+      );
+    expect(shownNow()).toEqual(dana);
+    answer({ ...transcript, speakers: dana });
+    await choosing;
+    expect(said(top())).toBe("Dana speaks every line by this speaker");
+    expect(undoLines((key, params) => translate("zh-CN", key, params)).said(top())).toBe(
+      "这位发言人的每一行都已改为 Dana 说的",
+    );
+    expect(named(top())).toBe("Change who speaks");
+
+    method("setTranscriptSpeakers").mockResolvedValue(transcript);
+    await useUndo.getState().undo();
+    expect(method("setTranscriptSpeakers")).toHaveBeenLastCalledWith({
+      documentId: "t",
+      speakers: { labels: {}, lines: {} },
+    });
+    expect(shownNow()).toBeNull();
+    method("setTranscriptSpeakers").mockResolvedValue({ ...transcript, speakers: dana });
+    await useUndo.getState().redo();
+    expect(method("setTranscriptSpeakers")).toHaveBeenLastCalledWith({
+      documentId: "t",
+      speakers: dana,
+    });
+    expect(shownNow()).toEqual(dana);
+  });
+
+  // protects=a name the core refuses goes from the screen again, says why, and leaves no step to undo; fails_when=the refused name stays shown, or Undo offers to take back what never happened; no_claim=the wording of the core's refusal.
+  test("a name the core refuses goes again, with the reason, and no step to undo", async () => {
+    method("setTranscriptSpeakers").mockRejectedValue(new Error("The disk is full."));
+    await useAppStore
+      .getState()
+      .setTranscriptSpeakers("t", dana, (t) => t("transcript.speaker.change"));
+    expect(shownNow()).toBeNull();
+    expect(useUndo.getState().done).toEqual([]);
+    const { useNotices } = await import("../../src/renderer/src/notices");
+    expect(useNotices.getState().errors.length).toBeGreaterThan(0);
+    for (const notice of useNotices.getState().errors)
+      useNotices.getState().dismissError(notice.id);
+  });
+});

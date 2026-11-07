@@ -2,7 +2,7 @@
  * Every Organize run proposes and files nothing (#1569): the Library's run, a Folder's run and
  * new Documents sorted in the background each write into Suggestions, and no Folder is made. A
  * run the User starts replaces rows they haven't edited; a Document the User filed moves only in
- * a run on its Folder; what the User turned down waits 30 days. Migration 135 moves suggestions
+ * a run on its Folder; what the User turned down waits 30 days. Migration 136 moves suggestions
  * from before into Suggestions. Through the core's public interface, with a scripted model.
  */
 import { join } from "node:path";
@@ -298,7 +298,7 @@ describe("Every Organize run proposes, and files nothing", () => {
   });
 });
 
-describe("Suggestions from before an upgrade (migration 135)", () => {
+describe("Suggestions from before an upgrade (migration 136)", () => {
   test("a Document waiting in a Suggested Folder waits in Suggestions instead, in no Folder, and the Library says so once", async () => {
     const dataDir = await createTempDataFolder();
     const sources = await createSourceFolder();
@@ -309,7 +309,7 @@ describe("Suggestions from before an upgrade (migration 135)", () => {
     try {
       migrate(
         db,
-        migrations.filter((migration) => migration.version < 135),
+        migrations.filter((migration) => migration.version < 136),
       );
       for (const [id, name] of [
         ["kitchen", "Kitchen"],

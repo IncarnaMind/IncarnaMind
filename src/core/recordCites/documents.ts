@@ -39,6 +39,7 @@ export function recordCiteLibrary(
         id: document.id,
         name: document.name ?? document.title ?? "",
         contentHash: document.contentHash,
+        speakers: document.speakers ?? null,
         get units() {
           units ??= source.pageTexts(document.id, document.contentHash, null, null);
           return units;

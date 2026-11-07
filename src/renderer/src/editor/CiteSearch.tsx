@@ -4,6 +4,7 @@ import type { Transaction } from "@tiptap/pm/state";
 import { type KeyboardEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 import type * as Y from "yjs";
 import { CITATION_NODE, type FoundPassage, type TextRange } from "../../../core/api";
+import { citedSpeakers } from "../../../shared/citations";
 import { formatLocation } from "../../../shared/locations";
 import { hasSearchScope, mindSearchScope } from "../../../shared/searchScope";
 import { INLINE_NODE, lastSentence } from "../../../shared/sentences";
@@ -143,6 +144,7 @@ export function CiteSearch({
     [wall, chosen, folderId, folderHolds],
   );
   const named = useScopeName(hasSearchScope(scope) ? scope : null);
+  const documents = useAppStore((state) => state.documents);
   const scopeLabel = !named
     ? t("composer.scope.all")
     : named.more > 0
@@ -340,7 +342,11 @@ export function CiteSearch({
         ) : (
           <div role="listbox" id={listId} aria-label={t("editor.cite.results")}>
             {found.map((passage, index) => {
-              const where = passage.location && formatLocation(passage.location, t);
+              const where =
+                passage.location &&
+                formatLocation(passage.location, t, {
+                  speakers: citedSpeakers(passage, documents),
+                });
               const shown = matchesToShow(passage.quote, passage.matches, query);
               return (
                 <button

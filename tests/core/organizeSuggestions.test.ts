@@ -953,7 +953,7 @@ describe("Migration 36", () => {
   });
 });
 
-describe("Migration 136", () => {
+describe("Migration 137", () => {
   test("a Folder turned down before Suggestions isn't proposed for that Document; another still gets it", async () => {
     const dataDir = await createTempDataFolder();
     const sources = await createSourceFolder();
@@ -962,7 +962,7 @@ describe("Migration 136", () => {
     try {
       migrate(
         db,
-        migrations.filter((migration) => migration.version < 136),
+        migrations.filter((migration) => migration.version < 137),
       );
       for (const [id, name] of [
         ["finance", "Finance"],

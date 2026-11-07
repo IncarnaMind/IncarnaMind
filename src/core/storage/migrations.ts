@@ -2651,6 +2651,18 @@ export const migrations: readonly Migration[] = [
   {
     version: 134,
     description:
+      "A Meeting's Transcript keeps who's who apart from its file, so Citations show the names (#138)",
+    sql: `
+      -- JSON of src/core/api.ts TranscriptSpeakers: the names the User gave a Transcript's
+      -- Speakers and the lines they gave to another. The file is never rewritten for them, so
+      -- naming makes no new version. It syncs with the Document's row; NULL until the User names
+      -- or moves a Speaker, and for every other Document.
+      ALTER TABLE documents ADD COLUMN speakers TEXT;
+    `,
+  },
+  {
+    version: 135,
+    description:
       "Suggestions: what Organize and tagging propose waits here until the User confirms it (#1569, #2339)",
     sql: `
       -- One open row per Document. placement: 'folder' (group_id), 'newFolder' (folder_id),
@@ -2745,7 +2757,7 @@ export const migrations: readonly Migration[] = [
     `,
   },
   {
-    version: 135,
+    version: 136,
     description:
       "A Document waiting in a Suggested Folder waits in Suggestions instead, in no Folder until the User confirms it (#1569)",
     sql: `
@@ -2781,7 +2793,7 @@ export const migrations: readonly Migration[] = [
     `,
   },
   {
-    version: 136,
+    version: 137,
     description:
       "A Folder the User turned down for a Document is declined in Suggestions, and Suggested Folders are gone (#1569)",
     sql: `

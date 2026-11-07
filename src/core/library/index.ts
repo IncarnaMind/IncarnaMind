@@ -77,7 +77,7 @@ const NO_TEXT = new Set(["no-text", "failed"]);
 
 const AUTOMATIC_OFF_NOTICE = "libraryAutomaticOffNotice";
 
-/** How many Documents an upgrade moved from their Suggested Folders into Suggestions (migration 135). */
+/** How many Documents an upgrade moved from their Suggested Folders into Suggestions (migration 136). */
 const REVIEW_MOVED_NOTICE = "organizeReviewMovedNotice";
 
 function taggingClassifierOf(value: unknown): TaggingClassifier | null {

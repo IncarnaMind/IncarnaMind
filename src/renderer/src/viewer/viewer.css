@@ -314,6 +314,17 @@
   .transcript-speaker {
     @apply m-0 text-[12px] leading-[18px] font-semibold text-ink-secondary;
   }
+  /* On a saved Transcript the Speaker opens who speaks the line (#138): its words stay in place. */
+  .transcript-speaker-button {
+    @apply -ml-1 block max-w-full truncate rounded-sm px-1 text-left hover:bg-hover hover:text-ink focus-visible:outline-2 focus-visible:outline-accent;
+  }
+  .speaker-initials {
+    @apply inline-flex size-[22px] shrink-0 items-center justify-center rounded-full bg-chip text-[10px] leading-none font-semibold text-ink-secondary;
+  }
+  /* Drawn, not text: typing a Speaker's first letters in the menu jumps by their name alone. */
+  .speaker-initials[data-initials]::before {
+    content: attr(data-initials);
+  }
   .transcript-text {
     @apply m-0 text-[14px] leading-[22px] break-words text-ink;
   }

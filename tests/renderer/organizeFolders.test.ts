@@ -40,12 +40,17 @@ beforeEach(() => {
 });
 
 describe("an Organize that fails", () => {
-  test("says its own failure, and leaves no run behind and no Review open (#1569)", async () => {
+  test("keeps the provider's sentence for its line's Details, and leaves no run behind and no Review open (#1569)", async () => {
     await useAppStore.getState().refreshLibrary();
     const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
 
-    await expect(organizeDocuments(["d-1"])).rejects.toThrow("The model is down.");
-    expect(useOrganizeReview.getState()).toMatchObject({ run: null, open: false, stopped: null });
+    await expect(organizeDocuments(["d-1"])).resolves.toBeUndefined();
+    expect(useOrganizeReview.getState()).toMatchObject({
+      run: null,
+      open: false,
+      stopped: null,
+      failed: { input: { documentIds: ["d-1"] }, details: "The model is down." },
+    });
     expect(logged).not.toHaveBeenCalled();
     logged.mockRestore();
   });
