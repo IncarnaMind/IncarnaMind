@@ -676,68 +676,74 @@ for (const [system, platform] of [
   });
 }
 
-test("one Folder dropped on another nests, and one let go where it can't go loses its picture and words at the release", async () => {
-  const t = (key: MessageKey, params?: MessageParams) => translate("en", key, params);
-  const { app, window } = await launchApp(dataDir);
-  try {
-    await setWindowSize(app, window, 1200, 760);
-    await dismissChatSetup(window);
-    // Slowed, so the test sees the picture leave; it waits for it to settle, not for a time.
-    await setMotionSpeed(window, 0.1);
-    const ids = await (await coreOf(window)).evaluate(async (core: CoreBridge) => {
-      const alpha = await core.createLibraryGroup({ name: "Alpha", description: "" });
-      const beta = await core.createLibraryGroup({ name: "Beta", description: "" });
-      return { alpha: alpha.id, beta: beta.id };
-    });
-    const folder = (id: string) =>
-      window.locator(`[data-testid="library-folder"][data-folder-id="${id}"]`);
-    const row = (id: string) => folder(id).locator(':scope > div [data-testid="folder-row"]');
-    const parents = async () =>
-      (await coreOf(window)).evaluate(async (core: CoreBridge) =>
-        Object.fromEntries(
-          (await core.getLibrary()).groups.map((group) => [group.name, group.parentId ?? null]),
-        ),
-      );
-    await expect(row(ids.alpha)).toBeVisible();
-    await expect(row(ids.beta)).toBeVisible();
-    const picture = window.getByTestId("drag-picture");
-    const label = window.getByTestId("drop-label");
-    const refusal = window.getByTestId("drop-refusal");
+for (const [language, width] of [
+  ["en", 1200],
+  ["zh-CN", 900],
+] as const) {
+  test(`one Folder dropped on another nests, and one let go where it can't go loses its picture and words at the release (${language}, ${width}px)`, async () => {
+    const t = (key: MessageKey, params?: MessageParams) => translate(language, key, params);
+    const { app, window } = await launchApp(dataDir);
+    try {
+      await setWindowSize(app, window, width, 760);
+      await dismissChatSetup(window);
+      await setLanguage(window, language);
+      // Slowed, so the test sees the picture leave; it waits for it to settle, not for a time.
+      await setMotionSpeed(window, 0.1);
+      const ids = await (await coreOf(window)).evaluate(async (core: CoreBridge) => {
+        const alpha = await core.createLibraryGroup({ name: "Alpha", description: "" });
+        const beta = await core.createLibraryGroup({ name: "Beta", description: "" });
+        return { alpha: alpha.id, beta: beta.id };
+      });
+      const folder = (id: string) =>
+        window.locator(`[data-testid="library-folder"][data-folder-id="${id}"]`);
+      const row = (id: string) => folder(id).locator(':scope > div [data-testid="folder-row"]');
+      const parents = async () =>
+        (await coreOf(window)).evaluate(async (core: CoreBridge) =>
+          Object.fromEntries(
+            (await core.getLibrary()).groups.map((group) => [group.name, group.parentId ?? null]),
+          ),
+        );
+      await expect(row(ids.alpha)).toBeVisible();
+      await expect(row(ids.beta)).toBeVisible();
+      const picture = window.getByTestId("drag-picture");
+      const label = window.getByTestId("drop-label");
+      const refusal = window.getByTestId("drop-refusal");
 
-    // Onto the other Folder: it lights, says the drop would put this one inside, and does.
-    await dragOnto(window, row(ids.alpha), row(ids.beta), async () => {
-      await expect(folder(ids.beta)).toHaveAttribute("data-drop-target", "true");
-      await expect(label).toHaveText(t("drop.into"));
-      await expect(picture).toHaveText("Alpha");
-      await screenshot(window, "drag-folder-onto-folder");
-    });
-    // No move after the release: the picture and the words go at once.
-    await expect(picture).toHaveCount(0);
-    await expect(label).toHaveCount(0);
-    await expect.poll(() => pictureLeaving(window, row(ids.beta), true)).toBe(true);
-    await motionSettled(window);
-    expect(await leavingCopies(window)).toEqual([]);
-    await expect(folder(ids.alpha)).toHaveAttribute("data-depth", "1");
-    expect((await parents()).Alpha).toBe(ids.beta);
-
-    // Beta onto Alpha, which is now inside it: refused, with the reason; let go, nothing moves,
-    // and the picture and the reason go at once.
-    await dragOnto(window, row(ids.beta), row(ids.alpha), async () => {
-      await expect(folder(ids.alpha)).not.toHaveAttribute("data-drop-target", "true");
-      await expect(refusal).toHaveText(t("folder.refuse.inside"));
+      // Onto the other Folder: it lights, says the drop would put this one inside, and does.
+      await dragOnto(window, row(ids.alpha), row(ids.beta), async () => {
+        await expect(folder(ids.beta)).toHaveAttribute("data-drop-target", "true");
+        await expect(label).toHaveText(t("drop.into"));
+        await expect(picture).toHaveText("Alpha");
+        await screenshot(window, `drag-folder-onto-folder-${language}-${width}`);
+      });
+      // No move after the release: the picture and the words go at once.
+      await expect(picture).toHaveCount(0);
       await expect(label).toHaveCount(0);
-      await screenshot(window, "drag-folder-refused");
-    });
-    await expect(picture).toHaveCount(0);
-    await expect(refusal).toHaveCount(0);
-    await expect.poll(() => pictureLeaving(window, row(ids.alpha), false)).toBe(true);
-    await motionSettled(window);
-    expect(await leavingCopies(window)).toEqual([]);
-    expect(await parents()).toMatchObject({ Alpha: ids.beta, Beta: null });
-  } finally {
-    await app.close();
-  }
-});
+      await expect.poll(() => pictureLeaving(window, row(ids.beta), true)).toBe(true);
+      await motionSettled(window);
+      expect(await leavingCopies(window)).toEqual([]);
+      await expect(folder(ids.alpha)).toHaveAttribute("data-depth", "1");
+      expect((await parents()).Alpha).toBe(ids.beta);
+
+      // Beta onto Alpha, which is now inside it: refused, with the reason; let go, nothing moves,
+      // and the picture and the reason go at once.
+      await dragOnto(window, row(ids.beta), row(ids.alpha), async () => {
+        await expect(folder(ids.alpha)).not.toHaveAttribute("data-drop-target", "true");
+        await expect(refusal).toHaveText(t("folder.refuse.inside"));
+        await expect(label).toHaveCount(0);
+        await screenshot(window, `drag-folder-refused-${language}-${width}`);
+      });
+      await expect(picture).toHaveCount(0);
+      await expect(refusal).toHaveCount(0);
+      await expect.poll(() => pictureLeaving(window, row(ids.alpha), false)).toBe(true);
+      await motionSettled(window);
+      expect(await leavingCopies(window)).toEqual([]);
+      expect(await parents()).toMatchObject({ Alpha: ids.beta, Beta: null });
+    } finally {
+      await app.close();
+    }
+  });
+}
 
 test("a list scrolls while a drag rests near its edge", async () => {
   await writeFile(join(sources, "Budget.txt"), "Budget for the harbour project.\n");
