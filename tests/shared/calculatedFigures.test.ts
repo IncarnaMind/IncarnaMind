@@ -170,6 +170,12 @@ test("a Citation whose quoted words ran on to the next page reads back with that
   expect(readFigureCitation({ ...value, quotedWords: { runsOnTo: { kind: "page" } } })).toBeNull();
 });
 
+// protects=a figure's Citation keeps the note that its Answer's quoted words are the Document's name (#2504) with the rest of it; fails_when=the reader drops the Citation; no_claim=how the card shows it.
+test("a Citation whose quoted words are its Document's name reads back with that note", () => {
+  const value = { ...citation(), quotedWords: { name: "Board meeting notes for March" } };
+  expect(readFigureCitation(value)).toEqual(value);
+});
+
 test("missing nullable Citation fields normalize without inventing found evidence", () => {
   const {
     pageFrom: _from,

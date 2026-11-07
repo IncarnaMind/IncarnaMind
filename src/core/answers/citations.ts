@@ -26,6 +26,7 @@
  * lines, narrowed to those the quote covers ("Revenue, rows 12–14"); for
  * sections, the heading it sits under.
  */
+import { ADDABLE_EXTENSIONS } from "../../shared/addFilesAction";
 import { markersIn, shownRanges } from "../../shared/answerBlocks";
 import { citationNode, type NodeJSON } from "../../shared/blockJson";
 import { parseQuotedWords } from "../../shared/citations";
@@ -51,7 +52,7 @@ import {
   type TextRange,
 } from "../../shared/quoteMatch";
 import { readableQuote, readableQuoteText } from "../../shared/readableQuote";
-import { foldRadicals, nameKey } from "../../shared/text";
+import { CJK, foldRadicals } from "../../shared/text";
 import { sameRun } from "../../shared/units";
 import {
   type AskedQuote,
@@ -520,6 +521,57 @@ function versionOf(documents: RecheckDocuments, documentId: string, contentHash:
 }
 
 type Rechecked = Pick<CitationToRecheck, "documentId" | "quote" | "pageFrom" | "pageTo">;
+
+/** A Document's name or quoted words as they are compared (#2504): NFKC, lower case, one space. */
+const nameText = (text: string) =>
+  text.normalize("NFKC").toLowerCase().replace(/\s+/gu, " ").trim();
+
+/** A character a file name can't hold on macOS, Windows or Linux. */
+const UNHELD = /[/\\:*?"<>|]/u;
+const DIGIT = /\p{N}/u;
+
+/**
+ * Whether words in quotation marks are a name as `nameText` reads both (#2504). Every character
+ * is the same, signs, dashes and figures included, so no other figure or words equal the name. One
+ * a file name can't hold may stand for a space or for nothing in the name, as a title's colon does
+ * ("Gradient Descent: The Ultimate Optimizer"), unless it touches a digit ("3:1", "1/2", "<5%"),
+ * where only a colon or question mark that ends a title before a space goes ("Part 2: Results").
+ */
+function isNameOf(words: string, name: string): boolean {
+  const chars = [...nameText(words)];
+  const pattern = chars
+    .map((char, at) => {
+      const escaped = char.replace(/[\\^$.*+?()[\]{}|/]/gu, "\\$&");
+      if (!UNHELD.test(char)) return escaped;
+      const after = chars[at + 1] ?? "";
+      const endsTitle = (char === ":" || char === "?") && (after === " " || after === "");
+      const figure = DIGIT.test(after) || (DIGIT.test(chars[at - 1] ?? "") && !endsTitle);
+      return figure ? escaped : `(?:${escaped}| )?`;
+    })
+    .join("");
+  return new RegExp(`^${pattern}$`, "u").test(nameText(name));
+}
+
+/**
+ * The ways a Document's name, as the app shows it, is read for a name in quotation marks (#2504):
+ * whole, and each whole part at a separator. An extension the app adds files by is taken off,
+ * and it splits at " - ", " – ", " — ", "|", "｜", "－", "—", "―" and "_", and at "-" or "–" next
+ * to a CJK character, never inside a Latin word ("Cooling-off") and never at a dash a digit
+ * follows, even across a space or a point, which is a minus sign ("同比-5%", "同比－ 5%"). A middle
+ * dot doesn't split: it joins a name ("安娜·米勒").
+ */
+function nameForms(name: string): string[] {
+  const extension = name.match(/\.([A-Za-z0-9]+)$/u)?.[1]?.toLowerCase();
+  const bare =
+    extension && ADDABLE_EXTENSIONS.includes(extension)
+      ? name.slice(0, -extension.length - 1)
+      : name;
+  return [name, bare, ...bare.split(NAME_SEPARATOR)].filter((form) => nameText(form) !== "");
+}
+const NAME_SEPARATOR = new RegExp(
+  `\\s[-–—―]\\s|[|｜_]|[－—―](?![ .]?\\p{N})|(?<=[${CJK}])[-–](?![ .]?\\p{N})|[-–](?=[${CJK}])`,
+  "u",
+);
 
 /**
  * A found check made not found again when the words the Answer quoted (#483), which the
@@ -1353,6 +1405,8 @@ interface Accepted {
    * not found (#483), or the page they run on to past the one it cites (#2504).
    */
   quotedWords?: QuotedWordsCheck;
+  /** The words of the Answer's quotation marks this record's Units state (#2602). */
+  quotedWordsFound?: string[];
   /** A Citation of the Question context, kept as it is (#1800): there is nothing of it to fix. */
   kept?: true;
 }
@@ -1395,6 +1449,7 @@ const toCitation = (record: Accepted, result: CheckResult | null): Citation => (
   checkReason: result?.checkReason ?? null,
   ...(result?.unsure && result.unsure.length > 0 && { unsure: result.unsure }),
   ...(record.quotedWords && { quotedWords: record.quotedWords }),
+  ...(record.quotedWordsFound && { quotedWordsFound: record.quotedWordsFound }),
 });
 
 export interface CitationSessionEvents {
@@ -2334,7 +2389,8 @@ export function createCitationSession(
      * rows: the rows above the header, which name the table the Citation's
      * rows are in, as a Document's name is not a quote (#2358), and words
      * that start on the one page cited may run on to the next page (#2504).
-     * One found changes nothing. One not found makes the Citation whose Units
+     * One found keeps its words with the Citation whose Units state them, which its sentence's
+     * figures are counted against (#2602). One not found makes the Citation whose Units
      * are nearest it "not found", with the Answer's words and the Document's
      * nearest for its card. Where a Citation of the sentence couldn't be
      * checked, no span of it is. Words in another language than every page
@@ -2380,12 +2436,14 @@ export function createCitationSession(
         return text !== "" && findQuote(text, words, { ...matching, numbers: true }) !== null;
       };
       const translated: string[] = [];
+      /** Keeps `words` with the record whose Units state them, for the check of its figures (#2602). */
+      const states = (record: Accepted, words: string) => {
+        record.quotedWordsFound ??= [];
+        if (!record.quotedWordsFound.includes(words)) record.quotedWordsFound.push(words);
+      };
       // A Document's name in quotation marks, as an Answer gives a title, is a name, not a quote.
-      const names = new Set(
-        [...records.values()].map(({ source }) => nameKey(source.documentName)),
-      );
+      const names = [...records.values()].map(({ source }) => source.documentName);
       for (const { words, markers } of quoted) {
-        if (names.has(nameKey(words))) continue;
         const cited = [...new Set(markers)].flatMap((marker) => {
           const record = records.get(marker);
           return record
@@ -2399,7 +2457,18 @@ export function createCitationSession(
             : [];
         });
         if (cited.some(({ record }) => record.result?.check === "cant-check")) continue;
-        if (cited.some(({ units, matching }) => quoteInUnits(units, words, matching))) continue;
+        const stating = cited.filter(({ units, matching }) => quoteInUnits(units, words, matching));
+        if (stating.length > 0) {
+          for (const { record } of stating) states(record, words);
+          continue;
+        }
+        // The name of a Document the sentence cites, or a part of it, is a name, not a quote: the
+        // Citation says so and keeps its own quote's check, never found or not found by it.
+        const named = cited.filter(({ record }) =>
+          nameForms(record.source.documentName).some((form) => isNameOf(words, form)),
+        );
+        for (const { record } of named) record.quotedWords ??= { name: words };
+        if (named.length > 0 || names.some((name) => isNameOf(words, name))) continue;
         const runsOn = cited.flatMap(({ record, matching }) => {
           const next = runsOnToNextPage(record, words, matching);
           return next ? [{ record, next }] : [];
@@ -2407,10 +2476,16 @@ export function createCitationSession(
         if (runsOn) {
           const runsOnTo = locationOf([runsOn.next], null);
           if (runsOnTo) runsOn.record.quotedWords ??= { runsOnTo };
+          states(runsOn.record, words);
           continue;
         }
-        if (cited.some(({ record, units, matching }) => titled(record, units, words, matching)))
+        const titledBy = cited.filter(({ record, units, matching }) =>
+          titled(record, units, words, matching),
+        );
+        if (titledBy.length > 0) {
+          for (const { record } of titledBy) states(record, words);
           continue;
+        }
         const inCjk = writtenInCjk(words);
         if (
           cited.length > 0 &&
