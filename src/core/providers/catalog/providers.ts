@@ -33,6 +33,17 @@ export const CLAUDE_LOW_EFFORT: ProviderOptions = {
   anthropic: { thinking: { type: "adaptive" }, effort: "low" },
 };
 
+const OPENAI_LOW: ProviderOptions = { openai: { reasoningEffort: "low" } };
+const GEMINI_LOW: ProviderOptions = { google: { thinkingConfig: { thinkingLevel: "low" } } };
+const QWEN_THINKING_BUDGET = 512;
+const QWEN_BUDGET: ProviderOptions = { alibaba: { thinkingBudget: QWEN_THINKING_BUDGET } };
+const GLM_LOW: ProviderOptions = { zai: { reasoningEffort: "low" } };
+const OPENROUTER_LOW: ProviderOptions = { openrouter: { reasoning: { effort: "low" } } };
+// OpenRouter passes its reasoning budget to Qwen as `thinking_budget`.
+const OPENROUTER_QWEN: ProviderOptions = {
+  openrouter: { reasoning: { max_tokens: QWEN_THINKING_BUDGET } },
+};
+
 const PROVIDERS = [
   {
     id: "anthropic",
@@ -183,6 +194,12 @@ const PROVIDERS = [
         ],
       },
       reasoningSummary: { options: { openai: { reasoningSummary: "auto" } } },
+      effort: {
+        models: { "gpt-6-luna": { answer: OPENAI_LOW, task: OPENAI_LOW } },
+        refused: [
+          { names: "reasoning.effort", options: { openai: { reasoningEffort: undefined } } },
+        ],
+      },
     },
     roles: {
       answers: "gpt-6-luna",
@@ -243,6 +260,9 @@ const PROVIDERS = [
     ],
     docsUrl: "https://ai.google.dev/gemini-api/docs/models",
     pricingUrl: "https://ai.google.dev/gemini-api/docs/pricing",
+    request: {
+      effort: { models: { "gemini-3.8-flash": { answer: GEMINI_LOW, task: GEMINI_LOW } } },
+    },
     roles: {
       answers: "gemini-3.8-flash",
       strongest: "gemini-3.1-pro-preview",
@@ -301,6 +321,14 @@ const PROVIDERS = [
       // support everything a request asks for (Tools, a JSON schema).
       body: { provider: { data_collection: "deny", require_parameters: true } },
       thinkingOff: { options: { openrouter: { reasoning: { effort: "none" } } } },
+      effort: {
+        models: {
+          "openai/gpt-6-luna": { answer: OPENROUTER_LOW, task: OPENROUTER_LOW },
+          "google/gemini-3.8-flash": { answer: OPENROUTER_LOW, task: OPENROUTER_LOW },
+          "qwen/qwen3.7-plus": { answer: OPENROUTER_QWEN, task: OPENROUTER_QWEN },
+          "z-ai/glm-5.3-flash": { answer: OPENROUTER_LOW, task: OPENROUTER_LOW },
+        },
+      },
     },
     roles: {
       answers: "anthropic/claude-sonnet-5.5",
@@ -477,7 +505,10 @@ const PROVIDERS = [
       },
     ],
     docsUrl: "https://www.alibabacloud.com/help/en/model-studio/regions",
-    request: { thinkingOff: { options: { alibaba: { enableThinking: false } } } },
+    request: {
+      thinkingOff: { options: { alibaba: { enableThinking: false } } },
+      effort: { models: { "qwen3.7-plus": { answer: QWEN_BUDGET, task: QWEN_BUDGET } } },
+    },
     roles: {
       answers: "qwen3.7-plus",
       strongest: "qwen3.8-max",
@@ -583,6 +614,7 @@ const PROVIDERS = [
         // GLM-5.3 and its Flash can't turn thinking off.
         unless: ["glm-5.3"],
       },
+      effort: { models: { "glm-5.3-flash": { answer: GLM_LOW, task: GLM_LOW } } },
     },
     roles: {
       answers: "glm-5.3-flash",
