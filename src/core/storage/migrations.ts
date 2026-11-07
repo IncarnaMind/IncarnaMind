@@ -2648,6 +2648,18 @@ export const migrations: readonly Migration[] = [
       END;
     `,
   },
+  {
+    version: 134,
+    description:
+      "A Meeting's Transcript keeps who's who apart from its file, so Citations show the names (#138)",
+    sql: `
+      -- JSON of src/core/api.ts TranscriptSpeakers: the names the User gave a Transcript's
+      -- Speakers and the lines they gave to another. The file is never rewritten for them, so
+      -- naming makes no new version. It syncs with the Document's row; NULL until the User names
+      -- or moves a Speaker, and for every other Document.
+      ALTER TABLE documents ADD COLUMN speakers TEXT;
+    `,
+  },
 ];
 
 /**

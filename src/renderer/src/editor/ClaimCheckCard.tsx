@@ -12,7 +12,7 @@ import {
 import { createPortal } from "react-dom";
 import type * as Y from "yjs";
 import type { ClaimCalculation, ClaimCheckPart, ClaimPartSpan } from "../../../core/api";
-import { citedName, shownDocumentName } from "../../../shared/citations";
+import { citedName, citedSpeakers, shownDocumentName } from "../../../shared/citations";
 import {
   checkedScope,
   coveredPart,
@@ -555,7 +555,9 @@ function WorkingInput({
   const t = useT();
   const quote = useReadableQuote(input.citation);
   const location = citationLocation(input.citation);
-  const where = location ? formatLocation(location, t) : null;
+  const where = location
+    ? formatLocation(location, t, { speakers: citedSpeakers(input.citation, documents) })
+    : null;
   const source = [
     shownDocumentName(input.citation, documents),
     where,
@@ -741,7 +743,11 @@ export function ClaimCard({
       ? null
       : evidence;
   const quote = useReadableQuote(citedQuote);
-  const where = location ? formatLocation(location, t) : null;
+  const documents = useAppStore((store) => store.documents);
+  const where =
+    location && evidence
+      ? formatLocation(location, t, { speakers: citedSpeakers(evidence, documents) })
+      : null;
   const decisionUnchecked = partRows
     ? partRows.some(
         (part) =>
@@ -756,7 +762,6 @@ export function ClaimCard({
     where !== null;
   const looked = useScopeName(checkedScope(check.scope));
   const lookedIn = looked?.name ?? t("composer.scope.all");
-  const documents = useAppStore((store) => store.documents);
   const wholeRead = (check.readDocuments ?? [])
     .map((document) => {
       const name = shownDocumentName(document, documents) || document.documentName;
@@ -840,7 +845,7 @@ export function ClaimCard({
     const at = cited ? citationLocation(cited) : null;
     const source = [
       cited ? shownDocumentName(cited, documents) : null,
-      at ? formatLocation(at, t) : null,
+      at && cited ? formatLocation(at, t, { speakers: citedSpeakers(cited, documents) }) : null,
     ]
       .filter(Boolean)
       .join(" · ");

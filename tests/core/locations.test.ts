@@ -397,6 +397,15 @@ describe("A Location as the model writes it", () => {
       from: 7000,
       to: 10_000,
     });
+    // A name the User gave a Speaker (#138), as its mark carries it: a digit or a bracket first.
+    for (const speaker of ["3M rep", "(Client) Dana", "Dana CFO", "王总（客户）"]) {
+      expect(parseRequestedLocation(`[0:07 ${speaker}]`)).toEqual({
+        kind: "time",
+        from: 7000,
+        to: 7000,
+        speaker,
+      });
+    }
     for (const label of [
       "Dana",
       "李明",

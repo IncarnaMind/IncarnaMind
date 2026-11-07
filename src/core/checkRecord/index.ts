@@ -3,7 +3,9 @@
  * the work or a CSV for the User's own records. It is made from what the Mind keeps of its
  * checks (see ./read), on this computer; the host decides where the bytes go, and nothing is sent.
  */
+
 import type * as Y from "yjs";
+import type { LiveDocument } from "../../shared/citations";
 import { checkedScope } from "../../shared/claimChecks";
 import type { MessageKey } from "../../shared/i18n";
 import { mindName } from "../../shared/naming";
@@ -75,6 +77,8 @@ export interface CheckRecord {
   citations: CitationItem[];
   recordCites: RecordCiteItem[];
   figures: readonly FigureScheduleRow[];
+  /** The live Documents, so a figure's Citation of a Transcript names its Speaker as now (#138). */
+  documents: readonly LiveDocument[];
   language: Language;
 }
 
@@ -152,6 +156,7 @@ export function createCheckRecord(deps: CheckRecordDependencies) {
       citations,
       recordCites,
       figures: deps.figures(mind.id),
+      documents: deps.documents(),
       language,
     };
   }
