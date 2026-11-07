@@ -2475,6 +2475,15 @@ export const migrations: readonly Migration[] = [
       DROP TABLE temp.meeting_migration;
     `,
   },
+  {
+    version: 131,
+    description:
+      "Recently deleted: an index on deleted_folder_items by item, so listing doesn't scan it (#2274)",
+    sql: `
+      CREATE INDEX deleted_folder_items_by_item ON deleted_folder_items (item_kind, item_id)
+        WHERE deleted_at IS NULL;
+    `,
+  },
 ];
 
 /**

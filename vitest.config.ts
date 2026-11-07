@@ -2,6 +2,7 @@ import { basename, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build, type Plugin } from "vite";
 import { defineConfig } from "vitest/config";
+import { BalancedShards } from "./tests/setup/shards";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
 const NODE_WORKER = "?nodeWorker";
@@ -74,5 +75,6 @@ export default defineConfig({
     // tests that were merely slow on a loaded CI runner.
     testTimeout: 30_000,
     hookTimeout: 30_000,
+    sequence: { sequencer: BalancedShards },
   },
 });
