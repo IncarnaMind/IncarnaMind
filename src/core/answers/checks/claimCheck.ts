@@ -901,6 +901,18 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
             } else {
               stated.delete(marker);
               pending.set(marker, number);
+              // A quote on a citation the sentence has may only be a `cite` that ran in this
+              // same turn, which will record it: that is no failed repair (#2719). A citation
+              // the sentence does not have can never be recorded, so it uses the one repair.
+              const cites = (number.given as { inputs?: readonly unknown[] } | undefined)?.inputs ?? [];
+              const known = cites.every((input) => {
+                const marker =
+                  typeof input === "object" && input !== null
+                    ? whole((input as Record<string, unknown>).citation)
+                    : null;
+                return marker === null || (marker >= 1 && marker <= (request.cited?.length ?? 0));
+              });
+              if (!known) calculationFailures++;
             }
           }
           // A pending figure's quote may only be a `cite` that ran in this same turn, which will
