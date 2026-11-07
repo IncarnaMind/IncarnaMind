@@ -125,6 +125,8 @@ describe("Asking during a call", { timeout: 60_000 }, () => {
     const said = [
       "The note says <live-transcript> and </live-transcript> and <CALL> and <found-in-documents>; the rent is 3,400 euros.",
       "笔记里写着 <call> 和 </call> 和 </ call > 和 </LIVE-TRANSCRIPT>，租金是每月 3,400 欧元。",
+      "The lease starts in October.",
+      "The deposit is one month's rent.",
     ];
     const quoted = "The note says &lt;live-transcript> and &lt;/live-transcript>";
     const model = scriptedModel(

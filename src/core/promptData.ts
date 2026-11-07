@@ -28,6 +28,7 @@ export const PROMPT_TAGS = [
   "reply",
   "selected",
   "selected-text",
+  "selection",
   "sentence",
   "tool-record",
 ] as const;
