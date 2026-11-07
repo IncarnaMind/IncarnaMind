@@ -8,14 +8,9 @@
  */
 import type { WordRefusalReason } from "../../api";
 import { ExtractionError } from "./errors";
+import { MAIN_DOCUMENT, relationshipOfType, relationshipsOf } from "./officePackage";
 import { decodeEntities, elements, parseXml } from "./xml";
-import {
-  isCompoundFile,
-  openPackage,
-  PartTooLargeError,
-  resolvePart,
-  type ZipArchive,
-} from "./zip";
+import { isCompoundFile, openPackage, PartTooLargeError, type ZipArchive } from "./zip";
 
 /** Why a Word file isn't imported. */
 export class WordRefusedError extends Error {
@@ -30,7 +25,6 @@ export class WordRefusedError extends Error {
 
 export const NS_TRANSITIONAL = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
 export const NS_STRICT = "http://purl.oclc.org/ooxml/wordprocessingml/main";
-const REL_OFFICE_DOCUMENT = "/officeDocument";
 const STRICT_RELATIONSHIPS = "http://purl.oclc.org/ooxml/officeDocument/relationships";
 
 const WORD_CONTENT_TYPES = new Set([
@@ -66,30 +60,6 @@ export function refusalOf(error: unknown, bytes?: Uint8Array): WordRefusedError 
   return new WordRefusedError("damaged", message);
 }
 
-export interface Relationship {
-  target: string;
-  type: string;
-  external: boolean;
-}
-
-/** A part's relationships by id: internal targets resolved to part names, external ones as given. */
-export async function relationshipsOf(
-  zip: ZipArchive,
-  part: string,
-): Promise<Map<string, Relationship>> {
-  const slash = part.lastIndexOf("/");
-  const name = `${part.slice(0, slash + 1)}_rels/${part.slice(slash + 1)}.rels`;
-  const rels = new Map<string, Relationship>();
-  const xml = zip.has(name) ? await zip.readText(name) : undefined;
-  for (const rel of xml ? elements(parseXml(xml)) : []) {
-    const { Id: id, Target: target, TargetMode: mode, Type: type = "" } = rel.attrs;
-    if (!id || target === undefined) continue;
-    const external = mode === "External";
-    rels.set(id, { target: external ? target : resolvePart(part, target), type, external });
-  }
-  return rels;
-}
-
 /**
  * Opens a .docx to import it, or refuses it with the reason: a legacy (.doc)
  * or encrypted file, a macro-enabled one (.docm), Strict Open XML, a package
@@ -104,11 +74,11 @@ export async function openWordPackage(bytes: Uint8Array): Promise<WordPackage> {
   }
   try {
     const packageRels = await relationshipsOf(zip, "");
-    const main = [...packageRels.values()].find((rel) => rel.type.endsWith(REL_OFFICE_DOCUMENT));
+    const main = relationshipOfType(packageRels, MAIN_DOCUMENT);
     if (main?.type.startsWith(STRICT_RELATIONSHIPS)) {
       throw new WordRefusedError("strict", "The package is Strict Open XML.");
     }
-    const part = main && !main.external ? main.target : "word/document.xml";
+    const part = main?.target ?? "word/document.xml";
     if (!zip.has(part)) {
       throw new WordRefusedError("damaged", "The package has no Word document part.");
     }
@@ -203,9 +173,7 @@ export async function reviewOf(pkg: WordPackage): Promise<WordReview> {
       }
     }
     const rels = await relationshipsOf(pkg.zip, pkg.part);
-    const commentsPart = [...rels.values()].find(
-      (rel) => !rel.external && rel.type.endsWith("/comments"),
-    )?.target;
+    const commentsPart = relationshipOfType(rels, "/comments")?.target;
     const xml = commentsPart ? ((await pkg.zip.readText(commentsPart)) ?? "") : "";
     for (const match of xml.matchAll(COMMENT_TAG)) {
       comments++;
