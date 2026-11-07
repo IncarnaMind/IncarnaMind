@@ -651,7 +651,7 @@ describe("Removing what sorting uses (#1907)", { timeout: 30_000 }, () => {
     });
   });
 
-  test("a kept model naming a deleted provider doesn't stop a key from going", async () => {
+  test("deleting the provider clears Organize's kept model, and a key still goes", async () => {
     const hosts = await startFakeHosts();
     const core = startCore(await createTempDataFolder(), {
       createChatModel: scriptedModels(taggingModel(["Notes"]).model).createChatModel,
@@ -668,8 +668,8 @@ describe("Removing what sorting uses (#1907)", { timeout: 30_000 }, () => {
         choice: { providerId: anthropic.id, modelId: ANTHROPIC.modelId },
       },
     });
-    // Organize's kept model now names a provider that is gone.
     await core.deleteChatProvider(anthropic.id);
+    expect((await core.getLibrary()).settings.organizeWith).toBeNull();
 
     await core.removeDecisionKey("liquid");
     expect((await status(core, "liquid"))?.hasKey).toBe(false);
