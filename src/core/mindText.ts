@@ -65,7 +65,9 @@ import {
   isNumberingScheme,
   itemLevel,
   type NumberingScheme,
+  nextNumbers,
   numberingMarker,
+  startingNumbers,
 } from "../shared/numbering";
 import {
   readParagraphFormat,
@@ -768,20 +770,28 @@ function numberingOf(
 ): { scheme: NumberingScheme; level: number; numbers: number[] } {
   if (outer) {
     const level = Math.min(outer.level, 8);
-    const numbers = [...outer.numbers];
-    numbers[level] = startOf(element) - 1;
-    return { scheme: outer.scheme, level, numbers };
+    return {
+      scheme: outer.scheme,
+      level,
+      numbers: startingNumbers({ start: startOf(element), level, from: outer.numbers }),
+    };
   }
   const scheme = element.getAttribute("numbering");
   const level = itemLevel(0, Number(element.getAttribute("startLevel")) || 0);
-  const numbers = Array.from({ length: level }, () => 1);
   const before =
     (element.getAttributes() as Record<string, unknown>).continues === true
       ? lastNumbersBefore(element)
       : null;
-  numbers[level] = before ? (before[level] ?? 0) : startOf(element) - 1;
-  if (before) for (let at = 0; at < level; at++) numbers[at] = before[at] || 1;
-  return { scheme: isNumberingScheme(scheme) ? scheme : "default", level, numbers };
+  return {
+    scheme: isNumberingScheme(scheme) ? scheme : "default",
+    level,
+    numbers: startingNumbers({
+      start: startOf(element),
+      level,
+      from: before,
+      continues: before !== null,
+    }),
+  };
 }
 
 /**
@@ -794,30 +804,15 @@ export function firstNumberOf(element: Y.XmlElement, nested: boolean): number {
   return (numbers[level] ?? 0) + 1;
 }
 
+/** The numbers the closest earlier numbered list among `element`'s siblings ended with, or null. */
 function lastNumbersBefore(element: Y.XmlElement): number[] | null {
   for (let at = element.prevSibling; at; at = at.prevSibling) {
     if (!(at instanceof Y.XmlElement) || at.nodeName !== "orderedList") continue;
     const { level, numbers } = numberingOf(at, undefined);
-    const last = [...numbers];
-    const count = (list: Y.XmlElement, depth: number) => {
-      for (const item of list.toArray()) {
-        if (!(item instanceof Y.XmlElement)) continue;
-        last[depth] = (last[depth] ?? 0) + 1;
-        last.length = depth + 1;
-        for (const inner of item.toArray()) {
-          if (inner instanceof Y.XmlElement && inner.nodeName === "orderedList") {
-            const next = Math.min(depth + 1, 8);
-            const own: number | undefined = last[depth];
-            last[next] = startOf(inner) - 1;
-            count(inner, next);
-            last[depth] = own ?? 0;
-          }
-        }
-      }
-    };
-    count(at, level);
-    last.length = level + 1;
-    return last;
+    let ended = numbers;
+    for (const item of at.toArray())
+      if (item instanceof Y.XmlElement) ended = nextNumbers(ended, level);
+    return ended;
   }
   return null;
 }
@@ -854,8 +849,8 @@ function readBlockElement(element: Y.XmlElement, options: ReadOptions): Block[] 
     case "orderedList": {
       const ordered = element.nodeName === "orderedList";
       const numbering = ordered ? numberingOf(element, options.outerList) : null;
-      let number = numbering ? (numbering.numbers[numbering.level] ?? 0) : 0;
-      const start = numbering ? number + 1 : 1;
+      let numbers = numbering?.numbers ?? [];
+      const start = numbering ? (numbers[numbering.level] ?? 0) + 1 : 1;
       const markers: string[] = [];
       const items = element
         .toArray()
@@ -868,8 +863,7 @@ function readBlockElement(element: Y.XmlElement, options: ReadOptions): Block[] 
             ? { ...options, outerList: undefined }
             : options;
           if (numbering) {
-            number++;
-            const numbers = [...numbering.numbers.slice(0, numbering.level), number];
+            numbers = nextNumbers(numbers, numbering.level);
             markers.push(numberingMarker(numbering.scheme, numbering.level, numbers));
             inside = {
               ...options,

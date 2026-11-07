@@ -38,7 +38,7 @@ import {
   type TableCell,
   tableLayout,
 } from "../../mindText";
-import { type DocxWriter, piecesOf, WRITER_NAMESPACES } from "../docx";
+import { type DocxWriter, INDENT, piecesOf, WRITER_NAMESPACES } from "../docx";
 import { changedElement, formatChanges } from "../paragraphFormat";
 import { dateAttribute, escapeXml, type WordIds } from "../wordml";
 import {
@@ -807,6 +807,7 @@ export class DocumentPatch {
       this.input.edited(counterpart.node) ||
       this.forced.has(based.element) ||
       !sameList(counterpart.list, based.counterpart.list) ||
+      counterpart.inListText !== based.counterpart.inListText ||
       this.sectionMoved(counterpart, based)
     );
   }
@@ -958,8 +959,13 @@ export class DocumentPatch {
           if (!direct) properties.remove("w:pStyle");
         }
       }
-      if (!sameList(counterpart.list, based.counterpart.list))
-        this.setList(properties, counterpart.list, based);
+      if (
+        !sameList(counterpart.list, based.counterpart.list) ||
+        counterpart.inListText !== based.counterpart.inListText
+      ) {
+        if (counterpart.inListText) this.setListText(properties, counterpart.list, based);
+        else this.setList(properties, counterpart.list, based);
+      }
     } else if (level !== null) {
       properties = Properties.paragraph("");
       properties.set(
@@ -974,7 +980,8 @@ export class DocumentPatch {
       if (!sibling) {
         properties.set("w:pStyle", `<w:pStyle w:val="${escapeXml(styles.id("listParagraph"))}"/>`);
       }
-      this.setList(properties, counterpart.list, null);
+      if (counterpart.inListText) this.setListText(properties, counterpart.list, null);
+      else this.setList(properties, counterpart.list, null);
     } else {
       const reference = references()[0];
       properties = Properties.paragraph(reference ? reference.pPr : "");
@@ -1002,6 +1009,14 @@ export class DocumentPatch {
       if (element) properties.set("w:sectPr", sliceOf(this.text, element));
     }
     return { pPr: !based || properties.changed ? properties.toXml() : basePPr, rPr };
+  }
+
+  /** Puts an item's later paragraph at the item's text, as a new .docx writes it (#2334). */
+  private setListText(properties: Properties, list: ListPlace | null, based: Based | null): void {
+    if (!list) return;
+    properties.remove("w:numPr");
+    const level = (based && this.importedLevel(based, list)) ?? this.levelOf(list);
+    properties.set("w:ind", `<w:ind w:left="${INDENT * (level + 1)}"/>`);
   }
 
   /** Puts a paragraph in the list it is in now, or takes it out of any. */
@@ -1087,7 +1102,7 @@ export class DocumentPatch {
     return null;
   }
 
-  /** An imported item of the same list, the nearest before this one, else after: a new item takes its look. */
+  /** An imported item of the same list, the nearest before this one, else after: a new paragraph takes its look. */
   private siblingOf(counterpart: Counterpart): Based | null {
     if (!counterpart.list) return null;
     const items = this.listItems.get(counterpart.list.list) ?? [];
@@ -1095,7 +1110,7 @@ export class DocumentPatch {
     const order = [...items.slice(0, at).reverse(), ...items.slice(at + 1)];
     for (const item of order) {
       const based = item.key ? this.based.get(item.key) : undefined;
-      if (based && based.element.name === "w:p") return based;
+      if (based && based.element.name === "w:p" && !item.inListText) return based;
     }
     return null;
   }

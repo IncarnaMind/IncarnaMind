@@ -324,10 +324,19 @@ class PrintWriter {
       case "math":
         return mathHtml(block.latex, true);
       case "list": {
-        const tag = block.ordered ? "ol" : "ul";
         const start = block.ordered && block.start !== 1 ? ` start="${block.start}"` : "";
-        const items = block.items.map((item) => `<li>${this.blocks(item)}</li>`).join("");
-        return `<${tag}${start}>${items}</${tag}>`;
+        const markers = block.ordered ? (block.numbering?.markers ?? []) : [];
+        const items = block.items
+          .map((item, at) => {
+            const marker = markers[at];
+            const drawn = marker === undefined ? "" : ` data-marker="${escapeHtml(marker)}"`;
+            return `<li${drawn}>${this.blocks(item)}</li>`;
+          })
+          .join("");
+        if (!block.ordered) return `<ul>${items}</ul>`;
+        // Each item's own marker (#2334), drawn as the editor draws it; still an ordered list.
+        const numbered = markers.length > 0 ? ' class="numbered"' : "";
+        return `<ol${numbered}${start}>${items}</ol>`;
       }
       case "quote":
         return `<blockquote>${this.blocks(block.content)}</blockquote>`;
