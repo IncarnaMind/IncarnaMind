@@ -88,15 +88,36 @@ const failureOf = (thrown: unknown): ProviderError =>
 export async function runItems<I, T>(
   items: readonly I[],
   each: (item: I) => Promise<T>,
-  { concurrency = 1, onOutcome, signal, wait = sleep }: RunItemsOptions<I, T> = {},
+  options: RunItemsOptions<I, T> = {},
 ): Promise<{ outcomes: ItemOutcome<T>[]; stop: RunStop | null }> {
-  const outcomes: ItemOutcome<T>[] = new Array(items.length);
-  const queue = items.map((_, index) => index);
-  const tries = items.map(() => 0);
+  const run = startItems(each, {
+    ...options,
+    concurrency: Math.min(options.concurrency ?? 1, items.length),
+  });
+  run.push(items);
+  return run.close();
+}
+
+/**
+ * A run whose items come as they are ready (a write's sentences as its paragraphs land, #1635),
+ * run as `runItems` runs them: `push` adds items in their order, and `close` resolves once every
+ * item pushed has its outcome. One limit at once, one pause and one stop hold for all of them.
+ */
+export function startItems<I, T>(
+  each: (item: I) => Promise<T>,
+  { concurrency = 1, onOutcome, signal, wait = sleep }: RunItemsOptions<I, T> = {},
+): {
+  push(items: readonly I[]): void;
+  close(): Promise<{ outcomes: ItemOutcome<T>[]; stop: RunStop | null }>;
+} {
+  const items: I[] = [];
+  const outcomes: ItemOutcome<T>[] = [];
+  const queue: number[] = [];
+  const tries: number[] = [];
   let stop: RunStop | null = null;
   /** No item starts before this, in ms since the epoch: a provider limited requests. */
   let pausedUntil = 0;
-  const workers = Math.max(1, Math.min(concurrency, items.length));
+  const workers = Math.max(1, concurrency);
   let allowed = workers;
   /** Items that ended without a rate limit since the last one: a round of them brings one more back. */
   let calm = 0;
@@ -196,12 +217,24 @@ export async function runItems<I, T>(
       );
     }
   }
-  grow();
-  for (let index = 0; index < pool.length; index++) await pool[index];
-  for (const index of queue) {
-    settle(index, stop ? { status: "not-checked", stop } : { status: "stopped" });
-  }
-  return { outcomes, stop };
+  return {
+    push(more) {
+      for (const item of more) {
+        queue.push(items.length);
+        items.push(item);
+        tries.push(0);
+      }
+      outcomes.length = items.length;
+      grow();
+    },
+    async close() {
+      for (let index = 0; index < pool.length; index++) await pool[index];
+      for (const index of queue) {
+        settle(index, stop ? { status: "not-checked", stop } : { status: "stopped" });
+      }
+      return { outcomes, stop };
+    },
+  };
 }
 
 /** Model calls that share one run's limit of `size` at once, whichever item asks: a claim's parts and its neighbours. */

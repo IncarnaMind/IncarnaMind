@@ -73,7 +73,7 @@ import { MindReadOnlyError } from "../../errors";
 import type { PreparedChatModel } from "../../providers/chat";
 import type { RecordCitePlace } from "../../recordCites/referents";
 import { asCheckWork } from "../../reranking/order";
-import { type ItemOutcome, RunItemError, runItems, type Slots, slots } from "../../runs/stop";
+import { type ItemOutcome, RunItemError, type Slots, slots, startItems } from "../../runs/stop";
 import { inStep } from "../../timing/flows";
 import { type MarkJSON, type NodeJSON, syncContent, topLevelBlocks } from "../blocks";
 import {
@@ -513,13 +513,15 @@ function cutNodes(
   return used.size === 0 || !isClaim(cut.replace(MARKER, "")) ? null : nodes;
 }
 
-/** A sentence's check: `by`, the model whose verdict it is, the quick model's or the checks' own. */
 /** A write's check once it has begun (see `checkingOf`). */
 interface Checking {
-  send(fresh: readonly Sentence[]): void;
+  send(batch: readonly Sentence[]): void;
+  /** Resolves once every check sent so far has ended. */
+  idle(): Promise<unknown>;
   finish(checkable: readonly Sentence[]): Promise<WrittenCheck | null>;
 }
 
+/** A sentence's check: `by`, the model whose verdict it is, the quick model's or the checks' own. */
 interface Checked {
   result: ClaimCheckResult;
   uncovered: string | null;
@@ -833,6 +835,36 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     let checking: Promise<Checking | null> | null = null;
     let sent = Promise.resolve();
     let failure: { error: unknown } | null = null;
+    const started = new Set<string>();
+    // The first `SENTENCES_CHECKED_AT_MOST` cited sentences in the write's order, read with the
+    // Blocks before them for what comes just before each; the claims with no Citation are left to
+    // the one count and Check the rest (#1909). One with a digit waits for the whole write: a
+    // figure is read with the Note's own language and number separators, which its later
+    // paragraphs can change.
+    const send = (whole: boolean) => {
+      const batch = checkableSentences(blocks)
+        .filter((sentence) => sentence.cited.length > 0)
+        .slice(0, SENTENCES_CHECKED_AT_MOST)
+        .filter((sentence) => {
+          const key = `${sentence.path.join(".")}:${sentence.from}`;
+          if (started.has(key) || (!whole && /\p{Nd}/u.test(sentence.rawText))) return false;
+          started.add(key);
+          return true;
+        });
+      if (batch.length === 0 || signal.aborted) return;
+      checking ??= inStep("written-check", () => checkingOf({ ...input, signal }, blocks, ids));
+      const begun = checking;
+      sent = sent
+        .then(async () => (await begun)?.send(batch))
+        .catch((error: unknown) => {
+          console.error(
+            `What the assistant wrote in Mind ${input.mindId} couldn't be checked as it landed:`,
+            error,
+          );
+          failure ??= { error };
+          dropped.abort();
+        });
+    };
     return {
       add(more, moreIds) {
         if (signal.aborted) return;
@@ -844,24 +876,16 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
           blocks.push(block);
           ids.push(id);
         }
-        // The claims with no Citation are left to the one count and Check the rest (#1909). Read
-        // with the Blocks before them, for what comes just before each.
-        const fresh = checkableSentences(blocks).filter(
-          (sentence) => (sentence.path[0] ?? 0) >= from && sentence.cited.length > 0,
-        );
-        if (fresh.length === 0) return;
-        checking ??= inStep("written-check", () => checkingOf({ ...input, signal }, blocks, ids));
-        const begun = checking;
-        sent = sent
-          .then(async () => (await begun)?.send(fresh))
-          .catch((error: unknown) => {
-            failure ??= { error };
-          });
+        if (blocks.length > from) send(false);
       },
       async done() {
+        send(true);
         await sent;
-        if (failure) throw failure.error;
         const run = checking && (await checking);
+        if (failure) {
+          await run?.idle();
+          throw failure.error;
+        }
         return run ? run.finish(checkableSentences(blocks)) : null;
       },
       drop() {
@@ -1113,11 +1137,33 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
           : null;
         return { result, uncovered, nodes, by: prepared, passedOn: first?.asked ? quick : null };
       });
-    const runs: Promise<RunStop | null>[] = [];
+    // One run for the whole write, its sentences pushed as they come: no more are checked at once
+    // than a write's check holds, and a pause or a stop holds for all of them.
+    const run = startItems(each, {
+      concurrency: claimsAtOnce(prepared),
+      signal,
+      // runItems hears an outcome inside its own try: a throw here would be filed as the
+      // sentence's failure and heard again. The check fails once the rest have landed, so it
+      // never counts a sentence whose mark isn't on the page.
+      onOutcome(sentence, outcome) {
+        try {
+          landed(sentence, outcome);
+        } catch (error) {
+          couldNotLand(error);
+          landingFailed ??= error;
+          if (error instanceof MindReadOnlyError) refused = true;
+        }
+      },
+    });
+    let closed: ReturnType<typeof run.close> | null = null;
+    const close = () => {
+      closed ??= inStep("written-check", () => run.close());
+      return closed;
+    };
     return {
-      send(fresh) {
-        const batch = fresh.slice(0, Math.max(0, SENTENCES_CHECKED_AT_MOST - sending.length));
-        if (batch.length === 0) return;
+      idle: () => close(),
+      send(batch) {
+        if (signal.aborted) return;
         sending.push(...batch);
         options.read(mindId, (note) => {
           const figures = figuresByBlock(note);
@@ -1127,32 +1173,15 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
             reads.set(sentence, place ? { ...read, place } : read);
           }
         });
-        if (!waiting) input.checking(sending.length);
-        // One limit on requests at once (`limit`) holds across the write's sentences, whenever
-        // each was sent.
-        runs.push(
-          inStep("written-check", () =>
-            runItems(waiting ? [] : batch, each, {
-              concurrency: claimsAtOnce(prepared),
-              signal,
-              // runItems hears an outcome inside its own try: a throw here would be filed as the
-              // sentence's failure and heard again. The check fails once the rest have landed, so
-              // it never counts a sentence whose mark isn't on the page.
-              onOutcome(sentence, outcome) {
-                try {
-                  landed(sentence, outcome);
-                } catch (error) {
-                  couldNotLand(error);
-                  landingFailed ??= error;
-                  if (error instanceof MindReadOnlyError) refused = true;
-                }
-              },
-            }),
-          ).then(({ stop }) => stop),
-        );
+        if (waiting) return;
+        input.checking(sending.length);
+        inStep("written-check", () => {
+          run.push(batch);
+          return Promise.resolve();
+        });
       },
       async finish(checkable) {
-        const stops = await Promise.all(runs);
+        const { stop } = await close();
         if (signal.aborted) return null;
         if (waiting) for (const sentence of sending) failed(sentence, "consent-widened", null);
         const sentences = checkable.filter((sentence) => sentence.cited.length > 0);
@@ -1172,7 +1201,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         done.checkable = checkable.length;
         done.cited = sentences.length;
         done.sent = sending.length;
-        done.stop = stops.find((stop) => stop !== null) ?? null;
+        done.stop = stop;
         done.cut = cuts.sort((a, b) => a.index - b.index).map(({ uncovered }) => uncovered);
         return done;
       },

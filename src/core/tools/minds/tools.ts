@@ -82,7 +82,6 @@ import {
   topLevelBlocks,
 } from "../../answers/blocks";
 import type {
-  CheckWrittenInput,
   WrittenCheck,
   WrittenCheckSession,
   WrittenCheckStart,
@@ -223,9 +222,10 @@ export interface MindsForTools {
     reason: string | null;
     revised: { blockIds: string[] } | null;
   }>;
-  /** Checks the cited sentences a call wrote before they land (../../answers/checks/written). */
-  checkWritten(input: CheckWrittenInput): Promise<WrittenCheck | null>;
-  /** The same check, begun as a call's first Blocks are written and given the rest as they come. */
+  /**
+   * Checks the cited sentences a call writes before they land (../../answers/checks/written),
+   * begun as its first Blocks are written and given the rest as they come.
+   */
   startWrittenCheck(input: WrittenCheckStart): WrittenCheckSession;
 }
 
@@ -2011,8 +2011,10 @@ export function mindTools(options: MindToolsOptions): {
   ): Promise<WrittenCheck | null> => {
     const { mindId, ids, blocks } = written.blocks;
     if (written.unrecorded > 0 || ids.length !== blocks.length) {
-      // What streamed in was checked as it came, and its marks stand; the card counts no check.
+      // `settle` writes these Blocks again once `cite` has recorded their markers, which takes off
+      // any mark that landed as they streamed in: what checks them is then settle's.
       written.checking?.session.drop();
+      if ((written.checking?.count ?? 0) > 0) options.changed(toolCallId, written.change);
       return null;
     }
     const checking =
