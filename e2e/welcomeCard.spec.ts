@@ -14,6 +14,7 @@ import {
   createDataFolder,
   dismissChatSetup,
   useLocalChatModel as enableLocalModel,
+  exampleRow,
   expectReadyDocuments,
   gettingStarted,
   interceptOpenDialog,
@@ -221,7 +222,9 @@ for (const language of ["en", "zh-CN"] as const) {
           beside.push(await height());
         }
         expectOne(beside, `${language} ${width} px, step 3`);
-        await expect(card).toContainText(language === "en" ? "You’re set up." : "准备好了。");
+        await expect(card.locator("h2")).toHaveText(
+          language === "en" ? "You’re set up" : "准备好了",
+        );
         await window.keyboard.press("Escape");
 
         // ⌘K reaches what the steps teach.
@@ -738,9 +741,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await setWindowSize(app, window, 900, 900);
     await setLanguage(window, language);
     await dismissChatSetup(window);
-    const examples = window
-      .getByTestId("mind-list-item")
-      .filter({ has: window.getByTestId("example-chip") });
+    const examples = exampleRow(window);
 
     await newMind(window);
     const own = await openPageMenu(window);
