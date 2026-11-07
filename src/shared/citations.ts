@@ -520,10 +520,13 @@ export function citedLocation(
  * them now: the Citation stores only its line's label, never a name. Null for any other Document.
  */
 export function citedSpeakers(
-  attributes: Partial<Pick<CitationAttributes, "documentId" | "contentHash" | "location">>,
+  attributes: Partial<Pick<CitationAttributes, "documentId" | "contentHash">> & {
+    location?: unknown;
+  },
   documents: readonly LiveDocument[] | null,
 ): TranscriptSpeakers | null {
-  if (!documents || attributes.location?.kind !== "time") return null;
+  // A Note keeps its Citations' Locations as JSON text, as the editor stores an attribute.
+  if (!documents || parseLocation(attributes.location)?.kind !== "time") return null;
   return liveDocumentOf(attributes, documents)?.speakers ?? null;
 }
 

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { citedLocation, citedSpeakers } from "../../src/shared/citations";
 import { translate } from "../../src/shared/i18n";
 import { formatLocation } from "../../src/shared/locations";
 import {
@@ -122,6 +123,19 @@ describe("Who's who in a Transcript (#138)", () => {
       "我 · 0:00",
     );
     expect(formatLocation(location, en, { speakers, speaker: false })).toBe("0:02");
+    // The Location as a Note keeps it, JSON text, and as an object.
+    const documents = [{ id: "t", contentHash: "h", speakers }];
+    for (const stored of [JSON.stringify(location), location]) {
+      const found = citedSpeakers(
+        { documentId: "t", contentHash: "h", location: stored },
+        documents,
+      );
+      expect(found).toEqual(speakers);
+      expect(formatLocation(location, en, { speakers: found })).toBe("王丽 · 0:02");
+    }
+    expect(citedLocation({ documentId: "t", contentHash: "h", location }, en, documents)).toBe(
+      "王丽 · 0:02",
+    );
   });
 
   // protects=who's who as stored or sent keeps only what holds: a line known by its start and label, names of 1 to 200 characters, a label like "__proto__" kept as a label; text that isn't JSON is said as dropped; fails_when=a bad entry is kept, a good one dropped, or a label reaches the object's prototype; no_claim=the core's refusal, which the core test covers.
