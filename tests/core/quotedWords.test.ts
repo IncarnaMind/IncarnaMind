@@ -21,6 +21,7 @@ import {
   type SourceFile,
   setUpWithDocuments,
 } from "../helpers/citations";
+import { answerText } from "../helpers/minds";
 import { xlsxPackage } from "../helpers/office";
 import { buildPdf } from "../helpers/pdf";
 
@@ -583,5 +584,132 @@ describe("Quoted words on a sheet's rows (#2358)", { timeout: 60_000 }, () => {
       pageTo: 2,
     });
     core.close();
+  });
+});
+
+/**
+ * A one-cell title row above the header is not a name when it holds a figure
+ * (#2373). The figure is written with spaces between its groups, as a sheet
+ * may show one, so it reads as a quote: four words.
+ */
+const FIGURE_TITLE = {
+  en: {
+    name: "Sales.csv",
+    figure: "1 234 567 890",
+    header: "Store,City,Sales",
+    row: 'Changjiang Road Flagship,Wenzhou,"¥621,383"',
+    filler: (index: number) => `Store ${index + 1},Hangzhou,${1000 + index}`,
+    holds: "Changjiang Road Flagship",
+    quote: "Changjiang Road Flagship Wenzhou ¥621,383",
+    query: "Changjiang Road Flagship sales",
+    question: "What were the Changjiang Road Flagship's Q3 sales?",
+    answer: "The “1 234 567 890” table gives Changjiang Road Flagship’s sales as ¥621,383 [^1].",
+  },
+  zh: {
+    name: "门店销售.xlsx",
+    sheet: "销售",
+    figure: "1 234 567 890",
+    header: ["门店", "城市", "销售额"],
+    row: ["长江路旗舰店", "温州", "¥621,383"],
+    filler: (index: number) => [`长江路一号店${index + 1}`, "杭州", `¥${2000 + index}`],
+    holds: "长江路旗舰店",
+    quote: "长江路旗舰店 温州 ¥621,383",
+    query: "长江路旗舰店 第三季度 销售额",
+    question: "长江路旗舰店第三季度的销售额是多少？",
+    answer: "“1 234 567 890”是表格的标题，长江路旗舰店第三季度销售额为 ¥621,383[^1]。",
+  },
+} as const;
+
+/** The stores as a CSV: the figure alone on row 1, and the cited row in the second block. */
+function figureTitleCsv(): string {
+  const { figure, header, filler, row } = FIGURE_TITLE.en;
+  return [figure, header, ...Array.from({ length: 99 }, (_, at) => filler(at)), row].join("\n");
+}
+
+/** The stores as a workbook, laid out as `figureTitleCsv` lays them out. */
+function figureTitleWorkbook(): Buffer {
+  const { sheet, figure, header, filler, row } = FIGURE_TITLE.zh;
+  const rows: { row: number; values: string[] }[] = [
+    { row: 1, values: [figure] },
+    { row: 2, values: [...header] },
+    ...Array.from({ length: 99 }, (_, at) => ({ row: 3 + at, values: [...filler(at)] })),
+    { row: 102, values: [...row] },
+  ];
+  return xlsxPackage({
+    sheets: [
+      {
+        name: sheet,
+        xml: `<sheetData>${rows
+          .map(({ row, values }) => sheetRow(row, values))
+          .join("")}</sheetData>`,
+      },
+    ],
+  });
+}
+
+/** The Unit each text is on in the figure-title fixture. */
+async function figureTitleUnitOf(language: "en" | "zh", needle: string): Promise<number | null> {
+  const units =
+    language === "en"
+      ? extractCsv(new TextEncoder().encode(figureTitleCsv())).units
+      : (await extractXlsx(new Uint8Array(figureTitleWorkbook()))).units;
+  return units.find((unit) => unit.text.includes(needle))?.page ?? null;
+}
+
+/** Asks the store Question, quoting the figure above the header for the cited row. */
+async function askFigureTitle(language: "en" | "zh") {
+  const store = FIGURE_TITLE[language];
+  const model = citingModel({
+    query: store.query,
+    records: (passages: ShownPassage[]) => [
+      {
+        marker: 1,
+        passage: passages.find((passage) => passage.text.includes(store.holds))?.id,
+        quote: store.quote,
+      },
+    ],
+    answer: store.answer,
+  });
+  const { core, client, mind } = await setUpWithDocuments(model, [
+    { name: store.name, contents: language === "en" ? figureTitleCsv() : figureTitleWorkbook() },
+  ]);
+  const { answerId } = await askAndFinish(core, client, mind.id, store.question);
+  const citation = citationsIn(client, answerId)[0];
+  const text = answerText(client, answerId);
+  core.close();
+  return { citation, text };
+}
+
+describe("A figure above a sheet's header is not the table's name (#2373)", {
+  timeout: 60_000,
+}, () => {
+  test("en: a quote of the figure for a cited row is not found", async () => {
+    // The figure is on the first block and the cited row on the second, so only the title rows
+    // could hold the quote.
+    expect(await figureTitleUnitOf("en", FIGURE_TITLE.en.figure)).not.toBe(
+      await figureTitleUnitOf("en", FIGURE_TITLE.en.holds),
+    );
+
+    const { citation } = await askFigureTitle("en");
+
+    expect(citation).toMatchObject({
+      quote: FIGURE_TITLE.en.quote,
+      check: "not-found",
+      checkReason: "quoted-words-not-on-pages",
+    });
+  });
+
+  test("zh: a quote of the figure for a cited row is not found as the table's name", async () => {
+    expect(await figureTitleUnitOf("zh", FIGURE_TITLE.zh.figure)).not.toBe(
+      await figureTitleUnitOf("zh", FIGURE_TITLE.zh.holds),
+    );
+
+    const { citation, text } = await askFigureTitle("zh");
+
+    // Its own quote is found, and the figure is not the sheet's words: read as a translation,
+    // the Answer's figure loses its quotation marks.
+    expect(citation).toMatchObject({ quote: FIGURE_TITLE.zh.quote, check: "found" });
+    expect(text).not.toContain("“1 234 567 890”");
+    expect(text).toContain("1 234 567 890");
   });
 });

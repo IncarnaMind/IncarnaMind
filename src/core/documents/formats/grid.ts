@@ -88,19 +88,61 @@ export interface Workbook {
   unreadable: string[];
 }
 
-const NUMERIC = /^[-+(]?[£$€¥]?\d[\d,.]*%?\)?$/;
+/** A figure's text: digits, with the separators, currency and percent a sheet shows. */
+const NUMERIC = /^[-+(]?[£$€¥]?\d[\d,.]*(?: \d{3})*%?\)?$/;
+
+/** Whether a cell's text is a figure, such as "4.2%" or "1 234 567", rather than words. */
+export function looksLikeFigure(value: string): boolean {
+  return NUMERIC.test(value);
+}
+
+const isFigure = (cell: Pick<Cell, "value" | "numeric">): boolean =>
+  cell.numeric || looksLikeFigure(cell.value);
 
 /** Whether a row looks like a header: two cells or more, mostly words. */
 export function looksLikeHeader(cells: readonly Pick<Cell, "value" | "numeric">[]): boolean {
   if (cells.length < 2) return false;
-  const words = cells.filter((cell) => !cell.numeric && !NUMERIC.test(cell.value)).length;
+  const words = cells.filter((cell) => !isFigure(cell)).length;
   return words * 2 > cells.length;
 }
 
-/** The sheet's header row: among its first 10 rows, the first that looks like one. */
+/**
+ * Whether a row heads the rows below it: a column whose cell is words where
+ * the next row with that column is a figure, and none the other way round. A
+ * row that shares no column with it is a section's own label ("2025") and is
+ * passed over.
+ */
+function headsBelow(cells: readonly Cell[], below: readonly (readonly Cell[])[]): boolean {
+  const columns = new Set(cells.map((cell) => cell.column));
+  const next = below.find((row) => row.some((cell) => columns.has(cell.column)));
+  if (!next) return false;
+  let heads = false;
+  for (const cell of cells) {
+    const under = next.find((each) => each.column === cell.column);
+    if (!under) continue;
+    if (isFigure(cell)) {
+      if (!isFigure(under)) return false;
+    } else if (isFigure(under)) heads = true;
+  }
+  return heads;
+}
+
+/**
+ * The sheet's header row: among its first 10 rows, the first whose words head
+ * the figures of the row below. A table of words alone has no kinds to tell
+ * its rows apart, and its first header-like row heads it.
+ */
 export function headerRow(rows: ReadonlyMap<number, Cell[]>): number | null {
-  const numbers = [...rows.keys()].sort((a, b) => a - b).slice(0, 10);
-  return numbers.find((number) => looksLikeHeader(rows.get(number) ?? [])) ?? null;
+  const numbers = [...rows.keys()].sort((a, b) => a - b);
+  const first = numbers.slice(0, 10);
+  const candidates = first.filter((number) => looksLikeHeader(rows.get(number) ?? []));
+  for (const number of candidates) {
+    const below = numbers.slice(numbers.indexOf(number) + 1).map((row) => rows.get(row) ?? []);
+    if (headsBelow(rows.get(number) ?? [], below)) return number;
+  }
+  return first.some((number) => (rows.get(number) ?? []).some(isFigure))
+    ? null
+    : (candidates[0] ?? null);
 }
 
 /** A row's line: its cells from `firstColumn`, tab-separated, empty cells empty. */
