@@ -647,13 +647,7 @@
   :root[data-title-bar="inset"] .app-card[data-sidebar-hidden] .tab-strip > .sidebar-toggle {
     margin-left: 0;
   }
-  /*
-   * The window's first group starts flush against the card's left edge: its
-   * shown first tab has no left foot and a rounded corner. A later group's
-   * tabs start 10px in from the divider, so its shown first tab keeps its
-   * left foot and the divider stays one line. The 10px end padding is room for
-   * the last tab's right foot.
-   */
+  /* 10px at each end: room for the shown tab's feet when it is first or last. */
   .tab-list {
     display: flex;
     flex: 0 1 auto;
@@ -671,9 +665,6 @@
     &::-webkit-scrollbar {
       display: none;
     }
-  }
-  .tab-strip[data-first-group] .tab-list {
-    padding-left: 0;
   }
   /* Fades out on a side where tabs are scrolled out of sight. */
   .tab-list[data-hidden-before] {
@@ -794,15 +785,6 @@
   }
   .tab[aria-selected="true"] .tab-foot {
     display: block;
-  }
-  /* The window's first tab, shown, starts at the card's edge: no left foot, its content inset 16px. */
-  .tab-strip[data-first-group] .tab:first-child[aria-selected="true"] {
-    .tab-inner {
-      padding-left: 16px;
-    }
-    .tab-foot[data-side="left"] {
-      display: none;
-    }
   }
   /* The tab's icon: its kind, or in a Mind's place what the Mind is busy with. */
   .tab-icon {

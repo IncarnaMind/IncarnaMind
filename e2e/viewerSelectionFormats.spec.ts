@@ -9,6 +9,7 @@ import {
   dismissChatSetup,
   expectReadyDocuments,
   launchApp,
+  motionSettled,
   newMind,
   pointAndClick,
   removeDataFolder,
@@ -78,6 +79,9 @@ async function addToNote(window: Page, line: Locator, words: string): Promise<Lo
   const first = all.slice(0, 2).join(" ");
   const last = all.slice(-2).join(" ");
   await slideSelect(window, line, first, { line, words: last });
+  // The menu grows from its anchor: click it once it has stopped, as a person waits to see it.
+  await expect(window.getByTestId("viewer-selection-menu")).toBeVisible();
+  await motionSettled(window);
   await pointAndClick(window, window.getByTestId("viewer-selection-add"));
   const quote = window
     .locator('[data-testid="mind-pane"]:visible blockquote')
@@ -115,6 +119,8 @@ test("PowerPoint: a slide's text, over its bullet points, and its speaker notes 
   // The bullets are drawn, not written: they are no part of the words.
   await clearSelection(window);
   await slideSelect(window, slide, "Customer churn", { line: slide, words: "112 per" });
+  await expect(window.getByTestId("viewer-selection-menu")).toBeVisible();
+  await motionSettled(window);
   await pointAndClick(window, window.getByTestId("viewer-selection-add"));
   const bullets = quotesIn(window).filter({ hasText: "dropped by a third" });
   await expect(bullets).toContainText(
@@ -125,6 +131,7 @@ test("PowerPoint: a slide's text, over its bullet points, and its speaker notes 
 
   const notes = slide.getByTestId("viewer-slide-notes");
   await pointAndClick(window, notes.locator("summary"));
+  await clearSelection(window);
   const spoken = await addToNote(window, notes, "it was 6.8 per cent a year ago");
   await expect(citedAt(spoken)).toHaveAttribute("aria-label", /slide 2/);
 });

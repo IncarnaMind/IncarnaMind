@@ -10,6 +10,7 @@ export const OBJECT_KINDS = [
   "mind",
   "conversation",
   "document",
+  "annotation",
   "folder",
   "tag",
   "linkedFolder",

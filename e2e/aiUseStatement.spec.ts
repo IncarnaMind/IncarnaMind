@@ -196,9 +196,13 @@ for (const { language, width, via } of CASES) {
     await expect(window.getByTestId("undo-message")).toHaveCount(0);
     await screenshot(window, shot);
 
-    // The counts are the Mind's: its Answer added once, its one Citation found, its heading's section.
+    // The counts are the Mind's: its Answer added once, with the sentence its judgement checked
+    // (#2313), its one Citation found, its heading's section.
     const [uses, byHeading, citations] = await tablesOf(statement);
-    expect(uses?.at(-1)).toEqual([text.added, "fake-model", "1"]);
+    expect(uses?.slice(-2)).toEqual([
+      [text.added, "fake-model", "1"],
+      [text.checkedUse, "fake-model", "1"],
+    ]);
     expect(byHeading?.at(1)?.slice(0, 3)).toEqual([text.heading, "1", "0"]);
     expect(Number(byHeading?.at(1)?.[3])).toBeGreaterThan(0);
     expect(citations?.at(1)).toEqual([text.found, String(found)]);

@@ -505,6 +505,8 @@ export interface AnswerDocuments {
   documentDate(documentId: string): DocumentDate | null;
   /** The id of the Document to search named `name`, as the instructions list it; null for none. */
   documentNamed?(name: string): string | null;
+  /** The User's highlights and notes that hold the words (#327), as lines for the model; "" for none. */
+  annotationText?(query: string, within?: readonly string[]): string;
   /** One live Passage by id, when reading around it is offered. */
   passage?(passageId: string): WindowedPassage | null;
   /** Live Passages at positions `from` to `to`, when Document reads are offered. */
@@ -2268,6 +2270,14 @@ export function createCitationSession(
         within = [id];
       }
       const found = await search(query, signal, within, options);
+      // The User's own highlights and notes on these words (#327): what they marked is what they meant.
+      const marked = documents.annotationText?.(query, within) ?? "";
+      if (marked !== "") {
+        return {
+          ...found,
+          text: found.text === "" ? marked : `${found.text}\n\n${marked}`,
+        };
+      }
       if (found.passageCount > 0 || !opening || openingGiven) return found;
       if (within && !within.includes(opening.documentId)) return found;
       const passages = opening.passages();

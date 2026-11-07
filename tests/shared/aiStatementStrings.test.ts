@@ -45,18 +45,42 @@ const everything: AiUseFigures = {
     needsRecheck: 1,
     notChecked: 1,
   },
+  carried: {
+    supported: 1,
+    unsupported: 1,
+    notFound: 0,
+    contradicted: 0,
+    needsRecheck: 0,
+    notChecked: 0,
+  },
   checked: [
     {
       sentence: "Spring tides come at new and full moon.",
       result: "supported",
       model: "Claude Haiku 5.5 (Anthropic)",
       checkedAt: "2026-10-14T09:00:00.000Z",
+      carried: false,
     },
     {
       sentence: "潮汐是海水的周期性涨落，由月球引力…",
       result: "changed",
       model: null,
       checkedAt: "2026-10-13T09:00:00.000Z",
+      carried: false,
+    },
+    {
+      sentence: "Neap tides come at the quarter moons.",
+      result: "supported",
+      model: "Claude Haiku 5.5 (Anthropic)",
+      checkedAt: "2026-10-14T09:00:00.000Z",
+      carried: true,
+    },
+    {
+      sentence: "大潮每月出现三次。",
+      result: "unsupported",
+      model: "Claude Haiku 5.5 (Anthropic)",
+      checkedAt: "2026-10-14T09:00:00.000Z",
+      carried: true,
     },
   ],
   unread: [
@@ -85,6 +109,14 @@ const nothing: AiUseFigures = {
   removed: 0,
   citations: { found: 0, notFound: 0, cantCheck: 0, unsupported: 0, contradicted: 0, checking: 0 },
   sentences: {
+    supported: 0,
+    unsupported: 0,
+    notFound: 0,
+    contradicted: 0,
+    needsRecheck: 0,
+    notChecked: 0,
+  },
+  carried: {
     supported: 0,
     unsupported: 0,
     notFound: 0,

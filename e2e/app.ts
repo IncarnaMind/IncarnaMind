@@ -217,6 +217,8 @@ export interface LaunchOptions {
   realEngines?: boolean;
   /** A stand-in for TypeSafe's hosted Jev, at this base URL. */
   jev?: string;
+  /** A stand-in for every decision model host (#1907), at this base URL. */
+  decisions?: string;
   /**
    * More of the app's environment, by name: a made-up credential, or a switch such as
    * ELECTRON_DISABLE_SANDBOX. Nothing else comes from the test's own (`launchEnvironment`), and
@@ -295,6 +297,7 @@ export async function launchApp(
     sandboxNotice,
     realEngines = false,
     jev,
+    decisions,
     extraEnv,
     trace = false,
     switches = [],
@@ -333,6 +336,7 @@ export async function launchApp(
     INCARNAMIND_TEST_CLAUDE_SIGN_IN_MS: claudeSignInMs ? String(claudeSignInMs) : undefined,
     INCARNAMIND_TEST_COPILOT: copilot,
     INCARNAMIND_TEST_JEV: jev,
+    INCARNAMIND_TEST_DECISIONS: decisions,
     INCARNAMIND_TEST_SCANS: scans,
     INCARNAMIND_TEST_SCANS_AT_ONCE: scansAtOnce ? String(scansAtOnce) : undefined,
     INCARNAMIND_TEST_MODEL_DOWNLOADS: modelDownloads && JSON.stringify(modelDownloads),
@@ -2270,11 +2274,11 @@ export async function expectDotsBetweenParts(line: Locator): Promise<boolean> {
 }
 
 /**
- * Checks that the window's first group's tabs start at the card's left edge:
- * flush with it on macOS, where the sidebar's button sits in the sidebar's
- * header beside the traffic lights; on Windows and Linux just after that
- * button, which starts the strip there (SidebarToggle), 8px in and 6px before
- * the first tab (styles.css).
+ * Checks where the window's first group's tabs start, 10px in as in every
+ * group, room for the shown tab's left foot: from the card's left edge on
+ * macOS, where the sidebar's button sits in the sidebar's header beside the
+ * traffic lights; on Windows and Linux from that button, which starts the
+ * strip there (SidebarToggle) 8px in, with its own 6px after it.
  */
 export async function expectFirstTabAtCardStart(window: Page, firstTab: Locator): Promise<void> {
   const card = await window.getByTestId("card").boundingBox();
@@ -2283,13 +2287,13 @@ export async function expectFirstTabAtCardStart(window: Page, firstTab: Locator)
   const toggle = window.getByTestId("tab-strip").first().getByTestId("sidebar-toggle");
   if (process.platform === "darwin") {
     await expect(toggle).toHaveCount(0);
-    expect(tab.x).toBeCloseTo(card.x, 0);
+    expect(tab.x - card.x).toBeCloseTo(10, 0);
     return;
   }
   const button = await toggle.boundingBox();
   if (!button) throw new Error("The sidebar's button isn't at the start of the strip.");
   expect(button.x - card.x).toBeCloseTo(8, 0);
-  expect(tab.x - (button.x + button.width)).toBeCloseTo(6, 0);
+  expect(tab.x - (button.x + button.width)).toBeCloseTo(16, 0);
 }
 
 /**
@@ -2314,7 +2318,12 @@ export async function pointAndClick(
   let box: Awaited<ReturnType<Locator["boundingBox"]>> = null;
   await expect(async () => {
     if (!scrolled) {
-      await target.scrollIntoViewIfNeeded();
+      // The selection menu is placed beside its words inside the window: scrolling the page
+      // under it would carry its anchor, and the menu with it, so there is nothing to bring in.
+      const inSelectionMenu = await target.evaluate(
+        (element) => element.closest(".viewer-selection-menu") !== null,
+      );
+      if (!inSelectionMenu) await target.scrollIntoViewIfNeeded();
       scrolled = true;
     }
     const held = await target.evaluate(async (element) => {
@@ -3396,6 +3405,10 @@ export async function coreState(window: Page): Promise<unknown> {
       core.listLinkedFolders(),
       core.listDeleted(),
     ]);
+    // A Document's highlights and notes (#327), so a change to one is seen and taken back.
+    const annotations = await Promise.all(
+      documents.map(async (document) => [document.id, await core.listAnnotations(document.id)]),
+    );
     const state = {
       minds,
       documents,
@@ -3404,6 +3417,7 @@ export async function coreState(window: Page): Promise<unknown> {
       tags,
       linkedFolders,
       deleted,
+      annotations: Object.fromEntries(annotations),
     };
     const progress = ["tagging", "taggingError"];
     return JSON.parse(
