@@ -4503,6 +4503,8 @@ export const en = {
   "scripts.call.missingPackage.model":
     "{problem} Installing it on this computer won’t help: IncarnaMind runs Skills on its own Python.",
   "scripts.call.timedOut": "{script} ({skill}) ran too long and was stopped",
+  "scripts.call.diskUnmeasured":
+    "{script} ({skill}) was stopped because its disk use couldn’t be measured",
   "scripts.call.exited": "Ran {script} ({skill}): exit code {code}",
   "scripts.call.stopped": "{script} ({skill}) was stopped",
   "scripts.call.details": "Its arguments and what it wrote",
@@ -7475,6 +7477,8 @@ export const en = {
   "analysis.call.error.none": "The analysis stopped with an error",
   "analysis.call.timedOut": "The analysis took longer than {seconds} s and was stopped",
   "analysis.call.outOfMemory": "The analysis ran out of memory and was stopped",
+  "analysis.call.diskUnmeasured":
+    "The analysis was stopped because its disk use couldn’t be measured",
   "analysis.call.stopped": "Stopped the analysis",
   "analysis.table.more": "{count} more rows are in the Analysis.",
   "analysis.table.more.one": "1 more row is in the Analysis.",

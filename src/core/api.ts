@@ -1600,6 +1600,8 @@ export interface SkillScriptRun {
   exitCode: number | null;
   /** It ran longer than the timeout, so it was stopped with every process it started. */
   timedOut: boolean;
+  /** It was stopped because its disk use couldn't be measured, so a folder limit couldn't hold. */
+  diskUnmeasured?: boolean;
   stdout: string;
   stderr: string;
   /** It wrote more to its standard output than is kept. */
