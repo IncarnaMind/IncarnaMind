@@ -9,7 +9,7 @@
  * figure that isn't expected, or an ambiguity that isn't, fails the case.
  */
 import { describe, expect, test } from "vitest";
-import { figuresInClaim } from "../../src/core/answers/checks/calculated";
+import { figuresInClaim, statedFigure } from "../../src/core/answers/checks/calculated";
 import {
   type AmbiguityKind,
   currencyOnItsFigure,
@@ -991,6 +991,7 @@ describe("a period a Chinese sentence counts (#2215)", () => {
     ["一年内", "一年", 1],
     ["三年", "三年", 3],
     ["连续两年", "两年", 2],
+    ["应当一年内完成", "一年", 1],
   ])("%s still counts", (text, chars, value) => {
     expect(figuresInClaim(text, ZH)).toEqual([
       {
@@ -1009,6 +1010,15 @@ describe("a period a Chinese sentence counts (#2215)", () => {
         ambiguous: [],
       },
     ]);
+  });
+
+  test("a stated calculation figure names no quantity for a period that says which one", () => {
+    expect(statedFigure("净负债在这一年里大幅下降", "一年", ZH)).toBeNull();
+    expect(statedFigure("应当在一年内完成", "一年", ZH)).toMatchObject({
+      chars: "一年",
+      value: 1,
+      unit: year,
+    });
   });
 });
 
