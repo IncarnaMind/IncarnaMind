@@ -1,7 +1,12 @@
 import type { EditorState } from "@tiptap/pm/state";
-import type { CitationAttributes, CitationCheck, ClaimCheckPart } from "../../../core/api";
+import type {
+  CitationAttributes,
+  CitationCheck,
+  ClaimCheckPart,
+  QuotedWords,
+} from "../../../core/api";
 import { continuesCitation, overlapsCitation } from "../../../shared/citationOverlap";
-import { quotedWordsFoundIn } from "../../../shared/citations";
+import { parseQuotedWords, type QuotedWordsOnPage, quotedWordsAt } from "../../../shared/citations";
 import { citationLocation } from "../../../shared/locations";
 import { type NumberedCitation, numberedCitations } from "./citationNumbers";
 import type { ShownClaim } from "./claimChecks";
@@ -11,6 +16,28 @@ export const citationsOf = (state: EditorState, claim: ShownClaim): NumberedCita
   numberedCitations(state).filter(
     (each) => each.pos >= claim.sentence.from && each.pos < claim.sentence.to,
   );
+
+/**
+ * The places a sentence's card may cite its quoted words at (#2712): each Passage its check
+ * found, for each Citation of that Document in the sentence whose quoted words weren't found,
+ * for the core to look for them there (`useQuotedWordsOnPage`).
+ */
+export function quotedWordsAsks(
+  state: EditorState,
+  claim: ShownClaim,
+): { words: QuotedWords; cited: CitationAttributes }[] {
+  const found = [
+    claim.check.evidence,
+    ...(claim.check.parts ?? []).flatMap((part) => part.evidence),
+  ].filter((evidence): evidence is CitationAttributes => evidence?.check === "found");
+  return citationsOf(state, claim).flatMap(({ attributes }) => {
+    const words = parseQuotedWords(attributes.quotedWords);
+    if (!words || attributes.documentId === null) return [];
+    return found
+      .filter((evidence) => evidence.documentId === attributes.documentId)
+      .map((cited) => ({ words, cited }));
+  });
+}
 
 const DOESNT_HOLD: ReadonlySet<CitationCheck> = new Set([
   "not-found",
@@ -32,10 +59,14 @@ export type CitationDecision =
   | { kind: "add" }
   | { kind: "none" };
 
-export function citationDecision(state: EditorState, claim: ShownClaim): CitationDecision {
+export function citationDecision(
+  state: EditorState,
+  claim: ShownClaim,
+  onPage?: QuotedWordsOnPage,
+): CitationDecision {
   const { evidence, calculation } = claim.check;
   if (!evidence || calculation || ofProperties(evidence)) return { kind: "none" };
-  return decisionFor(state, claim, evidence);
+  return decisionFor(state, claim, evidence, onPage);
 }
 
 /**
@@ -56,27 +87,29 @@ export function partDecisions(
   state: EditorState,
   claim: ShownClaim,
   part: ClaimCheckPart,
+  onPage?: QuotedWordsOnPage,
 ): { evidence: CitationAttributes; decision: CitationDecision }[] {
   if (part.verdict !== "supported" || part.calculation) return [];
   return part.evidence
     .filter((evidence) => evidence.check === "found" && !ofProperties(evidence))
-    .map((evidence) => ({ evidence, decision: decisionFor(state, claim, evidence) }));
+    .map((evidence) => ({ evidence, decision: decisionFor(state, claim, evidence, onPage) }));
 }
 
 function decisionFor(
   state: EditorState,
   claim: ShownClaim,
   evidence: CitationAttributes,
+  onPage?: QuotedWordsOnPage,
 ): CitationDecision {
   const cited = citationsOf(state, claim).filter(
     ({ attributes }) =>
       attributes.documentId !== null && attributes.documentId === evidence.documentId,
   );
-  // Replace may write "found" only for what the Passage found shows: the words the sentence put
-  // in quotation marks have to be in its quote too, or the Citation's card would say they are
-  // found when nothing looked for them (#483, #1808).
+  // Replace may write "found" only where the words the sentence put in quotation marks are on
+  // the Passage's page too, or the Citation's card would say they are found when nothing looked
+  // for them (#483, #1808, #2712).
   const replaceable = ({ attributes }: NumberedCitation) =>
-    quotedWordsFoundIn(evidence.quote ?? "", attributes.quotedWords);
+    quotedWordsAt(attributes.quotedWords, evidence, onPage);
   const overlapping = cited.filter(({ attributes }) => overlapsCitation(attributes, evidence));
   const valid = overlapping.filter(({ attributes }) => !DOESNT_HOLD.has(attributes.check));
   // A Citation whose own check says it doesn't hold is replaced, never widened: it is broken, not

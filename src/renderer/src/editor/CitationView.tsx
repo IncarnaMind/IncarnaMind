@@ -71,6 +71,7 @@ import {
   takePinnedCitation,
   unpinCitation,
 } from "../pinnedCitation";
+import { useQuotedWordsOnPage } from "../quotedWordsOnPage";
 import { recordUsage, useAppStore } from "../store";
 import { useKeptInside } from "../turnWall";
 import { pageDate } from "../webPages";
@@ -222,7 +223,15 @@ export function CitationView({
     recheck !== null && recheck !== "failed" && recheck.contentHash === liveVersion
       ? liveVersion
       : null;
-  const newVersion = editor.isEditable && lookedAt ? newVersionCitation(attributes, recheck) : null;
+  const update = editor.isEditable && lookedAt ? newVersionCitation(attributes, recheck) : null;
+  const asked = update ? parseQuotedWords(attributes.quotedWords) : null;
+  const onPage = useQuotedWordsOnPage(
+    update && asked
+      ? [{ words: asked, cited: { ...update, documentId: attributes.documentId } }]
+      : [],
+    mindId,
+  );
+  const newVersion = asked ? newVersionCitation(attributes, recheck, onPage) : update;
   const badge = badgeMessage(state, shown, t);
   const badgeText = recheckAsked ? t("citation.badge.recheck") : t(badge.key, badge.params);
   // A scan's unsure word: the page is shown with the quote, so the User can check it (#535).

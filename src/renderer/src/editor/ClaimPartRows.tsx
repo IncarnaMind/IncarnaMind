@@ -11,7 +11,11 @@ import type {
   ClaimPartSpan,
   WholeRead,
 } from "../../../core/api";
-import { citationState, shownDocumentName } from "../../../shared/citations";
+import {
+  citationState,
+  type QuotedWordsOnPage,
+  shownDocumentName,
+} from "../../../shared/citations";
 import { checkedScope, partFoundNothing } from "../../../shared/claimChecks";
 import { coverageCount } from "../../../shared/claimParts";
 import { cardRows, hasKnownDomain } from "../../../shared/claimRows";
@@ -160,14 +164,17 @@ export const citesMore = (
   state: EditorState,
   claim: ShownClaim,
   parts: readonly ClaimCheckPart[],
+  onPage?: QuotedWordsOnPage,
 ) =>
   cardRows(parts).some(({ part }) =>
-    partDecisions(state, claim, part).some(({ decision }) => decision.kind === "add"),
+    partDecisions(state, claim, part, onPage).some(({ decision }) => decision.kind === "add"),
   );
 
 /** What a marked sentence's card does with the Citations of what its parts found (#2002). */
 export interface PartCitations {
   claim: ShownClaim;
+  /** The core's verdicts on the sentence's quoted words at the places its parts found. */
+  onPage?: QuotedWordsOnPage;
   onAdd(parts: readonly ClaimCheckPart[]): void;
   onWiden(decision: Extract<CitationDecision, { kind: "widen" }>): void;
   onReplace(decision: Extract<CitationDecision, { kind: "replace" }>): void;
@@ -508,7 +515,9 @@ export function ClaimPartRows({
   const visible = expanded ? rows : rows.slice(0, 4);
   const citing = rows.map(({ part }) =>
     citations && !stale && !checking
-      ? partDecisions(editor.state, citations.claim, part).map(({ decision }) => decision)
+      ? partDecisions(editor.state, citations.claim, part, citations.onPage).map(
+          ({ decision }) => decision,
+        )
       : [],
   );
   const addable = rows.flatMap(({ part }, index) =>

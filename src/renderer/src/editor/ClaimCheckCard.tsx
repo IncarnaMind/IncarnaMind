@@ -60,6 +60,7 @@ import { groupsMerged } from "../layoutSlice";
 import { useNotices } from "../notices";
 import { citationStepOpen } from "../nudges";
 import { openCited } from "../openCited";
+import { useQuotedWordsOnPage } from "../quotedWordsOnPage";
 import { offersRewrite, rewriteWithDocuments } from "../rewriteFix";
 import { useScopeName } from "../scopeDocuments";
 import { useAppStore } from "../store";
@@ -80,7 +81,12 @@ import {
   sentenceOf,
   uncoveredOf,
 } from "../unsupportedFixes";
-import { type CitationDecision, citationDecision, citationsOf } from "./alreadyCited";
+import {
+  type CitationDecision,
+  citationDecision,
+  citationsOf,
+  quotedWordsAsks,
+} from "./alreadyCited";
 import { ChangedCitations } from "./ChangedSourceNotice";
 import { CheckedByLine } from "./CheckedByLine";
 import { ChooseCitationAction } from "./ChooseCitationAction";
@@ -186,13 +192,17 @@ export function ClaimMark({
   /** Whether the card was opened with the keyboard, whose Esc gives the caret back (#1762). */
   const openedByKeyboard = useRef(false);
   const open = claim.kind !== "chart" && (pinned || peeking);
+  const onPage = useQuotedWordsOnPage(
+    state === "supported" && claim.kind !== "chart" ? quotedWordsAsks(editor.state, claim) : [],
+    mindId,
+  );
   const decision =
     state === "supported" && claim.kind !== "chart"
-      ? citationDecision(editor.state, claim)
+      ? citationDecision(editor.state, claim, onPage)
       : NO_DECISION;
   const rows = claimPartRows(claim.check);
   const plus = rows
-    ? state === "supported" && citesMore(editor.state, claim, rows)
+    ? state === "supported" && citesMore(editor.state, claim, rows, onPage)
     : decision.kind === "add";
   const added = useAddedDocuments((store) => store.byMind[mindId]?.[claim.check.id]?.length ?? 0);
   const heading = t(checkStateKey(editor, claim));
@@ -389,7 +399,7 @@ export function ClaimMark({
               decision={decision}
               added={added}
               onAdd={() => {
-                addAsCitation(editor, claim);
+                addAsCitation(editor, claim, onPage);
                 done(true);
               }}
               onWiden={() => {
@@ -397,13 +407,14 @@ export function ClaimMark({
                 done(true);
               }}
               onReplace={() => {
-                if (decision.kind === "replace") replaceCitation(editor, decision);
+                if (decision.kind === "replace") replaceCitation(editor, decision, onPage);
                 done(true);
               }}
               partCitations={{
                 claim,
+                onPage,
                 onAdd: (parts) => {
-                  if (addPartCitations(editor, claim, parts) === "changed")
+                  if (addPartCitations(editor, claim, parts, onPage) === "changed")
                     useNotices
                       .getState()
                       .showError(new Error(translateNow("error.check.partChanged")));
@@ -414,7 +425,7 @@ export function ClaimMark({
                   done(true);
                 },
                 onReplace: (part) => {
-                  replaceCitation(editor, part);
+                  replaceCitation(editor, part, onPage);
                   done(true);
                 },
               }}
