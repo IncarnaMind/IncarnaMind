@@ -1,6 +1,6 @@
 // Checks what electron-builder packed, after `npm run dist:dir` or `npm run dist`:
 //   1. Every app.asar under dist/ holds only out/, node_modules/ and package.json at its
-//      top level. Anything else (sources, tests, data, untracked files in the checkout)
+//      top level. Anything else (sources, tests, eval/data, untracked files in the checkout)
 //      means the `files` patterns in electron-builder.yml let the whole folder in.
 //   2. Each app.asar and each installer is within its size budget.
 //   3. Each app has the speech-to-text addon (#136) of its own platform and architecture, and no
