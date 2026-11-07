@@ -46,6 +46,7 @@
   "assistantResizeKeys.spec.ts": 23,
   "assistantWaitingChanges.spec.ts": 8,
   "assistantWriteShift.spec.ts": 32,
+  "assistantYields.spec.ts": 90,
   "blankAnswer.spec.ts": 8,
   "builtInSkills.spec.ts": 8,
   "bulkDelete.spec.ts": 25,

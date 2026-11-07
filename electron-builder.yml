@@ -64,7 +64,8 @@ extraResources:
       - "**/*"
   # The licence notices: what the model catalog is generated from (scripts/catalogModels.ts),
   # the citation-style engine's crates and where the CSL styles come from, the Speex code the
-  # Meetings echo canceller is derived from, and what Analyses run with.
+  # Meetings echo canceller is derived from, what Analyses run with, and the speech models
+  # Meetings are transcribed with, which are downloaded.
   - from: resources/notices
     to: notices
     filter:

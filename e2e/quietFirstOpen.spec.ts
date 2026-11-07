@@ -10,6 +10,8 @@ import {
   leaveFirstOpen,
   makeTagOnDocument,
   newMind,
+  openPageMenu,
+  pointAndClick,
   removeDataFolder,
   savedPath,
   setLanguage,
@@ -29,13 +31,14 @@ test.afterEach(async () => {
   await removeDataFolder(sources);
 });
 
-test("a first open shows only the example page: no tab strip, no assistant, a slim sidebar (#123)", async () => {
+test("a first open shows the example page in its one tab, with no assistant and a slim sidebar (#123)", async () => {
   const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
   await setWindowSize(app, window, 1440, 900);
   const sidebar = window.getByTestId("sidebar");
   await expect(window.getByTestId("mind-pane")).toBeVisible();
 
-  await expect(window.getByTestId("tab-list")).toHaveCount(0);
+  await expect(window.getByTestId("tab-title")).toHaveCount(1);
+  await expect(window.getByTestId("tab-title")).toHaveText("Draft: credit committee paper");
   await expect(window.getByTestId("assistant")).toBeHidden();
   await expect(window.getByTestId("ask-pill")).toBeVisible();
   await expect(window.getByTestId("ask-pill")).toContainText("Ask anything");
@@ -73,9 +76,10 @@ test("the quiet first open keeps the example's marks to its margin, but a check 
   await app.close();
 });
 
-test("the tab strip comes with the second tab, and the Library with the User's first Note or Document (#123, #2376)", async () => {
+test("the tab strip shows its one tab from the start, and the Library comes with the User's first Note or Document (#123, #2376)", async () => {
   const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
-  await expect(window.getByTestId("tab-list")).toHaveCount(0);
+  await expect(window.getByTestId("tab-list")).toBeVisible();
+  await expect(window.getByTestId("tab-title")).toHaveCount(1);
   await newMind(window);
   await expect(window.getByTestId("tab-list")).toBeVisible();
   await expect(window.getByTestId("tab-title")).toHaveCount(2);
@@ -93,6 +97,28 @@ test("the tab strip comes with the second tab, and the Library with the User's f
   // It stays once the first open's steps are put away.
   await leaveFirstOpen(window);
   await expect(sidebar.getByTestId("open-library")).toBeVisible();
+  await app.close();
+});
+
+test("the tab strip stays when a second tab is closed again", async () => {
+  const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+  await newMind(window);
+  await expect(window.getByTestId("tab-title")).toHaveCount(2);
+  await window.locator('[role="tab"][aria-selected="true"]').getByTestId("tab-close").click();
+  await expect(window.getByTestId("tab-title")).toHaveCount(1);
+  await expect(window.getByTestId("tab-list")).toBeVisible();
+  await app.close();
+});
+
+test("the page menu's Rename names the example in its tab while the first open's steps show", async () => {
+  const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+  await expect(window.getByTestId("first-open-steps")).toBeVisible();
+  await pointAndClick(window, (await openPageMenu(window)).getByTestId("mind.rename"));
+  const field = window.getByTestId("tab-rename");
+  await expect(field).toBeFocused();
+  await field.fill("Credit paper");
+  await field.press("Enter");
+  await expect(window.getByTestId("tab-title")).toHaveText("Credit paper");
   await app.close();
 });
 
@@ -146,7 +172,6 @@ test("the examples alone keep the footer quiet, but the User's own file waiting 
   await expect(line).toBeVisible();
   await expect(line.getByTestId("status-label")).toHaveText("Tags need an AI model");
   await expect(window.getByTestId("first-open-steps")).toBeVisible();
-  await expect(window.getByTestId("tab-list")).toHaveCount(0);
 
   const choose = line.getByTestId("tagging-waiting-setup");
   await expect(choose).toHaveText("Choose…");
@@ -287,9 +312,9 @@ test("the quiet first open holds at 1,100 px in Chinese (#123)", async () => {
   await app.close();
 });
 
-test("File > Export names the Mind in front and exports it while the tab strip is hidden (#123)", async () => {
+test("File > Export names the Mind in front and exports it from the first open (#123)", async () => {
   const { app, window } = await launchApp(dataDir, { examples: true });
-  await expect(window.getByTestId("tab-list")).toHaveCount(0);
+  await expect(window.getByTestId("tab-list")).toBeVisible();
   await useOutputLocation(window, sources);
   const item = () =>
     app.evaluate(({ Menu }) => {

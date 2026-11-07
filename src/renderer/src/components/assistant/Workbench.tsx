@@ -28,6 +28,7 @@ import {
   sideMax,
   sideWidth,
 } from "../../assistantPlace";
+import { useAssistantYields } from "../../assistantYields";
 import { ComposerDockContext } from "../../editor/mindContext";
 import { useT } from "../../i18n";
 import { useCardWidth } from "../../layoutSlice";
@@ -97,6 +98,7 @@ export function Workbench({
   const groups = useMemo(() => <TabGroups />, []);
 
   const width = sideWidth(shown.width, room.width);
+  useAssistantYields({ dock, folded, width, quiet, room: room.width });
   // The first Question waits on choosing a model: its card grows the dock to the height a dock may
   // take, which keeps the Note's own room, so every way in shows in a short window (#2270).
   const settingUp = useSettingUp();

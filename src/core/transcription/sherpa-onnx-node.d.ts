@@ -87,6 +87,30 @@ declare module "sherpa-onnx-node" {
   export interface OnlineStream {
     acceptWaveform(waveform: Waveform): void;
     inputFinished(): void;
+    handle: unknown;
+  }
+
+  export interface OnlineRecognizerConfig {
+    featConfig: { sampleRate: number; featureDim: number };
+    modelConfig: {
+      transducer: { encoder: string; decoder: string; joiner: string };
+      tokens: string;
+      numThreads: number;
+      provider: "cpu";
+      debug: number;
+    };
+    decodingMethod: "greedy_search";
+    enableEndpoint: number;
+  }
+
+  /** A streaming model: a stream takes audio as it comes, and decoding reads what it holds so far. Each call holds the thread until it is done. */
+  export class OnlineRecognizer {
+    constructor(config: OnlineRecognizerConfig);
+    createStream(): OnlineStream;
+    isReady(stream: OnlineStream): boolean;
+    decode(stream: OnlineStream): void;
+    getResult(stream: OnlineStream): { text: string };
+    handle: unknown;
   }
 
   export class SpeakerEmbeddingExtractor {
@@ -107,6 +131,7 @@ declare module "sherpa-onnx-node" {
 declare module "sherpa-onnx-node/addon.js" {
   const addon: {
     getOfflineStreamResultAsJson(handle: unknown): string;
+    getOnlineStreamResultAsJson(recognizer: unknown, stream: unknown): string;
     offlineStreamSetOption(handle: unknown, key: string, value: string): void;
   };
   export default addon;

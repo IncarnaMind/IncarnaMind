@@ -109,9 +109,13 @@ export function useSorting() {
           : saved.kind === "jev"
             ? "TypeSafe Jev"
             : saved.kind === "decision"
-              ? `${decisionModelOf(saved.host, saved.modelId)?.name ?? saved.modelId} · ${
-                  DECISION_HOST_ENTRIES[saved.host].name[language === "zh-CN" ? "zh" : "en"]
-                }`
+              ? `${
+                  decisionHosts
+                    ?.find((each) => each.host === saved.host)
+                    ?.models.find((model) => model.id === saved.modelId)?.name ??
+                  decisionModelOf(saved.host, saved.modelId)?.name ??
+                  saved.modelId
+                } · ${DECISION_HOST_ENTRIES[saved.host].name[language === "zh-CN" ? "zh" : "en"]}`
               : saved.kind === "auto"
                 ? t("tagging.decision.auto")
                 : saved.modelId,

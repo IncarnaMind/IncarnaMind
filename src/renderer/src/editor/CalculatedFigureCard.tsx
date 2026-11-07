@@ -17,6 +17,7 @@ import { useLanguage, useT } from "../i18n";
 import { openCited } from "../openCited";
 import { useAppStore } from "../store";
 import { QuoteWithUnsureWords, ScanLine, useScannedQuote } from "./citationScan";
+import { useCitedOrigin } from "./mindContext";
 import { SignOffLine, SignOffToggle } from "./SignOff";
 
 export function CalculatedFigureCard({
@@ -328,6 +329,7 @@ function CalculationInput({ input }: { input: FigureInput }) {
 }
 
 function CalculationQuote({ citation }: { citation: Citation }) {
+  const origin = useCitedOrigin();
   const t = useT();
   const language = useLanguage();
   const documents = useAppStore((state) => state.documents);
@@ -340,7 +342,7 @@ function CalculationQuote({ citation }: { citation: Citation }) {
         <span>{sourceText(citation, { language, documents }).text}</span>
         <button
           type="button"
-          onClick={() => openCited(citation, { check: citation.check, withQuote: true })}
+          onClick={() => openCited(citation, { origin, check: citation.check, withQuote: true })}
         >
           {t("figures.inline.openInput")}
         </button>

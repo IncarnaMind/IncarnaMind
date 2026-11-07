@@ -1,9 +1,15 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, test, vi } from "vitest";
-import type { SpeechSegment } from "../../src/core";
+import type { SpeechSegment, Transcriber, TranscriptionModelFiles } from "../../src/core";
 import { createTracks } from "../../src/core/meetings/tracks";
 import {
   chooseModel,
+  createTranscriptionModel,
   QWEN3_ASR_0_6B,
+  SILERO_VAD,
+  TRANSCRIPTION_MODELS,
   type TranscriptionModelDefinition,
 } from "../../src/core/transcription/model";
 import {
@@ -12,6 +18,10 @@ import {
   type SpeechEngine,
   type VoiceDetector,
 } from "../../src/core/transcription/speech";
+
+import { createTempDataFolder } from "../helpers/core";
+import { startModelServer } from "../helpers/embedding";
+import { recordingLog } from "../helpers/log";
 
 const RATE = 16_000;
 
@@ -225,6 +235,212 @@ describe("Live text from VAD segments, decoded again as speech goes on", () => {
   });
 });
 
+/**
+ * A streaming model that writes a word for each 300 ms it hears ("w1 w2 w3"). `msPerSecond`: how
+ * long it takes, on the host's faked clock, for each second it hears; `fails`: it throws instead.
+ */
+function countingReader(options: { msPerSecond?: number; fails?: boolean } = {}) {
+  const readings: { heardMs: number; ended: boolean }[] = [];
+  const live = () => {
+    const reading = { heardMs: 0, ended: false };
+    readings.push(reading);
+    const words = () =>
+      Array.from({ length: Math.floor(reading.heardMs / 300) }, (_, at) => `w${at + 1}`).join(" ");
+    return {
+      hear(samples: Float32Array) {
+        if (options.fails) throw new Error("The streaming model stopped.");
+        const ms = (samples.length / RATE) * 1000;
+        reading.heardMs += ms;
+        if (options.msPerSecond) vi.setSystemTime(Date.now() + (ms / 1000) * options.msPerSecond);
+        return words();
+      },
+      end() {
+        reading.ended = true;
+        return words();
+      },
+    };
+  };
+  return { live, readings };
+}
+
+/** Pushes `seconds` of audio in 100 ms frames, as the capture sends them, letting decodes run between. */
+async function pushPaced(
+  host: ReturnType<typeof createSpeechHost>,
+  stream: string,
+  seconds: number,
+) {
+  for (let at = 0; at < seconds * 10; at++) {
+    host.push(stream, new Float32Array(RATE / 10));
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+}
+
+describe("Live words from a streaming model (#2662)", () => {
+  test("the words come as they are said, a little at a time, and the final reading gives the line", async () => {
+    const segments: SpeechSegment[] = [];
+    const decoded: number[] = [];
+    const reader = countingReader();
+    const host = createSpeechHost(
+      {
+        detector: () => scriptedDetector([[1, 4]]),
+        recognizer: {
+          decode: async (samples) => {
+            decoded.push(samples.length / RATE);
+            return "The launch moves to the eighteenth.";
+          },
+        },
+        live: reader.live,
+        close() {},
+      },
+      { segment: (segment) => segments.push(segment), progress: () => {}, failed: () => {} },
+    );
+    await pushPaced(host, "live", 6);
+    await host.finish("live");
+
+    const partials = segments.filter((segment) => !segment.final);
+    // A word more for each 300 ms of speech, the first within half a second of it, never re-read.
+    expect(partials[0]?.text).toBe("w1");
+    expect((partials[0]?.endMs ?? 0) - 1000).toBeLessThanOrEqual(500);
+    expect(partials.map((segment) => segment.text.split(" ").length)).toEqual(
+      partials.map((_, at) => at + 1),
+    );
+    expect(partials.every((segment) => segment.id === 1 && segment.startMs === 700)).toBe(true);
+    // The speech is decoded once, whole, for its final text: never again while it goes on.
+    expect(decoded).toEqual([3.25]);
+    expect(segments.filter((segment) => segment.final)).toEqual([
+      expect.objectContaining({ id: 1, text: "The launch moves to the eighteenth.", final: true }),
+    ]);
+    expect(reader.readings).toEqual([expect.objectContaining({ ended: true })]);
+  });
+
+  test("a stretch's live words stay, with the next stretch's after them, until its final text comes", async () => {
+    const segments: SpeechSegment[] = [];
+    const waiting: (() => void)[] = [];
+    const host = createSpeechHost(
+      {
+        detector: () =>
+          scriptedDetector([
+            [0, 1.2],
+            [2, 3],
+          ]),
+        recognizer: {
+          // Each final reading waits until the test lets it finish, as a slow one does.
+          decode: () =>
+            new Promise<string>((resolve) => waiting.push(() => resolve("First line."))),
+        },
+        live: countingReader().live,
+        close() {},
+      },
+      { segment: (segment) => segments.push(segment), progress: () => {}, failed: () => {} },
+    );
+    await pushPaced(host, "live", 2.1);
+
+    // The first stretch ended at 1.2 s; its final reading hasn't come, and the second is under way.
+    expect(segments.at(-1)).toEqual(
+      expect.objectContaining({ id: 1, text: "w1 w2 w3 w4 w1", final: false }),
+    );
+    waiting.shift()?.();
+    await vi.waitFor(() =>
+      expect(segments.slice(-2)).toEqual([
+        expect.objectContaining({ id: 1, text: "First line.", final: true }),
+        expect.objectContaining({ id: 2, text: "w1", final: false }),
+      ]),
+    );
+    const finishing = host.finish("live");
+    await vi.waitFor(() => expect(waiting).toHaveLength(1));
+    waiting.shift()?.();
+    await finishing;
+    expect(segments.filter((segment) => segment.final).map((segment) => segment.id)).toEqual([
+      1, 2,
+    ]);
+  });
+
+  test("a streaming model that can't keep up hands the live words back to decoding the speech again", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    let readings = 0;
+    // 2.8 s of speech every 3 s: each second it hears takes the model 0.6 s, more than it may.
+    const speech: [number, number][] = Array.from({ length: 8 }, (_, at) => [at * 3, at * 3 + 2.8]);
+    const reader = countingReader({ msPerSecond: 600 });
+    const segments: SpeechSegment[] = [];
+    const host = createSpeechHost(
+      {
+        detector: () => scriptedDetector(speech),
+        recognizer: {
+          decode: async () => {
+            readings++;
+            return "A line.";
+          },
+        },
+        live: reader.live,
+        close() {},
+      },
+      { segment: (segment) => segments.push(segment), progress: () => {}, failed: () => {} },
+    );
+    await pushPaced(host, "live", 24);
+    await host.finish("live");
+    vi.useRealTimers();
+
+    // Read live until the first ten seconds showed it can't keep up; after them, never again.
+    expect(reader.readings.length).toBe(4);
+    expect(warn).toHaveBeenCalledWith(
+      "Live words go back to reading the speech again: the streaming model can't keep up",
+    );
+    // The speech after is decoded again as it goes on, as well as once at its end.
+    expect(segments.filter((segment) => segment.final)).toHaveLength(8);
+    expect(readings).toBeGreaterThan(8);
+    warn.mockRestore();
+  });
+
+  test("live words are tried again once no stream is open, so the next Meeting starts with them", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const reader = countingReader({ fails: true });
+    const host = createSpeechHost(
+      {
+        ...lengthEngine([
+          [0, 1],
+          [2, 3],
+        ]),
+        live: reader.live,
+      },
+      { segment: () => {}, progress: () => {}, failed: () => {} },
+    );
+    await pushPaced(host, "meeting-1:microphone", 4);
+    // It failed on the first stretch, so the second was read again instead.
+    expect(reader.readings).toHaveLength(1);
+    await host.finish("meeting-1:microphone");
+
+    await pushPaced(host, "meeting-2:microphone", 1.5);
+    expect(reader.readings).toHaveLength(2);
+    warn.mockRestore();
+  });
+
+  test("a streaming model that fails leaves the stream going on, its live words read again instead", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const segments: SpeechSegment[] = [];
+    const host = createSpeechHost(
+      {
+        ...lengthEngine([[0, 4]]),
+        live: countingReader({ fails: true }).live,
+      },
+      { segment: (segment) => segments.push(segment), progress: () => {}, failed: () => {} },
+    );
+    await pushPaced(host, "live", 5);
+    await host.finish("live");
+
+    expect(warn).toHaveBeenCalledWith(
+      "Live words go back to reading the speech again: the streaming model failed: The streaming model stopped.",
+    );
+    expect(segments.filter((segment) => !segment.final).map((segment) => segment.text)).toEqual([
+      "2.6 s",
+    ]);
+    expect(segments.filter((segment) => segment.final).map((segment) => segment.text)).toEqual([
+      "4.0 s",
+    ]);
+    warn.mockRestore();
+  });
+});
+
 describe("Speech whose words hold control characters (#981)", () => {
   test("is kept as one line of words, the stretch not marked as one the engine couldn't read", async () => {
     const segments: SpeechSegment[] = [];
@@ -361,6 +577,175 @@ describe("The microphone and the computer's sound as two tracks", () => {
     expect(after.every((each) => each.microphone !== null)).toBe(true);
     expect(after[0]?.atMs).toBeGreaterThanOrEqual(1500);
     expect(after.reduce((sum, each) => sum + (each.microphone?.length ?? 0), 0)).toBe(16_000);
+  });
+});
+
+describe("Downloading the speech models", () => {
+  /** A transcriber that only keeps the files it was asked to load. */
+  function loadingTranscriber() {
+    const loaded: TranscriptionModelFiles[] = [];
+    const transcriber: Transcriber = {
+      load: async (files) => {
+        loaded.push(files);
+      },
+      words: () => {},
+      push: () => {},
+      finish: async () => {},
+      drop: () => {},
+      open: () => {},
+      listen: () => {},
+      close: () => {},
+    };
+    return { loaded, transcriber };
+  }
+
+  async function servers() {
+    return {
+      model: await startModelServer({ "decoder.onnx": 3000 }),
+      vad: await startModelServer({ "vad.onnx": 100 }),
+      live: await startModelServer({ "encoder.onnx": 600 }),
+    };
+  }
+
+  test("the streaming model downloads with the speech model, its size counted with theirs, and loads with it", async () => {
+    const dataDir = await createTempDataFolder();
+    const served = await servers();
+    const { loaded, transcriber } = loadingTranscriber();
+    const model = createTranscriptionModel({
+      dataDir,
+      transcriber,
+      source: { model: served.model.source, vad: served.vad.source, live: served.live.source },
+      speed: () => ({}),
+      emitStatus: () => {},
+      log: recordingLog().log,
+    });
+    expect(model.status()).toEqual(
+      expect.objectContaining({ state: "not-downloaded", totalBytes: 3700 }),
+    );
+
+    model.ensure();
+    await vi.waitFor(() => expect(model.status().state).toBe("ready"));
+    expect(await model.load()).toBe(true);
+    expect(loaded[0]?.live?.files.encoder).toContain(
+      join("models", "streaming-zipformer-zh-en-int8", "encoder-epoch-99-avg-1.int8.onnx"),
+    );
+    model.close();
+  });
+
+  test("where the speech model is here from before, it transcribes at once, and the streaming model follows for the next Meeting", async () => {
+    const dataDir = await createTempDataFolder();
+    const served = await servers();
+    const before = createTranscriptionModel({
+      dataDir,
+      transcriber: loadingTranscriber().transcriber,
+      source: { model: served.model.source, vad: served.vad.source },
+      speed: () => ({}),
+      emitStatus: () => {},
+      log: recordingLog().log,
+    });
+    before.ensure();
+    await vi.waitFor(() => expect(before.status().state).toBe("ready"));
+    before.close();
+
+    const { loaded, transcriber } = loadingTranscriber();
+    const model = createTranscriptionModel({
+      dataDir,
+      transcriber,
+      source: { model: served.model.source, vad: served.vad.source, live: served.live.source },
+      speed: () => ({}),
+      emitStatus: () => {},
+      log: recordingLog().log,
+    });
+    expect(model.status().state).toBe("ready");
+    expect(await model.load()).toBe(true);
+    expect(loaded[0]?.live).toBeUndefined();
+
+    model.ensure();
+    expect(model.status().state).toBe("ready");
+    await vi.waitFor(async () => {
+      expect(await model.load()).toBe(true);
+      expect(loaded.at(-1)?.live?.engine).toBe("streaming-transducer");
+    });
+    expect(served.model.requests).toHaveLength(1);
+    model.close();
+  });
+
+  test("on a first download, a streaming model that can't be downloaded doesn't hold up the speech model", async () => {
+    const dataDir = await createTempDataFolder();
+    const served = await servers();
+    served.live.behave("encoder.onnx", { corrupt: true });
+    const { log, entries } = recordingLog();
+    const { loaded, transcriber } = loadingTranscriber();
+    const model = createTranscriptionModel({
+      dataDir,
+      transcriber,
+      source: { model: served.model.source, vad: served.vad.source, live: served.live.source },
+      speed: () => ({}),
+      emitStatus: () => {},
+      log,
+    });
+    model.ensure();
+    await vi.waitFor(() => expect(model.status().state).toBe("ready"));
+    expect(model.status().error).toBeNull();
+    expect(entries.map((entry) => entry.event)).toContain("transcription.liveModelDownload");
+    expect(await model.load()).toBe(true);
+    expect(loaded[0]?.live).toBeUndefined();
+    model.close();
+  });
+
+  test("a streaming model that can't be downloaded leaves transcription as it was, and says why in the log", async () => {
+    const dataDir = await createTempDataFolder();
+    const served = await servers();
+    served.live.behave("encoder.onnx", { corrupt: true });
+    const before = createTranscriptionModel({
+      dataDir,
+      transcriber: loadingTranscriber().transcriber,
+      source: { model: served.model.source, vad: served.vad.source },
+      speed: () => ({}),
+      emitStatus: () => {},
+      log: recordingLog().log,
+    });
+    before.ensure();
+    await vi.waitFor(() => expect(before.status().state).toBe("ready"));
+    before.close();
+
+    const { log, entries } = recordingLog();
+    const { loaded, transcriber } = loadingTranscriber();
+    const model = createTranscriptionModel({
+      dataDir,
+      transcriber,
+      source: { model: served.model.source, vad: served.vad.source, live: served.live.source },
+      speed: () => ({}),
+      emitStatus: () => {},
+      log,
+    });
+    model.ensure();
+    await vi.waitFor(() =>
+      expect(entries.map((entry) => entry.event)).toContain("transcription.liveModelDownload"),
+    );
+    expect(model.status()).toEqual(expect.objectContaining({ state: "ready", error: null }));
+    expect(await model.load()).toBe(true);
+    expect(loaded[0]?.live).toBeUndefined();
+    model.close();
+  });
+});
+
+describe("The speech models' licences", () => {
+  test("ship with the app, naming each model it downloads to transcribe on this computer", () => {
+    const notice = readFileSync(
+      fileURLToPath(new URL("../../resources/notices/speech-models.txt", import.meta.url)),
+      "utf8",
+    );
+    const sources = TRANSCRIPTION_MODELS.flatMap((model) => [
+      model.source,
+      ...(model.live ? [model.live.source] : []),
+    ]).concat(SILERO_VAD.source);
+    for (const source of sources) {
+      const repository = new URL(source.baseUrl).pathname.split("/resolve/")[0] as string;
+      expect(notice).toContain(`https://huggingface.co${repository}`);
+    }
+    expect(notice).toContain("Apache License");
+    expect(notice).toContain("MIT License");
   });
 });
 

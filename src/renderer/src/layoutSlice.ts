@@ -20,6 +20,12 @@ import { core } from "./core";
 export const WINDOW_ID =
   new URLSearchParams(globalThis.location?.search ?? "").get("window") ?? "main";
 
+/**
+ * A group is never dragged narrower than this: 220px plus the 10px a tab list keeps before its
+ * first tab. Narrower, the shown tab at its least width is too short for its own icon and ✕.
+ */
+export const GROUP_MIN_WIDTH = 230;
+
 /** The card's width as last measured, which the groups share; null until it is. */
 export const useCardWidth = create<{ width: number | null }>()(() => ({ width: null }));
 

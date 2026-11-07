@@ -6,12 +6,13 @@
  * sound's (#941), with the names it mishears right only once it is told them.
  * Deterministic, and never a real model. It can be slow, fail
  * to read stretches, and say it failed over to another engine, for capture
- * health (#161).
+ * health (#161). With `live`, it reads live words as a streaming model does
+ * (#2662): a stretch's line, a word more for each `LIVE_WORD_MS` of it.
  */
 import { MEETING_SAMPLE_RATE } from "../adapters";
 import type { TranscriberPort, TranscriberResponse } from "./channel";
 import type { FakeCloudOptions } from "./fakeCloud";
-import type { SpeechEngine, VoiceDetector } from "./speech";
+import type { LiveReading, SpeechEngine, VoiceDetector } from "./speech";
 
 export const FAKE_LINES: readonly string[] = [
   "Let's start with the launch date.",
@@ -49,6 +50,7 @@ export interface FakeSpeechOptions {
   failToLoad?: string;
   /** Names it writes as these other words unless it was told them (#1031): { Dana: "Donna" }. */
   mishears?: Readonly<Record<string, string>>;
+  live?: boolean;
 }
 
 /** A transcriber that says it moved its streams to the cloud, and back, after so many lines each. */
@@ -97,6 +99,8 @@ export function failingOver(port: TranscriberPort, failover: FakeFailover): Tran
 
 /** 20 ms frames: one is speech when its level is above a whisper's. */
 const FRAME = MEETING_SAMPLE_RATE / 50;
+/** The fake streaming model writes a word more for each this much of a stretch. */
+export const LIVE_WORD_MS = 300;
 const LEVEL = 0.01;
 /** Speech ends after this much quiet. */
 const QUIET_FRAMES = 25;
@@ -108,6 +112,9 @@ export function createFakeSpeechEngine(options: FakeSpeechOptions = {}): SpeechE
   const maxFrames = Math.round((options.maxSpeechMs ?? 2000) / 20);
   let said = 0;
   const saidBy = { mine: 0, theirs: 0 };
+  /** Stretches the streaming model began to read: the nth reads the line the nth final reading gives. */
+  const heardBy = { mine: 0, theirs: 0 };
+  const sideOf = (stream: string) => (stream.endsWith(":system") ? "theirs" : "mine");
 
   const detector = (): VoiceDetector => {
     let position = 0;
@@ -152,8 +159,24 @@ export function createFakeSpeechEngine(options: FakeSpeechOptions = {}): SpeechE
     };
   };
 
+  const live = (stream: string): LiveReading => {
+    const side = sideOf(stream);
+    const lines = side === "theirs" ? theirs : mine;
+    const line = lines[heardBy[side]++ % lines.length] ?? "";
+    const all = line.split(" ");
+    let heardMs = 0;
+    return {
+      hear(samples) {
+        heardMs += (samples.length * 1000) / MEETING_SAMPLE_RATE;
+        return all.slice(0, Math.floor(heardMs / LIVE_WORD_MS)).join(" ");
+      },
+      end: () => line,
+    };
+  };
+
   return {
     detector,
+    ...(options.live && { live }),
     recognizer: {
       async decode(samples, stream, words) {
         const ms = options.realTimeFactor

@@ -15,6 +15,7 @@ import type { MessageKey } from "../../../shared/i18n";
 import { supportsLibraryImages } from "../../../shared/libraryModels";
 import { core } from "../core";
 import { estimateText } from "../cost";
+import { useDecisionHosts } from "../decisionHosts";
 import { errorMessage } from "../errors";
 import { translateNow, useLanguage, useT } from "../i18n";
 import { useSettingsTarget } from "../settingsTarget";
@@ -412,18 +413,32 @@ function OtherModelForm({
   onSave(classifier: TaggingClassifier): void;
 }) {
   const t = useT();
+  const language = useLanguage();
+  const listId = useId();
   const [providers, setProviders] = useState<ChatProvider[]>([]);
-  // A saved provider's id, "ollama" for a decision model by name, or "auto" for them picked per Document.
+  const [decisionHosts] = useDecisionHosts();
+  const localMode = useAppStore((state) => state.embedding?.localOnly === true);
+  // Any model a host serves, by name: one it added since this copy was made included (#1907).
+  const hosts = localMode ? [] : (decisionHosts ?? []).filter((host) => host.ready);
+  // A saved provider's id, "ollama" for a decision model by name, "auto" for them picked per
+  // Document, or "decision:<host>" for a decision model host.
   const [where, setWhere] = useState(
-    current?.kind === "chat" ? current.choice.providerId : current ? current.kind : "",
+    current?.kind === "chat"
+      ? current.choice.providerId
+      : current?.kind === "decision"
+        ? `decision:${current.host}`
+        : current
+          ? current.kind
+          : "",
   );
   const [modelId, setModelId] = useState(
     current?.kind === "chat"
       ? current.choice.modelId
-      : current?.kind === "ollama"
+      : current?.kind === "ollama" || current?.kind === "decision"
         ? current.modelId
         : "",
   );
+  const host = hosts.find((each) => `decision:${each.host}` === where);
   const [baseUrl, setBaseUrl] = useState(
     current?.kind === "ollama" || current?.kind === "auto"
       ? current.baseUrl
@@ -433,7 +448,9 @@ function OtherModelForm({
     current?.kind === "ollama" && current.usePageImages === true,
   );
   const [error, setError] = useState<string | null>(null);
-  const service = providers.find((provider) => provider.id === where)?.service?.name ?? null;
+  const service = host
+    ? (host.service?.name ?? null)
+    : (providers.find((provider) => provider.id === where)?.service?.name ?? null);
   useEffect(() => {
     core.listChatProviders().then(
       (list) => {
@@ -455,6 +472,10 @@ function OtherModelForm({
         }
         const model = modelId.trim();
         if (!model) return;
+        if (host) {
+          onSave({ kind: "decision", host: host.host, modelId: model });
+          return;
+        }
         onSave(
           where === "ollama"
             ? {
@@ -481,6 +502,11 @@ function OtherModelForm({
               {provider.baseUrl ? ` · ${provider.baseUrl}` : ""}
             </option>
           ))}
+          {hosts.map((each) => (
+            <option key={each.host} value={`decision:${each.host}`}>
+              {each.name[language === "zh-CN" ? "zh" : "en"]}
+            </option>
+          ))}
           <option value="ollama">{t("library.ollama")}</option>
           <option value="auto">{t("tagging.other.auto")}</option>
         </select>
@@ -499,8 +525,19 @@ function OtherModelForm({
             maxLength={200}
             value={modelId}
             spellCheck={false}
+            list={host ? listId : undefined}
+            data-testid="tagging-other-model"
             onChange={(event) => setModelId(event.target.value)}
           />
+          {host && (
+            <datalist id={listId}>
+              {host.models.map((model) => (
+                <option key={model.id} value={model.id}>
+                  {model.maker ? `${model.name} · ${model.maker}` : model.name}
+                </option>
+              ))}
+            </datalist>
+          )}
         </label>
       )}
       {(where === "ollama" || where === "auto") && (

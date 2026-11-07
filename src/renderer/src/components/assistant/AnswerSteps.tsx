@@ -49,6 +49,7 @@ import { namedMind } from "../../changeProblems";
 import { commandCallText } from "../../commandFacts";
 import { CallRow, SkillRow } from "../../editor/AnswerView";
 import { CheckMarkIcon, RegenerateSmallIcon } from "../../editor/icons";
+import { useCitedOrigin } from "../../editor/mindContext";
 import { holdSteps, type ShownStep, type StepHold, takeOver } from "../../heldStep";
 import { useT } from "../../i18n";
 import { useJudgementLimit } from "../../judgementLimit";
@@ -1042,6 +1043,7 @@ function useOnlyDocumentKind(documents: readonly ReadDocument[]) {
 
 /** A source of a step: its Document and Location, which open beside the Mind as its Citation does. */
 function SourceRow({ source }: { source: StepSource }) {
+  const origin = useCitedOrigin();
   const t = useT();
   const kind = useAppStore(
     (state) => state.documents.find((document) => document.id === source.documentId)?.kind,
@@ -1059,6 +1061,7 @@ function SourceRow({ source }: { source: StepSource }) {
       title={where ? t("citation.where", { document: name, location: where }) : name}
       onClick={() =>
         void openCited(source, {
+          origin,
           check: source.check,
           withQuote: quoteSaysSo(source.check),
           label: where,
