@@ -85,10 +85,10 @@ export interface TaskRun {
   readonly startedAt: string;
   /** Aborts when the Task is paused or stopped, or IncarnaMind closes: start no more steps. */
   readonly signal: AbortSignal;
-  /** Records a step without an Effect as started. */
-  started(key: string): void;
+  /** Records a step without an Effect as started, with what its row shows while it runs. */
+  started(key: string, result?: unknown): void;
   /** Records how a step without an Effect ended. */
-  settled(key: string, status: "completed" | "failed", result?: unknown): void;
+  settled(key: string, status: "completed" | "failed" | "skipped", result?: unknown): void;
   /** A step as the journal has it. */
   step(key: string): StepRecord | null;
   /**
@@ -432,8 +432,8 @@ export function createTasks(options: TasksOptions) {
       input: record.input,
       startedAt: record.startedAt,
       signal,
-      started: (key) => {
-        journal.started(taskId, key, null);
+      started: (key, result) => {
+        journal.started(taskId, key, null, result ?? null);
         announce(journal.get(taskId));
       },
       settled: (key, status, result) => {
