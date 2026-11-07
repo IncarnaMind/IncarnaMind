@@ -398,17 +398,123 @@ describe("The core says where the saved choice goes", () => {
     });
   });
 
-  test("unknown when its provider is gone", async () => {
+  test("Automatic when its provider is gone, and Organize's kept model goes to none", async () => {
     const { core } = await start();
     const anthropic = await core.saveChatProvider({
       kind: "anthropic",
       apiKey: "key",
       modelId: "claude-sonnet-5-5",
     });
-    await saveChoice(core, { providerId: anthropic.id, modelId: "claude-sonnet-5-5" });
-    await core.saveChatProvider({ kind: "openai", apiKey: "key", modelId: "gpt-6-luna" });
+    const openai = await core.saveChatProvider({
+      kind: "openai",
+      apiKey: "key",
+      modelId: "gpt-6-luna",
+    });
+    const choice = { providerId: anthropic.id, modelId: "claude-sonnet-5-5" };
+    await core.saveLibrarySettings({
+      ...(await core.getLibrary()).settings,
+      classifier: { kind: "chat", choice },
+      organizeWith: { kind: "chat", choice },
+    });
     await core.deleteChatProvider(anthropic.id);
-    expect(await savedAnswer(core)).toMatchObject({ destination: { kind: "unknown" } });
+
+    expect((await core.getLibrary()).settings).toMatchObject({
+      classifier: { kind: "automatic" },
+      organizeWith: null,
+    });
+    const { automatic } = await core.getTaggingModels();
+    expect(await savedAnswer(core)).toBeNull();
+    expect(automatic?.classifier).toEqual({
+      kind: "chat",
+      choice: { providerId: openai.id, modelId: "gpt-6-luna" },
+    });
+  });
+});
+
+/*
+ * Deleting the provider the sorting choice names gives sorting back to Automatic before the
+ * provider goes (#2693), as removing a key does (#1907): the switch and its turn-ons stay, and
+ * Automatic reads a new Document only where the User allowed that service.
+ */
+describe("The provider the sorting choice names is deleted (#2693)", () => {
+  const ANTHROPIC_PROVIDER = {
+    kind: "anthropic",
+    apiKey: "sk-ant-test",
+    modelId: "claude-sonnet-5-5",
+  } as const;
+
+  /**
+   * Anthropic is the User's AI; the choice names an OpenAI provider, then that provider is
+   * deleted. `allowed`: tagging was turned on with Anthropic before the choice, the consent the
+   * footer's Allow gives.
+   */
+  async function choiceInUse(allowed: boolean) {
+    const setup = await start();
+    await setup.core.saveChatProvider(ANTHROPIC_PROVIDER);
+    if (allowed) await turnOnAutomaticTagging(setup.core);
+    const openai = await setup.core.saveChatProvider({
+      kind: "openai",
+      apiKey: "sk-test",
+      modelId: "gpt-6-luna",
+    });
+    await setup.core.saveLibrarySettings({
+      ...(await setup.core.getLibrary()).settings,
+      classifier: { kind: "chat", choice: { providerId: openai.id, modelId: "gpt-6-luna" } },
+    });
+    await setup.core.deleteChatProvider(openai.id);
+    return setup;
+  }
+
+  test("not allowed: the new Document waits with tagging off and nothing is sent", async () => {
+    const { core, calls } = await choiceInUse(false);
+    expect((await core.getLibrary()).settings.classifier).toEqual({ kind: "automatic" });
+
+    const document = await addText(core, "Report.md", "Quarterly report on sales.");
+    const [waiting] = await waitForTagging(core, [document.id], (each) => each.tagging === "off");
+    expect(waiting?.tagging).toBe("off");
+    expect(calls).toEqual([]);
+  });
+
+  test("allowed: the new Document is tagged by the User's AI", async () => {
+    const { core, calls } = await choiceInUse(true);
+    expect((await core.getLibrary()).settings).toMatchObject({
+      classifier: { kind: "automatic" },
+      automatic: true,
+    });
+
+    const document = await addText(core, "Report.md", "Quarterly report on sales.");
+    const [tagged] = await waitForTagging(core, [document.id]);
+    expect(tagged?.tagging).toBe("tagged");
+    expect(calls).toEqual([
+      { kind: "anthropic", modelId: "claude-haiku-5-5", thinking: "off", purpose: "tags" },
+    ]);
+  });
+
+  test("adding the provider back leaves sorting on Automatic", async () => {
+    const { core } = await start();
+    const first = await core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "key",
+      modelId: "claude-sonnet-5-5",
+    });
+    await core.saveLibrarySettings({
+      ...(await core.getLibrary()).settings,
+      classifier: {
+        kind: "chat",
+        choice: { providerId: first.id, modelId: "claude-sonnet-5-5" },
+      },
+    });
+    await core.deleteChatProvider(first.id);
+
+    const back = await core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "key",
+      modelId: "claude-sonnet-5-5",
+    });
+
+    expect(back.id).not.toBe(first.id);
+    expect((await core.getLibrary()).settings.classifier).toEqual({ kind: "automatic" });
+    expect((await core.getTaggingModels()).saved).toBeNull();
   });
 });
 
