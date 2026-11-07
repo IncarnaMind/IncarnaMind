@@ -2,6 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
 import {
+  addDocuments,
   confirmLink,
   createDataFolder,
   dismissChatSetup,
@@ -167,7 +168,7 @@ test("⌘O opens the picker from the sidebar, a Mind and the Library, and does n
     expect(await takesKeys(window)).toBe(true);
     expect(await pickersAsked(app)).toBe(0);
 
-    await window.getByTestId("library-add-documents").focus();
+    await window.getByTestId("library-empty-add-files").focus();
     await window.keyboard.press("ControlOrMeta+o");
     await expect.poll(() => pickersAsked(app)).toBe(1);
 
@@ -207,6 +208,7 @@ for (const { width, language } of [
       await setWindowSize(app, window, width, 700);
       await dismissChatSetup(window);
       await setLanguage(window, language);
+      await addDocuments(window, [await writeSource("Seed.txt")]);
       await interceptOpenDialog(app, await writeSource("Tides.txt"));
       await window.getByTestId("open-library").click();
 

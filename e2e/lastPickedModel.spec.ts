@@ -140,23 +140,26 @@ test("a model picked in one Mind is what a new Mind and an older one with no pic
 
   await newMind(window);
   await nameMind(window, "Older");
-  await expect(chipOf(window)).toHaveText("Claude Sonnet 5.5");
+  // The chip shows the model's short name; its full name is the tooltip's.
+  await expect(chipOf(window)).toHaveText("Sonnet 5.5");
+  await expect(chipOf(window)).toHaveAttribute("title", /^Claude Sonnet 5\.5 · /);
+  await expect(chipOf(window)).toHaveAttribute("aria-label", /Claude Sonnet 5\.5/);
   expect(await lastPick(window)).toBeNull();
 
   await newMind(window);
   await nameMind(window, "Picked");
   await chooseInChip(window, "Claude Haiku 5.5");
-  await expect(chipOf(window)).toHaveText("Claude Haiku 5.5");
+  await expect(chipOf(window)).toHaveText("Haiku 5.5");
   await expect.poll(() => lastPick(window)).toEqual({ providerId, modelId: HAIKU });
   expect((await settingsOf(window)).user.chatModel).toEqual({ providerId, modelId: SONNET });
 
   await openMindNamed(window, "Older");
-  await expect(chipOf(window)).toHaveText("Claude Haiku 5.5");
+  await expect(chipOf(window)).toHaveText("Haiku 5.5");
   const older = await askInAssistant(window, "Which model answers?");
   await expect(await openSteps(window, older)).toContainText("Answered by Claude Haiku 5.5");
 
   await newMind(window);
-  await expect(chipOf(window)).toHaveText("Claude Haiku 5.5");
+  await expect(chipOf(window)).toHaveText("Haiku 5.5");
   await expectFoot(window, "Default for new notes: Claude Haiku 5.5");
   await setLanguage(window, "zh-CN");
   await expectFoot(window, "新笔记的默认模型：Claude Haiku 5.5");
@@ -164,19 +167,19 @@ test("a model picked in one Mind is what a new Mind and an older one with no pic
   await chooseInChip(window, "Claude Opus 5.5");
   await expect.poll(() => lastPick(window)).toEqual({ providerId, modelId: OPUS });
   await openMindNamed(window, "Picked");
-  await expect(chipOf(window)).toHaveText("Claude Haiku 5.5");
+  await expect(chipOf(window)).toHaveText("Haiku 5.5");
   await openMindNamed(window, "Older");
-  await expect(chipOf(window)).toHaveText("Claude Opus 5.5");
+  await expect(chipOf(window)).toHaveText("Opus 5.5");
   await quit();
 
   window = await start();
   await expect.poll(() => lastPick(window)).toEqual({ providerId, modelId: OPUS });
   await openMindNamed(window, "Picked");
-  await expect(chipOf(window)).toHaveText("Claude Haiku 5.5");
+  await expect(chipOf(window)).toHaveText("Haiku 5.5");
   await openMindNamed(window, "Older");
-  await expect(chipOf(window)).toHaveText("Claude Opus 5.5");
+  await expect(chipOf(window)).toHaveText("Opus 5.5");
   await newMind(window);
-  await expect(chipOf(window)).toHaveText("Claude Opus 5.5");
+  await expect(chipOf(window)).toHaveText("Opus 5.5");
 });
 
 test("the Answers default applies on a fresh install, and changing it in Settings also sets what new Minds start on", async () => {
@@ -184,10 +187,10 @@ test("the Answers default applies on a fresh install, and changing it in Setting
   const providerId = await connectAnthropic(window, SONNET);
 
   await newMind(window);
-  await expect(chipOf(window)).toHaveText("Claude Sonnet 5.5");
+  await expect(chipOf(window)).toHaveText("Sonnet 5.5");
   await chooseInChip(window, "Claude Haiku 5.5");
   await newMind(window);
-  await expect(chipOf(window)).toHaveText("Claude Haiku 5.5");
+  await expect(chipOf(window)).toHaveText("Haiku 5.5");
 
   const settings = await openSettings(window, "models");
   const answers = settings.getByTestId("model-default-chatModel");
@@ -199,7 +202,7 @@ test("the Answers default applies on a fresh install, and changing it in Setting
   expect((await settingsOf(window)).user.chatModel).toEqual({ providerId, modelId: OPUS });
   await settings.getByRole("button", { name: "Close Settings" }).click();
   await newMind(window);
-  await expect(chipOf(window)).toHaveText("Claude Opus 5.5");
+  await expect(chipOf(window)).toHaveText("Opus 5.5");
   await expectFoot(window, "Default for new notes: Claude Opus 5.5");
 
   await setLanguage(window, "zh-CN");
@@ -227,7 +230,7 @@ test("when a provider is removed, the Minds on its models fall back, and each ch
     await expect.poll(() => lastPick(window)).toEqual({ providerId: anthropic, modelId: HAIKU });
     await newMind(window);
     await nameMind(window, "No pick");
-    await expect(chipOf(window)).toHaveText("Claude Haiku 5.5");
+    await expect(chipOf(window)).toHaveText("Haiku 5.5");
 
     await (await coreOf(window)).evaluate((core, id) => core.deleteChatProvider(id), anthropic);
     expect(await lastPick(window)).toBeNull();

@@ -66,3 +66,12 @@ export function modelName(modelId: string, source: ModelSource = {}): string {
   const found = catalogName(modelId, source) ?? source.names?.[modelId];
   return (found && tidy(found)) || modelId;
 }
+
+/**
+ * A model's name where room is short, as the composer's chip shows it: without Anthropic's
+ * "Claude" and without the version between a family and its tier, so "Claude Haiku 5.5" is
+ * "Haiku 5.5" and "DeepSeek V4.1 Flash" is "DeepSeek Flash". The full name stays in the chip's tooltip.
+ */
+export function shortModelName(name: string): string {
+  return name.replace(/^Claude (?=\S)/, "").replace(/^(\S+) V\d+(?:\.\d+)* (?=\S)/, "$1 ");
+}

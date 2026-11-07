@@ -8,7 +8,8 @@ import { type MessageKey, type MessageParams, translate } from "../../src/shared
 /*
  * What a failed call to the core says (#157). Electron rejects it with the error written out,
  * "Error invoking remote method 'core:x': InvalidInputError: …"; no line the User reads shows that
- * wrapping or a stack, and the technical text waits behind "Details".
+ * wrapping or a stack, and "Details" says it in plain words (`errorDetails`) while the technical
+ * text goes to the log.
  */
 
 const ipc = (method: string, name: string, message: string) =>
@@ -29,23 +30,26 @@ describe("an error from the core", () => {
     expect(describeError(failure).reason).toBeNull();
   });
 
-  test("keeps the method and the class for the Details, not the wrapping", () => {
-    const { detail } = describeError(
+  test("keeps the call for the Details' words, and the call and the class for the log, not the wrapping", () => {
+    const { call, log } = describeError(
       ipc("core:renameDocument", "InvalidInputError", "A Document’s name can’t be empty."),
     );
-    expect(detail).toBe(
-      "core:renameDocument\nInvalidInputError: A Document’s name can’t be empty.",
-    );
-    expect(detail).not.toContain("Error invoking remote method");
+    expect(call).toBe("renameDocument");
+    expect(log).toBe("core:renameDocument\nInvalidInputError: A Document’s name can’t be empty.");
+    expect(log).not.toContain("Error invoking remote method");
   });
 
-  test("keeps the cause of a wrapped failure for the Details, not the line", () => {
+  test("a failure that never crossed the bridge has no call", () => {
+    expect(describeError(new TypeError("Cannot read properties of undefined")).call).toBeNull();
+  });
+
+  test("keeps the cause of a wrapped failure for the log, not the line", () => {
     const failure = new Error("The area couldn’t be captured. Try it again.", {
       cause: new Error("The area came out empty."),
     });
     expect(errorMessage(failure, english)).toBe("The area couldn’t be captured. Try it again.");
-    const { detail } = describeError(failure);
-    expect(detail).toContain("Caused by: The area came out empty.");
+    const { log } = describeError(failure);
+    expect(log).toContain("Caused by: The area came out empty.");
   });
 
   test("is as readable in Chinese", () => {
@@ -59,9 +63,9 @@ describe("an error from the core", () => {
       "Error",
       "Couldn’t read it.\n    at read (/app/core.js:10:5)\n    at async run (/app/core.js:20:3)",
     );
-    const { message, detail } = describeError(failure);
+    const { message, log } = describeError(failure);
     expect(message).toBe("Couldn’t read it.");
-    expect(detail).not.toMatch(/\n\s+at /);
+    expect(log).not.toMatch(/\n\s+at /);
   });
 
   test("keeps a message that runs over several lines", () => {
@@ -82,14 +86,14 @@ const tooLong = () =>
   new InvalidInputError({ key: "error.document.nameTooLong", values: { max: 500 } });
 
 describe("an error the core gave a wording", () => {
-  test("says it in the interface language, and keeps the English sentence for the Details", () => {
+  test("says it in the interface language, and keeps the English sentence for the log", () => {
     const failure = crossed("core:renameDocument", tooLong());
     expect(errorMessage(failure, words("zh-CN"))).toBe("文档名称不能超过 500 个字符。");
     expect(errorMessage(failure, english)).toBe(TOO_LONG);
-    const { message, wording, detail } = describeError(failure);
+    const { message, wording, log } = describeError(failure);
     expect(message).toBe(TOO_LONG);
     expect(wording).toEqual({ key: "error.document.nameTooLong", values: { max: 500 } });
-    expect(detail).toBe(`core:renameDocument\nInvalidInputError: ${TOO_LONG}`);
+    expect(log).toBe(`core:renameDocument\nInvalidInputError: ${TOO_LONG}`);
   });
 
   test("leaves the log its class, its English sentence on the first line, and its stack", () => {
@@ -108,9 +112,7 @@ describe("an error the core gave a wording", () => {
     expect(describeError(unknown).wording).toBeNull();
     const broken = new Error(text.replace('{"key"', "{key"));
     expect(errorMessage(broken, words("zh-CN"))).toBe(TOO_LONG);
-    expect(describeError(broken).detail).toBe(
-      `core:renameDocument\nInvalidInputError: ${TOO_LONG}`,
-    );
+    expect(describeError(broken).log).toBe(`core:renameDocument\nInvalidInputError: ${TOO_LONG}`);
   });
 
   test("an error with no wording crosses as it is, in its own words", () => {
@@ -128,10 +130,10 @@ describe("an error that did not cross the bridge", () => {
     expect(describeError(thrown).message).toBe("Nothing to check");
   });
 
-  test("loses its class's name in its message, and keeps it for the Details", () => {
-    const { message, detail } = describeError(new TypeError("Cannot read properties of undefined"));
+  test("loses its class's name in its message, and keeps it for the log", () => {
+    const { message, log } = describeError(new TypeError("Cannot read properties of undefined"));
     expect(message).toBe("Cannot read properties of undefined");
-    expect(detail).toBe("TypeError: Cannot read properties of undefined");
+    expect(log).toBe("TypeError: Cannot read properties of undefined");
   });
 
   test("is made of what it is given when it isn't an Error", () => {
@@ -161,8 +163,8 @@ describe("a failure of the system's", () => {
   ])("%s gets plain words", (text, reason) => {
     const description = describeError(ipc("core:renameDocument", "Error", text));
     expect(description.reason).toBe(reason);
-    // The system's own text, with the path in it, stays for the Details.
-    expect(description.detail).toContain(text);
+    // The system's own text, with the path in it, stays for the log.
+    expect(description.log).toContain(text);
   });
 
   test("a sentence of the core's that names no code keeps its own words", () => {
