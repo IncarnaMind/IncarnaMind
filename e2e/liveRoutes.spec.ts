@@ -193,3 +193,60 @@ test("a meeting service's key row says Save checks the key with the service; in 
   await expect(unchecked).toHaveText("已保存，未验证：没有向 AssemblyAI 发送任何内容。");
   await shot(window, "transcription-key-local-mode-zh");
 });
+
+test("the new services' key rows say which checks the key on Save; Gladia, which can't be checked, chosen names what it does with the audio", async () => {
+  const { app, window } = await launchApp(dataDir);
+  await setWindowSize(app, window, 1600, 900);
+  await dismissChatSetup(window);
+  await acceptPlainTextKeys(window);
+
+  const settings = await openSettings(window, "meetings");
+  for (const name of ["ElevenLabs", "Speechmatics"]) {
+    await expect(settings.getByTestId(`transcription-key-${name.toLowerCase()}`)).toContainText(
+      `Saving it first checks it with ${name}, by a request that reads nothing of yours.`,
+    );
+  }
+  const row = settings.getByTestId("transcription-key-gladia");
+  await expect(row).toContainText("Kept on this computer and never shown again.");
+  await expect(row).not.toContainText("Saving it first checks it");
+  await row.getByTestId("transcription-key-add").click();
+  await expect(row.getByRole("textbox", { name: "Server" })).toHaveCount(0);
+  await row.getByTestId("transcription-key-input").fill("gladia-test-key-0123456789");
+  await row.getByTestId("transcription-key-save").click();
+  await expect(row.getByTestId("transcription-key-saved")).toHaveText("Saved");
+
+  const route = settings.getByTestId("meetings-route");
+  await expect(route.locator("option:not([hidden])")).toHaveText(["On this computer", "Gladia"]);
+  await route.selectOption("gladia");
+  const line = settings.getByTestId("meetings-route-line");
+  await expect(line).toContainText("Audio goes to Gladia while you record.");
+  await expect(line).toContainText(
+    "Gladia trains its models on the audio unless you opt out in your account",
+  );
+  const chosen = await settingsNow(window);
+  expect(chosen.flows).toContainEqual(
+    expect.objectContaining({
+      flow: expect.objectContaining({
+        id: "transcription",
+        service: expect.objectContaining({ id: "https://api.gladia.io" }),
+      }),
+      consent: "accepted",
+    }),
+  );
+  await line.scrollIntoViewIfNeeded();
+  await shot(window, "after-settings-meetings-gladia-line-en-1600");
+  await row.scrollIntoViewIfNeeded();
+  await shot(window, "after-settings-meetings-keys-en-1600");
+
+  await setLanguage(window, "zh-CN");
+  await setWindowSize(app, window, 900, 720);
+  await expect(line).toContainText("录音期间，音频会发送给 Gladia。");
+  await expect(line).toContainText("除非你在 Gladia 账户中选择退出，否则它会用音频训练模型");
+  const box = await settings.getByTestId("transcription-key-gladia").boundingBox();
+  const text = await line.boundingBox();
+  expect(box && text && text.x + text.width <= box.x + box.width).toBe(true);
+  await line.scrollIntoViewIfNeeded();
+  await shot(window, "after-settings-meetings-gladia-line-zh-900");
+  await row.scrollIntoViewIfNeeded();
+  await shot(window, "after-settings-meetings-keys-zh-900");
+});

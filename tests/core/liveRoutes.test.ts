@@ -13,6 +13,7 @@ import type { CloudConnect } from "../../src/core/transcription/cloud/socket";
 import { createFakeSpeechEngine } from "../../src/core/transcription/fake";
 import {
   createFakeCloud,
+  createFakeCloudFetch,
   FAKE_CLOUD_LINES,
   type FakeCloudOptions,
 } from "../../src/core/transcription/fakeCloud";
@@ -26,22 +27,24 @@ const KEYS = {
   deepgram: "dg-test-key-0123456789",
   assemblyai: "aai-test-key-0123456789",
   soniox: "soniox-test-key-0123456789",
+  elevenlabs: "sk_eleven-test-key-0123456789",
+  speechmatics: "sm-test-key-0123456789",
+  gladia: "gladia-test-key-0123456789",
+} as const;
+/** The routes on a chat provider's key from Settings › Models, as each is saved there. */
+const PROVIDERS = {
+  openai: { kind: "openai", apiKey: "sk-test", modelId: "gpt-6-luna" },
+  qwen: { kind: "qwen", apiKey: "sk-qwen-test", modelId: "qwen3.7-plus" },
+  gemini: { kind: "google", apiKey: "AIza-test-key", modelId: "gemini-3.8-flash" },
+  xai: { kind: "xai", apiKey: "xai-test-key", modelId: "grok-4.3" },
 } as const;
 
 /** The route's key saved where it lives, then the route chosen: the choice is the consent. */
 async function choose(core: Core, route: CloudTranscriptionRoute) {
-  if (route === "deepgram" || route === "assemblyai" || route === "soniox") {
-    await core.setTranscriptionKey({ route, apiKey: KEYS[route] });
-  } else if (route === "gemini") {
-    await core.saveChatProvider({
-      kind: "google",
-      apiKey: "AIza-test-key",
-      modelId: "gemini-3.8-flash",
-    });
-  } else if (route === "qwen") {
-    await core.saveChatProvider({ kind: "qwen", apiKey: "sk-qwen-test", modelId: "qwen3.7-plus" });
+  if (route in KEYS) {
+    await core.setTranscriptionKey({ route, apiKey: KEYS[route as keyof typeof KEYS] });
   } else {
-    await core.saveChatProvider({ kind: "openai", apiKey: "sk-test", modelId: "gpt-6-luna" });
+    await core.saveChatProvider(PROVIDERS[route as keyof typeof PROVIDERS]);
   }
   await core.updateSettings({ device: { transcriptionRoute: route } });
 }
@@ -78,6 +81,10 @@ describe("Live routes on the User's own key", { timeout: 60_000 }, () => {
     ["deepgram", ["Me", "Speaker 1", "Speaker 2"]],
     ["assemblyai", ["Me", "Speaker 1", "Speaker 2"]],
     ["gemini", ["Me", "Them"]],
+    ["elevenlabs", ["Me", "Them"]],
+    ["speechmatics", ["Me", "Speaker 1", "Speaker 2"]],
+    ["gladia", ["Me", "Them"]],
+    ["xai", ["Me", "Speaker 1", "Speaker 2"]],
   ] as const) {
     test(`${route}: a Meeting is transcribed live, with the voices it tells apart`, async () => {
       const { core, record, meeting } = await meetingOn(route);
@@ -98,7 +105,18 @@ describe("Live routes on the User's own key", { timeout: 60_000 }, () => {
     });
   }
 
-  for (const route of ["soniox", "openai", "qwen", "deepgram", "assemblyai", "gemini"] as const) {
+  for (const route of [
+    "soniox",
+    "openai",
+    "qwen",
+    "deepgram",
+    "assemblyai",
+    "gemini",
+    "elevenlabs",
+    "speechmatics",
+    "gladia",
+    "xai",
+  ] as const) {
     test(`${route}: an account out of credit says so, apart from a refused key, and the Meeting goes on on this computer`, async () => {
       const { core, record, meeting } = await meetingOn(route, { cloud: { noCredit: true } });
       record(3 * SECOND);
@@ -363,6 +381,22 @@ describe("Choosing a live route", () => {
     );
   });
 
+  test("xAI's line says what to do before choosing it: turn zero data retention on, as its terms ask with a meeting's audio", async () => {
+    const dataDir = await createTempDataFolder();
+    const { core } = await transcribingCore(dataDir);
+    const { services } = await core.listTranscriptionServices();
+    expect(services.find((each) => each.route === "xai")?.dataUse).toEqual({
+      summary: {
+        en: "xAI keeps the audio for 30 days for abuse checks, and its terms ask for zero data retention when audio holds personal data, as a meeting’s does: turn zero data retention on for your xAI team before you choose it.",
+        zh: "xAI 会将音频保留 30 天用于滥用审查；其条款要求含有个人数据（会议音频就是）时开启零数据保留：请先为你的 xAI 团队开启零数据保留，再选择它。",
+      },
+      url: {
+        en: "https://x.ai/legal/terms-of-service-enterprise",
+        zh: "https://x.ai/legal/terms-of-service-enterprise",
+      },
+    });
+  });
+
   test("each route says which of the User's languages it doesn't transcribe", async () => {
     const dataDir = await createTempDataFolder();
     const { core } = await transcribingCore(dataDir, { systemLanguages: ["th-TH", "en-GB"] });
@@ -376,6 +410,10 @@ describe("Choosing a live route", () => {
       deepgram: [],
       assemblyai: ["th"],
       gemini: [],
+      elevenlabs: [],
+      speechmatics: ["th"],
+      gladia: [],
+      xai: [],
     });
     // Chinese and English, the interface's and the computer's, are covered everywhere.
     for (const service of services) {
@@ -406,6 +444,7 @@ describe("The transcription process, for a cloud stream", () => {
           opened.push(url);
           return createFakeCloud()(url, key, events);
         },
+        fetch: createFakeCloudFetch(),
         detectors: async () => {
           await detector;
           return createFakeSpeechEngine().detector;

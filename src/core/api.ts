@@ -3328,9 +3328,10 @@ export interface DeviceSettings {
 
 /**
  * Where a Meeting's audio is turned into text: on this computer, or live by a cloud service with
- * the User's own key (#141, #866): OpenAI, Qwen (Alibaba Cloud Model Studio, for mainland China)
- * and Gemini with the key of their provider in Settings › Models; Soniox, Deepgram (also at
- * Cloudflare Workers AI or a server of the User's own) and AssemblyAI with a key of their own.
+ * the User's own key (#141, #866): OpenAI, Qwen (Alibaba Cloud Model Studio, for mainland China),
+ * Gemini and xAI with the key of their provider in Settings › Models; Soniox, Deepgram
+ * (also at Cloudflare Workers AI or a server of the User's own), AssemblyAI, ElevenLabs,
+ * Speechmatics and Gladia with a key of their own.
  */
 export const TRANSCRIPTION_ROUTES = [
   "local",
@@ -3340,6 +3341,10 @@ export const TRANSCRIPTION_ROUTES = [
   "deepgram",
   "assemblyai",
   "gemini",
+  "elevenlabs",
+  "speechmatics",
+  "gladia",
+  "xai",
 ] as const;
 export type TranscriptionRoute = (typeof TRANSCRIPTION_ROUTES)[number];
 export type CloudTranscriptionRoute = Exclude<TranscriptionRoute, "local">;
@@ -13438,9 +13443,10 @@ export interface CoreApi {
   /** The cloud services that can transcribe meeting audio (#141), and whether each has a key. */
   listTranscriptionServices(): Promise<TranscriptionServices>;
   /**
-   * Keeps a transcription service's own key (Soniox, Deepgram, AssemblyAI), in the keychain, once
-   * the service accepts it, with Deepgram's server where it is another. Throws
-   * `InvalidInputError` when it refuses the key or the server's address isn't one.
+   * Keeps a transcription service's own key (Soniox, Deepgram, AssemblyAI, ElevenLabs,
+   * Speechmatics, Gladia), in the keychain, once the service accepts it, with Deepgram's server
+   * where it is another. Throws `InvalidInputError` when it refuses the key or the server's
+   * address isn't one.
    */
   setTranscriptionKey(input: SetTranscriptionKeyInput): Promise<TranscriptionServices>;
   /** Forgets a transcription service's own key; meeting audio is then transcribed on this computer. */
