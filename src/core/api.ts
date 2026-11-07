@@ -13,6 +13,7 @@ import type {
   TaggingModels,
   TaggingRoute,
 } from "./library/types";
+import type { DecisionHost } from "./providers/catalog/decisions";
 import type { Localized } from "./providers/catalog/types";
 import type { UiUsageEvent } from "./usageEvents";
 
@@ -38,6 +39,7 @@ export type {
   TaggingModels,
   TaggingRoute,
 } from "./library/types";
+export type { DecisionHost } from "./providers/catalog/decisions";
 
 /**
  * The core's public interface: the only API the UI uses.
@@ -2414,6 +2416,123 @@ export interface CitedSelection extends CitationRecheck {
   quote: string;
 }
 
+/** A colour a highlight is drawn in, in the order the colours are offered. */
+export type AnnotationColour = "yellow" | "green" | "blue" | "pink" | "purple";
+
+export const ANNOTATION_COLOURS: readonly AnnotationColour[] = ["yellow", "pink", "purple"];
+
+/** Where an annotation came from: the User, in the viewer, or the PDF file itself. */
+export type AnnotationSource = "user" | "file";
+
+/** What an annotation was made from, kept so a new version of its Document finds its words again. */
+export interface AnnotationAnchor {
+  parts: SelectedPart[];
+  /** The region of a Unit a highlight marks, not only its words (#118). */
+  area?: CitedArea;
+  /** The Unit the region is on, from 1. */
+  unit?: number | null;
+  /** The words just before and after a region of a picture, where the view names no Unit. */
+  around?: { before?: string; after?: string };
+}
+
+/**
+ * A highlight on a Document, with the note the User wrote under it (#327): its
+ * quote and Location (ADR-0011), as a Citation's are, so it can be searched
+ * and cited, and the file's own annotations read when a PDF is added.
+ */
+export interface Annotation {
+  /** A random UUID generated on this device. */
+  id: string;
+  documentId: string;
+  /** The Document's name now, for a list that shows more than one Document's. */
+  documentName: string;
+  /** The version its quote was placed in; a Document at another version re-anchors it once. */
+  contentHash: string | null;
+  /** The Passage a Citation of it points at. */
+  passageId: string | null;
+  source: AnnotationSource;
+  colour: AnnotationColour;
+  /** The words highlighted, read as words, as its Citation quotes them. */
+  quote: string;
+  /** The User's note about them; null when they wrote none. */
+  note: string | null;
+  pageFrom: number | null;
+  pageTo: number | null;
+  /** Its Location in the Document's own units, stored so its label reads after the Document is gone. */
+  location: CitationLocation | null;
+  /** As its Citation's check stood when it was made or last re-anchored. */
+  check: CitationCheck;
+  checkReason: CitationCheckReason | null;
+  /**
+   * The selection it was made from; for an annotation read from a file, the file's own words and
+   * the words around them, so a new version finds them again.
+   */
+  anchor: AnnotationAnchor | null;
+  /** A file annotation's author, as the file says; null for the User's own. */
+  author: string | null;
+  /** Its words aren't in the Document's current version: kept in the list, saying so. */
+  missing: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** A highlight the User makes, or a note under it, from words they selected (`createAnnotation`). */
+export interface CreateAnnotationInput {
+  documentId: string;
+  parts: SelectedPart[];
+  colour: AnnotationColour;
+  /** The note to write with it, when "Add a note…" made it. */
+  note?: string | null;
+  /** The region of a Unit the User marked (#118): a highlight may mark an area, not only words. */
+  area?: CitedArea;
+  /** The Unit the region is on, from 1. */
+  unit?: number | null;
+  /** The words just before and after a region of a picture, where the view names no Unit. */
+  around?: { before?: string; after?: string };
+}
+
+/** What changes on an annotation: its note and its colour, each left out when unchanged. */
+export interface AnnotationEdit {
+  note?: string | null;
+  colour?: AnnotationColour;
+}
+
+/** Which annotations to collect: a Document's, a Folder's (with its sub-Folders'), or one colour's. */
+export interface AnnotationsIn {
+  documentId?: string;
+  folderId?: string;
+  colour?: AnnotationColour;
+}
+
+/** One Document's annotations, for Collect into a Mind. */
+export interface AnnotationGroup {
+  documentId: string;
+  documentName: string;
+  /** In page order, then the order they were made. */
+  annotations: Annotation[];
+}
+
+/**
+ * An annotation Search or ⌘K found: its quote or its note holds the words, as
+ * a short excerpt with them marked, and where its Document has it.
+ */
+export interface AnnotationMatch {
+  annotationId: string;
+  documentId: string;
+  documentName: string;
+  colour: AnnotationColour;
+  source: AnnotationSource;
+  /** The User's note on it, when they wrote one. */
+  note: string | null;
+  /** What was searched: the quote, the note, or both, a line between. */
+  excerpt: string;
+  highlights: TextRange[];
+  pageFrom: number | null;
+  pageTo: number | null;
+  location: CitationLocation | null;
+  missing: boolean;
+}
+
 /** A Passage found for a piece of the User's own writing (`findPassages`, #281). */
 export interface FoundPassage {
   passageId: string;
@@ -3408,6 +3527,34 @@ export interface TranscriptionServiceStatus {
 export interface TranscriptionServices {
   revision: number;
   services: TranscriptionServiceStatus[];
+}
+
+/** A host of decision models other than TypeSafe's Jev, as Settings › Models and the sorting picker list it (#1907). */
+export interface DecisionHostStatus {
+  host: DecisionHost;
+  name: Localized;
+  /** "provider": it uses the key of the chat provider `provider` (a catalog id); "own": a key of its own. */
+  key: "provider" | "own";
+  provider: string | null;
+  /** What else it asks for, and what is saved: Cloudflare's account ID, or the Model Studio workspace. */
+  account: { kind: "cloudflare-account" | "alibaba-workspace"; value: string | null } | null;
+  hasKey: boolean;
+  /** Its key and account are there: its models can be chosen. */
+  ready: boolean;
+  /** Best first. */
+  models: { id: string; name: string; maker: string }[];
+  /** Where Document text goes, once its account is known. */
+  service: ExternalService | null;
+  keyUrl: string;
+  pricingUrl: string;
+}
+
+export interface SetDecisionKeyInput {
+  host: DecisionHost;
+  /** A new key, for a host with its own; left out to keep the saved one. */
+  apiKey?: string;
+  /** Cloudflare's account ID or the Model Studio workspace; left out to keep the saved one. */
+  account?: string;
 }
 
 export interface SetTranscriptionKeyInput {
@@ -8326,6 +8473,13 @@ export interface AddToNoteInput {
   model: ChatModelChoice | null;
   /** They wait as changes to accept or reject, each Block one (a new Mind made from an Answer). */
   proposed?: boolean;
+  /**
+   * Whether their words are AI's, kept under `GENERATED_MARK`: true unless the caller says
+   * these are the User's own Blocks, as Collect's annotations are.
+   */
+  generated?: boolean;
+  /** Whether they are recorded as AI use: true unless these are the User's own Blocks. */
+  recordUse?: boolean;
 }
 
 /** What "Add to note" put into a Mind: the ids of its new top-level Blocks, in order. */
@@ -10137,6 +10291,13 @@ export type CommandAsk =
       folder: string;
       /** The name it would be saved under; the next free one if that is taken. */
       fileName: string;
+      /** The picture files it saves beside that one, each once, by the names it writes; none unless the format writes them. */
+      pictures: readonly string[];
+      /**
+       * The list an earlier Allow saw, when the files changed since: the card names the new list
+       * and marks what wasn't there, and none is written until the User allows again (#2514).
+       */
+      previous?: { fileName: string; pictures: readonly string[] };
     }
   | { kind: "add"; folder: string; files: string[] }
   | { kind: "final"; command: CommandId; items: CommandItem[] }
@@ -10507,6 +10668,8 @@ export interface ExportMindOptions {
 export interface MindExportPreview {
   /** A file name for the export, from the Mind's title, e.g. "Tides.docx". */
   fileName: string;
+  /** The picture files a Markdown export writes beside it, each once, by the names it writes; none for every other format. */
+  pictures: readonly string[];
   /**
    * The Citations in the exported text. Each becomes its own footnote, even
    * when several cite the same page.
@@ -12389,6 +12552,39 @@ export interface CoreApi {
     around?: { before?: string; after?: string };
   }): Promise<CitedSelection>;
   /**
+   * Highlights words the User selected in a Document (#327), as `citeSelection`
+   * cites them, with an optional note under them. Refused, as `citeSelection`
+   * refuses. Its quote holds the words as its Citation quotes them, so Add to
+   * note and Collect into a Mind can cite it.
+   */
+  createAnnotation(input: CreateAnnotationInput): Promise<Annotation>;
+  /**
+   * A Document's annotations, newest first: the User's and those read from a
+   * PDF file. One whose Document has a new version is re-anchored by its quote
+   * first, and says "missing" when its words are gone.
+   */
+  listAnnotations(documentId: string): Promise<Annotation[]>;
+  /** Annotations to collect: a Document's, a Folder's, or one colour's, grouped by Document in page order. */
+  annotationsIn(input: AnnotationsIn): Promise<AnnotationGroup[]>;
+  /** How many annotations each of the User's Documents has, by Document id; Documents with none are left out. */
+  annotationCounts(): Promise<Record<string, number>>;
+  /** Changes an annotation's note or colour. */
+  updateAnnotation(id: string, edit: AnnotationEdit): Promise<Annotation>;
+  /** Deletes an annotation, softly: `restoreAnnotation` takes it back. */
+  deleteAnnotation(id: string): Promise<Annotation>;
+  /** Takes back a delete. */
+  restoreAnnotation(id: string): Promise<Annotation>;
+  /**
+   * Searches the User's annotations' quotes and notes, best match first
+   * (#327): what Search, ⌘K and the assistant find by. `limit` defaults to 50.
+   */
+  searchAnnotations(query: string, options?: { limit?: number }): Promise<AnnotationMatch[]>;
+  /**
+   * A Document's annotations as Markdown — each quote, its note and its
+   * Location — saved in the Output location, as an export is (#327).
+   */
+  saveAnnotationsExport(documentId: string): Promise<SavedExport | { status: "empty" }>;
+  /**
    * Searches the Passages of live Documents, best match first: hybrid
    * (keyword and vector) search by default, which is keyword search while
    * embeddings are off, over every Document or only the given ones. A
@@ -13139,6 +13335,17 @@ export interface CoreApi {
    */
   testJevConnection(input?: TestJevConnectionInput): Promise<ConnectionTestResult>;
 
+  /** The hosts of decision models other than Jev (#1907), and whether each can be used here. */
+  listDecisionHosts(): Promise<DecisionHostStatus[]>;
+  /**
+   * Keeps a decision model host's own key, and the account it asks for, once a question about a
+   * fixed text (nothing of the User's) shows the host accepts them. Throws `InvalidInputError` when
+   * it refuses them, and `LocalModeError` in Local mode; nothing is kept then.
+   */
+  setDecisionKey(input: SetDecisionKeyInput): Promise<DecisionHostStatus[]>;
+  /** Forgets what a decision model host keeps on this device: its own key and its account. */
+  removeDecisionKey(host: DecisionHost): Promise<DecisionHostStatus[]>;
+
   /** Connectors that are not deleted, in name order (ignoring case), each with its state. */
   listConnectors(): Promise<Connector[]>;
   /**
@@ -13330,9 +13537,14 @@ export interface CoreApi {
   /**
    * What `exportMind` will write with these options: the file name, and how
    * many of the exported Citations are unverified, so the User sees that
-   * before the file is written.
+   * before the file is written. Given the folder it goes to, the names are the
+   * ones it writes there, the next free one where a name is taken.
    */
-  previewMindExport(mindId: string, options: ExportMindOptions): Promise<MindExportPreview>;
+  previewMindExport(
+    mindId: string,
+    options: ExportMindOptions,
+    folder?: string,
+  ): Promise<MindExportPreview>;
   /**
    * Exports a Mind as a file, which the host saves: its title, its Notes
    * (those switched out of Question context too), its Answers and, if
@@ -13706,6 +13918,8 @@ export interface CoreEvents {
   "documents.moved": Document[];
   /** Documents removed from the index, by the User or with their Linked folder: their ids. */
   "documents.removed": string[];
+  /** A Document's highlights and notes changed (#327): read `listAnnotations` again. */
+  "annotations.changed": { documentId: string };
   /** A Document renamed, by the User or the assistant (#1110), whole as it is named now. */
   "documents.renamed": Document[];
   /** The Documents whose PDF password is kept changed (#763): their ids now. */
@@ -13769,6 +13983,8 @@ export interface CoreEvents {
   "copilot.changed": CopilotStatus;
   /** Jev was set up, changed or removed on this device. */
   "jev.changed": JevSettings;
+  /** A decision model host's key or account was kept or forgotten: the list as `listDecisionHosts` returns it. */
+  "decisions.changed": DecisionHostStatus[];
   /**
    * Skills were imported, duplicated, turned on or off, removed or restored:
    * the list as `listSkills` now returns it.
@@ -13972,6 +14188,15 @@ const methods: Record<CoreApiMethod, true> = {
   downloadOnlineOnlyFiles: true,
   recheckCitation: true,
   citeSelection: true,
+  createAnnotation: true,
+  listAnnotations: true,
+  annotationsIn: true,
+  annotationCounts: true,
+  updateAnnotation: true,
+  deleteAnnotation: true,
+  restoreAnnotation: true,
+  searchAnnotations: true,
+  saveAnnotationsExport: true,
   searchPassages: true,
   findPassages: true,
   citePassage: true,
@@ -14151,6 +14376,9 @@ const methods: Record<CoreApiMethod, true> = {
   saveJevSettings: true,
   removeJevSettings: true,
   testJevConnection: true,
+  listDecisionHosts: true,
+  setDecisionKey: true,
+  removeDecisionKey: true,
   listConnectors: true,
   addConnector: true,
   getExamples: true,

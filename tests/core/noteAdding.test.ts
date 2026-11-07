@@ -16,7 +16,7 @@ import { citingModel } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
 import { connectToMind, typeInto } from "../helpers/mindClient";
-import { note, readMind, writeMind } from "../helpers/minds";
+import { note, readMind, shownWithAiText, writeMind } from "../helpers/minds";
 import { scriptedModel, scriptedModels } from "../helpers/models";
 import { buildPdf } from "../helpers/pdf";
 
@@ -168,6 +168,58 @@ describe("Add to note into a Mind that isn't open", { timeout: 60_000 }, () => {
       "Today Spring tides come at new and full moon .",
     );
     expect(allOrigins(after.doc).size).toBe(1);
+  });
+
+  // protects=Undo takes back only the Blocks it added, so writing that came after them stays; fails_when=it removes the whole note
+  test("Undo leaves Blocks written after it went in (#1962)", async () => {
+    const { core, answer } = await citedAnswer();
+    const mind = await core.createMind({ title: "Essay" });
+    const writer = await connectToMind(core, mind.id);
+    writeMind(writer, [note("Intro"), note("")]);
+    await writer.settled();
+    const added = await core.addToNote({
+      mindId: mind.id,
+      blocks: answerBlocks(answer),
+      origin: originOf(answer),
+      model: answer.model,
+    });
+    await core.addToNote({
+      mindId: mind.id,
+      blocks: [note("Later writing.")],
+      origin: null,
+      model: null,
+      generated: false,
+      recordUse: false,
+    });
+
+    expect(await core.undoAddToNote({ mindId: mind.id, blockIds: added.blockIds })).toEqual({
+      kept: 0,
+    });
+    const after = await connectToMind(core, mind.id);
+    expect(readMind(after).childCount).toBe(2);
+    expect(readMind(after).child(1).textContent).toBe("Later writing.");
+  });
+
+  // protects=The User's own Blocks (Collect) go in with no AI mark and no AI-use record, and Undo takes them out; fails_when=they are treated as AI writing or stay after Undo
+  test("the User's own Blocks carry no AI text and no AI use, and Undo takes them out", async () => {
+    const { core } = await citedAnswer();
+    const mind = await core.createMind({ title: "Essay" });
+    const added = await core.addToNote({
+      mindId: mind.id,
+      blocks: [note("The User's words.")],
+      origin: null,
+      model: null,
+      generated: false,
+      recordUse: false,
+    });
+    expect(await core.listAiUse(mind.id)).toEqual([]);
+    const after = await connectToMind(core, mind.id);
+    expect(shownWithAiText(readMind(after).child(0))).toBe("The User's words.");
+    expect(await core.undoAddToNote({ mindId: mind.id, blockIds: added.blockIds })).toEqual({
+      kept: 0,
+    });
+    const undone = await connectToMind(core, mind.id);
+    expect(readMind(undone).textContent).toBe("");
   });
 
   // protects=History names a Conversation under its note's title for every note with links back, including one made before the index; fails_when=only notes made since the app started count

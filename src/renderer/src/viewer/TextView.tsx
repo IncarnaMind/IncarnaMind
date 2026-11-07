@@ -14,10 +14,13 @@ import { htmlMarkdown } from "../../../core/documents/formats/html";
 import { rtfMarkdown } from "../../../core/documents/formats/rtf";
 import { lineUnits, markdownUnits, type SourceUnit } from "../../../core/documents/formats/text";
 import { findQuote, type TextRange } from "../../../shared/quoteMatch";
+import { useAnnotations, useDocumentAnnotations } from "../annotations";
 import { DocumentFix } from "../components/DocumentFix";
 import { useT } from "../i18n";
 import { openDocumentPicture, pictureClickHandlers } from "../pictureViewer";
 import type { ViewerTarget } from "../store";
+import { AnnotationNoteLayer } from "./AnnotationNoteLayer";
+import { type AnnotationRange, annotationRangesIn } from "./annotationMarks";
 import { type CitedArea, useCitedArea, useCitedAreaFailure } from "./citedArea";
 import { loadDocumentBytes, MissingDocumentError, TooLargeDocumentError } from "./documentBytes";
 import { MarkdownBlocks, MarkdownDocumentContext, Slice } from "./MarkdownBlocks";
@@ -165,6 +168,7 @@ export function TextView({ document, target }: { document: Document; target: Vie
       ) : (
         <MarkdownDocumentContext.Provider value={document.id}>
           <TextContent
+            documentId={document.id}
             text={loaded.text}
             markdown={markdown}
             literal={literal}
@@ -206,6 +210,7 @@ function headingIndexes(units: readonly SourceUnit[]): Map<SourceUnit, number> {
 }
 
 function TextContent({
+  documentId,
   text,
   markdown,
   literal,
@@ -214,6 +219,7 @@ function TextContent({
   outline,
   target,
 }: {
+  documentId: string;
   text: string;
   markdown: boolean;
   /** The text is the words it holds: no emphasis, code or links to read (#762). */
@@ -226,6 +232,12 @@ function TextContent({
 }) {
   const scroller = useRef<HTMLDivElement>(null);
   const column = useRef<HTMLDivElement>(null);
+  const stored = useDocumentAnnotations(documentId);
+  const loadAnnotations = useAnnotations((state) => state.load);
+  useEffect(() => {
+    void loadAnnotations(documentId);
+  }, [loadAnnotations, documentId]);
+  const annotations = useMemo(() => annotationRangesIn(text, stored ?? []), [text, stored]);
   useSelectionReader(
     useCallback(
       (range) =>
@@ -395,13 +407,19 @@ function TextContent({
         <article className="viewer-page viewer-text-page" data-area-unit="">
           <div ref={column} className="relative" {...pictureClick}>
             {blocks && !source ? (
-              <MarkdownBlocks blocks={blocks} source={text} highlight={highlight} />
+              <MarkdownBlocks
+                blocks={blocks}
+                source={text}
+                highlight={highlight}
+                annotations={annotations}
+              />
             ) : (
               <pre className={`document-plain ${blocks || code ? "document-plain--code" : ""}`}>
                 <PlainText
                   source={text}
                   units={units}
                   highlight={highlight}
+                  annotations={annotations}
                   headings={blocks ? sectionStarts : null}
                 />
               </pre>
@@ -415,6 +433,11 @@ function TextContent({
             )}
           </div>
         </article>
+        <AnnotationNoteLayer
+          container={scroller}
+          documentId={documentId}
+          annotations={stored ?? []}
+        />
       </div>
     </div>
   );
@@ -437,11 +460,13 @@ function PlainText({
   source,
   units,
   highlight,
+  annotations,
   headings,
 }: {
   source: string;
   units: readonly SourceUnit[];
   highlight: readonly TextRange[];
+  annotations: readonly AnnotationRange[];
   headings: ReadonlyMap<number, number> | null;
 }) {
   const parts: ReactNode[] = [];
@@ -455,6 +480,7 @@ function PlainText({
           start={at}
           end={unit.start}
           highlight={highlight}
+          annotations={annotations}
         />,
       );
     }
@@ -465,13 +491,26 @@ function PlainText({
         data-area-unit={unit.page}
         data-heading={headings?.get(unit.page)}
       >
-        <Slice source={source} start={unit.start} end={unit.end} highlight={highlight} />
+        <Slice
+          source={source}
+          start={unit.start}
+          end={unit.end}
+          highlight={highlight}
+          annotations={annotations}
+        />
       </span>,
     );
     at = unit.end;
   }
   parts.push(
-    <Slice key={`gap${at}`} source={source} start={at} end={source.length} highlight={highlight} />,
+    <Slice
+      key={`gap${at}`}
+      source={source}
+      start={at}
+      end={source.length}
+      highlight={highlight}
+      annotations={annotations}
+    />,
   );
   return <>{parts}</>;
 }

@@ -12,9 +12,10 @@ import { ACCEPT_SUGGESTIONS } from "../shared/commands";
 import { optionsFor } from "../shared/exportOptions";
 import { figureScheduleChange } from "../shared/figureSchedule";
 import { graphemeBoundary } from "../shared/graphemes";
+import type { MessageKey, MessageParams } from "../shared/i18n";
 import { translate } from "../shared/i18n";
 import { organizeModelOf, supportsLibraryImages } from "../shared/libraryModels";
-import { parseCitedArea, parseLocation } from "../shared/locations";
+import { formatLocation, parseCitedArea, parseLocation } from "../shared/locations";
 import { holdsOnlyItsTitle } from "../shared/madeMind";
 import { isPartialMeetingFill } from "../shared/meetingFill";
 import {
@@ -69,6 +70,7 @@ import { agentSocketPath, createAgents } from "./agents";
 import { createAgentSetup, skillInstalled } from "./agents/setup";
 import { createAiUse } from "./aiUse";
 import { createAiUseStatement } from "./aiUseStatement";
+import { createAnnotations } from "./annotations";
 import { createAiSdkAnswerEngine, createAnswers } from "./answers";
 import { createAskedChanges } from "./answers/applyAsked";
 import { createChecks } from "./answers/checks";
@@ -100,6 +102,7 @@ import type { LiveTranscript } from "./answers/liveTranscript";
 import { explicitWalledFolderScope } from "./answers/scopeLine";
 import {
   type AddDocumentsResult,
+  type AnnotationColour,
   type AnswerPlace,
   type ChatModelChoice,
   type ChatProviderKind,
@@ -113,6 +116,7 @@ import {
   type CoreEventSource,
   DEFAULT_MIND_KIND,
   DELETED_KINDS,
+  type DecisionHostStatus,
   type DeletedAgainRef,
   type DeletedItem,
   type Document,
@@ -221,16 +225,16 @@ import {
 import { type AnyEventListener, createEventHub } from "./events";
 import { createExamples, type ExampleReadyState } from "./examples";
 import { createLocalExecutor } from "./execution";
-import { createExports, type ExportsDependencies } from "./exports";
+import { createExports, ExportChangedError, type ExportsDependencies } from "./exports";
 import { createComparisonExport } from "./exports/comparisonExport";
 import { figureScheduleBook } from "./exports/figureScheduleBook";
 import { exportLabels } from "./exports/labels";
-import { renderMarkdown } from "./exports/markdown";
+import { isPictureFile, renderMarkdown } from "./exports/markdown";
 import { setTextOnlyDocuments, textOnlyDocuments } from "./exports/sharedPictures";
 import { writeXlsx } from "./exports/xlsx";
 import { figureSchedule } from "./figureSchedule";
 import { createFileLock } from "./fileLock";
-import { safeFileName, writeNewFile } from "./fileNames";
+import { freeFileName, safeFileName, writeNewFile } from "./fileNames";
 import { createFolders } from "./folders";
 import { LANGUAGES, systemRegion } from "./language";
 import { createLayouts } from "./layout";
@@ -338,6 +342,7 @@ import { migrate, openDatabase } from "./storage";
 import { createSuggestions } from "./suggestions";
 import { createTags, tagsOfDocument } from "./tags";
 import { chatClassifier, type TagClassifier } from "./tags/classify";
+import { createDecisionHosts } from "./tags/decisionHosts";
 import { mayBackgroundSend } from "./tags/held";
 import { createJevTagging, decisionModelTagger } from "./tags/jev";
 import { createRateLimitPause } from "./tags/rateLimit";
@@ -993,6 +998,7 @@ export function createCore(adapters: CoreAdapters): Core {
   const background = createBackgroundQueue({ reportError: (error) => console.error(error) });
   let documents: ReturnType<typeof createDocuments>;
   let citedPages: CitedPages;
+  let annotations: ReturnType<typeof createAnnotations>;
   /** Set once created, so a failure after it can close it. */
   let createdDocuments: ReturnType<typeof createDocuments> | undefined;
   try {
@@ -1028,6 +1034,10 @@ export function createCore(adapters: CoreAdapters): Core {
         );
       },
       emitKept: (kept) => events.emit("keptCitationTexts.changed", kept),
+      fileAnnotations: (documentId, contentHash, found) => {
+        annotations.replaceFileAnnotations(documentId, contentHash, found);
+        events.emit("annotations.changed", { documentId });
+      },
       foldersChanged,
       linkedFoldersChanged: (list) => {
         events.emit("linkedFolders.changed", list);
@@ -1130,6 +1140,19 @@ export function createCore(adapters: CoreAdapters): Core {
     db.close();
     throw error;
   }
+  annotations = createAnnotations(db, now, {
+    currentVersion: (documentId) => documents.currentVersion(documentId),
+    cite: (documentId, anchor) =>
+      citeSelection(documents, {
+        documentId,
+        parts: anchor.parts,
+        ...(anchor.area && { area: anchor.area }),
+        unit: anchor.unit ?? null,
+        ...(anchor.around && { around: anchor.around }),
+      }),
+  });
+  const annotationsChanged = (documentId: string) =>
+    events.emit("annotations.changed", { documentId });
   // A saved page and its pictures are fetched only from the public internet: never this
   // computer or a local network, every redirect checked as an address is (#2553).
   const publicFetcher = createPublicFetch(adapters.web);
@@ -2061,7 +2084,7 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     outputFolder: async () => outputs.settings().location,
     window: (request, signal, ended) => windowCommands.run(request, signal, ended),
-    exportMind: async (mindId, format, folder, approved, marking) => {
+    exportMind: async (mindId, format, folder, approved, marking, approvedFiles) => {
       const options = optionsFor(format, settings.get().user.exportOptions);
       let written = options;
       let settled: MarkingSettled | null = null;
@@ -2082,18 +2105,28 @@ export function createCore(adapters: CoreAdapters): Core {
       if (exported.word && exported.word.notKept.length > 0) {
         throw new InvalidInputError({ key: "error.commands.wordLoses" });
       }
+      // The name this folder gives the file now, as the card worked it out, must be the one the
+      // User allowed; a Note renamed or a name taken since asks again (#2514).
+      if (
+        approvedFiles &&
+        (folder === null ||
+          (await freeFileName(folder, exported.fileName)) !== approvedFiles.fileName)
+      )
+        throw new ExportChangedError();
       const file = await outputs.save({
-        name: exported.fileName,
+        name: approvedFiles?.fileName ?? exported.fileName,
         data: exported.data,
         ownFile: ownFileOf(written),
         fromFolder: folderOfNote(mindId),
         ...(folder !== null && { folder, approved }),
+        ...(approvedFiles !== undefined && { exact: true }),
       });
       try {
         await saveExportFiles(
           exported.files,
           folder ?? file.folder,
           typeof mindId === "string" ? mindId : null,
+          approvedFiles?.pictures,
         );
       } catch (error) {
         // A file that would link pictures none can see is taken back: the export didn't happen.
@@ -2180,6 +2213,23 @@ export function createCore(adapters: CoreAdapters): Core {
       reading: (documentIds) =>
         documents.reading(documentIds ?? undefined).map((each) => ({ name: each.name })),
       search: searchDocuments,
+      highlightText: (documentIds, query) => {
+        const wanted = documentIds === null ? null : new Set(documentIds);
+        const matches = annotations
+          .search(query, 8)
+          .filter((match) => wanted === null || wanted.has(match.documentId));
+        if (matches.length === 0) return "";
+        const lines = matches.map((match) => {
+          const where = match.location
+            ? formatLocation(match.location, (key: MessageKey, params?: MessageParams) =>
+                translate("en", key, params),
+              )
+            : "";
+          const note = match.note === null ? "" : ` — the User's note: ${match.note}`;
+          return `- ${match.documentName}${where ? `, ${where}` : ""}: “${match.excerpt}”${note}`;
+        });
+        return `The User's own highlights and notes on these words, already checked against the Documents:\n${lines.join("\n")}`;
+      },
       webAddress: (documentId) => documents.getMany([documentId])[0]?.web?.address ?? null,
       citationSource: (passageId) => documents.citationSource(passageId),
       pageTexts: (documentId, contentHash, from, to) =>
@@ -3314,20 +3364,32 @@ export function createCore(adapters: CoreAdapters): Core {
     files: readonly ExportFile[] | undefined,
     folder: string,
     from: string | null,
+    /** The names the User allowed, in the order the pictures to write were listed (#2514). */
+    approvedNames?: readonly string[],
   ): Promise<void> => {
+    let next = 0;
     for (const file of files ?? []) {
       // A picture named after its content: the file there already holds these bytes, so it is
       // linked, not copied again as "picture-… 2.png" (#1937).
       if (await outputs.holds(folder, file.name, file.data)) continue;
+      const name = approvedNames?.[next];
+      if (approvedNames) {
+        // A picture changed since the card, or the list did: nothing is written under a new name.
+        if (name === undefined || name !== (await freeFileName(folder, file.name)))
+          throw new ExportChangedError();
+        next++;
+      }
       await outputs.save({
-        name: file.name,
+        name: name ?? file.name,
         data: file.data,
         ownFile: "export",
         fromFolder: folderOfNote(from),
         folder,
         approved: true,
+        exact: approvedNames !== undefined,
       });
     }
+    if (approvedNames && next !== approvedNames.length) throw new ExportChangedError();
   };
   /**
    * Saves an export in the Output location, as the window's save: what went wrong is a result, not
@@ -3371,6 +3433,16 @@ export function createCore(adapters: CoreAdapters): Core {
     signal: lifetime.signal,
     localOnly: () => embedding.localOnly(),
   });
+  // Decision models on other hosts (#1907): the same flows and consent as Jev, per host.
+  const decisionHosts = createDecisionHosts({
+    settings,
+    secrets,
+    consent,
+    providerKey: (catalogId) => chat.apiKeyOf(catalogId),
+    localOnly: () => embedding.localOnly(),
+    signal: lifetime.signal,
+    ...(adapters.decisionOrigins && { origins: adapters.decisionOrigins }),
+  });
   // Tagging on a plan goes gently, and waits while the plan's limit holds.
   const planPaceFor = (plan: Plan) =>
     createPlanPace({
@@ -3405,6 +3477,7 @@ export function createCore(adapters: CoreAdapters): Core {
       quickTasksModel: (answers) => chat.quickTasksModel(answers),
     },
     jev,
+    decisions: decisionHosts,
     localOnly: () => embedding.localOnly(),
     ollamaUrl: adapters.ollamaUrl ?? defaultOllamaUrl(),
     localModels: adapters.localModels ?? installedOllamaModels,
@@ -3477,6 +3550,8 @@ export function createCore(adapters: CoreAdapters): Core {
     switch (classifier.kind) {
       case "jev":
         return jev.prepare();
+      case "decision":
+        return decisionHosts.prepare(classifier.host, classifier.modelId);
       case "auto": {
         const model = await tagging.textDecisionModel(classifier.baseUrl);
         if (!model)
@@ -3520,6 +3595,7 @@ export function createCore(adapters: CoreAdapters): Core {
       const classifier = await tagging.resolve();
       if (!classifier) return false;
       if (classifier.kind === "jev") return jev.canRun();
+      if (classifier.kind === "decision") return decisionHosts.canRun(classifier.host);
       if (classifier.kind === "chat") {
         const readiness = await chat.readiness(classifier.choice, "tagging");
         return readiness.ready && readiness.consent !== "needed";
@@ -3531,6 +3607,7 @@ export function createCore(adapters: CoreAdapters): Core {
       if (!classifier || decisionModelElsewhere(classifier)) return false;
       if (embedding.localOnly() && tagging.service(classifier)) return false;
       if (classifier.kind === "jev") return jev.mightBeReady();
+      if (classifier.kind === "decision") return decisionHosts.mightBeReady(classifier.host);
       if (classifier.kind === "chat") return chat.mightBeReady("tagging", classifier.choice);
       return true;
     },
@@ -3584,6 +3661,7 @@ export function createCore(adapters: CoreAdapters): Core {
         case "ollama":
           return supportsLibraryImages(classifier.modelId) && classifier.usePageImages === true;
         case "jev":
+        case "decision":
           return false;
         case "chat": {
           const reader = chat.imageModel(classifier.choice);
@@ -3664,6 +3742,11 @@ export function createCore(adapters: CoreAdapters): Core {
         if (embedding.localOnly() && !prepared.local)
           throw new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
         return prepared;
+      }
+      if (classifier.kind === "decision") {
+        if (embedding.localOnly())
+          throw new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
+        return decisionHosts.prepareGroups(classifier.host, classifier.modelId, permit);
       }
       const { choice } = classifier;
       const ready = await chat.readiness(choice, "classification");
@@ -3897,6 +3980,14 @@ export function createCore(adapters: CoreAdapters): Core {
   };
   let lastAutomatic = library.settings().automatic;
 
+  /** A decision model host's key or account was kept or forgotten: say so, and Documents waiting may go on. */
+  const decisionsChanged = async (hosts: DecisionHostStatus[]) => {
+    if (lifetime.signal.aborted) return hosts;
+    events.emit("decisions.changed", hosts);
+    await dataFlowsChanged();
+    await taggingChanged();
+    return hosts;
+  };
   /** Jev was set up, changed or removed: say so, and Documents waiting may go on. */
   const jevChanged = async () => {
     const status = await jev.status();
@@ -4981,7 +5072,9 @@ export function createCore(adapters: CoreAdapters): Core {
 
   const routeOf = (classifier: TaggingClassifier): TaggingRoute => {
     const service = tagging.service(classifier);
-    return service ? { where: "cloud", service } : { where: "local" };
+    if (service) return { where: "cloud", service };
+    // A host without its account yet sends nowhere; it isn't on this computer.
+    return classifier.kind === "decision" ? { where: "none" } : { where: "local" };
   };
   const taggingModels = async (): Promise<TaggingModels> => {
     const hadModel = tagsWith() !== null;
@@ -5596,6 +5689,111 @@ export function createCore(adapters: CoreAdapters): Core {
         unit,
         ...(around && { around }),
       });
+    },
+    createAnnotation: async (input) => {
+      if (!isRecord(input) || !Array.isArray(input.parts)) {
+        throw new InvalidInputError({ key: "error.selection.none" });
+      }
+      const parts = input.parts.map(parseSelectedPart);
+      const area = input.area === undefined ? undefined : selectionArea(input.area);
+      if (parts.every((part) => part.text.trim() === "") && area === undefined) {
+        throw new InvalidInputError({ key: "error.selection.none" });
+      }
+      const unit =
+        typeof input.unit === "number" && Number.isInteger(input.unit) && input.unit >= 1
+          ? input.unit
+          : null;
+      const around = parseAround(input.around);
+      const documentId = parseDocumentId(input.documentId);
+      const cited = citeSelection(documents, {
+        documentId,
+        parts,
+        ...(area && { area }),
+        unit,
+        ...(around && { around }),
+      });
+      const unsure = cited.check === "cant-check" && cited.checkReason === "unsure-word";
+      // A region of a picture is cited as a picture: there is nothing in it to check.
+      const pictured = area !== undefined && cited.checkReason === "picture";
+      // A picture's place is its page: a region on a Unit the Document doesn't have is refused.
+      if (pictured && cited.location === null) {
+        throw new InvalidInputError({ key: "error.annotation.refused" });
+      }
+      if (cited.check !== "found" && !unsure && !pictured) {
+        throw new InvalidInputError({
+          key:
+            cited.checkReason === "too-many-pages"
+              ? "error.annotation.refused.pages"
+              : cited.checkReason === "in-several-places"
+                ? "error.annotation.refused.places"
+                : cited.checkReason === "no-text"
+                  ? "error.annotation.refused.noText"
+                  : "error.annotation.refused",
+        });
+      }
+      const saved = annotations.create({
+        documentId,
+        parts,
+        colour: input.colour,
+        note: typeof input.note === "string" ? input.note : null,
+        ...(area && { area }),
+        unit,
+        ...(around && { around }),
+        ...cited,
+      });
+      annotationsChanged(documentId);
+      return saved;
+    },
+    listAnnotations: async (documentId) => annotations.list(parseDocumentId(documentId)),
+    annotationsIn: async (input) => {
+      if (!isRecord(input)) throw new InvalidInputError({ key: "error.annotation.collect" });
+      const colour = typeof input.colour === "string" ? input.colour : undefined;
+      return annotations.in({
+        ...(typeof input.documentId === "string" && { documentId: input.documentId }),
+        ...(typeof input.folderId === "string" && { folderId: input.folderId }),
+        ...(colour !== undefined && { colour: colour as AnnotationColour }),
+      });
+    },
+    annotationCounts: async () => annotations.counts(),
+    updateAnnotation: async (id, edit) => {
+      if (typeof id !== "string" || id === "")
+        throw new InvalidInputError({ key: "error.annotation.needed" });
+      if (!isRecord(edit)) throw new InvalidInputError({ key: "error.annotation.edit" });
+      const changed = annotations.update(id, {
+        ...(edit.note !== undefined && { note: edit.note as string | null }),
+        ...(edit.colour !== undefined && { colour: edit.colour as AnnotationColour }),
+      });
+      annotationsChanged(changed.documentId);
+      return changed;
+    },
+    deleteAnnotation: async (id) => {
+      if (typeof id !== "string" || id === "")
+        throw new InvalidInputError({ key: "error.annotation.needed" });
+      const removed = annotations.remove(id);
+      annotationsChanged(removed.documentId);
+      return removed;
+    },
+    restoreAnnotation: async (id) => {
+      if (typeof id !== "string" || id === "")
+        throw new InvalidInputError({ key: "error.annotation.needed" });
+      const restored = annotations.restore(id);
+      annotationsChanged(restored.documentId);
+      return restored;
+    },
+    searchAnnotations: async (query, options) => {
+      if (typeof query !== "string")
+        throw new InvalidInputError({ key: "error.annotation.search" });
+      const limit =
+        isRecord(options) && typeof options.limit === "number" && options.limit > 0
+          ? Math.min(Math.floor(options.limit), 200)
+          : 50;
+      return annotations.search(query, limit);
+    },
+    saveAnnotationsExport: async (documentId) => {
+      const id = parseDocumentId(documentId);
+      if (annotations.list(id).length === 0) return { status: "empty" };
+      const { name, text } = annotations.markdown(id, settings.get().language);
+      return saveExport(name, new TextEncoder().encode(text), null);
     },
     searchPassages: (query, options) => {
       const place = parsePassagePlace(isRecord(options) ? options.place : undefined);
@@ -6268,6 +6466,9 @@ export function createCore(adapters: CoreAdapters): Core {
       return jevChanged();
     },
     testJevConnection: (input) => loggingTest("jev")(jev.test(input)),
+    listDecisionHosts: () => decisionHosts.list(),
+    setDecisionKey: async (input) => decisionsChanged(await decisionHosts.setKey(input)),
+    removeDecisionKey: async (host) => decisionsChanged(await decisionHosts.removeKey(host)),
 
     listConnectors: async () => connectors.list(),
     addConnector: async (input) => {
@@ -6360,7 +6561,31 @@ export function createCore(adapters: CoreAdapters): Core {
       return restored;
     },
 
-    previewMindExport: async (mindId, options) => mindExports.preview(mindId, options),
+    previewMindExport: async (mindId, options, folder) => {
+      // The same saved choices the export itself uses: a plan the card shows must be the plan it writes.
+      const effective = {
+        ...optionsFor(options.format, settings.get().user.exportOptions),
+        ...options,
+      };
+      const preview = mindExports.preview(mindId, effective);
+      if (!folder) return preview;
+      // The ask names the files as this folder will take them: the next free name where one is taken.
+      const taken = new Set<string>();
+      const free = async (name: string) => {
+        const chosen = await freeFileName(folder, name, taken);
+        taken.add(chosen);
+        return chosen;
+      };
+      const fileName = await free(preview.fileName);
+      const pictures: string[] = [];
+      for (const name of preview.pictures) {
+        // A picture the folder already holds is linked, not written (#1937).
+        if (await outputs.holdsMatching(folder, name, (bytes) => isPictureFile(name, bytes)))
+          continue;
+        pictures.push(await free(name));
+      }
+      return { ...preview, fileName, pictures };
+    },
     previewSharePage: (mindId, options) => mindExports.previewSharePage(mindId, options),
     setSharePageTextOnly: async (mindId, documentIds) => {
       if (!Array.isArray(documentIds) || documentIds.some((each) => typeof each !== "string")) {

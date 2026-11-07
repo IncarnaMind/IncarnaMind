@@ -383,7 +383,7 @@ export interface AppState extends LayoutSlice {
    * Shows a Document in a Document tab (see `OpenDocumentHow`), optionally at a
    * page range, highlighting a quote (Citations).
    */
-  openDocument(location: DocumentLocation, how?: OpenDocumentHow): void;
+  openDocument(location: DocumentLocation, how?: OpenDocumentHow): Promise<void>;
   updateSettings(patch: SettingsPatch): Promise<void>;
   /** Changes pane widths on screen only, e.g. while dragging a divider. */
   previewLayout(layout: Partial<DeviceSettings>): void;
@@ -1712,7 +1712,7 @@ export const useAppStore = create<AppState>()((set, get) => {
       useNotices.getState().showError(error);
     },
 
-    openDocument(location, how = { as: "list" }) {
+    async openDocument(location, how = { as: "list" }): Promise<void> {
       // Direct navigation ends Citation-source scope; openCited records its source after this call.
       useComposer.setState({ citedSource: null });
       const { documentId, ...place } = location;
@@ -1741,7 +1741,7 @@ export const useAppStore = create<AppState>()((set, get) => {
                 where: { in: "side", ...(how.from && { from: how.from }) },
                 focus: merged && !how.stay,
               };
-      void get().changeLayout(change);
+      await get().changeLayout(change);
     },
 
     openSettings(page, at) {

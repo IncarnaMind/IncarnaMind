@@ -167,6 +167,9 @@ const KIND_NAMES: Record<DocumentKind, string> = {
 
 export const oneLine = (text: string) => text.replace(/\s+/g, " ").trim();
 
+/** What a no means, for a host that takes a yes-or-no question only with both criteria (OpenRouter). */
+export const TAG_DOES_NOT_FIT = "The tag does not describe the document.";
+
 /** "PDF, 12 pages", "Markdown". */
 export const documentType = (excerpt: DocumentExcerpt) =>
   excerpt.pageCount === null

@@ -17,6 +17,7 @@ import { silentLogger } from "../../src/core/activityLog";
 import type { Logger } from "../../src/core/adapters";
 import { createOwnFiles } from "../../src/core/documents/ownFiles";
 import { createEventHub } from "../../src/core/events";
+import { freeFileName } from "../../src/core/fileNames";
 import {
   createOutputFiles,
   fingerprintOf,
@@ -146,6 +147,7 @@ describe("The Output location", () => {
         inDefaultFolder: true,
       },
       citations: 0,
+      pictures: [],
       unverifiedCitations: 0,
       questions: 0,
       hiddenColumns: 0,
@@ -705,4 +707,10 @@ describe("Saving next to an original (the call other features use)", () => {
     ).rejects.toThrow(/only in the output location/);
     expect(await readdir(elsewhere)).toEqual([]);
   });
+});
+
+test("a free name is only a name the folder can be asked about: another failure is reported, not taken as free", async () => {
+  const notAFolder = join(await createTempDataFolder(), "Tides.md");
+  await writeFile(notAFolder, "Not a folder.");
+  await expect(freeFileName(notAFolder, "Tides.md")).rejects.toMatchObject({ code: "ENOTDIR" });
 });

@@ -906,6 +906,8 @@ export interface DocumentsForAnswers
   searchableHasSheets(documentIds: readonly string[] | null, workbooksOnly?: boolean): boolean;
   /** Whether a Document to search has a table of figures in a PDF, Word file or deck (#448). */
   searchableHasTables(documentIds: readonly string[] | null): boolean;
+  /** The User's highlights and notes among these Documents (null: every one) that hold the words (#327), as lines for the model. */
+  highlightText(documentIds: readonly string[] | null, query: string): string;
   passage(passageId: string): WindowedPassage | null;
   /** The live Passages of a live Document at positions `from` to `to`, in reading order. */
   passagesBetween(documentId: string, from: number, to: number): WindowedPassage[];
@@ -965,6 +967,7 @@ function inScope(
     passagesCovering: (documentId, from, to, overlapping) =>
       documents.passagesCovering(documentId, from, to, overlapping),
     documentNamed: (name) => documentNamedAmong(documents.searchableBySize(documentIds), name),
+    annotationText: (query, within) => documents.highlightText(within ?? documentIds, query),
   };
 }
 
@@ -2026,6 +2029,8 @@ export function createAnswers(options: AnswersOptions) {
     const commandsFound = new Map<string, CommandsFound>();
     const commandsDone = new Map<string, CommandDone>();
     const commandProblems = new Map<string, CommandProblem>();
+    /** A command's approval as it first asked, for asking again when its files changed (#2514). */
+    const commandApprovals = new Map<string, Extract<ToolCallToApprove, { tool: "run_command" }>>();
     /** The questions `ask_user` asked, by call, as they stand: for its card while it waits, and once it ends. */
     const userQuestions = new Map<string, UserQuestion>();
     /** Keeps how a script's run went on its card. */
@@ -2199,21 +2204,20 @@ export function createAnswers(options: AnswersOptions) {
           readTitles,
         } = await commands.check(toolCallId, input, tainted || transcripts.size > 0);
         if (!asked) return null;
-        const denied = await ask(
-          {
-            ...place,
-            answerId,
-            toolCallId,
-            subject: { kind: "command", command: checked.command },
-            tool: COMMAND_TOOLS.run,
-            ask: asked,
-            effects: checked.effects,
-            tainted: tainted || readTitles.length > 0,
-            ...readReasons(thirdParty),
-            ...readText(thirdParty, readTitles),
-          },
-          card,
-        );
+        const approval: Extract<ToolCallToApprove, { tool: "run_command" }> = {
+          ...place,
+          answerId,
+          toolCallId,
+          subject: { kind: "command", command: checked.command },
+          tool: COMMAND_TOOLS.run,
+          ask: asked,
+          effects: checked.effects,
+          tainted: tainted || readTitles.length > 0,
+          ...readReasons(thirdParty),
+          ...readText(thirdParty, readTitles),
+        };
+        commandApprovals.set(toolCallId, approval);
+        const denied = await ask(approval, card);
         if (denied === null) commands.allowed(toolCallId);
         else commands.drop(toolCallId);
         return denied;
@@ -2927,6 +2931,11 @@ export function createAnswers(options: AnswersOptions) {
               language: answerLanguage(context.question),
               steps: commands.steps,
               ...(askInTray && { ask: askInTray }),
+              reask: async (toolCallId, changed) => {
+                const first = commandApprovals.get(toolCallId);
+                if (!first) return false;
+                return options.approvals.request({ ...first, ask: changed }, controller.signal);
+              },
               found: (toolCallId, found) => commandsFound.set(toolCallId, found),
               ran: (toolCallId, done) => {
                 commandsDone.set(toolCallId, done);

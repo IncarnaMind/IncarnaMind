@@ -33,6 +33,7 @@ import type { PageFetch } from "../core/documents/web/fetch";
 import type { ModelCopies } from "../core/embedding/modelSources";
 import { createFakeCapture, type FakeCapture, wavSamples } from "../core/meetings/fakeCapture";
 import type { ModelFactsLayer } from "../core/providers/capabilities";
+import { DECISION_HOSTS } from "../core/providers/catalog/decisions";
 import { COPILOT_PROFILES } from "../core/providers/copilot/config";
 import { type LocalServers, scriptedLocalServers } from "../core/providers/localServers";
 import { type Resolve, systemResolve } from "../core/tools/web/addresses";
@@ -571,6 +572,13 @@ const referenceLookupUrl =
 const jevHostedUrl = import.meta.env.MODE === "test" ? process.env.INCARNAMIND_TEST_JEV : undefined;
 
 /**
+ * Test-only launch flag: where every decision model host's requests go (#1907), one local server
+ * standing in for them all. Only a test build honours it.
+ */
+const decisionHostsUrl =
+  import.meta.env.MODE === "test" ? process.env.INCARNAMIND_TEST_DECISIONS : undefined;
+
+/**
  * Test-only launch flag: where Find sources asks its providers (#296), a
  * local server standing in for each provider (OpenAlex, arXiv, PubMed, Crossref, openFDA, DailyMed, ClinicalTrials.gov, the eCFR and GovInfo), each
  * under its own path, so the smoke tests reach none of them. Only a test
@@ -843,6 +851,9 @@ export async function createElectronAdapters(log: Logger): Promise<CoreAdapters>
     ...(crashReporter && { crashReporter }),
     ...(usageData && { usageData }),
     ...(jevHostedUrl && { jevHostedUrl }),
+    ...(decisionHostsUrl && {
+      decisionOrigins: Object.fromEntries(DECISION_HOSTS.map((host) => [host, decisionHostsUrl])),
+    }),
     ...(referenceLookupUrl && {
       referenceLookup: {
         crossref: referenceLookupUrl,
