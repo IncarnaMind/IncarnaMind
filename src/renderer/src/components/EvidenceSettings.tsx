@@ -2,7 +2,6 @@ import { useT } from "../i18n";
 import { useAppStore } from "../store";
 import { DetailsLine } from "./DetailsLine";
 import { SwitchSetting } from "./SwitchSetting";
-import { rowTextClass } from "./ui";
 
 /**
  * Settings → Search → Checks: the switch that leaves the files IncarnaMind
@@ -20,11 +19,7 @@ export function EvidenceSettings() {
       heading={t("evidence.settings.title")}
       title={t("evidence.settings.switch")}
       description={
-        <DetailsLine
-          testId="evidence-description"
-          className={rowTextClass}
-          details={t("evidence.settings.body.details")}
-        >
+        <DetailsLine testId="evidence-description" details={t("evidence.settings.body.details")}>
           {t("evidence.settings.body")}
         </DetailsLine>
       }

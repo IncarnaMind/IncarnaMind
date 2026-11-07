@@ -4,7 +4,7 @@ import { AGENT_TOKEN_ENV, HIDDEN_KEY } from "../../../../shared/agentSocket";
 import { core } from "../../core";
 import { useT } from "../../i18n";
 import { useAppStore } from "../../store";
-import { ghostButtonClass } from "../ui";
+import { buttonStyle } from "../ui";
 
 /**
  * How an agent starts IncarnaMind, piece by piece, for agents whose screen asks
@@ -45,7 +45,7 @@ export function LaunchDetails({ pairingId }: { pairingId: string }) {
         type="button"
         data-testid="agent-launch-copy"
         onClick={() => void copy(id, copiedText)}
-        className={ghostButtonClass}
+        className={buttonStyle("ghost", "sm")}
       >
         {copied === id ? t("agents.pairing.copied") : t("agents.pairing.copy")}
       </button>

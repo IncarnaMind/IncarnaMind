@@ -1,5 +1,5 @@
 import type { CitationAttributes, CitationCheck, CitationCheckReason } from "../../core/api";
-import { citationState, quoteStanding } from "../../shared/citations";
+import { citationState, citedSpeakers, quoteStanding } from "../../shared/citations";
 import { citationLocation, formatLocation } from "../../shared/locations";
 import { citationPageOpened } from "./assistantYields";
 import { type CitedSource, useComposer } from "./composer";
@@ -140,7 +140,11 @@ async function movedPlace(
   return {
     place: { pageFrom: recheck.pageFrom, pageTo: recheck.pageTo },
     location,
-    label: location ? formatLocation(location, translateNow) : null,
+    label: location
+      ? formatLocation(location, translateNow, {
+          speakers: citedSpeakers(citation, useAppStore.getState().documents),
+        })
+      : null,
   };
 }
 

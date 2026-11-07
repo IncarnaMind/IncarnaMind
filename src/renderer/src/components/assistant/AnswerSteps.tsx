@@ -15,7 +15,7 @@ import type {
   ConversationQuestion,
   EmbeddingModelStatus,
 } from "../../../../core/api";
-import { shownDocumentName } from "../../../../shared/citations";
+import { citedSpeakers, shownDocumentName } from "../../../../shared/citations";
 import { citationLocation, formatLocation } from "../../../../shared/locations";
 import { mindName } from "../../../../shared/naming";
 import { NO_SCOPE } from "../../../../shared/searchScope";
@@ -630,6 +630,15 @@ function FoldedToggle({
     step && !step.mind.deleted
       ? foldedWords(t, line, { ...words, mindName: NAME }).split(NAME)
       : [];
+  // A Document named beside the Mind may have a long name, which is cut; a count never is, and the
+  // Mind's name gives way to it.
+  const only = line.kind === "read-documents" ? line.documents[0] : undefined;
+  const namesDocument =
+    line.kind === "read-documents" &&
+    line.documents.length === 1 &&
+    only !== undefined &&
+    !words.isExample(only) &&
+    documentOf(only) !== null;
   if (mind && parts.length === 2) {
     const [before, after] = parts;
     return (
@@ -668,10 +677,18 @@ function FoldedToggle({
           aria-expanded={open}
           onClick={onToggle}
           className={`answer-steps-toggle answer-steps-part ${
-            !after ? "answer-steps-part--end" : after.length > 1 ? "answer-steps-part--tail" : ""
+            !after
+              ? "answer-steps-part--end"
+              : namesDocument && after.length > 1
+                ? "answer-steps-part--tail"
+                : ""
           }`}
         >
-          {after && after.length > 1 ? <span className="answer-steps-tail">{after}</span> : after}
+          {namesDocument && after && after.length > 1 ? (
+            <span className="answer-steps-tail">{after}</span>
+          ) : (
+            after
+          )}
           <ChevronRightLineIcon className="answer-steps-chevron" />
         </button>
       </div>
@@ -1063,8 +1080,9 @@ function SourceRow({ source }: { source: StepSource }) {
   const name = useAppStore(
     (state) => shownDocumentName(source, state.documents) || source.documentName,
   );
+  const speakers = useAppStore((state) => citedSpeakers(source, state.documents));
   const location = citationLocation(source);
-  const where = location ? formatLocation(location, t) : null;
+  const where = location ? formatLocation(location, t, { speakers }) : null;
   return (
     <button
       type="button"

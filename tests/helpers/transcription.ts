@@ -14,6 +14,7 @@ import type {
   VoiceTurn,
 } from "../../src/core";
 import { hashBytes } from "../../src/core/documents/files";
+import { readVtt } from "../../src/core/documents/formats/vtt";
 import type { Language } from "../../src/core/language";
 import { createFakeCapture, type FakeCaptureOptions } from "../../src/core/meetings/fakeCapture";
 import {
@@ -311,4 +312,29 @@ export async function stoppedMeeting(core: Core, dataDir: string, meetingId: str
   const document = await transcriptRead(core, dataDir, meetingId, documentId as string);
   await vi.waitFor(async () => expect((await meetingOf()).fill?.state).toBe("off"));
   return { meeting: await meetingOf(), document };
+}
+
+/** The saved Transcript's lines, once the speaker pass (#138) has settled. */
+export async function savedCues(core: Core, meetingId: string) {
+  const saved = await until(
+    core,
+    meetingId,
+    (transcript) => transcript.state === "saved" && !transcript.separating,
+  );
+  return readVtt(readFileSync(saved.savedPath as string, "utf8")).cues;
+}
+
+/** A call of 25 seconds from `sources`, recorded and stopped: a line every two seconds a source. */
+export async function recordedCall(
+  dataDir: string,
+  options: Parameters<typeof transcribingCore>[1] = {},
+  sources: ("microphone" | "system")[] = ["microphone", "system"],
+) {
+  const { core, record } = await transcribingCore(dataDir, options);
+  const meeting = await core.createMeeting();
+  await core.startMeeting({ meetingId: meeting.id, systemAudio: sources.includes("system") });
+  record(25_000, sources);
+  await until(core, meeting.id, (transcript) => transcript.lines >= 8);
+  await core.stopMeeting(meeting.id);
+  return { core, meeting };
 }

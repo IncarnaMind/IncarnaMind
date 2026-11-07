@@ -53,6 +53,7 @@ import {
   type TextRange,
 } from "../../shared/quoteMatch";
 import { readableQuote, readableQuoteText } from "../../shared/readableQuote";
+import { markWords, speakerMark, speakerOf } from "../../shared/speakers";
 import { CJK, foldRadicals } from "../../shared/text";
 import { parseCueTarget, sameRun } from "../../shared/units";
 import {
@@ -71,6 +72,7 @@ import {
   type QuotedWordsCheck,
   type RejectedRecord,
   type SelectedPart,
+  type TranscriptSpeakers,
 } from "../api";
 import type { CitationSource, DocumentDate } from "../documents";
 import { BOILERPLATE_PARAMETERS } from "../documents/boilerplate";
@@ -308,29 +310,41 @@ export function quotePlaceProblem(
   units: readonly PageText[],
   matching: Matching = {},
   time?: RowsOrLines,
+  speakers: TranscriptSpeakers | null = null,
 ): string | null {
   const find = (unique: boolean) =>
     time
-      ? quoteInCues(units, quote, time, { ...matching, unique })
+      ? quoteInCues(units, quote, time, { ...matching, unique }, speakers)
       : quoteInUnits(units, quote, { ...matching, unique });
   return find(false) && !find(true)
     ? "the quote occurs more than once in its cited Units; quote enough surrounding words to identify one place."
     : null;
 }
 
+/**
+ * The quote in the cues of a model's "14:26 Dana": those said then, by the Speaker named as the
+ * model read them, the name the User gave (#138) or the label, so a line the User gave to someone
+ * else is never found as said by the one the file has.
+ */
 function quoteInCues(
   units: readonly PageText[],
   quote: string,
   time: RowsOrLines & { speaker?: string },
   matching: Matching & { unique?: boolean },
+  speakers: TranscriptSpeakers | null = null,
 ): TextRange[] | null {
   // Cue marks round down, so a named second includes cues that start within it.
   const until = time.to + 1000;
+  const asked = markWords(time.speaker ?? "");
+  const saidBy = (startMs: number, label: string | null) =>
+    label !== null &&
+    (asked === markWords(speakerMark(speakers, startMs, label)) ||
+      asked === markWords(speakerOf(speakers, startMs, label)));
   return quoteInCueWindow(
     units,
     quote,
-    (cue, speaker) =>
-      (!time.speaker || speaker === time.speaker) && cue.startMs < until && cue.endMs > time.from,
+    (cue, label) =>
+      (!time.speaker || saidBy(cue.startMs, label)) && cue.startMs < until && cue.endMs > time.from,
     matching,
   );
 }
@@ -503,6 +517,8 @@ export interface AnswerDocuments {
   ): PageText[];
   /** A live Document's date, shown with its Passages (see `documentDate` in ../documents); null if none is known. */
   documentDate(documentId: string): DocumentDate | null;
+  /** Who's who in a Transcript (#138), so its lines read by the names the User gave; null for none. */
+  speakers?(documentId: string): TranscriptSpeakers | null;
   /** The id of the Document to search named `name`, as the instructions list it; null for none. */
   documentNamed?(name: string): string | null;
   /** The User's highlights and notes that hold the words (#327), as lines for the model; "" for none. */
@@ -1718,6 +1734,10 @@ export function createCitationSession(
     return matching;
   };
 
+  /** Who's who in a Transcript a record cites (#138): the names its model read. */
+  const speakersFor = (source: Pick<CitationSource, "documentId" | "documentKind">) =>
+    source.documentKind === "transcript" ? (documents.speakers?.(source.documentId) ?? null) : null;
+
   /** The stored text of the Units a record cites, of the version its Passage was built from. */
   const citedText = (record: Pick<Accepted, "source" | "range">) =>
     documents.pageTexts(
@@ -1782,7 +1802,13 @@ export function createCitationSession(
     });
     return result.check === "found" &&
       record.time &&
-      !quoteInCues(pages, record.quote, record.time, matchingFor(record.source))
+      !quoteInCues(
+        pages,
+        record.quote,
+        record.time,
+        matchingFor(record.source),
+        speakersFor(record.source),
+      )
       ? NOT_ON_PAGES
       : result;
   };
@@ -1801,7 +1827,13 @@ export function createCitationSession(
       units,
       usable
         ? record.time
-          ? quoteInCues(usable, record.quote, record.time, matchingFor(record.source))
+          ? quoteInCues(
+              usable,
+              record.quote,
+              record.time,
+              matchingFor(record.source),
+              speakersFor(record.source),
+            )
           : quoteInUnits(usable, record.quote, matchingFor(record.source))
         : null,
       record.requested,
@@ -1859,6 +1891,7 @@ export function createCitationSession(
           citedText(taken.record),
           matchingFor(taken.source),
           taken.record.time,
+          speakersFor(taken.source),
         ) ??
         (!taken.record.time && check(taken.record).check === "not-found"
           ? quotePlaceProblem(taken.record.quote, taken.passageUnits, matchingFor(taken.source))
@@ -2171,6 +2204,9 @@ export function createCitationSession(
         withCueMarks(
           withSetAsideMarks(firstMark ? `${firstMark} ${marked}` : marked, passage.text, units),
           units,
+          units.some((unit) => unit.kind === "cues")
+            ? (documents.speakers?.(passage.documentId) ?? null)
+            : null,
         ),
       );
       const text = withUnsureMarks(plain, units);
@@ -2670,7 +2706,7 @@ export function createCitationSession(
         if (cited.some(({ record }) => record.result?.check === "cant-check")) continue;
         const stating = cited.filter(({ record, units, matching }) =>
           record.time
-            ? quoteInCues(units, words, record.time, matching)
+            ? quoteInCues(units, words, record.time, matching, speakersFor(record.source))
             : quoteInUnits(units, words, matching),
         );
         if (stating.length > 0) {

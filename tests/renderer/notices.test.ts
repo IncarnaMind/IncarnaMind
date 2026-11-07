@@ -52,18 +52,19 @@ beforeEach(() => {
 });
 
 describe("an error", () => {
-  test("says the core's sentence in plain words, with the technical text for Details", () => {
+  test("says the core's sentence in plain words, keeping the call and the technical text apart from what is shown", () => {
     notices.getState().showError(failed("A Document’s name can’t be empty."));
     const [notice] = notices.getState().errors;
     expect(notice?.message).toBe("A Document’s name can’t be empty.");
-    expect(notice?.detail).toBe(
+    expect(notice?.call).toBe("renameDocument");
+    expect(notice?.log).toBe(
       "core:renameDocument\nInvalidInputError: A Document’s name can’t be empty.",
     );
     const everything = JSON.stringify(notices.getState().errors);
     expect(everything).not.toContain("Error invoking remote method");
   });
 
-  test("keeps the core's wording, for the interface language, and its English for Details", () => {
+  test("keeps the core's wording, for the interface language, and its English for the log", () => {
     const error = new InvalidInputError({ key: "error.document.nameEmpty" });
     notices
       .getState()
@@ -73,7 +74,7 @@ describe("an error", () => {
     const [notice] = notices.getState().errors;
     expect(notice?.wording).toEqual({ key: "error.document.nameEmpty" });
     expect(notice?.message).toBe("A Document’s name can’t be empty.");
-    expect(notice?.detail).toBe(
+    expect(notice?.log).toBe(
       "core:renameDocument\nInvalidInputError: A Document’s name can’t be empty.",
     );
   });

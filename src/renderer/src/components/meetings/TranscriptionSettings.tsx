@@ -16,22 +16,16 @@ import { KeyCharacterLine } from "../KeyCharacterLine";
 import { ProblemLine } from "../ProblemLine";
 import { KeyNotCheckedLine, SecretStorageNotice } from "../providers/ProviderForm";
 import { ReadProblem } from "../ReadProblem";
-import {
-  buttonStyle,
-  inputClass,
-  rowButtonsClass,
-  rowStatusClass,
-  rowTextClass,
-  rowTitleClass,
-  ruledRowClass,
-} from "../ui";
+import { SettingsRow } from "../settings/SettingsGroup";
+import { buttonStyle, hintClass, rowFieldClass } from "../ui";
 import { CloudLine } from "./CloudLine";
 import { LanguagesLine } from "./LanguagesLine";
 
 /**
- * Under "Transcribe on" in Settings › Meetings (#141). Before a cloud service is chosen it says
- * what choosing one sends, so the choice is the consent (ADR-0022); once chosen, where the audio
- * goes and what it costs, or that Local mode holds it back.
+ * Under "Transcribe on" in Settings › Meetings (#141): the line describes the route chosen — this
+ * computer, whatever cloud keys exist (#2661), or the cloud service, where its audio goes and what
+ * it costs, or that Local mode holds it back. A cloud route the list can't name yet says what
+ * choosing one sends, so the choice is the consent (ADR-0022).
  */
 export function TranscriptionRouteLine({ id, read }: { id?: string; read: ServicesView }) {
   const t = useT();
@@ -54,27 +48,17 @@ export function TranscriptionRouteLine({ id, read }: { id?: string; read: Servic
   const service = services.find((each) => each.route === route);
   if (!service) {
     return (
-      <p id={id} data-testid="meetings-route-line" className={rowTextClass}>
+      <p id={id} data-testid="meetings-route-line">
         {chooseAgainLine(services, t, language) ??
-          t(
-            services.some((each) => each.hasKey)
-              ? "meetings.route.consent"
-              : "meetings.route.hereLine",
-          )}
+          t(route === "local" ? "meetings.route.hereLine" : "meetings.route.consent")}
       </p>
     );
   }
   return (
     <div id={id} data-testid="meetings-route-line" className="flex flex-col gap-0.5">
-      <p className="text-[13px] leading-5 text-ink-meta tabular-nums">
-        {serviceMeta(service, t, language)}
-      </p>
-      {localMode ? (
-        <p className={rowTextClass}>{t("meetings.route.paused")}</p>
-      ) : (
-        <CloudLine service={service} className={rowTextClass} />
-      )}
-      <LanguagesLine service={service} className={rowTextClass} />
+      <p className="tabular-nums">{serviceMeta(service, t, language)}</p>
+      {localMode ? <p>{t("meetings.route.paused")}</p> : <CloudLine service={service} />}
+      <LanguagesLine service={service} />
     </div>
   );
 }
@@ -212,136 +196,144 @@ function TranscriptionKeyRow({ service }: { service: TranscriptionServiceStatus 
   const given = text !== "" || (takesServer && server.trim() !== "");
 
   return (
-    <div data-testid={`transcription-key-${service.route}`} className={ruledRowClass}>
-      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <label htmlFor={inputId} className={rowTitleClass}>
-          {t("meetings.key.title", name)}
-        </label>
-        <p className={rowTextClass}>
-          {t(checksKey && !localMode ? "meetings.key.lineChecked" : "meetings.key.line", name)}
-          {service.keyUrl && (
-            <>
-              {" "}
-              <a
-                href={service.keyUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="underline decoration-rule-strong underline-offset-2 hover:text-ink"
-              >
-                {t("meetings.key.get")}
-              </a>
-            </>
-          )}
-        </p>
-        {service.server && !open && (
-          <p data-testid="transcription-key-server-saved" className={`${rowTextClass} break-words`}>
-            {t("meetings.key.serverSaved", { server: service.server })}
+    <SettingsRow
+      data-testid={`transcription-key-${service.route}`}
+      label={t("meetings.key.title", name)}
+      htmlFor={inputId}
+      detail={
+        <>
+          <p>
+            {t(checksKey && !localMode ? "meetings.key.lineChecked" : "meetings.key.line", name)}
+            {service.keyUrl && (
+              <>
+                {" "}
+                <a
+                  href={service.keyUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline decoration-rule-strong underline-offset-2 hover:text-ink"
+                >
+                  {t("meetings.key.get")}
+                </a>
+              </>
+            )}
           </p>
-        )}
-        {open && takesServer && (
-          <div className="mt-1.5 flex flex-col gap-1">
-            <label htmlFor={serverId} className="text-[13px] leading-5 text-ink">
-              {t("meetings.key.server")}
-            </label>
-            <input
-              id={serverId}
-              type="url"
-              autoComplete="off"
-              spellCheck={false}
-              data-testid="transcription-key-server"
-              placeholder={t("meetings.key.serverPlaceholder")}
-              aria-describedby={`${serverId}-tip`}
-              value={server}
-              onChange={(event) => setServer(event.target.value)}
-              onKeyDown={closeOnEscape}
-              className={`${inputClass} mt-0 min-w-48`}
-            />
-            <p id={`${serverId}-tip`} className={rowTextClass}>
-              {t("meetings.key.serverTip")}
+          {service.server && !open && (
+            <p data-testid="transcription-key-server-saved" className="break-words">
+              {t("meetings.key.serverSaved", { server: service.server })}
             </p>
-          </div>
-        )}
-        {open && (
-          <form
-            className="mt-1.5 flex flex-wrap items-center gap-2"
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (given && !stray && !saving) void save();
-            }}
-          >
-            <input
-              id={inputId}
-              type="password"
-              autoComplete="off"
-              spellCheck={false}
-              // biome-ignore lint/a11y/noAutofocus: it opens only when the User asks to add a key.
-              autoFocus
-              data-testid="transcription-key-input"
-              placeholder={t("meetings.key.placeholder")}
-              aria-invalid={stray ? true : undefined}
-              aria-describedby={stray ? `${inputId}-stray` : undefined}
-              value={key}
-              onChange={(event) => setKey(event.target.value)}
-              onKeyDown={closeOnEscape}
-              className={`${inputClass} mt-0 min-w-48 flex-1`}
-            />
-            <button
-              type="submit"
-              data-testid="transcription-key-save"
-              disabled={
-                !given || stray !== null || saving || (storage !== null && !storage.canSave)
-              }
-              className={buttonStyle("primary")}
-            >
-              {t(saving ? "meetings.key.checking" : "meetings.key.save")}
-            </button>
-          </form>
-        )}
-        {open && stray && <KeyCharacterLine id={`${inputId}-stray`} stray={stray} />}
-        {open && storage && !storage.canSave && (
-          <SecretStorageNotice status={storage} onAccept={() => void acceptPlainText()} />
-        )}
-        {notChecked && !open && <KeyNotCheckedLine provider={name.provider} />}
-        {problem && (
-          <ProblemLine className="mt-1" testId="transcription-key-problem">
-            {problem}
-          </ProblemLine>
-        )}
-      </div>
-      {!open && (
-        <div className={rowButtonsClass}>
-          {service.hasKey && (
-            <span data-testid="transcription-key-saved" className={rowStatusClass}>
-              {t("meetings.key.saved")}
-            </span>
           )}
-          <button
-            type="button"
-            data-testid="transcription-key-add"
-            onClick={() => {
-              setProblem(null);
-              setNotChecked(false);
-              setServer(service.server ?? "");
-              setOpen(true);
-            }}
-            className={buttonStyle("secondary")}
-          >
-            {t(service.hasKey ? "meetings.key.replace" : "meetings.key.add")}
-          </button>
-          {service.hasKey && (
+        </>
+      }
+      control={
+        open ? undefined : (
+          <>
+            {service.hasKey && (
+              <span
+                data-testid="transcription-key-saved"
+                className="text-[13px] leading-5 text-ink-meta"
+              >
+                {t("meetings.key.saved")}
+              </span>
+            )}
             <button
               type="button"
-              data-testid="transcription-key-remove"
-              onClick={() =>
-                void useTranscriptionServices.getState().removeKey(service.route).then(setProblem)
-              }
-              className={buttonStyle("ghost")}
+              data-testid="transcription-key-add"
+              onClick={() => {
+                setProblem(null);
+                setNotChecked(false);
+                setServer(service.server ?? "");
+                setOpen(true);
+              }}
+              className={buttonStyle("secondary", "sm")}
             >
-              {t("meetings.key.remove")}
+              {t(service.hasKey ? "meetings.key.replace" : "meetings.key.add")}
             </button>
+            {service.hasKey && (
+              <button
+                type="button"
+                data-testid="transcription-key-remove"
+                onClick={() =>
+                  void useTranscriptionServices.getState().removeKey(service.route).then(setProblem)
+                }
+                className={buttonStyle("ghost", "sm")}
+              >
+                {t("meetings.key.remove")}
+              </button>
+            )}
+          </>
+        )
+      }
+    >
+      {(open || notChecked || problem) && (
+        <div className="flex flex-col gap-2">
+          {open && takesServer && (
+            <div className="flex flex-col gap-1">
+              <label htmlFor={serverId} className="text-[13px] leading-5 text-ink">
+                {t("meetings.key.server")}
+              </label>
+              <input
+                id={serverId}
+                type="url"
+                autoComplete="off"
+                spellCheck={false}
+                data-testid="transcription-key-server"
+                placeholder={t("meetings.key.serverPlaceholder")}
+                aria-describedby={`${serverId}-tip`}
+                value={server}
+                onChange={(event) => setServer(event.target.value)}
+                onKeyDown={closeOnEscape}
+                className={`${rowFieldClass} w-full`}
+              />
+              <p id={`${serverId}-tip`} className={hintClass}>
+                {t("meetings.key.serverTip")}
+              </p>
+            </div>
           )}
+          {open && (
+            <form
+              className="flex flex-wrap items-center gap-2"
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (given && !stray && !saving) void save();
+              }}
+            >
+              <input
+                id={inputId}
+                type="password"
+                autoComplete="off"
+                spellCheck={false}
+                // biome-ignore lint/a11y/noAutofocus: it opens only when the User asks to add a key.
+                autoFocus
+                data-testid="transcription-key-input"
+                placeholder={t("meetings.key.placeholder")}
+                aria-invalid={stray ? true : undefined}
+                aria-describedby={stray ? `${inputId}-stray` : undefined}
+                value={key}
+                onChange={(event) => setKey(event.target.value)}
+                onKeyDown={closeOnEscape}
+                className={`${rowFieldClass} min-w-48 flex-1`}
+              />
+              <button
+                type="submit"
+                data-testid="transcription-key-save"
+                disabled={
+                  !given || stray !== null || saving || (storage !== null && !storage.canSave)
+                }
+                className={buttonStyle("primary", "sm")}
+              >
+                {t(saving ? "meetings.key.checking" : "meetings.key.save")}
+              </button>
+            </form>
+          )}
+          {open && stray && <KeyCharacterLine id={`${inputId}-stray`} stray={stray} />}
+          {open && storage && !storage.canSave && (
+            <SecretStorageNotice status={storage} onAccept={() => void acceptPlainText()} />
+          )}
+          {notChecked && !open && <KeyNotCheckedLine provider={name.provider} />}
+          {problem && <ProblemLine testId="transcription-key-problem">{problem}</ProblemLine>}
         </div>
       )}
-    </div>
+    </SettingsRow>
   );
 }

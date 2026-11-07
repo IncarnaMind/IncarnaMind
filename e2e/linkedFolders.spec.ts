@@ -731,7 +731,7 @@ test("a Linked folder that moved is located from its menu, and its Document and 
   await app.close();
 });
 
-test("in Chinese a folder that doesn't hold the Linked folder's files is refused in Chinese, and its Details stay English", async () => {
+test("in Chinese a folder that doesn't hold the Linked folder's files is refused in Chinese, and its Details say what was tried in Chinese", async () => {
   const library = join(sources, "Library");
   const empty = join(sources, "Empty");
   await mkdir(empty);
@@ -757,10 +757,10 @@ test("in Chinese a folder that doesn't hold the Linked folder's files is refused
     );
     const details = notice.getByTestId("error-notice-details");
     await details.getByText("详情").click();
-    await expect(details).toContainText("core:locateLinkedFolder");
-    await expect(details).toContainText(
-      "InvalidInputError: That folder doesn’t hold “Library”’s files. Choose the folder that does.",
-    );
+    await expect(details).toContainText("出错时，IncarnaMind 正在处理关联文件夹。");
+    await expect(details).not.toContainText("core:");
+    await expect(details).not.toContainText("locateLinkedFolder");
+    await expect(details).not.toContainText("InvalidInputError");
     await screenshot(window, "locate-refused-zh-900");
     await setWindowSize(app, window, 1600, 900);
     await expect(notice).toBeVisible();

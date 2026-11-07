@@ -198,7 +198,7 @@ test("asking without a chat model says what to set up at the top of the Mind, an
   // In Chinese.
   await bridge(window).settings("zh-CN");
   await expect(top).toContainText("提问需要 AI 模型");
-  await expect(top.getByRole("button")).toHaveText("去设置");
+  await expect(top.getByRole("button")).toHaveText("设置");
   await screenshot(window, "needs-chat-model-zh");
   await bridge(window).settings("en");
 

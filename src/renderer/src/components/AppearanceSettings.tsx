@@ -3,7 +3,7 @@ import type { MessageKey } from "../../../shared/i18n";
 import { chooseAppearance } from "../appearance";
 import { useT } from "../i18n";
 import { useAppStore } from "../store";
-import { ruledListClass, sectionTitleClass } from "./ui";
+import { SettingsPopUpRow } from "./settings/PopUpButton";
 
 const appearanceOptions: readonly { value: Appearance; label: MessageKey }[] = [
   { value: "light", label: "settings.appearance.light" },
@@ -11,34 +11,23 @@ const appearanceOptions: readonly { value: Appearance; label: MessageKey }[] = [
   { value: "system", label: "settings.appearance.system" },
 ];
 
-/** Settings → General → Appearance: Light, Dark, or Same as system, the default (#1262). */
-export function AppearanceSettings() {
+/** Settings → General → Interface → Appearance: Light, Dark, or Same as system, the default (#1262). */
+export function AppearanceRow() {
   const t = useT();
   const appearance = useAppStore((state) => state.settings?.device.appearance ?? "system");
-
   return (
-    <section data-testid="appearance-settings">
-      <h4 id="appearance-title" className={`mb-2 ${sectionTitleClass}`}>
-        {t("settings.appearance")}
-      </h4>
-      <div role="radiogroup" aria-labelledby="appearance-title" className={ruledListClass}>
-        {appearanceOptions.map((option) => (
-          <label
-            key={option.value}
-            className="flex h-10 cursor-pointer items-center gap-3 text-ui text-ink"
-          >
-            <input
-              type="radio"
-              name="appearance"
-              value={option.value}
-              checked={appearance === option.value}
-              onChange={() => void chooseAppearance(option.value)}
-              className="size-4 shrink-0 accent-ink"
-            />
-            {t(option.label)}
-          </label>
-        ))}
-      </div>
-    </section>
+    <SettingsPopUpRow
+      testId="appearance-settings"
+      buttonTestId="appearance-choice"
+      label={t("settings.appearance")}
+      value={appearance}
+      options={appearanceOptions.map((option) => ({
+        value: option.value,
+        label: t(option.label),
+      }))}
+      onChange={(value) => {
+        if (value !== appearance) void chooseAppearance(value);
+      }}
+    />
   );
 }

@@ -406,7 +406,7 @@ test("a Markdown export with pictures names every file on its card, a long list 
   expect(await readdir(elsewhere)).toEqual([]);
 
   // By the keyboard: from the card's title, Tab reaches the long list, End scrolls it to its
-  // last name, Tab reaches Allow, and Enter allows.
+  // last name, Tab reaches Don't allow, the next Tab reaches Allow, and Enter allows.
   await addPictures(window, 3, 22);
   const card = await askAndWait(window, `Export this Mind as Markdown to ${elsewhere}`);
   const listed = await everyLayout(card, 25);
@@ -416,6 +416,8 @@ test("a Markdown export with pictures names every file on its card, a long list 
   await expect(files).toBeFocused();
   await window.keyboard.press("End");
   await expect(card.getByTestId("approval-file").last()).toBeInViewport();
+  await window.keyboard.press("Tab");
+  await expect(card.getByTestId("approval-deny")).toBeFocused();
   await window.keyboard.press("Tab");
   await expect(card.getByTestId("approval-allow-once")).toBeFocused();
   await window.keyboard.press("Enter");

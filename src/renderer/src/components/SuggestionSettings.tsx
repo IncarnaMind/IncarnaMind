@@ -1,10 +1,9 @@
-import { useCallback, useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { SuggestionStatus } from "../../../core/api";
 import { core } from "../core";
 import { useT } from "../i18n";
 import { useAppStore } from "../store";
-import { InfoTip } from "./InfoTip";
-import { hintClass, rowTitleClass, ruledListClass, ruledRowClass, sectionTitleClass } from "./ui";
+import { SettingsGroup, SettingsSection, SettingsSwitchRow } from "./settings/SettingsGroup";
 
 /**
  * Settings → General → Writing: the switch for suggestions as the User
@@ -18,7 +17,6 @@ export function SuggestionSettings() {
   const updateSettings = useAppStore((state) => state.updateSettings);
   const reportError = useAppStore((state) => state.reportError);
   const [status, setStatus] = useState<SuggestionStatus | null>(null);
-  const id = useId();
 
   // Settings keeps its pages mounted: the status is read again each time General shows, and
   // when what it depends on changes (the switch, the chat model, whether it can be used).
@@ -43,56 +41,47 @@ export function SuggestionSettings() {
   const paused = on ? status?.paused : null;
 
   return (
-    <section data-testid="suggestion-settings">
-      <h4 className={`mb-2 ${sectionTitleClass}`}>{t("suggestions.settings.title")}</h4>
-      <div className={ruledListClass}>
-        <div className={ruledRowClass}>
-          <div className="flex min-w-0 flex-col gap-0.5">
-            <div className="flex items-center">
-              <label htmlFor={id} className={rowTitleClass}>
-                {t("suggestions.settings.switch")}
-              </label>
-              <InfoTip id={`${id}-description`} text={t("suggestions.settings.tip")} />
-            </div>
-            {status && (
-              <p data-testid="suggestion-counts" className={hintClass}>
-                {t("suggestions.settings.today", status.today)}
-              </p>
-            )}
-            {paused && (
-              <p data-testid="suggestion-paused" role="status" className={hintClass}>
-                {paused.reason === "consent"
-                  ? t("suggestions.settings.paused.consent", { service: paused.service.name })
-                  : t(`suggestions.settings.paused.${paused.reason}`)}
-                {paused.reason === "consent" && (
-                  <>
-                    <span aria-hidden="true"> · </span>
-                    <button
-                      type="button"
-                      data-testid="suggestion-allow"
-                      onClick={() => void turn(true)}
-                      className="rounded-sm font-semibold text-accent underline-offset-2 hover:underline"
-                    >
-                      {t("suggestions.settings.allow")}
-                    </button>
-                  </>
+    <SettingsSection title={t("suggestions.settings.title")} testId="suggestion-settings">
+      <SettingsGroup>
+        <SettingsSwitchRow
+          label={t("suggestions.settings.switch")}
+          tip={t("suggestions.settings.tip")}
+          detail={
+            (status || paused) && (
+              <>
+                {status && (
+                  <p data-testid="suggestion-counts">
+                    {t("suggestions.settings.today", status.today)}
+                  </p>
                 )}
-              </p>
-            )}
-          </div>
-          <input
-            id={id}
-            type="checkbox"
-            role="switch"
-            aria-checked={on}
-            aria-describedby={`${id}-description`}
-            data-testid="suggestion-switch"
-            checked={on}
-            onChange={(event) => void turn(event.target.checked)}
-            className="switch"
-          />
-        </div>
-      </div>
-    </section>
+                {paused && (
+                  <p data-testid="suggestion-paused" role="status">
+                    {paused.reason === "consent"
+                      ? t("suggestions.settings.paused.consent", { service: paused.service.name })
+                      : t(`suggestions.settings.paused.${paused.reason}`)}
+                    {paused.reason === "consent" && (
+                      <>
+                        <span aria-hidden="true"> · </span>
+                        <button
+                          type="button"
+                          data-testid="suggestion-allow"
+                          onClick={() => void turn(true)}
+                          className="rounded-sm font-semibold text-accent underline-offset-2 hover:underline"
+                        >
+                          {t("suggestions.settings.allow")}
+                        </button>
+                      </>
+                    )}
+                  </p>
+                )}
+              </>
+            )
+          }
+          checked={on}
+          onChange={(next) => void turn(next)}
+          switchTestId="suggestion-switch"
+        />
+      </SettingsGroup>
+    </SettingsSection>
   );
 }

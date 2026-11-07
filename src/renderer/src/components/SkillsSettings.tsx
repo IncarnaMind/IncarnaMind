@@ -24,7 +24,15 @@ import { MetaLine } from "./MetaLine";
 import { ProblemLine, ProblemMark } from "./ProblemLine";
 import { SkillEditor } from "./SkillEditor";
 import {
-  buttonClass,
+  SettingsGroup,
+  SettingsHelp,
+  SettingsRow,
+  SettingsSection,
+  SettingsSwitch,
+  SettingsSwitchRow,
+} from "./settings/SettingsGroup";
+import {
+  buttonStyle,
   errorTextClass,
   ghostButtonClass,
   iconButtonClass,
@@ -34,14 +42,7 @@ import {
   noticeClass,
   pageIntroClass,
   primaryButtonClass,
-  rowStatusClass,
-  rowTextClass,
-  rowTitleClass,
-  ruledListClass,
-  ruledRow,
-  ruledRowClass,
-  sectionNoteClass,
-  sectionTitleClass,
+  rowFieldClass,
 } from "./ui";
 import { usePopoverMenu } from "./usePopoverMenu";
 
@@ -166,7 +167,7 @@ export function SkillsSettings() {
   const builtIn = skills.filter((skill) => skill.builtIn);
   const row = (skill: Skill) =>
     editing?.kind === "edit" && editing.skill.id === skill.id ? (
-      <li key={skill.id} className="py-3.5">
+      <div key={skill.id} className="p-3">
         <SkillEditor
           testId="skill-editor"
           initial={editing.draft}
@@ -175,7 +176,7 @@ export function SkillsSettings() {
           onSaved={() => close(editing)}
           onCancel={() => close(editing)}
         />
-      </li>
+      </div>
     ) : (
       <SkillRow
         key={skill.id}
@@ -186,109 +187,109 @@ export function SkillsSettings() {
     );
 
   return (
-    <section data-testid="skills-settings" className="flex flex-col gap-4">
-      <p className={pageIntroClass}>{t("skills.settings.body")}</p>
+    <section data-testid="skills-settings" className="flex flex-col gap-6">
+      <div className="flex flex-col gap-4">
+        <p className={pageIntroClass}>{t("skills.settings.body")}</p>
 
-      <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          data-testid="skill-new"
-          disabled={editing?.kind === "new"}
-          onClick={() => {
-            editorAsked();
-            setEditing({ kind: "new" });
-          }}
-          className={buttonClass}
-        >
-          <PlusLineIcon className="size-4" />
-          {t("skills.settings.new")}
-        </button>
-        <button
-          {...importMenu.buttonProps}
-          type="button"
-          data-testid="skill-import"
-          disabled={busy !== null || preview !== null}
-          className={buttonClass}
-        >
-          <ExportLineIcon className="size-4" />
-          {t("skills.settings.import")}
-        </button>
-        <div
-          {...importMenu.menuProps}
-          role="menu"
-          aria-label={t("skills.settings.import")}
-          data-testid="skill-import-menu"
-          className={menuClass}
-        >
-          {importMenu.open && (
-            <>
-              <button
-                type="button"
-                role="menuitem"
-                data-testid="skill-import-folder"
-                onClick={() => {
-                  importMenu.close();
-                  void choose("folder");
-                }}
-                className={`${menuItemClass} pl-2`}
-              >
-                {t("skills.import.folder")}
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                data-testid="skill-import-zip"
-                onClick={() => {
-                  importMenu.close();
-                  void choose("zip");
-                }}
-                className={`${menuItemClass} pl-2`}
-              >
-                {t("skills.import.zip")}
-              </button>
-            </>
-          )}
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            data-testid="skill-new"
+            disabled={editing?.kind === "new"}
+            onClick={() => {
+              editorAsked();
+              setEditing({ kind: "new" });
+            }}
+            className={buttonStyle("secondary", "sm")}
+          >
+            <PlusLineIcon className="size-4" />
+            {t("skills.settings.new")}
+          </button>
+          <button
+            {...importMenu.buttonProps}
+            type="button"
+            data-testid="skill-import"
+            disabled={busy !== null || preview !== null}
+            className={buttonStyle("secondary", "sm")}
+          >
+            <ExportLineIcon className="size-4" />
+            {t("skills.settings.import")}
+          </button>
+          <div
+            {...importMenu.menuProps}
+            role="menu"
+            aria-label={t("skills.settings.import")}
+            data-testid="skill-import-menu"
+            className={menuClass}
+          >
+            {importMenu.open && (
+              <>
+                <button
+                  type="button"
+                  role="menuitem"
+                  data-testid="skill-import-folder"
+                  onClick={() => {
+                    importMenu.close();
+                    void choose("folder");
+                  }}
+                  className={`${menuItemClass} pl-2`}
+                >
+                  {t("skills.import.folder")}
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  data-testid="skill-import-zip"
+                  onClick={() => {
+                    importMenu.close();
+                    void choose("zip");
+                  }}
+                  className={`${menuItemClass} pl-2`}
+                >
+                  {t("skills.import.zip")}
+                </button>
+              </>
+            )}
+          </div>
         </div>
+        {busy === "reading" && (
+          <p className="text-[13px] leading-5 text-ink-meta">{t("skills.import.reading")}</p>
+        )}
+        {error && <ImportError error={error} />}
+        {exported && <ExportStatus exported={exported} onExport={exportZip} />}
+        {preview && (
+          <SkillPreview
+            preview={preview}
+            importing={busy === "importing"}
+            onImport={() => void confirm(preview.importId)}
+            onCancel={() => cancel(preview.importId)}
+          />
+        )}
+        {editing?.kind === "new" && (
+          <SkillEditor
+            testId="skill-editor"
+            initial={NEW_SKILL}
+            title={t("skills.edit.new")}
+            save={(draft) => core.createSkill(draft)}
+            onSaved={() => close(editing)}
+            onCancel={() => close(editing)}
+          />
+        )}
       </div>
-      {busy === "reading" && (
-        <p className="text-[13px] leading-5 text-ink-meta">{t("skills.import.reading")}</p>
-      )}
-      {error && <ImportError error={error} />}
-      {exported && <ExportStatus exported={exported} onExport={exportZip} />}
-      {preview && (
-        <SkillPreview
-          preview={preview}
-          importing={busy === "importing"}
-          onImport={() => void confirm(preview.importId)}
-          onCancel={() => cancel(preview.importId)}
-        />
-      )}
-      {editing?.kind === "new" && (
-        <SkillEditor
-          testId="skill-editor"
-          initial={NEW_SKILL}
-          title={t("skills.edit.new")}
-          save={(draft) => core.createSkill(draft)}
-          onSaved={() => close(editing)}
-          onCancel={() => close(editing)}
-        />
-      )}
 
-      <section data-testid="skills-yours" className="flex flex-col">
-        <h4 className={`mb-2 ${sectionTitleClass}`}>{t("skills.settings.yours")}</h4>
+      <SettingsSection testId="skills-yours" title={t("skills.settings.yours")}>
         {yours.length === 0 ? (
-          <p className={`${rowStatusClass} border-y border-rule py-3.5`}>
+          <p className="px-4 text-[13px] leading-5 text-ink-meta">
             {t("skills.settings.yours.empty")}
           </p>
         ) : (
-          <ul className={ruledListClass}>{yours.map(row)}</ul>
+          <SettingsGroup>{yours.map(row)}</SettingsGroup>
         )}
-      </section>
+      </SettingsSection>
 
-      <section data-testid="skills-built-in" className="flex flex-col">
-        <h4 className={sectionTitleClass}>{t("skills.settings.builtIn")}</h4>
-        <p className={sectionNoteClass}>{t("skills.settings.builtIn.hint")}</p>
-        {builtIn.length > 0 && <ul className={ruledListClass}>{builtIn.map(row)}</ul>}
+      <SettingsSection testId="skills-built-in" title={t("skills.settings.builtIn")}>
+        {builtIn.length > 0 && <SettingsGroup>{builtIn.map(row)}</SettingsGroup>}
+        <SettingsHelp>{t("skills.settings.builtIn.hint")}</SettingsHelp>
         {removedBuiltIns.length > 0 && (
           <div className="mt-3">
             <button
@@ -299,13 +300,13 @@ export function SkillsSettings() {
               })}
               disabled={busy !== null}
               onClick={() => void restoreBuiltInSkills()}
-              className={buttonClass}
+              className={buttonStyle("secondary", "sm")}
             >
               {t("skills.settings.restoreBuiltIns")}
             </button>
           </div>
         )}
-      </section>
+      </SettingsSection>
     </section>
   );
 }
@@ -379,7 +380,6 @@ export function SkillScriptsSettings() {
   const updateSettings = useAppStore((state) => state.updateSettings);
   const [draft, setDraft] = useState<string | null>(null);
   const timeoutId = useId();
-  const enabledId = useId();
   if (enabled === undefined || timeout === undefined) return null;
 
   const { minTimeoutSeconds: min, maxTimeoutSeconds: max } = SKILL_SCRIPT_LIMITS;
@@ -393,20 +393,15 @@ export function SkillScriptsSettings() {
   };
 
   return (
-    <section data-testid="skill-scripts-settings" className="flex flex-col">
-      <h4 className={`mb-2 ${sectionTitleClass}`}>{t("scripts.settings.title")}</h4>
-      <div className={ruledListClass}>
-        <div className={ruledRowClass}>
-          <div className="flex min-w-0 flex-col gap-0.5">
-            <label htmlFor={enabledId} className={rowTitleClass}>
-              {t("scripts.settings.enabled")}
-            </label>
-            <div
-              id={`${enabledId}-description`}
-              data-testid="skill-scripts-sandbox"
-              data-sandbox={sandboxed ? "os" : "none"}
-              className={rowTextClass}
-            >
+    <SettingsSection testId="skill-scripts-settings" title={t("scripts.settings.title")}>
+      <SettingsGroup>
+        <SettingsSwitchRow
+          label={t("scripts.settings.enabled")}
+          checked={enabled}
+          onChange={(on) => void updateSettings({ device: { skillScriptsEnabled: on } })}
+          switchTestId="skill-scripts-enabled"
+          detail={
+            <div data-testid="skill-scripts-sandbox" data-sandbox={sandboxed ? "os" : "none"}>
               {sandboxed ? (
                 <DetailsLine
                   testId="skill-scripts-reach"
@@ -433,50 +428,41 @@ export function SkillScriptsSettings() {
                 </ProblemLine>
               )}
             </div>
-          </div>
-          <input
-            id={enabledId}
-            type="checkbox"
-            role="switch"
-            aria-checked={enabled}
-            aria-describedby={`${enabledId}-description`}
-            data-testid="skill-scripts-enabled"
-            checked={enabled}
-            onChange={(event) =>
-              void updateSettings({ device: { skillScriptsEnabled: event.target.checked } })
-            }
-            className="switch"
-          />
-        </div>
-        <div className={ruledRow("center")}>
-          <label
-            htmlFor={timeoutId}
-            className={enabled ? "text-ui text-ink" : "text-ui text-ink-placeholder"}
-          >
-            {t("scripts.settings.timeout")}
-          </label>
-          <span className="flex items-center gap-2 text-[13px] leading-5 text-ink-meta">
-            <input
-              id={timeoutId}
-              type="number"
-              data-testid="skill-scripts-timeout"
-              min={min}
-              max={max}
-              step={1}
-              disabled={!enabled}
-              value={draft ?? String(timeout)}
-              onChange={(event) => setDraft(event.target.value)}
-              onBlur={commit}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") commit();
-              }}
-              className="h-8 w-20 rounded-sm border border-rule-strong bg-sheet px-2 text-ui text-ink focus:border-accent focus:outline-1 focus:outline-offset-0 focus:outline-accent disabled:opacity-60"
-            />
-            {t("scripts.settings.seconds")}
-          </span>
-        </div>
-      </div>
-    </section>
+          }
+        />
+        <SettingsRow
+          label={
+            <span className={enabled ? undefined : "text-ink-placeholder"}>
+              {t("scripts.settings.timeout")}
+            </span>
+          }
+          htmlFor={timeoutId}
+          control={
+            <>
+              <input
+                id={timeoutId}
+                type="number"
+                data-testid="skill-scripts-timeout"
+                min={min}
+                max={max}
+                step={1}
+                disabled={!enabled}
+                value={draft ?? String(timeout)}
+                onChange={(event) => setDraft(event.target.value)}
+                onBlur={commit}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") commit();
+                }}
+                className={`${rowFieldClass} w-20`}
+              />
+              <span className="text-[13px] leading-5 text-ink-meta">
+                {t("scripts.settings.seconds")}
+              </span>
+            </>
+          }
+        />
+      </SettingsGroup>
+    </SettingsSection>
   );
 }
 
@@ -552,79 +538,76 @@ function SkillRow({
     </button>
   );
 
+  const dimmed = skill.enabled ? undefined : "opacity-60";
+
   return (
-    <li
+    <SettingsRow
       data-testid="skill-item"
       data-skill-name={skill.name}
       data-enabled={skill.enabled}
       data-built-in={skill.builtIn}
-      className={ruledRowClass}
-    >
-      <div className={`flex min-w-0 flex-col gap-0.5 ${skill.enabled ? "" : "opacity-60"}`}>
-        <p className={`truncate ${rowTitleClass}`}>{skillTitle(skill.name, t)}</p>
-        {short ? (
-          <DetailsLine
-            testId={`skill-description-${skill.name}`}
-            className={rowTextClass}
-            details={<p>{skillDescription(skill, t)}</p>}
-          >
-            {short}
-          </DetailsLine>
-        ) : (
-          <p className={`line-clamp-1 ${rowTextClass}`} title={skillDescription(skill, t)}>
-            {skillDescription(skill, t)}
-          </p>
-        )}
-        {details.length > 0 && (
-          <MetaLine parts={details} className="text-[12px] leading-[18px] text-ink-meta" />
-        )}
-      </div>
-      {/* 28px buttons and the switch, centred on the name's 20px line. */}
-      <div className="-my-1 flex items-center gap-1">
-        <button
-          {...menu.buttonProps}
-          type="button"
-          data-testid="skill-menu"
-          aria-label={label}
-          title={label}
-          className={iconButtonClass}
-        >
-          <MoreLineIcon className="size-4" />
-        </button>
-        <div
-          {...menu.menuProps}
-          role="menu"
-          aria-label={label}
-          data-testid="skill-actions"
-          className={menuClass}
-        >
-          {menu.open && (
-            <>
-              {!skill.builtIn && item("skill-edit", t("skills.settings.edit"), () => onEdit(skill))}
-              {item("skill-export", t("skills.settings.export"), () => onExport(skill))}
-              {skill.builtIn &&
-                item("skill-duplicate", t("skills.settings.duplicate"), () => {
-                  void duplicateSkill(skill.id);
-                })}
-              <div className={menuRuleClass} />
-              {item("skill-remove", t("skills.settings.remove"), () => {
-                void removeSkill(skill.id);
-              })}
-            </>
+      label={<span className={`block truncate ${dimmed ?? ""}`}>{skillTitle(skill.name, t)}</span>}
+      detail={
+        <div className={dimmed}>
+          {short ? (
+            <DetailsLine
+              testId={`skill-description-${skill.name}`}
+              details={<p>{skillDescription(skill, t)}</p>}
+            >
+              {short}
+            </DetailsLine>
+          ) : (
+            <p className="line-clamp-1" title={skillDescription(skill, t)}>
+              {skillDescription(skill, t)}
+            </p>
           )}
+          {details.length > 0 && <MetaLine parts={details} />}
         </div>
-        <input
-          type="checkbox"
-          role="switch"
-          aria-checked={skill.enabled}
-          data-testid="skill-enabled"
-          aria-label={t("skills.settings.enabled", { name: skillTitle(skill.name, t) })}
-          checked={skill.enabled}
-          onChange={(event) => void setSkillEnabled(skill.id, event.target.checked)}
-          className="switch ml-2"
-        />
-      </div>
-    </li>
+      }
+      control={
+        <>
+          <button
+            {...menu.buttonProps}
+            type="button"
+            data-testid="skill-menu"
+            aria-label={label}
+            title={label}
+            className={iconButtonClass}
+          >
+            <MoreLineIcon className="size-4" />
+          </button>
+          <div
+            {...menu.menuProps}
+            role="menu"
+            aria-label={label}
+            data-testid="skill-actions"
+            className={menuClass}
+          >
+            {menu.open && (
+              <>
+                {!skill.builtIn &&
+                  item("skill-edit", t("skills.settings.edit"), () => onEdit(skill))}
+                {item("skill-export", t("skills.settings.export"), () => onExport(skill))}
+                {skill.builtIn &&
+                  item("skill-duplicate", t("skills.settings.duplicate"), () => {
+                    void duplicateSkill(skill.id);
+                  })}
+                <div className={menuRuleClass} />
+                {item("skill-remove", t("skills.settings.remove"), () => {
+                  void removeSkill(skill.id);
+                })}
+              </>
+            )}
+          </div>
+          <SettingsSwitch
+            checked={skill.enabled}
+            onChange={(on) => void setSkillEnabled(skill.id, on)}
+            testId="skill-enabled"
+            ariaLabel={t("skills.settings.enabled", { name: skillTitle(skill.name, t) })}
+          />
+        </>
+      }
+    />
   );
 }
 
@@ -645,14 +628,17 @@ function SkillPreview({
   return (
     <div
       data-testid="skill-preview"
-      className="flex flex-col gap-3 rounded-lg border border-rule p-4 text-ui text-ink"
+      className="flex flex-col gap-3 rounded-lg border border-rule bg-sheet p-4 text-ui text-ink"
     >
       <p className="text-label font-semibold text-ink-meta">{t("skills.preview.title")}</p>
       <div className="flex flex-col gap-0.5">
-        <p data-testid="skill-preview-name" className={rowTitleClass}>
+        <p data-testid="skill-preview-name" className="text-ui font-semibold text-ink">
           {skillTitle(preview.name, t)}
         </p>
-        <p data-testid="skill-preview-description" className={rowTextClass}>
+        <p
+          data-testid="skill-preview-description"
+          className="text-[13px] leading-5 text-ink-secondary"
+        >
           {preview.description}
         </p>
         {preview.license && (

@@ -1165,7 +1165,7 @@ export function footnoteOf(
       t,
       language,
     ) || t("export.unnamedDocument");
-  const location = citedLocation(attributes, t);
+  const location = citedLocation(attributes, t, documents);
   const state = citationState(attributes, documents, kept);
   const unverified = state.check !== "found";
   const failed: FailedCheck | null =

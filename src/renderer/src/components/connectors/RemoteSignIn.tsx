@@ -1,4 +1,4 @@
-import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useId, useRef, useState } from "react";
 import type {
   ConnectorClientInput,
   RemoteConnector,
@@ -11,7 +11,13 @@ import { useAppStore } from "../../store";
 import { DetailsLine } from "../DetailsLine";
 import { ProblemMark } from "../ProblemLine";
 import { SecretStorageNotice } from "../providers/ProviderForm";
-import { buttonStyle, fieldLabelClass, hintClass, inputClass, noticeClass } from "../ui";
+import {
+  SettingsGroup,
+  SettingsHelp,
+  SettingsRow,
+  SettingsRowAction,
+} from "../settings/SettingsGroup";
+import { buttonStyle, errorTextClass, noticeClass, rowFieldClass } from "../ui";
 import { storageReady } from "./signInStorage";
 
 /** A text button inside a line, e.g. "Sign out". */
@@ -67,7 +73,7 @@ export function RemoteSignIn({ connector }: { connector: RemoteConnector }) {
   if (state === "signing-in") return null;
 
   const clientLine = clientId && (
-    <p className="mt-1 flex flex-wrap items-center gap-2 text-[12px] leading-[18px] text-ink-meta">
+    <SettingsHelp className="flex flex-wrap items-center gap-2">
       <span>{t("remoteConnectors.client.using", { clientId })}</span>
       <button
         type="button"
@@ -76,14 +82,14 @@ export function RemoteSignIn({ connector }: { connector: RemoteConnector }) {
       >
         {t("remoteConnectors.client.forget")}
       </button>
-    </p>
+    </SettingsHelp>
   );
 
   if (state === "needs-sign-in" && signIn.heldBack) {
     return (
       <DetailsLine
         testId="connector-sign-in-held-back"
-        className={`mt-1 ${noticeClass}`}
+        className={noticeClass}
         details={<p>{t("remoteConnectors.signIn.heldBack.details")}</p>}
       >
         {t("remoteConnectors.signIn.heldBack")}
@@ -92,15 +98,45 @@ export function RemoteSignIn({ connector }: { connector: RemoteConnector }) {
   }
 
   if (state === "needs-sign-in") {
+    const askingForClient = needsClient || editingClient;
     return (
-      <div data-testid="connector-sign-in-notice" className={`mt-1 ${noticeClass}`}>
-        <p>
-          {signIn.expired
-            ? t("remoteConnectors.signIn.expired")
-            : t("remoteConnectors.signIn.required")}
-        </p>
+      <div data-testid="connector-sign-in-notice" className="flex flex-col gap-3">
+        <SettingsGroup>
+          <SettingsRow
+            label={
+              signIn.expired
+                ? t("remoteConnectors.signIn.expired")
+                : t("remoteConnectors.signIn.required")
+            }
+            control={
+              askingForClient ? undefined : (
+                <button
+                  type="button"
+                  data-testid="connector-sign-in"
+                  onClick={() => void act(() => core.signInToConnector(id))}
+                  disabled={!storageReady(storage, storageProblem !== null)}
+                  className={buttonStyle("primary", "sm")}
+                >
+                  {signIn.expired
+                    ? t("remoteConnectors.signInAgain")
+                    : t("remoteConnectors.signIn")}
+                </button>
+              )
+            }
+          />
+          {!askingForClient && !clientId && (
+            <SettingsRowAction
+              label={t("remoteConnectors.form.client")}
+              onClick={() => setEditingClient(true)}
+            />
+          )}
+        </SettingsGroup>
         {errorKind && (errorKind !== "secret-storage" || storage === null) && (
-          <p role="alert" data-testid="connector-sign-in-error" className="mt-1 text-ink">
+          <p
+            role="alert"
+            data-testid="connector-sign-in-error"
+            className={`px-4 ${errorTextClass}`}
+          >
             <ProblemMark />
             {storageProblem ?? t(`remoteConnectors.signIn.error.${errorKind}`)}
             {storageProblem !== null && (
@@ -121,7 +157,7 @@ export function RemoteSignIn({ connector }: { connector: RemoteConnector }) {
             }
           />
         )}
-        {needsClient || editingClient ? (
+        {askingForClient && (
           <ClientForm
             initialClientId={connector.clientId ?? ""}
             submitLabel={t("remoteConnectors.client.save")}
@@ -133,27 +169,6 @@ export function RemoteSignIn({ connector }: { connector: RemoteConnector }) {
             }}
             onCancel={needsClient ? undefined : () => setEditingClient(false)}
           />
-        ) : (
-          <div className="mt-2 flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              data-testid="connector-sign-in"
-              onClick={() => void act(() => core.signInToConnector(id))}
-              disabled={!storageReady(storage, storageProblem !== null)}
-              className={buttonStyle("primary", "sm")}
-            >
-              {signIn.expired ? t("remoteConnectors.signInAgain") : t("remoteConnectors.signIn")}
-            </button>
-            {!clientId && (
-              <button
-                type="button"
-                onClick={() => setEditingClient(true)}
-                className={`text-[12px] ${linkButtonClass}`}
-              >
-                {t("remoteConnectors.form.client")}
-              </button>
-            )}
-          </div>
         )}
         {clientLine}
       </div>
@@ -162,22 +177,78 @@ export function RemoteSignIn({ connector }: { connector: RemoteConnector }) {
 
   if (!signIn.signedIn && !clientId) return null;
   return (
-    <div className="text-[12px] leading-[18px] text-ink-meta">
+    <div className="flex flex-col">
       {signIn.signedIn && (
-        <p className="flex flex-wrap items-center gap-2">
-          <span>{t("remoteConnectors.signedIn")}</span>
-          <button
-            type="button"
-            data-testid="connector-sign-out"
-            onClick={() => void act(() => core.signOutOfConnector(id))}
-            className={linkButtonClass}
-          >
-            {t("remoteConnectors.signOut")}
-          </button>
-        </p>
+        <SettingsGroup>
+          <SettingsRow
+            label={t("remoteConnectors.signedIn")}
+            control={
+              <button
+                type="button"
+                data-testid="connector-sign-out"
+                onClick={() => void act(() => core.signOutOfConnector(id))}
+                className={buttonStyle("secondary", "sm")}
+              >
+                {t("remoteConnectors.signOut")}
+              </button>
+            }
+          />
+        </SettingsGroup>
       )}
       {clientLine}
     </div>
+  );
+}
+
+/** The OAuth app's client ID and secret, as two rows of a group. */
+export function ClientFields({
+  clientId,
+  onClientId,
+  clientSecret,
+  onClientSecret,
+  idRequired = false,
+}: {
+  clientId: string;
+  onClientId(value: string): void;
+  clientSecret: string;
+  onClientSecret(value: string): void;
+  idRequired?: boolean;
+}) {
+  const t = useT();
+  const id = useId();
+  return (
+    <>
+      <SettingsRow
+        label={t("remoteConnectors.client.id")}
+        htmlFor={`${id}-id`}
+        control={
+          <input
+            id={`${id}-id`}
+            required={idRequired}
+            value={clientId}
+            onChange={(event) => onClientId(event.target.value)}
+            spellCheck={false}
+            autoComplete="off"
+            className={`${rowFieldClass} w-72 font-mono`}
+          />
+        }
+      />
+      <SettingsRow
+        label={t("remoteConnectors.client.secret")}
+        htmlFor={`${id}-secret`}
+        detail={t("remoteConnectors.client.secretHint")}
+        control={
+          <input
+            id={`${id}-secret`}
+            type="password"
+            value={clientSecret}
+            onChange={(event) => onClientSecret(event.target.value)}
+            autoComplete="off"
+            className={`${rowFieldClass} w-72 font-mono`}
+          />
+        }
+      />
+    </>
   );
 }
 
@@ -223,33 +294,22 @@ export function ClientForm({
     <form
       data-testid="connector-client-form"
       onSubmit={(event) => void submit(event)}
-      className="mt-2 flex flex-col gap-2"
+      className="flex flex-col gap-3"
     >
-      <p className={hintClass}>
-        {t("remoteConnectors.client.hint")} {t("remoteConnectors.client.redirect")}
-      </p>
-      <label className={fieldLabelClass}>
-        {t("remoteConnectors.client.id")}
-        <input
-          required
-          value={clientId}
-          onChange={(event) => setClientId(event.target.value)}
-          spellCheck={false}
-          autoComplete="off"
-          className={`${inputClass} font-mono`}
-        />
-      </label>
-      <label className={fieldLabelClass}>
-        {t("remoteConnectors.client.secret")}
-        <input
-          type="password"
-          value={clientSecret}
-          onChange={(event) => setClientSecret(event.target.value)}
-          autoComplete="off"
-          className={`${inputClass} font-mono`}
-        />
-        <span className={hintClass}>{t("remoteConnectors.client.secretHint")}</span>
-      </label>
+      <div>
+        <SettingsGroup>
+          <ClientFields
+            idRequired
+            clientId={clientId}
+            onClientId={setClientId}
+            clientSecret={clientSecret}
+            onClientSecret={setClientSecret}
+          />
+        </SettingsGroup>
+        <SettingsHelp>
+          {t("remoteConnectors.client.hint")} {t("remoteConnectors.client.redirect")}
+        </SettingsHelp>
+      </div>
       <div className="flex flex-wrap gap-2">
         <button
           type="submit"
@@ -266,7 +326,7 @@ export function ClientForm({
         )}
       </div>
       {error && (
-        <p role="alert" className="text-[12px] leading-[18px] text-ink">
+        <p role="alert" className="px-4 text-[12px] leading-[18px] text-ink">
           <ProblemMark />
           {error}
         </p>

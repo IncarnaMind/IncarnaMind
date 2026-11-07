@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Annotation, AnnotationColour } from "../../../core/api";
 import { ANNOTATION_COLOURS } from "../../../core/api";
 import { ANNOTATION_COLOUR_LABELS } from "../../../shared/annotationColours";
+import { citedSpeakers } from "../../../shared/citations";
 import { formatLocation } from "../../../shared/locations";
 import { addAnnotationToNote, deleteAnnotation, editAnnotation } from "../annotationActions";
 import { useAnnotationDrafts } from "../annotationDrafts";
@@ -76,7 +77,8 @@ export function AnnotationNotePopover({
   const [picking, setPicking] = useState(false);
   const addButton = useRef<HTMLButtonElement>(null);
   const field = useRef<HTMLTextAreaElement>(null);
-  const where = annotation.location ? formatLocation(annotation.location, t) : "";
+  const speakers = useAppStore((state) => citedSpeakers(annotation, state.documents));
+  const where = annotation.location ? formatLocation(annotation.location, t, { speakers }) : "";
   const beginEdit = () =>
     useAnnotationDrafts.getState().begin(annotation.id, annotation.note ?? "", "note");
   const endEdit = () => useAnnotationDrafts.getState().end(annotation.id);

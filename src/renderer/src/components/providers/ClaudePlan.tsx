@@ -15,7 +15,8 @@ import { useSettingsTarget } from "../../settingsTarget";
 import { useAppStore } from "../../store";
 import { ChevronDownLineIcon, ChevronRightLineIcon } from "../lineIcons";
 import { ProblemMark } from "../ProblemLine";
-import { buttonStyle, rowButtonsClass, rowTextClass, rowTitleClass, ruledRowClass } from "../ui";
+import { SettingsRow } from "../settings/SettingsGroup";
+import { buttonStyle } from "../ui";
 import { ChatGptStorageNotice, useChatGptStorage } from "./ChatGptSignIn";
 import { PasteSignInAddress, type PasteWords } from "./PasteSignInAddress";
 import { SendsLine } from "./SendsLine";
@@ -101,24 +102,20 @@ export function ClaudePlanRow() {
   const reached = useCallback(() => {
     if (!signedIn) setOpen(true);
   }, [signedIn, setOpen]);
-  const row = useSettingsTarget<HTMLLIElement>(TARGET, offered, reached);
+  const row = useSettingsTarget<HTMLDivElement>(TARGET, offered, reached);
 
   if (!status || !offered) return null;
   const { account } = status;
   const steps = !signedIn && open;
   return (
-    <li ref={row} data-testid="plans-claude-account" className={ruledRowClass}>
-      <div className="flex min-w-0 flex-col gap-0.5">
-        <span className={rowTitleClass}>{t("plans.claude.title")}</span>
-        {!steps && <AccountLines account={account} />}
-        {steps && (
-          <div className="mt-2 flex flex-col gap-2">
-            <ClaudePlanSignIn keepDefault onClose={() => setOpen(false)} />
-          </div>
-        )}
-      </div>
-      <div className={rowButtonsClass}>
-        {signedIn ? (
+    <SettingsRow
+      ref={row}
+      role="listitem"
+      data-testid="plans-claude-account"
+      label={t("plans.claude.title")}
+      detail={steps ? undefined : <AccountLines account={account} />}
+      control={
+        signedIn ? (
           <button
             type="button"
             data-testid="claude-plan-sign-out"
@@ -127,28 +124,30 @@ export function ClaudePlanRow() {
           >
             {t("claudePlan.signOut")}
           </button>
-        ) : (
-          !steps && (
-            <button
-              type="button"
-              data-testid="plans-claude-sign-in"
-              onClick={() =>
-                account.state === "expired"
-                  ? void signInWithClaude({ keepDefault: true })
-                  : setOpen(true)
-              }
-              className={buttonStyle("secondary", "sm")}
-            >
-              {t(
-                account.state === "expired"
-                  ? "signInRoute.wayBack.signInAgain"
-                  : "claudePlan.signIn",
-              )}
-            </button>
-          )
-        )}
-      </div>
-    </li>
+        ) : steps ? undefined : (
+          <button
+            type="button"
+            data-testid="plans-claude-sign-in"
+            onClick={() =>
+              account.state === "expired"
+                ? void signInWithClaude({ keepDefault: true })
+                : setOpen(true)
+            }
+            className={buttonStyle("secondary", "sm")}
+          >
+            {t(
+              account.state === "expired" ? "signInRoute.wayBack.signInAgain" : "claudePlan.signIn",
+            )}
+          </button>
+        )
+      }
+    >
+      {steps && (
+        <div className="flex flex-col gap-2">
+          <ClaudePlanSignIn keepDefault onClose={() => setOpen(false)} />
+        </div>
+      )}
+    </SettingsRow>
   );
 }
 
@@ -158,27 +157,15 @@ function AccountLines({ account }: { account: ClaudeAccount }) {
     const name = account.email ?? account.organization ?? t("claudePlan.account.unknown");
     return (
       <>
-        <span data-testid="claude-plan-account" className={rowTextClass}>
-          {t("claudePlan.signedIn", { account: name })}
-        </span>
-        <span data-testid="claude-plan-usage" className={rowTextClass}>
-          {t("claudePlan.usage")}
-        </span>
+        <p data-testid="claude-plan-account">{t("claudePlan.signedIn", { account: name })}</p>
+        <p data-testid="claude-plan-usage">{t("claudePlan.usage")}</p>
       </>
     );
   }
   if (account.state === "expired") {
-    return (
-      <span data-testid="claude-plan-account" className={rowTextClass}>
-        {t("claudeAccount.problem.signInExpired")}
-      </span>
-    );
+    return <p data-testid="claude-plan-account">{t("claudeAccount.problem.signInExpired")}</p>;
   }
-  return (
-    <span data-testid="claude-plan-account" className={rowTextClass}>
-      {t("claudePlan.usage")}
-    </span>
-  );
+  return <p data-testid="claude-plan-account">{t("claudePlan.usage")}</p>;
 }
 
 function ClaudePlanSignIn({

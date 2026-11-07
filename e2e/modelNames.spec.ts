@@ -119,7 +119,7 @@ test("the chip, its menu, Settings → Models and the steps show a model's name 
     await expect(model).toHaveAttribute("title", "gpt-6-luna");
     await settings.getByTestId("provider-row").first().click();
     const sol = settings.getByTestId("provider-model-row").filter({ hasText: "GPT-6.1 Sol" });
-    await expect(sol.locator("label")).toHaveAttribute("title", "gpt-6.1-sol");
+    await expect(sol.locator("label span[title]")).toHaveAttribute("title", "gpt-6.1-sol");
     const other = settings.getByTestId("other-models-settings");
     await other.getByTestId("other-models-toggle").click();
     const older = other.getByTestId("other-model").filter({ hasText: "GPT-4 Turbo" });

@@ -1,4 +1,4 @@
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import {
   clickNow,
@@ -32,6 +32,12 @@ test.beforeEach(async () => {
 test.afterEach(async () => {
   await removeDataFolder(dataDir);
 });
+
+/** Opens Motion's pop-up button and picks one of its options by name. */
+async function chooseMotion(motion: Locator, name: string): Promise<void> {
+  await motion.getByTestId("motion-choice").click();
+  await motion.getByRole("menuitemradio", { name, exact: true }).click();
+}
 
 async function chooseLanguage(window: Page, language: "en" | "zh-CN"): Promise<void> {
   await window.evaluate(async (chosen) => {
@@ -131,12 +137,15 @@ test("Reduced, chosen in Settings, fades a menu without moving it; Off shows and
   const { window } = await start();
   const settings = await openSettings(window, "general");
   const motion = settings.getByTestId("motion-settings");
-  await expect(motion.getByRole("heading")).toHaveText("Motion");
-  await expect(motion.getByRole("radio")).toHaveCount(3);
-  await expect(motion.getByRole("radio", { name: "On" })).toBeChecked();
+  const choice = motion.getByTestId("motion-choice");
+  await expect(choice).toHaveAccessibleName("Motion On");
+  await choice.click();
+  await expect(motion.getByRole("menuitemradio")).toHaveText(["On", "Reduced", "Off"]);
+  await expect(motion.getByRole("menuitemradio", { name: "On" })).toBeChecked();
+  await window.keyboard.press("Escape");
   await expect(motion).toContainText("Until you choose, this follows your system’s setting.");
 
-  await motion.getByRole("radio", { name: "Reduced" }).check();
+  await chooseMotion(motion, "Reduced");
   await expect(window.locator("html")).toHaveAttribute("data-motion", "reduced");
   await expect(motion).not.toContainText("Until you choose");
   await closeSettings(window);
@@ -161,7 +170,7 @@ test("Reduced, chosen in Settings, fades a menu without moving it; Off shows and
   await motionSettled(window);
 
   await openSettings(window, "general");
-  await motion.getByRole("radio", { name: "Off" }).check();
+  await chooseMotion(motion, "Off");
   await expect(window.locator("html")).toHaveAttribute("data-motion", "off");
   await closeSettings(window);
   await button.click();
@@ -186,25 +195,28 @@ test("until the User chooses, motion follows the system's Reduce motion, in Engl
   await expect(html).toHaveAttribute("data-motion", "reduced");
   const settings = await openSettings(window, "general");
   const motion = settings.getByTestId("motion-settings");
-  await expect(motion.getByRole("radio", { name: "Reduced" })).toBeChecked();
+  const choice = motion.getByTestId("motion-choice");
+  await expect(choice).toHaveText("Reduced");
   await window.emulateMedia({ reducedMotion: "no-preference" });
   await expect(html).toHaveAttribute("data-motion", "on");
-  await expect(motion.getByRole("radio", { name: "On" })).toBeChecked();
+  await expect(choice).toHaveText("On");
 
   await chooseLanguage(window, "zh-CN");
-  await expect(motion.getByRole("heading")).toHaveText("动效");
-  await expect(motion.getByRole("radio")).toHaveCount(3);
-  await expect(motion.getByRole("radio", { name: "开" })).toBeChecked();
-  await expect(motion.getByRole("radio", { name: "减弱" })).not.toBeChecked();
-  await expect(motion.getByRole("radio", { name: "关" })).not.toBeChecked();
+  await expect(choice).toHaveAccessibleName("动效 开");
+  await choice.click();
+  await expect(motion.getByRole("menuitemradio")).toHaveText(["开", "减弱", "关"]);
+  await expect(motion.getByRole("menuitemradio", { name: "开" })).toBeChecked();
+  await expect(motion.getByRole("menuitemradio", { name: "减弱" })).not.toBeChecked();
+  await expect(motion.getByRole("menuitemradio", { name: "关" })).not.toBeChecked();
+  await window.keyboard.press("Escape");
   await expect(motion).toContainText("在你选择之前，跟随系统设置。");
 
   // The one the system picked, chosen as it is: kept, so the system no longer decides.
-  await motion.getByRole("radio", { name: "开" }).click();
+  await chooseMotion(motion, "开");
   await expect(motion).not.toContainText("在你选择之前");
   await window.emulateMedia({ reducedMotion: "reduce" });
   await expect(html).toHaveAttribute("data-motion", "on");
-  await expect(motion.getByRole("radio", { name: "开" })).toBeChecked();
+  await expect(choice).toHaveText("开");
 });
 
 test("the Citation card grows from its Citation and goes back toward it", async () => {

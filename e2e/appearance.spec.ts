@@ -46,8 +46,32 @@ const electronTheme = (app: ElectronApplication) =>
     dark: nativeTheme.shouldUseDarkColors,
   }));
 
-const choice = (settings: Locator, name: string) =>
-  settings.getByTestId("appearance-settings").getByRole("radio", { name, exact: true });
+const popUp = (settings: Locator) => settings.getByTestId("appearance-choice");
+
+/** Chooses by the keyboard, as macOS's pop-up buttons take it: Space opens it, the arrows move, Enter picks. */
+async function chooseByKeys(window: Page, settings: Locator, name: string): Promise<void> {
+  await popUp(settings).focus();
+  await window.keyboard.press("Space");
+  const menu = settings.getByTestId("appearance-choice-menu");
+  await expect(menu).toBeVisible();
+  for (let moves = 0; moves < 3; moves++) {
+    const focused = await window.evaluate(() => document.activeElement?.textContent?.trim() ?? "");
+    if (focused === name) break;
+    await window.keyboard.press("ArrowDown");
+  }
+  await expect(menu.getByRole("menuitemradio", { name, exact: true })).toBeFocused();
+  await window.keyboard.press("Enter");
+  await expect(menu).toBeHidden();
+}
+
+/** Chooses with the mouse: the button, then the option. */
+async function chooseByMouse(settings: Locator, name: string): Promise<void> {
+  await popUp(settings).click();
+  await settings
+    .getByTestId("appearance-choice-menu")
+    .getByRole("menuitemradio", { name, exact: true })
+    .click();
+}
 
 for (const language of ["en", "zh-CN"] as const) {
   const words =
@@ -63,23 +87,32 @@ for (const language of ["en", "zh-CN"] as const) {
       const settings = await openSettings(window, "general");
       await setLanguage(window, language);
       await expect(settings.getByTestId("appearance-settings")).toContainText(words.title);
-      await expect(choice(settings, words.system)).toBeChecked();
+      await expect(popUp(settings)).toHaveAccessibleName(`${words.title} ${words.system}`);
       expect(await pageColour(window)).toBe(SHEET.light);
+      await popUp(settings).click();
+      const options = settings.getByTestId("appearance-choice-menu").getByRole("menuitemradio");
+      await expect(options).toHaveText([words.light, words.dark, words.system]);
+      await expect(options.filter({ hasText: words.system })).toHaveAttribute(
+        "aria-checked",
+        "true",
+      );
+      await window.keyboard.press("Escape");
+      await expect(popUp(settings)).toBeFocused();
 
-      await choice(settings, words.dark).click();
+      await chooseByKeys(window, settings, words.dark);
       await expect(window.locator("html")).toHaveAttribute("data-theme", "dark");
       await expect.poll(() => pageColour(window)).toBe(SHEET.dark);
-      await expect(choice(settings, words.dark)).toBeChecked();
+      await expect(popUp(settings)).toHaveText(words.dark);
       await expect.poll(() => keptAppearance(window)).toBe("dark");
       // Native menus, scrollbars and dialogs follow: Electron is told.
       await expect.poll(() => electronTheme(app)).toEqual({ source: "dark", dark: true });
 
-      await choice(settings, words.light).click();
+      await chooseByKeys(window, settings, words.light);
       await expect(window.locator("html")).toHaveAttribute("data-theme", "light");
       await expect.poll(() => pageColour(window)).toBe(SHEET.light);
       await expect.poll(() => keptAppearance(window)).toBe("light");
 
-      await choice(settings, words.system).click();
+      await chooseByKeys(window, settings, words.system);
       await expect(window.locator("html")).not.toHaveAttribute("data-theme");
       await expect.poll(() => keptAppearance(window)).toBe("system");
       await expect.poll(() => electronTheme(app).then((theme) => theme.source)).toBe("system");
@@ -123,14 +156,14 @@ test("Same as system follows the system's change live, and a choice holds agains
 
     // Light, chosen, stays light when the system turns dark; so does a Document's page in Dark.
     const settings = await openSettings(window, "general");
-    await choice(settings, "Light").click();
+    await chooseByMouse(settings, "Light");
     await expect(window.locator("html")).toHaveAttribute("data-theme", "light");
     await window.emulateMedia({ colorScheme: "dark" });
     await expect(window.locator("html")).toHaveAttribute("data-theme", "light");
     expect(await pageColour(window)).toBe(SHEET.light);
 
     // The system's Increase contrast still applies in Dark: the rules are stronger.
-    await choice(settings, "Dark").click();
+    await chooseByMouse(settings, "Dark");
     await expect.poll(() => pageColour(window)).toBe(SHEET.dark);
     const rule = () =>
       window.evaluate(() =>
@@ -150,7 +183,7 @@ test("a relaunch in Dark paints its first frame dark, before the page's script r
   try {
     await dismissChatSetup(first.window);
     const settings = await openSettings(first.window, "general");
-    await choice(settings, "Dark").click();
+    await chooseByKeys(first.window, settings, "Dark");
     await expect.poll(() => keptAppearance(first.window)).toBe("dark");
   } finally {
     await first.app.close();
