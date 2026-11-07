@@ -2637,14 +2637,15 @@
   }
   /*
    * As the bar narrows its buttons give up their words and keep their icons (their names and
-   * keys are in their tooltips), then Mark, then Call help, then the transcript and details
-   * buttons fold into the ⋯. The state and timer, Pause my mic, Pause and Stop stay. By the
-   * bar's own width, so nothing is measured and nothing moves while the window is dragged. A
-   * row needs, in English, which needs most: 567px with words, 334px with icons, 308px without
-   * Call help (Mark is folded for the same width the ⋯ takes) and 256px with only the four that
-   * stay and the ⋯; each query below leaves 12px over that.
+   * keys are in their tooltips), then Mark and Call help, then the details button fold into the
+   * ⋯; then "Recording" leaves the dot and the timer, and the Transcript its level bars. The
+   * state and timer, Pause my mic, Pause, Stop and Notes | Transcript stay. By the bar's own
+   * width, so nothing is measured and nothing moves while the window is dragged. A row needs, in
+   * English, which needs most: 585px with words, 439px with icons, 413px without Mark and Call
+   * help (the ⋯ takes Mark's place), 387px without details, 317px without "Recording" and 291px
+   * without the level bars; each query below is the width that still fits.
    */
-  @container meeting-bar (width < 580px) {
+  @container meeting-bar (width < 586px) {
     .meeting-button--words {
       justify-content: center;
       width: 24px;
@@ -2655,21 +2656,32 @@
       display: none;
     }
   }
-  @container meeting-bar (width < 346px) {
+  @container meeting-bar (width < 440px) {
     .meeting-more {
       display: inline-flex;
     }
-    [data-fold="mark"] {
-      display: none;
-    }
-  }
-  @container meeting-bar (width < 340px) {
+    [data-fold="mark"],
     [data-fold="help"] {
       display: none;
     }
   }
-  @container meeting-bar (width < 320px) {
+  @container meeting-bar (width < 414px) {
     [data-fold="details"] {
+      display: none;
+    }
+  }
+  @container meeting-bar (width < 388px) {
+    .meeting-bar[data-kind="meeting"] .meeting-state-word {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+  }
+  @container meeting-bar (width < 318px) {
+    .meeting-views .level-meter {
       display: none;
     }
   }
