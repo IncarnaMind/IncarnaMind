@@ -247,6 +247,8 @@ export async function measuredAnswer(
   judge: ItemContext["claimsJudge"],
 ): Promise<Measured> {
   const done = answer.status === "done";
+  // What the judge flagged, kept beside the Answer so each can be read by hand.
+  const flagged: { sentence: string; quotes: readonly string[] }[] = [];
   const unstated = done
     ? await falseSupportedIn(
         judge,
@@ -257,6 +259,7 @@ export async function measuredAnswer(
           quote: citation.quote,
           found: citation.outcome === "found",
         })),
+        (sentences) => flagged.push(...sentences),
       )
     : 0;
   // A Question asked in a Note is offered no Tool that changes one: any change it claims is unmade.
@@ -286,6 +289,10 @@ export async function measuredAnswer(
     text: [
       answer.text,
       ...claimed.map((sentence) => `[unbacked] ${sentence}`),
+      ...flagged.map(
+        ({ sentence, quotes }) =>
+          `[false Supported] ${sentence} ⟵ ${quotes.map((quote) => `“${quote}”`).join(" ")}`,
+      ),
       ...answer.citations
         .filter((citation) => citation.outcome !== "found")
         .map(
