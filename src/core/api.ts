@@ -8425,8 +8425,6 @@ export interface UndoAddToNoteInput {
  */
 export interface UndoAddToNoteResult {
   kept: number;
-  /** The text Blocks the Mind still holds after the undo, so a caller that made the Mind can take an empty one back. */
-  remaining: number;
 }
 
 /**

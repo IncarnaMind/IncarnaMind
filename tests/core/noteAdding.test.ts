@@ -160,7 +160,6 @@ describe("Add to note into a Mind that isn't open", { timeout: 60_000 }, () => {
     await editor.settled();
     expect(await core.undoAddToNote({ mindId: mind.id, blockIds: added.blockIds })).toEqual({
       kept: 1,
-      remaining: 2,
     });
 
     const after = await connectToMind(core, mind.id);
@@ -171,8 +170,8 @@ describe("Add to note into a Mind that isn't open", { timeout: 60_000 }, () => {
     expect(allOrigins(after.doc).size).toBe(1);
   });
 
-  // protects=Undo takes back only the Blocks it added, so writing that came after them stays and is counted; fails_when=it removes the whole note or reports nothing left
-  test("Undo leaves Blocks written after it went in, and says how many remain (#1962)", async () => {
+  // protects=Undo takes back only the Blocks it added, so writing that came after them stays; fails_when=it removes the whole note
+  test("Undo leaves Blocks written after it went in (#1962)", async () => {
     const { core, answer } = await citedAnswer();
     const mind = await core.createMind({ title: "Essay" });
     const writer = await connectToMind(core, mind.id);
@@ -195,15 +194,14 @@ describe("Add to note into a Mind that isn't open", { timeout: 60_000 }, () => {
 
     expect(await core.undoAddToNote({ mindId: mind.id, blockIds: added.blockIds })).toEqual({
       kept: 0,
-      remaining: 2,
     });
     const after = await connectToMind(core, mind.id);
     expect(readMind(after).childCount).toBe(2);
     expect(readMind(after).child(1).textContent).toBe("Later writing.");
   });
 
-  // protects=The User's own Blocks (Collect) go in with no AI mark and no AI-use record, and Undo reports an empty Mind; fails_when=they are treated as AI writing or the count is wrong
-  test("the User's own Blocks carry no AI text and no AI use, and Undo empties the Mind", async () => {
+  // protects=The User's own Blocks (Collect) go in with no AI mark and no AI-use record, and Undo takes them out; fails_when=they are treated as AI writing or stay after Undo
+  test("the User's own Blocks carry no AI text and no AI use, and Undo takes them out", async () => {
     const { core } = await citedAnswer();
     const mind = await core.createMind({ title: "Essay" });
     const added = await core.addToNote({
@@ -219,8 +217,9 @@ describe("Add to note into a Mind that isn't open", { timeout: 60_000 }, () => {
     expect(shownWithAiText(readMind(after).child(0))).toBe("The User's words.");
     expect(await core.undoAddToNote({ mindId: mind.id, blockIds: added.blockIds })).toEqual({
       kept: 0,
-      remaining: 0,
     });
+    const undone = await connectToMind(core, mind.id);
+    expect(readMind(undone).textContent).toBe("");
   });
 
   // protects=History names a Conversation under its note's title for every note with links back, including one made before the index; fails_when=only notes made since the app started count

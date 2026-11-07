@@ -202,6 +202,17 @@ const located = (check: CitationCheck, reason: CitationCheckReason | null) =>
 /** The words as a key: a file's read may break a line where the stored quote has a space. */
 const collapsed = (text: string) => text.replace(/\s+/g, " ").trim();
 
+/** How many characters next to a copy tell it from another: an edit further away leaves them. */
+const NEAR = 30;
+
+/** Whether two places' nearest words around them are the same, spacing aside. */
+const nearlySame = (
+  a: { before: string; after: string },
+  b: { before: string; after: string },
+): boolean =>
+  collapsed(a.before).slice(-NEAR) === collapsed(b.before).slice(-NEAR) &&
+  collapsed(a.after).slice(0, NEAR) === collapsed(b.after).slice(0, NEAR);
+
 const wordsOf = (quote: string, note: string | null) =>
   keywordText(note === null || note === "" ? quote : `${quote}\n${note}`);
 
@@ -716,10 +727,10 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
                 return row ? markPage(mark) - rowPage(row) : Number.NaN;
               });
               if (!shifts.every((shift) => shift === shifts[0])) return false;
-              // A page that moved under words that differ from the row's is two marks, not one
-              // that moved: the file's own words around it contradict the shift.
+              // Words around a mark that differ from the row's make it another copy, not the row's
+              // moved: on another page always, and on its own page when the row's copy is still
+              // there, unmarked. Its words edited around it, with no copy left, are the same mark.
               if (
-                shifts[0] !== 0 &&
                 marks.some((mark, index) => {
                   const row = rows[index];
                   if (!row) return false;
@@ -727,7 +738,12 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
                   const storedHasWords = stored.before !== "" || stored.after !== "";
                   const markHasWords =
                     mark.annotation.before !== "" || mark.annotation.after !== "";
-                  return storedHasWords && markHasWords && !sameSurroundings(row, mark);
+                  if (!storedHasWords || !markHasWords || sameSurroundings(row, mark)) return false;
+                  return (
+                    shifts[0] !== 0 ||
+                    (!nearlySame(stored, mark.annotation) &&
+                      mark.annotation.others.some((other) => nearlySame(stored, other)))
+                  );
                 })
               ) {
                 return false;

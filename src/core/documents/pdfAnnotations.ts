@@ -25,6 +25,11 @@ export interface FileAnnotation {
   before: string;
   /** The page's words right after it. */
   after: string;
+  /**
+   * The words around each other place on its page that holds the same words: a row whose
+   * words around it are one of these is that copy's, still on the page, not this mark's.
+   */
+  others: { before: string; after: string }[];
 }
 
 /** The subtypes a highlight is saved as. A squiggle or a strike-through marks words too. */
@@ -138,13 +143,18 @@ function placedOf(items: readonly object[]): Placed[] {
 
 /** Whether a mark covers a glyph item whole, so its words are the marked words. */
 function holds(box: Box, item: Placed): boolean {
-  // A line's item may end in a space or a hair beyond the mark's quad: a word's width of
-  // slack keeps those, while a mark over part of a long item stays partial.
-  const across = Math.max(item.size, 0.5);
+  // Only the item's spaces may lie outside the quad. Its glyphs' places are unknown, so a space
+  // is taken as narrow as any font sets one and the slack is narrower than any glyph: "100%"
+  // marked over "100" is partial, never quoted with its unmarked "%".
+  const each = (item.box.right - item.box.left) / item.str.length;
+  const space = Math.min(each, item.size * 0.25);
+  const leading = item.str.length - item.str.trimStart().length;
+  const trailing = item.str.length - item.str.trimEnd().length;
+  const across = Math.max(item.size * 0.15, 0.5);
   const down = Math.max(item.size * 0.25, 0.5);
   return (
-    item.box.left >= box.left - across &&
-    item.box.right <= box.right + across &&
+    item.box.left + space * leading >= box.left - across &&
+    item.box.right - space * trailing <= box.right + across &&
     item.box.top <= box.top + down &&
     item.box.bottom >= box.bottom - down
   );
@@ -262,12 +272,15 @@ function orderOf(boxes: readonly Box[]): number {
   return left - top * 1000;
 }
 
-/** The page's words around a mark: a highlight's own covered range, or an icon's nearest words. */
+/**
+ * The page's words around a mark (a highlight's own covered range, or an icon's nearest words),
+ * and around every other place on the page with a highlight's words.
+ */
 function surroundingsOf(
   context: ReturnType<typeof pageTextOf>,
   boxes: readonly Box[],
-): { before: string; after: string } {
-  if (context.text === "") return { before: "", after: "" };
+): Pick<FileAnnotation, "before" | "after" | "others"> {
+  if (context.text === "") return { before: "", after: "", others: [] };
   const covered = context.placed
     .filter((item) => covers(boxes, item))
     .map((item) => context.spans.get(item))
@@ -275,9 +288,20 @@ function surroundingsOf(
     .sort((a, b) => a.start - b.start);
   const first = covered[0];
   const last = covered.at(-1);
-  if (first && last) return aroundAt(context.text, first.start, last.end);
+  if (first && last) {
+    const words = context.text.slice(first.start, last.end);
+    const others: FileAnnotation["others"] = [];
+    for (
+      let at = context.text.indexOf(words);
+      at !== -1;
+      at = context.text.indexOf(words, at + 1)
+    ) {
+      if (at !== first.start) others.push(aroundAt(context.text, at, at + words.length));
+    }
+    return { ...aroundAt(context.text, first.start, last.end), others };
+  }
   const at = nearestOffset(context, boxes);
-  return aroundAt(context.text, at, at);
+  return { ...aroundAt(context.text, at, at), others: [] };
 }
 
 const textOf = (value: unknown): string =>

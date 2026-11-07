@@ -5,6 +5,7 @@
  */
 import { useLayoutEffect, useState } from "react";
 import type { Annotation, AnnotationColour } from "../../../core/api";
+import { areasOf } from "../annotations";
 
 interface Wash {
   id: string;
@@ -37,17 +38,15 @@ export function AnnotationAreas({
   section: HTMLElement | null;
   annotations: readonly Annotation[] | undefined;
 }) {
-  const areas = (annotations ?? []).filter(
-    (annotation) => annotation.location?.area !== undefined && annotation.pageFrom !== null,
-  );
+  const areas = areasOf(annotations);
   const key = areas
     .map(
       (annotation) =>
-        `${annotation.id}:${annotation.pageFrom}:${JSON.stringify(annotation.location?.area)}`,
+        `${annotation.id}:${annotation.colour}:${annotation.pageFrom}:${JSON.stringify(annotation.location?.area)}`,
     )
     .join("|");
   const [washes, setWashes] = useState<Wash[]>([]);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `key` names the areas measured
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `key` names the areas measured and their colours
   useLayoutEffect(() => {
     if (!section) {
       setWashes([]);

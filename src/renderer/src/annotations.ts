@@ -135,3 +135,12 @@ export const useAnnotationCount = (documentId: string): number =>
  */
 export const highlightsOf = (annotations: readonly Annotation[] | undefined): Annotation[] =>
   (annotations ?? []).filter((annotation) => !annotation.missing && annotation.quote.trim() !== "");
+
+/** The area highlights washed over their Units: one a version left missing is in the list alone. */
+export const areasOf = (annotations: readonly Annotation[] | undefined): Annotation[] =>
+  (annotations ?? []).filter(
+    (annotation) =>
+      !annotation.missing &&
+      annotation.location?.area !== undefined &&
+      annotation.pageFrom !== null,
+  );

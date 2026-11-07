@@ -131,12 +131,16 @@ export function SelectionMenu({
     const read = () => {
       const range = rangeIn(section);
       if (!range) return;
+      // The words the menu holds, read again as the drag settles: the menu stays as the User left
+      // it, so an Esc pressed before the last read keeps it closed.
+      if (sameRange(heldRange.current, range)) return;
       const { parts, shown } = reader(range);
-      setHeld(
+      const next =
         parts.length > 0
           ? { selection: { document, parts, shown }, range: range.cloneRange() }
-          : null,
-      );
+          : null;
+      heldRange.current = next?.range ?? null;
+      setHeld(next);
       setOpen(parts.length > 0);
       setPicking(false);
       setAway(false);
@@ -145,6 +149,7 @@ export function SelectionMenu({
     const onDown = (event: PointerEvent) => {
       if (inPopover(event.target)) return;
       pressed = true;
+      heldRange.current = null;
       setOpen(false);
       setHeld(null);
       setAsked(null);

@@ -1953,6 +1953,8 @@ export const zhCN = {
   "annotations.collect.colour": "把{colour}高亮收进新笔记",
   "annotations.collect.empty": "没有可收集的高亮。",
   "annotations.collect.failed": "未能收集这些高亮。",
+  "annotations.collect.tooMany":
+    "高亮太多（{count} 条），无法收进一篇笔记。可以按文档或按颜色分别收集。",
   "annotations.addToNote.added": "已将高亮添加到“{mind}”",
   "annotations.export.empty": "这个文档没有可导出的高亮。",
   "annotations.export.title": "高亮和批注",

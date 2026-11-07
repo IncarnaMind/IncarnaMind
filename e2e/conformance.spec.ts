@@ -112,7 +112,7 @@ const MAKES_A_MIND = new Set([
 ]);
 
 /** Commands that make a Mind and put words in it: the note's Undo takes the words back, then the Mind goes. */
-const MAKES_A_MIND_WITH_A_NOTE = new Set(["annotation.addToNote"]);
+const MAKES_A_MIND_WITH_A_NOTE = new Set(["annotation.addToNote", "annotation.collect"]);
 
 let dataDir: string;
 let homeDir: string;

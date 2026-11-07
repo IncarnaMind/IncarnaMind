@@ -84,9 +84,7 @@ export function AnnotationNotePopover({
   useEffect(() => {
     if (!startEditing || beganEditing.current) return;
     beganEditing.current = true;
-    if (useAnnotationDrafts.getState().drafts[annotation.id] === undefined) {
-      useAnnotationDrafts.getState().begin(annotation.id, annotation.note ?? "", "note");
-    }
+    useAnnotationDrafts.getState().begin(annotation.id, annotation.note ?? "", "note");
   }, [startEditing, annotation.id, annotation.note]);
   useEffect(() => {
     if (editing) field.current?.focus();
@@ -96,13 +94,14 @@ export function AnnotationNotePopover({
     const current = useAnnotationDrafts.getState().drafts[annotation.id];
     if (!editing || current === undefined || saving) return;
     const note = current.trim() === "" ? null : current;
-    if (note !== annotation.note) {
-      setSaving(true);
-      const saved = await editAnnotation(annotation, { note });
-      setSaving(false);
-      if (!saved) return;
+    if (note === annotation.note) {
+      endEdit();
+      return;
     }
-    endEdit();
+    setSaving(true);
+    const saved = await editAnnotation(annotation, { note });
+    setSaving(false);
+    if (saved) useAnnotationDrafts.getState().saved(annotation.id, current);
   };
 
   return (

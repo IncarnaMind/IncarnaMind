@@ -224,7 +224,7 @@ export function createNoteAdding(options: NoteAddingOptions) {
       return content.read(mindId, (note) => proposalsOf(note, request));
     },
 
-    undo(input: unknown): { kept: number; remaining: number } {
+    undo(input: unknown): { kept: number } {
       if (!isRecord(input)) throw new InvalidInputError("undoAddToNote expects an object.");
       const mindId = options.requireMind(input.mindId);
       const blockIds = new Set(parseBlockIds(input.blockIds));
@@ -253,9 +253,7 @@ export function createNoteAdding(options: NoteAddingOptions) {
           if (note.doc) uncarryAnswerScope(note.doc, brought);
         }
         for (const id of blockIds) written.delete(id);
-        // What the Mind still holds, so a caller that made the Mind can take an empty one back.
-        const remaining = topLevelBlocks(note).filter((block) => !isEmptyLine(block)).length;
-        return { kept, remaining };
+        return { kept };
       });
     },
   };

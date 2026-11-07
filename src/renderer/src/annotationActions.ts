@@ -19,7 +19,8 @@ import type {
 import { CITATION_NODE } from "../../core/api";
 import type { NodeJSON } from "../../shared/blockJson";
 import { mindName } from "../../shared/naming";
-import { type AddTarget, addInEditor } from "./addToNote";
+import { MAX_BLOCKS } from "../../shared/noteBlocks";
+import { type AddTarget, addInEditor, undoKept } from "./addToNote";
 import { useAnnotationDrafts } from "./annotationDrafts";
 import { useAnnotations } from "./annotations";
 import { readMindHandle } from "./commands/handles";
@@ -268,8 +269,8 @@ export async function addAnnotationToNote(
  * Writes every annotation in `groups` into a new Mind in `folderId`, a section
  * for each Document, each quote with its checked Citation and its note under
  * it: one edit, so one Undo. Undo takes back the Blocks it added, never the
- * writing that came after them; the Mind it made goes only if nothing else is
- * in it, and a soft delete keeps even that recoverable.
+ * writing that came after them; the Mind stays, as any Mind made does, and
+ * Delete takes it back. One too big to go in is refused before a Mind is made.
  */
 export async function collectIntoMind(
   groups: readonly AnnotationGroup[],
@@ -280,7 +281,6 @@ export async function collectIntoMind(
     useNotices.getState().confirm("annotations.collect.empty");
     return;
   }
-  let made: string | null = null;
   try {
     const blocks: NodeJSON[] = [];
     for (const group of groups) {
@@ -292,8 +292,13 @@ export async function collectIntoMind(
       });
       for (const annotation of group.annotations) blocks.push(...blocksOf(annotation));
     }
+    if (blocks.length > MAX_BLOCKS) {
+      useNotices
+        .getState()
+        .showError(new Error(translateNow("annotations.collect.tooMany", { count })));
+      return;
+    }
     const mind = await core.createMind({ title: "", folderId });
-    made = mind.id;
     const { blockIds } = await core.addToNote({
       mindId: mind.id,
       blocks,
@@ -307,6 +312,7 @@ export async function collectIntoMind(
       item: { kind: "mind", mindId: mind.id },
       where: { in: "side" },
     });
+    let kept = 0;
     pushUndo({
       said: (t) =>
         count === 1
@@ -316,14 +322,12 @@ export async function collectIntoMind(
               mind: nameOf(mind.id) || t("mind.untitled"),
             }),
       undo: async () => {
-        const { kept, remaining } = await core.undoAddToNote({ mindId: mind.id, blockIds });
-        if (kept === 0 && remaining === 0) await core.deleteMind(mind.id);
+        kept = (await core.undoAddToNote({ mindId: mind.id, blockIds })).kept;
       },
+      undoneNote: () => undoKept(kept),
     });
   } catch (error) {
     useAppStore.getState().reportError(error);
-    // A Mind made for a collection that never went in leaves nothing behind.
-    if (made !== null) core.deleteMind(made).catch(console.error);
   }
 }
 

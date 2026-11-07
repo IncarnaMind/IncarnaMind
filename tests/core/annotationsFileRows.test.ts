@@ -82,6 +82,7 @@ const highlight = (
   note: string | null = null,
   order = 0,
   around: { before?: string; after?: string } = {},
+  others: FileAnnotation["others"] = [],
 ): FileAnnotation => ({
   page,
   kind: "highlight",
@@ -92,6 +93,7 @@ const highlight = (
   order,
   before: around.before ?? "",
   after: around.after ?? "",
+  others,
 });
 
 /** A sticky note the file holds, at `order` on its page, with the words around it. */
@@ -110,6 +112,7 @@ const fileNote = (
   order,
   before: around.before ?? "",
   after: around.after ?? "",
+  others: [],
 });
 
 test("a re-read of the same version keeps the User's edit and delete", async () => {
@@ -381,6 +384,7 @@ test("a file's colour follows the file until the User recolours", async () => {
     order: 10,
     before: "",
     after: "",
+    others: [],
   });
   read("version-a", [coloured("yellow")]);
   read("version-b", [coloured("pink")]);
@@ -1436,5 +1440,127 @@ test("a mark whose words around it contradict the shift is a different copy", as
   const fresh = rows.find((row) => row.id !== alpha.id);
   expect(fresh).toMatchObject({ pageFrom: 1, missing: false });
   expect(fresh?.note).not.toBe("Roof note");
+  db.close();
+});
+
+test("a PDF highlight over part of an item's glyphs is not quoted with the glyphs it leaves out", () => {
+  // "100%" in Helvetica at 11 pt, one text item: each digit is 0.556 em, the percent sign 0.889.
+  const width = 11 * (3 * 0.556 + 0.889);
+  const items = [{ str: "100%", transform: [11, 0, 0, 11, 72, 760], width, height: 11 }];
+  const quad = (right: number) => [72, 770, right, 770, 72, 758, right, 758];
+  const digits = readFileAnnotations(
+    1,
+    [{ subtype: "Highlight", quadPoints: quad(72 + 11 * 3 * 0.556) }],
+    items,
+  );
+  expect(digits).toEqual([]);
+
+  const whole = readFileAnnotations(
+    1,
+    [{ subtype: "Highlight", quadPoints: quad(72 + width) }],
+    items,
+  );
+  expect(whole.map((each) => each.quote)).toEqual(["100%"]);
+
+  // A space the quad stops before is no unmarked word: the item is still the marked words.
+  const spaced = [
+    { str: "Rent rises ", transform: [11, 0, 0, 11, 72, 760], width: 55, height: 11 },
+  ];
+  const beforeSpace = readFileAnnotations(
+    1,
+    [{ subtype: "Highlight", quadPoints: quad(72 + 55 - 11 * 0.278) }],
+    spaced,
+  );
+  expect(beforeSpace.map((each) => each.quote)).toEqual(["Rent rises"]);
+});
+
+test("a PDF highlight carries the words around every other place on its page with its words", () => {
+  const line = (words: readonly string[], baseline: number) =>
+    words.map((str, at) => ({
+      str,
+      transform: [11, 0, 0, 11, 72 + at * 100, baseline],
+      width: 90,
+      height: 11,
+    }));
+  const items = [
+    ...line(["Roof works.", "The fee is fixed.", "Roof works."], 760),
+    ...line(["Garden works.", "The fee is fixed.", "Garden works."], 740),
+  ];
+  const [garden] = readFileAnnotations(
+    1,
+    [{ subtype: "Highlight", quadPoints: [172, 750, 262, 750, 172, 738, 262, 738] }],
+    items,
+  );
+  const page =
+    "Roof works. The fee is fixed. Roof works.\nGarden works. The fee is fixed. Garden works.";
+  const roofAt = page.indexOf("The fee is fixed.");
+  const gardenAt = page.lastIndexOf("The fee is fixed.");
+  expect(garden).toMatchObject({
+    quote: "The fee is fixed.",
+    before: page.slice(0, gardenAt),
+    after: page.slice(gardenAt + "The fee is fixed.".length),
+    others: [
+      { before: page.slice(0, roofAt), after: page.slice(roofAt + "The fee is fixed.".length) },
+    ],
+  });
+});
+
+test("a mark moved to other words on its own page, its row's copy still there, is another copy", async () => {
+  const { document, store, read, db } = await harness();
+  const quote = "The fee is fixed.";
+  const roof = { before: "Roof works. ", after: " Roof works." };
+  const garden = { before: "Garden works. ", after: " Garden works." };
+  read("version-a", [highlight(quote, 1, null, 10, roof, [garden])]);
+  const [alpha] = store.list(document.id);
+  if (!alpha) throw new Error("The highlight wasn't read.");
+  store.update(alpha.id, { note: "Roof note", colour: "pink" });
+
+  // Only the mark moves, from the roof's copy to the garden's on the same page.
+  read("version-b", [highlight(quote, 1, null, 20, garden, [roof])]);
+  const rows = store.list(document.id);
+  expect(rows.find((row) => row.id === alpha.id)).toMatchObject({
+    note: "Roof note",
+    colour: "pink",
+    missing: true,
+  });
+  const beta = rows.find((row) => row.id !== alpha.id);
+  expect(beta).toMatchObject({ pageFrom: 1, missing: false, note: null, colour: "yellow" });
+  db.close();
+});
+
+test("a deleted mark's row does not hide the copy the mark moves to on its page", async () => {
+  const { document, store, read, db } = await harness();
+  const quote = "The fee is fixed.";
+  const roof = { before: "Roof works. ", after: " Roof works." };
+  const garden = { before: "Garden works. ", after: " Garden works." };
+  read("version-a", [highlight(quote, 1, null, 10, roof, [garden])]);
+  const [alpha] = store.list(document.id);
+  if (!alpha) throw new Error("The highlight wasn't read.");
+  store.remove(alpha.id);
+
+  read("version-b", [highlight(quote, 1, null, 20, garden, [roof])]);
+  const shown = store.list(document.id);
+  expect(shown.map((row) => row.id)).not.toContain(alpha.id);
+  expect(shown).toMatchObject([{ quote, missing: false }]);
+
+  // Its Undo brings back the roof's copy, not the garden's.
+  store.restore(alpha.id);
+  const restored = store.list(document.id).find((row) => row.id === alpha.id);
+  expect(restored?.anchor?.parts[0]).toMatchObject(roof);
+  db.close();
+});
+
+test("a mark whose words around it were edited, with no other copy on its page, keeps its row", async () => {
+  const { document, store, read, db } = await harness();
+  const quote = "Highlighted words here.";
+  read("version-a", [highlight(quote, 1, null, 10, { before: "Alpha report cover.\n" })]);
+  const [kept] = store.list(document.id);
+  if (!kept) throw new Error("The highlight wasn't read.");
+  store.update(kept.id, { note: "Mine" });
+
+  read("version-b", [
+    highlight(quote, 1, null, 20, { before: "Added line above.\nAlpha report cover.\n" }),
+  ]);
+  expect(store.list(document.id)).toMatchObject([{ id: kept.id, note: "Mine", missing: false }]);
   db.close();
 });

@@ -45,6 +45,40 @@ test("the row and the note over the page keep their own drafts", async () => {
   expect(useAnnotationDrafts.getState().drafts.c).toBe("Over the page");
 });
 
+test("a Save that goes in after later words were typed ends only the words it saved", async () => {
+  const { useAnnotationDrafts } = await import("../../src/renderer/src/annotationDrafts");
+  const drafts = useAnnotationDrafts.getState();
+  drafts.begin("d", "Stored note", "row");
+  drafts.write("d", "Submitted A");
+  // While A's Save waits, more is typed; then A's Save goes in.
+  drafts.write("d", "Later B 中文");
+  useAnnotationDrafts.getState().saved("d", "Submitted A");
+  expect(useAnnotationDrafts.getState().drafts.d).toBe("Later B 中文");
+  expect(useAnnotationDrafts.getState().places.d).toBe("row");
+  // Ended and opened again before A's Save went in: the new words stay too.
+  useAnnotationDrafts.getState().end("d");
+  useAnnotationDrafts.getState().begin("d", "Stored note", "note");
+  useAnnotationDrafts.getState().write("d", "Stored note, and C");
+  useAnnotationDrafts.getState().saved("d", "Submitted A");
+  expect(useAnnotationDrafts.getState().drafts.d).toBe("Stored note, and C");
+  useAnnotationDrafts.getState().saved("d", "Stored note, and C");
+  expect(useAnnotationDrafts.getState().drafts.d).toBeUndefined();
+  expect(useAnnotationDrafts.getState().places.d).toBeUndefined();
+});
+
+test("opening the other editor carries the words the draft holds there", async () => {
+  const { useAnnotationDrafts } = await import("../../src/renderer/src/annotationDrafts");
+  useAnnotationDrafts.getState().begin("e", "Stored old note", "row");
+  useAnnotationDrafts.getState().write("e", "Retained row draft 中文");
+  useAnnotationDrafts.getState().begin("e", "Stored old note", "note");
+  expect(useAnnotationDrafts.getState().drafts.e).toBe("Retained row draft 中文");
+  expect(useAnnotationDrafts.getState().places.e).toBe("note");
+  useAnnotationDrafts.getState().begin("e", "Stored old note", "row");
+  expect(useAnnotationDrafts.getState().drafts.e).toBe("Retained row draft 中文");
+  expect(useAnnotationDrafts.getState().places.e).toBe("row");
+  useAnnotationDrafts.getState().end("e");
+});
+
 test("a recolour's Undo takes back the colour alone, not a newer note", async () => {
   const { editAnnotation } = await import("../../src/renderer/src/annotationActions");
   const { useUndo } = await import("../../src/renderer/src/undo");
@@ -87,4 +121,17 @@ test("a missing highlight is kept in the list, not drawn on the page", async () 
     { id: "note", quote: "", missing: false },
   ] as Annotation[]);
   expect(pageMarks.map((annotation) => annotation.id)).toEqual(["live"]);
+});
+
+test("an area highlight a version left missing is listed, not washed over its Unit", async () => {
+  const { areasOf } = await import("../../src/renderer/src/annotations");
+  const area = { x: 0.1, y: 0.2, width: 0.3, height: 0.1 };
+  const at = { kind: "page", from: 1, to: 1, area };
+  const washed = areasOf([
+    { id: "words", quote: "The words.", missing: false, pageFrom: 1, location: at },
+    { id: "picture", quote: "", missing: false, pageFrom: 1, location: at },
+    { id: "gone", quote: "The words.", missing: true, pageFrom: 1, location: at },
+    { id: "text", quote: "The words.", missing: false, pageFrom: 1, location: null },
+  ] as Annotation[]);
+  expect(washed.map((annotation) => annotation.id)).toEqual(["words", "picture"]);
 });

@@ -19,8 +19,10 @@ import { useT } from "../i18n";
 function Row({ annotation, onGo }: { annotation: Annotation; onGo(annotation: Annotation): void }) {
   const t = useT();
   const objectMenu = useObjectMenu({ kind: "annotation", id: annotation.id });
+  const place = useAnnotationDrafts((state) => state.places[annotation.id]);
   const draft = useAnnotationDrafts((state) => state.drafts[annotation.id]);
-  const editing = draft !== undefined;
+  // A draft the note over the page holds is edited there: two fields on it would each save or end it.
+  const editing = place === "row" && draft !== undefined;
   const [saving, setSaving] = useState(false);
   const where = annotation.location ? formatLocation(annotation.location, t) : "";
   const beginEdit = () =>
@@ -28,8 +30,9 @@ function Row({ annotation, onGo }: { annotation: Annotation; onGo(annotation: An
   const endEdit = () => useAnnotationDrafts.getState().end(annotation.id);
 
   const save = async () => {
-    const current = useAnnotationDrafts.getState().drafts[annotation.id];
-    if (current === undefined || saving) return;
+    const drafts = useAnnotationDrafts.getState();
+    const current = drafts.drafts[annotation.id];
+    if (drafts.places[annotation.id] !== "row" || current === undefined || saving) return;
     const note = current.trim() === "" ? null : current;
     if (note === annotation.note) {
       endEdit();
@@ -38,7 +41,7 @@ function Row({ annotation, onGo }: { annotation: Annotation; onGo(annotation: An
     setSaving(true);
     const saved = await editAnnotation(annotation, { note });
     setSaving(false);
-    if (saved) endEdit();
+    if (saved) useAnnotationDrafts.getState().saved(annotation.id, current);
   };
 
   return (
