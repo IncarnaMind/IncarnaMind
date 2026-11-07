@@ -497,7 +497,7 @@ describe("Who said each line (#941)", { timeout: 60_000 }, () => {
     expect(lines.map((line) => line.speaker)).toEqual(lines.map(() => "Speaker ?"));
   });
 
-  test("speech being transcribed shows greyed with whose it is", async () => {
+  test("speech being transcribed shows with whose it is, both sides at once, before any line is finished", async () => {
     const { core, record } = await transcribingCore(await createTempDataFolder(), {
       engine: { maxSpeechMs: 20_000 },
     });
@@ -505,11 +505,16 @@ describe("Who said each line (#941)", { timeout: 60_000 }, () => {
     await core.startMeeting({ meetingId: meeting.id, systemAudio: true });
     record(5 * SECOND);
 
-    const live = await until(core, meeting.id, (transcript) => transcript.partial !== null);
-    const { partial } = live;
-    if (!partial) throw new Error("Nothing was being transcribed.");
-    expect(partial.speaker === "Me" ? FAKE_LINES : FAKE_THEIR_LINES).toContain(partial.text);
-    expect(["Me", "Them"]).toContain(partial.speaker);
+    const live = await until(core, meeting.id, (transcript) => transcript.partials.length === 2);
+    expect(live.lines).toBe(0);
+    expect(live.documentId).toBeNull();
+    expect(live.partials.map((partial) => partial.speaker).sort()).toEqual(["Me", "Them"]);
+    for (const partial of live.partials) {
+      expect(partial.speaker === "Me" ? FAKE_LINES : FAKE_THEIR_LINES).toContain(partial.text);
+    }
+    expect(live.partials.map((partial) => partial.startMs)).toEqual(
+      live.partials.map((partial) => partial.startMs).sort((a, b) => a - b),
+    );
   });
 
   test("a speech model from before live words gets its streaming model when a Meeting starts, and that Meeting is transcribed meanwhile (#2662)", async () => {
@@ -551,10 +556,10 @@ describe("Who said each line (#941)", { timeout: 60_000 }, () => {
     const line = FAKE_LINES[0] as string;
 
     microphone(SECOND);
-    const hearing = await until(core, meeting.id, (transcript) => transcript.partial !== null);
+    const hearing = await until(core, meeting.id, (transcript) => transcript.partials.length > 0);
     // A second in: the first words of what is being said, the line not yet finished.
-    expect(line.startsWith(hearing.partial?.text ?? "?")).toBe(true);
-    expect(hearing.partial?.text.length).toBeLessThan(line.length);
+    expect(line.startsWith(hearing.partials[0]?.text ?? "?")).toBe(true);
+    expect(hearing.partials[0]?.text.length).toBeLessThan(line.length);
     expect(hearing.lines).toBe(0);
 
     microphone(SECOND);
@@ -562,7 +567,7 @@ describe("Who said each line (#941)", { timeout: 60_000 }, () => {
     await until(
       core,
       meeting.id,
-      (transcript) => transcript.lines === 1 && transcript.partial === null,
+      (transcript) => transcript.lines === 1 && transcript.partials.length === 0,
     );
     expect((await linesOf(core, meeting.id)).map((cue) => cue.text)).toEqual([line]);
   });

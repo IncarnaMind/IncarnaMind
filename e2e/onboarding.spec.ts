@@ -159,6 +159,17 @@ test("a first run opens on the credit paper with no model set up: its Citations 
   await window.keyboard.press("Escape");
   await expect(step(window, "citation")).toHaveAttribute("data-state", "done");
 
+  // The Document in front has its row, under the example's Note, while the steps card shows. Its
+  // row is the selected one once the User is in its pane, as for every open item (#1098).
+  const sidebar = window.getByTestId("sidebar");
+  const examples = sidebar.getByTestId("not-in-a-folder-section");
+  await expect(examples.getByTestId("not-in-a-folder-title")).toHaveText("Examples");
+  await expect(examples.getByTestId("document-list-item")).toHaveCount(2);
+  await pointAndClick(window, window.getByTestId("viewer"));
+  const selected = examples.getByRole("treeitem", { selected: true });
+  await expect(selected).toHaveCount(1);
+  await expect(selected.getByTestId("row-text")).toHaveText("Northwind Retail · Q3 2026 results");
+
   // Step 2's ready Question brings the assistant with its Answer, written in advance with no
   // model, its Citations found, and ticks the step.
   await markSteps(window, { indexed: true });

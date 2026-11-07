@@ -7,7 +7,6 @@ import { ProblemLine, ProblemMark } from "./ProblemLine";
 
 const COUNTED = {
   quotes: ["export.share.quotes.one", "export.share.quotes.other"],
-  pagePictures: ["export.share.pagePictures.one", "export.share.pagePictures.other"],
   documents: ["export.share.documents.one", "export.share.documents.other"],
   pictures: ["export.share.pictures.one", "export.share.pictures.other"],
 } as const satisfies Record<string, readonly [MessageKey, MessageKey]>;
@@ -35,11 +34,7 @@ export function SharePageContents({
   const documents = counted("documents", preview.documents.length);
   const contents =
     pictures > 0
-      ? t("export.share.contents", {
-          quotes,
-          pictures: counted("pagePictures", pictures),
-          documents,
-        })
+      ? t("export.share.contents", { quotes, pictures: counted("pictures", pictures), documents })
       : t("export.share.contents.text", { quotes, documents });
   const toggle = (documentId: string, shown: boolean) => {
     const next = new Set(textOnly);

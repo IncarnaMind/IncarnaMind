@@ -11,7 +11,7 @@ import {
 import { useT } from "../../i18n";
 import { assistantTabOf } from "../../layoutSlice";
 import { useMeetingOf } from "../../meetings";
-import { useMeetingNoteView } from "../../meetingViews";
+import { hasMeetingViews, useMeetingNoteView } from "../../meetingViews";
 import { useWritingProperties } from "../../mindStyles";
 import { useQuietAssistant } from "../../quietAssistant";
 import { useReviewPanes, useRoomBeside } from "../../reviewPane";
@@ -52,8 +52,7 @@ export function MindTab({ mindId }: { mindId: string }) {
   const tabId = place?.tabId;
   const meeting = useMeetingOf(mindId);
   const view = useMeetingNoteView(tabId, mindId);
-  const hasViews =
-    meeting?.kind === "meeting" && meeting.status === "stopped" && !!meeting.transcript?.documentId;
+  const hasViews = hasMeetingViews(meeting);
   const transcriptShown = hasViews && !!tabId && view === "transcript";
   const band = useUndoPillBands((state) => undoBandFor(state.bands, place?.groupId));
   const merged = useGroupsMerged();
@@ -61,6 +60,10 @@ export function MindTab({ mindId }: { mindId: string }) {
   const wordDrop = useWordFileDrop();
   const writing = useWritingProperties(mindId);
   const pill = useQuietAssistant();
+  // The Ask pill stands at the middle of all the groups, where a group's foot may be (#2527).
+  const besidePill = useAppStore(
+    (state) => pill && !merged && (state.layout?.groups.length ?? 0) > 1,
+  );
   const review = useReviewShown(mindId);
   const reviewShown = transcriptShown ? "closed" : review.shown;
   if (!mind) return null;
@@ -83,7 +86,9 @@ export function MindTab({ mindId }: { mindId: string }) {
             onDropCapture={wordDrop.props.onDrop}
             style={{
               ...(band > 0 && { marginBottom: band }),
-              ...(transcriptShown && { display: "none" }),
+              // Hidden in place, not taken out of the layout: the notes keep their scroll and
+              // their cursor for when the User comes back to them (#138).
+              ...(transcriptShown && { visibility: "hidden", position: "absolute", inset: 0 }),
             }}
             className={`mind-scroller min-h-0 flex-grow overflow-auto ${wordDrop.over ? `rounded-lg ${dropIntoClass}` : ""}`}
           >
@@ -125,10 +130,15 @@ export function MindTab({ mindId }: { mindId: string }) {
           </div>
           {transcriptShown && <MeetingTranscriptInNote meeting={meeting} tabId={tabId} />}
           <div className="mind-menu-slot">
-            {hasViews && tabId && <MeetingViewChip meeting={meeting} tabId={tabId} />}
+            {hasViews && tabId && meeting.status === "stopped" && (
+              <MeetingViewChip meeting={meeting} tabId={tabId} />
+            )}
             <div ref={setMenu} className="flex items-center gap-1" />
           </div>
-          <div className="mind-foot-slot" style={transcriptShown ? { display: "none" } : undefined}>
+          <div
+            className={`mind-foot-slot ${besidePill ? "mind-foot-slot--over-pill" : ""}`}
+            style={transcriptShown ? { display: "none" } : undefined}
+          >
             <div ref={setCount} className="mind-foot-count" />
             <div ref={setBadge} className="mind-foot-badge" />
           </div>

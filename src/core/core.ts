@@ -293,6 +293,11 @@ import { createPrivacy, type NetworkTrafficRegistry } from "./privacy";
 import { KeyCharacterError, storedApiKey } from "./providers/apiKey";
 import { readsImages } from "./providers/capabilities";
 import { retrievesFirst, writesThenCites } from "./providers/catalog/answerPaths";
+import {
+  DECISION_HOST_ENTRIES,
+  DECISION_HOSTS,
+  type DecisionHost,
+} from "./providers/catalog/decisions";
 import { CHAT_FLOW_SENDS, createChat, type PreparedChatModel } from "./providers/chat";
 import { CHATGPT_PLAN_ENDPOINTS, createChatGptPlan } from "./providers/chatgpt/plan";
 import { createClaudeAccount } from "./providers/claudeAccount/account";
@@ -3996,6 +4001,24 @@ export function createCore(adapters: CoreAdapters): Core {
     await taggingChanged();
     return hosts;
   };
+  /**
+   * Before a key or workspace goes, sorting, and Organize's kept model, stop naming what it reached
+   * (#1907): back to Automatic, which starts no host and turns nothing on. The app never picks
+   * another host in its place, so nothing goes anywhere the User hasn't allowed.
+   */
+  const stopSortingWith = async (reached: (classifier: TaggingClassifier) => boolean) => {
+    if (library.forgetModel(reached)) await dataFlowsChanged();
+  };
+  /** The hosts that reach their decision models with this chat provider's key: OpenRouter's, OpenAI's, the Qwen key's. */
+  const hostsOnKeyOf = async (providerId: string) => {
+    const riding: DecisionHost[] = [];
+    for (const host of DECISION_HOSTS) {
+      const { key, provider } = DECISION_HOST_ENTRIES[host];
+      if (key !== "provider" || !provider) continue;
+      if ((await chat.apiKeyOf(provider))?.providerId === providerId) riding.push(host);
+    }
+    return riding;
+  };
   /** Jev was set up, changed or removed: say so, and Documents waiting may go on. */
   const jevChanged = async () => {
     const status = await jev.status();
@@ -5898,7 +5921,12 @@ export function createCore(adapters: CoreAdapters): Core {
       return provider;
     },
     deleteChatProvider: async (id) => {
+      const riding = await hostsOnKeyOf(id);
+      await stopSortingWith(
+        (classifier) => classifier.kind === "decision" && riding.includes(classifier.host),
+      );
       await chat.delete(id);
+      if (riding.length > 0) await decisionsChanged(await decisionHosts.list());
       // A transcription route that used this provider's key has none now.
       await cloudTranscription.refreshKeys();
       transcriptionGateChanged();
@@ -6477,13 +6505,19 @@ export function createCore(adapters: CoreAdapters): Core {
       return jevChanged();
     },
     removeJevSettings: async () => {
+      await stopSortingWith((classifier) => classifier.kind === "jev");
       await jev.remove();
       return jevChanged();
     },
     testJevConnection: (input) => loggingTest("jev")(jev.test(input)),
     listDecisionHosts: () => decisionHosts.list(),
     setDecisionKey: async (input) => decisionsChanged(await decisionHosts.setKey(input)),
-    removeDecisionKey: async (host) => decisionsChanged(await decisionHosts.removeKey(host)),
+    removeDecisionKey: async (host) => {
+      await stopSortingWith(
+        (classifier) => classifier.kind === "decision" && classifier.host === host,
+      );
+      return decisionsChanged(await decisionHosts.removeKey(host));
+    },
 
     listConnectors: async () => connectors.list(),
     addConnector: async (input) => {
@@ -6834,6 +6868,20 @@ export function createCore(adapters: CoreAdapters): Core {
       );
       return saved.status === "saved" ? { ...saved, unverifiedCitations, hiddenColumns } : saved;
     },
+    saveComparisonCsvExport: async (input) => {
+      const ref: Record<string, unknown> = isRecord(input) ? input : {};
+      const { fileName, data, unverifiedCitations, hiddenColumns } = comparisonExport.csv(
+        ref.mindId,
+        ref.tableId,
+        ref.documentIds,
+      );
+      const saved = await saveExport(
+        fileName,
+        data,
+        typeof ref.mindId === "string" ? ref.mindId : null,
+      );
+      return saved.status === "saved" ? { ...saved, unverifiedCitations, hiddenColumns } : saved;
+    },
     saveSkillExport: async (skillId) => {
       const { fileName, data } = await skills.exportZip(skillId);
       return saveExport(fileName, data, null);
@@ -6934,6 +6982,13 @@ export function createCore(adapters: CoreAdapters): Core {
     stopMeeting: async (meetingId) => stopMeeting(meetingId),
     fillMeetingNotes: async (meetingId) => meetingFill.retry(meetings.get(meetingId).id),
     undoMeetingFill: async (meetingId) => meetingFill.undo(meetings.get(meetingId).id),
+    followMeetingFillUndo: async (input) => {
+      const invalid = () => new InvalidInputError({ key: "error.meeting.fillUndo" });
+      if (!isRecord(input)) throw invalid();
+      const { id } = meetings.get(input.meetingId);
+      if (typeof input.undone !== "boolean") throw invalid();
+      return meetingFill.followUndo(id, input.undone);
+    },
     deleteMeetingAudio: async (meetingId) => meetings.deleteAudio(meetingId),
     retryTranscript: async (meetingId) => meetings.retryTranscript(meetingId),
     listTranscriptionServices: () => cloudTranscription.list(),

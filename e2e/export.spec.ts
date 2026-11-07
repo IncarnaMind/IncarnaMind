@@ -137,14 +137,16 @@ test("Export opens a short menu: Word and PDF, the last one used first with â‡§â
   await expect(more.getByRole("menuitem")).toHaveText([
     "Source pack (PDF)",
     "HTML",
-    "Web page to share (.html)",
+    "Share as a web pageâ€¦",
     "Markdown (.md)",
+    "Export AI use statement",
+    "Export check record",
   ]);
   await expect(more.getByTestId("export-as-source-pack")).toBeFocused();
   await motionSettled(window);
   await screenshot(window, "export-more-en");
   await window.keyboard.press("End");
-  await expect(more.getByTestId("export-as-markdown")).toBeFocused();
+  await expect(more.getByTestId("export-check-record")).toBeFocused();
   await window.keyboard.press("Home");
   await expect(more.getByTestId("export-as-source-pack")).toBeFocused();
   await window.keyboard.press("ArrowLeft");
@@ -165,6 +167,10 @@ test("Export opens a short menu: Word and PDF, the last one used first with â‡§â
   await window.keyboard.press("ArrowDown");
   await window.keyboard.press("ArrowRight");
   await window.keyboard.press("End");
+  // The last row is the check record; Markdown is two above it.
+  await window.keyboard.press("ArrowUp");
+  await window.keyboard.press("ArrowUp");
+  await expect(more.getByTestId("export-as-markdown")).toBeFocused();
   await window.keyboard.press("Enter");
   await expect(done).toContainText(savedLine("Tides.md", sources));
 

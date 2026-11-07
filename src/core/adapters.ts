@@ -368,8 +368,12 @@ export interface ExecResult {
   stdoutTruncated: boolean;
   /** It wrote more to its error output than is kept. */
   stderrTruncated: boolean;
-  /** It went over this limit of its `ExecLimits`, so it was stopped with every process it started. */
-  limit?: "memory" | "folder";
+  /**
+   * It was stopped with every process it started: because it went over this limit of its
+   * `ExecLimits` ("memory", "folder"), or because its disk use stayed unmeasurable
+   * ("folder-unknown"), which fails closed since unmeasured files aren't bounded.
+   */
+  limit?: "memory" | "folder" | "folder-unknown";
 }
 
 /**

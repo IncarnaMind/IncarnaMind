@@ -39,6 +39,7 @@ import {
   lstat,
   mkdir,
   mkdtemp,
+  readFile,
   realpath,
   rename,
   rm,
@@ -54,7 +55,7 @@ import type { ExecRequest, Executor, Logger, ProcessLauncher } from "../core";
 import type { SandboxProblem } from "../core/api";
 import { engineModule } from "../core/engineModules";
 import { type Confinement, createLocalExecutor, folderPath } from "../core/execution";
-import { programMeter } from "./programMeter";
+import { createMeters, type Meters } from "./programMeter";
 import {
   createRunSweeper,
   type RunSweeper,
@@ -470,6 +471,12 @@ async function limitLines(limits: ExecRequest["limits"]): Promise<string[]> {
   if (limits?.fileBytes !== undefined) {
     lines.push(`ulimit -f ${Math.max(1, Math.floor(limits.fileBytes / 1024))} || exit 125`);
   }
+  if (limits?.fileBytes !== undefined || limits?.folderBytes !== undefined) {
+    // A run can't duplicate file descriptors without bound: unmeasured, they would hide unlinked
+    // files the folder limit counts (#2351). 1024 is Linux's usual default and above macOS's 256,
+    // so ordinary programs keep their descriptors.
+    lines.push("ulimit -n 1024 || exit 125");
+  }
   if (limits?.processes !== undefined) {
     lines.push(`ulimit -u ${(await accountProcesses()) + limits.processes} || exit 125`);
   }
@@ -505,6 +512,7 @@ function osConfinement(
   readable: readonly string[],
   sweeper: RunSweeper,
   sizedMasks: boolean,
+  meters: Meters,
 ): Confinement {
   return {
     level: "os",
@@ -570,8 +578,8 @@ function osConfinement(
         const run = randomUUID();
         const metered = request.limits?.memoryBytes !== undefined;
         const program = await wrap(sandbox, script, config, run, metered);
-        const sweep = await sweeper.begin(run, working);
-        return { ...program, env: request.env, sweep };
+        const { sweep, adopted } = await sweeper.begin(run, working);
+        return { ...program, env: request.env, sweep, meter: meters.meter(adopted) };
       } catch (error) {
         throw startFailed(error);
       }
@@ -655,6 +663,21 @@ export async function loadOsSandbox({ seccompHelper }: OsSandboxOptions = {}): P
   // macOS's profile mounts nothing; on Linux only a bubblewrap that can size a tmpfs does.
   let sizedMasks = process.platform === "darwin";
   if (process.platform === "linux") {
+    // The meter tells the User's processes from the sandbox's own by their PID namespaces (#2351).
+    let status: string;
+    try {
+      status = await readFile("/proc/self/status", "utf8");
+    } catch (error) {
+      return { available: false, reason: messageOf(error), problem: { kind: "start" } };
+    }
+    if (!/^NSpid:/m.test(status)) {
+      return {
+        available: false,
+        reason:
+          "this Linux doesn't show the PID namespaces of a process (it needs Linux 4.1 or later)",
+        problem: { kind: "start" },
+      };
+    }
     const helper = seccompHelper ?? bundledSeccompHelper();
     readable.push(dirname(helper));
     let bwrapPath: string | undefined;
@@ -713,7 +736,6 @@ export async function loadOsSandbox({ seccompHelper }: OsSandboxOptions = {}): P
     createExecutor: (options) =>
       createLocalExecutor({
         ...options,
-        meter: programMeter,
         confinement: osConfinement(
           sandbox,
           options,
@@ -725,6 +747,7 @@ export async function loadOsSandbox({ seccompHelper }: OsSandboxOptions = {}): P
             ...options.sweep,
           }),
           sizedMasks,
+          createMeters(),
         ),
       }),
   };

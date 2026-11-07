@@ -13,9 +13,9 @@ import {
   launchApp,
   nameMind,
   newMind,
+  openExportMore,
   pathsOpened,
   pointAndClick,
-  pointAt,
   removeDataFolder,
   setLanguage,
   setWindowSize,
@@ -118,15 +118,12 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(marks.and(window.locator("[data-check=unsupported]"))).toHaveCount(1);
     await useOutputLocation(window, out);
 
-    // From the Mind's ⋯ menu: one entry, which saves the PDF and its CSV side by side, said in one line.
+    // From Export's More formats ›: one entry, which saves the PDF and its CSV side by side, said in one line.
     await interceptOpenPath(app);
-    const row = window.getByTestId("mind-row").filter({ hasText: "Tides" });
-    await pointAt(window, row);
-    await pointAndClick(window, row.getByTestId("mind-menu"));
-    const menu = row.getByTestId("mind-actions");
-    await expect(menu.getByTestId("mind.checkRecord")).toHaveText(text.entry);
-    await expect(menu.locator('[data-testid^="mind.checkRecord."]')).toHaveCount(0);
-    await pointAndClick(window, menu.getByTestId("mind.checkRecord"));
+    const more = await openExportMore(window);
+    await expect(more.getByTestId("export-check-record")).toHaveText(text.entry);
+    await expect(more.locator('[data-testid^="export-check-record."]')).toHaveCount(0);
+    await pointAndClick(window, more.getByTestId("export-check-record"));
     const result = window.getByTestId("export-result");
     const done = result.getByTestId("export-done");
     await expect(done).toHaveText(text.found(text.pdfFile, basename(out)), { timeout: 30_000 });

@@ -26,7 +26,7 @@ const controls = {
   INCARNAMIND_LIVE_REPLIES: "1",
   INCARNAMIND_LIVE_DEEPSEEK_KEY: "made-up-deepseek-key",
   INCARNAMIND_LIVE_DEEPSEEK_MODEL: "deepseek-flash",
-  INCARNAMIND_LIVE_CALLS: "reserved-en-structured-j",
+  INCARNAMIND_LIVE_CALLS: "reserved-en-structured-m",
 };
 const spec: ChatModelSpec = {
   kind: "deepseek",
@@ -86,7 +86,7 @@ test("the replacement gate registers six once-only DeepSeek observations, not tw
   });
   expect(gate.callIds).toEqual(
     ["en", "zh"].flatMap((language) =>
-      ["j", "k", "l"].map((call) => `reserved-${language}-structured-${call}`),
+      ["m", "n", "o"].map((call) => `reserved-${language}-structured-${call}`),
     ),
   );
   expect(new Set(gate.callIds).size).toBe(6);
