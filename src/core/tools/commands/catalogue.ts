@@ -64,7 +64,8 @@ export const CORE_COMMANDS = {
   "document.moveTo": {
     on: "document",
     does: "app",
-    takes: "ids; folder: a Folder's name, made if there is none",
+    takes:
+      "ids; folder: a Folder's name, made if there is none. Only for a move the User asks for by naming the Documents and the Folder: organizing, sorting or putting Documents together by what they say is documents.organize",
     check: LIBRARY_CHECKERS["document.moveTo"],
   },
   "document.tags": {
