@@ -260,29 +260,56 @@ export const bwrapScript = (bwrap: string) =>
 export const bwrapSizesTmpfs = (help: string): boolean => /^\s*--size\b/m.test(help);
 
 /**
- * Writes `bwrapScript` where only this User can change it, in a folder of this User's own
- * (the shared /tmp is checked: a folder someone else made there is refused). Null where this
- * bubblewrap can't size a tmpfs: it then runs as it is.
+ * What `sizedBwrap` found: no `bwrap` on the PATH, which the dependency check names as a missing
+ * package; a bubblewrap that can't size a tmpfs, which runs as it is; or the sized script.
  */
-async function sizedBwrap(): Promise<string | null> {
-  const real = await findCommand("bwrap", process.env.PATH, "/");
-  const { stdout, stderr } = await execFileAsync(real, ["--help"]).catch(
-    (error: { stdout?: string; stderr?: string }) => ({
-      stdout: error.stdout ?? "",
-      stderr: error.stderr ?? "",
-    }),
-  );
-  if (!bwrapSizesTmpfs(`${stdout}\n${stderr}`)) return null;
-  const folder = join(tmpdir(), `incarnamind-bwrap-${process.getuid?.() ?? 0}`);
+export type SizedBwrap =
+  | { kind: "missing" }
+  | { kind: "unsized" }
+  | { kind: "sized"; script: string };
+
+/**
+ * Writes `bwrapScript` where only this User can change it, in a folder of this User's own
+ * (the shared /tmp is checked: a folder someone else made there is refused).
+ */
+export async function sizedBwrap(tempFolder: string): Promise<SizedBwrap> {
+  const real = await findCommand("bwrap", process.env.PATH, "/").catch((error: unknown) => {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  });
+  if (real === null) return { kind: "missing" };
+  let help: string;
+  try {
+    const { stdout, stderr } = await execFileAsync(real, ["--help"]);
+    help = `${stdout}\n${stderr}`;
+  } catch (error) {
+    const { stdout, stderr } = error as { stdout?: string; stderr?: string };
+    const said = `${stdout ?? ""}\n${stderr ?? ""}`;
+    // Help can come with a nonzero exit; any other words are a probe that failed, not an old
+    // bubblewrap.
+    if (!/^\s*usage:/m.test(said)) throw error;
+    help = said;
+  }
+  if (!bwrapSizesTmpfs(help)) return { kind: "unsized" };
+  const folder = join(tempFolder, `incarnamind-bwrap-${process.getuid?.() ?? 0}`);
   await mkdir(folder, { recursive: true, mode: 0o700 });
   const info = await lstat(folder);
   if (!info.isDirectory() || info.uid !== process.getuid?.() || (info.mode & 0o077) !== 0) {
     throw new Error(`${folder} isn't a private folder of this User's.`);
   }
   const script = join(folder, "bwrap");
-  await writeFile(`${script}.new`, bwrapScript(real), { mode: 0o700 });
-  await rename(`${script}.new`, script);
-  return script;
+  // A name of this process's own, renamed into place: another copy starting at the same moment
+  // writes its own file, and a rename over an existing `bwrap` is atomic (#2599).
+  const writing = join(folder, `bwrap.${process.pid}.${randomUUID()}.new`);
+  try {
+    await writeFile(writing, bwrapScript(real), { mode: 0o700 });
+    await rename(writing, script);
+  } catch (error) {
+    // A leftover file must not hide the failure that explains it.
+    await rm(writing, { force: true }).catch(() => {});
+    throw error;
+  }
+  return { kind: "sized", script };
 }
 
 /** No network: an empty allowlist, and no proxy to let anything through. */
@@ -682,13 +709,15 @@ export async function loadOsSandbox({ seccompHelper }: OsSandboxOptions = {}): P
     readable.push(dirname(helper));
     let bwrapPath: string | undefined;
     try {
-      bwrapPath = (await sizedBwrap()) ?? undefined;
-      sizedMasks = bwrapPath !== undefined;
-    } catch (error) {
-      // Not installed: the dependency check below names it with whatever else is missing.
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-        return { available: false, reason: messageOf(error), problem: { kind: "start" } };
+      const sized = await sizedBwrap(tmpdir());
+      if (sized.kind === "sized") {
+        bwrapPath = sized.script;
+        sizedMasks = true;
       }
+      // Missing: the dependency check below names the package. Unsized: an older bubblewrap runs
+      // as it is, and a run that asks for a memory limit is refused (osConfinement).
+    } catch (error) {
+      return { available: false, reason: messageOf(error), problem: { kind: "start" } };
     }
     // Only the helper's and bubblewrap's places are taken from this: each wrap brings its own
     // file and network rules.
