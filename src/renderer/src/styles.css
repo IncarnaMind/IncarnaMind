@@ -627,9 +627,6 @@
     padding-right: max(4px, var(--window-buttons-right));
     background: var(--color-tab-strip);
   }
-  .tab-strip[data-quiet] {
-    background: transparent;
-  }
   /* Only the last group reaches the window's buttons. */
   .tab-group:not(:last-of-type) {
     --window-buttons-right: 0px;
