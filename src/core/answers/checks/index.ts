@@ -280,6 +280,7 @@ export interface ChecksOptions
   };
   /** Which written sentences take the fast paths, instead of the list beside the catalog. */
   checkPaths?: CheckPathsOverride;
+  warmReranker?: VerifyOptions["warmReranker"];
   consent: Consent;
   /** Local mode: only models on this computer. */
   localOnly(): boolean;

@@ -10,7 +10,7 @@ import { translate } from "../../src/shared/i18n";
 const actions = vi.hoisted(() => ({
   changeLayout: vi.fn(),
   showTranscript: vi.fn(),
-  hideTranscript: vi.fn(),
+  openBeside: vi.fn(),
   addLine: vi.fn(async () => "added"),
   mounts: vi.fn(),
   unmounts: vi.fn(),
@@ -38,7 +38,18 @@ vi.mock("../../src/renderer/src/store", async () => {
 });
 vi.mock("../../src/renderer/src/meetings", async () => {
   const { create } = await import("zustand");
-  const useMeetings = create<{ meetings: Meeting[] }>()(() => ({ meetings: [] }));
+  const useMeetings = create<{
+    meetings: Meeting[];
+    detailsShown: Record<string, boolean>;
+    showDetails: (meetingId: string) => void;
+  }>()((set) => ({
+    meetings: [],
+    detailsShown: {},
+    showDetails: (meetingId) =>
+      set((state) => ({
+        detailsShown: { ...state.detailsShown, [meetingId]: !state.detailsShown[meetingId] },
+      })),
+  }));
   return {
     useMeetings,
     useMeetingOf: (mindId: string) =>
@@ -82,7 +93,10 @@ vi.mock("../../src/renderer/src/components/ExportResultLine", () => ({
 vi.mock("../../src/renderer/src/components/FirstOpenSteps", () => ({ ExampleIntro: () => null }));
 vi.mock("../../src/renderer/src/components/GettingStarted", () => ({ useIsExample: () => false }));
 vi.mock("../../src/renderer/src/components/MakeSkillCard", () => ({ MakeSkillCard: () => null }));
-vi.mock("../../src/renderer/src/components/MeetingInMind", () => ({ MeetingInMind: () => null }));
+vi.mock("../../src/renderer/src/components/MeetingInMind", () => ({
+  MeetingInMind: () => null,
+  LiveMeetingBar: () => createElement("section", { "data-testid": "meeting-bar" }),
+}));
 vi.mock("../../src/renderer/src/components/providers/ChatReadinessNotice", () => ({
   ChatReadinessNotice: () => null,
 }));
@@ -132,10 +146,18 @@ vi.mock("../../src/renderer/src/editor/meetingNotes", () => ({
   markNow: vi.fn(),
   noteOf: vi.fn(),
 }));
-vi.mock("../../src/renderer/src/requests", () => ({ useRequests: { getState: () => ({}) } }));
+vi.mock("../../src/renderer/src/requests", async () => {
+  const { create } = await import("zustand");
+  return {
+    useRequests: create<{ deleteAudio: null; clear: () => void }>()(() => ({
+      deleteAudio: null,
+      clear: () => undefined,
+    })),
+  };
+});
 vi.mock("../../src/renderer/src/transcripts", () => ({
   showTranscript: actions.showTranscript,
-  hideTranscript: actions.hideTranscript,
+  openTranscriptBeside: actions.openBeside,
 }));
 vi.mock("../../src/renderer/src/motion", () => ({ enterFrom: vi.fn(), exitToward: vi.fn() }));
 
@@ -183,7 +205,12 @@ const meetingOf = (overrides: Partial<Meeting> = {}): Meeting =>
     kind: "meeting",
     status: "stopped",
     recordedMs: 60_000,
-    transcript: { documentId: "transcript", lines: 1, state: "saved" },
+    transcript: { documentId: "transcript", lines: 1, state: "saved", partials: [] },
+    audio: { kept: true, expiresAt: "2026-11-08T12:54:00.000Z", deletedAt: null },
+    gaps: [],
+    saveError: null,
+    health: { realTimeFactor: null, measuredMs: 0, keepsUp: null, events: [] },
+    fill: null,
     ...overrides,
   }) as Meeting;
 
@@ -313,7 +340,7 @@ describe("the Meeting's Note-local views", () => {
     scroller.scrollTop = 137;
     expect(find("meeting-view-chip").textContent).toContain("Recorded 1:00");
     await click("meeting-view-transcript");
-    expect(find("mind-scroller").style.display).toBe("none");
+    expect(find("mind-scroller").style.visibility).toBe("hidden");
     expect(container.querySelector<HTMLElement>(".mind-foot-slot")?.style.display).toBe("none");
     expect(container.querySelector(".review-slot")?.getAttribute("data-shown")).toBe("closed");
     expect(find("meeting-note-transcript").textContent).toContain("Keep the go-live date.");
@@ -336,7 +363,7 @@ describe("the Meeting's Note-local views", () => {
     expect(find("retained-editor")).toBe(editor);
     expect(editor.value).toBe("Typed while recording");
     expect(scroller.scrollTop).toBe(137);
-    expect(scroller.style.display).not.toBe("none");
+    expect(scroller.style.visibility).not.toBe("hidden");
     expect(container.querySelector<HTMLElement>(".mind-foot-slot")?.style.display).not.toBe("none");
     expect(container.querySelector(".review-slot")?.getAttribute("data-shown")).toBe("beside");
     expect(actions.mounts).toHaveBeenCalledTimes(1);
@@ -364,7 +391,7 @@ describe("the Meeting's Note-local views", () => {
     );
     await show([{ tabId: "tab", mindId: "other" }]);
     expect(container.querySelector('[data-testid="meeting-note-transcript"]')).toBeNull();
-    expect(find("mind-scroller").style.display).not.toBe("none");
+    expect(find("mind-scroller").style.visibility).not.toBe("hidden");
   });
 
   test.each(["pending", "missing", "failed"] as const)(
@@ -415,7 +442,6 @@ describe("the Meeting's Note-local views", () => {
       actions.focus.mock.calls.filter(([id]) => id === "meeting-note-transcript"),
     ).toHaveLength(1);
     await click("meeting-view-notes");
-    expect(actions.focus).toHaveBeenLastCalledWith("meeting-view-chip");
     await click("meeting-view-transcript");
     expect(
       actions.focus.mock.calls.filter(([id]) => id === "meeting-note-transcript"),
@@ -443,18 +469,20 @@ describe("the Meeting's Note-local views", () => {
     expect(actions.changeLayout).not.toHaveBeenCalled();
   });
 
-  test("does not add views to a Voice memo or a Meeting without a Transcript", async () => {
+  test("adds no chip to a Voice memo, and no Transcript view to a call without a Transcript", async () => {
     useMeetings.setState({ meetings: [meetingOf({ kind: "memo" })] });
     await show();
     expect(container.querySelector('[data-testid="meeting-view-chip"]')).toBeNull();
     await act(async () => useMeetings.setState({ meetings: [meetingOf({ transcript: null })] }));
-    expect(container.querySelector('[data-testid="meeting-view-chip"]')).toBeNull();
+    expect(find("meeting-view-chip").textContent).toContain("Recorded 1:00");
+    expect(find("meeting-view-notes")).toBeDefined();
+    expect(container.querySelector('[data-testid="meeting-view-transcript"]')).toBeNull();
   });
 
   test.each(["en", "zh-CN"] as const)("uses labelled radio choices in %s", async (language) => {
     actions.language = language;
     await show();
-    expect(find("meeting-view-chip").getAttribute("aria-label")).toBe(
+    expect(find("meeting-view-menu").getAttribute("aria-label")).toBe(
       translate(language, "meetings.views.label"),
     );
     expect(find("meeting-view-notes").getAttribute("role")).toBe("menuitemradio");
@@ -466,34 +494,95 @@ describe("the Meeting's Note-local views", () => {
     );
   });
 
-  test("the stopped Meeting's Transcript command uses the same local action without opening a Document tab", async () => {
-    await show();
-    const command = meetingCommands.find((each) => each.id === "meeting.transcript");
-    if (!command) throw new Error("Missing Transcript command");
-    const context = { surface: "palette", selection: [], focus: null } as const;
-    expect(command.when?.(context)).toBe(true);
-    expect(command.enabled?.(context)).toBe(true);
-    if (typeof command.label !== "function") throw new Error("Expected a view-aware label");
-    expect(command.label(context, translate.bind(null, "en"))).toBe("Transcript");
-    await act(async () => command.run(context));
-    expect(find("meeting-note-transcript")).toBeDefined();
-    expect(command.label(context, translate.bind(null, "en"))).toBe("Notes");
-    expect(command.keywords).toContain("meetings.views.transcript");
-    await act(async () => command.run(context));
-    expect(container.querySelector('[data-testid="meeting-note-transcript"]')).toBeNull();
-    expect(actions.showTranscript).not.toHaveBeenCalled();
-    expect(actions.changeLayout).not.toHaveBeenCalled();
-  });
+  test.each(["stopped", "recording"] as const)(
+    "⌘K's views of a %s call switch the page in place and Open beside opens the Transcript next to it",
+    async (status) => {
+      useMeetings.setState({ meetings: [meetingOf({ status })] });
+      await show();
+      const command = (id: string) => {
+        const found = meetingCommands.find((each) => each.id === id);
+        if (!found) throw new Error(`Missing ${id}`);
+        return found;
+      };
+      const context = { surface: "palette", selection: [], focus: null } as const;
+      expect(command("meeting.showNotes").when?.(context)).toBe(false);
+      expect(command("meeting.showTranscript").when?.(context)).toBe(true);
+      expect(command("meeting.showTranscript").label).toBe("meetings.views.showTranscript");
+      await act(async () => command("meeting.showTranscript").run(context));
+      expect(find("meeting-note-transcript")).toBeDefined();
+      expect(command("meeting.showTranscript").when?.(context)).toBe(false);
+      await act(async () => command("meeting.previousView").run(context));
+      expect(container.querySelector('[data-testid="meeting-note-transcript"]')).toBeNull();
+      await act(async () => command("meeting.nextView").run(context));
+      expect(find("meeting-note-transcript")).toBeDefined();
+      expect(command("meeting.previousView").shortcut?.keys).toBe("CmdOrCtrl+Alt+Left");
+      expect(command("meeting.nextView").shortcut?.keys).toBe("CmdOrCtrl+Alt+Right");
+      expect(command("meeting.nextView").palette).toBe(false);
+      expect(command("meeting.transcriptBeside").enabled?.(context)).toBe(true);
+      await act(async () => command("meeting.transcriptBeside").run(context));
+      expect(actions.openBeside).toHaveBeenCalledWith(
+        expect.objectContaining({ tabId: "tab", groupId: "group" }),
+      );
+      expect(actions.changeLayout).not.toHaveBeenCalled();
+    },
+  );
 
-  test("the live Meeting's existing Transcript command still opens a Document beside it", async () => {
-    useMeetings.setState({ meetings: [meetingOf({ status: "recording" })] });
+  test.each(["en", "zh-CN"] as const)(
+    "while it records, the Transcript view shows both sides' words being said before its first line, under the bar (%s)",
+    async (language) => {
+      actions.language = language;
+      useAppStore.setState({ documents: [] });
+      useMeetings.setState({
+        meetings: [
+          meetingOf({
+            status: "recording",
+            transcript: {
+              documentId: null,
+              lines: 0,
+              state: "live",
+              partials: [
+                { startMs: 200, text: "The budget holds", speaker: "Me" },
+                { startMs: 400, text: "Thanks for making", speaker: "Them" },
+              ],
+            },
+          } as unknown as Partial<Meeting>),
+        ],
+      });
+      await show();
+      await act(async () => views.showMeetingNoteView("tab", "note", "transcript"));
+      const transcript = find("meeting-note-transcript");
+      expect(find("meeting-bar", transcript)).toBeDefined();
+      const said = [...transcript.querySelectorAll('[data-testid="transcript-partial"]')];
+      expect(said.map((each) => each.querySelector(".transcript-text")?.textContent)).toEqual([
+        "The budget holds",
+        "Thanks for making",
+      ]);
+      expect(
+        said.map((each) => each.querySelector('[data-testid="transcript-speaker"]')?.textContent),
+      ).toEqual(language === "en" ? ["Me", "Them"] : ["我", "对方"]);
+      expect(transcript.querySelectorAll('[data-testid="transcript-line"]')).toHaveLength(0);
+      expect(transcript.querySelector('[data-testid="transcript-empty"]')).toBeNull();
+      expect(requests).toHaveLength(0);
+      const beside = find("meeting-transcript-beside", transcript) as HTMLButtonElement;
+      expect(beside.textContent).toBe(translate(language, "command.openBeside"));
+      expect(beside.disabled).toBe(true);
+      expect(beside.title).toBe(translate(language, "meetings.bar.transcriptSoon"));
+      expect(container.querySelector('[data-testid="meeting-view-chip"]')).toBeNull();
+    },
+  );
+
+  test("before its first line, a live call's Transcript can't open beside yet, and says why", async () => {
+    useMeetings.setState({
+      meetings: [
+        meetingOf({
+          status: "recording",
+          transcript: { documentId: null, lines: 0, state: "live", partials: [] },
+        } as unknown as Partial<Meeting>),
+      ],
+    });
     await show();
-    const command = meetingCommands.find((each) => each.id === "meeting.transcript");
-    if (!command) throw new Error("Missing Transcript command");
+    const command = meetingCommands.find((each) => each.id === "meeting.transcriptBeside");
     const context = { surface: "palette", selection: [], focus: null } as const;
-    await act(async () => command.run(context));
-    expect(actions.showTranscript).toHaveBeenCalledWith("transcript", "group");
-    expect(views.meetingNoteViewFor("tab", "note")).toBe("notes");
-    expect(container.querySelector('[data-testid="meeting-view-chip"]')).toBeNull();
+    expect(command?.enabled?.(context)).toEqual({ reason: "meetings.bar.transcriptSoon" });
   });
 });

@@ -368,8 +368,12 @@ export interface ExecResult {
   stdoutTruncated: boolean;
   /** It wrote more to its error output than is kept. */
   stderrTruncated: boolean;
-  /** It went over this limit of its `ExecLimits`, so it was stopped with every process it started. */
-  limit?: "memory" | "folder";
+  /**
+   * It was stopped with every process it started: because it went over this limit of its
+   * `ExecLimits` ("memory", "folder"), or because its disk use stayed unmeasurable
+   * ("folder-unknown"), which fails closed since unmeasured files aren't bounded.
+   */
+  limit?: "memory" | "folder" | "folder-unknown";
 }
 
 /**
@@ -473,6 +477,12 @@ export interface RerankingDevice {
   device: "gpu" | "cpu";
   /** Set when the model has a GPU file but runs on the CPU; `message` is technical detail in English, for the log. */
   fallback?: { reason: CpuFallbackReason; message: string };
+  /**
+   * Set when the GPU file has copies between host and GPU memory for its session to leave out
+   * (src/core/reranking/hostCopies.ts): whether the session opened the copy of it written without
+   * them, how long writing it took when this load wrote it, and anything that went wrong, in English.
+   */
+  copy?: { opened: boolean; writtenMs?: number; problem?: string };
 }
 
 /**

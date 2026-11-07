@@ -1821,6 +1821,29 @@ export function createLibrary(options: {
         }
       });
     },
+    /**
+     * Forgets the choice, and Organize's kept model, where `reached` says they name what can't run
+     * any more: a removed key's host (#1907). They go back to Automatic and to none as saved, with
+     * no check of what they named, which may be gone too, and nothing else changes: the switch,
+     * its turn-ons and a model lent to a run stay as they are. False when neither named it.
+     */
+    forgetModel(reached: (classifier: TaggingClassifier) => boolean): boolean {
+      const stored = settings.readDeviceValue("library");
+      const saved = isRecord(stored) ? stored : {};
+      const classifier = taggingClassifierOf(saved.classifier);
+      const organizeWith = taggingClassifierOf(saved.organizeWith);
+      const dropsChoice = classifier !== null && reached(classifier);
+      const dropsKept = organizeWith !== null && reached(organizeWith);
+      if (!dropsChoice && !dropsKept) return false;
+      settings.writeDeviceValue("library", {
+        ...saved,
+        ...(dropsChoice && { classifier: AUTOMATIC }),
+        ...(dropsKept && { organizeWith: null }),
+      });
+      revision++;
+      changed();
+      return true;
+    },
     saveSettings(input: unknown) {
       if (!isRecord(input) || typeof input.automatic !== "boolean")
         throw new InvalidInputError("Choose classification settings.");

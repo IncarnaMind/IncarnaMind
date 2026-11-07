@@ -6,6 +6,7 @@
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type { EditorState } from "@tiptap/pm/state";
 import type { TextPlace } from "../../../core/api";
+import { VisibleTextSelection } from "./myNotes";
 
 /** How much of a selection a label quotes: a chip above it holds all of it. */
 export const QUOTE_CHARACTERS = 48;
@@ -77,6 +78,8 @@ export function selectionForEdit(
 ): EditSelection | null {
   const { from, to } = range;
   if (from >= to) return null;
+  // Across lines My notes hides: its from and to are only the first part that shows.
+  if (range === state.selection && state.selection instanceof VisibleTextSelection) return null;
   const blocks: { id: string; from: number; to: number; text: string }[] = [];
   let refused = false;
   state.doc.nodesBetween(from, to, (node, pos) => {

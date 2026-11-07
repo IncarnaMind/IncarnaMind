@@ -5,8 +5,10 @@ import type { Editor } from "@tiptap/core";
 import type { CoreBridge, Meeting } from "../src/core/api";
 import { FAKE_LINES, FAKE_THEIR_LINES } from "../src/core/transcription/fake";
 import {
+  closeFirstFillPopover,
   createDataFolder,
   dismissChatSetup,
+  firstTranscriptLine,
   focusSettled,
   launchApp,
   motionSettled,
@@ -206,9 +208,12 @@ async function chooseMeetingView(
 ): Promise<void> {
   const chip = panel.getByTestId("meeting-view-chip");
   await expect(chip).toBeInViewport({ ratio: 1 });
-  await expect(chip).toHaveAccessibleName(words.viewLabel);
   await chip.focus();
   await chip.press("Enter");
+  await expect(window.getByTestId("meeting-view-menu")).toHaveAttribute(
+    "aria-label",
+    words.viewLabel,
+  );
   const notes = window.getByTestId("meeting-view-notes");
   const transcript = window.getByTestId("meeting-view-transcript");
   await expect(notes).toHaveText(words.viewNotes);
@@ -218,7 +223,11 @@ async function chooseMeetingView(
   await expect(view === "notes" ? transcript : notes).toHaveAttribute("aria-checked", "true");
   await window.keyboard.press("Home");
   await expect(notes).toBeFocused();
-  if (view === "transcript") await window.keyboard.press("ArrowDown");
+  // My notes sits between them.
+  if (view === "transcript") {
+    await window.keyboard.press("ArrowDown");
+    await window.keyboard.press("ArrowDown");
+  }
   const choice = view === "notes" ? notes : transcript;
   await expect(choice).toBeFocused();
   await choice.press("Enter");
@@ -339,7 +348,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await selectLocalChatModel(window);
 
     const bar = await startRecording(window, await recordMeeting(window), { notice: true });
-    await expect(bar.getByTestId("meeting-transcript-toggle")).toBeEnabled({ timeout: 20_000 });
+    await firstTranscriptLine(window);
     const notes = window.getByTestId("mind-editor");
     await pointAndClick(window, notes);
     await focusSettled(window, notes);
@@ -362,6 +371,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await pointAndClick(window, bar.getByTestId("meeting-stop"));
     const line = window.getByTestId("meeting-fill-line");
     await expect(line).toContainText(words.filled, { timeout: 30_000 });
+    await closeFirstFillPopover(window);
     await expect(line.getByTestId("meeting-fill-undo")).toHaveText(words.undo);
     const meeting = await recordedMeeting(window);
     expect(meeting.fill).toMatchObject({ state: "filled", omitted: 0, unfinishedParts: 0 });
@@ -442,7 +452,7 @@ for (const language of ["en", "zh-CN"] as const) {
         await dismissChatSetup(window);
         await selectLocalChatModel(window);
         const bar = await startRecording(window, await recordMeeting(window), { notice: true });
-        await expect(bar.getByTestId("meeting-transcript-toggle")).toBeEnabled({ timeout: 20_000 });
+        await firstTranscriptLine(window);
         const notes = window.getByTestId("mind-editor");
         await pointAndClick(window, notes);
         await focusSettled(window, notes);
@@ -468,6 +478,7 @@ for (const language of ["en", "zh-CN"] as const) {
         await expect(line).toContainText(
           outcome === "partial" ? words.omittedOne : words.omittedTwo,
         );
+        if (outcome === "partial") await closeFirstFillPopover(window);
         await expect(line).not.toContainText(words.filled);
         await expect(line).toHaveAttribute("role", outcome === "partial" ? "status" : "alert");
         const transcript = line.getByTestId("meeting-fill-transcript");

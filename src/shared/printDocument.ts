@@ -22,6 +22,10 @@ export interface PrintDocument {
   notes: string[];
   /** Plain text for the foot of every page, above its number. */
   footer?: string;
+  /** A number at the foot of every page (#1258). Absent: printed, as a PDF always has. */
+  pageNumbers?: boolean;
+  /** The words of a watermark across every page (#1258). Absent: none. */
+  watermark?: string;
 }
 
 export type PrintPaper = "a4" | "letter";

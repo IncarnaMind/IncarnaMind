@@ -13,18 +13,12 @@ import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { cpus, totalmem } from "node:os";
 import { join } from "node:path";
 import { test } from "vitest";
-import { nameFromPath } from "../../src/core/documents/files";
-import { runJob } from "../../src/core/documents/processing";
-import type { Language } from "../../src/core/language";
-import {
-  type OrganizeSource,
-  organizeExcerpt,
-  organizeNeedsPageImages,
-  organizeReadsPages,
-} from "../../src/core/library/excerpt";
+import { organizeExcerpt, organizeReadsPages } from "../../src/core/library/excerpt";
 import { documentPageImages } from "../../src/core/library/pageImages";
 import type { DocumentPageImage } from "../../src/core/library/pdfImages";
 import { readConfig } from "../lib/config";
+import { choice, runOptions, selected } from "./lib/options";
+import { type Prepared, prepare } from "./lib/prepare";
 import { markdownReport, type RouteResult, type RunInfo, summaryLines } from "./lib/report";
 import {
   buildRoute,
@@ -35,7 +29,7 @@ import {
   waitForOllama,
 } from "./lib/routes";
 import type { Prediction } from "./lib/scoring";
-import { definitions, readSet, SET_DIRECTORY, type SetDocument, type Split } from "./lib/set";
+import { definitions, readSet } from "./lib/set";
 
 const root = process.cwd();
 const env = process.env;
@@ -65,71 +59,11 @@ async function codeFingerprint(): Promise<string> {
   return hash(Buffer.concat(contents));
 }
 
-interface Prepared {
-  doc: SetDocument;
-  file: string;
-  source: OrganizeSource;
-  visual: boolean;
-  /** Extraction found no text: only a route that reads page images can organize it. */
-  noText: boolean;
-}
-
-async function prepare(doc: SetDocument): Promise<Prepared> {
-  const file = join(root, SET_DIRECTORY, doc.file);
-  const result = await runJob({ task: "process", documentId: doc.id, file, kind: doc.kind });
-  if (result.outcome !== "ready" && result.outcome !== "no-text")
-    throw new Error(`Extraction failed for ${doc.id}: ${JSON.stringify(result)}`);
-  const source: OrganizeSource = {
-    name: nameFromPath(file),
-    kind: doc.kind,
-    pageCount: result.pageCount,
-    passages: result.outcome === "ready" ? result.passages.map((passage) => passage.text) : [],
-    units: result.outcome === "ready" ? result.pages : [],
-  };
-  return {
-    doc,
-    file,
-    source,
-    visual: organizeNeedsPageImages(source),
-    noText: result.outcome === "no-text",
-  };
-}
-
-function choice<T extends string>(
-  name: string,
-  value: string | undefined,
-  allowed: readonly T[],
-  fallback: T,
-): T {
-  if (value === undefined || value === "") return fallback;
-  if (!allowed.includes(value as T))
-    throw new Error(`${name} must be one of ${allowed.join(", ")}, not "${value}".`);
-  return value as T;
-}
-
 test("Organize on the labelled set", async () => {
   const set = await readSet(root);
   const config = readConfig(root);
-  const language = choice<Language>(
-    "INCARNAMIND_ORGANIZE_LANGUAGE",
-    env.INCARNAMIND_ORGANIZE_LANGUAGE,
-    ["en", "zh-CN"],
-    "en",
-  );
-  const splitChoice = choice(
-    "INCARNAMIND_ORGANIZE_SPLIT",
-    env.INCARNAMIND_ORGANIZE_SPLIT,
-    ["tune", "heldout", "all"],
-    "all",
-  );
-  const splits: Split[] = splitChoice === "all" ? ["tune", "heldout"] : [splitChoice];
-  const documentLanguage = choice(
-    "INCARNAMIND_ORGANIZE_DOCUMENTS",
-    env.INCARNAMIND_ORGANIZE_DOCUMENTS,
-    ["all", "en", "zh"],
-    "all",
-  );
-  const showHeldOut = env.INCARNAMIND_ORGANIZE_SHOW_HELDOUT === "1";
+  const options = runOptions(env, "all");
+  const { language, splits, documentLanguage, showHeldOut } = options;
   const batch = Number(env.INCARNAMIND_ORGANIZE_BATCH ?? 10);
   if (!Number.isInteger(batch) || batch < 1)
     throw new Error("INCARNAMIND_ORGANIZE_BATCH must be a whole number of at least 1.");
@@ -145,18 +79,14 @@ test("Organize on the labelled set", async () => {
     ["off", "default"],
     "off",
   );
-  const documents = set.documents.filter(
-    (doc) =>
-      splits.includes(doc.split) &&
-      (documentLanguage === "all" || doc.language === documentLanguage),
-  );
+  const documents = selected(set.documents, options);
   const { folders, tags } = definitions(language);
 
   log(
     `Preparing ${documents.length} Documents (${splits.join(" + ")}${documentLanguage === "all" ? "" : `, ${documentLanguage} only`})…`,
   );
   const prepared: Prepared[] = [];
-  for (const doc of documents) prepared.push(await prepare(doc));
+  for (const doc of documents) prepared.push(await prepare(root, doc));
   const runId = new Date().toISOString().replace(/[:.]/g, "-");
   const output = join(results, runId);
   await mkdir(output, { recursive: true });

@@ -1,5 +1,6 @@
 import type { MessageKey } from "../../shared/i18n";
 import { unreadRecordLines } from "../../shared/unreadFiles";
+import { CSV_BYTE_ORDER_MARK, csvRow as row } from "../csv";
 import type { Language } from "../language";
 import type { CheckRecord } from "./index";
 import {
@@ -33,17 +34,6 @@ const COLUMNS: readonly MessageKey[] = [
   "checkRecord.column.checked",
   "checkRecord.column.person",
 ];
-
-const BYTE_ORDER_MARK = "﻿";
-
-const cell = (value: string | number | null): string => {
-  if (value === null) return "";
-  const text = typeof value === "number" ? String(value) : value;
-  const safe = /^[=+\-@\t\r]/.test(text) ? `'${text}` : text;
-  return /[",\r\n]/.test(safe) ? `"${safe.replaceAll('"', '""')}"` : safe;
-};
-
-const row = (cells: readonly (string | number | null)[]) => cells.map(cell).join(",");
 
 function counts(items: readonly RecordItem[], t: Translator): string {
   const byResult = new Map<string, number>();
@@ -200,5 +190,5 @@ export function renderCsv(record: CheckRecord): string {
     ...items.map(row),
     ...recordCiteLines,
   ];
-  return `${BYTE_ORDER_MARK}${lines.join("\r\n")}\r\n`;
+  return `${CSV_BYTE_ORDER_MARK}${lines.join("\r\n")}\r\n`;
 }

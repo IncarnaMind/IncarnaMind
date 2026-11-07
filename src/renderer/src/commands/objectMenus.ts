@@ -1,38 +1,39 @@
-import { registerMenu, registerMixedMenu } from "./menus";
+import { registerMenu, registerMixedMenu, registerMore } from "./menus";
+import type { CommandContext } from "./registry";
 
 // A feature adds its items with registerMenu, where they belong in the shared order.
 
-/**
- * Export… (the Export button's short menu: the formats, its options), then the AI use statement
- * (#739) and the check record (#738). The formats themselves are in that menu and in ⌘K.
- */
-const EXPORTS = ["mind.exportMenu", "mind.aiUseStatement", "mind.checkRecord"] as const;
-
-registerMenu("mind", [
-  "mind.open",
-  "mind.openTab",
-  "mind.openChat",
+// What a Note's menu holds one step further, under More ›: ⌘K lists each by name.
+const MIND_MORE = [
   "mind.outline",
-  "mind.duplicate",
-  "mind.tidy",
+  "mind.checkContradictions",
   "mind.useAsSource",
   "mind.updateSourceSnapshot",
   "mind.removeAsSource",
   "mind.dontCiteTranscript",
   "mind.citeTranscriptAgain",
-  ...EXPORTS,
-  "mind.history",
+  "skill.fromMind",
+  "mind.tidy",
+  "folder.newWith",
+] as const;
+
+// With several selected, New Folder with these is a row of the menu, as Finder's is.
+const SEVERAL = { "folder.newWith": (ctx: CommandContext) => ctx.selection.length > 1 };
+
+registerMenu("mind", [
+  "mind.open",
+  "mind.openTab",
+  "mind.openChat",
+  "mind.duplicate",
   "mind.check",
   "mind.tieOut",
-  "mind.checkContradictions",
-  "mind.citationStyle",
-  "mind.style",
-  "skill.fromMind",
+  "mind.exportMenu",
+  "mind.history",
   "mind.moveTo",
-  "folder.newWith",
   "mind.rename",
   "mind.delete",
 ]);
+registerMore("mind", MIND_MORE, SEVERAL);
 
 registerMenu("document", [
   "document.open",
@@ -124,26 +125,19 @@ registerMenu(
   "tab",
   [
     "mind.openChat",
-    "mind.outline",
     "mind.duplicate",
-    "mind.useAsSource",
-    "mind.updateSourceSnapshot",
-    "mind.removeAsSource",
-    "mind.dontCiteTranscript",
-    "mind.citeTranscriptAgain",
     "mind.look.word",
     "mind.look.plain",
     "mind.openOriginal",
-    ...EXPORTS,
-    "mind.history",
     "mind.check",
     "mind.tieOut",
-    "mind.checkContradictions",
-    "mind.style",
+    "mind.exportMenu",
+    "mind.history",
     "mind.moveTo",
   ],
   0,
 );
+registerMore("tab", MIND_MORE, SEVERAL);
 registerMenu(
   "tab",
   [
@@ -192,9 +186,16 @@ registerMenu("comparisonColumn", [
 
 registerMenu("comparisonTable", [
   "comparison.table.addDocuments",
-  "comparison.table.rename",
   "comparison.table.refillAll",
+  "comparison.table.refillAllIncludingMine",
   "comparison.table.refillProblems",
+  "comparison.table.duplicate",
+  "comparison.table.useColumns",
+  "comparison.table.rename",
+  "comparison.table.plain",
+  "comparison.exportExcel",
+  "comparison.exportCsv",
+  "comparison.table.delete",
 ]);
 
 registerMenu("comparisonCell", [

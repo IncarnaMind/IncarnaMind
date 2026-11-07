@@ -1,5 +1,5 @@
 import { type ChangeEvent, type KeyboardEvent, memo, type ReactNode, useMemo, useRef } from "react";
-import type { Document, DocumentStatus, Tag } from "../../../core/api";
+import type { Document, DocumentStatus, Mind, Tag } from "../../../core/api";
 import { ADDABLE_FILES_ACCEPT } from "../../../shared/addFilesAction";
 import { displayName, sourceOf } from "../../../shared/documentNames";
 import { isProcessing } from "../../../shared/documentStatus";
@@ -8,6 +8,7 @@ import { addFilesLabel } from "../addFilesAction";
 import { useDocumentPlace } from "../documentPlaces";
 import { documentStatusText } from "../documentStatus";
 import { useDraggedRef, useDragSource } from "../dragDrop";
+import { useExampleFoldDocuments } from "../exampleFold";
 import { useFirstOpen } from "../firstOpen";
 import { useLanguage, useT } from "../i18n";
 import { currentTabOf } from "../layoutSlice";
@@ -34,11 +35,10 @@ import { useTreeKeyboard } from "../useTreeKeyboard";
 import { DocumentTagMenu } from "./DocumentTags";
 import { ExamplesMenu } from "./ExamplesMenu";
 import { InlineName } from "./InlineName";
-import { LibraryFolders } from "./LibraryFolders";
+import { Contents, LibraryFolders } from "./LibraryFolders";
 import { LinkedFolderRows } from "./LinkedFolderRows";
 import { LinkFolderDialog } from "./LinkFolderDialog";
 import { DocumentLineIcon, MoreLineIcon } from "./lineIcons";
-import { MindRow } from "./MindRow";
 import { ObjectMenu, useObjectMenu } from "./ObjectMenu";
 import { ProblemLine } from "./ProblemLine";
 import { SidebarHome } from "./SidebarHome";
@@ -72,6 +72,7 @@ const shortStatusMessages: Record<DocumentStatus, MessageKey | null> = {
 };
 
 const NO_DOCUMENTS: readonly Document[] = [];
+const NO_MINDS: readonly Mind[] = [];
 
 /**
  * The sidebar's tree, the same on every screen: Home, Search and the Library, then
@@ -79,7 +80,8 @@ const NO_DOCUMENTS: readonly Document[] = [];
  * with its Minds and Documents, and Not in a Folder (see `LibraryFolders`),
  * the Linked folders (see `LinkedFolderRows`), and the Tags in
  * use (see `SidebarTags`). On a first open it waits, with the rest of the shell, until the User
- * has a Document or a Note of their own, and then it is there (#2376). Each Document is one
+ * has a Document or a Note of their own, and then it is there (#2376); until then it holds the
+ * Examples: the example Note, then its Documents. Each Document is one
  * row: its name, its Tags' colours (see `TagMarks`) and, while it's processed, if it failed, or
  * if its file is missing or can't be reached, its status at the end. Its Tags are in its Tags
  * menu, and the Tags dialog; its "More" menu renames it, moves it, opens its file or shows it in
@@ -105,6 +107,7 @@ export function DocumentsSection() {
   const quiet = firstOpen && !hasOwnDocuments;
   // The example folds to one row once the User has a Document of their own (#1944), and only while
   // its Mind is there for that row to open: its Documents and folder stay reachable without one.
+  // Opening one of its Documents lists them under that row again (see `useExampleFoldDocuments`).
   const exampleMindId = useAppStore((state) => {
     const id = state.examples?.mindId;
     return id !== null && id !== undefined && state.minds.some((each) => each.id === id)
@@ -120,6 +123,8 @@ export function DocumentsSection() {
       .join(" "),
   );
   const foldExamples = hasOwnDocuments && exampleMindId !== null;
+  const exampleDocuments = useExampleFoldDocuments();
+  const exampleMinds = useMemo(() => (exampleMind ? [exampleMind] : NO_MINDS), [exampleMind]);
   const folded = useMemo(
     () => (foldExamples ? new Set(exampleFolders.split(" ").filter(Boolean)) : new Set<string>()),
     [foldExamples, exampleFolders],
@@ -286,7 +291,14 @@ export function DocumentsSection() {
             headingTestId="example-title"
             actions={<ExamplesMenu />}
           >
-            <MindRow mind={exampleMind} depth={0} />
+            <Contents
+              listKey="examples"
+              scope="sidebar"
+              depth={0}
+              minds={exampleMinds}
+              documents={exampleDocuments}
+              renderDocument={renderDocument}
+            />
           </SidebarSection>
         )}
       </div>
