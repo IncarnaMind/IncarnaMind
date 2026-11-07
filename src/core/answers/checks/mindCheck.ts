@@ -24,7 +24,6 @@
 import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
 import { citedCases } from "../../../shared/caseCitations";
-import type { SourceGrid } from "../../../shared/charts";
 import { addedCouldChange, checkedSentence, claimCheckShown } from "../../../shared/claimChecks";
 import { planOf, withFigureFacts } from "../../../shared/claimParts";
 import { ANALYSIS_REASONS, beginFigureCheck } from "../../../shared/figureChecks";
@@ -57,7 +56,7 @@ import type { PreparedChatModel } from "../../providers/chat";
 import { recordCiteSpans } from "../../recordCites/parser";
 import { type Slots, slots } from "../../runs/stop";
 import type { CheckedCitation } from "./claimCheck";
-import { cellHeadings, inTableCell, inValueCell } from "./figureOccurrences";
+import { cellHeadings, inTableCell, inValueCell, type TableLayout } from "./figureOccurrences";
 import { type ClaimsFound, claimsAmong } from "./findClaims";
 import { recordOpinions, type SortedSentence } from "./opinions";
 import {
@@ -239,7 +238,7 @@ export function createMindCheck(options: MindCheckOptions) {
         : withFigureFacts(claim, said, sentence.figures ?? [], projection);
     };
     if (unsorted.length > 0) {
-      const grids = new Map<Y.XmlElement, SourceGrid>();
+      const grids = new Map<Y.XmlElement, TableLayout>();
       const heard = new Set<number>();
       const found = await claimsAmong(
         prepared,
