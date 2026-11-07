@@ -586,6 +586,8 @@ interface ProcNode {
   fdsErr?: string;
   /** The fd folder's read waits on it. */
   hold?: Promise<void>;
+  /** How long the fd folder's read takes, in ms on the test's clock. */
+  takes?: number;
   links?: Record<string, string | Error>;
   sizes?: Record<string, { device: number; inode: string; bytes: number } | Error>;
   maps?: string | (() => AsyncIterable<Uint8Array>);
@@ -620,8 +622,14 @@ const HELPER = 699;
 /** The listing's time since boot, in clock ticks: a process started later than it isn't listed. */
 const LISTED_AT = 1_000;
 
-function fakeProc(byPid: Record<number, PidSpec>, app = nested(0, 9000)) {
+function fakeProc(
+  byPid: Record<number, PidSpec>,
+  app = nested(0, 9000),
+  c?: ReturnType<typeof clock>,
+) {
   const fdReads = new Map<number, number>();
+  /** When each pid's fd folder was read, on the test's clock: the start of each read of the pid. */
+  const fdReadAt = new Map<number, number[]>();
   const followed = { links: 0, maps: 0 };
   const node = (pid: number, tid: number | null): ProcNode => {
     const spec = byPid[pid];
@@ -632,6 +640,10 @@ function fakeProc(byPid: Record<number, PidSpec>, app = nested(0, 9000)) {
     async fds(pid, tid) {
       fdReads.set(pid, (fdReads.get(pid) ?? 0) + 1);
       const at = node(pid, tid);
+      if (c) {
+        fdReadAt.set(pid, [...(fdReadAt.get(pid) ?? []), c.now()]);
+        c.advance(at.takes ?? 0);
+      }
       await at.hold;
       if (at.fdsErr) throw err(at.fdsErr);
       return at.fds ?? [];
@@ -675,7 +687,7 @@ function fakeProc(byPid: Record<number, PidSpec>, app = nested(0, 9000)) {
     },
     ticks: async () => LISTED_AT,
   };
-  return { reader, fdReads, followed };
+  return { reader, fdReads, fdReadAt, followed };
 }
 
 const deleted = (bytes: number, inode = "42") => ({
@@ -711,7 +723,7 @@ function linux(
     ...under.map((pid) => `${pid} ${root} ${root} 501 1024`),
   ];
   const { command } = computer({ ps: () => listing.join("\n") });
-  const proc = fakeProc(byPid, options.appStatus ?? nested(0, 9000, app));
+  const proc = fakeProc(byPid, options.appStatus ?? nested(0, 9000, app), c);
   const meters = createMeters({
     command,
     platform: "linux",
@@ -727,6 +739,7 @@ function linux(
     meters: Object.assign(meters, { stop }),
     each,
     fdReads: proc.fdReads,
+    fdReadAt: proc.fdReadAt,
     followed: proc.followed,
   };
 }
@@ -871,6 +884,75 @@ describe("the meter, on Linux's /proc", () => {
     expect(over.each.reports).toEqual([]);
   });
 
+  test("a run's maps are read up to 33,554,432 bytes a turn across its processes; at 33,554,433 the turn reads no further and is unknown, and a run over that for more than 10 s is stopped", async () => {
+    // 4,194,304 bytes of maps a process, under the cap of 6,291,456 for one; the first maps a
+    // 5,242,880-byte file with no name.
+    const filler = Buffer.from(`${"x".repeat(4095)}\n`.repeat(1024));
+    const file = Buffer.concat([
+      Buffer.from(`${"0-500000 rw-s 0 00:09 77".padEnd(4083)}/x (deleted)\n`),
+      filler.subarray(4096),
+    ]);
+    const processes = (count: number) => {
+      const byPid: Record<number, PidSpec> = {};
+      for (let pid = 600; pid < 600 + count; pid++) {
+        const content = pid === 600 ? file : filler;
+        byPid[pid] = {
+          leader: {
+            maps: async function* () {
+              yield content;
+            },
+          },
+        };
+      }
+      return byPid;
+    };
+    // 29,360,128 bytes, then 33,554,432: read in full every turn.
+    for (const count of [7, 8]) {
+      const { c, meters, each } = linux(processes(count));
+      await run(meters, c, 42, 250);
+      expect(stoppedAt(each)).toBe(-1);
+      expect(each.uses.at(-1)?.folder).toBe(5_242_880);
+    }
+    const over = linux({ ...processes(8), 608: { leader: { maps: "x" } } });
+    await run(over.meters, over.c, 42, 250);
+    expect(over.each.uses[40]?.folder).toBe(5_242_880);
+    expect(stoppedAt(over.each)).toBe(41);
+    expect(over.each.reports).toEqual([]);
+  });
+
+  test("a mapped file with no name counts however the maps' chunks split its line, its name in Chinese", async () => {
+    const maps = Buffer.from(
+      [
+        "7f0000-7f1000 r-xp 0 08:01 12 /usr/lib/libc.so.6",
+        "0-300000 rw-s 0 00:09 77 /work/报表 (deleted)",
+        "7f2000-7f3000 rw-p 0 00:00 0 ",
+        "0-100000 rw-s 0 00:09 78 /work/last (deleted)",
+      ].join("\n"),
+    );
+    const { c, meters, each } = linux({
+      600: {
+        leader: {
+          // A byte a chunk: every split, inside " (deleted)" and inside a character too.
+          maps: async function* () {
+            for (let at = 0; at < maps.length; at++) yield maps.subarray(at, at + 1);
+          },
+        },
+      },
+    });
+    await run(meters, c, 2, 250);
+    expect(each.uses.at(-1)?.folder).toBe(3_145_728 + 1_048_576);
+    expect(each.reports).toEqual([]);
+  });
+
+  test("a turn stops at the first process whose maps pass the cap, reading none after it", async () => {
+    const { c, meters, followed } = linux({
+      600: { leader: { maps: capped() } },
+      601: { leader: { ...deleted(6 * MB) } },
+    });
+    await run(meters, c, 1, 250);
+    expect(followed).toEqual({ links: 0, maps: 1 });
+  });
+
   test("a file held open with no name counts with the named folder, kept apart", async () => {
     const { c, meters, each } = linux(
       { 600: { leader: { ...deleted(5 * MB) } } },
@@ -934,6 +1016,19 @@ describe("the meter, on Linux's /proc", () => {
           777: { fdsErr: "EACCES", stat: statLine({ flags: 0x4, vsize: 0 }) },
           778: { ...deleted(8 * MB, "9") },
         },
+      },
+    });
+    await run(meters, c, 3, 250);
+    expect(each.uses.at(-1)?.folder).toBe(8 * MB);
+    expect(each.reports).toEqual([]);
+  });
+
+  test("as root, a zombie leader's fd folder reads empty, so it is read through a live thread, not one on its way out", async () => {
+    const { c, meters, each } = linux({
+      600: {
+        leader: { fds: [], stat: statLine({ state: "Z", flags: 0x4, vsize: 0 }) },
+        tasks: [600, 777, 778],
+        threads: { 777: { fds: [] }, 778: { ...deleted(8 * MB, "9") } },
       },
     });
     await run(meters, c, 3, 250);
@@ -1009,7 +1104,7 @@ describe("the meter, on Linux's /proc", () => {
     },
   );
 
-  test("an fd denied part way through, as the process exits, is no error; one denied by a live process is", async () => {
+  test("an fd denied part way through, as the process exits, is no error and the files read before it still count; one denied by a live process is an error", async () => {
     const node = (): ProcNode => ({
       fds: ["3", "4"],
       links: { 3: err("EACCES"), 4: "/work/kept (deleted)" },
@@ -1022,6 +1117,13 @@ describe("the meter, on Linux's /proc", () => {
     await run(exiting.meters, exiting.c, 3, 250);
     expect(exiting.each.uses.at(-1)?.folder).toBe(6 * MB);
     expect(exiting.each.reports).toEqual([]);
+    const readFirst = linux({
+      600: { leader: { ...node(), fds: ["4", "3"], stat: statLine({ flags: 0x4, vsize: 0 }) } },
+      601: { leader: { ...deleted(6 * MB) } },
+    });
+    await run(readFirst.meters, readFirst.c, 3, 250);
+    expect(readFirst.each.uses.at(-1)?.folder).toBe(11 * MB);
+    expect(readFirst.each.reports).toEqual([]);
     const live = linux({ 600: { leader: node() } });
     await run(live.meters, live.c, 2, 250);
     expect(live.each.uses.at(-1)?.folder).toBe("unknown");
@@ -1255,6 +1357,40 @@ describe("the 10 s clock", () => {
     await run(meters, c, 42, 250);
     expect(each.uses[40]?.folder).toBe(3 * MB);
     expect(stoppedAt(each)).toBe(41);
+  });
+});
+
+/** Each time in `times`, in ms after the first. */
+const sinceFirst = (times: readonly number[] = []) => times.map((t) => t - (times[0] ?? 0));
+
+describe("a run's reads, paced by their cost", () => {
+  test("a heavy run's next read waits three times as long as its last took, from its end; the disk stays known meanwhile", async () => {
+    const { c, meters, each, fdReadAt } = linux({
+      600: { leader: { ...deleted(5 * MB), takes: 400 } },
+    });
+    await run(meters, c, 11, 250);
+    // Read from 0 to 400 ms, so none before 1,600: the tick at 1,650; read to 2,050, so none before
+    // 3,250: the tick at 3,300.
+    expect(sinceFirst(fdReadAt.get(600))).toEqual([0, 1650, 3300]);
+    expect(each.peak().unknown).toBe(false);
+    expect(each.uses.at(-1)?.folder).toBe(5 * MB);
+  });
+
+  test("the wait is 6 s at most, however long the last read took", async () => {
+    const { c, meters, fdReadAt } = linux({
+      600: { leader: { ...deleted(5 * MB), takes: 2500 } },
+    });
+    await run(meters, c, 25, 250);
+    // Read from 0 to 2,500 ms; 7,500 more would be three times it, so the wait is 6,000.
+    expect(sinceFirst(fdReadAt.get(600))).toEqual([0, 8500]);
+  });
+
+  test("an ordinary run's read, 3 ms, is followed on the next tick, as without pacing", async () => {
+    const { c, meters, fdReadAt } = linux({
+      600: { leader: { ...deleted(5 * MB), takes: 3 } },
+    });
+    await run(meters, c, 6, 250);
+    expect(sinceFirst(fdReadAt.get(600))).toEqual([0, 253, 506, 759, 1012, 1265]);
   });
 });
 

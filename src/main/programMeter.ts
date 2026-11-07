@@ -6,8 +6,8 @@
  * that no folder names any more. Windows has no `ps`; its Job Object will hold these limits.
  */
 import { execFile } from "node:child_process";
-import { createReadStream, type Dirent } from "node:fs";
-import { lstat, readdir, readFile, readlink, stat } from "node:fs/promises";
+import type { Dirent } from "node:fs";
+import { lstat, open, readdir, readFile, readlink, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { promisify } from "node:util";
@@ -317,6 +317,19 @@ export function unlinkedMappings(pid: number, maps: string): UnlinkedFile[] {
 /** Most bytes of `/proc/<pid>/maps` read before a pid counts as unknown for the turn (~65k maps). */
 export const MAPS_CAP_BYTES = 6 * 1024 * 1024;
 
+/**
+ * Most bytes of maps a turn reads across a run's processes: past it the turn reads no further and
+ * the disk is unknown, so a run that stays over it can't keep the app streaming its maps (#2351).
+ * A Python worker with the scientific stack maps about 320 KB, so 64 of them, a run's process
+ * limit, fit under it.
+ */
+export const MAPS_BUDGET_BYTES = 32 * 1024 * 1024;
+
+const MAPS_CHUNK_BYTES = 64 * 1024;
+
+/** How Linux ends the name of a file that no folder names any more, in `fd` links and `maps`. */
+const DELETED = " (deleted)";
+
 /** An fd whose target no longer exists, or a process gone between reads: counted as nothing. */
 const GONE = new Set(["ENOENT", "ESRCH"]);
 
@@ -346,7 +359,21 @@ export const procReader: ProcReader = {
     const info = await stat(`${procBase(pid, tid)}/fd/${fd}`);
     return { device: info.dev, inode: String(info.ino), bytes: info.size };
   },
-  maps: (pid, tid) => createReadStream(`${procBase(pid, tid)}/maps`, { highWaterMark: 64 * 1024 }),
+  async *maps(pid, tid) {
+    // One chunk at a time, never read ahead: a read then uses no more CPU than its wall time,
+    // which is what paces a run's reads.
+    const file = await open(`${procBase(pid, tid)}/maps`);
+    try {
+      for (;;) {
+        const chunk = Buffer.allocUnsafe(MAPS_CHUNK_BYTES);
+        const { bytesRead } = await file.read(chunk, 0, MAPS_CHUNK_BYTES, null);
+        if (bytesRead === 0) return;
+        yield chunk.subarray(0, bytesRead);
+      }
+    } finally {
+      await file.close();
+    }
+  },
   tasks: async (pid) =>
     (await readdir(`/proc/${pid}/task`)).map(Number).filter((tid) => Number.isSafeInteger(tid)),
   stat: (pid, tid) => readFile(`${procBase(pid, tid)}/stat`, "utf8"),
@@ -423,9 +450,9 @@ async function nspidOf(reader: ProcReader, pid: number | "self"): Promise<string
  * seccomp helper's inner half. No process can climb to a shallower namespace, and the helper's
  * halves make themselves non-dumpable, so the sandbox's own processes are never read. A turn that
  * didn't find the helper's inner half (before it starts, or if the layout ever changed) is
- * `partial`, like one whose maps passed the cap or whose processes hold more than
- * `DESCRIPTORS_CAP` descriptors, which it counts before following any: the disk is unknown that
- * turn.
+ * `partial`, like one whose processes hold more than `DESCRIPTORS_CAP` descriptors, which it
+ * counts before following any, and one that stops at the first process whose maps pass
+ * `MAPS_CAP_BYTES` or at `MAPS_BUDGET_BYTES` of maps in all: the disk is unknown that turn.
  */
 async function procUnlinked(
   reader: ProcReader,
@@ -434,7 +461,6 @@ async function procUnlinked(
 ): Promise<{ files: UnlinkedFile[]; partial: boolean }> {
   const files: UnlinkedFile[] = [];
   const app = (await nspidOf(reader, "self"))?.length ?? 0;
-  let capped = false;
   let helper = false;
   const user: { pid: number; nspid: string[]; fds: string[]; tid: number | null }[] = [];
   let descriptors = 0;
@@ -458,15 +484,19 @@ async function procUnlinked(
     if (descriptors > DESCRIPTORS_CAP) return { files: [], partial: true };
     user.push({ pid, nspid, ...where });
   }
+  let mapsLeft = MAPS_BUDGET_BYTES;
   for (const { pid, nspid, fds, tid } of user) {
     const held = await naming(pid, nspid, () => readFds(reader, pid, fds, tid));
-    if (held === "exited") continue;
-    files.push(...held);
-    const mapped = await naming(pid, nspid, () => readMaps(reader, pid, tid));
+    files.push(...held.files);
+    if (held.exited) continue;
+    const mapped = await naming(pid, nspid, () =>
+      readMaps(reader, pid, tid, Math.min(MAPS_CAP_BYTES, mapsLeft)),
+    );
     files.push(...mapped.files);
-    capped ||= mapped.capped;
+    if (mapped.capped) return { files, partial: true };
+    mapsLeft -= mapped.bytes;
   }
-  return { files, partial: capped || !helper };
+  return { files, partial: !helper };
 }
 
 /** `read`'s result; its failure as a `DiskReadError` that names `pid`'s namespaces. */
@@ -485,15 +515,17 @@ async function naming<T>(pid: number, nspid: readonly string[], read: () => Prom
 
 /**
  * Whether to read `pid`, through which task, or that it is gone. A zombie leader whose thread lives
- * on is read through that thread.
+ * on is read through that thread: the leader's own fd folder is denied, or empty when the app runs
+ * as root.
  */
 async function whereToRead(
   reader: ProcReader,
   pid: number,
   listedAt: number,
 ): Promise<"gone" | { fds: string[]; tid: number | null }> {
+  let fds: string[] | null = null;
   try {
-    return { fds: await reader.fds(pid, null), tid: null };
+    fds = await reader.fds(pid, null);
   } catch (error) {
     const code = errnoOf(error);
     if (GONE.has(code)) return "gone";
@@ -501,12 +533,14 @@ async function whereToRead(
       throw new DiskReadError(code, `/proc/${pid}/fd`, pid, { cause: error });
     }
   }
+  if (fds !== null && fds.length > 0) return { fds, tid: null };
   const leader = await taskStat(reader, pid, null);
   // Started after the listing: the pid has gone to another process.
   if (leader === null || leader.started > listedAt) return "gone";
+  if (fds !== null && leader.state !== "Z") return { fds, tid: null };
   const live = await liveTask(reader, pid);
   if (live !== null) return live;
-  if (exiting(leader)) return "gone";
+  if (fds !== null || exiting(leader)) return "gone";
   throw new DiskReadError("EACCES", `/proc/${pid}/fd`, pid, { task: leader });
 }
 
@@ -521,10 +555,14 @@ async function liveTask(
     if (GONE.has(errnoOf(error))) return null;
     throw new DiskReadError(errnoOf(error), `/proc/${pid}/task`, pid, { cause: error });
   }
+  let empty: { fds: string[]; tid: number } | null = null;
   for (const tid of tasks) {
     if (tid === pid) continue;
     try {
-      return { fds: await reader.fds(pid, tid), tid };
+      const fds = await reader.fds(pid, tid);
+      if (fds.length > 0) return { fds, tid };
+      // As root a thread on its way out reads empty, not denied, while another still holds the files.
+      empty ??= { fds, tid };
     } catch (error) {
       const code = errnoOf(error);
       if (GONE.has(code)) continue;
@@ -533,21 +571,21 @@ async function liveTask(
       await denied(reader, pid, tid, path);
     }
   }
-  return null;
+  return empty;
 }
 
-/** The unlinked regular files `pid` holds through `fds`; "exited" when it exits part way. */
+/** The unlinked regular files `pid` holds through `fds`: those read so far if it `exited`. */
 async function readFds(
   reader: ProcReader,
   pid: number,
   fds: readonly string[],
   tid: number | null,
-): Promise<UnlinkedFile[] | "exited"> {
+): Promise<{ files: UnlinkedFile[]; exited: boolean }> {
   const files: UnlinkedFile[] = [];
   for (const fd of fds) {
     const path = `${procBase(pid, tid)}/fd/${fd}`;
     try {
-      if (!(await reader.readlink(pid, tid, fd)).endsWith(" (deleted)")) continue;
+      if (!(await reader.readlink(pid, tid, fd)).endsWith(DELETED)) continue;
       const { device, inode, bytes } = await reader.size(pid, tid, fd);
       files.push({ pid, device, inode, bytes });
     } catch (error) {
@@ -555,18 +593,22 @@ async function readFds(
       if (GONE.has(code)) continue;
       if (code !== "EACCES") throw new DiskReadError(code, path, pid, { cause: error });
       await denied(reader, pid, tid, path);
-      return "exited";
+      return { files, exited: true };
     }
   }
-  return files;
+  return { files, exited: false };
 }
 
-/** The deleted files `pid` maps; `capped`, and read no further, past `MAPS_CAP_BYTES`. */
+/**
+ * The deleted files `pid` maps, and how many `bytes` of its maps were read; `capped`, and read no
+ * further, past `limit`.
+ */
 async function readMaps(
   reader: ProcReader,
   pid: number,
   tid: number | null,
-): Promise<{ files: UnlinkedFile[]; capped: boolean }> {
+  limit: number,
+): Promise<{ files: UnlinkedFile[]; bytes: number; capped: boolean }> {
   const deleted: string[] = [];
   const decoder = new StringDecoder("utf8");
   let bytes = 0;
@@ -574,23 +616,31 @@ async function readMaps(
   try {
     for await (const chunk of reader.maps(pid, tid)) {
       bytes += chunk.byteLength;
-      if (bytes > MAPS_CAP_BYTES) {
-        return { files: unlinkedMappings(pid, deleted.join("\n")), capped: true };
+      if (bytes > limit) {
+        return { files: unlinkedMappings(pid, deleted.join("\n")), bytes, capped: true };
       }
-      const lines = (partial + decoder.write(chunk)).split("\n");
-      partial = lines.pop() ?? "";
-      for (const line of lines) if (line.endsWith(" (deleted)")) deleted.push(line);
+      const text = partial + decoder.write(chunk);
+      // Searched for rather than split into lines: a turn can read 32 MiB of a run's maps, and
+      // almost none of it names a deleted file.
+      for (
+        let at = text.indexOf(`${DELETED}\n`);
+        at !== -1;
+        at = text.indexOf(`${DELETED}\n`, at + 1)
+      ) {
+        deleted.push(text.slice(text.lastIndexOf("\n", at) + 1, at + DELETED.length));
+      }
+      partial = text.slice(text.lastIndexOf("\n") + 1);
     }
   } catch (error) {
     const code = errnoOf(error);
-    if (GONE.has(code)) return { files: [], capped: false };
+    if (GONE.has(code)) return { files: [], bytes, capped: false };
     const path = `${procBase(pid, tid)}/maps`;
     if (code !== "EACCES") throw new DiskReadError(code, path, pid, { cause: error });
     await denied(reader, pid, tid, path);
-    return { files: [], capped: false };
+    return { files: [], bytes, capped: false };
   }
   deleted.push(partial + decoder.end());
-  return { files: unlinkedMappings(pid, deleted.join("\n")), capped: false };
+  return { files: unlinkedMappings(pid, deleted.join("\n")), bytes, capped: false };
 }
 
 /**
@@ -666,6 +716,8 @@ interface Watched {
   walking: boolean;
   /** When its read of open files in flight began. */
   readingSince: number | null;
+  /** The soonest its next read of open files may begin. */
+  nextReadAt: number;
   /** How its last read ended, and when that read began, until a tick acts on it. */
   ended: { ok: boolean; startedAt: number } | null;
   failed: boolean;
@@ -700,14 +752,25 @@ const DISK_DEADLINE_MS = COMMAND_MS;
 export const UNKNOWN_DISK_MS = 10_000;
 
 /**
+ * A run's next read of its open files waits this many times as long as its last read took, from
+ * its end: a run that makes its reads heavy is read a quarter of the time at most, while its reads
+ * keep within their deadline (#2351).
+ */
+export const READ_PACE = 3;
+
+/** The longest that wait, three times a read's deadline: a write goes unseen 6 s more at most. */
+const PACE_MAX_MS = READ_PACE * DISK_DEADLINE_MS;
+
+/**
  * Measures every program it watches each `WATCH_MS`, from one listing of the computer's processes
  * a tick, which judges resident memory before anything slower. Each run walks its folder and reads
  * the files its processes hold open with no name, each with one read in flight. A read that fails
  * stops that run at once (`disk-unmeasured`). One that is slow, past its 2 s deadline, leaves the
  * disk unknown for that turn while every limit keeps running on what was last read; a run whose
  * disk stays unknown for more than `UNKNOWN_DISK_MS` in a row is stopped. The clock is checked every
- * tick, so a read that never returns stops its run too. On macOS one lsof reads every run's open
- * files every other turn, and each run reads its own when that fails; on Linux each reads `/proc`.
+ * tick, so a read that never returns stops its run too. A run's next read waits `READ_PACE` times
+ * as long as its last took. On macOS one lsof reads every run's open files every other turn, and
+ * each run reads its own when that fails; on Linux each reads `/proc`.
  */
 export function createMeters(options: MetersOptions = {}): Meters {
   const command = options.command ?? runCommand;
@@ -753,6 +816,12 @@ export function createMeters(options: MetersOptions = {}): Meters {
     );
   }
 
+  function readEnded(each: Watched, startedAt: number) {
+    const at = now();
+    each.readingSince = null;
+    each.nextReadAt = at + Math.min(READ_PACE * (at - startedAt), PACE_MAX_MS);
+  }
+
   /** Records how a run's read of its open files ended; a failed one stops the run before it's told. */
   async function settleRead(
     each: Watched,
@@ -766,7 +835,7 @@ export function createMeters(options: MetersOptions = {}): Meters {
       device = await each.device;
       result = await read();
     } catch (error) {
-      each.readingSince = null;
+      readEnded(each, startedAt);
       if (!watched.has(each)) return;
       if (error instanceof DiskTimeout) {
         each.ended = { ok: false, startedAt };
@@ -776,7 +845,7 @@ export function createMeters(options: MetersOptions = {}): Meters {
       each.unmeasured(error);
       return;
     }
-    each.readingSince = null;
+    readEnded(each, startedAt);
     if (!watched.has(each)) return;
     const bytes = heldBytes(result.files, new Set(pids), device);
     each.unlinked = result.partial ? Math.max(each.unlinked, bytes) : bytes;
@@ -843,7 +912,7 @@ export function createMeters(options: MetersOptions = {}): Meters {
       each.use({ memory: each.memory, folder: each.folderUse });
       if (each.folderUse === "unknown" || !watched.has(each)) continue;
       if (!each.walking) walk(each);
-      if (listing && unlinkedTurn && each.readingSince === null) {
+      if (listing && unlinkedTurn && each.readingSince === null && at >= each.nextReadAt) {
         each.readingSince = at;
         batch.push({ each, pids });
       }
@@ -950,6 +1019,7 @@ export function createMeters(options: MetersOptions = {}): Meters {
           unlinked: 0,
           walking: false,
           readingSince: null,
+          nextReadAt: Number.NEGATIVE_INFINITY,
           ended: null,
           failed: false,
           unknownSince: null,

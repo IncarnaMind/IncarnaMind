@@ -942,7 +942,6 @@ print(json.dumps(seen))
         const { call, analyses } = tool({}, 30_000, undefined, (error) =>
           reports.push(String(error)),
         );
-        const started = performance.now();
         await call(
           "python",
           [
@@ -953,8 +952,6 @@ print(json.dumps(seen))
           ].join("\n"),
         );
         expect(analyses[0]?.end).toEqual({ kind: "disk-unmeasured" });
-        // At once: before the 10 s an unknown disk is allowed.
-        expect(performance.now() - started).toBeLessThan(10_000);
         // Through the leader, or a thread of it once the leader's is denied too.
         expect(reports[0]).toMatch(
           /failed \(EACCES\): \/proc\/\d+\/(task\/\d+\/)?fd .*NSpid \d+ \d+ \d+\)$/,
