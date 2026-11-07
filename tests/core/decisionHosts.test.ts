@@ -585,4 +585,46 @@ describe("Removing what sorting uses (#1907)", { timeout: 30_000 }, () => {
     expect((await core.getLibrary()).sortWaitsFor).toBeUndefined();
     expect(hosts.tagging()).toEqual([]);
   });
+  /** Decider through OpenRouter chosen with its Use this, beside Anthropic as the User's AI. */
+  async function deciderInUse() {
+    const hosts = await startFakeHosts();
+    const tagging = taggingModel(["Notes"]);
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: scriptedModels(tagging.model).createChatModel,
+      keychain: createMemoryKeychain(),
+      decisionOrigins: { openrouter: hosts.url },
+    });
+    const anthropic = await core.saveChatProvider(ANTHROPIC);
+    const openrouter = await core.saveChatProvider({ ...PROVIDERS.openrouter, keepDefault: true });
+    await core.createLibraryGroup({ name: "Research", description: "Papers and studies." });
+    await chooseAndTurnOn(core, {
+      kind: "decision",
+      host: "openrouter",
+      modelId: "perplexity/pplx-decider-v1.2",
+    });
+    return { core, hosts, tagging, anthropic, openrouter };
+  }
+
+  test("deleting the OpenRouter provider that Decider reaches gives sorting back to Automatic: OpenRouter gets nothing", async () => {
+    const { core, hosts, tagging, openrouter } = await deciderInUse();
+    await core.deleteChatProvider(openrouter.id);
+    expect((await core.getLibrary()).settings.classifier).toEqual({ kind: "automatic" });
+    expect((await status(core, "openrouter"))?.ready).toBe(false);
+
+    const document = await addDocument(core, "Attention.md", PAPER_TEXT);
+    const [waiting] = await waitForTagging(core, [document.id], (each) => each.tagging === "off");
+    expect(waiting?.tagging).toBe("off");
+    expect(hosts.tagging()).toEqual([]);
+    expect(tagging.requests).toHaveLength(0);
+  });
+
+  test("deleting another provider leaves Decider chosen, and a new Document goes to OpenRouter", async () => {
+    const { core, hosts, anthropic } = await deciderInUse();
+    await core.deleteChatProvider(anthropic.id);
+    expect((await core.getLibrary()).settings.classifier).toMatchObject({ host: "openrouter" });
+
+    const document = await addDocument(core, "Attention.md", PAPER_TEXT);
+    await waitForTagging(core, [document.id]);
+    expect(hosts.tagging().map((each) => each.path)).toContain("/api/v1/systemone");
+  });
 });

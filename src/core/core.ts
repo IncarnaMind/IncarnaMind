@@ -293,6 +293,11 @@ import { createPrivacy, type NetworkTrafficRegistry } from "./privacy";
 import { KeyCharacterError, storedApiKey } from "./providers/apiKey";
 import { readsImages } from "./providers/capabilities";
 import { retrievesFirst, writesThenCites } from "./providers/catalog/answerPaths";
+import {
+  DECISION_HOST_ENTRIES,
+  DECISION_HOSTS,
+  type DecisionHost,
+} from "./providers/catalog/decisions";
 import { CHAT_FLOW_SENDS, createChat, type PreparedChatModel } from "./providers/chat";
 import { CHATGPT_PLAN_ENDPOINTS, createChatGptPlan } from "./providers/chatgpt/plan";
 import { createClaudeAccount } from "./providers/claudeAccount/account";
@@ -4011,6 +4016,16 @@ export function createCore(adapters: CoreAdapters): Core {
     });
     await dataFlowsChanged();
   };
+  /** The hosts that reach their decision models with this chat provider's key: OpenRouter's, OpenAI's, the Qwen key's. */
+  const hostsOnKeyOf = async (providerId: string) => {
+    const riding: DecisionHost[] = [];
+    for (const host of DECISION_HOSTS) {
+      const { key, provider } = DECISION_HOST_ENTRIES[host];
+      if (key !== "provider" || !provider) continue;
+      if ((await chat.apiKeyOf(provider))?.providerId === providerId) riding.push(host);
+    }
+    return riding;
+  };
   /** Jev was set up, changed or removed: say so, and Documents waiting may go on. */
   const jevChanged = async () => {
     const status = await jev.status();
@@ -5913,7 +5928,12 @@ export function createCore(adapters: CoreAdapters): Core {
       return provider;
     },
     deleteChatProvider: async (id) => {
+      const riding = await hostsOnKeyOf(id);
+      await stopSortingWith(
+        (classifier) => classifier?.kind === "decision" && riding.includes(classifier.host),
+      );
       await chat.delete(id);
+      if (riding.length > 0) await decisionsChanged(await decisionHosts.list());
       // A transcription route that used this provider's key has none now.
       await cloudTranscription.refreshKeys();
       transcriptionGateChanged();
