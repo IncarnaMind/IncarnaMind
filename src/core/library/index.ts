@@ -501,7 +501,7 @@ export function createLibrary(options: {
     const { taggingStopped } = getSettings();
     return taggingStopped.length > 0 && taggingStopped.includes(placeOf(id));
   };
-  /** What the User asked of a Document: it lives until that request finishes (#2535). */
+  /** What the User asked of a Document: it lives until that request finishes (#2308). */
   interface AskedRequest {
     /** The service a billing continuation was authorized for; null for the User's own request. */
     service: string | null;
@@ -1220,14 +1220,8 @@ export function createLibrary(options: {
         });
       }
     }
-    if (forService !== undefined) {
-      for (const doc of docs) {
-        if (service) clearForService(db, doc.id, [service], now());
-        enqueue(doc.id);
-      }
-      return;
-    }
-    // The User's own request goes to this service, after a quit too: kept, not only in memory.
+    // The request goes to this service, after a quit too: kept, not only in memory. A
+    // continuation's binding lives in memory only, but its clearance names its own service alone.
     if (service) for (const doc of docs) clearForService(db, doc.id, [service], now());
     db.transaction(() => {
       for (const doc of docs) {
@@ -1902,7 +1896,7 @@ export function createLibrary(options: {
       const settings = getSettings();
       if (!organizeModelOf(settings))
         throw new InvalidInputError({ key: "error.library.noClassifier" });
-      // A continuation proposes only to the service its press was authorized for (#2535).
+      // A continuation proposes only to the service its press was authorized for (#2308).
       if (forService !== undefined && options.organizeService(settings)?.id !== forService)
         return [];
       const docs = documentIdsOf(input)
@@ -1932,7 +1926,7 @@ export function createLibrary(options: {
       if (!organizeModelOf(getSettings()))
         throw new InvalidInputError({ key: "error.library.noClassifier" });
       if (groups().length === 0) throw new InvalidInputError({ key: "error.library.noFolders" });
-      // A continuation's authorized service, checked before anything is queued or cleared (#2535).
+      // A continuation's authorized service, checked before anything is queued or cleared (#2308).
       if (forService !== undefined && options.organizeService(getSettings())?.id !== forService)
         return;
       const ids = (
