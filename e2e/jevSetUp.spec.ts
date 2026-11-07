@@ -367,3 +367,38 @@ for (const language of ["en", "zh-CN"] as const) {
     }
   });
 }
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`Settings › Models: Decider through OpenRouter names the OpenRouter key it uses, and Your providers adds no row for it (${language}) (#1907)`, async () => {
+    const { app, window } = await launch("en", 900, 800);
+    try {
+      await window.evaluate(async () => {
+        const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        await core.saveChatProvider({
+          kind: "openrouter",
+          apiKey: "sk-or-smoke-key",
+          modelId: "anthropic/claude-sonnet-5.5",
+        });
+      });
+      const settings = await openSettings(window, "models");
+      await setLanguage(window, language);
+      const row = settings.getByTestId("model-default-row-sorting");
+      await expect(row.getByTestId("models-sorting-key")).toHaveCount(0);
+      await row.getByTestId("models-sorting").selectOption({ label: "Decider v1.2 · OpenRouter" });
+
+      const line = row.getByTestId("models-sorting-key");
+      await expect(line).toContainText("OpenRouter");
+      const words = (text: string | null) => (text ?? "").replace(/\s/g, "");
+      expect(words(await line.textContent())).toBe(
+        words(translate(language, "decisions.usesKey", { provider: "OpenRouter" })),
+      );
+      const providers = settings.getByTestId("your-providers");
+      await expect(providers.getByTestId("provider-row")).toHaveCount(1);
+      await expect(providers.getByTestId("sorting-key-row")).toHaveCount(0);
+      // Choosing sorts nothing: the one read is OpenRouter's public list of decision models.
+      expect(typeSafe.requests.filter((each) => each !== "")).toEqual([]);
+    } finally {
+      await app.close();
+    }
+  });
+}
