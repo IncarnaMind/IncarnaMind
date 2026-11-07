@@ -138,6 +138,11 @@ export interface CheckWrittenInput {
   ids: readonly string[];
   prepared: PreparedChatModel;
   signal: AbortSignal;
+  /**
+   * The Answer failed before its text could be checked: each cited sentence lands not checked,
+   * and nothing is sent to the provider that just failed.
+   */
+  answerFailed?: boolean;
   /** How many sentences are being checked, as the check starts. */
   checking(count: number): void;
   /** Changes the Mind's content, in one transaction. */
@@ -912,6 +917,8 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     const prepared = allowed ?? input.prepared;
     const { searchable, check: scope } = options.scopeOf(mindId);
     if (searchable === 0) return null;
+    // Nothing is sent waiting for the User's OK, or once the Answer failed: its sentences land not checked.
+    const holding = waiting || input.answerFailed === true;
     const sending: Sentence[] = [];
     const reads = new Map<
       Sentence,
@@ -920,7 +927,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     const request = randomUUID();
     const startedAt = options.now().toISOString();
     const limit = slots(claimsAtOnce(prepared));
-    const quick = waiting
+    const quick = holding
       ? null
       : await options.quickModel(prepared).catch((error: unknown) => {
           console.warn(
@@ -1173,7 +1180,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
             reads.set(sentence, place ? { ...read, place } : read);
           }
         });
-        if (waiting) return;
+        if (holding) return;
         input.checking(sending.length);
         inStep("written-check", () => {
           run.push(batch);
@@ -1184,6 +1191,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         const { stop } = await close();
         if (signal.aborted) return null;
         if (waiting) for (const sentence of sending) failed(sentence, "consent-widened", null);
+        else if (holding) for (const sentence of sending) failed(sentence, "answer-failed", null);
         const sentences = checkable.filter((sentence) => sentence.cited.length > 0);
         const at = options.now().toISOString();
         landAll([

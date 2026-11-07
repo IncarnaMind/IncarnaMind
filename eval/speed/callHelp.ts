@@ -215,21 +215,36 @@ async function judge(
   });
   const judged = readJudged(first.text);
   if (judged) return judged;
-  // A judge that answered in prose is asked once more for the JSON alone, its reasons kept.
-  const again = await generateText({
-    model,
-    instructions: JUDGE,
-    messages: [
-      { role: "user", content: prompt },
-      { role: "assistant", content: first.text },
-      { role: "user", content: "Now give only the JSON object, as the instructions say." },
-    ],
-    maxOutputTokens: 200,
-    maxRetries: 1,
-  });
+  // A judge that answered in prose is asked once more for the JSON alone, its reasons kept. One whose
+  // thinking took its room and left no text can't have that reply sent back: Anthropic refuses the
+  // cache mark on its empty text block (#2701).
+  const again =
+    first.text.trim() === ""
+      ? await generateText({
+          model,
+          instructions: JUDGE,
+          prompt,
+          maxOutputTokens: 1_200,
+          maxRetries: 1,
+        })
+      : await generateText({
+          model,
+          instructions: JUDGE,
+          messages: [
+            { role: "user", content: prompt },
+            { role: "assistant", content: first.text },
+            { role: "user", content: "Now give only the JSON object, as the instructions say." },
+          ],
+          maxOutputTokens: 200,
+          maxRetries: 1,
+        });
   const read = readJudged(again.text);
   if (read) return read;
-  console.error(`The judge's reply couldn't be read: ${again.text.slice(0, 200)}`);
+  console.error(
+    again.text.trim() === ""
+      ? `The judge's reply was empty twice (${again.finishReason}).`
+      : `The judge's reply couldn't be read: ${again.text.slice(0, 200)}`,
+  );
   return { grade: "unread", unstated: [] };
 }
 

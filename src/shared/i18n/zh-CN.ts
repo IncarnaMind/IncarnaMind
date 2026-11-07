@@ -1329,6 +1329,7 @@ export const zhCN = {
   "claim.reason.out-of-credit": "模型服务提示余额不足。",
   "claim.reason.failed": "无法核对：{detail}",
   "claim.reason.stopped": "核对前已停止。",
+  "claim.reason.answer-failed": "回答出错停止，这句话尚未核对。",
   "claim.reason.too-many": "尚未核对：写入时只核对前 {cap} 句带引用的话",
   "claim.checkNow": "立即核对",
   "claim.reason.consent-revoked": "未核对：你关闭了向此服务发送内容。",
