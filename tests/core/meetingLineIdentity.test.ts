@@ -147,16 +147,20 @@ for (const language of ["en", "zh-CN"] as const) {
           paragraphs.push(node.textContent);
         });
         const line = paragraphs.indexOf(words.line);
-        expect(paragraphs[line + 1]).toContain(kept.text);
-        expect(paragraphs[line + 1]).not.toContain(removed.text);
+        expect(paragraphs[line + 1]).toContain(`${kept.topic}${words.below}`);
+        expect(paragraphs[line + 1]).not.toContain(kept.text);
+        const pointers = (topic: string) =>
+          paragraphs.filter((each) => each.includes(`${topic}${words.below}`));
+        expect(pointers(kept.topic)).toHaveLength(2);
+        expect(pointers(removed.topic)).toHaveLength(1);
         const actions = paragraphs.slice(paragraphs.indexOf(words.actions) + 1).join("\n");
         expect(actions).toContain(removed.text);
-        expect(actions).not.toContain(kept.text);
-        expect(actions).toContain(`${kept.topic}${words.above}`);
+        expect(actions).toContain(kept.text);
+        expect(actions).not.toContain(words.above);
         const decisions = paragraphs
           .slice(paragraphs.indexOf(words.decisions) + 1, paragraphs.indexOf(words.actions))
           .join("\n");
-        expect(decisions).toContain(`${kept.topic}${words.above}`);
+        expect(decisions).toContain(`${kept.topic}${words.below}`);
         expect(decisions).toContain(`${removed.topic}${words.below}`);
         for (const fact of words.facts) {
           expect(readMind(client).textContent.split(fact.text)).toHaveLength(2);

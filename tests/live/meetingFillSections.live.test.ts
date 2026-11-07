@@ -82,7 +82,7 @@ interface Call {
   requireSections?: boolean;
   openQuestions?: boolean;
   notDecided?: RegExp[];
-  sectionHeadings?: Partial<Record<"summary" | "decisions" | "actions", string>>;
+  sectionHeadings?: Partial<Record<"summary" | "decisions" | "actions" | "questions", string>>;
 }
 
 const me = (text: string) => ({ side: "me" as const, text });
@@ -1549,7 +1549,7 @@ function isReservedCall(value: unknown): value is ReservedCallInput {
     facts.every((fact) => fact.said.every((index) => index < turns.length)) &&
     (sectionHeadings === undefined ||
       (isRecord(sectionHeadings) &&
-        onlyKeys(sectionHeadings, ["summary", "decisions", "actions"]) &&
+        onlyKeys(sectionHeadings, ["summary", "decisions", "actions", "questions"]) &&
         Object.values(sectionHeadings).every((text) => typeof text === "string")))
   );
 }
@@ -1690,15 +1690,13 @@ function machineAddressLeaks(doc: ProseMirrorNode): number {
   return count;
 }
 
+const parts = (fact: Fact) => (Array.isArray(fact.pattern) ? fact.pattern : [fact.pattern]);
+const matchCount = (pattern: RegExp, text: string) =>
+  [...text.matchAll(new RegExp(pattern.source, `${pattern.flags.replace(/g/g, "")}g`))].length;
+
 // Component-match minima miss partial/anaphoric repeats; an independent raw audit is still required.
 const occurrences = (fact: Fact, text: string) =>
-  Math.min(
-    ...(Array.isArray(fact.pattern) ? fact.pattern : [fact.pattern]).map(
-      (pattern) =>
-        [...text.matchAll(new RegExp(pattern.source, `${pattern.flags.replace(/g/g, "")}g`))]
-          .length,
-    ),
-  );
+  Math.min(...parts(fact).map((pattern) => matchCount(pattern, text)));
 
 test("meeting scores count repeated facts inside one paragraph, not just matching paragraphs", () => {
   const fact: Fact = {
@@ -1956,6 +1954,74 @@ function citesRightly(unit: Unit, fact: Fact, call: Call, cues: readonly Cue[]):
       );
     });
   });
+}
+
+/**
+ * Where a fact is written outside the claims list: a unit that says all of it, or, for a decision, a
+ * run of consecutive units in one place (one section, after the same line) that each say some of its
+ * parts and together say all of them. A run counts as often as its most repeated part, so a part
+ * written twice is a duplicate; a unit naming the call's rejected option is never in a run.
+ */
+function placements(
+  fact: Fact,
+  units: readonly Unit[],
+  call: Call,
+  cues: readonly Cue[],
+  claimsTitles: readonly string[],
+): { count: number; inPlace: boolean; cited: boolean } {
+  const outside = (unit: Unit) => unit.ai && !claimsTitles.includes(unit.section ?? "");
+  const found = units
+    .filter((unit) => outside(unit) && says(fact, unit.text))
+    .map((unit) => ({ units: [unit], count: occurrences(fact, unit.text) }));
+  if (fact.kind === "decision") {
+    let run: Unit[] = [];
+    const close = () => {
+      const text = run.map((unit) => unit.text).join("\n");
+      if (run.length > 1 && says(fact, text))
+        found.push({
+          units: run,
+          count: Math.max(...parts(fact).map((pattern) => matchCount(pattern, text))),
+        });
+      run = [];
+    };
+    for (const unit of units) {
+      const isPart =
+        outside(unit) &&
+        !says(fact, unit.text) &&
+        parts(fact).some((pattern) => pattern.test(unit.text)) &&
+        !call.notDecided?.some((pattern) => pattern.test(unit.text));
+      const previous = run.at(-1);
+      if (
+        previous &&
+        (!isPart || unit.section !== previous.section || unit.afterLine !== previous.afterLine)
+      )
+        close();
+      if (isPart) run.push(unit);
+    }
+    close();
+  }
+  // A decision or an action is written whole in its section; the typed line it answers then has
+  // a short pointer citing the same turn (#2306).
+  const pointers = (["above", "below"] as const).map((direction) =>
+    translate(call.language, `meetings.fill.reference.${direction}`, { topic: "" }).trim(),
+  );
+  const pointed = units.some(
+    (unit) =>
+      outside(unit) &&
+      unit.afterLine === fact.underLine &&
+      pointers.some((pointer) => unit.text.trim().endsWith(pointer)) &&
+      citesRightly(unit, fact, call, cues),
+  );
+  return {
+    count: found.reduce((sum, each) => sum + each.count, 0),
+    inPlace:
+      fact.underLine === undefined ||
+      found.some((each) => each.units[0]?.afterLine === fact.underLine) ||
+      (fact.kind !== "figure" && found.length > 0 && pointed),
+    cited:
+      found.length > 0 &&
+      found.every((each) => each.units.every((unit) => citesRightly(unit, fact, call, cues))),
+  };
 }
 
 function actionSectionCounts(
@@ -2445,6 +2511,153 @@ test.each(["en", "zh-CN"] as const)(
   },
 );
 
+function splitDecision(language: "en" | "zh-CN") {
+  const en = language === "en";
+  const turns = en
+    ? [
+        them("The oak floor would be 18,000 pounds, so we turned it down."),
+        me("Settled: the budget is 12,000 pounds and the work is done by May 20."),
+      ]
+    : [
+        them("实木地板要十八万元，这个方案否了。"),
+        me("就这么定：预算十二万元，五月二十日前完工。"),
+      ];
+  const fact: Fact = {
+    name: "budget and deadline",
+    kind: "decision",
+    pattern: en ? [/12,000 pounds/i, /May 20/i] : [/十二万元/, /五月二十日/],
+    subject: en ? /budget/i : /预算/,
+    said: [1],
+    underLine: en ? "budget and deadline" : "预算和工期",
+  };
+  const call: Call = {
+    id: "split-decision-scorer-only",
+    language,
+    notes: [],
+    turns,
+    facts: [fact],
+    notDecided: [en ? /18,000/ : /十八万/],
+  };
+  const cues: Cue[] = turns.map((turn, index) => ({
+    startMs: index * 1_000,
+    endMs: (index + 1) * 1_000,
+    text: turn.text,
+    speaker: turn.side === "me" ? "Me" : "Them",
+  }));
+  const unit = (text: string, turn = 1): Unit => {
+    const cue = cues[turn];
+    if (!cue) throw new Error("The split decision's cue is missing.");
+    return {
+      text,
+      ai: true,
+      section: null,
+      afterLine: fact.underLine ?? null,
+      citations: [
+        {
+          quote: cue.text,
+          from: cue.startMs,
+          to: cue.endMs,
+          speaker: cue.speaker ?? null,
+          check: "found",
+        },
+      ],
+    };
+  };
+  const text = en
+    ? {
+        budget: "The budget is 12,000 pounds.",
+        deadline: "The work is done by May 20.",
+        whole: "Budget 12,000 pounds, done by May 20.",
+        rejected: "Not the 18,000-pound oak floor: the budget is 12,000 pounds.",
+        unrelated: "The yard has parking.",
+      }
+    : {
+        budget: "预算定在十二万元。",
+        deadline: "五月二十日前完工。",
+        whole: "预算十二万元，五月二十日前完工。",
+        rejected: "不做十八万元的实木地板，预算十二万元。",
+        unrelated: "院子里有停车位。",
+      };
+  const score = (units: Unit[], claims: string[] = []) =>
+    placements(fact, units, call, cues, claims);
+  return { fact, call, cues, unit, text, score };
+}
+
+test.each(["en", "zh-CN"] as const)(
+  "meeting scores accept a decision split over consecutive cited units in one place, each part once (%s)",
+  (language) => {
+    const { fact, unit, text, score } = splitDecision(language);
+    expect(says(fact, text.budget)).toBe(false);
+    expect(says(fact, text.deadline)).toBe(false);
+    const placed = { count: 1, inPlace: true, cited: true };
+    expect(score([unit(text.budget), unit(text.deadline)])).toEqual(placed);
+    expect(score([unit(text.deadline), unit(text.budget)])).toEqual(placed);
+    expect(score([unit(text.whole)])).toEqual(placed);
+    const inSection = (each: Unit): Unit => ({ ...each, section: "Decisions", afterLine: null });
+    expect(score([inSection(unit(text.budget)), inSection(unit(text.deadline))])).toEqual({
+      count: 1,
+      inPlace: false,
+      cited: true,
+    });
+  },
+);
+
+test.each(["en", "zh-CN"] as const)(
+  "a decision written whole in its section is in place when its typed line points to it, citing the same turn (%s)",
+  (language) => {
+    const { unit, text, score } = splitDecision(language);
+    const inSection = (each: Unit): Unit => ({ ...each, section: "Decisions", afterLine: null });
+    const pointer = language === "en" ? "Budget — see below" : "预算，详见下文";
+    const unrelated = language === "en" ? "The van is booked." : "车已经订好了。";
+    expect(score([unit(pointer), inSection(unit(text.whole))])).toEqual({
+      count: 1,
+      inPlace: true,
+      cited: true,
+    });
+    expect(score([unit(pointer, 0), inSection(unit(text.whole))]).inPlace).toBe(false);
+    expect(score([unit(pointer)]).inPlace).toBe(false);
+    expect(score([unit(unrelated), inSection(unit(text.whole))]).inPlace).toBe(false);
+  },
+);
+
+test.each(["en", "zh-CN"] as const)(
+  "meeting scores reject a split decision with a part missing or twice, a wrong Citation, another place or the rejected option (%s)",
+  (language) => {
+    const { fact, call, cues, unit, text, score } = splitDecision(language);
+    const missing = { count: 0, inPlace: false, cited: false };
+    expect(score([unit(text.budget)])).toEqual(missing);
+    expect(score([unit(text.budget), unit(text.budget), unit(text.deadline)]).count).toBe(2);
+    expect(score([unit(text.whole), unit(text.budget), unit(text.deadline)]).count).toBe(2);
+    expect(score([unit(text.budget), unit(text.deadline, 0)])).toEqual({
+      count: 1,
+      inPlace: true,
+      cited: false,
+    });
+    expect(score([unit(text.rejected), unit(text.deadline)])).toEqual(missing);
+    expect(score([unit(text.budget), unit(text.unrelated), unit(text.deadline)])).toEqual(missing);
+    expect(score([unit(text.budget), { ...unit(text.deadline), section: "Summary" }])).toEqual(
+      missing,
+    );
+    expect(score([unit(text.budget), { ...unit(text.deadline), afterLine: "other line" }])).toEqual(
+      missing,
+    );
+    expect(score([{ ...unit(text.budget), ai: false }, unit(text.deadline)])).toEqual(missing);
+    const claims = (each: Unit): Unit => ({ ...each, section: "Claims" });
+    expect(score([claims(unit(text.budget)), claims(unit(text.deadline))], ["Claims"])).toEqual(
+      missing,
+    );
+    expect(
+      placements(
+        { ...fact, kind: "action" },
+        [unit(text.budget), unit(text.deadline)],
+        call,
+        cues,
+        [],
+      ),
+    ).toEqual(missing);
+  },
+);
+
 test.each(["en", "zh-CN"] as const)(
   "meeting scores require the action's owner (%s)",
   (language) => {
@@ -2501,7 +2714,12 @@ function reservedSample(language: "en" | "zh-CN"): ReservedCallInput {
       },
       { name: "rota", kind: "action", pattern: "ROTA|排班", said: [1] },
     ],
-    sectionHeadings: { summary: "Summary", decisions: "Settled", actions: "Next steps" },
+    sectionHeadings: {
+      summary: "Summary",
+      decisions: "Settled",
+      actions: "Next steps",
+      questions: "Unknowns",
+    },
   };
 }
 
@@ -2846,19 +3064,12 @@ async function run(call: Call, ledger: RequestLedger, observation: Observation |
     const claimsTitles = (["en", "zh-CN"] as const).map((language) =>
       translate(language, "meetings.fill.section.claims"),
     );
-    const outside = units.filter((each) => each.ai && !claimsTitles.includes(each.section ?? ""));
     const inClaims = units.filter((each) => each.ai && claimsTitles.includes(each.section ?? ""));
-    const scored = call.facts.map((fact) => {
-      const found = outside.filter((each) => says(fact, each.text));
-      return {
-        fact,
-        count: found.reduce((sum, each) => sum + occurrences(fact, each.text), 0),
-        inClaims: inClaims.reduce((sum, each) => sum + occurrences(fact, each.text), 0),
-        inPlace:
-          fact.underLine === undefined || found.some((unit) => unit.afterLine === fact.underLine),
-        cited: found.length > 0 && found.every((each) => citesRightly(each, fact, call, cues)),
-      };
-    });
+    const scored = call.facts.map((fact) => ({
+      fact,
+      ...placements(fact, units, call, cues, claimsTitles),
+      inClaims: inClaims.reduce((sum, each) => sum + occurrences(fact, each.text), 0),
+    }));
     const uncited = units.filter((each) => each.ai && each.citations.length === 0).length;
     let undone = false;
     let undoNote: unknown = null;
@@ -2970,7 +3181,7 @@ describe.skipIf(LOADER_PREFLIGHT || (!KEY && !LOCAL_MODEL))(
         );
         const usage = ledger.usage;
         const once = scored.filter((each) => each.count === 1 && each.cited).length;
-        const title = (section: "summary" | "decisions" | "actions") =>
+        const title = (section: "summary" | "decisions" | "actions" | "questions") =>
           call.sectionHeadings?.[section] ??
           translate(call.language, `meetings.fill.section.${section}`);
         const summary = units.filter((each) => each.ai && each.section === title("summary"));
@@ -2979,10 +3190,7 @@ describe.skipIf(LOADER_PREFLIGHT || (!KEY && !LOCAL_MODEL))(
           usage.replies.map((reply) => reply.text),
         );
         const decisions = units.filter((each) => each.ai && each.section === title("decisions"));
-        const questions = units.filter(
-          (each) =>
-            each.ai && each.section === translate(call.language, "meetings.fill.section.questions"),
-        );
+        const questions = units.filter((each) => each.ai && each.section === title("questions"));
         const counts = {
           decisions: scored.filter((each) => each.fact.kind === "decision" && each.count > 0)
             .length,

@@ -1086,20 +1086,35 @@ test("a stopped Transcript has no row of its own: from its Note, Get info names 
   await pointAndClick(window, window.getByTestId("meeting-view-notes"));
   await expect(shown).toHaveCount(0);
 
-  // Found from ⌘K under "Said in meetings" once its saved words are searchable, it opens beside
-  // its Note; there too it has no "Open in default app".
-  const transcriptId = (await bridge(window))[0]?.transcript?.documentId ?? "";
+  // Found from ⌘K once its words are indexed, it opens beside its Note; there too it has no
+  // "Open in default app".
+  const documentId = (await bridge(window))[0]?.transcript?.documentId;
   await expect
     .poll(() =>
-      window.evaluate(async () => {
-        const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-        const found = await core.searchPassages("launch", { mode: "keyword" });
-        return found.map((passage) => passage.documentId);
-      }),
+      window.evaluate(
+        async (id) =>
+          (
+            await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.listDocuments()
+          ).find((each) => each.id === id)?.status,
+        documentId,
+      ),
     )
-    .toContain(transcriptId);
-  await window.keyboard.press("ControlOrMeta+k");
-  await window.getByTestId("palette-search").fill("launch");
+    .toBe("ready");
+  // A word the call said, whichever side's line was saved first.
+  const said = await window.evaluate(
+    async (id) =>
+      (
+        await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.readDocumentText(
+          id ?? "",
+        )
+      ).pages
+        .map((page) => page.text)
+        .join(" "),
+    documentId,
+  );
+  const word = /[A-Za-z]{6,}/.exec(said)?.[0] ?? "";
+  expect(word).not.toBe("");
+  await searchPalette(window, word);
   await expect(
     window
       .getByTestId("palette")

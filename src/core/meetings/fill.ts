@@ -570,8 +570,13 @@ export function createMeetingFill(options: MeetingFillOptions) {
     }
     const { overview } = ledger;
     const omitted = ledger.omitted(unfinishedParts === 0);
-    if (omitted > 0)
-      log.warn("meeting.fillItemsOmitted", { meetingId: meeting.id, items: omitted });
+    if (omitted > 0) {
+      log.warn("meeting.fillItemsOmitted", {
+        meetingId: meeting.id,
+        items: omitted,
+        ...ledger.omittedReasons(unfinishedParts === 0),
+      });
+    }
     set(meeting.id, { omitted, unfinishedParts });
     if (ledger.facts.length === 0 && overview === null) {
       throw new FillProblemError(

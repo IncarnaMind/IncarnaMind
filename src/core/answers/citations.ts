@@ -946,7 +946,10 @@ function changedParts(
   );
 }
 
-function recheckInCurrent(documents: RecheckDocuments, input: Rechecked): CitationRecheck {
+function recheckInCurrent(
+  documents: RecheckDocuments,
+  input: Rechecked & { contentHash?: string | null },
+): CitationRecheck {
   const cited = { pageFrom: input.pageFrom, pageTo: input.pageTo };
   const contentHash = documents.currentVersion(input.documentId);
   if (contentHash === null) return removedFrom(cited);
@@ -973,6 +976,8 @@ function recheckInCurrent(documents: RecheckDocuments, input: Rechecked): Citati
     const speaker = input.location?.kind === "time" ? input.location.speaker : undefined;
     const renamed =
       speaker !== undefined &&
+      !!input.contentHash &&
+      input.contentHash !== contentHash &&
       !units.some((unit) => unit.kind === "cues" && unit.label?.speakers?.includes(speaker));
     const found = quoteForRecheck(range, quote, matching, input.location, !renamed);
     if (found) {

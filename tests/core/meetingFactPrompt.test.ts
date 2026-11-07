@@ -33,8 +33,12 @@ test("heading meaning stays in the generation, not in a heading-name list", () =
   expect(prompt).toContain("in any wording or language");
   expect(prompt).toContain("whether or not the User typed lines under it");
   expect(prompt).toContain("never an ordinary paragraph");
-  expect(prompt).toContain("Name the User as they introduced themselves in the call");
-  expect(prompt).toContain("Never write the mark Me, or its translation, as if it were a name");
+  expect(prompt).toContain(
+    "Name every person as they introduced themselves or were named in the call",
+  );
+  expect(prompt).toContain(
+    "The speaker marks (Me, Them and numbered voices, or their translations) are not names",
+  );
 });
 
 test("a section-only fill uses the same fact and overview protocol", () => {

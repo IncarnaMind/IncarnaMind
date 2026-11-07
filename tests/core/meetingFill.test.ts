@@ -206,6 +206,22 @@ const shown = (client: MindClient) => {
   return lines;
 };
 
+const citationsShownAs = (client: MindClient, text: string) => {
+  const found: ReturnType<typeof citationAttributesOf>[][] = [];
+  readMind(client).descendants((node) => {
+    if (node.type.name !== "paragraph") return true;
+    if (shownWithAiText(node) === text) {
+      const citations: ReturnType<typeof citationAttributesOf>[] = [];
+      node.descendants((child) => {
+        if (child.type.name === "citation") citations.push(citationAttributesOf(child.attrs));
+      });
+      found.push(citations);
+    }
+    return false;
+  });
+  return found;
+};
+
 const NOTES = [
   heading(2, "Pricing"),
   note("price → Q2?"),
@@ -1129,6 +1145,42 @@ for (const call of CALLS) {
       core.close();
     });
 
+    test(`an action answering a typed line is written whole under a typed "${call.actionsHeading}" heading, and the line points to it`, async () => {
+      const { core, meeting, client } = await recordedWith(
+        [note(call.typed[1]), heading(2, call.actionsHeading)],
+        undefined,
+        {
+          reply: () =>
+            [
+              "HEADINGS: H1=ACTIONS",
+              item("P1_contract", call.topics.contract, written.L2, 2, {
+                lines: ["L1"],
+                sections: ["actions"],
+              }),
+            ].join("\n\n"),
+          citations: { 2: quotes[2] },
+        },
+      );
+      const before = exactly(client);
+      expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", mode: "notes" });
+      await vi.waitFor(() =>
+        expect(shown(client)).toEqual([
+          call.typed[1],
+          reference(call.topics.contract, "below"),
+          call.actionsHeading,
+          ai(written.L2),
+        ]),
+      );
+      const [pointer] = citationsShownAs(client, reference(call.topics.contract, "below"));
+      expect(pointer).toEqual([
+        expect.objectContaining({ check: "found", quote: expect.stringContaining(call.mine[1]) }),
+      ]);
+      expect(pointer).toEqual(citationsShownAs(client, ai(written.L2))[0]);
+      await core.undoMeetingFill(meeting.id);
+      await vi.waitFor(() => expect(exactly(client)).toEqual(before));
+      core.close();
+    });
+
     test("same-reply heading routes place a section whose marker omits the destination", async () => {
       const { core, meeting, client } = await recorded(
         fillingModel(
@@ -1475,7 +1527,7 @@ for (const call of CALLS) {
       },
     );
 
-    test("a routed section is deduplicated against valid line additions before placement", async () => {
+    test("a repeated decision answering a line under its routed heading is written whole once, in place", async () => {
       const { core, meeting, client } = await recordedWith(
         [heading(2, call.otherHeadings[1]), note(call.typed[0])],
         undefined,
@@ -1694,21 +1746,29 @@ for (const call of CALLS) {
         const before = exactly(client);
         const fill = await settledFill(core, meeting);
         expect(fill).toMatchObject({ state: "filled", mode: "notes", omitted: 0 });
-        const full = shown(client).filter((line) => line.includes(written.L2.trim()));
+        const lines = shown(client);
+        const full = lines.filter((line) => line.includes(written.L2.trim()));
         expect(full).toHaveLength(1);
-        expect(
-          shown(client).filter(
-            (line) => line === `${reference(call.topics.contract)}${combined ? "\uFFFC" : ""}`,
-          ),
-        ).toHaveLength(combined ? 1 : 0);
-        expect(shown(client)).not.toContain(`«${titles[2]}»`);
+        expect(lines.indexOf(full[0] ?? "")).toBeGreaterThan(lines.indexOf(call.actionsHeading));
+        if (combined) {
+          const pointer = `${reference(call.topics.contract, "below")}\uFFFC`;
+          expect(lines.filter((line) => line === pointer)).toHaveLength(1);
+          expect(lines[lines.indexOf(call.typed[0]) + 1]).toBe(pointer);
+        } else {
+          // Its line is already under Action items, so it is filled out there, with no pointer.
+          expect(lines[lines.indexOf(call.typed[1]) + 1]).toBe(full[0]);
+          expect(
+            lines.filter((line) => line.includes(reference(call.topics.contract, "below"))),
+          ).toEqual([]);
+        }
+        expect(lines).not.toContain(`«${titles[2]}»`);
         await core.undoMeetingFill(meeting.id);
         await vi.waitFor(() => expect(exactly(client)).toEqual(before));
         core.close();
       },
     );
 
-    test("a cited task-topic reference keeps its section and the complete commitment only once", async () => {
+    test("an action answering a typed line is written whole in Action items, and the line points to it with the same Citation", async () => {
       const { core, meeting, client } = await recordedWith(typedLines(), undefined, {
         reply: () =>
           [
@@ -1726,9 +1786,25 @@ for (const call of CALLS) {
       });
       const before = exactly(client);
       expect(await settledFill(core, meeting)).toMatchObject({ state: "filled" });
-      await vi.waitFor(() => expect(shown(client)).toContain(reference(call.topics.contract)));
-      expect(shown(client).filter((line) => line === ai(written.L2))).toHaveLength(1);
-      expect(shown(client)).toContain(`«${titles[2]}»`);
+      await vi.waitFor(() =>
+        expect(shown(client)).toEqual([
+          call.typed[0],
+          ai(written.L1),
+          call.typed[1],
+          reference(call.topics.contract, "below"),
+          `«${titles[0]}»`,
+          ai(written.SUMMARY),
+          `«${titles[1]}»`,
+          ai(written.DECISIONS),
+          `«${titles[2]}»`,
+          ai(written.L2),
+        ]),
+      );
+      const [pointer] = citationsShownAs(client, reference(call.topics.contract, "below"));
+      expect(pointer).toEqual([
+        expect.objectContaining({ check: "found", quote: expect.stringContaining(call.mine[1]) }),
+      ]);
+      expect(pointer).toEqual(citationsShownAs(client, ai(written.L2))[0]);
       await core.undoMeetingFill(meeting.id);
       await vi.waitFor(() => expect(exactly(client)).toEqual(before));
       core.close();
@@ -1766,17 +1842,17 @@ for (const call of CALLS) {
       await vi.waitFor(() => expect(shown(client)).toHaveLength(15));
       expect(shown(client)).toEqual([
         call.typed[0],
-        ai(written.L1),
+        reference(call.topics.price, "below"),
         call.typed[1],
-        ai(written.L2),
+        reference(call.topics.contract, "below"),
         `«${titles[0]}»`,
         ai(written.SUMMARY),
         `«${titles[1]}»`,
-        reference(call.topics.price),
+        ai(written.L1),
         ai(written.DECISIONS),
         ai(call.again.beside),
         `«${titles[2]}»`,
-        reference(call.topics.contract),
+        ai(written.L2),
         ai(written.ACTIONS),
         `«${titles[3]}»`,
         ai(written.QUESTIONS),

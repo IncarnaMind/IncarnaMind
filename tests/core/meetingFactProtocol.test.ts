@@ -189,6 +189,7 @@ describe("Meeting fact protocol (#2306)", () => {
       );
       expect(parsed.facts.map((each) => each.id)).toEqual(["Good"]);
       expect(parsed.omitted).toBe(1);
+      expect(parsed.omittedReasons).toEqual({ Bad: "citationNotFound" });
     },
   );
 
@@ -488,6 +489,7 @@ describe("Meeting fact protocol (#2306)", () => {
       );
 
       expect(parsed.omittedIds).toEqual(["A"]);
+      expect(parsed.omittedReasons).toEqual({ A: "markers" });
       expect(parsed.omitted).toBe(1);
       expect(parsed.invalidFrames).toBe(0);
       expect(parsed.facts).toEqual(parseFactReply(answer(`${fact("Good")}\n${overview}`)).facts);
@@ -517,6 +519,7 @@ describe("Meeting fact protocol (#2306)", () => {
       );
 
       expect(parsed.omittedIds).toEqual(["B", "A", "C"]);
+      expect(parsed.omittedReasons).toEqual({ B: "repeated", A: "markers", C: "repeated" });
       expect(parsed.omitted).toBe(3);
       expect(parsed.invalidFrames).toBe(0);
       expect(parsed.facts).toEqual(parseFactReply(answer(`${fact("Good")}\n${overview}`)).facts);
@@ -535,6 +538,7 @@ describe("Meeting fact protocol (#2306)", () => {
         overview: null,
         omitted: 1,
         omittedIds: [],
+        omittedReasons: {},
         invalidFrames: 1,
       });
     },

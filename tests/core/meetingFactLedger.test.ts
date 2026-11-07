@@ -14,7 +14,14 @@ const fact = (id: string, text = id, supersedes: string[] = []): MeetingFact => 
 });
 
 function reply(facts: MeetingFact[] = [], omittedIds: string[] = []): FactReply {
-  return { facts, omittedIds, overview: null, omitted: omittedIds.length + 1, invalidFrames: 0 };
+  return {
+    facts,
+    omittedIds,
+    omittedReasons: Object.fromEntries(omittedIds.map((id) => [id, "citationNotFound" as const])),
+    overview: null,
+    omitted: omittedIds.length + 1,
+    invalidFrames: 0,
+  };
 }
 
 test("a replay cannot restore a superseded agreement", () => {
@@ -106,4 +113,11 @@ test("unknown frames are not counted as known omitted additions", () => {
   ledger.accept({ ...reply(), overview, omitted: 0 });
   expect(ledger.overview).toEqual(overview);
   expect(ledger.omitted(true)).toBe(1);
+});
+
+test("the log learns why each item was left out, and the missing overview, never their words", () => {
+  const ledger = createFactLedger();
+  ledger.accept(reply([], ["A", "B"]));
+  expect(ledger.omittedReasons(true)).toEqual({ citationNotFound: 2, overview: 1 });
+  expect(ledger.omittedReasons(false)).toEqual({ citationNotFound: 2 });
 });

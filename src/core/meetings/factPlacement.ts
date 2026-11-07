@@ -83,18 +83,28 @@ export function placeFacts(input: FactPlacementInput): FactPlacement {
     seen.add(fact.id);
     const requested = [...new Set(fact.lines)];
     const marker = requested.find((each) => ordinary.has(each));
-    const lineHome = marker === undefined ? undefined : ordinary.get(marker);
     const sectionHome = FULL_SECTION_ORDER.find((section) => fact.sections.includes(section));
     const home = sectionHome ?? "summary";
-    if (requested.some((each) => !ordinary.has(each)) || (!lineHome && !sectionHome)) {
+    if (requested.some((each) => !ordinary.has(each)) || (marker === undefined && !sectionHome)) {
       placed.unplaced++;
     }
-    if (marker !== undefined) append(placed.lines, marker, [fact.body]);
+    // A decision, an action or an open question is written whole in its section, so Action items
+    // reads who does what by when; the User's line it answers points there, unless that line is
+    // already in the section (#2306).
+    const answered = marker === undefined ? undefined : ordinary.get(marker);
+    const homeHeading = input.headings.get(home);
+    const lineHome =
+      answered &&
+      (home === "summary" ||
+        (homeHeading !== undefined && answered.ancestors.includes(homeHeading)))
+        ? answered
+        : undefined;
+    if (lineHome && marker !== undefined) append(placed.lines, marker, [fact.body]);
     else append(placed.sections, home, [fact.body]);
     const canonical = lineHome ?? sectionPlace(input, home);
     for (const secondary of requested) {
       const destination = ordinary.get(secondary);
-      if (secondary === marker || !destination) continue;
+      if ((lineHome && secondary === marker) || !destination) continue;
       append(
         placed.lines,
         secondary,
