@@ -1094,3 +1094,57 @@ describe.each([
     });
   },
 );
+
+const COSTS = [
+  {
+    name: "Costs.md",
+    contents: "# Costs\n\nCosts cover rent, salaries, etc. The fee is 5% per week.\n",
+  },
+  {
+    name: "Board.md",
+    contents: "# Board\n\nThe board met on 4 May. Members discussed the budget.\n",
+  },
+];
+
+/** The check of the Board's Citation, [^2], in an Answer about costs whose text is `answer`. */
+async function costsBoardCheck(answer: string) {
+  const model = scriptedModel(
+    (call: ModelCall): ScriptedReply => {
+      const search = call.results.filter((result) => result.tool === "search_documents").at(-1);
+      if (!search) {
+        return { calls: [{ tool: "search_documents", input: { query: "costs board fee" } }] };
+      }
+      if (!call.results.some((result) => result.tool === "cite")) {
+        const passages = shownPassages(search.text);
+        const records = [
+          ["Costs", "Costs cover rent, salaries, etc."],
+          ["Board", "The board met on 4 May."],
+        ].map(([document, quote], at) => ({
+          marker: at + 1,
+          passage: passages.find((each) => each.document === document)?.id,
+          quote,
+        }));
+        return { calls: [{ tool: "cite", input: { citations: records } }] };
+      }
+      return { text: answer };
+    },
+    { judgesItsAnswers: true },
+  );
+  const { core } = await setUpWithDocuments(model, COSTS);
+  const { citations } = await askAssistant(core, { text: "What do the costs cover?" });
+  return citations.find((each) => each.documentName === "Board")?.check;
+}
+
+// protects=a sentence that ends at a listed abbreviation and then its Citation ("etc.[^1]") ends there for quoted words as the shared splitter reads it, so a lowercase quote after it is checked with its own sentence's Citation (#2712); fails_when=the abbreviation is taken to read on past its Citation, and the Board's Citation reads found for words only the costs hold; no_claim=the claim checks, whose sentences are the splitter's.
+describe.each([
+  (words: string) => `Costs cover rent, salaries, etc.[^1] “${words}” said the board[^2].`,
+  (words: string) => `Costs cover rent, salaries, etc. [^1] “${words}” said the board[^2].`,
+])("a quote after “etc.” and its Citation: %s", { timeout: 30_000 }, (sentence) => {
+  test("words only the previous sentence's Document holds: not found", async () => {
+    expect(await costsBoardCheck(sentence("the fee is 5% per week"))).toBe("not-found");
+  });
+
+  test("words its own Citation's Document holds: found", async () => {
+    expect(await costsBoardCheck(sentence("the board met on 4 May"))).toBe("found");
+  });
+});

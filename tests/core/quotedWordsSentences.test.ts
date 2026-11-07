@@ -35,6 +35,16 @@ describe("the Citations a quote is checked with", () => {
       "the fee is 5% per week",
       [2],
     ],
+    [
+      "Costs cover rent, salaries, etc.[^1] “the fee is 5% per week” said the board[^2].",
+      "the fee is 5% per week",
+      [2],
+    ],
+    [
+      "Costs cover rent, salaries, etc. [^1] “the fee is 5% per week” said the board[^2].",
+      "the fee is 5% per week",
+      [2],
+    ],
     ["收入增长了[^1]。“每周收取5%的费用”董事会说[^2]。", "每周收取5%的费用", [2]],
     ["收入增长了。[^1]“每周收取5%的费用”董事会说[^2]。", "每周收取5%的费用", [2]],
     ["收入增长了[^1]。「每周收取5%的费用」董事会说[^2]。", "每周收取5%的费用", [2]],
