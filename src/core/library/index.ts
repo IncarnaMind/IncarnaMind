@@ -36,7 +36,7 @@ import { isChatModelChoice, type SettingsStore } from "../settings";
 import type { Database } from "../storage";
 import type { TagsStore } from "../tags";
 import { documentType, excerptFromPassages } from "../tags/classify";
-import { clearForService, mayBackgroundSend, turnOnTime } from "../tags/held";
+import { clearForService, mayBackgroundSend, nextSequence } from "../tags/held";
 import { type RateLimitPause, rateLimitError } from "../tags/rateLimit";
 import { fallbackLine } from "../tags/suggest";
 import type { FolderSample, GroupClassifier } from "./classifier";
@@ -415,6 +415,14 @@ export function createLibrary(options: {
             ),
           )
         : null,
+      // Where each turn-on is in the database's order, which decides what came after it (#2370).
+      automaticSinceSeq: isRecord(saved.automaticSinceSeq)
+        ? Object.fromEntries(
+            Object.entries(saved.automaticSinceSeq).filter(
+              (each): each is [string, number] => typeof each[1] === "number",
+            ),
+          )
+        : null,
       organizeWith: taggingClassifierOf(saved.organizeWith),
       taggingStopped: Array.isArray(saved.taggingStopped)
         ? saved.taggingStopped.filter(
@@ -446,15 +454,17 @@ export function createLibrary(options: {
     const since = sinceOf(saved);
     return options.sendsTo(saved).every((service) => since[service.id] !== undefined);
   };
-  /** When the User turned tagging on for this service; null if they haven't. */
-  const turnedOnAt = (service: ExternalService): string | null => {
-    const saved = savedSettings();
-    return saved.automaticSince
-      ? (saved.automaticSince[service.id] ?? null)
-      : options.consentedAt(service);
-  };
+  /** The place of the User's turn-on for this service in the database's order; null if none. */
+  const turnedOnSeq = (service: ExternalService): number | null =>
+    savedSettings().automaticSinceSeq?.[service.id] ?? null;
+  const sinceSeqOf = (saved: ReturnType<typeof savedSettings>): Record<string, number> =>
+    saved.automaticSinceSeq ?? {};
   const shownSettings = (saved: ReturnType<typeof savedSettings>): LibrarySettings => {
-    const { automaticSince: _automaticSince, ...shown } = saved;
+    const {
+      automaticSince: _automaticSince,
+      automaticSinceSeq: _automaticSinceSeq,
+      ...shown
+    } = saved;
     return {
       ...shown,
       automatic:
@@ -1059,7 +1069,7 @@ export function createLibrary(options: {
       const services = service ? [service] : [];
       if (
         !asked.has(id) &&
-        (!mayBackgroundSend(db, id, services, turnedOnAt) || (services.length > 0 && inWall(id)))
+        (!mayBackgroundSend(db, id, services, turnedOnSeq) || (services.length > 0 && inWall(id)))
       ) {
         holdBack(id, initial);
         return;
@@ -1323,7 +1333,7 @@ export function createLibrary(options: {
         lent = null;
       };
     },
-    turnedOnAt,
+    turnedOnSeq,
     taggingStoppedFor,
     isOrganizing,
     taggingPlaces(): (string | null)[] {
@@ -1758,9 +1768,10 @@ export function createLibrary(options: {
         classifier: automaticChosen ? AUTOMATIC : (taggingClassifierOf(chosen) ?? AUTOMATIC),
         organizeWith: taggingClassifierOf(organizeWith),
       };
-      // Only `turnOn`, sent where the line says what goes, turns it on, and records when, for
-      // each service it sends to (ADR-0022). Any other save may only turn it off: a save sends
-      // the switch as shown, which can be a window's older view (#2308).
+      // Only `turnOn`, sent where the line says what goes, turns it on, and records when and
+      // where in the database's order, for each service it sends to (ADR-0022, #2370). Any other
+      // save may only turn it off: a save sends the switch as shown, which can be a window's
+      // older view (#2308).
       const turnOn = input.turnOn === true;
       const showing = shownSettings(before).automatic;
       const automatic = turnOn
@@ -1768,9 +1779,9 @@ export function createLibrary(options: {
         : input.automatic === false && showing
           ? false
           : before.automatic;
-      const at = turnOnTime(db, now());
+      const at = now();
       // Turned on again where it is on, and still allowed, as a new key's Use this does, it keeps
-      // its time: what came in while it was on stays new. Where the User took the consent back,
+      // its place: what came in while it was on stays new. Where the User took the consent back,
       // turning it on is a new consent.
       const onFor = new Set(
         showing
@@ -1780,17 +1791,18 @@ export function createLibrary(options: {
               .map((service) => service.id)
           : [],
       );
+      const freshOn = turnOn
+        ? options.sendsTo(next).filter((service) => !onFor.has(service.id))
+        : [];
       const automaticSince = turnOn
-        ? {
-            ...sinceOf(before),
-            ...Object.fromEntries(
-              options
-                .sendsTo(next)
-                .filter((service) => !onFor.has(service.id))
-                .map((service) => [service.id, at]),
-            ),
-          }
+        ? { ...sinceOf(before), ...Object.fromEntries(freshOn.map((service) => [service.id, at])) }
         : sinceOf(before);
+      const automaticSinceSeq = turnOn
+        ? {
+            ...sinceSeqOf(before),
+            ...Object.fromEntries(freshOn.map((service) => [service.id, nextSequence(db, at)])),
+          }
+        : sinceSeqOf(before);
       if (automatic !== null && noticeIsOpen(settings.readDeviceValue(AUTOMATIC_OFF_NOTICE))) {
         settings.writeDeviceValue(AUTOMATIC_OFF_NOTICE, false);
       }
@@ -1799,6 +1811,7 @@ export function createLibrary(options: {
         ...(automatic !== null && { automatic }),
         organizeWith,
         automaticSince,
+        automaticSinceSeq,
         taggingStopped: before.taggingStopped,
       });
       revision++;

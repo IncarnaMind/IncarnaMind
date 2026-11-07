@@ -451,6 +451,88 @@ describe("Migrations", () => {
     ]);
     db.close();
   });
+
+  test("arrivals, Linked folder links and turn-ons get their places in time order (#2370)", async () => {
+    const db = openDatabase(join(await createTempDataFolder(), "test.db"));
+    migrate(
+      db,
+      migrations.filter((migration) => migration.version < 132),
+    );
+    const at = (minute: string) => `2026-11-01T09:${minute}:00.000Z`;
+    const arrival = (id: string, documentId: string, time: string) =>
+      db.run(
+        `INSERT INTO document_arrivals (id, document_id, arrived_at, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?)`,
+        [id, documentId, time, time, time],
+      );
+    db.run(
+      "INSERT INTO linked_folders (id, path, created_at, updated_at) VALUES (?, '/Users/a/Reports', ?, ?)",
+      ["00000000-0000-4000-8000-000000000001", at("01"), at("01")],
+    );
+    arrival("00000000-0000-4000-8000-000000000002", "document-a", at("02"));
+    // A turn-on and an arrival in the same millisecond: the arrival counted as new (#2308).
+    db.run(
+      "INSERT INTO device_settings (id, key, value, created_at, updated_at) VALUES ('d1', 'library', ?, ?, ?)",
+      [
+        JSON.stringify({ automaticSince: { "https://api.anthropic.com": at("03") } }),
+        at("03"),
+        at("03"),
+      ],
+    );
+    arrival("00000000-0000-4000-8000-000000000003", "document-b", at("03"));
+
+    migrate(db);
+
+    expect(db.get("SELECT created_seq FROM linked_folders")).toEqual({ created_seq: 1 });
+    expect(db.all("SELECT arrived_seq FROM document_arrivals ORDER BY arrived_seq")).toEqual([
+      { arrived_seq: 2 },
+      { arrived_seq: 4 },
+    ]);
+    const stored = JSON.parse(
+      db.get<{ value: string }>(
+        "SELECT value FROM device_settings WHERE key = 'library' AND deleted_at IS NULL",
+      )?.value ?? "null",
+    );
+    expect(stored.automaticSinceSeq).toEqual({ "https://api.anthropic.com": 3 });
+    expect(db.get("SELECT value FROM tagging_sequence")).toEqual({ value: 4 });
+    db.close();
+  });
+
+  test("a turn-on kept before sequences existed gets its place from the consent it had (#2370)", async () => {
+    const db = openDatabase(join(await createTempDataFolder(), "test.db"));
+    migrate(
+      db,
+      migrations.filter((migration) => migration.version < 132),
+    );
+    const at = (minute: string) => `2026-11-01T09:${minute}:00.000Z`;
+    db.run(
+      `INSERT INTO data_flow_consents
+         (id, flow, service_id, service_name, decision, data_kinds, created_at, updated_at)
+       VALUES (?, 'tagging', 'https://api.anthropic.com', 'Anthropic', 'accepted', ?, ?, ?)`,
+      ["00000000-0000-4000-8000-000000000001", '["document-excerpts"]', at("05"), at("05")],
+    );
+    db.run(
+      "INSERT INTO device_settings (id, key, value, created_at, updated_at) VALUES ('d1', 'library', ?, ?, ?)",
+      [JSON.stringify({ automatic: true }), at("06"), at("06")],
+    );
+    db.run(
+      `INSERT INTO document_arrivals (id, document_id, arrived_at, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?)`,
+      ["00000000-0000-4000-8000-000000000002", "document-a", at("07"), at("07"), at("07")],
+    );
+
+    migrate(db);
+
+    const stored = JSON.parse(
+      db.get<{ value: string }>(
+        "SELECT value FROM device_settings WHERE key = 'library' AND deleted_at IS NULL",
+      )?.value ?? "null",
+    );
+    expect(stored.automaticSinceSeq).toEqual({ "https://api.anthropic.com": 1 });
+    expect(db.get("SELECT arrived_seq FROM document_arrivals")).toEqual({ arrived_seq: 2 });
+    expect(db.get("SELECT value FROM tagging_sequence")).toEqual({ value: 2 });
+    db.close();
+  });
 });
 
 describe("Folders inside Folders (#246)", () => {
