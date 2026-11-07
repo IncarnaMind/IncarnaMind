@@ -36,6 +36,12 @@ export interface TurnCheck {
     reply: string,
     setAside?: readonly string[],
   ): TurnFinding | null | Promise<TurnFinding | null>;
+  /**
+   * Starts the check on what the reply will be, while the turn waits on other work before it
+   * ends; `check` with that same reply then takes this result, and with any other reply checks
+   * it afresh. For a check that asks a model, so its request runs beside the other work.
+   */
+  warm?(reply: string): void;
 }
 
 /** The most times, in all, the checks of one Answer ask the model once more. */

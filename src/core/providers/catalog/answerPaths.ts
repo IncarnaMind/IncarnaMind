@@ -62,6 +62,8 @@ export interface ListedModel {
 export interface AnswerPathsOverride {
   writesThenCites?(model: ListedModel): boolean | undefined;
   retrievesFirst?(model: ListedModel): boolean | undefined;
+  /** Whether the check of a reply's claimed changes starts early (#1624); undefined: it does. */
+  checksClaimsEarly?(model: ListedModel): boolean | undefined;
 }
 
 const listed = (

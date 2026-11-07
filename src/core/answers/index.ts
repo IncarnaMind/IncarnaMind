@@ -387,7 +387,7 @@ import { nameScope, type ScopeSource, SEARCH_SCOPE_RULE, scopeLines } from "./sc
 import { withoutSearchTalk } from "./searchTalk";
 import { setAsideMarksInWords } from "./sheetRows";
 import type { ChangeStates } from "./toolRecord";
-import type { TurnCheck } from "./turnChecks";
+import type { TurnCheck, TurnFinding } from "./turnChecks";
 
 export type { AnswerDocuments } from "./citations";
 export { createAiSdkAnswerEngine } from "./engine";
@@ -669,6 +669,11 @@ export interface AnswersOptions {
   writesThenCites?(prepared: PreparedChatModel, flow: AnswerFlow): boolean;
   /** Whether an Answer on this model, in this flow, searches its Question before the first call (#1633). */
   retrievesFirst?(prepared: PreparedChatModel, flow: AnswerFlow): boolean;
+  /**
+   * Whether the check of the changes a reply claims starts while the turn's text is still being
+   * judged for working notes, rather than after (#1624); absent: it does.
+   */
+  checksClaimsEarly?(prepared: PreparedChatModel): boolean;
   /** Searching the User's Documents, and what Citations point to. */
   documents: DocumentsForAnswers;
   /** Runs Analyses (#447, ADR-0023); absent: no Answer is offered `run_analysis`. */
@@ -3252,75 +3257,84 @@ export function createAnswers(options: AnswersOptions) {
       // Call help is offered no Tool that changes a Note or runs a command, and its reply is lines
       // for the User to say: a claim of a change can't be the app's, so it isn't checked (#2526).
       const checksClaims = !help;
+      // A refusal's own line says what wasn't done: never read as a claim (#2407), also copied
+      // with straight quotes (#2252).
+      const judgeClaims = async (reply: string): Promise<TurnFinding | null> => {
+        activity = "checking-claims";
+        showPhase();
+        try {
+          let judgeModel = prepared.model;
+          if (prepareQuick) {
+            try {
+              judgeModel = await prepareQuick(model, prepared);
+            } catch (error) {
+              console.error(
+                `The quick-tasks model couldn't be used for the change-claim check: ${messageOf(error)}`,
+              );
+            }
+          }
+          mindsNow = null;
+          const checked = await inStep("change-claim-check", () =>
+            claimsNoCallMade(reply, toolCalls, mindsListed(), focusedId, {
+              model: judgeModel,
+              names: options.readableMindName,
+              states: appliedInTurn,
+              signal: controller.signal,
+            }),
+          );
+          if (checked.usage) {
+            usage.inputTokens += checked.usage.inputTokens ?? 0;
+            usage.outputTokens += checked.usage.outputTokens ?? 0;
+            usage.cachedInputTokens += checked.usage.cachedInputTokens ?? 0;
+            usage.cacheWriteTokens += checked.usage.cacheWriteTokens ?? 0;
+          }
+          // Any claim that stands, and a check that couldn't run, name what the turn
+          // refused as the User's alone, whatever the judge took a claim to be about, so
+          // none of it reads as done (#2407). Only a verdict asks again.
+          const refused = new Set<string>(refusedCommands().map(({ yours }) => yours));
+          const claimed = checked.claims.length > 0 || checked.commands.length > 0;
+          const commands =
+            claimed || checked.failed
+              ? CLAIMED_COMMANDS.filter(
+                  (each) => checked.commands.includes(each) || refused.has(each),
+                )
+              : [];
+          if (!claimed) return commands.length > 0 ? { claims: [], commands, note: "" } : null;
+          return {
+            claims: checked.claims,
+            commands,
+            note: askAgainNote(checked, toolCalls, options.readableMindName, appliedInTurn),
+          };
+        } finally {
+          activity = "writing";
+          showPhase();
+        }
+      };
+      const claimsCheck = (): TurnCheck => {
+        let warmed: { reply: string; finding: Promise<TurnFinding | null> } | null = null;
+        return {
+          name: "claimed-change",
+          check: (text: string) => {
+            const reply = withoutRefusals(text);
+            if (reply.trim() === "") return null;
+            const ready = warmed?.reply === reply ? warmed.finding : null;
+            warmed = null;
+            return ready ?? judgeClaims(reply);
+          },
+          ...((options.checksClaimsEarly?.(prepared) ?? true) && {
+            warm: (text: string) => {
+              const reply = withoutRefusals(text);
+              if (reply.trim() === "" || warmed?.reply === reply) return;
+              const finding = judgeClaims(reply);
+              // Taken by `check` when the reply stands; a reply that changed leaves it unread.
+              finding.catch(() => undefined);
+              warmed = { reply, finding };
+            },
+          }),
+        };
+      };
       const turnChecks: TurnCheck[] = [
-        ...((mindsTools || commandsOffered) && checksClaims
-          ? [
-              {
-                name: "claimed-change",
-                check: async (text: string) => {
-                  // A refusal's own line says what wasn't done: never read as a claim (#2407),
-                  // also copied with straight quotes (#2252).
-                  const reply = withoutRefusals(text);
-                  if (reply.trim() === "") return null;
-                  activity = "checking-claims";
-                  showPhase();
-                  try {
-                    let judgeModel = prepared.model;
-                    if (prepareQuick) {
-                      try {
-                        judgeModel = await prepareQuick(model, prepared);
-                      } catch (error) {
-                        console.error(
-                          `The quick-tasks model couldn't be used for the change-claim check: ${messageOf(error)}`,
-                        );
-                      }
-                    }
-                    mindsNow = null;
-                    const checked = await inStep("change-claim-check", () =>
-                      claimsNoCallMade(reply, toolCalls, mindsListed(), focusedId, {
-                        model: judgeModel,
-                        names: options.readableMindName,
-                        states: appliedInTurn,
-                        signal: controller.signal,
-                      }),
-                    );
-                    if (checked.usage) {
-                      usage.inputTokens += checked.usage.inputTokens ?? 0;
-                      usage.outputTokens += checked.usage.outputTokens ?? 0;
-                      usage.cachedInputTokens += checked.usage.cachedInputTokens ?? 0;
-                      usage.cacheWriteTokens += checked.usage.cacheWriteTokens ?? 0;
-                    }
-                    // Any claim that stands, and a check that couldn't run, name what the turn
-                    // refused as the User's alone, whatever the judge took a claim to be about, so
-                    // none of it reads as done (#2407). Only a verdict asks again.
-                    const refused = new Set<string>(refusedCommands().map(({ yours }) => yours));
-                    const claimed = checked.claims.length > 0 || checked.commands.length > 0;
-                    const commands =
-                      claimed || checked.failed
-                        ? CLAIMED_COMMANDS.filter(
-                            (each) => checked.commands.includes(each) || refused.has(each),
-                          )
-                        : [];
-                    if (!claimed)
-                      return commands.length > 0 ? { claims: [], commands, note: "" } : null;
-                    return {
-                      claims: checked.claims,
-                      commands,
-                      note: askAgainNote(
-                        checked,
-                        toolCalls,
-                        options.readableMindName,
-                        appliedInTurn,
-                      ),
-                    };
-                  } finally {
-                    activity = "writing";
-                    showPhase();
-                  }
-                },
-              },
-            ]
-          : []),
+        ...((mindsTools || commandsOffered) && checksClaims ? [claimsCheck()] : []),
         {
           name: "refused-no-reply",
           check: (text) => {

@@ -2308,6 +2308,10 @@ async function* toolLoop(
           /** The candidates the judgement called the model's working. */
           let working: TextPart[] = [];
           if (candidates.length > 0) {
+            // The end-of-turn checks start on the reply as it stands if no part is working, beside
+            // the judgement: most often no part is, and the turn then ends without waiting on them.
+            const asItStands = takeToolText(keptText + stepText, toolTextTags).text;
+            for (const each of request.turnChecks ?? []) each.warm?.(asItStands);
             // The Answer before the first candidate tells the judgement what the parts are about.
             const before = (keptText + stepText).slice(
               0,
