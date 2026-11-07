@@ -1075,6 +1075,12 @@ export const useAppStore = create<AppState>()((set, get) => {
     },
     reviewAttention: () => {
       const state = get();
+      // The Library takes its target once the layout has answered: a press before then, as a
+      // double click's second, would count the first Document seen without showing it.
+      if (state.reviewTarget !== null) {
+        get().openLibrary();
+        return;
+      }
       const library = state.library;
       const own = state.documents.filter((document) => isOwnDocument(document, allExamples(state)));
       const order = attentionOrder(
