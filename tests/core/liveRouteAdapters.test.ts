@@ -452,7 +452,7 @@ describe("Gemini's Live API, for what it hears, in the messages its reference sh
     const heard = collect();
     const stream = createGeminiStream({
       stream: "m:system",
-      model: "gemini-3.8-live",
+      model: "gemini-3.5-transcribe-live",
       apiKey: "AIza-test-key",
       connect: service.connect,
       report: heard.report,
@@ -460,11 +460,14 @@ describe("Gemini's Live API, for what it hears, in the messages its reference sh
     return { service, heard, stream };
   }
 
+  const guess = (text: string, from: string, to: string) => ({
+    serverContent: { interimInputTranscription: { text, startOffset: from, endOffset: to } },
+  });
   const said = (text: string, from: string, to: string) => ({
     serverContent: { inputTranscription: { text, startOffset: from, endOffset: to } },
   });
 
-  test("sets up a session that transcribes what it hears and answers at most one token, with the key in x-goog-api-key; audio waits for setupComplete", () => {
+  test("sets up its transcription model, answering in text, with the key in x-goog-api-key; audio waits for setupComplete", () => {
     const { service, heard, stream } = connect();
     expect(service.last().url).toBe(
       "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent",
@@ -472,11 +475,12 @@ describe("Gemini's Live API, for what it hears, in the messages its reference sh
     expect(service.last().auth).toEqual({ header: "x-goog-api-key", prefix: "" });
     service.open();
     const [setup] = service.json();
-    expect(setup).toMatchObject({
+    expect(setup).toEqual({
       setup: {
-        model: "models/gemini-3.8-live",
-        generationConfig: { responseModalities: ["AUDIO"], maxOutputTokens: 1 },
-        inputAudioTranscription: {},
+        model: "models/gemini-3.5-transcribe-live",
+        generationConfig: { responseModalities: ["TEXT"] },
+        realtimeInputConfig: { interimTranscriptTimestampEnabled: true },
+        inputAudioTranscription: { languageCodes: [] },
       },
     });
     feed((samples) => stream.push(samples), 1);
@@ -490,23 +494,20 @@ describe("Gemini's Live API, for what it hears, in the messages its reference sh
     });
   });
 
-  test("its pieces of text make one line, partial until the turn is complete, at the times it gives; Chinese pieces join as written", async () => {
+  test("each guess replaces the last as the line being said, and the final text ends it at the times it gives; Chinese as written", async () => {
     const { service, heard, stream } = connect();
     service.open();
     service.say({ setupComplete: {} });
-    feed((samples) => stream.push(samples), 3);
-    service.say(said("The review", "0.400s", "1.100s"));
-    service.say(said(" moves to Thursday.", "1.100s", "2.300s"));
-    service.say({ serverContent: { generationComplete: true } });
-    service.say({ serverContent: { turnComplete: true } });
-    service.say(said("预算", "2.600s", "2.900s"));
-    service.say(said("下周三再确认。", "2.900s", "3.600s"));
-    service.say({ serverContent: { turnComplete: true } });
+    feed((samples) => stream.push(samples), 4);
+    service.say(guess("The review", "0.400s", "1.100s"));
+    service.say(guess("The review moves", "0.400s", "1.600s"));
+    service.say(said("The review moves to Thursday.", "0.400s", "2.300s"));
+    service.say(guess("预算", "2.600s", "2.900s"));
+    service.say(said("预算下周三再确认。", "2.600s", "3.600s"));
     expect(heard.segments.filter((each) => !each.final).map((each) => each.text)).toEqual([
       "The review",
-      "The review moves to Thursday.",
+      "The review moves",
       "预算",
-      "预算下周三再确认。",
     ]);
     expect(
       heard.finals().map((each) => [each.text, each.startMs, each.endMs, each.speaker]),
@@ -514,6 +515,9 @@ describe("Gemini's Live API, for what it hears, in the messages its reference sh
       ["The review moves to Thursday.", 400, 2300, undefined],
       ["预算下周三再确认。", 2600, 3600, undefined],
     ]);
+    const [first, second] = heard.finals();
+    expect(heard.segments.filter((each) => each.id === first?.id)).toHaveLength(3);
+    expect(heard.segments.filter((each) => each.id === second?.id)).toHaveLength(2);
     const finished = stream.finish();
     expect(service.json().at(-1)).toEqual({ realtimeInput: { audioStreamEnd: true } });
     service.say({ serverContent: { turnComplete: true } });
@@ -534,11 +538,13 @@ describe("Gemini's Live API, for what it hears, in the messages its reference sh
       });
       await vi.advanceTimersByTimeAsync(1000);
       // The words said just before Stop come after it.
-      service.say(said("Last words.", "1.200s", "1.900s"));
+      service.say(guess("Last", "1.200s", "1.500s"));
       await vi.advanceTimersByTimeAsync(5000);
       expect(done).toBe(false);
-      service.say({ serverContent: { turnComplete: true } });
-      await vi.advanceTimersByTimeAsync(0);
+      service.say(said("Last words.", "1.200s", "1.900s"));
+      await vi.advanceTimersByTimeAsync(2900);
+      expect(done).toBe(false);
+      await vi.advanceTimersByTimeAsync(200);
       expect(done).toBe(true);
       expect(heard.finals().map((each) => each.text)).toEqual(["Last words."]);
 
@@ -565,36 +571,33 @@ describe("Gemini's Live API, for what it hears, in the messages its reference sh
     service.say({ setupComplete: {} });
     feed((samples) => stream.push(samples), 31);
     expect(heard.progress.at(-1)).toEqual([0, 31_000]);
-    service.say(said("After the quiet.", "31.200s", "31.900s"));
+    service.say(guess("After the quiet", "31.200s", "31.900s"));
     feed((samples) => stream.push(samples), 1);
-    // While a turn is open, only the service's own messages say how far it got.
+    // While a line is being said, only the service's own messages say how far it got.
     expect(heard.progress.at(-1)).toEqual([0, 31_000]);
   });
 
-  test("goAway moves the stream to a new session, sending again the audio after the last complete turn: no words lost and none twice", () => {
+  test("goAway moves the stream to a new session, sending again the audio after the last final text: no words lost and none twice", () => {
     const { service, heard, stream } = connect();
     service.open();
     service.say({ setupComplete: {} });
     feed((samples) => stream.push(samples), 2);
     service.say(said("First point.", "0.200s", "1.000s"));
-    service.say({ serverContent: { turnComplete: true } });
     feed((samples) => stream.push(samples), 1);
-    service.say(said("Second", "2.100s", "2.600s"));
+    service.say(guess("Second", "2.100s", "2.600s"));
     service.say({ goAway: { timeLeft: "10s" } });
-    // The turn being said finishes on the old connection first.
+    // The line being said finishes on the old connection first.
     expect(service.connections).toHaveLength(1);
-    service.say(said(" point.", "2.600s", "2.900s"));
-    service.say({ serverContent: { turnComplete: true } });
+    service.say(said("Second point.", "2.100s", "2.900s"));
     expect(service.connections).toHaveLength(2);
     expect(service.connections[0]?.closed).toBe(true);
     service.open();
     service.say({ setupComplete: {} });
-    // Kept from the end of the last complete turn, 2.9 s, to the 3 s received.
+    // Kept from the end of the last final text, 2.9 s, to the 3 s received.
     const resent = service.json().slice(1);
     expect(resent).toHaveLength(1);
     // Its times count from where its audio starts.
     service.say(said("Third point.", "0.050s", "0.090s"));
-    service.say({ serverContent: { turnComplete: true } });
     expect(heard.finals().map((each) => [each.text, each.startMs])).toEqual([
       ["First point.", 200],
       ["Second point.", 2100],

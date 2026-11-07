@@ -1,17 +1,17 @@
 /**
- * Gemini's Live API (#866) on the User's Google key, for the transcription of what it hears: all
- * of the stream's audio goes as it comes, and the text of the speech it hears comes back piece by
- * piece (`inputTranscription`), with its times, until the speaker's turn is complete. The Live
- * models answer only in audio, so the session asks for at most one token of answer, and none is
- * read. It tells no speakers apart.
+ * Gemini's Live API (#866) on the User's Google key, with its transcription model, Gemini 3.5
+ * Transcribe Live: all of the stream's audio goes as it comes; a guess at the words being said
+ * comes back as they're said (`interimInputTranscription`), and each stretch's final text when
+ * the speaker pauses (`inputTranscription`), with its times. It answers in text only, and tells no
+ * speakers apart.
  *
- * A connection lasts about ten minutes. The service says so (`goAway`) before it ends one, and
- * the stream goes on over a new session from the end of the last complete turn: that audio is
- * sent again, so no words are lost and none come twice. Transcription needs nothing of the old
- * session, so it isn't resumed.
+ * A session lasts ten minutes. The service says so (`goAway`) before it ends one, and the stream
+ * goes on over a new session from the end of the last final text: that audio is sent again, so
+ * no words are lost and none come twice. Transcription needs nothing of the old session, so it
+ * isn't resumed.
  *
- * Protocol: https://aistudio.google.com/api-reference/live and
- * https://aistudio.google.com/docs/live-api/session-management.
+ * Protocol: https://aistudio.google.com/docs/live-api/live-transcribe and
+ * https://aistudio.google.com/api-reference/live.
  */
 import { isRecord } from "../../../shared/record";
 import type { CloudLoss } from "../../adapters";
@@ -24,7 +24,7 @@ export const GEMINI_LIVE_URL =
   "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent";
 export { GEMINI_LIVE_MODEL } from "./protocol";
 export const GEMINI_AUTH: CloudAuth = { header: "x-goog-api-key", prefix: "" };
-/** Audio after the last complete turn is kept to send again; never more than this. */
+/** Audio after the last final text is kept to send again; never more than this. */
 const KEPT_MS = 60_000;
 /** Text without times starts this long before it came. */
 const UNTIMED_LEAD_MS = 1000;
@@ -60,7 +60,7 @@ export function createGeminiStream(options: CloudStreamOptions): CloudStreamHand
   let received = 0;
   /** Where the current session's audio starts, in the stream's samples. */
   let base = 0;
-  /** Audio kept since the last complete turn: `kept[0]` starts at sample `safe`. */
+  /** Audio kept since the last final text: `kept[0]` starts at sample `safe`. */
   let safe = 0;
   const kept: Int16Array[] = [];
   let line: Line | null = null;
@@ -72,14 +72,10 @@ export function createGeminiStream(options: CloudStreamOptions): CloudStreamHand
   const setup = JSON.stringify({
     setup: {
       model: `models/${options.model}`,
-      generationConfig: { responseModalities: ["AUDIO"], maxOutputTokens: 1 },
-      systemInstruction: { parts: [{ text: "Listen only. Never answer, and never speak." }] },
-      realtimeInputConfig: {
-        activityHandling: "NO_INTERRUPTION",
-        turnCoverage: "TURN_INCLUDES_ONLY_ACTIVITY",
-        interimTranscriptTimestampEnabled: true,
-      },
-      inputAudioTranscription: {},
+      generationConfig: { responseModalities: ["TEXT"] },
+      realtimeInputConfig: { interimTranscriptTimestampEnabled: true },
+      // No languages named: it hears which is spoken, so a meeting in two still works.
+      inputAudioTranscription: { languageCodes: [] },
     },
   });
 
@@ -92,29 +88,38 @@ export function createGeminiStream(options: CloudStreamOptions): CloudStreamHand
   const doneMs = () => (line ? Math.min(line.startMs, msOf(safe)) : msOf(safe));
   const progress = () => report.progress(doneMs(), msOf(received));
 
-  function heardText(transcription: Record<string, unknown>): void {
-    const text = typeof transcription.text === "string" ? transcription.text : "";
-    if (!text) return;
-    if (lastText) clearTimeout(lastText);
-    lastText = null;
+  /** Where text from the service starts and ends, in the stream's time. */
+  function timesOf(transcription: Record<string, unknown>): { startMs: number; endMs: number } {
     const from = durationMs(transcription.startOffset);
     const to = durationMs(transcription.endOffset);
     const startMs =
-      from === null ? Math.max(msOf(safe), msOf(received) - UNTIMED_LEAD_MS) : msOf(base) + from;
-    line ??= { id: nextId++, startMs, endMs: startMs, text: "" };
-    line.endMs = Math.max(line.startMs, to === null ? msOf(received) : msOf(base) + to);
-    line.text += text;
-    const words = cleanSpeech(line.text);
+      from === null
+        ? (line?.startMs ?? Math.max(msOf(safe), msOf(received) - UNTIMED_LEAD_MS))
+        : msOf(base) + from;
+    return { startMs, endMs: Math.max(startMs, to === null ? msOf(received) : msOf(base) + to) };
+  }
+
+  /** The service's latest guess at the stretch being said: it replaces the one before. */
+  function guessed(transcription: Record<string, unknown>): void {
+    const words = cleanSpeech(typeof transcription.text === "string" ? transcription.text : "");
     if (!words) return;
-    report.segment({
-      stream,
-      id: line.id,
-      startMs: line.startMs,
-      endMs: line.endMs,
-      text: words,
-      final: false,
-      decodeMs: 0,
-    });
+    if (lastText) clearTimeout(lastText);
+    lastText = null;
+    const { startMs, endMs } = timesOf(transcription);
+    line = { id: line?.id ?? nextId++, startMs, endMs, text: words };
+    report.segment({ stream, id: line.id, startMs, endMs, text: words, final: false, decodeMs: 0 });
+  }
+
+  /** A stretch's final text: the line is done, and its audio is no longer kept. */
+  function finalText(transcription: Record<string, unknown>): void {
+    const words = cleanSpeech(typeof transcription.text === "string" ? transcription.text : "");
+    const { startMs, endMs } = timesOf(transcription);
+    const id = line?.id ?? nextId++;
+    line = null;
+    if (words) {
+      report.segment({ stream, id, startMs, endMs, text: words, final: true, decodeMs: 0 });
+    }
+    release(Math.min(samplesOf(endMs), received));
   }
 
   /** Audio before `until` is done with: it is no longer kept. */
@@ -124,6 +129,7 @@ export function createGeminiStream(options: CloudStreamOptions): CloudStreamHand
     }
   }
 
+  /** The stretch being said ends with the latest guess as its text. */
   function endTurn(): void {
     const ended = line;
     line = null;
@@ -153,6 +159,18 @@ export function createGeminiStream(options: CloudStreamOptions): CloudStreamHand
     if (link.finishing) link.send(streamEnd);
   }
 
+  /** Between stretches: a session that is ending moves on, and a finished stream ends when quiet. */
+  function settled(link: LiveLink): void {
+    progress();
+    if (line) return;
+    if (leaving) {
+      renew(link);
+    } else if (link.finishing) {
+      if (lastText) clearTimeout(lastText);
+      lastText = setTimeout(() => link.complete(), LAST_TEXT_MS);
+    }
+  }
+
   return createLiveStream(options, {
     url: GEMINI_LIVE_URL,
     auth: GEMINI_AUTH,
@@ -171,12 +189,19 @@ export function createGeminiStream(options: CloudStreamOptions): CloudStreamHand
       }
       const content = message.serverContent;
       if (!isRecord(content)) return;
-      if (isRecord(content.inputTranscription)) heardText(content.inputTranscription);
+      if (isRecord(content.interimInputTranscription)) {
+        guessed(content.interimInputTranscription);
+      }
+      if (isRecord(content.inputTranscription)) {
+        finalText(content.inputTranscription);
+        settled(link);
+        return;
+      }
       if (content.turnComplete === true) {
         endTurn();
         progress();
-        if (link.finishing) link.complete();
-        else if (leaving) renew(link);
+        if (link.finishing) return link.complete();
+        if (leaving) renew(link);
         return;
       }
       progress();
@@ -184,17 +209,15 @@ export function createGeminiStream(options: CloudStreamOptions): CloudStreamHand
     audio(samples, link) {
       received += samples.length;
       kept.push(samples);
-      // A turn that never completes keeps no more than the last minute.
+      // A stretch that never ends keeps no more than the last minute.
       while (kept.length > 1 && received - safe > samplesOf(KEPT_MS)) {
         safe += (kept.shift() as Int16Array).length;
       }
       link.send(audioMessage(samples));
-      // It sends nothing while no one speaks: with no turn open, it has kept up with the audio.
+      // It sends nothing while no one speaks: with no stretch open, it has kept up with the audio.
       if (!line) progress();
     },
     finish(link) {
-      // The speaker's turn ends with the audio: the service then completes it, or, with no text
-      // begun for it, says nothing more.
       link.send(streamEnd);
       if (!line) lastText = setTimeout(() => link.complete(), LAST_TEXT_MS);
     },

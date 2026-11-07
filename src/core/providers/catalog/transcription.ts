@@ -3,13 +3,14 @@
  * IncarnaMind knows them before it sends them anything: the model, what an hour costs (so the
  * monthly cap counts it), where the audio goes and the languages it transcribes.
  */
+
+import { isDeepgramHost } from "../../../shared/deepgram";
 import type { CloudTranscriptionRoute, ExternalService, Money } from "../../api";
 import {
   ASSEMBLYAI_MODEL,
   DEEPGRAM_MODEL,
   DEEPGRAM_URL,
   GEMINI_LIVE_MODEL,
-  isDeepgramHost,
   QWEN_REALTIME_PATH,
 } from "../../transcription/cloud/protocol";
 import { serviceAt } from "../service";
@@ -55,7 +56,6 @@ export interface TranscriptionService {
   provider?: string;
   liveSpeakers: boolean;
   keyUrl?: string;
-  /** Where credit is added, for a service with a key of its own. */
   billingUrl?: string;
   /** What it transcribes, as ISO 639 codes: a language a User speaks that isn't here is warned of. */
   languages: readonly string[];
@@ -429,15 +429,25 @@ export const TRANSCRIPTION_SERVICES: Readonly<
     route: "gemini",
     name: "Gemini",
     model: GEMINI_LIVE_MODEL,
-    // Gemini 3.8 Live's audio in, $0.005 a minute; it is asked for no answer.
-    perHour: { currency: "USD", amount: 0.3 },
+    // Google's estimate for its paid tier: $0.005 a minute of audio in, $0.004 of text out.
+    perHour: { currency: "USD", amount: 0.54 },
     service: { id: "https://generativelanguage.googleapis.com", name: "Google" },
     recipient: { en: "Google", zh: "Google" },
+    dataUse: {
+      summary: {
+        en: "On a free key, Google may use the meeting audio to improve its products, with human review; on a paid key it doesn’t.",
+        zh: "使用免费密钥时，Google 可能用会议音频改进其产品并经人工审阅；使用付费密钥则不会。",
+      },
+      url: {
+        en: "https://ai.google.dev/gemini-api/terms",
+        zh: "https://ai.google.dev/gemini-api/terms",
+      },
+    },
     key: "provider",
     provider: "google",
     liveSpeakers: false,
     languages: GEMINI_LANGUAGES,
-    checked: "2026-11-05",
+    checked: "2026-11-07",
   },
 };
 

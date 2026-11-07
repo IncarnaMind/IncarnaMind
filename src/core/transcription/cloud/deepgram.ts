@@ -8,9 +8,10 @@
  * Protocol: https://developers.deepgram.com/reference/speech-to-text/listen-streaming. Cloudflare
  * takes its own API token as a Bearer token, and the model in its path.
  */
+
+import { isDeepgramHost } from "../../../shared/deepgram";
 import { cleanSpeech } from "../speechText";
 import { closedLoss, createLiveStream, joinWords, pcmBytes } from "./live";
-import { isDeepgramHost } from "./protocol";
 import type { CloudAuth } from "./socket";
 import type { CloudStreamHandle, CloudStreamOptions } from "./stream";
 
@@ -34,7 +35,6 @@ interface Line {
 
 export const isCloudflare = (url: string) => new URL(url).hostname === "api.cloudflare.com";
 
-/** Deepgram's own keys go as "Token"; Cloudflare's API tokens as "Bearer". */
 export const deepgramAuth = (url: string): CloudAuth => ({
   header: "Authorization",
   prefix: isCloudflare(url) ? "Bearer " : "Token ",

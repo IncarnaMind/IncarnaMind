@@ -1,6 +1,7 @@
 import { type KeyboardEvent, useEffect, useId, useState } from "react";
 import type { SecretStorageStatus, TranscriptionServiceStatus } from "../../../../core/api";
 import { checkApiKey } from "../../../../shared/apiKey";
+import { typedServerChecksKey } from "../../../../shared/deepgram";
 import { core } from "../../core";
 import { errorMessage } from "../../errors";
 import { useLanguage, useT } from "../../i18n";
@@ -181,9 +182,10 @@ function TranscriptionKeyRow({ service }: { service: TranscriptionServiceStatus 
   const localMode = useAppStore((state) => state.embedding?.localOnly === true);
   const [notChecked, setNotChecked] = useState(false);
   const name = { provider: t(ROUTE_LABELS[service.route]) };
+  const checksKey = takesServer && open ? typedServerChecksKey(server) : service.keyChecked;
   const save = async () => {
     setSaving(true);
-    const unchecked = localMode && service.keyChecked && text !== "";
+    const unchecked = localMode && checksKey && text !== "";
     const failed = await useTranscriptionServices
       .getState()
       .setKey(service.route, key, takesServer ? server : undefined);
@@ -215,10 +217,7 @@ function TranscriptionKeyRow({ service }: { service: TranscriptionServiceStatus 
           {t("meetings.key.title", name)}
         </label>
         <p className={rowTextClass}>
-          {t(
-            service.keyChecked && !localMode ? "meetings.key.lineChecked" : "meetings.key.line",
-            name,
-          )}
+          {t(checksKey && !localMode ? "meetings.key.lineChecked" : "meetings.key.line", name)}
           {service.keyUrl && (
             <>
               {" "}

@@ -3338,8 +3338,8 @@ export interface TranscriptionServiceStatus {
   /** Its key may be left out: a server of the User's own. */
   keyOptional: boolean;
   /**
-   * Saving its key first sends it to the service to check it, except in Local mode; Deepgram's
-   * goes only to Deepgram's own server.
+   * Saving its key first sends it to the service to check it, except in Local mode; a Deepgram
+   * key is checked only when the server saved is Deepgram's own.
    */
   keyChecked: boolean;
   /** What it transcribes, as ISO 639 codes. */

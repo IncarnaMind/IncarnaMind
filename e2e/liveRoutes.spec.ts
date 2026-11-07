@@ -63,13 +63,16 @@ test("Deepgram's key row takes Cloudflare Workers AI's address too; choosing Dee
   const server = row.getByRole("textbox", { name: "Server" });
   await expect(server).toHaveAttribute("placeholder", "Deepgram’s own");
   await expect(row).toContainText("Leave it empty for Deepgram.");
+  await expect(row).toContainText("Saving it first checks it with Deepgram");
   await server.fill(CLOUDFLARE);
+  await expect(row).not.toContainText("Saving it first checks it");
   await row.getByTestId("transcription-key-input").fill("cf-test-token-0123456789");
   await row.getByTestId("transcription-key-save").click();
   await expect(row.getByTestId("transcription-key-saved")).toHaveText("Saved");
   await expect(row.getByTestId("transcription-key-server-saved")).toHaveText(
     "Sent to wss://api.cloudflare.com/client/v4/accounts/0f0e0d/ai/run/@cf/deepgram/nova-3",
   );
+  await expect(row).not.toContainText("Saving it first checks it");
 
   const route = settings.getByTestId("meetings-route");
   await expect(route.locator("option:not([hidden])")).toHaveText(["On this computer", "Deepgram"]);

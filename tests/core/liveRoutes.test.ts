@@ -183,6 +183,44 @@ describe("Live routes on the User's own key", { timeout: 60_000 }, () => {
     expect(service.opened.every((each) => each.key === KEYS.deepgram)).toBe(true);
   });
 
+  test("a refused key from Models is tried again only when its own provider is saved again", async () => {
+    const dataDir = await createTempDataFolder();
+    const refusing = watched({ refuse: true });
+    const { core, record } = await transcribingCore(dataDir, { cloud: refusing.connect });
+    await choose(core, "gemini");
+    const first = await core.createMeeting();
+    await core.startMeeting({ meetingId: first.id });
+    record(2 * SECOND);
+    await until(core, first.id, (transcript) => transcript.fellBack?.reason === "refused");
+    await core.stopMeeting(first.id);
+    const tried = refusing.opened.length;
+
+    await core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-ant-test",
+      modelId: "claude-haiku-5-5",
+    });
+    const second = await core.createMeeting();
+    await core.startMeeting({ meetingId: second.id });
+    expect(
+      await until(core, second.id, (transcript) => transcript.fellBack !== null),
+    ).toMatchObject({ cloud: null, fellBack: { route: "gemini", reason: "refused", atMs: 0 } });
+    record(2 * SECOND);
+    await until(core, second.id, (transcript) => transcript.state === "live");
+    expect(refusing.opened).toHaveLength(tried);
+    await core.stopMeeting(second.id);
+
+    await core.saveChatProvider({
+      kind: "google",
+      apiKey: "AIza-test-key",
+      modelId: "gemini-3.8-flash",
+    });
+    const third = await core.createMeeting();
+    await core.startMeeting({ meetingId: third.id });
+    record(2 * SECOND);
+    await vi.waitFor(() => expect(refusing.opened.length).toBeGreaterThan(tried), WAIT);
+  });
+
   test("gemini: the service ending its connection (goAway) goes on over a new one, still on the cloud, with no gap", async () => {
     const service = watched({ goAwayAfterMs: 4 * SECOND });
     const { core, record, meeting, dataDir } = await meetingOn("gemini", {
@@ -271,6 +309,7 @@ describe("Choosing a live route", () => {
     expect(listed.services.find((each) => each.route === "deepgram")).toMatchObject({
       server: "wss://api.cloudflare.com/client/v4/accounts/0f0e0d/ai/run/@cf/deepgram/nova-3",
       recipient: { en: "Cloudflare", zh: "Cloudflare" },
+      keyChecked: false,
       chooseAgain: true,
     });
     expect((await core.getSettings()).device.transcriptionRoute).toBe("local");
@@ -300,6 +339,7 @@ describe("Choosing a live route", () => {
     expect(listed.services.find((each) => each.route === "deepgram")).toMatchObject({
       hasKey: true,
       keyOptional: true,
+      keyChecked: false,
       server: "ws://localhost:8080/v1/listen",
       perHour: { currency: "USD", amount: 0 },
     });

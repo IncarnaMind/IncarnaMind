@@ -15,7 +15,6 @@ import type { CloudStreamHandle, CloudStreamOptions } from "./stream";
 
 export const ASSEMBLYAI_URL = "wss://streaming.assemblyai.com/v3/ws";
 export { ASSEMBLYAI_MODEL } from "./protocol";
-/** The key itself, with no scheme before it. */
 export const ASSEMBLYAI_AUTH: CloudAuth = { header: "Authorization", prefix: "" };
 /** The service takes chunks of 20 to 1,000 ms of audio, and recommends 50 to 100. */
 const CHUNK_SAMPLES = 1600;

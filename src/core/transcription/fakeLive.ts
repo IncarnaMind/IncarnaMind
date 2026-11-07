@@ -320,28 +320,24 @@ export const fakeGemini: Make = (options, nextLine, events) => {
       const heard = lines.hear(samplesOf(Buffer.from(audio.data, "base64")));
       for (const line of heard.lines) {
         const words = line.text.split(" ");
-        const middle = Math.ceil(words.length / 2);
-        const cut = Math.round((line.startMs + line.endMs) / 2);
         link.reply({
           serverContent: {
-            inputTranscription: {
-              text: words.slice(0, middle).join(" "),
+            interimInputTranscription: {
+              text: words.slice(0, Math.ceil(words.length / 2)).join(" "),
               startOffset: duration(line.startMs),
-              endOffset: duration(cut),
+              endOffset: duration(Math.round((line.startMs + line.endMs) / 2)),
             },
           },
         });
         link.reply({
           serverContent: {
             inputTranscription: {
-              text: ` ${words.slice(middle).join(" ")}`,
-              startOffset: duration(cut),
+              text: line.text,
+              startOffset: duration(line.startMs),
               endOffset: duration(line.endMs),
             },
           },
         });
-        link.reply({ serverContent: { generationComplete: true } });
-        link.reply({ serverContent: { turnComplete: true } });
       }
       if (options.goAwayAfterMs !== undefined && !left && lines.sentMs >= options.goAwayAfterMs) {
         left = true;

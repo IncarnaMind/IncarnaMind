@@ -5628,7 +5628,7 @@ export function createCore(adapters: CoreAdapters): Core {
     listChatProviders: () => chat.list(),
     saveChatProvider: async (input) => {
       const provider = await chat.save(input);
-      await cloudTranscription.refreshKeys();
+      await cloudTranscription.refreshKeys(provider.catalogId);
       transcriptionGateChanged();
       settingsChanged();
       await dataFlowsChanged();

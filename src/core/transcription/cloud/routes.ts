@@ -14,6 +14,7 @@
  */
 import { createHash } from "node:crypto";
 import { strayKeyCharacter } from "../../../shared/apiKey";
+import { isDeepgramHost } from "../../../shared/deepgram";
 import type { CloudStream, Logger } from "../../adapters";
 import type {
   CloudTranscriptionRoute,
@@ -40,7 +41,7 @@ import type { Secrets } from "../../secrets";
 import { createSendGate } from "../../sendGate";
 import type { SettingsStore } from "../../settings";
 import { ASSEMBLYAI_AUTH } from "./assemblyai";
-import { DEEPGRAM_URL, isDeepgramHost } from "./protocol";
+import { DEEPGRAM_URL } from "./protocol";
 import { authHeaders, BEARER, type CloudAuth } from "./socket";
 
 const SENDS = ["meeting-audio"] as const;
@@ -330,7 +331,10 @@ export function createCloudTranscription(options: CloudTranscriptionOptions) {
           billingUrl: billingUrl(service.route, key),
           server,
           keyOptional: server !== null && !deepgramServer(server).needsKey,
-          keyChecked: service.route === "deepgram" || KEY_CHECKS[service.route] !== undefined,
+          keyChecked:
+            service.route === "deepgram"
+              ? deepgramKeyCheck(server) !== null
+              : KEY_CHECKS[service.route] !== undefined,
           languages: [...service.languages],
           missingLanguages: spoken.filter((code) => !service.languages.includes(code)),
           chooseAgain: key !== null && moved === service.route,
@@ -447,13 +451,16 @@ export function createCloudTranscription(options: CloudTranscriptionOptions) {
      * Reads the keys again, after a provider was saved or deleted: a chosen route whose key went
      * is chosen no more, and one whose key now sends somewhere other than the service the User
      * chose it for (Qwen's, for another region) is set back to this computer until they choose it
-     * again, as consent is for where the audio goes (ADR-0022). Resolves to whether that changed
-     * the route.
+     * again, as consent is for where the audio goes (ADR-0022). `saved` is the catalog id of a
+     * provider whose key the User just saved: its route tries that key again, as saving a
+     * meeting service's own key does. Resolves to whether that changed the route.
      */
-    async refreshKeys(): Promise<boolean> {
+    async refreshKeys(saved: string | null = null): Promise<boolean> {
       revision += 1;
       for (const service of Object.values(TRANSCRIPTION_SERVICES)) {
-        if (service.key === "provider") await forgetRefusal(service.route);
+        if (service.key === "provider" && providerOf(service.route) === saved) {
+          await forgetRefusal(service.route);
+        }
       }
       await list();
       const route = chosen();
