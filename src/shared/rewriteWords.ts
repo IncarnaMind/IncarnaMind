@@ -133,9 +133,13 @@ function clauseAfter(text: string, end: number): string {
 const sameWords = (one: string, other: string): boolean =>
   tokensOf(one).join(" ") === tokensOf(other).join(" ");
 
-/** Words that say nothing of what a figure is of, so a sentence may put them otherwise than its quote. */
+/**
+ * Words that say nothing of what a figure is of, so a sentence may put them otherwise than its
+ * quote. The words that tie a figure to its sentence ("by", "to", "in", "on", "at") are not among
+ * them, so a word between a tie and its figure can't hide it ("in constant 2025 dollars").
+ */
 const FUNCTION_WORDS = new Set(
-  "a an the of is are was were be been by with to for in on at as and or its this that".split(" "),
+  "a an the of is are was were be been with for as and or its this that".split(" "),
 );
 const FUNCTION_CHARACTERS = new Set([..."的为是与和"]);
 /** Words either side may say where the other doesn't, without changing what a figure is of. */
@@ -187,8 +191,8 @@ export const ratesIn = (text: string): Set<Rate> =>
  * The words before a figure that say what it is of, in their order, each as often as it is said
  * (the Tenant again is not the Landlord again): Latin words by their stems, a lone capital too
  * (Party A is not Party B), and Chinese characters one by one.
- * Left out are the words either side may add, a verb right after "by" ("by giving 90 days"), and
- * a rate word ("annual") whose period both sides name.
+ * Left out are the words either side may add, "by" with a verb right after it ("by giving 90
+ * days"), and a rate word ("annual") whose period both sides name.
  */
 function figureWords(text: string, periods: ReadonlySet<Rate>): string[] {
   const words: string[] = [];
@@ -201,12 +205,15 @@ function figureWords(text: string, periods: ReadonlySet<Rate>): string[] {
       if (!FUNCTION_CHARACTERS.has(token) && !ADDABLE.has(token)) words.push(token);
       continue;
     }
+    if (afterBy && word.endsWith("ing")) {
+      words.pop();
+      continue;
+    }
     const rate = RATE_WORDS[word];
     if (
       !/^(?:\p{L}{2,}|\p{Lu})$/u.test(word) ||
       FUNCTION_WORDS.has(word) ||
       ADDABLE.has(word) ||
-      (afterBy && word.endsWith("ing")) ||
       (rate !== undefined && periods.has(rate))
     )
       continue;
