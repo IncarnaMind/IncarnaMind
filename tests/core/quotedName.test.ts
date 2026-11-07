@@ -5,8 +5,11 @@
  * don't have still make it not found.
  */
 import { describe, expect, test } from "vitest";
+import { outcomeOf } from "../../eval/lib/citations";
+import { SENTENCE_BATCH_INSTRUCTIONS } from "../../src/core/answers/checks/sentenceBatch";
 import { parseQuotedWords } from "../../src/shared/citations";
 import {
+  answerEnded,
   askAndFinish,
   citationsIn,
   citingModel,
@@ -15,6 +18,7 @@ import {
   type SourceFile,
   setUpWithDocuments,
 } from "../helpers/citations";
+import { promptText } from "../helpers/models";
 import { buildPdf } from "../helpers/pdf";
 
 interface Case {
@@ -56,6 +60,7 @@ const CASES = {
       words: "Harbour Authority annual report 2024",
     },
     notOnPage: "the board rejected the harbour budget",
+    quoteNotOnPage: "The board rejected the harbour budget",
     sentenceWith: (first: string, second: string) =>
       `The minutes say “${first}” and “${second}” [^1].`,
   },
@@ -75,6 +80,7 @@ const CASES = {
       words: "港务局二〇二四年年度报告",
     },
     notOnPage: "董事会否决了港口预算方案",
+    quoteNotOnPage: "董事会于三月十二日否决了港口预算",
     sentenceWith: (first: string, second: string) => `纪要写道“${first}”，又写道“${second}”[^1]。`,
   },
 } as const;
@@ -243,5 +249,74 @@ test.each(["en", "zh"] as const)(
     const { answerId } = await askAndFinish(core, client, mind.id, text.question);
     const [first] = citationsIn(client, answerId);
     expect(first).toMatchObject(NOT_FOUND);
+  },
+);
+
+/**
+ * Asked in the assistant, where the sentences of an Answer are judged once it ends: its one
+ * Citation, how the evaluation sorts it, and the text of every batch of sentences judged.
+ */
+async function judgedCitation(language: Language, which: "whole" | "part", quote: string) {
+  const text = CASES[language];
+  const { name, sentence } = text[which];
+  const model = citingModel({
+    query: text.query,
+    records: (passages: ShownPassage[]) => [{ marker: 1, passage: passages[0]?.id, quote }],
+    answer: sentence,
+  });
+  const { file } = caseOf(language, name);
+  const { core } = await setUpWithDocuments(model, [file]);
+  const asked = await core.askInConversation({ text: text.question });
+  if (!asked.asked) throw new Error("Not asked.");
+  await answerEnded(core, asked.answerId);
+  const { messages } = await core.getConversation(asked.conversation.id);
+  const answer = messages.find((each) => each.id === asked.answerId);
+  const [citation] = answer?.kind === "answer" ? answer.citations : [];
+  if (!citation) throw new Error("No Citation.");
+  const judged = model.doGenerateCalls
+    .filter((call) =>
+      call.prompt.some(
+        (message) => message.role === "system" && message.content === SENTENCE_BATCH_INSTRUCTIONS,
+      ),
+    )
+    .map((call) => promptText(call.prompt))
+    .join("\n");
+  const pages = [{ page: 1, text: text.page.join("\n") }];
+  return { citation, judged, outcome: outcomeOf(citation, pages) };
+}
+
+// protects=a Citation whose only quoted words are its Document's name, whole or a part at a separator, is judged by its own quote, as #2504 says ("The Citation's own quote is checked as usual"): with that quote on the page it is found, its sentence is judged, and the evaluation counts it found, with the name's own row beside it; fails_when=the name takes found, the sentence check or the evaluation's found from a Citation whose quote is on the page; no_claim=a quote not on the page, the test below. A pinning test: it holds at the head it was written on.
+describe.each(Object.keys(CASES) as Language[])(
+  "A Citation whose only quoted words are its Document's name (%s)",
+  (language) => {
+    test.each(["whole", "part"] as const)(
+      "its %s name, its own quote on the page: found, judged and counted found",
+      async (which) => {
+        const { citation, judged, outcome } = await judgedCitation(
+          language,
+          which,
+          CASES[language].quote,
+        );
+        expect(citation).toMatchObject(FOUND);
+        expect(citation.quotedWords).toEqual({ name: CASES[language][which].words });
+        expect(judged).toContain(CASES[language][which].words);
+        expect(outcome).toBe("found");
+      },
+    );
+
+    // protects=a name never makes a Citation found (#2504): with its own quote not on the page, the Citation is not found for its quote, its sentence isn't judged, and the evaluation doesn't count it found, though its only quoted words are the Document's name; fails_when=the name gives the Citation found anywhere; no_claim=none beyond protects. A pinning test: it holds at the head it was written on.
+    test.each(["whole", "part"] as const)(
+      "its %s name, its own quote not on the page: not found, not judged, not counted found",
+      async (which) => {
+        const { citation, judged, outcome } = await judgedCitation(
+          language,
+          which,
+          CASES[language].quoteNotOnPage,
+        );
+        expect(citation).toMatchObject({ check: "not-found", checkReason: "quote-not-on-pages" });
+        expect(judged).not.toContain(CASES[language][which].words);
+        expect(outcome).toBe("not-in-document");
+      },
+    );
   },
 );
