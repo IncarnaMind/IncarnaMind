@@ -92,6 +92,40 @@ export interface TableLayout {
   headerReads: Map<string, HeaderRead>;
 }
 
+/** A first column that numbers its rows: its cells are not the rows' names. */
+const ROW_NUMBERS = /^\s*(?:序号|序號|项次|項次|编号|編號|#|no\.?|nr\.?)\s*$/iu;
+/** A first column headed by a period holds that period's values, not the rows' names. */
+const PERIOD_HEADING =
+  /^\s*(?:(?:fy|cy|year|年度)\s*)?(?:\d{4}\s*年?|[QH][1-4](?:\s+\d{2,4})?)\s*$/iu;
+
+/**
+ * The words naming a row in a figure's label. A first column that numbers its rows (序号, #) names
+ * none of them: the name is the row's next cell that isn't a figure, or none. A first column
+ * headed by a period (2024年) holds values, so a figure there names no row, while a genuine label
+ * keeps its words. Elsewhere the first cell is the name, a year among the rows included.
+ */
+function rowLabelOf(
+  slots: TableLayout["grid"][number],
+  headings: readonly { text: string }[],
+): string {
+  const first = slots[0]?.text ?? "";
+  const heading = headings[0]?.text ?? "";
+  /** Whether a cell's words are one figure, a number with its currency and scale, not a name. */
+  const isFigure = (text: string) => {
+    const words = text.trim();
+    const read = readFigures(words, documentFigureContext([{ text: words }]));
+    return read.length === 1 && read[0]?.chars === words;
+  };
+  if (ROW_NUMBERS.test(heading))
+    return (
+      slots
+        .slice(1)
+        .find((slot) => slot !== null && slot.text.trim() !== "" && !isFigure(slot.text))?.text ??
+      ""
+    );
+  return PERIOD_HEADING.test(heading) && isFigure(first) ? "" : first;
+}
+
 function tableLayout(table: Y.XmlElement, layouts: Map<Y.XmlElement, TableLayout>): TableLayout {
   const known = layouts.get(table);
   if (known) return known;
@@ -116,7 +150,7 @@ function tableLayout(table: Y.XmlElement, layouts: Map<Y.XmlElement, TableLayout
     const slots = grid[index] ?? [];
     layout.rowIndex.set(row, index);
     layout.rows.push({
-      rowLabel: slots[0]?.text ?? "",
+      rowLabel: rowLabelOf(slots, headings),
       rowText: slots.map((slot) => slot?.text ?? "").join(" | "),
       columnLabels: headings.map((heading) => heading.text),
       anchors: slots.flatMap((slot, column) => (slot && !slot.continued ? [column] : [])),
