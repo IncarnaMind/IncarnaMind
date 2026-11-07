@@ -52,6 +52,10 @@ export const fieldClass =
 /** A text field, under its label, as wide as its column. */
 export const inputClass = `mt-1 block w-full ${fieldClass}`;
 
+/** A text field at a Settings row's end: 28px high, like the row's buttons and pop-ups. */
+export const rowFieldClass =
+  "h-7 rounded-md border border-rule-strong bg-sheet px-2.5 text-[13px] leading-5 text-ink placeholder:text-ink-placeholder aria-invalid:border-warning focus:border-accent focus:outline-1 focus:outline-offset-0 focus:outline-accent disabled:opacity-60";
+
 /** A field's label, above it. */
 export const fieldLabelClass = "block text-[13px] leading-5 text-ink-secondary";
 

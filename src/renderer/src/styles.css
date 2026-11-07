@@ -572,6 +572,25 @@
     }
   }
 
+  /*
+   * A Settings group (components/settings/): one rounded sheet of rows. A hairline runs between
+   * rows from the text edge (`--row-inset`, 16px unless a row has an icon before its words) to the
+   * group's edge, and none shows under the last.
+   */
+  .settings-row {
+    position: relative;
+  }
+  .settings-row + .settings-row::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    right: 0;
+    left: var(--row-inset, 16px);
+    height: 1px;
+    background: var(--color-rule);
+    pointer-events: none;
+  }
+
   :root:not([data-motion="on"]) :is(.pane-divider, .switch),
   :root:not([data-motion="on"]) .pane-divider::before {
     transition: none;

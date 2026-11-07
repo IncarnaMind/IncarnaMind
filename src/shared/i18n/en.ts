@@ -2913,6 +2913,7 @@ export const en = {
   "settings.help": "More information",
   "settings.pages.models": "Models",
   "settings.pages.search": "Search",
+  "settings.interface": "Interface",
   "settings.language": "Interface language",
   "settings.language.system": "Same as system",
   "settings.language.en": "English",

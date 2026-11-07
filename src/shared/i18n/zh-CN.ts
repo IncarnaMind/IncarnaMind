@@ -2776,6 +2776,7 @@ export const zhCN = {
   "settings.help": "查看说明",
   "settings.pages.models": "模型",
   "settings.pages.search": "搜索",
+  "settings.interface": "界面",
   "settings.language": "界面语言",
   "settings.language.system": "跟随系统",
   "settings.language.en": "English",
