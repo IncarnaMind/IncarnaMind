@@ -140,8 +140,9 @@ Your Documents, their text or names, Folder and Tag names, Questions, Answers, q
 Events go to [PostHog](https://posthog.com), an open-source analytics service, to the project the maintainer set in the build (PostHog's EU cloud or a self-hosted server), using PostHog's open-source Node.js library in the app's main process. The window never talks to the network itself.
 
 - Each event carries a random install ID, made the first time an event is sent. It lets one install's steps be followed, and nothing else. **Reset install ID** in Settings → Privacy gives a new one.
+- One number stays on this computer for the weekly event: how many Questions have started in the current week, so `model_spend_week` can give the week's count. It holds no Question, and it is replaced each week.
 - No person profile is made, no location is looked up, and PostHog stores `0.0.0.0` instead of your IP address.
-- Events wait in a short queue in memory (at most 100), and are sent together every 30 seconds or every 20 events. If a send fails, for example offline, those events are dropped. Nothing is written to disk.
+- Events wait in a short queue in memory (at most 100), and are sent together every 30 seconds or every 20 events. If a send fails, for example offline, those events are dropped. No event is written to disk.
 
 ### Every event
 
