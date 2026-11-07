@@ -187,13 +187,16 @@ test("a Document deleted while it waits says why, rather than still reading", as
     {
       textRecognizer: recognizer,
       textRecognitionModelSource: NO_MODEL_FILES,
-      exampleReadyWaitMs: 30_000,
+      exampleReadyWaitMs: 10_000,
     },
     examples,
   );
-  const [document] = await vi.waitFor(async () => {
-    const listed = await exampleDocumentsOf(core);
-    expect(listed.length).toBeGreaterThan(0);
+  // The last Document the Answer cites, while the first is still being read: the wait has to
+  // see it go, not only the first.
+  const last = NAMES.at(-1);
+  const document = await vi.waitFor(async () => {
+    const listed = (await exampleDocumentsOf(core)).find((each) => each.name === last);
+    expect(listed).toBeDefined();
     return listed;
   });
   await vi.waitFor(async () => {
