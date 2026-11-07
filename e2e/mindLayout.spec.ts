@@ -385,6 +385,25 @@ async function importGreeterSkill(window: Page): Promise<void> {
   }, folder);
 }
 
+/** The choices, left to right in the order given, on one row, the last at the card's right edge. */
+function expectOneRow(
+  boxes: readonly { x: number; y: number; width: number }[],
+  cardBox: { x: number; width: number },
+  name: string,
+) {
+  for (const [at, choice] of boxes.entries()) {
+    expectNear(choice.y, boxes[0]?.y ?? 0, 1, `${name}: choice ${at} on the first one's row`);
+    if (at > 0) {
+      const before = boxes[at - 1];
+      expect(choice.x, `${name}: choice ${at} after the one before`).toBeGreaterThanOrEqual(
+        (before?.x ?? 0) + (before?.width ?? 0) - 1,
+      );
+    }
+  }
+  const last = boxes.at(-1);
+  expect(cardBox.x + cardBox.width - ((last?.x ?? 0) + (last?.width ?? 0))).toBeLessThan(24);
+}
+
 /** The text of every section of an approval card starts at the same x. */
 async function expectOneTextEdge(card: Locator) {
   const starts = [
@@ -392,7 +411,6 @@ async function expectOneTextEdge(card: Locator) {
     card.locator(".approval-explanation").first(),
     card.locator(".approval-label"),
     card.locator(".approval-args dt").first(),
-    card.locator(".approval-actions > :first-child"),
   ];
   const x = (await box(starts[0] as Locator)).x;
   for (const start of starts) expectNear((await box(start)).x, x, 1, "a section's text");
@@ -423,9 +441,9 @@ test("an approval card is a ruled block whose sections share one text edge, for 
   await expect(card.locator(".approval-title")).toHaveText("Tides wants to run book_boat");
   await expect(card.locator(".approval-title code")).toHaveText("book_boat");
   await expectOneTextEdge(card);
-  // #400: the choices may wrap under the text; each is inside the card and reachable, in the
-  // card's order, with Deny last and pushed to the card's right edge on its row.
-  const choices = ["approval-allow-once", "approval-always-allow", "approval-deny"] as const;
+  // The choices sit in one row at the card's right edge, in the platform's order: Deny, Always
+  // allow, then Allow once, the primary; each is inside the card and reachable.
+  const choices = ["approval-deny", "approval-always-allow", "approval-allow-once"] as const;
   const cardBox = await box(card);
   const order = await card.evaluate((element) =>
     [...element.querySelectorAll<HTMLElement>(".approval-actions .approval-button")].map(
@@ -447,20 +465,7 @@ test("an approval card is a ruled block whose sections share one text edge, for 
     expect(choice.y).toBeGreaterThanOrEqual(cardBox.y - 0.5);
     expect(choice.y + choice.height).toBeLessThanOrEqual(cardBox.y + cardBox.height + 0.5);
   }
-  const [allowOnce, always, deny] = boxes as [
-    (typeof boxes)[number],
-    (typeof boxes)[number],
-    (typeof boxes)[number],
-  ];
-  expect(
-    deny.y > always.y + 1 || deny.x >= always.x + always.width - 1,
-    "Deny after Always allow, on its row or the next",
-  ).toBe(true);
-  expect(
-    allowOnce.y < always.y || (Math.abs(allowOnce.y - always.y) <= 1 && allowOnce.x < always.x),
-    "the choices in the card's order",
-  ).toBe(true);
-  expect(cardBox.x + cardBox.width - (deny.x + deny.width)).toBeLessThan(24);
+  expectOneRow(boxes, cardBox, "the Tool's choices");
   await screenshot(window, "approval.png");
   await screenshot(answer, "approval-card.png");
   await card.getByTestId("approval-deny").click();
@@ -508,7 +513,7 @@ test("an approval card at 900 px in Chinese keeps one text edge and its choices 
   await expect(card.locator(".approval-title code")).toHaveText("book_boat");
   await expectOneTextEdge(card);
   const cardBox = await box(card);
-  const choices = ["approval-allow-once", "approval-always-allow", "approval-deny"] as const;
+  const choices = ["approval-deny", "approval-always-allow", "approval-allow-once"] as const;
   const order = await card.evaluate((element) =>
     [...element.querySelectorAll<HTMLElement>(".approval-actions .approval-button")].map(
       (button) => button.dataset.testid ?? "",
@@ -522,15 +527,7 @@ test("an approval card at 900 px in Chinese keeps one text edge and its choices 
     expect(choice.y).toBeGreaterThanOrEqual(cardBox.y - 0.5);
     expect(choice.y + choice.height).toBeLessThanOrEqual(cardBox.y + cardBox.height + 0.5);
   }
-  const [, always, deny] = boxes as [
-    (typeof boxes)[number],
-    (typeof boxes)[number],
-    (typeof boxes)[number],
-  ];
-  expect(
-    deny.y > always.y + 1 || deny.x >= always.x + always.width - 1,
-    "Deny after Always allow, on its row or the next",
-  ).toBe(true);
+  expectOneRow(boxes, cardBox, "the Tool's choices in Chinese at 900 px");
   await screenshot(answer, "approval-card-zh-900.png");
   await card.getByTestId("approval-deny").click();
   await app.close();

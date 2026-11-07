@@ -7,12 +7,14 @@
  * when its site turned IncarnaMind away; in Chinese at the narrowest window; and from an Answer that
  * found papers, "Show results". Local mode blocks every provider.
  */
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import { type SourceServices, startSourceServices } from "../tests/helpers/sourceServices";
 import {
   acceptPlainTextKeys,
+  addDocuments,
   assistantAnswers,
   createDataFolder,
   dismissChatSetup,
@@ -29,15 +31,25 @@ import {
 const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
 
 let dataDir: string;
+let seeds: string;
 let services: SourceServices;
 test.beforeEach(async () => {
   dataDir = await createDataFolder();
+  seeds = await createDataFolder();
   services = await startSourceServices();
 });
 test.afterEach(async () => {
   await services.close();
   await removeDataFolder(dataDir);
+  await removeDataFolder(seeds);
 });
+
+/** A Document, so the Library isn't empty and its header offers Add Documents. */
+async function listADocument(window: Page): Promise<void> {
+  const path = join(seeds, "Seed.txt");
+  await writeFile(path, "A Document, so the Library has something listed.\n");
+  await addDocuments(window, [path]);
+}
 
 const bridge = (window: Page) =>
   window.evaluateHandle(() => (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind);
@@ -78,6 +90,7 @@ test("Add Documents ▾ → Find sources… asks each provider once, then adds a
     await dismissChatSetup(window);
     await interceptOpenExternal(app);
     await newFolder(window, "Thesis");
+    await listADocument(window);
     await window.getByTestId("open-library").click();
 
     // The Library's Add Documents is a menu of the ways in, Find sources among them.
@@ -318,6 +331,7 @@ test("choosing openFDA finds a drug label and shows its disclaimer; an openFDA k
   try {
     await dismissChatSetup(window);
     await setWindowSize(app, window, 1280, 800);
+    await listADocument(window);
     await window.getByTestId("open-library").click();
     const add = window.getByTestId("library-add-documents");
     await add.hover();
@@ -377,6 +391,7 @@ test("choosing the eCFR finds a regulation marked as an unofficial compilation; 
     await setWindowSize(app, window, 1280, 800);
     // Linux runners have no keyring: the key is kept in plain text, as the User would accept.
     await acceptPlainTextKeys(window);
+    await listADocument(window);
     await window.getByTestId("open-library").click();
     const add = window.getByTestId("library-add-documents");
     await add.hover();

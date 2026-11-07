@@ -763,6 +763,31 @@ test("Documents sent whole are read whether or not the Answer cites them: the li
 
   const line = answer.getByTestId("answer-steps-line");
   await expect(line).toHaveText("Read “Credit report draft” and 2 Documents");
+  // In the narrowest assistant the Note's name gives way and the count stays whole.
+  await sizeAssistant(window, 280);
+  // The count's part is the line's last button: it keeps its whole width, inside the line, and
+  // the Note's name is what is cut.
+  const tail = line.locator("button").last();
+  await expect(tail).toHaveText("” and 2 Documents");
+  const [lineBox, tailBox, nameBox] = await Promise.all([
+    line.boundingBox(),
+    tail.boundingBox(),
+    line.getByTestId("answer-steps-mind").boundingBox(),
+  ]);
+  if (!lineBox || !tailBox || !nameBox) throw new Error("The step line isn't showing.");
+  expect(tailBox.x + tailBox.width, "the count ends inside the line").toBeLessThanOrEqual(
+    lineBox.x + lineBox.width + 1,
+  );
+  expect(
+    await tail.evaluate((element) => element.scrollWidth <= element.clientWidth),
+    "the count is drawn whole",
+  ).toBe(true);
+  expect(
+    await line
+      .getByTestId("answer-steps-mind")
+      .evaluate((element) => element.scrollWidth > element.clientWidth),
+    "the Note's name gives way",
+  ).toBe(true);
   const timeline = await openSteps(window, answer);
   expect(await stepsOf(timeline)).toEqual(["answered", "read", "read-documents"]);
   const read = timeline.locator('[data-step="read-documents"]');
@@ -910,7 +935,7 @@ test("an empty conversation says once what it reads and searches, following focu
   const thread = window.getByTestId("assistant-thread");
   await core(window).mind("Alpha");
   const reads = window.getByTestId("assistant-reads");
-  await expect(reads).toHaveText("Reads “Alpha” · searches All Documents");
+  await expect(reads).toHaveText("Reads “Alpha” and All Documents");
   // In the conversation, above its words: the header has nothing under it.
   await expect(thread.getByTestId("assistant-reads")).toBeVisible();
   const header = await window.getByTestId("assistant-header").boundingBox();
@@ -919,7 +944,7 @@ test("an empty conversation says once what it reads and searches, following focu
   await expect(reads).toHaveCSS("font-size", "14px");
   await expect(window.getByTestId("assistant-empty")).toHaveCSS("font-size", "14px");
   await core(window).mind("Beta");
-  await expect(reads).toHaveText("Reads “Beta” · searches All Documents");
+  await expect(reads).toHaveText("Reads “Beta” and All Documents");
   await pointAndClick(window, window.getByTestId("open-library"));
   await expect(reads).toHaveText("Searches All Documents");
   await screenshot(window, "steps-empty-en");

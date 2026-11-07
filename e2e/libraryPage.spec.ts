@@ -1,6 +1,9 @@
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { expect, type Locator, test } from "@playwright/test";
 import { translate } from "../src/shared/i18n";
 import {
+  addDocuments,
   addFilesLabel,
   capture,
   createDataFolder,
@@ -906,7 +909,7 @@ test("as the window narrows the columns give way, Added first, then Format, then
   }
 });
 
-test("an empty Library says No Documents yet, with its two ways in beside one Add Documents", async () => {
+test("an empty Library has one place to add, with no dashed box and no Add Documents in its header until something is listed; its drop target shows only while files are dragged over", async () => {
   const { app, window } = await launchApp(dataDir);
   try {
     await dismissChatSetup(window);
@@ -919,7 +922,59 @@ test("an empty Library says No Documents yet, with its two ways in beside one Ad
     await expect(empty.getByTestId("library-empty-link-folder")).toHaveText(
       translate("en", "startGuide.documents.linkFolder"),
     );
+    await expect(empty).toContainText("PDF, Word, PowerPoint, Excel, Markdown, text");
     await expect(library.getByTestId("library-bar")).toHaveCount(0);
+    // The one place to add: nothing in the header, and the empty state isn't drawn as a box.
+    await expect(library.getByTestId("library-add-documents")).toHaveCount(0);
+    await expect(library.getByRole("button", { name: /Add Documents/ })).toHaveCount(0);
+    expect(
+      await empty.evaluate((element) =>
+        Number.parseFloat(getComputedStyle(element).borderTopWidth),
+      ),
+      "no box edge",
+    ).toBe(0);
+
+    // Its drop target shows only while files are dragged over the window.
+    await expect(window.getByTestId("drop-overlay")).toHaveCount(0);
+    const groups = window.getByTestId("tab-groups");
+    await groups.evaluate((element) => {
+      const transfer = new DataTransfer();
+      transfer.items.add(new File(["x"], "Notes.txt", { type: "text/plain" }));
+      const box = element.getBoundingClientRect();
+      const at = { clientX: box.left + box.width / 2, clientY: box.top + box.height / 2 };
+      for (const type of ["dragenter", "dragover"]) {
+        element.dispatchEvent(
+          new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: transfer, ...at }),
+        );
+      }
+      (globalThis as { heldDrop?: DataTransfer }).heldDrop = transfer;
+    });
+    await expect(window.getByTestId("drop-overlay")).toBeVisible();
+    await groups.evaluate((element) => {
+      const transfer = (globalThis as { heldDrop?: DataTransfer }).heldDrop;
+      element.dispatchEvent(new DragEvent("dragleave", { bubbles: true, relatedTarget: null }));
+      element.dispatchEvent(
+        new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: transfer }),
+      );
+    });
+    await expect(window.getByTestId("drop-overlay")).toHaveCount(0);
+    await window.keyboard.press("Escape");
+
+    await setLanguage(window, "zh-CN");
+    await expect(empty.getByText("还没有文档", { exact: true })).toBeVisible();
+    await expect(empty.getByTestId("library-empty-add-files")).toHaveText(addFilesLabel("zh-CN"));
+    await expect(empty.getByTestId("library-empty-link-folder")).toHaveText(
+      translate("zh-CN", "startGuide.documents.linkFolder"),
+    );
+    await expect(library.getByTestId("library-add-documents")).toHaveCount(0);
+    await setLanguage(window, "en");
+
+    // Once something is listed, the header offers Add Documents and the empty state is gone.
+    const path = join(sources, "Tides.txt");
+    await writeFile(path, "Spring tides happen at new moon and at full moon.\n");
+    await addDocuments(window, [path]);
+    await expect(library.getByTestId("library-count")).toHaveText("1");
+    await expect(empty).toHaveCount(0);
     await expect(library.getByRole("button", { name: /Add Documents/ })).toHaveCount(1);
     await pointAndClick(window, library.getByTestId("library-add-documents"));
     await expect(
@@ -932,13 +987,6 @@ test("an empty Library says No Documents yet, with its two ways in beside one Ad
       "Connect an app…",
       "Import references…",
     ]);
-    await window.keyboard.press("Escape");
-    await setLanguage(window, "zh-CN");
-    await expect(empty.getByText("还没有文档", { exact: true })).toBeVisible();
-    await expect(empty.getByTestId("library-empty-add-files")).toHaveText(addFilesLabel("zh-CN"));
-    await expect(empty.getByTestId("library-empty-link-folder")).toHaveText(
-      translate("zh-CN", "startGuide.documents.linkFolder"),
-    );
   } finally {
     await app.close();
   }

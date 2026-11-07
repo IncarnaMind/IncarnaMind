@@ -9,6 +9,7 @@ import {
   continueSetup,
   createDataFolder,
   dismissChatSetup,
+  exampleRow,
   examplesMenu,
   expectReadyDocuments,
   frontMind,
@@ -102,10 +103,9 @@ test("a first run opens on the credit paper with no model set up: its Citations 
   await expect(window.getByTestId("mind-editor").locator("h1")).toHaveText(
     "Draft: credit committee paper",
   );
-  await expect(pane.getByTestId("first-open-steps")).toContainText("Welcome to IncarnaMind");
-  await expect(window.getByTestId("mind-list-item").getByTestId("example-chip")).toHaveText(
-    "Example",
-  );
+  await expect(pane.getByTestId("first-open-steps").locator("h2")).toHaveText("Get started");
+  await expect(exampleRow(window)).toHaveCount(1);
+  await expect(exampleRow(window).getByTestId("example-chip")).toHaveCount(0);
   await expectReadyDocuments(window, 2);
   // No model needed: no setup over it, and no "set up a chat model" notice in it.
   await expect(window.getByTestId("chat-setup")).toBeHidden();
@@ -377,7 +377,7 @@ test("an empty Mind of one's own shows no second start guide, the example's step
   await window.keyboard.press("Escape");
   await pointAndClick(window, window.getByTestId("mind-pane").getByTestId("claim-mark"));
   const steps = window.getByTestId("first-open-steps");
-  await expect(steps).toContainText("You’re set up.");
+  await expect(steps.locator("h2")).toHaveText("You’re set up");
   await expect(steps.locator('[data-testid="first-open-step"][data-state="done"]')).toHaveText([
     /Added your Documents/,
     /Asked a question/,
@@ -438,10 +438,7 @@ test("the steps card's first step offers Add files… and Link a folder… at on
   await expect(window.getByTestId("start-guide")).toHaveCount(0);
   await setLanguage(window, "en");
   await expectPlainWords([window.getByTestId("sidebar")]);
-  await pointAndClick(
-    window,
-    window.getByTestId("mind-list-item").filter({ has: window.getByTestId("example-chip") }),
-  );
+  await pointAndClick(window, exampleRow(window));
   await setLanguage(window, "zh-CN");
   await interceptOpenDialog(app, notes);
   await pointAndClick(window, offered.first());
@@ -450,7 +447,7 @@ test("the steps card's first step offers Add files… and Link a folder… at on
   await expect(steps).toContainText("选择 AI 模型，就能就你自己的文件提问。", {
     timeout: 15_000,
   });
-  await expect(steps).not.toContainText("准备好了。");
+  await expect(steps).not.toContainText("准备好了");
   await pointAndClick(window, steps.getByTestId("first-open-choose-model"));
   const setup = window.getByTestId("model-setup");
   await expect(setup).toContainText("设置你的 AI");
@@ -463,7 +460,7 @@ test("the steps card's first step offers Add files… and Link a folder… at on
   await expectPlainWords([setup]);
   await setLanguage(window, "zh-CN");
   await useLocalChatModel(window);
-  await expect(steps).toContainText("准备好了。");
+  await expect(steps.locator("h2")).toHaveText("准备好了");
   await continueSetup(window);
 });
 
@@ -715,7 +712,7 @@ test("a damaged PDF as the only file of one's own leaves step 1 open, says which
   await expect(unread).toContainText("1 file couldn’t be read");
   await expect(files).toHaveAttribute("data-state", "open");
   await expect(files.getByTestId("first-open-add-files")).toBeVisible();
-  await expect(steps).not.toContainText("You’re set up.");
+  await expect(steps).not.toContainText("You’re set up");
   await expect(steps.getByTestId("first-open-choose-model")).toHaveCount(0);
   expect((await gettingStarted(window)).indexed).toBe(false);
 
@@ -734,7 +731,7 @@ test("a damaged PDF as the only file of one's own leaves step 1 open, says which
   await interceptOpenDialog(app, notes);
   await pointAndClick(window, files.getByTestId("first-open-add-files"));
   await expect(files).toHaveAttribute("data-state", "done", { timeout: 15_000 });
-  await expect(steps).toContainText("You’re set up.");
+  await expect(steps.locator("h2")).toHaveText("You’re set up");
   await app.close();
 });
 
@@ -883,7 +880,7 @@ test("the steps can be hidden once all are done, and stay hidden", async () => {
   await useLocalChatModel(first.window);
   await markSteps(first.window, { citationChecked: true, askedOwn: true, indexed: true });
   const steps = first.window.getByTestId("first-open-steps");
-  await expect(steps).toContainText("You’re set up.");
+  await expect(steps.locator("h2")).toHaveText("You’re set up");
   await pointAndClick(first.window, steps.getByTestId("first-open-hide"));
   await expect(steps).toHaveCount(0);
   await first.app.close();
@@ -911,7 +908,7 @@ test("finishing the steps with no model asks for one in the card, never says You
   const steps = pane.getByTestId("first-open-steps");
   await expect(step(window, "files")).toHaveAttribute("data-state", "done");
   await expect(steps).toContainText("Choose an AI model to ask about your own files.");
-  await expect(steps).not.toContainText("You’re set up.");
+  await expect(steps).not.toContainText("You’re set up");
   await expect(steps.getByTestId("first-open-next")).toHaveCount(0);
   // Each part of the shell still waits for its own moment. The card asks for the model, and the
   // footer's one line says the files wait for it (#1128).
@@ -926,7 +923,7 @@ test("finishing the steps with no model asks for one in the card, never says You
   await expect(window.getByTestId("assistant")).toBeVisible();
   await expect(setup.getByRole("heading", { level: 2 })).toHaveText("Set up your AI");
   await useLocalChatModel(window);
-  await expect(steps).toContainText("You’re set up.");
+  await expect(steps.locator("h2")).toHaveText("You’re set up");
   await expect(steps.getByTestId("first-open-next").first()).toBeVisible();
   await continueSetup(window);
   await expect(sidebar.getByTestId("tagging-waiting")).toHaveCount(0);
@@ -967,7 +964,7 @@ test("by keyboard alone: Choose a model takes the focus into the setup, and a sa
   await expect(setup.getByTestId("setup-sorting-use")).toBeFocused();
   await window.keyboard.press("Enter");
   await expect(setup).toHaveCount(0);
-  await expect(window.getByTestId("first-open-steps")).toContainText("You’re set up.");
+  await expect(window.getByTestId("first-open-steps").locator("h2")).toHaveText("You’re set up");
   await expect(window.getByTestId("composer-input")).toBeFocused();
   await app.close();
 });

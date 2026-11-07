@@ -9,6 +9,7 @@ import {
   askFirstQuestion,
   assistantAnswers,
   createDataFolder,
+  exampleRow,
   interceptOpenExternal,
   launchApp,
   openSetupSteps,
@@ -262,9 +263,7 @@ for (const { language, width, height } of COMBINATIONS) {
       await interceptOpenExternal(app);
       await acceptPlainTextKeys(window);
       await setLanguage(window, language);
-      const example = window
-        .getByTestId("mind-list-item")
-        .filter({ has: window.getByTestId("example-chip") });
+      const example = exampleRow(window);
       await expect(example).toHaveAttribute("aria-current", "page");
 
       const card = await askFirstQuestion(window);
@@ -276,7 +275,7 @@ for (const { language, width, height } of COMBINATIONS) {
       await expect(local.getByTestId("ollama-get")).toBeVisible();
       expect(await cardFits(window), "the card is whole in the window, nothing cut").toEqual(fits);
 
-      await expect(window.getByTestId("mind-list-item").getByTestId("example-chip")).toBeVisible();
+      await expect(exampleRow(window)).toBeVisible();
       await pointAndClick(window, card.getByTestId("setup-later"));
       await expect(card).toHaveCount(0);
       await expect(window.getByTestId("composer-input")).toHaveValue("What is in my Documents?");

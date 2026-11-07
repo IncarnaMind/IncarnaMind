@@ -26,10 +26,13 @@
   --color-rule: #e3e5e9;
   --color-rule-strong: #d5d8dd;
   --color-hover: #ebedf0;
+  /* One step past a hover, while a row or tab is pressed: made of the hover and the ink, so a theme that swaps those swaps this. */
+  --color-press: color-mix(in srgb, var(--color-hover), var(--color-ink) 6%);
   --color-chip: #eef0f3;
-  /* The Mind tab strip, a step darker than the frame; an inactive tab's hover; the dividers between tabs. */
+  /* The Mind tab strip, a step darker than the frame; an inactive tab's hover and press; the dividers between tabs. */
   --color-tab-strip: #e6e8eb;
   --color-tab-hover: #d9dce1;
+  --color-tab-press: color-mix(in srgb, var(--color-tab-hover), var(--color-ink) 8%);
   --color-tab-divider: #c3c7ce;
   /* Text, darkest first. ink-meta passes 4.5:1 on sheet and frame. */
   --color-ink: #17191c;
@@ -326,8 +329,8 @@
   }
   /*
    * The divider between the sidebar and the card is the 8px gap itself: no
-   * rule at rest, a hairline while pointed at and the focus ring's line when
-   * reached by keyboard, with the grip over it.
+   * rule at rest, a hairline while pointed at and the focus ring when reached
+   * by keyboard, with the grip over it.
    */
   .pane-divider--gap {
     width: 8px;
@@ -343,8 +346,10 @@
         no-repeat;
     }
     &:focus-visible {
-      background:
-        linear-gradient(var(--color-accent), var(--color-accent)) center / 2px 100% no-repeat;
+      background: transparent;
+      outline: 2px solid var(--color-accent);
+      outline-offset: -2px;
+      border-radius: 4px;
     }
   }
   /*
@@ -379,8 +384,10 @@
         no-repeat;
     }
     &:focus-visible {
-      background:
-        linear-gradient(var(--color-accent), var(--color-accent)) center / 100% 2px no-repeat;
+      background: transparent;
+      outline: 2px solid var(--color-accent);
+      outline-offset: -2px;
+      border-radius: 4px;
     }
   }
 
@@ -763,6 +770,9 @@
   .tab:not([aria-selected="true"]):hover .tab-inner {
     background: var(--color-tab-hover);
   }
+  .tab:not([aria-selected="true"]):active .tab-inner {
+    background: var(--color-tab-press);
+  }
   /* The shown tab's feet: 10px concave curves outside its bottom corners, in the sheet. */
   .tab-foot {
     display: none;
@@ -916,6 +926,9 @@
       background: var(--color-tab-hover);
       color: var(--color-ink);
     }
+    &:active {
+      background: var(--color-tab-press);
+    }
     &:focus-visible {
       outline: 2px solid var(--color-accent);
       outline-offset: -2px;
@@ -964,6 +977,15 @@
     border-radius: 6px;
     font-size: 13px;
     line-height: 20px;
+  }
+  /* Waiting for a Note to export: the same button, quiet and inert. */
+  .tab-export[aria-disabled="true"] {
+    color: var(--color-ink-placeholder);
+
+    &:hover {
+      background: transparent;
+      color: var(--color-ink-placeholder);
+    }
   }
   .tab-strip-button {
     min-width: 28px;
@@ -2726,6 +2748,11 @@
   .composer-scope-waiting {
     visibility: hidden;
   }
+  /* The Search scope is never cut short beside the model: the model's name gives way first. */
+  .composer-scope-all,
+  .composer-scope-waiting {
+    flex-shrink: 0;
+  }
   .composer-chip-icon {
     width: 12px;
     height: 12px;
@@ -2783,6 +2810,9 @@
 
     &:hover {
       background: var(--color-ink-strong);
+    }
+    &:active:not(:disabled) {
+      transform: scale(0.98);
     }
     &:disabled {
       background: var(--color-frame);
@@ -4195,6 +4225,9 @@
     &:hover {
       background: #2e3238;
     }
+    &:active:not(:disabled) {
+      transform: scale(0.98);
+    }
   }
   .approval-button--ghost {
     margin-left: auto;
@@ -4207,7 +4240,16 @@
       color: var(--color-ink);
     }
   }
-  /* In the assistant's narrower column the choices take less room; when they don't fit beside the text, a narrow tray or a wide system font wraps them under it, Deny last (#400). */
+  /* An approval's choices in one row at the card's right: Deny, then the wider consent, then the one to do. */
+  .approval-actions--row {
+    justify-content: flex-end;
+    padding-left: 16px;
+
+    & .approval-button--ghost {
+      margin-left: 0;
+    }
+  }
+  /* In the assistant's narrower column the choices take less room; when they don't fit in a row, a narrow tray or a wide system font wraps them (#400). */
   .assistant-answer .approval-actions {
     gap: 4px;
     padding-right: 8px;
@@ -8738,7 +8780,7 @@
   .answer-steps-part--end {
     padding-left: 6px;
   }
-  /* The Documents read beside the Mind: a long name is cut, and the chevron stays. */
+  /* A Document named beside the Mind: a long name is cut, and the chevron stays. A count has no such class: it never shrinks, and the Mind's name gives way to it. */
   .answer-steps-part--tail {
     flex: 0 1 auto;
     min-width: 0;

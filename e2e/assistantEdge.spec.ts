@@ -50,8 +50,8 @@ const leftOf = async (target: Locator) =>
   await target.evaluate((el) => el.getBoundingClientRect().left);
 
 /**
- * The tray's approval buttons are in the card's order, Deny last, every one inside the tray;
- * a narrow tray or a wide system font may wrap them under the text (#400), and the shortcut
+ * The tray's approval buttons are in the card's order, Deny first and the primary last, every one
+ * inside the tray; a very narrow tray or a wide system font may wrap them (#400), and the shortcut
  * stays in the main button's name.
  */
 async function expectApprovalButtons(window: Page, name: string) {
@@ -61,7 +61,8 @@ async function expectApprovalButtons(window: Page, name: string) {
     each.map((button) => button.dataset.testid ?? ""),
   );
   expect(ids.length, `${name}: the approval's buttons`).toBeGreaterThan(1);
-  expect(ids.at(-1), `${name}: Deny last`).toBe("approval-deny");
+  expect(ids[0], `${name}: Deny first`).toBe("approval-deny");
+  expect(ids.at(-1), `${name}: the primary last`).toBe("approval-allow-once");
   const boxes = await buttons.evaluateAll((each) =>
     each.map((button) => {
       const { top, left, right, width } = button.getBoundingClientRect();

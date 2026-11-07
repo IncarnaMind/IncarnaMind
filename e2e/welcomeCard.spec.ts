@@ -14,6 +14,7 @@ import {
   createDataFolder,
   dismissChatSetup,
   useLocalChatModel as enableLocalModel,
+  exampleRow,
   expectReadyDocuments,
   gettingStarted,
   interceptOpenDialog,
@@ -221,7 +222,9 @@ for (const language of ["en", "zh-CN"] as const) {
           beside.push(await height());
         }
         expectOne(beside, `${language} ${width} px, step 3`);
-        await expect(card).toContainText(language === "en" ? "You’re set up." : "准备好了。");
+        await expect(card.locator("h2")).toHaveText(
+          language === "en" ? "You’re set up" : "准备好了",
+        );
         await window.keyboard.press("Escape");
 
         // ⌘K reaches what the steps teach.
@@ -276,6 +279,11 @@ test("the example's Documents stay reachable when its Mind is deleted after the 
     });
     const sidebar = window.getByTestId("sidebar");
     await expect(sidebar.getByTestId("document-list-item")).toHaveCount(1);
+    // Under the Examples heading nothing is badged: the heading says it, and the example's Linked
+    // folder isn't listed there.
+    const examples = window.getByTestId("example-section");
+    await expect(examples.getByTestId("example-chip")).toHaveCount(0);
+    await expect(examples.getByTestId("linked-folder-row")).toHaveCount(0);
 
     await window.evaluate(async () => {
       const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
@@ -287,6 +295,10 @@ test("the example's Documents stay reachable when its Mind is deleted after the 
     await expect(window.getByTestId("example-section")).toHaveCount(0);
     await expect(sidebar.getByTestId("document-list-item")).toHaveCount(1);
     await expect(window.getByTestId("linked-folders-section")).toBeVisible();
+    // Under Linked folders nothing else says the folder is the example's, so its row keeps the badge.
+    await expect(linkedFolderRow(window, "Examples").getByTestId("example-chip")).toHaveText(
+      "Example",
+    );
     const exampleDocuments = await window.evaluate(async () => {
       const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
       const examples = await bridge.getExamples();
@@ -738,9 +750,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await setWindowSize(app, window, 900, 900);
     await setLanguage(window, language);
     await dismissChatSetup(window);
-    const examples = window
-      .getByTestId("mind-list-item")
-      .filter({ has: window.getByTestId("example-chip") });
+    const examples = exampleRow(window);
 
     await newMind(window);
     const own = await openPageMenu(window);
