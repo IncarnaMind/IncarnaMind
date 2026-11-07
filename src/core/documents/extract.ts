@@ -31,6 +31,7 @@ import {
   pictureShare,
 } from "./scan/pages";
 import { anchorsBack, readWithQuarterTurn } from "./scan/rotation";
+import { shiftedDigits } from "./tableCells";
 import {
   continuedTables,
   findTables,
@@ -297,26 +298,46 @@ function pdfjsDataUrls() {
 /** A scan's picture larger than this many pixels isn't drawn: reading it would take too much memory. */
 const MAX_PICTURE_PIXELS = 50_000_000;
 
+/** A footnote's mark is set clearly smaller than its line, and raised above its baseline (#2474). */
+const MARK_SIZE = 0.8;
+const MARK_RAISE = 0.25;
+const MARK_AFTER_NUMBER = /[\p{Nd})）%]$/u;
+const ALL_DIGITS = /^\d+$/;
+
 function printedLines(items: readonly object[]): PrintedLine[] {
   const lines: PrintedLine[] = [];
   let text = "";
   let right = 0;
   let size = 0;
+  let baseline: number | null = null;
   const end = () => {
     lines.push({ text, size, right });
     text = "";
     right = 0;
     size = 0;
+    baseline = null;
   };
   for (const item of items) {
     // Marked-content boundaries carry no text.
     if (!("str" in item) || typeof item.str !== "string") continue;
-    text += item.str.replaceAll("\u0000", "").replace(/\r\n?/g, "\n");
+    const read = item.str.replaceAll("\u0000", "").replace(/\r\n?/g, "\n");
     const placed = textItemOf(item);
+    // Read as plain digits, a raised mark after an amount would make it 1,240.501 (#2474), the
+    // way a table row's mark is a footnote's and not a digit (#448).
+    const mark =
+      placed !== null &&
+      baseline !== null &&
+      size > 0 &&
+      ALL_DIGITS.test(placed.str.trim()) &&
+      placed.fontSize <= size * MARK_SIZE &&
+      placed.baseline - baseline >= placed.size * MARK_RAISE &&
+      MARK_AFTER_NUMBER.test(text);
+    text += mark ? shiftedDigits(read, true) : read;
     // A line set at an angle has no right end to compare, but its size still tells a heading
     // from the text under it, so only the edge is left out.
     if (placed && placed.str.trim() !== "") {
       size = Math.max(size, placed.fontSize);
+      baseline ??= placed.baseline;
       if (placed.level) right = Math.max(right, placed.x + placed.width);
     }
     if ("hasEOL" in item && item.hasEOL === true) end();
