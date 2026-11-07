@@ -1294,7 +1294,7 @@ export function createAnswers(options: AnswersOptions) {
     web?: boolean;
     /** "Analyse data…" was chosen (#447): `run_analysis` is offered whatever the Search scope holds. */
     analyse?: boolean;
-    /** Hears each Tool call as it ends. */
+    /** Hears each Tool call as it starts and as it ends, a call the Answer's end cut short too. */
     onCall?(call: AnswerToolCall): void;
     /**
      * An Answer in the assistant (#202): the Mind it was asked from and the
@@ -1874,7 +1874,8 @@ export function createAnswers(options: AnswersOptions) {
       // A Tool call still running when the Answer stopped didn't finish; one still waiting for
       // the User never ran (aborting above withdrew its request).
       for (const call of toolCalls) {
-        if (call.status === "running") call.status = "failed";
+        const cut = call.status === "running";
+        if (cut) call.status = "failed";
         if (call.approval === "waiting") call.approval = "denied";
         // What a call was given is kept with the conversation, where no id may be stored (#1800).
         call.input = Object.fromEntries(
@@ -1883,6 +1884,7 @@ export function createAnswers(options: AnswersOptions) {
             typeof value === "string" ? withoutWrittenIds(value, ids) : value,
           ]),
         );
+        if (cut) input.onCall?.({ ...call });
       }
       settle();
       const judging = judgesItsSentences() && outcome.status !== "failed";
@@ -1974,6 +1976,7 @@ export function createAnswers(options: AnswersOptions) {
       }
       toolCalls.push(call);
       announce("answer.toolCallStarted", { ...place, answerId, call: { ...call } });
+      input.onCall?.({ ...call });
       writeSoon();
     };
     const callFinished = (
@@ -4973,7 +4976,7 @@ export function createAnswers(options: AnswersOptions) {
      * and, with `web`, the web, whatever the step's words; a page it reads is
      * saved into the Folder of `mindId`. It uses no Connector and no Skill
      * script, so nothing it does waits for the User. The model is ready and
-     * allowed already. `onCall` hears each Tool call as it ends.
+     * allowed already. `onCall` hears each Tool call as it starts and as it ends.
      */
     answerResearch(input: {
       mindId: string;
