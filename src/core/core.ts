@@ -4042,6 +4042,7 @@ export function createCore(adapters: CoreAdapters): Core {
         : null,
     tokensOf: approximateTokens,
     propose: (run, proposals) => organizeReview.propose(run, proposals),
+    settled: (ids) => library.settle(ids),
     progress: (progress) => events.emit("organize.progress", progress),
   });
   try {

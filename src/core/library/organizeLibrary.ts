@@ -79,6 +79,8 @@ export function createLibraryOrganizer(options: {
   inDollars(estimate: RunEstimate): number | null;
   tokensOf(text: string): number;
   propose(run: OrganizeReviewRun, proposals: readonly OrganizeReviewProposal[]): number;
+  /** Organize has finished with these: one that waited, was queued or failed is done where it is. */
+  settled(documentIds: readonly string[]): void;
   progress(progress: OrganizeProgress): void;
 }) {
   const { db } = options;
@@ -329,6 +331,9 @@ export function createLibraryOrganizer(options: {
             folderId: input.folderId,
           },
           proposals,
+        );
+        options.settled(
+          subjects.flatMap((subject) => (plan?.places.has(subject.id) ? [subject.id] : [])),
         );
         return {
           status: "done",

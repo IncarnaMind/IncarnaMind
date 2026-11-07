@@ -587,6 +587,32 @@ describe("Confirm makes it the User's, in one step with one Undo", () => {
     expect(redone.reviewCount).toBe(0);
   });
 
+  test("Confirm done again leaves where it is a Document the User filed elsewhere after its Undo", async () => {
+    const setup = await setUp();
+    const { core, dataDir, clock, lease, contracts } = setup;
+    propose(dataDir, clock, { origin: "library" }, [
+      {
+        documentId: lease.id,
+        contentHash: lease.contentHash,
+        placement: { kind: "newFolder", name: "Leases", description: "Lease papers" },
+        tags: [],
+      },
+    ]);
+    const confirmed = await core.confirmOrganizeReview(
+      (await core.getOrganizeReview()).items.map((item) => item.id),
+    );
+    if (!confirmed) throw new Error("Nothing was confirmed.");
+    await core.undoOrganizeReviewConfirmation(confirmed.id);
+    await core.assignDocumentGroup(lease.id, contracts.id);
+
+    await core.redoOrganizeReviewConfirmation(confirmed.id);
+
+    expect(await assignmentOf(core, lease.id)).toMatchObject({
+      groupId: contracts.id,
+      source: "user",
+    });
+  });
+
   test("a left-out row's Tags wait: Confirm adds those of the rows it files, and none of a left-out one", async () => {
     const setup = await setUp();
     const { core, dataDir, clock, lease, minutes, contracts, invoiceTag } = setup;
