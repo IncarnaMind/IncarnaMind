@@ -93,8 +93,11 @@ async function startSite() {
   return { live, url: (path: string) => `http://127.0.0.1:${port}${path}` };
 }
 
-/** Fetches within a second and 100 KB in tests, so nothing waits on the real limits. */
-const LIMITS = { webPages: { limits: { timeoutMs: 1_000, maxBytes: 100_000 } } };
+/**
+ * Fetches within a second and 100 KB in tests, so nothing waits on the real
+ * limits, from the local server standing in for the web.
+ */
+const LIMITS = { webPages: { fetch, limits: { timeoutMs: 1_000, maxBytes: 100_000 } } };
 
 async function saved(core: Core, input: Parameters<Core["saveWebPage"]>[0]) {
   const result = await core.saveWebPage(input);

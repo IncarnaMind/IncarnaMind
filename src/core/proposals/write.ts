@@ -2127,50 +2127,93 @@ function onlyNumbersDiffer(segment: Segment, paragraph: NewParagraph): boolean {
   return old.join("\n") !== now.join("\n") && rest(old) === rest(now);
 }
 
-/** A paragraph's text as it reads: its spaces kept, as one between words, so "Now here." is not "Nowhere.". */
-function readText(tokens: readonly { text?: string }[]): string {
-  return tokens
-    .map((token) => token.text ?? "")
-    .join("")
-    .replace(/\s+/g, " ")
-    .trim();
+/** How a text reads to compare it with another: each character, where it starts and where it ends. */
+interface Reading {
+  chars: string;
+  at: number[];
+  ends: number[];
 }
 
-/** A paragraph's words and signs as compared with a quote: no spaces, any case, each character where it is in its Block. */
-function charsOf(tokens: readonly OldToken[]): { chars: string; at: number[] } {
-  let chars = "";
-  const at: number[] = [];
-  for (const token of tokens) {
-    if (token.text === undefined) continue;
-    for (let index = 0; index < token.text.length; index++) {
-      const char = token.text[index] as string;
-      if (/\s/.test(char)) continue;
-      const lower = char.toLowerCase();
-      chars += lower;
-      for (let unit = 0; unit < lower.length; unit++) at.push(token.from + index);
+const GRAPHEMES = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
+/**
+ * Words and signs as one reading compares them: any case, unless `asWritten`; each character as
+ * Unicode composes it, so "résumé" typed either way reads the same; and no spaces but one where
+ * a space or a line break parts two letters or digits, as it parts "now here" from "nowhere"
+ * (#2589). Beside a Chinese character a space parts nothing, so "使用 Excel" reads as "使用Excel".
+ * Each character of the reading keeps where its character starts and ends in the text, in UTF-16 units.
+ */
+function readChars(characters: Iterable<{ char: string; at: number }>, asWritten = false): Reading {
+  const read: Reading = { chars: "", at: [], ends: [] };
+  let last: string | null = null;
+  let spaced: number | null = null;
+  for (const each of characters) {
+    if (/^\s+$/u.test(each.char)) {
+      spaced ??= each.at;
+      continue;
     }
+    if (last !== null && spaced !== null && partsWords(last, each.char)) {
+      read.chars += " ";
+      read.at.push(spaced);
+      read.ends.push(spaced + 1);
+    }
+    spaced = null;
+    const char = (asWritten ? each.char : each.char.toLowerCase()).normalize("NFC");
+    read.chars += char;
+    for (let unit = 0; unit < char.length; unit++) {
+      read.at.push(each.at);
+      read.ends.push(each.at + each.char.length);
+    }
+    last = each.char;
   }
-  return { chars, at };
+  return read;
+}
+
+/** Each character of a text as one sees it, with where it starts: positions in a Block count UTF-16 units. */
+const graphemesOf = (text: string, from: number) =>
+  [...GRAPHEMES.segment(text)].map(({ segment, index }) => ({ char: segment, at: from + index }));
+
+/**
+ * What a reading reads of a token. A line break parts two words on the page as a space does, and a
+ * reply may write a space beside it or leave one out, so it reads as one; a Citation, a footnote
+ * or a formula between two letters parts nothing (#2589).
+ */
+const readingOf = (token: { text?: string; node?: InlineNode }) =>
+  token.text ?? (token.node?.name === BREAK ? "\n" : undefined);
+
+/** A paragraph's words and signs as `readChars` reads them, each character where it is in its Block. */
+function charsOf(tokens: readonly OldToken[], asWritten = false): Reading {
+  return readChars(
+    tokens.flatMap((token) => {
+      const text = readingOf(token);
+      return text === undefined ? [] : graphemesOf(text, token.from);
+    }),
+    asWritten,
+  );
 }
 
 /** New text's words and signs as `charsOf` reads a paragraph's, each character where it is in that text. */
-function newCharsOf(tokens: readonly NewToken[]): { chars: string; at: number[] } {
-  const text = tokens.map((token) => token.text ?? "").join("");
-  let chars = "";
-  const at: number[] = [];
-  for (let index = 0; index < text.length; index++) {
-    const char = text[index] as string;
-    if (/\s/.test(char)) continue;
-    const lower = char.toLowerCase();
-    chars += lower;
-    for (let unit = 0; unit < lower.length; unit++) at.push(index);
-  }
-  return { chars, at };
+function newCharsOf(tokens: readonly NewToken[], asWritten = false): Reading {
+  return readChars(
+    graphemesOf(tokens.map((token) => readingOf(token) ?? "").join(""), 0),
+    asWritten,
+  );
 }
 
-/** A letter or digit of a word that runs on without spaces, unlike a Chinese character. */
-const IN_WORD = /^[\p{L}\p{N}]$/u;
+/** A Chinese character: words run on without spaces there. */
 const HAN_CHAR = /^\p{Script=Han}$/u;
+/** A character that starts with a letter or a digit, its marks with it: one of a word's. */
+const WORD_START = /^[\p{L}\p{N}]/u;
+const HAN_START = /^\p{Script=Han}/u;
+/** Two characters a space between parts into two words: of words, neither of them Chinese. */
+const partsWords = (a: string, b: string) =>
+  WORD_START.test(a) && WORD_START.test(b) && !HAN_START.test(a) && !HAN_START.test(b);
+/** The character of a reading at `index`, whole where it takes two UTF-16 units. */
+const charOf = (chars: string, index: number) => {
+  const unit = chars.charCodeAt(index);
+  const start = unit >= 0xdc00 && unit <= 0xdfff && index > 0 ? index - 1 : index;
+  return String.fromCodePoint(chars.codePointAt(start) ?? 0x20);
+};
 /** A sentence or clause mark, a closing bracket or quote: it closes onto the word before it. */
 const CLOSING = /^[.,;:!?…)\]}»”’"'。，、；：！？）】》」』]$/u;
 /** An opening bracket or quote: the word after it starts there. */
@@ -2182,10 +2225,7 @@ const CELLS: ReadonlySet<string> = new Set(["tableCell", "tableHeader"]);
  * Where a quote's words are in a paragraph, as characters of `charsOf` (#2180): the one place
  * they are, word for word and never cutting a word; null when they are nowhere, or in more than one place.
  */
-function placeQuote(
-  paragraph: { chars: string; at: number[] },
-  quote: string,
-): { first: number; end: number } | null {
+function placeQuote(paragraph: Reading, quote: string): { first: number; end: number } | null {
   const places = placesOf(paragraph, quote);
   const [only] = places;
   return places.length === 1 && only !== undefined
@@ -2193,8 +2233,11 @@ function placeQuote(
     : null;
 }
 
-/** Every place a quote's words are in a paragraph, word for word, never cutting a word: "draft" isn't in "drafts". */
-function placesOf(paragraph: { chars: string; at: number[] }, quote: string): number[] {
+/**
+ * Every place a quote's words are in a paragraph, word for word, never cutting a word or a
+ * character: "draft" isn't in "drafts", nor "किताब" in "किताबें", nor "👍" in "👍🏽".
+ */
+function placesOf(paragraph: Reading, quote: string): number[] {
   if (quote === "") return [];
   const places: number[] = [];
   for (
@@ -2204,11 +2247,12 @@ function placesOf(paragraph: { chars: string; at: number[] }, quote: string): nu
   ) {
     const end = at + quote.length;
     const runsOn = (inside: number, outside: number) => {
-      const a = paragraph.chars[inside] ?? "";
-      const b = paragraph.chars[outside] ?? "";
-      const touching = Math.abs((paragraph.at[inside] ?? 0) - (paragraph.at[outside] ?? 0)) === 1;
+      const [before, after] = inside < outside ? [inside, outside] : [outside, inside];
       return (
-        touching && IN_WORD.test(a) && IN_WORD.test(b) && !HAN_CHAR.test(a) && !HAN_CHAR.test(b)
+        // One character's UTF-16 units share its start; a quote's edge between them cuts it.
+        paragraph.at[before] === paragraph.at[after] ||
+        (paragraph.ends[before] === paragraph.at[after] &&
+          partsWords(charOf(paragraph.chars, inside), charOf(paragraph.chars, outside)))
       );
     };
     if (at > 0 && runsOn(at, at - 1)) continue;
@@ -2439,7 +2483,8 @@ export function createRewriteStream(
   const numbersOnly = (segment: Segment, paragraph: NewParagraph) =>
     segments.length > 1 && onlyNumbersDiffer(segment, paragraph);
   const sameAs = segments.map((segment) => charsOf(segment.tokens).chars);
-  const texts = segments.map((segment) => readText(segment.tokens));
+  /** As `sameAs`, in its case: a line written again in capitals is another line (#2589). */
+  const asWritten = segments.map((segment) => charsOf(segment.tokens, true).chars);
   /**
    * How alike a new paragraph is to each of the selection's, whether it says words of that one's
    * own, what share of them (1 for one with none) and what share of its own words they are, how
@@ -2485,20 +2530,24 @@ export function createRewriteStream(
     const index = indexOf.get(segment) ?? -1;
     return (ownShare[index] ?? 0) > HALF_ITS_OWN || (ofOwn[index] ?? 0) >= HALF_ITS_OWN;
   };
+  /** Says more than half of the words only this paragraph has, amounts left out. */
+  const saysMostOfItsOwn = (segment: Segment, paragraph: NewParagraph) =>
+    (nearnessOf(paragraph).ownShare[indexOf.get(segment) ?? -1] ?? 0) > HALF_ITS_OWN;
   /**
    * Whether anything can say a new paragraph is this one of the selection's rather than one added
-   * beside it: this is the selection's first, which takes the text's first (#2333); it has words
-   * no other has, amounts left out; or the new one reads as it, word for word. One with none, each
-   * of its words also in another's, can't be told from a line added there, however alike, or
-   * however much of it the line says (#2356). Every rule that lets a new paragraph take one of the
-   * selection's places, or read as one moved, asks this first.
+   * beside it: it has words no other has, amounts left out; the new one reads as it, word for
+   * word; or, `renamed`, it is the selection's first and the text rewrites the paragraph after it
+   * too, as a rename does (#2333). One with none, each of its words also in another's, can't be
+   * told from a line added there, however alike, or however much of it the line says (#2356,
+   * #2589). Every rule that lets a new paragraph take one of the selection's places, or read as
+   * one moved, asks this first.
    */
-  const mayTakePlace = (segment: Segment, paragraph: NewParagraph) => {
+  const mayTakePlace = (segment: Segment, paragraph: NewParagraph, renamed = false) => {
     const index = indexOf.get(segment) ?? -1;
     return (
-      index === 0 ||
+      (renamed && index === 0) ||
       [...(ownWords.get(segment) ?? [])].some((word) => !isAmount(word)) ||
-      readText(paragraph.tokens) === texts[index]
+      newCharsOf(paragraph.tokens, true).chars === asWritten[index]
     );
   };
   /** Much like one of the selection's paragraphs, whichever it is. */
@@ -2654,7 +2703,7 @@ export function createRewriteStream(
   /** Paragraphs added anew: a left-out paragraph much like one of them was moved there. */
   const addedAnew: NewParagraph[] = [];
   /** The selection's paragraphs the text wrote over or moved, each with its new words as a quote is compared. */
-  const writtenOver = new Map<Segment, { chars: string; at: number[] }>();
+  const writtenOver = new Map<Segment, Reading>();
 
   const pairWith = (paragraph: NewParagraph, index: number) => {
     const segment = segments[index];
@@ -2705,15 +2754,19 @@ export function createRewriteStream(
    * The paragraphs held, written: paired with the selection's from `at` to `to` as `pairUp`
    * pairs them. `bounded`: the text pairs a paragraph with the selection's at `to` next.
    */
-  const writeHeld = (to: number, bounded = false) => {
+  const writeHeld = (to: number, bounded = false, next?: NewParagraph) => {
     const from = at;
     const between = segments.slice(from, to);
     const whole = translating();
+    const renamed =
+      from === 0 && next !== undefined && newCharsOf(next.tokens, true).chars !== asWritten[to];
     // Where the text may leave paragraphs out, a paragraph it doesn't name is never written over
     // (#2333). A place says which paragraph a new one is only in a stretch of as many new ones as
     // old, each written as their kind. Between two places the text holds, where it pairs with
     // the selection's paragraphs or starts as the selection does, that is one in the place of
-    // one that says more than half of that one's own words, or several each more than half like
+    // one that says more than half of that one's own words (at the start, or is made at least half
+    // of them, as a short summary is: between two lines the text keeps, a new line that repeats
+    // part of one is as likely an addition, #2589), or several each more than half like
     // the one in its place, since a stray line such as "Changed to:" beside a new one names none,
     // and a new line on the pattern of the two around it says nothing of the one between (#2356). After the last (a partial text stops early, so
     // its end holds no place), each must also say in its words which it is: `TELLING_WORDS` of
@@ -2725,11 +2778,14 @@ export function createRewriteStream(
       held.every((paragraph) => !paragraph.asOther) &&
       (bounded
         ? held.length === 1
-          ? mayTakePlace(between[0] as Segment, held[0] as NewParagraph) &&
-            saysItsOwn(between[0] as Segment, held[0] as NewParagraph)
+          ? mayTakePlace(between[0] as Segment, held[0] as NewParagraph, renamed) &&
+            (from === 0 ? saysItsOwn : saysMostOfItsOwn)(
+              between[0] as Segment,
+              held[0] as NewParagraph,
+            )
           : held.every(
               (paragraph, index) =>
-                mayTakePlace(between[index] as Segment, paragraph) &&
+                mayTakePlace(between[index] as Segment, paragraph, renamed) &&
                 placeLikeness(between[index] as Segment, paragraph) > MOVED_LIKENESS,
             )
         : held.every(
@@ -2827,7 +2883,7 @@ export function createRewriteStream(
     const like =
       near !== null && keeps && !readsAs(segments[near] as Segment, paragraph) ? null : near;
     if (like !== null && like - at <= LOOKAHEAD + held.length) {
-      writeHeld(like, true);
+      writeHeld(like, true, paragraph);
       pairWith(paragraph, like);
       anchored = true;
       return;
@@ -2998,7 +3054,7 @@ export function createRewriteStream(
     }
     const read = new Map(segments.map((segment) => [segment, charsOf(segment.tokens)] as const));
     const stretches = new Map<Segment, { first: number; end: number; quote: string }[]>();
-    const none = { chars: "", at: [] };
+    const none: Reading = { chars: "", at: [], ends: [] };
     for (const quote of quotes) {
       const holds = (segment: Segment) =>
         placesOf(read.get(segment) ?? none, quote.chars).length > 0;
@@ -3031,9 +3087,14 @@ export function createRewriteStream(
     }
     const whole: Segment[] = [];
     for (const [segment, places] of stretches) {
-      const { chars, at } = read.get(segment) ?? { chars: "", at: [] };
+      const { chars, at, ends } = read.get(segment) ?? { chars: "", at: [], ends: [] };
       const taken = new Array<boolean>(chars.length).fill(false);
       for (const { first, end } of places) taken.fill(true, first, end);
+      // The space between two quoted stretches goes with them: they are one stretch, as a quote
+      // cut at a line break is (#2589).
+      for (let index = 1; index + 1 < chars.length; index++) {
+        if (chars[index] === " " && taken[index - 1] && taken[index + 1]) taken[index] = true;
+      }
       if (taken.every(Boolean)) {
         whole.push(segment);
         continue;
@@ -3042,7 +3103,7 @@ export function createRewriteStream(
         let end = first;
         while (taken[end]) end++;
         const from = at[first] ?? segment.start;
-        const part = partOf(segment, from, (at[end - 1] ?? from) + 1);
+        const part = partOf(segment, from, ends[end - 1] ?? from + 1);
         if (part) {
           removePart(segment, part);
           quotedOutOf.add(segment);
