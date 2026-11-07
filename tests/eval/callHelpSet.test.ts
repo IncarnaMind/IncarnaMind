@@ -191,6 +191,21 @@ describe("A press during the call", { timeout: 120_000 }, () => {
     expect(judged[0]).toContain(`[1] Price sheet 2026: “${ENTERPRISE}” (found)`);
   });
 
+  // protects=a long call's turns reach the press as said: once each, in order, a turn longer than a partial included; fails_when=a long turn is decoded again for each partial and the call is heard out of order, some lines twice and others never; no_claim=the real streaming model.
+  test("hears a long call's every line once and in order, whatever a turn's length", async () => {
+    const want = CALL_HELP_CASES.find((each) => each.id === "en-want");
+    if (!want) throw new Error("No case en-want.");
+    const { calls } = await pressed("en-want", ENTERPRISE, { grade: "wrong", unstated: [] });
+
+    const heard = [
+      ...block(calls[0]?.prompt ?? "", "live-transcript").matchAll(
+        /^\[[\d:]+ (?:Me|Them)\] (.*)$/gm,
+      ),
+    ].map((match) => match[1]);
+    // The live transcript's Passages overlap, so a line may show in two of them.
+    expect([...new Set(heard)]).toEqual(callOf(want).map((turn) => turn.text));
+  });
+
   test("a found Citation of another line than the case rests on isn't cited, and a sentence the judge says its quote doesn't state is a false Supported", async () => {
     const { run } = await pressed("en-answer-sso", TEAM, { grade: "wrong", unstated: [1] });
 

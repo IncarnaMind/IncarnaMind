@@ -69,6 +69,10 @@ function callRig(turns: readonly CallTurn[]) {
     lines: turns.filter((turn) => turn.who === "me").map((turn) => turn.text),
     theirLines: turns.filter((turn) => turn.who === "them").map((turn) => turn.text),
     maxSpeechMs: LONGEST_TURN_MS + 1000,
+    // Partial words come from the streaming model: otherwise a turn longer than a partial's 2.5 s
+    // is decoded again for each partial, each decode says the next line, and the call is heard
+    // out of order, some lines twice and others never.
+    live: true,
   });
   return {
     capture,
