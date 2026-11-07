@@ -2,7 +2,7 @@
  * The one action a group of Organize failures offers (#2308): add credit, check
  * the key, or choose another model, in the words the Answer's problems already
  * use. Once the User is back from adding credit, every Document that still has
- * that failure tries once by itself (#2535).
+ * that failure tries once by itself (#2308).
  */
 
 import { core } from "./core";
@@ -14,7 +14,7 @@ import { allExamples, isOwnDocument, useAppStore } from "./store";
 /** Settings › Models › Advanced › Tagging: the one model choice for tagging and Organize. */
 const organizeModelSettings = () => useAppStore.getState().openSettings("models", "tagging");
 
-/** The Documents whose latest failure is this cause now, the list To review and ⌘K act on (#2535). */
+/** The Documents whose latest failure is this cause now, the list To review and ⌘K act on (#2308). */
 export function documentsOfCause(kind: ReviewProblemKind): readonly string[] {
   const state = useAppStore.getState();
   const own = state.documents.filter((document) => isOwnDocument(document, allExamples(state)));
@@ -33,7 +33,7 @@ let returns = 0;
 /**
  * The one retry a press arms runs only while Organize still sends where its billing page was
  * opened. A model changed elsewhere while the page was away is another destination, and the
- * return sends nothing to it without a new choice (#2535, ADR-0022).
+ * return sends nothing to it without a new choice (#2308, ADR-0022).
  */
 async function retryOnReturn(openedFor: string): Promise<void> {
   try {
@@ -50,7 +50,7 @@ async function retryOnReturn(openedFor: string): Promise<void> {
 /**
  * The User came back after adding credit: every Document that still has the credit failure tries
  * once, with no press. Only an Add credit press arms this, so a plain return spends nothing, and
- * the list is read on return rather than kept from the press (#2535).
+ * the list is read on return rather than kept from the press (#2308).
  */
 function retryWhenBack(pressedAfter: number, openedFor: string): void {
   if (!watchingReturns) {

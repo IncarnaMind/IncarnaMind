@@ -622,7 +622,7 @@ function Organize({ documents }: { documents: readonly Document[] }) {
     () => unsettledProblemsOf(documents, library?.assignments ?? []),
     [documents, library],
   );
-  // The count, the causes and Try again's list all come from the same failures (#2535).
+  // The count, the causes and Try again's list all come from the same failures (#2308).
   const failedCount = problems.reduce((count, problem) => count + problem.documentIds.length, 0);
   const retryIds = retryableIds(problems);
   const run = (ids: readonly string[]) => {

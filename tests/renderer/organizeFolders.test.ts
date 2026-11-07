@@ -96,7 +96,7 @@ describe("the Folders Organize made", () => {
 });
 
 describe("the Documents a cause covers", () => {
-  test("the credit list spans To review's blocks, and leaves another cause and a manual place out (#2535)", () => {
+  test("the credit list spans To review's blocks, and leaves another cause and a manual place out (#2308)", () => {
     const doc = (id: string): Document =>
       ({ id, name: id, tagging: "tagged", linkedFolderId: null }) as Document;
     const held = (

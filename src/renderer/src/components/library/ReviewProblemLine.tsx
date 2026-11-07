@@ -8,7 +8,7 @@ import { ProblemLine } from "../ProblemLine";
 /**
  * One cause behind several Documents Organize couldn't sort (#2308): the
  * Library's own words for it and the one action that fits it. A cause it
- * can't name offers Try again alone (#2535).
+ * can't name offers Try again alone (#2308).
  */
 export function ReviewProblemLine({
   problem,

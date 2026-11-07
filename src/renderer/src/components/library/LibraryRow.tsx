@@ -133,7 +133,7 @@ const OWN_CLICKS = "button:not([data-row-main]), input, a, [role=menu], [role=di
 const KEEPS_MODIFIER_CLICKS =
   "input, textarea, select, a, [role=menu], [role=dialog], [data-cite-panel]";
 
-/** Try again on one Document Organize couldn't place, where it can't name the cause (#2535). */
+/** Try again on one Document Organize couldn't place, where it can't name the cause (#2308). */
 function RetryOrganize({
   doc,
   testId = "library-not-organized-retry",

@@ -12,7 +12,7 @@ const ownNow = () => {
   return state.documents.filter((document) => isOwnDocument(document, allExamples(state)));
 };
 
-/** The failed Documents Try again can help now: another cause needs its own fix first (#2535). */
+/** The failed Documents Try again can help now: another cause needs its own fix first (#2308). */
 const retryableNow = () =>
   retryableIds(unsettledProblemsOf(ownNow(), useAppStore.getState().library?.assignments ?? []));
 

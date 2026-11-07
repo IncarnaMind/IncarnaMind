@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 import type { Document, DocumentGroupAssignment } from "../../src/core/api";
 
 /*
- * The one automatic retry after Add credit (#2535): only an Add credit press arms it, two presses
+ * The one automatic retry after Add credit (#2308): only an Add credit press arms it, two presses
  * before the return still send one list, the list is read on return rather than kept from the
  * press, a second return asks for nothing, and a return whose destination changed sends nothing.
  */
@@ -101,7 +101,7 @@ beforeEach(async () => {
   ({ fixOrganizeProblem } = await import("../../src/renderer/src/organizeFix"));
 });
 
-describe("the one retry after Add credit (#2535)", () => {
+describe("the one retry after Add credit (#2308)", () => {
   test("a plain return with no Add credit press retries nothing", async () => {
     returnToApp();
     await settle();

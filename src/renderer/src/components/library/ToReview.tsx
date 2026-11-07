@@ -63,7 +63,7 @@ export function ToReview({
   const unsorted = notSorted.length > 0;
   const shownAll = showingAll.has(UNSORTED_KEY);
   const unsortedListed = shownAll ? notSorted : notSorted.slice(0, FIRST_ROWS);
-  // One credit line for every block (#2535): its fix is one press, wherever the failures sit.
+  // One credit line for every block (#2308): its fix is one press, wherever the failures sit.
   const credit = unsettledProblemsOf(
     [...review.groups.flatMap((group) => group.documents), ...notSorted],
     assignments,
@@ -146,7 +146,7 @@ export function ToReview({
       />
       {open && credit && (
         // It stays at the top of the page's scroll so a row Review reveals far down keeps its
-        // one line and its action in view (#2535).
+        // one line and its action in view (#2308).
         <div data-testid="library-review-credit" className="sticky top-0 z-10 bg-sheet">
           <ReviewProblemLine problem={credit} serviceName={serviceName} />
         </div>

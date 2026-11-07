@@ -116,11 +116,11 @@ export function problemLine(
 export const namedProblem = (kind: ReviewProblemKind, service: string | null): boolean =>
   kind !== "other" && service !== null;
 
-/** The one action a line offers: its cause's fix where it can be named, else Try again (#2535). */
+/** The one action a line offers: its cause's fix where it can be named, else Try again (#2308). */
 export const problemAction = (kind: ReviewProblemKind, service: string | null): "fix" | "retry" =>
   namedProblem(kind, service) && PROBLEM_FIX[kind] !== undefined ? "fix" : "retry";
 
-/** The cause in mid-sentence, for the Not in a Folder header and a Folder row's prefix (#2535). */
+/** The cause in mid-sentence, for the Not in a Folder header and a Folder row's prefix (#2308). */
 export const CAUSE_WORDS: Record<Exclude<ReviewProblemKind, "other">, MessageKey> = {
   credit: "library.cause.credit",
   keyRefused: "library.cause.keyRefused",
@@ -132,12 +132,12 @@ export const CAUSE_WORDS: Record<Exclude<ReviewProblemKind, "other">, MessageKey
 export const retryableCause = (kind: ReviewProblemKind): boolean =>
   kind === "other" || kind === "rateLimit";
 
-/** The Documents Try again may send: only those whose cause a retry can help (#2535). */
+/** The Documents Try again may send: only those whose cause a retry can help (#2308). */
 export function retryableIds(problems: readonly ReviewProblem[]): string[] {
   return problems.flatMap((problem) => (retryableCause(problem.kind) ? problem.documentIds : []));
 }
 
-/** The cause alone, for a Document's own row, whose place already says it is Organize's (#2535). */
+/** The cause alone, for a Document's own row, whose place already says it is Organize's (#2308). */
 export const ROW_PROBLEM_WORDS: Record<ReviewProblemKind, MessageKey> = {
   credit: "library.row.problem.credit",
   keyRefused: "library.row.problem.keyRefused",
@@ -167,7 +167,7 @@ export function reviewReason(
 }
 
 /**
- * A Folder row's cause, prefixed because the place no longer says it is Organize's (#2535); a
+ * A Folder row's cause, prefixed because the place no longer says it is Organize's (#2308); a
  * cause it can't name keeps its own short word.
  */
 export function folderProblemWords(kind: ReviewProblemKind, t: Translate): string {
@@ -177,7 +177,7 @@ export function folderProblemWords(kind: ReviewProblemKind, t: Translate): strin
 }
 
 /**
- * The Not in a Folder header's words (#2535): the count, and the cause when every failure shares
+ * The Not in a Folder header's words (#2308): the count, and the cause when every failure shares
  * one the Library can name. The caller adds Try again only when `retryableCause` says so.
  */
 export function notOrganizedLine(

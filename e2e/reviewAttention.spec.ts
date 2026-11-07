@@ -30,7 +30,7 @@ import {
 
 const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
 
-/** A name long enough to cut the cause beside it if the cause gives way first (#2535). */
+/** A name long enough to cut the cause beside it if the cause gives way first (#2308). */
 const LONG_NAME =
   "Invoice 4 quarterly maintenance invoice for the north warehouse roof and gutter repairs";
 
@@ -179,7 +179,7 @@ test("Review goes to each Document that needs attention, and a credit failure is
     await expect(header).toHaveText("4 Documents not organized: no credit left");
     await expect(header.getByRole("button")).toHaveCount(0);
 
-    // A row names only the cause, and its tooltip and accessible name carry the whole sentence (#2535).
+    // A row names only the cause, and its tooltip and accessible name carry the whole sentence (#2308).
     const failedRow = library
       .locator("[data-document-id]")
       .filter({ has: window.getByTestId("library-not-sorted") })
@@ -295,7 +295,7 @@ test("Review goes to each Document that needs attention, and a credit failure is
     await screenshot(window, "review-attention-en-900-gone");
     await expect(attentionOf(window)).toHaveCount(0);
 
-    // Add credit opens the company's billing page; back in the app, they try once by themselves (#2535).
+    // Add credit opens the company's billing page; back in the app, they try once by themselves (#2308).
     await pointAndClick(window, line.getByTestId("library-review-problem-fix"));
     await expect
       .poll(() => urlsOpened(app))
@@ -474,7 +474,7 @@ test("a Document Review showed needs attention again after Undo, and Review land
     const library = window.getByTestId("library");
     await pointAndClick(window, library.getByTestId("library-organize"));
 
-    // One Document needs attention, and the sidebar says so in the singular (#2535).
+    // One Document needs attention, and the sidebar says so in the singular (#2308).
     const status = attentionOf(window);
     await expect(status).toBeVisible({ timeout: 60_000 });
     await expect(status.getByTestId("status-label")).toHaveText("Needs attention");

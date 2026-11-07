@@ -148,7 +148,7 @@ describe("the words and the actions", () => {
   });
 });
 
-describe("the one action a line offers and the row's own words (#2535)", () => {
+describe("the one action a line offers and the row's own words (#2308)", () => {
   test("a named cause offers its fix alone; only a cause it can't name keeps Try again", () => {
     expect(problemAction("credit", "OpenAI")).toBe("fix");
     expect(problemAction("keyRefused", "OpenAI")).toBe("fix");
@@ -207,7 +207,7 @@ describe("the one action a line offers and the row's own words (#2535)", () => {
   });
 });
 
-describe("the same eligible Documents for the count, the cause and Try again (#2535)", () => {
+describe("the same eligible Documents for the count, the cause and Try again (#2308)", () => {
   test("a manual place is left out even when a later run failed", () => {
     const documents = [doc("automatic"), doc("manual")];
     const problems = unsettledProblemsOf(documents, [
@@ -231,7 +231,7 @@ describe("the same eligible Documents for the count, the cause and Try again (#2
   });
 });
 
-describe("the header and a Folder row's words (#2535)", () => {
+describe("the header and a Folder row's words (#2308)", () => {
   test("the Not in a Folder header names the shared cause, in words only, in both languages", () => {
     const credit = { kind: "credit" as const, documentIds: ["a"] };
     expect(notOrganizedLine([credit], 6, en)).toBe("6 Documents not organized: no credit left");
