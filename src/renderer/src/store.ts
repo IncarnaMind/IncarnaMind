@@ -73,6 +73,7 @@ import { NEEDS_REVIEW } from "./libraryFilters";
 import type { WordsInLine } from "./lineNames";
 import { formatCount, folderName as linkedFolderName } from "./linkedFolders";
 import { isListedDocument } from "./meetingTranscript";
+import { showNotesOf } from "./meetingViews";
 import {
   foldersMovedFrom,
   itemsOf,
@@ -1616,6 +1617,7 @@ export const useAppStore = create<AppState>()((set, get) => {
     },
 
     openMind(id, options) {
+      showNotesOf(id);
       void get().changeLayout({
         type: "open",
         item: { kind: "mind", mindId: id },

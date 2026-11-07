@@ -153,6 +153,7 @@ export async function transcribingCore(
     engine = {},
     model,
     createChatModel,
+    ollamaModels,
     loads,
     log,
     capture: captureOptions,
@@ -177,6 +178,7 @@ export async function transcribingCore(
     model?: Parameters<typeof scriptedModels>[0];
     /** Real chat models instead of a scripted one, for a live test. */
     createChatModel?: ChatModelFactory;
+    ollamaModels?: CoreAdapters["ollamaModels"];
     /** The engine starts once this resolves, as a model loading slowly does. */
     loads?: Promise<void>;
     log?: Logger;
@@ -210,6 +212,7 @@ export async function transcribingCore(
     now: clock.now,
     ...(models && { createChatModel: models.createChatModel }),
     ...(createChatModel && { createChatModel }),
+    ...(ollamaModels && { ollamaModels }),
     ...(log && { log }),
     ...(keychain && { keychain }),
     ...(speakerSeparator && { speakerSeparator, speakerModelSource }),

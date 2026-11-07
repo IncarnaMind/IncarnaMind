@@ -465,6 +465,8 @@ export interface AnswerRequest {
   toolSet?: ToolSet;
   /** The output limit of each of its replies, when it writes more than an Answer. Absent: by `toolSet`. */
   outputKind?: ModelCallKind;
+  /** Framed Meeting facts with missing Citations are omitted, never repaired (#2306). */
+  meetingFacts?: true;
   /** What a search says of the Answer's language after its Passages (see `DocumentToolsHooks`). */
   languageNote?(): string | null;
   /**
@@ -1258,6 +1260,7 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
             messages: request.messages,
             question: request.question,
             mind: request.mind,
+            ...(request.meetingFacts && { requiredContext: true }),
           });
           if (!fit.ok) {
             yield { type: "failed", error: fit.error };
@@ -1431,6 +1434,18 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
               ),
             );
           } else {
+            if (budget && request.meetingFacts) {
+              const fit = budget.fit({
+                instructions: request.instructions(support, { passages: "" }),
+                messages: request.messages,
+                question: request.question,
+                requiredContext: true,
+              });
+              if (!fit.ok) {
+                yield { type: "failed", error: fit.error };
+                return;
+              }
+            }
             const found: SearchResultForModel = yield* searchOnce();
             if (signal.aborted) return;
             attempt = onePass(support, found);
@@ -2002,6 +2017,7 @@ async function* toolLoop(
       tools: definitions(tools),
       reserve: SEARCH_RESERVE_TOKENS,
       mind: request.mind,
+      ...(request.meetingFacts && { requiredContext: true }),
     });
     if (!fit.ok) {
       yield { type: "failed", error: fit.error };
@@ -2101,10 +2117,12 @@ async function* toolLoop(
         const figured = request.documents.citeFigures?.(keptText) ?? keptText;
         yield* textEdits(keptText, figured);
         keptText = figured;
-        const placed = yield* missingMarkerEvents(keptText, cited, request.documents);
-        yield* citeUnmarked(request, placed, temperature, budget, () =>
-          nudges.take("unmarked-quotes"),
-        );
+        if (!request.meetingFacts) {
+          const placed = yield* missingMarkerEvents(keptText, cited, request.documents);
+          yield* citeUnmarked(request, placed, temperature, budget, () =>
+            nudges.take("unmarked-quotes"),
+          );
+        }
       }
     }
     if (suffix) {
@@ -2556,11 +2574,14 @@ async function* structured(
   const worded = (text: string) => request.documents.setAsideInWords?.(text) ?? text;
   yield* emit(typeof answer === "string" ? worded(takeToolText(answer).text) : answer);
   if (typeof answer === "string") {
-    // A small model often gives the records but leaves their markers out.
-    const marked = yield* missingMarkerEvents(emitted, records, request.documents);
-    if (budget) yield* retryQuotes(request, marked, temperature, budget);
-    if (signal.aborted) return;
-    const placed = yield* citeUnmarked(request, marked, temperature, budget);
+    let placed = emitted;
+    if (!request.meetingFacts) {
+      // A small model often gives the records but leaves their markers out.
+      const marked = yield* missingMarkerEvents(emitted, records, request.documents);
+      if (budget) yield* retryQuotes(request, marked, temperature, budget);
+      if (signal.aborted) return;
+      placed = yield* citeUnmarked(request, marked, temperature, budget);
+    }
     if (signal.aborted) return;
     // Worked out once the quotes are as good as they will be, since figures read their numbers there.
     const calculations = givenList((value as { calculations?: unknown } | undefined)?.calculations);

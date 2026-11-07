@@ -3,6 +3,7 @@ import { formatBytes } from "../../../shared/bytes";
 import type { MessageKey } from "../../../shared/i18n";
 import { useT } from "../i18n";
 import { useMeetings } from "../meetings";
+import { showMeetingNoteView } from "../meetingViews";
 import { showTranscript } from "../transcripts";
 import { failedEverySource, useDownloadSources } from "./DownloadSources";
 import { type ProblemAction, ProblemLine } from "./ProblemLine";
@@ -51,7 +52,11 @@ export function TranscriptLines({
     ? {
         label: t("meetings.transcript.open"),
         testId: "meeting-transcript-open",
-        onClick: () => showTranscript(documentId, place?.groupId),
+        onClick: () => {
+          if (meeting.kind === "meeting" && meeting.status === "stopped" && place) {
+            showMeetingNoteView(place.tabId, meeting.mindId, "transcript");
+          } else showTranscript(documentId, place?.groupId);
+        },
       }
     : undefined;
 

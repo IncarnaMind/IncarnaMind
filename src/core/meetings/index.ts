@@ -300,8 +300,8 @@ export function createMeetings(options: MeetingsOptions) {
   function fillOf(row: MeetingRow): MeetingFill | null {
     const stored = storedFillOf(row);
     if (!stored) return null;
-    const { blocks: _blocks, ...fill } = stored;
-    return fill;
+    const { blocks, ...fill } = stored;
+    return { ...fill, addedBlockIds: [...(blocks ?? [])] };
   }
 
   function toMeeting(row: MeetingRow): Meeting {
