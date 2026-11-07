@@ -3591,8 +3591,8 @@ export function createAnswers(options: AnswersOptions) {
           };
           const says = (line: string) => holds(line, false);
           const saysName = (name: string) => holds(name, true);
-          // What a command changed, in the app's own words, so the reply and the card agree
-          // (#2252): the Folders Organize filed the Documents into, and the Tags merged.
+          // What a command did, in the app's own words, so the reply and the card agree
+          // (#2252): the Folders Organize proposed for the Documents (#1569), and the Tags merged.
           const resultLines: ((each: Language) => string)[] = [];
           for (const done of commandsDone.values()) {
             const folders = done.folders;
@@ -3608,7 +3608,7 @@ export function createAnswers(options: AnswersOptions) {
               resultLines.push((each) => {
                 const line = translate(
                   each,
-                  count === 1 ? "library.review.summary.one" : "library.review.summary",
+                  count === 1 ? "answer.commands.proposed.one" : "answer.commands.proposed",
                   {
                     count,
                     parts: folders

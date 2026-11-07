@@ -2012,16 +2012,24 @@ export function createCore(adapters: CoreAdapters): Core {
       if (!api) throw new Error("The core isn't ready for commands yet.");
       return api;
     },
-    organizeAtOnce: (ids, signal, wall, permit) => {
+    organizeAtOnce: (ids, signal, wall, permit, runId) => {
       const allowed = new Set(
         library
           .folders()
           .filter((folder) => filedWithin(wall, folder.id)?.folderId === folder.id)
           .map((folder) => folder.id),
       );
-      return library.organizeAtOnce(ids, signal, allowed, permit);
+      // Inside a wall it proposes only the wall's own Folders, never one proposed by name (#1934).
+      return library.organizeAtOnce(ids, signal, allowed, permit, {
+        origin: "assistant",
+        runId,
+        newFolders: wall === null,
+      });
     },
     proposeFolders: (ids, permit) => library.propose(ids, settings.get().language, permit),
+    proposeFolder: (name, about) =>
+      organizeReview.proposeFolders([{ name, description: about }])[0] ?? null,
+    withdrawOrganizeRun: (runId, folderIds) => organizeReview.withdraw(runId, folderIds),
     allowCloudRead: async (service) => {
       consent.choose(["classification"], service);
       await dataFlowsChanged().catch((error: unknown) =>
@@ -3729,6 +3737,11 @@ export function createCore(adapters: CoreAdapters): Core {
     head: (id) => documents.head(id),
     localOnly: () => embedding.localOnly(),
     reviewCount: () => organizeReviewCount(db),
+    review: {
+      propose: (run, proposals) => organizeReview.propose(run, proposals),
+      proposeFolders: (folders) => organizeReview.proposeFolders(folders),
+      offeredFolders: () => organizeReview.offeredFolders(),
+    },
     changed: () => {
       events.emit("library.changed", null);
       batches.libraryChanged();
@@ -6329,7 +6342,13 @@ export function createCore(adapters: CoreAdapters): Core {
     proposeFolders: async (ids, options) =>
       library.propose(ids, settings.get().language, undefined, options?.forService),
     classifyDocuments: async (ids, options) => {
-      library.classify(ids, options?.forService);
+      library.classify(
+        ids,
+        options?.forService,
+        options?.folderId
+          ? { origin: "folder", folderId: library.folder(options.folderId).id }
+          : { origin: "library" },
+      );
       const classifier = organizeModelOf(library.settings());
       if (classifier) {
         usageData.record({
@@ -6570,6 +6589,7 @@ export function createCore(adapters: CoreAdapters): Core {
       tagger.resume();
     },
     dismissAutomaticOffNotice: async () => library.dismissAutomaticOffNotice(),
+    dismissReviewMoved: async () => library.dismissReviewMoved(),
 
     getJevSettings: () => jev.status(),
     saveJevSettings: async (input) => {

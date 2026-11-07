@@ -13,7 +13,12 @@ import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { generateText } from "ai";
 import { test } from "vitest";
-import { type Core, createAiSdkChatModel, type Document } from "../../src/core";
+import {
+  type Core,
+  createAiSdkChatModel,
+  type Document,
+  type OrganizeReviewItem,
+} from "../../src/core";
 import { organizeExcerpt } from "../../src/core/library/excerpt";
 import type { DocumentGroupAssignment } from "../../src/core/library/types";
 import { catalogFacts, modelsProviderOfKind } from "../../src/core/providers/catalog";
@@ -218,11 +223,9 @@ test("Organize as a new User meets it", async () => {
   let proposedMs = 0;
   let firstPlacementMs: number | null = null;
   let totalMs = 0;
-  let folders: ProposedFolder[] = [];
-  let outcomes: Outcome<SetDocument>[] = [];
   let plan: NewUserRun["plan"];
-  const documentsNow = async () =>
-    new Map<string, Document>((await core.listDocuments()).map((each) => [each.id, each]));
+  let tagsOf: (id: string, item: OrganizeReviewItem | undefined) => string[] = (_, item) =>
+    (item?.tags ?? []).map((tag) => tag.name);
 
   if (route === "plan") {
     let result = await core.organizeLibrary();
@@ -233,56 +236,6 @@ test("Organize as a new User meets it", async () => {
     totalMs = performance.now() - pressed;
     proposedMs = totalMs;
     if (result.status !== "done") throw new Error(`Organize ended: ${result.status}.`);
-    const review = await core.getOrganizeReview();
-    const byId = new Map(review.folders.map((folder) => [folder.id, folder]));
-    const topOf = (id: string) => {
-      let folder = byId.get(id);
-      while (folder?.parentNewFolderId) folder = byId.get(folder.parentNewFolderId);
-      return folder?.id ?? id;
-    };
-    folders = review.folders
-      .filter((folder) => folder.parentNewFolderId === null)
-      .map(({ id, name, description }) => ({ id, name, description }));
-    const now = await documentsNow();
-    outcomes = ids.map((id) => {
-      const document = now.get(id);
-      const item = review.items.find((each) => each.documentId === id);
-      const placement = item?.placement;
-      return {
-        doc: setDocOf.get(id) as SetDocument,
-        readable: document?.status === "ready",
-        folder:
-          placement?.kind === "newFolder"
-            ? topOf(placement.newFolderId)
-            : placement?.kind === "folder"
-              ? placement.folderId
-              : null,
-        tags: (item?.tags ?? []).map((tag) => tag.name),
-        status:
-          placement?.kind === "leftOut"
-            ? `left out: ${placement.leftOut?.reason ?? "moved"}`
-            : (placement?.kind ?? "no row"),
-        error: null,
-      };
-    });
-    const subfolders: Subfolder[] = review.folders.flatMap((folder) => {
-      if (folder.parentNewFolderId === null) return [];
-      const held = review.items
-        .filter(
-          (item) => item.placement.kind === "newFolder" && item.placement.newFolderId === folder.id,
-        )
-        .map((item) => setDocOf.get(item.documentId)?.sub ?? "–");
-      const counts = new Map<string, number>();
-      for (const sub of held) counts.set(sub, (counts.get(sub) ?? 0) + 1);
-      return [
-        {
-          parent: byId.get(folder.parentNewFolderId)?.name ?? "?",
-          name: folder.name,
-          size: held.length,
-          sameSub: Math.max(0, ...counts.values()),
-        },
-      ];
-    });
     plan = {
       requests: result.requests,
       placedByModel: result.placedByModel,
@@ -290,45 +243,87 @@ test("Organize as a new User meets it", async () => {
         dataDir,
         "SELECT input_tokens AS input FROM model_requests WHERE deleted_at IS NULL AND flow = 'classification' ORDER BY created_at",
       ).map((row) => row.input ?? 0),
-      subfolders,
+      subfolders: [],
     };
-    log(
-      `In the Review after ${(totalMs / 1000).toFixed(1)} s: ${folders.length} Folders, ${subfolders.length} subfolders; ${result.placedByModel} asked past the sample in ${result.requests} requests.`,
-    );
   } else {
     const watching = new Set(ids);
-    const stop = core.on("library.assignments", (changed) => {
-      if (
-        firstPlacementMs === null &&
-        changed.some((each) => watching.has(each.documentId) && each.groupId !== null)
-      )
-        firstPlacementMs = performance.now() - pressed;
+    const stop = core.on("organizeReview.changed", () => {
+      firstPlacementMs ??= performance.now() - pressed;
     });
     const made = await core.proposeFolders(ids);
     proposedMs = performance.now() - pressed;
     log(`${made.length} Folders proposed: ${made.map((folder) => folder.name).join(", ")}`);
     if (made.length > 0) await core.classifyDocuments(ids);
-    const assignments = await settled(core, watching);
+    await settled(core, watching);
     totalMs = performance.now() - pressed;
     stop();
-
-    const after = await core.getLibrary();
+    // The classic route still adds its Tags as it sorts.
     const tagNames = new Map((await core.listTags()).map((tag) => [tag.id, tag.name]));
-    const now = await documentsNow();
-    folders = after.groups.map(({ id, name, description }) => ({ id, name, description }));
-    outcomes = ids.map((id) => {
-      const document = now.get(id);
-      const assignment = assignments.find((each) => each.documentId === id);
-      return {
-        doc: setDocOf.get(id) as SetDocument,
-        readable: document?.status === "ready",
-        folder: assignment?.groupId ?? null,
-        tags: (document?.tags ?? []).map((tag) => tagNames.get(tag.tagId) ?? tag.tagId),
-        status: assignment?.status ?? document?.status ?? "none",
-        error: assignment?.error?.message ?? null,
-      };
-    });
+    const tagged = new Map(
+      (await core.listDocuments()).map((each) => [
+        each.id,
+        each.tags.map((tag) => tagNames.get(tag.tagId) ?? tag.tagId),
+      ]),
+    );
+    tagsOf = (id) => tagged.get(id) ?? [];
   }
+
+  // What Organize proposed, as the Review has it: a subfolder counts as its top-level Folder.
+  const review = await core.getOrganizeReview();
+  const byId = new Map(review.folders.map((folder) => [folder.id, folder]));
+  const topOf = (id: string) => {
+    let folder = byId.get(id);
+    while (folder?.parentNewFolderId) folder = byId.get(folder.parentNewFolderId);
+    return folder?.id ?? id;
+  };
+  const folders: ProposedFolder[] = review.folders
+    .filter((folder) => folder.parentNewFolderId === null)
+    .map(({ id, name, description }) => ({ id, name, description }));
+  const documentsNow = new Map<string, Document>(
+    (await core.listDocuments()).map((each) => [each.id, each]),
+  );
+  const outcomes: Outcome<SetDocument>[] = ids.map((id) => {
+    const item = review.items.find((each) => each.documentId === id);
+    const placement = item?.placement;
+    return {
+      doc: setDocOf.get(id) as SetDocument,
+      readable: documentsNow.get(id)?.status === "ready",
+      folder:
+        placement?.kind === "newFolder"
+          ? topOf(placement.newFolderId)
+          : placement?.kind === "folder"
+            ? placement.folderId
+            : null,
+      tags: tagsOf(id, item),
+      status:
+        placement?.kind === "leftOut"
+          ? `left out: ${placement.leftOut?.reason ?? "moved"}`
+          : (placement?.kind ?? "no row"),
+      error: null,
+    };
+  });
+  const subfolders: Subfolder[] = review.folders.flatMap((folder) => {
+    if (folder.parentNewFolderId === null) return [];
+    const held = review.items
+      .filter(
+        (item) => item.placement.kind === "newFolder" && item.placement.newFolderId === folder.id,
+      )
+      .map((item) => setDocOf.get(item.documentId)?.sub ?? "–");
+    const counts = new Map<string, number>();
+    for (const sub of held) counts.set(sub, (counts.get(sub) ?? 0) + 1);
+    return [
+      {
+        parent: byId.get(folder.parentNewFolderId)?.name ?? "?",
+        name: folder.name,
+        size: held.length,
+        sameSub: Math.max(0, ...counts.values()),
+      },
+    ];
+  });
+  if (plan) plan.subfolders = subfolders;
+  log(
+    `In the Review after ${(totalMs / 1000).toFixed(1)} s: ${folders.length} Folders, ${subfolders.length} subfolders${plan ? `; ${plan.placedByModel} asked past the sample in ${plan.requests} requests` : ""}.`,
+  );
   const spend = metered(dataDir);
   await save(join(output, "results.json"), { folders, outcomes, spend });
 

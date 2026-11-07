@@ -139,46 +139,57 @@ function decline(dataDir: string, service: { id: string; name: string }) {
 const commandCalls = (answer: ConversationAnswer) =>
   answer.toolCalls.filter((call) => call.source === "commands");
 
-const filed = async (core: Core) =>
-  (await core.getLibrary()).assignments.filter((each) => each.groupId !== null);
+/** What the assistant's Organize proposes, waiting in Suggestions: nothing moves from the chat (#1569). */
+const proposed = async (core: Core) => {
+  const { assignments } = await core.getLibrary();
+  if (assignments.some((each) => each.groupId !== null)) throw new Error("A Document was filed.");
+  return (await core.getOrganizeReview()).items.filter(
+    ({ placement }) => placement.kind === "folder" || placement.kind === "newFolder",
+  );
+};
 
 describe("The assistant's Organize for a new User (#2252)", { timeout: 60_000 }, () => {
   // protects=a new User whose only model came from the setup card is asked the first-cloud-read question on the Organize card, and then the Documents are filed with the model Settings names for Tags and Folders, which is kept as the Library's "Use {company}" keeps it; fails_when=the first request is refused for want of a classification model, runs without asking, or files nothing; no_claim=which Folder the classifier picks.
   test.each([
     ["en", "Put my Documents into Folders."],
     ["zh-CN", "把我的文档放进文件夹。"],
-  ] as const)("%s: the first request asks, then files them", async (language, text) => {
-    const { core, models, provider, mind } = await newUser({ language });
-    const premise = (await core.getTaggingModels()).automatic;
-    expect(premise).toMatchObject({ name: "Claude Haiku 5.5", group: "keys" });
-    const sentBeforeAllow: number[] = [];
-    const requests = approvals(core, () =>
-      sentBeforeAllow.push(requestsWith(models.model, "Harbour Street")),
-    );
+  ] as const)(
+    "%s: the first request asks, then proposes Folders for them",
+    async (language, text) => {
+      const { core, models, provider, mind } = await newUser({ language });
+      const premise = (await core.getTaggingModels()).automatic;
+      expect(premise).toMatchObject({ name: "Claude Haiku 5.5", group: "keys" });
+      const sentBeforeAllow: number[] = [];
+      const requests = approvals(core, () =>
+        sentBeforeAllow.push(requestsWith(models.model, "Harbour Street")),
+      );
 
-    const answer = await askAssistant(core, { text, mindId: mind.id });
+      const answer = await askAssistant(core, { text, mindId: mind.id });
 
-    expect(commandCalls(answer).map((call) => call.commandProblem?.wording?.key)).toEqual([
-      undefined,
-    ]);
-    expect(requests).toHaveLength(1);
-    expect(requests[0] && "ask" in requests[0] ? requests[0].ask : null).toMatchObject({
-      kind: "change",
-      reason: "organize",
-      service: "Anthropic",
-    });
-    expect(sentBeforeAllow).toEqual([0]);
-    expect(requestsWith(models.model, "Harbour Street")).toBeGreaterThan(0);
-    expect(await filed(core)).toHaveLength(4);
-    expect((await core.getLibrary()).settings.organizeWith).toEqual({
-      kind: "chat",
-      choice: { providerId: provider.id, modelId: "claude-haiku-5-5" },
-    });
-    const flow = (await core.listDataFlows()).find((each) => each.flow.id === "classification");
-    expect(flow).toMatchObject({ consent: "accepted", flow: { service: { name: "Anthropic" } } });
-  });
+      expect(commandCalls(answer).map((call) => call.commandProblem?.wording?.key)).toEqual([
+        undefined,
+      ]);
+      expect(requests).toHaveLength(1);
+      expect(requests[0] && "ask" in requests[0] ? requests[0].ask : null).toMatchObject({
+        kind: "change",
+        reason: "organize",
+        service: "Anthropic",
+      });
+      expect(sentBeforeAllow).toEqual([0]);
+      expect(requestsWith(models.model, "Harbour Street")).toBeGreaterThan(0);
+      expect(await proposed(core)).toHaveLength(4);
+      // The Folder it proposed waits to be made with them.
+      expect((await core.getLibrary()).groups).toEqual([]);
+      expect((await core.getLibrary()).settings.organizeWith).toEqual({
+        kind: "chat",
+        choice: { providerId: provider.id, modelId: "claude-haiku-5-5" },
+      });
+      const flow = (await core.listDataFlows()).find((each) => each.flow.id === "classification");
+      expect(flow).toMatchObject({ consent: "accepted", flow: { service: { name: "Anthropic" } } });
+    },
+  );
 
-  // protects=the model the User allowed is kept like the Library's "Use {company}", so after Undo the same request asks nothing and files them again; fails_when=the second request asks again, or Undo leaves a Document filed; no_claim=which Folder the classifier picks.
+  // protects=the model the User allowed is kept like the Library's "Use {company}", so after Undo, which takes the proposals back out, the same request asks nothing and proposes them again; fails_when=the second request asks again, or Undo leaves a proposal; no_claim=which Folder the classifier picks.
   test("asked again after Undo, it asks nothing", async () => {
     const { core, mind } = await newUser();
     const requests = approvals(core);
@@ -188,14 +199,14 @@ describe("The assistant's Organize for a new User (#2252)", { timeout: 60_000 },
     });
     const run = commandCalls(first).find((call) => call.command)?.command?.run;
     if (!run) throw new Error("No command ran.");
-    expect(await filed(core)).toHaveLength(4);
+    expect(await proposed(core)).toHaveLength(4);
 
     await core.undoCommands(run);
-    expect(await filed(core)).toEqual([]);
+    expect(await proposed(core)).toEqual([]);
     await askAssistant(core, { text: "Put my Documents into Folders.", mindId: mind.id });
 
     expect(requests).toHaveLength(1);
-    expect(await filed(core)).toHaveLength(4);
+    expect(await proposed(core)).toHaveLength(4);
   });
 
   // protects=Don't allow on that card sends nothing and keeps no model for Organize; fails_when=a Document is filed, a Folder is made, or the model is kept without the User's yes; no_claim=the card's words.
@@ -211,7 +222,7 @@ describe("The assistant's Organize for a new User (#2252)", { timeout: 60_000 },
     const library = await core.getLibrary();
     expect(library.settings.organizeWith).toBeNull();
     expect(library.groups).toEqual([]);
-    expect(await filed(core)).toEqual([]);
+    expect(await proposed(core)).toEqual([]);
     const flow = (await core.listDataFlows()).find((each) => each.flow.id === "classification");
     expect(flow?.consent ?? "not-asked").not.toBe("accepted");
   });
@@ -231,7 +242,7 @@ describe("The assistant's Organize for a new User (#2252)", { timeout: 60_000 },
       service: "Anthropic",
       declined: true,
     });
-    expect(await filed(core)).toHaveLength(4);
+    expect(await proposed(core)).toHaveLength(4);
     const flow = (await core.listDataFlows()).find((each) => each.flow.id === "classification");
     expect(flow?.consent).toBe("declined");
     expect((await core.getLibrary()).settings.organizeWith).toBeNull();
@@ -266,7 +277,7 @@ describe("The assistant's Organize for a new User (#2252)", { timeout: 60_000 },
 
     expect((await ended).event).toBe("finished");
     expect((await core.getLibrary()).settings.organizeWith).toEqual(theirs);
-    expect(await filed(core)).toHaveLength(4);
+    expect(await proposed(core)).toHaveLength(4);
     expect(models.specs.slice(asked).map((spec) => spec.modelId)).toContain("claude-sonnet-5-5");
   });
 
@@ -286,7 +297,7 @@ describe("The assistant's Organize for a new User (#2252)", { timeout: 60_000 },
     await askAssistant(core, { text: "Put my Documents into Folders.", mindId: mind.id });
 
     expect(requests).toHaveLength(0);
-    expect(await filed(core)).toHaveLength(4);
+    expect(await proposed(core)).toHaveLength(4);
     expect((await core.getLibrary()).settings.organizeWith).toBeNull();
     expect(models.specs.slice(asked).map((spec) => spec.modelId)).toContain("claude-sonnet-5-5");
   });
@@ -311,7 +322,7 @@ describe("The assistant's Organize for a new User (#2252)", { timeout: 60_000 },
       "Choose a classification model first.",
     );
     expect(translate("zh-CN", "error.library.noClassifier")).toBe("先选择分类模型。");
-    expect(await filed(core)).toEqual([]);
+    expect(await proposed(core)).toEqual([]);
     expect((await core.getLibrary()).groups).toEqual([]);
   });
 });
@@ -349,7 +360,7 @@ async function nextStart({ switchedOn }: { switchedOn: boolean }) {
     mindId: user.mind.id,
   });
   if (!asked.asked) throw new Error("The Question wasn't asked.");
-  await vi.waitFor(async () => expect(await filed(user.core)).toHaveLength(4));
+  await vi.waitFor(async () => expect(await proposed(user.core)).toHaveLength(4));
   const [added] = await addAndProcess(user.core, [
     await writeSourceFile(
       await createSourceFolder(),
@@ -500,7 +511,7 @@ describe("The first Organize tells the window and leaves nothing behind (#2252)"
 
     await askAssistant(core, { text: "Put my Documents into Folders.", mindId: mind.id });
 
-    expect(await filed(core)).toHaveLength(4);
+    expect(await proposed(core)).toHaveLength(4);
     expect(
       queryDatabase(
         dataDir,

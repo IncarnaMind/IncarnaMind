@@ -38,6 +38,9 @@ export interface OrganizationDecision {
 }
 
 /** A Folder Organize proposes, where there are none to sort into. */
+/** What Organize is told of a Folder it may choose: a live one, or one proposed by name (#1569). */
+export type FolderChoice = Pick<LibraryGroup, "id" | "name" | "description">;
+
 export interface ProposedFolder {
   name: string;
   description: string;
@@ -61,14 +64,14 @@ export interface GroupClassifier {
   pageImages?: PageImageMode;
   model?: ClassificationModel;
   organize(
-    groups: LibraryGroup[],
+    groups: FolderChoice[],
     tags: TagDefinition[],
     excerpt: DocumentExcerpt,
     signal: AbortSignal,
     images?: DocumentPageImage[],
   ): Promise<OrganizationDecision>;
   decide(
-    groups: LibraryGroup[],
+    groups: FolderChoice[],
     excerpt: DocumentExcerpt,
     signal: AbortSignal,
     images?: DocumentPageImage[],

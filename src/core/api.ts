@@ -18,6 +18,7 @@ import type {
   OrganizeReviewChange,
   OrganizeReviewConfirmation,
   OrganizeReviewEdit,
+  OrganizeReviewFolder,
   OrganizeReviewRow,
 } from "./organizeReview/types";
 import type { DecisionHost } from "./providers/catalog/decisions";
@@ -1385,7 +1386,7 @@ export interface CommandDone {
   folder?: { id: string; name: string };
   /** A setting it changed (#1421), with its value before and now, each as the setting names it. */
   setting?: { name: string; from: string; to: string };
-  /** Organize: the Folders it filed the Documents into, most first (#2252). */
+  /** Organize: the Folders it proposed for the Documents, by name, with how many each (#2252, #1569). */
   folders?: readonly { name: string; count: number }[];
   /** Organize: how many of the Documents it read it couldn't sort (#2252). */
   unsorted?: number;
@@ -1393,6 +1394,8 @@ export interface CommandDone {
   untouched?: number;
   /** Organize: how many Documents it was asked to sort, which the Folders, unsorted and untouched count (#2252). */
   considered?: number;
+  /** Organize: how many Documents wait in Suggestions after it, for the reply's Review button (#1569). */
+  review?: { count: number };
   /** A Tag merge: what went into what, by name (#2252). */
   merges?: readonly { from: string; into: string }[];
   /** A Tag merge: how many Tags the Library held before and after (#2252). */
@@ -11767,21 +11770,28 @@ export interface CoreApi {
   /**
    * Organize where there are no Folders to sort into (#2308): asks Organize's model, once, for
    * a few Folders that would hold these Documents, named from what they say in the interface
-   * language, and makes them. `classifyDocuments` then suggests one for each. Returns the
-   * Folders made, none when no Document has text to read. Throws InvalidInputError with no
-   * model for Organize, or one that can't name Folders (a decision model), and what the
-   * provider throws; nothing is made then. With `forService`, a continuation of a press
-   * authorized for that service: Organize sending elsewhere proposes nothing.
+   * language, and proposes them in Suggestions: none is made before the User confirms (#1569).
+   * `classifyDocuments` then proposes one for each. Returns the Folders proposed, none when no
+   * Document has text to read. Throws InvalidInputError with no model for Organize, or one that
+   * can't name Folders (a decision model), and what the provider throws; nothing is proposed
+   * then. With `forService`, a continuation of a press authorized for that service: Organize
+   * sending elsewhere proposes nothing.
    */
-  proposeFolders(documentIds: string[], options?: { forService?: string }): Promise<LibraryGroup[]>;
+  proposeFolders(
+    documentIds: string[],
+    options?: { forService?: string },
+  ): Promise<OrganizeReviewFolder[]>;
   /**
-   * Queues selected documents, or all. Organize suggests a Folder for each
-   * (a Suggested Folder) and its Tags; manual assignments are preserved, and
-   * only their Tags suggested. With `forService`, a continuation of a press
-   * authorized for that service: a different destination queues and clears
-   * nothing, and a change while the run waits sends nothing there.
+   * Queues selected documents, or all. Organize proposes a Folder for each in Suggestions, where
+   * it waits for the User, and its Tags; nothing is filed (#1569). A Document the User filed is
+   * proposed a move only in a run on its `folderId`. With `forService`, a continuation of a
+   * press authorized for that service: a different destination queues and clears nothing, and a
+   * change while the run waits sends nothing there.
    */
-  classifyDocuments(documentIds?: string[], options?: { forService?: string }): Promise<void>;
+  classifyDocuments(
+    documentIds?: string[],
+    options?: { forService?: string; folderId?: string },
+  ): Promise<void>;
   /**
    * Stops automatic Tagging with AI where the Documents waiting to be
    * tagged, or being tagged, are: each of their Folders, and Not in a Folder
@@ -11795,6 +11805,8 @@ export interface CoreApi {
   setTaggingWithAi(folderId: string | null, on: boolean): Promise<void>;
   /** Closes the Library's one-time line that automatic tagging and sorting went off (`LibrarySnapshot.automaticOffNotice`). */
   dismissAutomaticOffNotice(): Promise<void>;
+  /** Closes the Library's one-time line that suggestions moved into Suggestions (`LibrarySnapshot.reviewMoved`). */
+  dismissReviewMoved(): Promise<void>;
   /**
    * A manual choice, including Not in a Folder (null), wins over in-flight classification.
    * Returns the change it made, its place and tagging before and after, for `restoreAssignment`.
@@ -14493,6 +14505,7 @@ const methods: Record<CoreApiMethod, true> = {
   stopTagging: true,
   setTaggingWithAi: true,
   dismissAutomaticOffNotice: true,
+  dismissReviewMoved: true,
   assignDocumentGroup: true,
   acceptAssignments: true,
   rejectAssignments: true,

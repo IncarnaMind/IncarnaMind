@@ -86,7 +86,7 @@ export const CORE_COMMANDS = {
     on: "document",
     does: "app",
     takes:
-      "ids: the Documents to sort, or none for those in no Folder; folder: the Folder the request is about, made if there is none, or none; about: what belongs in it, in the User's words. It reads each and files it in the Folder that fits: the User allows it once, and Undo puts them back",
+      "ids: the Documents to sort, or none for those in no Folder; folder: the Folder the request is about, proposed if there is none, or none; about: what belongs in it, in the User's words. It reads each and proposes the Folder that fits; nothing moves until the User confirms them with Review. The User allows it once, and Undo takes the proposals back",
     check: organizeChecker,
   },
   "mind.rename": {

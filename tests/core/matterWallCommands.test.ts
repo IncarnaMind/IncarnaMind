@@ -300,7 +300,10 @@ describe("the command gate denies by default what is behind another wall", () =>
 
     expect(offered.length).toBeGreaterThan(0);
     for (const names of offered) expect(names).not.toContain("Client A");
-    expect(await heldIn(s.core, office.id)).toEqual(["General memo: filed", "Late filing: filed"]);
+    expect(await heldIn(s.core, office.id)).toEqual([
+      "General memo: waiting",
+      "Late filing: waiting",
+    ]);
     expect(await heldIn(s.core, s.folderA.id)).toEqual(["Client A lease: filed"]);
   });
 
@@ -365,12 +368,18 @@ async function suggest(core: Core, documentId: string, folderId: string) {
 }
 
 /** What a Folder holds now, by Document name: filed by the User, or a suggestion waiting. */
+/** What a Folder holds, and what waits in Suggestions to go into it (#1569). */
 async function heldIn(core: Core, folderId: string) {
   const names = new Map((await core.listDocuments()).map((each) => [each.id, each.name]));
-  return (await core.getLibrary()).assignments
-    .filter((each) => each.groupId === folderId)
-    .map((each) => `${names.get(each.documentId)}: ${each.suggested ? "waiting" : "filed"}`)
-    .sort();
+  const proposed = (await core.getOrganizeReview()).items.filter(
+    ({ placement }) => placement.kind === "folder" && placement.folderId === folderId,
+  );
+  return [
+    ...(await core.getLibrary()).assignments
+      .filter((each) => each.groupId === folderId)
+      .map((each) => `${names.get(each.documentId)}: ${each.suggested ? "waiting" : "filed"}`),
+    ...proposed.map((item) => `${names.get(item.documentId)}: waiting`),
+  ].sort();
 }
 
 describe("Accept all suggested Folders goes through the same door as a move", () => {

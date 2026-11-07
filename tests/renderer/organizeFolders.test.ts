@@ -78,7 +78,7 @@ describe("the Folders Organize made", () => {
     expect(bridge.deleted).toEqual(["f-tax"]);
   });
 
-  test("a run that fails says its own failure, even when taking its Folders back fails too", async () => {
+  test("a run that fails says its own failure, and takes no Folder back: it proposed them, and made none (#1569)", async () => {
     await useAppStore.getState().refreshLibrary();
     useAppStore.setState((state) =>
       state.library ? { library: { ...state.library, groups: [] } } : {},
@@ -87,10 +87,7 @@ describe("the Folders Organize made", () => {
     const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
 
     await expect(organizeDocuments(["d-1"])).rejects.toThrow("The model is down.");
-    expect(logged).toHaveBeenCalledWith(
-      "The Folders Organize made couldn't be taken back.",
-      expect.objectContaining({ message: "The Folder couldn't be deleted." }),
-    );
+    expect(logged).not.toHaveBeenCalled();
     logged.mockRestore();
   });
 });

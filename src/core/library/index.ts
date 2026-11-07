@@ -29,6 +29,8 @@ import {
   TaggingNotReadyError,
 } from "../errors";
 import type { Language } from "../language";
+import type { OrganizeReviewProposal, OrganizeReviewRun } from "../organizeReview";
+import type { OrganizeReviewFolder } from "../organizeReview/types";
 import { isDecisionHost, isDecisionModelId } from "../providers/catalog/decisions";
 import { normalizeBaseUrl, serviceForUrl } from "../providers/kinds";
 import { classifyProviderError } from "../providers/providerErrors";
@@ -41,7 +43,7 @@ import { documentType, excerptFromPassages } from "../tags/classify";
 import { clearForService, mayBackgroundSend, nextSequence } from "../tags/held";
 import { type RateLimitPause, rateLimitError } from "../tags/rateLimit";
 import { fallbackLine } from "../tags/suggest";
-import type { FolderSample, GroupClassifier } from "./classifier";
+import type { FolderChoice, FolderSample, GroupClassifier } from "./classifier";
 import {
   ORGANIZE_PASSAGES,
   type OrganizeSource,
@@ -70,7 +72,13 @@ import type {
 
 const AUTOMATIC: LibraryClassifier = { kind: "automatic" };
 
+/** A Document read to the end with nothing Organize can read. */
+const NO_TEXT = new Set(["no-text", "failed"]);
+
 const AUTOMATIC_OFF_NOTICE = "libraryAutomaticOffNotice";
+
+/** How many Documents an upgrade moved from their Suggested Folders into Suggestions (migration 135). */
+const REVIEW_MOVED_NOTICE = "organizeReviewMovedNotice";
 
 function taggingClassifierOf(value: unknown): TaggingClassifier | null {
   if (!isRecord(value)) return null;
@@ -335,7 +343,7 @@ export const SCAN_IMAGES_FLOW_SENDS = ["page-images"] as const;
 
 /**
  * One flat group per Document; user choices, including Not in a Folder, always win.
- * Organize's choices are Suggested Folders until the User accepts them.
+ * Organize files nothing: what it chooses waits in Suggestions for the User (#1569).
  */
 export function createLibrary(options: {
   db: Database;
@@ -398,6 +406,14 @@ export function createLibrary(options: {
   localOnly?(): boolean;
   /** How many Documents wait in Suggestions (`LibrarySnapshot.reviewCount`). */
   reviewCount(): number;
+  /** Suggestions (../organizeReview): where Organize's choices go. */
+  review: {
+    propose(run: OrganizeReviewRun, proposals: readonly OrganizeReviewProposal[]): number;
+    proposeFolders(
+      folders: readonly { name: string; description: string; parentId?: string | null }[],
+    ): OrganizeReviewFolder[];
+    offeredFolders(): OrganizeReviewFolder[];
+  };
 }) {
   const { db, now, settings, background, changed } = options;
   const lifetime = new AbortController();
@@ -487,6 +503,10 @@ export function createLibrary(options: {
   /** What the User chose: the same as `settings`, without a model lent to a run (#2252). */
   const chosenSettings = (): LibrarySettings => shownSettings(savedSettings());
   const noticeIsOpen = (marker: unknown) => marker === "pending" || marker === true;
+  const reviewMoved = (): number => {
+    const count = settings.readDeviceValue(REVIEW_MOVED_NOTICE);
+    return typeof count === "number" && count > 0 ? count : 0;
+  };
   const automaticOffNotice = (): boolean => {
     const marker = settings.readDeviceValue(AUTOMATIC_OFF_NOTICE);
     if (!noticeIsOpen(marker)) return false;
@@ -514,9 +534,46 @@ export function createLibrary(options: {
     service: string | null;
     /** The failure the continuation leaves in place if Organize's destination no longer matches. */
     failure: { status: "failed" | "waiting"; error: ProviderError | null } | null;
+    /** Who started the run, as its proposals say. */
+    run: OrganizeReviewRun;
   }
   /** A new request's own object: an attempt may act only while `asked` still holds it. */
-  const ownRequest = (): AskedRequest => ({ service: null, failure: null });
+  const ownRequest = (run: OrganizeReviewRun): AskedRequest => ({
+    service: null,
+    failure: null,
+    run,
+  });
+  const BACKGROUND: OrganizeReviewRun = { origin: "background" };
+  /**
+   * The Folders Organize may choose: the live ones, then those proposed by name that wait for the
+   * User, which a run outside a wall may choose too (#1569).
+   */
+  const choicesOf = (allowed?: ReadonlySet<string>, newFolders = true): FolderChoice[] => [
+    ...groups().filter((group) => !allowed || allowed.has(group.id)),
+    ...(newFolders
+      ? options.review
+          .offeredFolders()
+          .filter((folder) => !allowed || folder.parentId === null || allowed.has(folder.parentId))
+      : []),
+  ];
+  const nothingToChoose = () =>
+    groups().length === 0 && options.review.offeredFolders().length === 0;
+  /** A Document the User asked about that Organize can't read waits in Suggestions as left out. */
+  const leaveOut = (
+    doc: DocumentRow,
+    request: AskedRequest | undefined,
+    leftOut: Extract<OrganizeReviewProposal["placement"], { kind: "leftOut" }>["leftOut"],
+  ) => {
+    if (!request || request.run.origin === "background") return;
+    options.review.propose(request.run, [
+      {
+        documentId: doc.id,
+        contentHash: doc.content_hash,
+        placement: { kind: "leftOut", leftOut },
+        tags: [],
+      },
+    ]);
+  };
   const asked = new Map<string, AskedRequest>();
   const checkClassifier = (selected: Record<string, unknown>) => {
     if (selected.kind === "chat") {
@@ -975,7 +1032,7 @@ export function createLibrary(options: {
 
   function enqueue(id: string): void {
     if (lifetime.signal.aborted || queued.has(id)) return;
-    if (groups().length === 0) {
+    if (nothingToChoose()) {
       if (assignment(id)?.status === "pending") state(id, "waiting");
       return;
     }
@@ -1002,6 +1059,7 @@ export function createLibrary(options: {
       const waits = scanWaits(doc);
       const saidSo = current.error_wording?.includes("error.library.scanImagesOff") === true;
       if (current.status !== "classified" && !!waits !== saidSo) state(id, "waiting", waits);
+      if (NO_TEXT.has(doc.status)) leaveOut(doc, asked.get(id), { reason: "noText" });
       return;
     }
     queued.add(id);
@@ -1040,6 +1098,8 @@ export function createLibrary(options: {
       applied?(id: string, links: readonly TagLinkChange[]): void;
       /** The Folders it may choose, when a wall keeps it to some (#1934); none: all of them. */
       allowedGroups?: ReadonlySet<string>;
+      /** Whether it may choose a Folder proposed by name, which a walled run may not. */
+      newFolders?: boolean;
       /** The one service this run's Allow covers, without storing consent (#2252). */
       permit?: CloudReadPermit;
     },
@@ -1066,11 +1126,10 @@ export function createLibrary(options: {
       const current = document(id);
       if (!hasContent(current)) {
         state(id, "waiting", scanWaits(current));
+        if (NO_TEXT.has(current.status)) leaveOut(current, request, { reason: "noText" });
         return;
       }
-      const definitions = groups().filter(
-        (group) => !call.allowedGroups || call.allowedGroups.has(group.id),
-      );
+      const definitions = choicesOf(call.allowedGroups, call.newFolders);
       const tagDefinitions = options.tags.list();
       if (definitions.length === 0) {
         state(id, "waiting");
@@ -1149,21 +1208,38 @@ export function createLibrary(options: {
         return;
       }
       const { groupId } = result;
-      if (groupId !== null && !offered.some((item) => item.id === groupId))
-        throw new Error("The classifier returned an unknown group.");
+      const choice = groupId === null ? null : offered.find((item) => item.id === groupId);
+      if (choice === undefined) throw new Error("The classifier returned an unknown group.");
       if (result.fallback) console.info(fallbackLine(id));
-      const chosen = initial.source === "user";
+      const proposedFolder =
+        choice && !groups().some((group) => group.id === choice.id)
+          ? options.review.offeredFolders().find((folder) => folder.id === choice.id)
+          : undefined;
+      const placement: OrganizeReviewProposal["placement"] =
+        choice === null
+          ? { kind: "leftOut", leftOut: { reason: "doesntFit" } }
+          : proposedFolder
+            ? {
+                kind: "newFolder",
+                name: proposedFolder.name,
+                description: proposedFolder.description,
+                parentId: proposedFolder.parentId,
+              }
+            : { kind: "folder", folderId: choice.id };
       const { made, links } = db.transaction(() => {
+        // The Document stays where it is: its place waits in Suggestions for the User (#1569).
         write(
           latest,
-          chosen ? initial.group_id : groupId,
+          initial.group_id,
           initial.source,
           "classified",
           classifier.model
             ? { ...classifier.model, images: images.length > 0 && classifier.model.images }
             : null,
-          !chosen && groupId !== null,
         );
+        options.review.propose(request?.run ?? BACKGROUND, [
+          { documentId: id, contentHash: latest.content_hash, placement, tags: [] },
+        ]);
         const applied = options.tags.applyAutomatic(id, result.tags, result.newTags);
         tagState(id, "classified");
         const current = asked.get(id);
@@ -1201,6 +1277,14 @@ export function createLibrary(options: {
             ? (refused ?? classifyProviderError(error))
             : rateLimitError(limitedUntil, error);
         state(id, waiting ? "waiting" : "failed", said);
+        const service = options.organizeService(getSettings());
+        if (!waiting && service && (said.kind === "network" || said.kind === "provider")) {
+          const doc = db.get<DocumentRow>(
+            "SELECT id, name, kind, page_count, content_hash, status FROM documents WHERE id = ? AND deleted_at IS NULL",
+            [id],
+          );
+          if (doc) leaveOut(doc, request, { reason: "unreachable", service: service.name });
+        }
         // The app log's scrubber takes a UUID for a key: dotted, the id stays findable.
         console.error(
           `Organize failed on Document ${id.replaceAll("-", ".")}: ${said.kind}${said.status === undefined ? "" : ` (${said.status})`}. ${redactMessage(said.message)}`,
@@ -1210,7 +1294,11 @@ export function createLibrary(options: {
     }
   }
 
-  const queueClassification = (ids: readonly string[], forService?: string) => {
+  const queueClassification = (
+    ids: readonly string[],
+    run: OrganizeReviewRun,
+    forService?: string,
+  ) => {
     const service = options.organizeService(getSettings());
     // A continuation goes only where its press was authorized: nothing is queued or cleared otherwise.
     if (forService !== undefined && service?.id !== forService) return;
@@ -1218,10 +1306,11 @@ export function createLibrary(options: {
     for (const doc of docs) {
       if (forService === undefined) {
         // A new request of the User's own replaces a continuation it supersedes for these Documents.
-        asked.set(doc.id, ownRequest());
+        asked.set(doc.id, ownRequest(run));
       } else {
         const existing = assignment(doc.id);
         asked.set(doc.id, {
+          run,
           service: forService,
           failure: {
             status: existing?.status === "failed" ? "failed" : "waiting",
@@ -1441,7 +1530,7 @@ export function createLibrary(options: {
         )
         .map((row) => row.id)
         .filter((id) => places.includes(placeOf(id)));
-      for (const id of ids) asked.set(id, ownRequest());
+      for (const id of ids) asked.set(id, ownRequest(BACKGROUND));
       db.transaction(() => {
         for (const id of ids) {
           const existing = assignment(id);
@@ -1511,7 +1600,13 @@ export function createLibrary(options: {
         automaticOffNotice: automaticOffNotice(),
         ...(waiting && { sortWaitsFor: waiting }),
         reviewCount: options.reviewCount(),
+        ...(reviewMoved() > 0 && { reviewMoved: reviewMoved() }),
       };
+    },
+    dismissReviewMoved(): void {
+      if (reviewMoved() === 0) return;
+      settings.writeDeviceValue(REVIEW_MOVED_NOTICE, 0);
+      changed();
     },
     dismissAutomaticOffNotice(): void {
       if (settings.readDeviceValue(AUTOMATIC_OFF_NOTICE) !== true) return;
@@ -1772,14 +1867,36 @@ export function createLibrary(options: {
         list,
       ]);
       db.run(
-        `UPDATE document_groups SET group_id = item.folder_id, suggested = item.suggested,
-           updated_at = ?
+        `UPDATE document_groups SET group_id = item.folder_id, updated_at = ?
          FROM deleted_folder_items item
          WHERE item.folder_id IN (SELECT value FROM json_each(?))
-           AND item.item_kind = 'document' AND item.deleted_at IS NULL
+           AND item.item_kind = 'document' AND item.deleted_at IS NULL AND item.suggested = 0
            AND item.item_id = document_groups.document_id
            AND document_groups.deleted_at IS NULL AND document_groups.group_id IS NULL`,
         [at, list],
+      );
+      // One that waited in it as a suggestion, from before Suggestions, waits there again (#1569).
+      const waited = db.all<{
+        document_id: string;
+        folder_id: string;
+        content_hash: string | null;
+      }>(
+        `SELECT g.document_id, item.folder_id, d.content_hash FROM deleted_folder_items item
+         JOIN document_groups g ON g.document_id = item.item_id AND g.deleted_at IS NULL
+           AND g.group_id IS NULL
+         JOIN documents d ON d.id = item.item_id
+         WHERE item.folder_id IN (SELECT value FROM json_each(?))
+           AND item.item_kind = 'document' AND item.deleted_at IS NULL AND item.suggested = 1`,
+        [list],
+      );
+      options.review.propose(
+        { origin: "migrated" },
+        waited.map((row) => ({
+          documentId: row.document_id,
+          contentHash: row.content_hash,
+          placement: { kind: "folder", folderId: row.folder_id },
+          tags: [],
+        })),
       );
       const taken = (kind: "mind" | "conversation") => {
         const byFolder = new Map<string, string[]>();
@@ -1926,7 +2043,7 @@ export function createLibrary(options: {
       language: Language,
       permit?: CloudReadPermit,
       forService?: string,
-    ): Promise<LibraryGroup[]> {
+    ): Promise<OrganizeReviewFolder[]> {
       const settings = getSettings();
       if (!organizeModelOf(settings))
         throw new InvalidInputError({ key: "error.library.noClassifier" });
@@ -1941,25 +2058,19 @@ export function createLibrary(options: {
       const classifier = await options.prepare(settings, permit);
       if (!classifier.proposeFolders)
         throw new InvalidInputError({ key: "error.library.cantPropose" });
-      const existing = groups().map((each) => each.name);
+      const existing = choicesOf().map((each) => each.name);
       const proposed = await classifier.proposeFolders(
         samplesOf(docs),
         existing,
         language,
         lifetime.signal,
       );
-      const made: LibraryGroup[] = [];
-      for (const folder of proposed) {
-        if (groups().some((each) => sameName(each.name, folder.name))) continue;
-        if (groups().length >= 100) break;
-        made.push(create(folder));
-      }
-      return made;
+      return options.review.proposeFolders(proposed.slice(0, Math.max(0, 100 - groups().length)));
     },
-    classify(input: unknown, forService?: string) {
+    classify(input: unknown, forService?: string, run: OrganizeReviewRun = { origin: "library" }) {
       if (!organizeModelOf(getSettings()))
         throw new InvalidInputError({ key: "error.library.noClassifier" });
-      if (groups().length === 0) throw new InvalidInputError({ key: "error.library.noFolders" });
+      if (nothingToChoose()) throw new InvalidInputError({ key: "error.library.noFolders" });
       // A continuation's authorized service, checked before anything is queued or cleared (#2308).
       if (forService !== undefined && options.organizeService(getSettings())?.id !== forService)
         return;
@@ -1970,7 +2081,7 @@ export function createLibrary(options: {
               .map((row) => row.id)
           : documentIdsOf(input)
       ).filter((id) => !leftAlone(id));
-      queueClassification(ids, forService);
+      queueClassification(ids, run, forService);
       resume();
     },
     /**
@@ -1984,10 +2095,11 @@ export function createLibrary(options: {
       signal: AbortSignal,
       allowedGroups?: ReadonlySet<string>,
       permit?: CloudReadPermit,
+      run: OrganizeReviewRun & { newFolders?: boolean } = { origin: "assistant" },
     ): Promise<{ failed: unknown | null; untouched: number; tagChanges: TagLinkChange[] }> {
       if (!organizeModelOf(getSettings()))
         throw new InvalidInputError({ key: "error.library.noClassifier" });
-      if (groups().length === 0) throw new InvalidInputError({ key: "error.library.noFolders" });
+      if (nothingToChoose()) throw new InvalidInputError({ key: "error.library.noFolders" });
       const ids = documentIdsOf(input).filter((id) => !leftAlone(id));
       const before = new Map(
         ids.map((id) => {
@@ -1998,7 +2110,8 @@ export function createLibrary(options: {
           ];
         }),
       );
-      queueClassification(ids);
+      const { newFolders, ...proposing } = run;
+      queueClassification(ids, proposing);
       let failure: unknown | null = null;
       const reached = new Set<string>();
       const tagChanges: TagLinkChange[] = [];
@@ -2013,6 +2126,7 @@ export function createLibrary(options: {
           },
           applied: (_id, links) => tagChanges.push(...links),
           allowedGroups,
+          newFolders,
           permit,
         });
         // Stopped during this one: it goes back as it was, like the ones after it.

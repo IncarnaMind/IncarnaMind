@@ -25,6 +25,8 @@ import type {
   LibraryGroup,
   MarkAiTextChoice,
   Mind,
+  OrganizeReviewChange,
+  OrganizeReviewFolder,
   SavedFile,
   TaggingClassifier,
   TaggingRoute,
@@ -50,6 +52,8 @@ export type CommandsCore = Pick<
   | "listDocuments"
   | "listMinds"
   | "getLibrary"
+  | "getOrganizeReview"
+  | "restoreOrganizeReview"
   | "listTags"
   | "renameDocument"
   | "renameMind"
@@ -114,15 +118,25 @@ export interface CommandsHost {
   /**
    * Organizes these Documents now and waits for the model, inside the turn that asked (#2252):
    * the Library's Organize, which the background queue can't run while an Answer is written.
+   * What it chooses waits in Suggestions under `runId` (#1569).
    */
   organizeAtOnce(
     ids: readonly string[],
     signal: AbortSignal,
     wall: string | null,
-    permit?: CloudReadPermit,
+    permit: CloudReadPermit | undefined,
+    runId: string,
   ): Promise<{ failed: unknown | null; untouched: number; tagChanges: TagLinkChange[] }>;
-  /** Suggests Folders for these Documents, with the run's permit when it has one (#2252). */
-  proposeFolders(ids: readonly string[], permit?: CloudReadPermit): Promise<LibraryGroup[]>;
+  /** Proposes Folders for these Documents, with the run's permit when it has one (#2252); none is made. */
+  proposeFolders(ids: readonly string[], permit?: CloudReadPermit): Promise<OrganizeReviewFolder[]>;
+  /** Proposes a Folder by name, made only when the User confirms it; null when one has that name. */
+  proposeFolder(name: string, about: string): OrganizeReviewFolder | null;
+  /**
+   * Takes a run's proposals out of Suggestions, but those the User edited, and these proposed
+   * Folders once nothing waits in them; `restoreOrganizeReview` with the change puts them back.
+   * A null run takes out only the Folders.
+   */
+  withdrawOrganizeRun(runId: string | null, folderIds: readonly string[]): OrganizeReviewChange;
   /**
    * The User allowed a cloud model to read the Documents for this Organize (#2252, ADR-0022):
    * stores the consent and tells the window, so the Privacy page shows it.
