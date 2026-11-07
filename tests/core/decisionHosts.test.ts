@@ -573,7 +573,7 @@ describe("Removing what sorting uses (#1907)", { timeout: 30_000 }, () => {
     expect(hosts.tagging()).toEqual([]);
   });
 
-  test("with the User's AI service allowed, the new Document is sorted by it, and Liquid gets nothing", async () => {
+  test("with the User's AI service allowed, the new Document is tagged by it, and Liquid gets nothing", async () => {
     const { core, hosts, tagging } = await liquidInUse(true);
     expect((await core.getLibrary()).settings.classifier).toEqual({ kind: "automatic" });
 
@@ -626,5 +626,53 @@ describe("Removing what sorting uses (#1907)", { timeout: 30_000 }, () => {
     const document = await addDocument(core, "Attention.md", PAPER_TEXT);
     await waitForTagging(core, [document.id]);
     expect(hosts.tagging().map((each) => each.path)).toContain("/api/v1/systemone");
+  });
+
+  test("Organize's kept model naming the host goes too, and the choice under Automatic stays", async () => {
+    const hosts = await startFakeHosts();
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: scriptedModels(taggingModel(["Notes"]).model).createChatModel,
+      keychain: createMemoryKeychain(),
+      decisionOrigins: { liquid: hosts.url },
+    });
+    await core.saveChatProvider(ANTHROPIC);
+    await core.setDecisionKey({ host: "liquid", apiKey: KEYS.liquid });
+    const { settings } = await core.getLibrary();
+    await core.saveLibrarySettings({
+      ...settings,
+      classifier: { kind: "automatic" },
+      organizeWith: { kind: "decision", host: "liquid", modelId: "d1-ultra" },
+    });
+
+    await core.removeDecisionKey("liquid");
+    expect((await core.getLibrary()).settings).toMatchObject({
+      classifier: { kind: "automatic" },
+      organizeWith: null,
+    });
+  });
+
+  test("a kept model naming a deleted provider doesn't stop a key from going", async () => {
+    const hosts = await startFakeHosts();
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: scriptedModels(taggingModel(["Notes"]).model).createChatModel,
+      keychain: createMemoryKeychain(),
+      decisionOrigins: { liquid: hosts.url },
+    });
+    const anthropic = await core.saveChatProvider(ANTHROPIC);
+    await core.setDecisionKey({ host: "liquid", apiKey: KEYS.liquid });
+    await core.saveLibrarySettings({
+      ...(await core.getLibrary()).settings,
+      classifier: { kind: "decision", host: "liquid", modelId: "d1-ultra" },
+      organizeWith: {
+        kind: "chat",
+        choice: { providerId: anthropic.id, modelId: ANTHROPIC.modelId },
+      },
+    });
+    // Organize's kept model now names a provider that is gone.
+    await core.deleteChatProvider(anthropic.id);
+
+    await core.removeDecisionKey("liquid");
+    expect((await status(core, "liquid"))?.hasKey).toBe(false);
+    expect((await core.getLibrary()).settings.classifier).toEqual({ kind: "automatic" });
   });
 });

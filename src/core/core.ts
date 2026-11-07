@@ -251,7 +251,7 @@ import {
 import { documentCitedPages, documentPageImages } from "./library/pageImages";
 import { createPlanPace, type Plan } from "./library/planPace";
 import { createTagging } from "./library/tagging";
-import type { LibraryClassifier, TaggingClassifier } from "./library/types";
+import type { TaggingClassifier } from "./library/types";
 import { createMeetings, isMemo, linkTranscript, meetingRecord } from "./meetings";
 import { listParts, meetingFolder } from "./meetings/audioFiles";
 import { createMeetingFill } from "./meetings/fill";
@@ -4006,15 +4006,8 @@ export function createCore(adapters: CoreAdapters): Core {
    * (#1907): back to Automatic, which starts no host and turns nothing on. The app never picks
    * another host in its place, so nothing goes anywhere the User hasn't allowed.
    */
-  const stopSortingWith = async (reached: (classifier: LibraryClassifier | null) => boolean) => {
-    const saved = library.settings();
-    if (!reached(saved.classifier) && !reached(saved.organizeWith)) return;
-    library.saveSettings({
-      ...saved,
-      classifier: reached(saved.classifier) ? { kind: "automatic" } : saved.classifier,
-      organizeWith: reached(saved.organizeWith) ? null : saved.organizeWith,
-    });
-    await dataFlowsChanged();
+  const stopSortingWith = async (reached: (classifier: TaggingClassifier) => boolean) => {
+    if (library.forgetModel(reached)) await dataFlowsChanged();
   };
   /** The hosts that reach their decision models with this chat provider's key: OpenRouter's, OpenAI's, the Qwen key's. */
   const hostsOnKeyOf = async (providerId: string) => {
@@ -5930,7 +5923,7 @@ export function createCore(adapters: CoreAdapters): Core {
     deleteChatProvider: async (id) => {
       const riding = await hostsOnKeyOf(id);
       await stopSortingWith(
-        (classifier) => classifier?.kind === "decision" && riding.includes(classifier.host),
+        (classifier) => classifier.kind === "decision" && riding.includes(classifier.host),
       );
       await chat.delete(id);
       if (riding.length > 0) await decisionsChanged(await decisionHosts.list());
@@ -6512,7 +6505,7 @@ export function createCore(adapters: CoreAdapters): Core {
       return jevChanged();
     },
     removeJevSettings: async () => {
-      await stopSortingWith((classifier) => classifier?.kind === "jev");
+      await stopSortingWith((classifier) => classifier.kind === "jev");
       await jev.remove();
       return jevChanged();
     },
@@ -6521,7 +6514,7 @@ export function createCore(adapters: CoreAdapters): Core {
     setDecisionKey: async (input) => decisionsChanged(await decisionHosts.setKey(input)),
     removeDecisionKey: async (host) => {
       await stopSortingWith(
-        (classifier) => classifier?.kind === "decision" && classifier.host === host,
+        (classifier) => classifier.kind === "decision" && classifier.host === host,
       );
       return decisionsChanged(await decisionHosts.removeKey(host));
     },
