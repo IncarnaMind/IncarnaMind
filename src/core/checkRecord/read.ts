@@ -181,7 +181,7 @@ function documentOf(
     deleted: found === undefined,
     size: live && sha256 !== null && live.contentHash === sha256 ? live.size : null,
     sha256,
-    location: citedLocation(attributes, t),
+    location: citedLocation(attributes, t, documents),
     quote: readQuote(attributes),
   };
 }
@@ -215,7 +215,7 @@ function recordCiteDocumentOf(
     deleted: cite.documentId !== undefined && live === undefined,
     size: live && sha256 !== null && live.contentHash === sha256 ? live.size : null,
     sha256,
-    location: citedLocation(cite, t),
+    location: citedLocation(cite, t, documents),
     quote: cite.passage ?? null,
   };
 }
@@ -339,7 +339,10 @@ export function readRecord(sources: RecordSources): {
           name: documents.find((each) => each.id === candidate.id)?.name ?? candidate.name,
         })),
         nearby: cite.nearby
-          ? { location: citedLocation(cite.nearby, sources.t), passage: cite.nearby.passage }
+          ? {
+              location: citedLocation(cite.nearby, sources.t, documents),
+              passage: cite.nearby.passage,
+            }
           : null,
         check: checked,
       });

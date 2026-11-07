@@ -30,6 +30,7 @@ import {
   citationSource,
   citationState,
   citedName,
+  citedSpeakers,
   needsRecheck,
   newVersionCitation,
   parseQuotedWords,
@@ -215,7 +216,8 @@ export function CitationView({
   const recheck = looked !== null && looked !== "failed" && "keptInside" in looked ? null : looked;
   const shown = withShownName(attributes, documents);
   const location = citationLocation(attributes);
-  const where = location ? formatLocation(location, t) : null;
+  const speakers = citedSpeakers(attributes, documents);
+  const where = location ? formatLocation(location, t, { speakers }) : null;
   const recheckAsked = editor.isEditable && needsRecheck(state, attributes, recheck);
   // Kept over, or moved to, only the version the card showed: a check still of an older one, or failed, isn't it.
   const lookedAt =
@@ -231,7 +233,7 @@ export function CitationView({
   // In a footnote's text it is part of the footnote: it shows where it points, not a number.
   const footnoteId = useContext(InFootnoteContext);
   const inFootnote = footnoteId !== null;
-  const pointsTo = citationSource(shown, t, language).text;
+  const pointsTo = citationSource(shown, t, language, documents).text;
   /** Clicked: the card stays until it is dismissed. */
   const [pinned, setPinned] = useState(false);
   /** Hovered or focused, with the card, the marker or its mark. */
@@ -387,7 +389,7 @@ export function CitationView({
           check: moved.check,
           withQuote: true,
           number,
-          label: moved.location ? formatLocation(moved.location, t) : null,
+          label: moved.location ? formatLocation(moved.location, t, { speakers }) : null,
           from: place?.groupId,
           keep: true,
           stay: true,
@@ -860,7 +862,10 @@ function CitationCard({
   const web = live?.web ?? null;
   const place = useDocumentPlace(state.documentId ?? null);
   const location = citationLocation(attributes);
-  const where = location ? formatLocation(location, t) : null;
+  const lives = live ? [live] : null;
+  const where = location
+    ? formatLocation(location, t, { speakers: citedSpeakers(attributes, lives) })
+    : null;
   const withPdfPage = location ? formatLocationWithPdf(location, t) : null;
   const opens = web ? "web" : openKind(location);
   const name = nameWithPlace(citedName(attributes, t, language), place);
@@ -885,7 +890,7 @@ function CitationCard({
         ? name
         : null
       : where
-        ? citationSource(attributes, t, language).text
+        ? citationSource(attributes, t, language, lives).text
         : name);
   const stoppedAt = useJudgementLimit();
   const reason =

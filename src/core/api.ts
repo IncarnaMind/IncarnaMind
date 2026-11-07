@@ -4207,6 +4207,8 @@ export interface Document {
    * Document, a .vtt the User added among them.
    */
   meetingMindId: string | null;
+  /** Who's who in a Meeting's Transcript (#138); null until the User names or moves a Speaker. */
+  speakers: TranscriptSpeakers | null;
   /**
    * The Mind this file was last imported as, still there (#720): the User's working copy of
    * it, which is never cited. Null for a file never imported.
@@ -4216,6 +4218,20 @@ export interface Document {
   createdAt: string;
   /** ISO 8601, UTC. */
   updatedAt: string;
+}
+
+/**
+ * Who's who in a Meeting's Transcript (#138), kept apart from its file, which a name never
+ * rewrites: so no Citation of it is checked again, and every one shows the names as they are now.
+ * A line is known by its start and the label its file gives it ("Me", "Them", "Speaker ?",
+ * "Speaker 2"), which is what a Citation of it stores.
+ * - `labels`: the name the User gave a Speaker, by label. "Me" is the User and has none.
+ * - `lines`: a line the User gave to another Speaker, by `lineKey` of the line as its file has it:
+ *   that Speaker's label, "Me", one the file gives, or a "Speaker N" made for a new Speaker.
+ */
+export interface TranscriptSpeakers {
+  labels: Record<string, string>;
+  lines: Record<string, string>;
 }
 
 /**
@@ -12238,6 +12254,15 @@ export interface CoreApi {
   /** Returns the renamed Document. Only its name in IncarnaMind changes, never the file. */
   renameDocument(id: string, name: string): Promise<Document>;
   /**
+   * Sets who's who in a Meeting's Transcript (#138), whole: what Undo sets back too. Its file
+   * isn't touched. Returns the Document, which "documents.speakersChanged" carries as well.
+   * InvalidInputError for a Document that isn't a Meeting's Transcript, or names "Me".
+   */
+  setTranscriptSpeakers(input: {
+    documentId: string;
+    speakers: TranscriptSpeakers;
+  }): Promise<Document>;
+  /**
    * Removes a Document from the index: soft-deletes it, its Passages and its
    * Tags, so search ignores them. The file isn't touched. A Document in a
    * Linked folder whose file is still there stays out of the index after
@@ -13955,6 +13980,8 @@ export interface CoreEvents {
   "annotations.changed": { documentId: string };
   /** A Document renamed, by the User or the assistant (#1110), whole as it is named now. */
   "documents.renamed": Document[];
+  /** Who's who in a Transcript changed (#138): the Document whole, as it is now. */
+  "documents.speakersChanged": Document[];
   /** The Documents whose PDF password is kept changed (#763): their ids now. */
   "documentPasswords.changed": string[];
   /** Folders appeared or went with the folders on disk: the list as `listFolders` now returns it. */
@@ -14177,6 +14204,7 @@ const methods: Record<CoreApiMethod, true> = {
   wallOfTurn: true,
   listDocuments: true,
   renameDocument: true,
+  setTranscriptSpeakers: true,
   deleteDocument: true,
   deleteDocuments: true,
   retryDocument: true,

@@ -37,6 +37,7 @@ const document = (id: string, status: Document["status"] = "ready") => ({
   id,
   status,
   meetingMindId: null,
+  speakers: null,
 });
 
 const library: ReadableLibrary = {

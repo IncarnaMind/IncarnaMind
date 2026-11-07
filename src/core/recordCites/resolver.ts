@@ -1,7 +1,8 @@
 import { joinUnits } from "../../shared/locations";
 import type { RecordCiteChoice } from "../../shared/recordCiteChoices";
+import { speakerMark } from "../../shared/speakers";
 import { anchorsOf, cutUnit, parseCueTarget, type UnitText } from "../../shared/units";
-import type { CitationLocation, RecordCiteResult } from "../api";
+import type { CitationLocation, RecordCiteResult, TranscriptSpeakers } from "../api";
 import { recordCiteAliasMatches } from "./alias";
 import type { ParsedRecordCite, RecordCiteParseResult } from "./parser";
 
@@ -9,6 +10,8 @@ export interface RecordCiteDocument {
   id: string;
   name: string;
   contentHash: string;
+  /** Who's who in a Transcript (#138): its lines read by the names the User gave. */
+  speakers?: TranscriptSpeakers | null;
   /** Read only when the Document's name is the cite's, or it holds the cite's Bates number. */
   readonly units: readonly UnitText[];
 }
@@ -335,8 +338,8 @@ const resolveTime = (
     passage: selected
       .map((cue) => {
         const said = cutUnit(cue.unit, cue.anchor.start, cue.anchor.end).text;
-        const who = cue.unit.label?.speakers?.[cue.index];
-        return who ? `${who}: ${said}` : said;
+        const label = cue.unit.label?.speakers?.[cue.index];
+        return label ? `${speakerMark(document.speakers, cue.startMs, label)}: ${said}` : said;
       })
       .join("\n"),
   };

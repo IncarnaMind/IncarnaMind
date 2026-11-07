@@ -233,6 +233,22 @@ export const meetingCommands: readonly Command[] = [
       transcriptHandle.current?.hasLine() ? true : { reason: "meetings.command.noLine" },
     run: () => transcriptHandle.current?.addLine(),
   },
+  {
+    id: "meeting.changeSpeaker",
+    label: "meetings.command.changeSpeaker",
+    keywords: ["transcript.speaker.new", "transcript.speaker.all"],
+    group: "main",
+    // Its menu's choice has an Undo line, and ⌘Z outside a text field takes it back.
+    reversible: true,
+    when: () => transcriptHandle.current !== null,
+    enabled: () =>
+      !transcriptHandle.current?.hasLine()
+        ? { reason: "meetings.command.noLine" }
+        : transcriptHandle.current.canChangeSpeaker()
+          ? true
+          : { reason: "meetings.command.noSpeaker" },
+    run: () => transcriptHandle.current?.changeSpeaker(),
+  },
   showViewCommand("showNotes", "notes", "meetings.views.showNotes"),
   showViewCommand("showMyNotes", "mine", "meetings.views.showMine"),
   showViewCommand("showTranscript", "transcript", "meetings.views.showTranscript"),

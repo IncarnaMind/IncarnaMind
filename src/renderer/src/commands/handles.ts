@@ -185,7 +185,15 @@ export function viewerHandleInUse<K extends keyof ViewerActions>(
   return handleInUse(viewerActions[kind] as Map<string, ViewerActions[K]>, layout);
 }
 
-/** The Transcript in view (#139): the line the User is on, which "Add transcript line to note" adds. */
-export const transcriptHandle: Handle<{ hasLine(): boolean; addLine(): Promise<void> }> = {
+/**
+ * The Transcript in view (#139): the line the User is on, which "Add transcript line to note"
+ * adds, and whose Speaker "Change who speaks…" opens (#138).
+ */
+export const transcriptHandle: Handle<{
+  hasLine(): boolean;
+  addLine(): Promise<void>;
+  canChangeSpeaker(): boolean;
+  changeSpeaker(): void;
+}> = {
   current: null,
 };
