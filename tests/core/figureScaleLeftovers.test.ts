@@ -154,6 +154,13 @@ const pdfZh = (name: string, lines: readonly string[]) => ({
 });
 const rows: readonly [string, string] = ["Revenue 1,234.5", "Costs 334.5"];
 const rowsZh: readonly [string, string] = ["收入 1,200", "成本 300"];
+/** Enough text that a page's scale line is a Passage of its own. */
+const filler = (chinese: boolean) =>
+  Array.from({ length: 40 }, (_, index) =>
+    chinese
+      ? `董事会第${index + 1}次审阅了集团的经营情况、现金状况以及来年的展望。`
+      : `The directors reviewed item ${index + 1} of the group's trading, cash and outlook in detail.`,
+  );
 
 describe("The scale cases #2365 still misses (#2365)", { timeout: 120_000 }, () => {
   // protects=#2365; fails_when=a Chinese bracket naming a currency and a scale ("（人民币，百万）") is invisible to the nearer check, so a wider 千元 line scales figures at a hundredth of the stated 百万.
@@ -559,6 +566,72 @@ describe("The scale cases #2365 still misses (#2365)", { timeout: 120_000 }, () 
     expect(recorded.currency).toBe("USD");
   });
 
+  // protects=#2365; fails_when=a per-share row the quoted line excepts takes the line's currency ("(in US$ millions, except per share data)") over the one its own head or figure writes ("Basic EPS (HK$)"), so HK$1.00 is recorded as $1.00; or a row that writes none loses the line's.
+  test.each([
+    {
+      language: "English, the whole row",
+      lines: ["Basic EPS (HK$) 2.47", "Diluted EPS (HK$) 1.47"],
+      cites: ["Basic EPS (HK$) 2.47", "Diluted EPS (HK$) 1.47"] as [string, string],
+      currency: "HKD",
+    },
+    {
+      language: "English, the number alone",
+      lines: ["Basic EPS (HK$) 2.47", "Diluted EPS (HK$) 1.47"],
+      cites: ["2.47", "1.47"] as [string, string],
+      currency: "HKD",
+    },
+    {
+      language: "English, the number alone on a line that writes its sign",
+      lines: ["Basic EPS HK$2.47", "Diluted EPS HK$1.47"],
+      cites: ["2.47", "1.47"] as [string, string],
+      currency: "HKD",
+    },
+    {
+      language: "English, a row that writes no currency",
+      lines: ["Basic EPS 2.47", "Diluted EPS 1.47"],
+      cites: ["Basic EPS 2.47", "Diluted EPS 1.47"] as [string, string],
+      currency: "USD",
+    },
+    {
+      language: "Chinese, the whole row",
+      lines: ["基本每股收益（港元） 2.47", "稀释每股收益（港元） 1.47"],
+      cites: ["基本每股收益（港元） 2.47", "稀释每股收益（港元） 1.47"] as [string, string],
+      currency: "HKD",
+    },
+    {
+      language: "Chinese, the number alone",
+      lines: ["基本每股收益（港元） 2.47", "稀释每股收益（港元） 1.47"],
+      cites: ["2.47", "1.47"] as [string, string],
+      currency: "HKD",
+    },
+    {
+      language: "Chinese, a row that writes no currency",
+      lines: ["基本每股收益 2.47", "稀释每股收益 1.47"],
+      cites: ["基本每股收益 2.47", "稀释每股收益 1.47"] as [string, string],
+      currency: "USD",
+    },
+  ])(
+    "an excepted per-share row keeps its own currency over the line's: $language",
+    async (each) => {
+      const chinese = each.language.startsWith("Chinese");
+      const head = chinese
+        ? "（除每股数据外，单位：百万美元）"
+        : "(in US$ millions, except per share data)";
+      const recorded = await record({
+        file: chinese
+          ? pdfZh("每股收益", [head, ...each.lines])
+          : pdf("EPS currency", [head, ...each.lines]),
+        cites: each.cites,
+        numbers: ["2.47", "1.47"],
+        unitQuote: head,
+        query: chinese ? "每股收益" : "EPS currency",
+      });
+
+      expect(recorded.value).toBeCloseTo(1, 9);
+      expect(recorded.currency).toBe(each.currency);
+    },
+  );
+
   // protects=#2365; fails_when=the conflicting-scales refusal is removed and a currency-only row takes one of two scales ("Volumes in millions; amounts in thousands").
   test("a currency-only row with two scale statements refuses", async () => {
     const dollarRows: readonly [string, string] = ["Revenue (US$) 1,234.5", "Costs (US$) 334.5"];
@@ -624,6 +697,128 @@ describe("The scale cases #2365 still misses (#2365)", { timeout: 120_000 }, () 
 
     expect(each.ok).toContain(recorded.value);
   });
+
+  // protects=#2365; fails_when=a quoted line that states a measure ("Unit: million tonnes", "单位：万吨") scales or names the unit of an amount its row head or own line writes in a currency, so $1,234.5 becomes $1,234.5 million or 1,234.5 million tonnes.
+  test.each([
+    {
+      language: "English, the whole row",
+      lines: ["Revenue (US$) 1,234.5", "Costs (USD) 334.5"],
+      cites: ["Revenue (US$) 1,234.5", "Costs (USD) 334.5"] as [string, string],
+    },
+    {
+      language: "English, the number alone",
+      lines: ["Revenue (US$) 1,234.5", "Costs (USD) 334.5"],
+      cites: ["1,234.5", "334.5"] as [string, string],
+    },
+    {
+      language: "English, the number alone on a line that writes its sign",
+      lines: ["Revenue $1,234.5", "Costs $334.5"],
+      cites: ["1,234.5", "334.5"] as [string, string],
+    },
+    {
+      language: "Chinese, the whole row",
+      lines: ["收入（元） 1,200", "成本（元） 300"],
+      cites: ["收入（元） 1,200", "成本（元） 300"] as [string, string],
+    },
+    {
+      language: "Chinese, the number alone",
+      lines: ["收入（元） 1,200", "成本（元） 300"],
+      cites: ["1,200", "300"] as [string, string],
+    },
+  ])("a quoted measure's line never scales an amount: $language", async (each) => {
+    const chinese = each.language.startsWith("Chinese");
+    const measure = chinese ? "单位：万吨" : "Unit: million tonnes";
+    const recorded = await record({
+      file: chinese
+        ? pdfZh("计量", [measure, ...each.lines])
+        : pdf("Measures", [measure, ...each.lines]),
+      cites: each.cites,
+      numbers: chinese ? ["1,200", "300"] : ["1,234.5", "334.5"],
+      unitQuote: measure,
+      query: chinese ? "计量 收入 成本" : "measures revenue costs",
+    });
+
+    expect(recorded.value).toBeNull();
+    expect(recorded.asked).toContain("states a unit of measure");
+  });
+
+  // protects=#2365; fails_when=the measure guard refuses a measure's own rows, which the line's scale states.
+  test.each([
+    {
+      language: "English",
+      file: pdf("Measures", ["Unit: million tonnes", "Output 1,234.5", "Shipments 334.5"]),
+      cites: ["Output 1,234.5", "Shipments 334.5"] as [string, string],
+      numbers: ["1,234.5", "334.5"] as [string, string],
+      unitQuote: "Unit: million tonnes",
+      query: "measures output shipments",
+      value: 900_000_000,
+    },
+    {
+      language: "Chinese",
+      file: pdfZh("计量", ["单位：万吨", "产量 1,200", "销量 300"]),
+      cites: ["产量 1,200", "销量 300"] as [string, string],
+      numbers: ["1,200", "300"] as [string, string],
+      unitQuote: "单位：万吨",
+      query: "计量 产量 销量",
+      value: 9_000_000,
+    },
+  ])("a measure's line still scales its own rows: $language", async (each) => {
+    const recorded = await record(each);
+
+    expect(recorded.value).toBe(each.value);
+    expect(recorded.currency).toBeNull();
+    expect(recorded.statement).toBe(each.unitQuote);
+  });
+
+  // protects=#2365; fails_when=a currency-only row head reads its rows plain though an earlier page states a scale for the whole Document ("All amounts in thousands"), so $900 thousand is recorded as $900.
+  test.each([
+    {
+      language: "English",
+      pages: [
+        ["Group notes", "All amounts in thousands", ...filler(false)],
+        filler(false),
+        ["Group accounts", "Revenue (US$) 1,234.5", "Costs (USD) 334.5"],
+      ],
+      cites: ["Revenue (US$) 1,234.5", "Costs (USD) 334.5"] as [string, string],
+      numbers: ["1,234.5", "334.5"] as [string, string],
+      unitQuotes: ["(US$)", "(USD)"] as [string, string],
+      scale: "All amounts in thousands",
+      query: "group accounts revenue costs",
+    },
+    {
+      language: "Chinese",
+      pages: [
+        ["集团附注", "所有金额单位：千元", ...filler(true)],
+        filler(true),
+        ["集团账目", "收入（元） 1,200", "成本（元） 300"],
+      ],
+      cites: ["收入（元） 1,200", "成本（元） 300"] as [string, string],
+      numbers: ["1,200", "300"] as [string, string],
+      unitQuotes: ["收入（元）", "成本（元）"] as [string, string],
+      scale: "所有金额单位：千元",
+      query: "集团账目 收入 成本",
+    },
+  ])(
+    "a currency-only row head doesn't read plain under an earlier page's scale: $language",
+    async (each) => {
+      const chinese = each.language === "Chinese";
+      const recorded = await record({
+        file: {
+          name: chinese ? "跨页.pdf" : "Cross page.pdf",
+          contents: buildPdf(
+            each.pages.map((lines) => (chinese ? { chineseLines: lines } : { lines })),
+          ),
+        },
+        cites: each.cites,
+        numbers: each.numbers,
+        unitQuotes: each.unitQuotes,
+        query: each.query,
+      });
+
+      expect(recorded.value).toBeNull();
+      expect(recorded.asked).toContain(each.scale);
+    },
+  );
 
   // protects=#2365; fails_when=prose that names a shop's results or a household survey ("以千元店业绩为基准", "以万元户调查为基础") is read as a unit declaration.
   test.each(["经营概况（以千元店业绩为基准）", "经营概况（以万元户调查为基础）"])(

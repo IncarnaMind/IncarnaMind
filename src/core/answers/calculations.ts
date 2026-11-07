@@ -2164,6 +2164,20 @@ export function createCalculationSession(options: CalculationSessionOptions) {
         amountsOnFigureLine(quoted, figure, quoteContext) > 1
       )
         return `${figure.chars} is in one column of a row whose head states the scale of another ("${unit.citation.quote}"); the text doesn't say which column it is, so its scale can't be settled.`;
+      const at = page.at + figure.start;
+      const money =
+        base.unit.kind === "currency"
+          ? base.unit.code
+          : (ownRow?.ownCurrency ??
+            currencyOnItsFigure(lineOf(page.text, at, at + figure.chars.length), context)?.code ??
+            null);
+      // A measure's scale or unit ("Unit: million tonnes", "单位：万吨") never scales an amount
+      // its own quote, row head or line writes in a currency (#2365).
+      const measure = statedLine.find(
+        (each) => each.unit.kind !== "plain" && each.unit.kind !== "currency",
+      );
+      if (money !== null && measure)
+        return `the unitQuote "${unit.citation.quote}" states a unit of measure ("${measure.chars}"), but ${figure.chars} is an amount in ${money}; quote the line that states the scale of its amounts, or give none.`;
       if (bracketLine) {
         const kind = notAnAmount(label ?? "");
         if (kind)
@@ -2192,12 +2206,12 @@ export function createCalculationSession(options: CalculationSessionOptions) {
       } else if (label === null && row === null && statedLine.some((each) => each.scale !== 1)) {
         return `${figure.chars} has no label on its line or above it that says what its row is, and the unitQuote "${unit.citation.quote}" states a scale for amounts; it can't be calculated without guessing its scale.`;
       } else if (statedLine.some((each) => exceptedBy(each, label ?? ""))) {
-        const lineCurrency = statedLine.find((each) => each.unit.kind === "currency")?.unit;
-        const ownCurrency =
-          ownRow?.ownCurrency === null || ownRow?.ownCurrency === undefined
-            ? null
-            : { kind: "currency" as const, code: ownRow.ownCurrency };
-        const currency = lineCurrency ?? ownCurrency;
+        // The row's own currency is nearer than the line's: "Basic EPS (HK$)" under "(in US$
+        // millions, except per share data)" is in HK$ (#2365).
+        const currency =
+          money !== null
+            ? { kind: "currency" as const, code: money }
+            : statedLine.find((each) => each.unit.kind === "currency")?.unit;
         if (currency && base.unit.kind === "plain")
           stated = { quoted: unit, stated: { ...base, unit: currency }, currencyChars: null };
       } else if (statedLine.some((each) => notedOut(each, label ?? ""))) {
@@ -2341,13 +2355,13 @@ export function createCalculationSession(options: CalculationSessionOptions) {
           return `the unitQuote "${unit.citation.quote}" states ${lineCurrency.code}, but ${figure.chars} is in ${ownCurrency}; quote a line in ${ownCurrency} that states the scale.`;
         // A quote of the number alone leaves out the currency its own line or row head writes:
         // a line in another currency can't state its scale (#2365).
-        if (base.unit.kind === "plain" && lineCurrency?.kind === "currency") {
-          const at = page.at + figure.start;
-          const line = lineOf(page.text, at, at + figure.chars.length);
-          const onLine = ownRow?.ownCurrency ?? currencyOnItsFigure(line, context)?.code ?? null;
-          if (onLine !== null && onLine !== lineCurrency.code)
-            return `the unitQuote "${unit.citation.quote}" states ${lineCurrency.code}, but ${figure.chars}'s own line states ${onLine}; quote a line in ${onLine} that states the scale, or quote the number with its currency.`;
-        }
+        if (
+          base.unit.kind === "plain" &&
+          lineCurrency?.kind === "currency" &&
+          money !== null &&
+          money !== lineCurrency.code
+        )
+          return `the unitQuote "${unit.citation.quote}" states ${lineCurrency.code}, but ${figure.chars}'s own line states ${money}; quote a line in ${money} that states the scale, or quote the number with its currency.`;
         const applies =
           readings.find((each) => each.scale !== 1) ??
           readings.find((each) => each.unit.kind !== base.unit.kind) ??
