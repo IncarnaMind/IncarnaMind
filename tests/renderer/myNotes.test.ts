@@ -297,9 +297,18 @@ describe.each(["en", "zh-CN"] as const)("My notes (%s)", (language) => {
           editor.state.tr.replaceSelection(new Slice(Fragment.from(pasted), 0, 0)),
         );
       }
-      const left = how === "delete" ? [] : how === "type" ? ["x"] : [words.typed];
+      const first = how === "delete" ? "" : how === "type" ? "x" : words.typed;
       showMyNotes(editor, false);
-      expect(nonEmpty(allLines(editor))).toEqual([...left, ...fillLines]);
+      // The User's lines go, as in Notes, but the first, which takes what is typed, and the
+      // empty line of the item that holds the fill's facts.
+      expect(allLines(editor)).toEqual([
+        first,
+        words.aiLine,
+        "",
+        ...words.facts,
+        words.section,
+        words.summary,
+      ]);
       expect(itemOf(editor, "")).toEqual(["", ...words.facts]);
       editor.destroy();
     },
@@ -321,6 +330,21 @@ describe.each(["en", "zh-CN"] as const)("My notes (%s)", (language) => {
     expect(editor.state.selection).toBeInstanceOf(TextSelection);
     const block = editor.state.selection.content();
     expect(block.content.textBetween(0, block.content.size, "\n")).toBe(words.bullet);
+    editor.destroy();
+  });
+
+  // protects=AI words selected inside a line the User typed are copied, and a cut takes out exactly them and keeps them: only lines the page hides are left out of a copy (#138); fails_when=the copy is empty while the cut deletes the words; no_claim=the clipboard's HTML.
+  test("AI words inside a typed line copy and cut as they show", () => {
+    const mixed = `${words.own}${words.aiLine}`;
+    const editor = noteOf(
+      docOf({ type: "doc", content: [paragraph(typed(words.own), ai(words.aiLine))] }),
+    );
+    showMyNotes(editor, true);
+    select(editor, inLine(editor, mixed, words.own.length), inLine(editor, mixed));
+    const copied = editor.view.serializeForClipboard(editor.state.selection.content());
+    expect(copied.text).toBe(words.aiLine);
+    editor.view.dispatch(editor.state.tr.deleteSelection());
+    expect(shownLines(editor)).toEqual([words.own]);
     editor.destroy();
   });
 

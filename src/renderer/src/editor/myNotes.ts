@@ -130,12 +130,17 @@ export function hiddenIn(doc: ProseMirrorNode, kept: ProseMirrorNode | null = nu
   return ranges;
 }
 
-/** `slice` without what hides: a cell keeps its place, emptied, as the page shows it. */
-function shownSlice(slice: Slice): Slice {
+/**
+ * `slice` without the lines the page hides, the same nodes as those its decorations hide: part of
+ * a line, AI words in a line the User typed included, is never one. A cell keeps its place,
+ * emptied, as the page shows it.
+ */
+function shownSlice(slice: Slice, state: EditorState, hidden: readonly Range[]): Slice {
+  const hiddenNodes = new Set(hidden.map((range) => state.doc.nodeAt(range.from)));
   const keep = (fragment: Fragment): Fragment => {
     const children: ProseMirrorNode[] = [];
     fragment.forEach((child) => {
-      if (hides(child, null)) return;
+      if (hiddenNodes.has(child)) return;
       if (child.isTextblock || child.isLeaf) {
         children.push(child);
         return;
@@ -207,7 +212,10 @@ function shownTextNear(
 }
 
 /**
- * The parts of [from, to] that show, one for each line's words: a hidden line, and the structure
+ * The parts of [from, to] that show, one for each line: its words, or, past the first, the whole
+ * line when all of it is selected, so Delete takes it out as it does in Notes. A line stays, its
+ * words taken out, where taking it out would change what holds a hidden line or a cell's shape:
+ * in a list item holding hidden lines, and in a table cell. A hidden line, and the structure
  * around one, are never part of them, so nothing replacing them moves a hidden line.
  */
 function shownRanges(
@@ -216,16 +224,27 @@ function shownRanges(
   from: number,
   to: number,
 ): SelectionRange[] {
-  const parts: SelectionRange[] = [];
+  const parts: [number, number][] = [];
   doc.nodesBetween(from, to, (node, pos) => {
     if (hidden.some((range) => pos >= range.from && pos < range.to)) return false;
     if (!node.isTextblock) return true;
     const start = Math.max(from, pos + 1);
     const end = Math.min(to, pos + node.nodeSize - 1);
-    if (start < end) parts.push(new SelectionRange(doc.resolve(start), doc.resolve(end)));
+    const $line = doc.resolve(pos);
+    const holder = $line.parent;
+    const role = tableRole(holder);
+    const keeps =
+      role === "cell" ||
+      role === "header_cell" ||
+      (ITEMS.has(holder.type.name) &&
+        hidden.some((range) => range.from >= $line.start() && range.to <= $line.end()));
+    const whole = start === pos + 1 && end === pos + node.nodeSize - 1;
+    if (parts.length > 0 && whole && !keeps) parts.push([pos, pos + node.nodeSize]);
+    else if (start < end) parts.push([start, end]);
     return false;
   });
-  return parts.length > 0 ? parts : [new SelectionRange(doc.resolve(from), doc.resolve(from))];
+  if (parts.length === 0) parts.push([from, from]);
+  return parts.map(([a, b]) => new SelectionRange(doc.resolve(a), doc.resolve(b)));
 }
 
 /**
@@ -498,8 +517,10 @@ export const MyNotes = Extension.create({
             return joinPastHidden(view, event.key === "Backspace", mine.hidden);
           },
           // What a cell selection, or any other, copies holds only what shows.
-          transformCopied: (slice, view) =>
-            KEY.getState(view.state)?.on ? shownSlice(slice) : slice,
+          transformCopied(slice, view) {
+            const mine = KEY.getState(view.state);
+            return mine?.on ? shownSlice(slice, view.state, mine.hidden) : slice;
+          },
           handleDOMEvents: {
             dragstart(view, event) {
               const mine = KEY.getState(view.state);
