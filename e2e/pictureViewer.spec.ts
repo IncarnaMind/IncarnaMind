@@ -454,6 +454,19 @@ test("a Document's picture opens at full size with its figure, and a drag still 
     await window.keyboard.press("Escape");
     await expect(viewer(window)).toBeHidden();
 
+    // The keyboard reaches the picture too: focus its button, and Enter opens it.
+    const pictureButton = window
+      .getByTestId("viewer-web-article")
+      .locator("[data-picture-button]")
+      .nth(0);
+    await pictureButton.focus();
+    await expect(pictureButton).toBeFocused();
+    await window.keyboard.press("Enter");
+    await expect(viewer(window)).toBeVisible();
+    await expect(source(window)).toHaveText("Harbour trade in 2026 · figure 1");
+    await window.keyboard.press("Escape");
+    await expect(viewer(window)).toBeHidden();
+
     // ⌥ drag over the picture still selects an area to ask about, and opens nothing.
     const box = await pictures.nth(0).boundingBox();
     if (!box) throw new Error("The page's picture isn't in view.");

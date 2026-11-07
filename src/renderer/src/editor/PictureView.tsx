@@ -101,12 +101,12 @@ export function PictureView({
         data-testid="picture-expand"
         aria-label={t("editor.picture.open")}
         title={t("editor.picture.open")}
-        tabIndex={-1}
+        tabIndex={opensOnPress ? 0 : -1}
         onClick={(event) => {
           event.stopPropagation();
           open();
         }}
-        className="pointer-events-none absolute top-2 right-2 inline-flex size-7 items-center justify-center rounded-md bg-sheet/90 text-ink-secondary opacity-0 shadow-popover group-hover:pointer-events-auto group-hover:opacity-100 hover:text-ink"
+        className="pointer-events-none absolute top-2 right-2 inline-flex size-7 items-center justify-center rounded-md bg-sheet/90 text-ink-secondary opacity-0 shadow-popover group-hover:pointer-events-auto group-hover:opacity-100 hover:text-ink focus-visible:pointer-events-auto focus-visible:opacity-100"
       >
         <ExpandIcon className="size-4" />
       </button>

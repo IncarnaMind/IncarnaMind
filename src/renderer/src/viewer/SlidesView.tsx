@@ -794,15 +794,21 @@ function SlideSheet({
           {slide.images.map((image) => {
             const url = images.get(image.part);
             return url ? (
-              <img
+              <button
                 key={image.part}
-                src={url}
-                alt={image.alt}
-                className="viewer-slide-image"
-                data-picture-viewer=""
-                tabIndex={-1}
-                draggable={false}
-              />
+                type="button"
+                data-picture-button=""
+                aria-label={image.alt || undefined}
+                className="my-1 inline-block max-w-full cursor-zoom-in border-0 bg-transparent p-0"
+              >
+                <img
+                  src={url}
+                  alt={image.alt}
+                  className="viewer-slide-image"
+                  data-picture-viewer=""
+                  draggable={false}
+                />
+              </button>
             ) : null;
           })}
         </div>

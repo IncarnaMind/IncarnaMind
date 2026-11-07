@@ -365,31 +365,37 @@ export function ImageView({ document, target }: { document: Document; target: Vi
               ref={section}
               data-page-number={1}
               data-area-unit={1}
+              data-picture-surface=""
               aria-label={t("viewer.page.label", { number: 1 })}
               className="viewer-page relative shrink-0"
               style={{ width, height }}
             >
-              <img
-                src={loaded.url}
-                alt={displayName(document)}
-                draggable={false}
-                data-testid="image-picture"
-                data-picture-viewer=""
-                tabIndex={-1}
-                className="absolute inset-0 size-full select-none object-contain"
-                onError={() => setLoaded({ kind: "failed", key: "viewer.pictureNotShown" })}
-                onLoad={(event) => {
-                  const image = event.currentTarget;
-                  if (image.naturalWidth > 0) {
-                    setLoaded({
-                      kind: "ready",
-                      url: loaded.url,
-                      width: image.naturalWidth,
-                      height: image.naturalHeight,
-                    });
-                  }
-                }}
-              />
+              <button
+                type="button"
+                data-picture-button=""
+                className="absolute inset-0 block size-full cursor-zoom-in border-0 bg-transparent p-0"
+              >
+                <img
+                  src={loaded.url}
+                  alt={displayName(document)}
+                  draggable={false}
+                  data-testid="image-picture"
+                  data-picture-viewer=""
+                  className="absolute inset-0 size-full select-none object-contain"
+                  onError={() => setLoaded({ kind: "failed", key: "viewer.pictureNotShown" })}
+                  onLoad={(event) => {
+                    const image = event.currentTarget;
+                    if (image.naturalWidth > 0) {
+                      setLoaded({
+                        kind: "ready",
+                        url: loaded.url,
+                        width: image.naturalWidth,
+                        height: image.naturalHeight,
+                      });
+                    }
+                  }}
+                />
+              </button>
               <div
                 ref={textHost}
                 className="pdf-page-text absolute top-0 left-0 origin-top-left"

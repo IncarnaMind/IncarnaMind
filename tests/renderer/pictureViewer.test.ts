@@ -2,7 +2,11 @@ import { getSchema } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
 import { PICTURE_NODE } from "../../src/core/api";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
-import { pictureFileName, picturesAt } from "../../src/renderer/src/pictureGroups";
+import { inAnswerAt, pictureFileName, picturesAt } from "../../src/renderer/src/pictureGroups";
+import { translate } from "../../src/shared/i18n";
+
+const t = (key: Parameters<typeof translate>[1], params?: Parameters<typeof translate>[2]) =>
+  translate("en", key, params);
 
 /*
  * The pictures the viewer steps through (#2377): an Answer's own pictures, or
@@ -76,6 +80,24 @@ describe("the pictures a picture at a position belongs to", () => {
     });
   });
 
+  test("a picture nested in a checklist item is the Note's too, and steps with it", () => {
+    const nested = schema.node("doc", null, [
+      schema.node("taskList", null, [
+        schema.node("taskItem", { checked: false }, [
+          schema.node("paragraph", null, [schema.text("Buy milk")]),
+          picture("In a checklist"),
+        ]),
+      ]),
+      picture("After it"),
+    ]);
+    const inNested = positions(nested);
+    expect(picturesAt(nested, inNested["In a checklist"] as number)).toMatchObject({
+      kind: "note",
+      index: 0,
+      pictures: [{ description: "In a checklist" }, { description: "After it" }],
+    });
+  });
+
   test("a position that is no picture at all gives none", () => {
     const elsewhere = schema.node("doc", null, [schema.node("paragraph"), picture("Later")]);
     expect(picturesAt(elsewhere, 0)).toBeNull();
@@ -100,34 +122,36 @@ describe("the PNG Save picture… names", () => {
   });
 
   test("an Answer's plot is named by its place in the Answer", () => {
-    expect(pictureFileName(target({ kind: "answer" }, 1, [pictureOf, pictureOf]))).toBe(
+    expect(pictureFileName(target({ kind: "answer" }, 1, [pictureOf, pictureOf]), t)).toBe(
       "Plot 2.png",
     );
   });
 
   test("a Note's picture is named by its description, or by its place in the Note", () => {
-    expect(pictureFileName(target({ kind: "note" }))).toBe("Revenue by quarter.png");
+    expect(pictureFileName(target({ kind: "note" }), t)).toBe("Revenue by quarter.png");
     expect(
-      pictureFileName({
-        ...target({ kind: "note" }),
-        pictures: [{ src: "data:image/png;base64,x", description: "", place: null }],
-      }),
+      pictureFileName(
+        {
+          ...target({ kind: "note" }),
+          pictures: [{ src: "data:image/png;base64,x", description: "", place: null }],
+        },
+        t,
+      ),
     ).toBe("Picture 1.png");
   });
 
   test("a Document's picture names its Document and place, with what a file name can't hold left out", () => {
-    expect(pictureFileName(target({ kind: "document", name: "Harbour trade in 2026" }))).toBe(
+    expect(pictureFileName(target({ kind: "document", name: "Harbour trade in 2026" }), t)).toBe(
       "Harbour trade in 2026 · figure 2.png",
     );
-    expect(pictureFileName(target({ kind: "document", name: "Budget: Q3/Q4" }))).toBe(
+    expect(pictureFileName(target({ kind: "document", name: "Budget: Q3/Q4" }), t)).toBe(
       "Budget Q3 Q4 · figure 2.png",
     );
   });
 });
 
 describe("whether a picture sits in an Answer", () => {
-  test("an Answer's pictures do, a Note's own don't", async () => {
-    const { inAnswerAt } = await import("../../src/renderer/src/pictureGroups");
+  test("an Answer's pictures do, a Note's own don't", () => {
     expect(inAnswerAt(doc, at["Plot one"] as number)).toBe(true);
     expect(inAnswerAt(doc, at["Note one"] as number)).toBe(false);
   });

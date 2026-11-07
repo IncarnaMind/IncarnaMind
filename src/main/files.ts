@@ -155,7 +155,7 @@ export function serveFileActions(
         basename(name)
           .replace(/[\\/:*?"<>|\p{Cc}]+/gu, " ")
           .trim()
-          .slice(0, 120) || "Picture";
+          .slice(0, 120) || translate(language, "pictureViewer.fileName.fallback");
       const fileName = clean.toLowerCase().endsWith(".png") ? clean : `${clean}.png`;
       const options: SaveDialogOptions = {
         title: translate(language, "pictureViewer.saveTitle"),

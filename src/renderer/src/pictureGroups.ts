@@ -1,6 +1,10 @@
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type { MouseEvent, PointerEvent } from "react";
 import { ANSWER_BLOCK, PICTURE_NODE } from "../../core/api";
+import type { MessageKey, MessageParams } from "../../shared/i18n";
+
+/** How a file name's words are translated, as the interface's are. */
+type Translate = (key: MessageKey, params?: MessageParams) => string;
 
 /**
  * The pictures the picture viewer steps through (#2377), worked out from a
@@ -40,7 +44,9 @@ interface PlacedPicture {
 
 const picturesIn = (parent: ProseMirrorNode, contentPos: number): PlacedPicture[] => {
   const found: PlacedPicture[] = [];
-  parent.forEach((node, offset) => {
+  parent.descendants((node, offset) => {
+    // An Answer's pictures are its own, never the Note's around it.
+    if (node.type.name === ANSWER_BLOCK) return false;
     if (node.type.name !== PICTURE_NODE) return;
     found.push({
       pos: contentPos + offset,
@@ -50,6 +56,7 @@ const picturesIn = (parent: ProseMirrorNode, contentPos: number): PlacedPicture[
         place: null,
       },
     });
+    return false;
   });
   return found;
 };
@@ -115,36 +122,51 @@ export function pictureClickHandlers(open: (picture: HTMLImageElement) => void):
     onClick(event) {
       const start = down;
       down = null;
-      if (!start || event.altKey) return;
-      if (Math.hypot(event.clientX - start.x, event.clientY - start.y) > DRAG) return;
-      const found = event.target instanceof Element ? event.target.closest(PICTURE_SELECTOR) : null;
-      if (found instanceof HTMLImageElement && found.src !== "") open(found);
+      // A button around the picture presses it from the keyboard too, with no pointer down first.
+      const fromKeyboard = event.detail === 0;
+      if (!fromKeyboard) {
+        if (!start || event.altKey) return;
+        if (Math.hypot(event.clientX - start.x, event.clientY - start.y) > DRAG) return;
+      }
+      const clicked = event.target instanceof Element ? event.target : null;
+      // A picture Document's text layer lies over its picture: a press on it is a press on the picture.
+      const found =
+        clicked?.closest(PICTURE_SELECTOR) ??
+        clicked?.closest("[data-picture-button]")?.querySelector(PICTURE_SELECTOR) ??
+        clicked?.closest("[data-picture-surface]")?.querySelector(PICTURE_SELECTOR) ??
+        null;
+      if (!(found instanceof HTMLImageElement) || found.src === "") return;
+      // A picture inside a page's link opens the picture, not the link.
+      event.preventDefault();
+      open(found);
     },
   };
 }
 
 /** A file name the file systems take, longer than a picture's, cut short. */
-const fileNameOf = (name: string): string => {
+const fileNameOf = (name: string, fallback: string): string => {
   const clean = name
     .replace(/[\\/:*?"<>|\p{Cc}]+/gu, " ")
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 120);
-  return `${clean || "Picture"}.png`;
+  return `${clean || fallback}.png`;
 };
 
 /** The PNG "Save picture…" writes, named after where the picture is from. */
-export function pictureFileName(target: PictureViewerTarget): string {
+export function pictureFileName(target: PictureViewerTarget, t: Translate): string {
+  const fallback = t("pictureViewer.fileName.fallback");
   const picture = target.pictures[target.index];
-  if (!picture) return "Picture.png";
+  if (!picture) return `${fallback}.png`;
+  const named = (name: string) => fileNameOf(name, fallback);
   switch (target.group.kind) {
     case "answer":
-      return fileNameOf(`Plot ${target.index + 1}`);
+      return named(t("pictureViewer.fileName.plot", { number: target.index + 1 }));
     case "note":
-      return fileNameOf(picture.description || `Picture ${target.index + 1}`);
-    case "document":
-      return fileNameOf(
-        picture.place ? `${target.group.name} · ${picture.place}` : target.group.name,
+      return named(
+        picture.description || t("pictureViewer.fileName.picture", { number: target.index + 1 }),
       );
+    case "document":
+      return named(picture.place ? `${target.group.name} · ${picture.place}` : target.group.name);
   }
 }

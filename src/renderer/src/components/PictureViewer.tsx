@@ -291,7 +291,7 @@ export function PictureViewer() {
     try {
       const blob = await picturePng();
       const bytes = new Uint8Array(await blob.arrayBuffer());
-      const saved = await files.savePicture(pictureFileName(target), bytes);
+      const saved = await files.savePicture(pictureFileName(target, t), bytes);
       if (saved) useNotices.getState().confirm("pictureViewer.saved");
     } catch (error) {
       useAppStore.getState().reportError(error);

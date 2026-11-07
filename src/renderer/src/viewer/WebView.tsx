@@ -110,25 +110,37 @@ function savedPicture(
   picture.dataset.quoteSkip = "";
   picture.dataset.testid = "web-picture";
   picture.dataset.pictureViewer = "";
-  picture.tabIndex = -1;
   context.pictures += 1;
   picture.dataset.figure = String(context.pictures);
   if (size.width && size.height) {
     picture.style.aspectRatio = `${size.width} / ${size.height}`;
     picture.style.width = `min(100%, ${size.width}px)`;
   }
+  // A button, so the keyboard reaches the picture too; its own click opens the viewer.
+  const button = owner.createElement("button");
+  button.type = "button";
+  button.dataset.pictureButton = "";
+  Object.assign(button.style, {
+    display: "block",
+    maxWidth: "100%",
+    border: "0",
+    padding: "0",
+    background: "none",
+    cursor: "zoom-in",
+  });
+  button.append(picture);
   loadDocumentPicture(context.documentId, src, context.signal).then(
     (url) => {
       if (!context.signal.aborted) picture.src = url;
     },
     () => {
       if (context.signal.aborted) return;
-      picture.replaceWith(
+      button.replaceWith(
         placeholder(owner, alt, context.t("viewer.markdown.imageMissing"), context.t),
       );
     },
   );
-  return picture;
+  return button;
 }
 
 /**

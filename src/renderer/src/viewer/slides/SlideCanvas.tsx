@@ -331,13 +331,23 @@ function PictureView({ item, context }: { item: PictureItem; context: Context })
   const line = item.line;
   return (
     <div style={{ ...boxStyle(box), filter: shadowFilter(item.shadow) }}>
-      <div
+      <button
+        type="button"
+        data-picture-button={url ? "" : undefined}
+        aria-label={url ? item.alt || undefined : undefined}
+        disabled={!url}
         style={{
           position: "absolute",
           inset: 0,
           overflow: "hidden",
           clipPath: clip,
           transform: flipTransform(box),
+          border: 0,
+          padding: 0,
+          background: "none",
+          color: "inherit",
+          font: "inherit",
+          cursor: url ? "zoom-in" : "default",
         }}
       >
         {url ? (
@@ -346,7 +356,6 @@ function PictureView({ item, context }: { item: PictureItem; context: Context })
             alt={item.alt}
             draggable={false}
             data-picture-viewer=""
-            tabIndex={-1}
             style={{
               position: "absolute",
               left: shown > 0 ? (-crop.left / shown) * box.w : 0,
@@ -361,7 +370,7 @@ function PictureView({ item, context }: { item: PictureItem; context: Context })
             <span>{t("viewer.slide.picture")}</span>
           </div>
         )}
-      </div>
+      </button>
       {line && (
         <svg
           className="slide-shape"

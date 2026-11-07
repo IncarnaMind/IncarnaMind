@@ -1,5 +1,6 @@
 import type { Editor } from "@tiptap/core";
 import { noteHolding } from "../editor/noteKeymap";
+import { mindEditor } from "../editor/openEditors";
 // The Pictures extension's own commands (`choosePicture`) are typed where it declares them.
 import type {} from "../editor/pictures";
 import {
@@ -27,7 +28,12 @@ function noteOf(ctx: CommandContext): Editor | null {
     const editor = noteHolding(ref.id);
     return editor && !editor.isDestroyed && editor.isEditable ? editor : null;
   }
-  return ref?.kind === "mind" ? noteToWrite(ctx) : null;
+  if (ref?.kind === "mind") {
+    const editor = mindEditor(ref.id);
+    if (editor && !editor.isDestroyed && editor.isEditable) return editor;
+    return noteToWrite(ctx);
+  }
+  return null;
 }
 
 /**
