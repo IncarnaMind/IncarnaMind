@@ -60,6 +60,8 @@ const tagOf = (instructions: string) => /“(.+)”/.exec(instructions)?.[1] ?? 
 /** Every host's decision endpoint on one server, each checked and answered as its docs say. */
 async function startFakeHosts() {
   const requests: HostRequest[] = [];
+  /** OpenRouter's model listing, asked for: its own count, as it sends nothing of the User's. */
+  const listings: (string | undefined)[] = [];
   let probabilities: Record<string, number> = {};
   const probability = (instructions: string) =>
     instructions.includes("connection check") ? 0.9 : (probabilities[tagOf(instructions)] ?? 0.02);
@@ -74,6 +76,7 @@ async function startFakeHosts() {
     };
     // OpenRouter's public listing: a model released since this copy, and a free variant.
     if (request.method === "GET" && path === "/api/v1/models?output_modalities=decisions") {
+      listings.push(request.headers.authorization);
       send(200, {
         data: [
           {
@@ -166,6 +169,7 @@ async function startFakeHosts() {
   return {
     url,
     requests,
+    listings,
     answer(next: Record<string, number>) {
       probabilities = next;
     },
@@ -317,6 +321,28 @@ describe("Decision model hosts (#1907)", { timeout: 30_000 }, () => {
     const notes = await addDocument(core, "Notes.md", "Notes from the weekly call.");
     const [failed] = await waitForTagging(core, [notes.id], (each) => each.tagging === "failed");
     expect(failed?.taggingError?.message).toContain("Unknown model: gone-model");
+  });
+
+  test("OpenRouter's list is read only where a Question could go, without the key, and once for a while", async () => {
+    const { core, hosts } = await startWithHosts();
+    await core.listDecisionHosts();
+    expect(hosts.listings).toEqual([]);
+
+    await core.saveChatProvider({ ...PROVIDERS.openrouter, keepDefault: true });
+    await core.listDecisionHosts();
+    await core.getTaggingModels();
+    expect(hosts.listings).toEqual([undefined]);
+
+    // With its chat flow withdrawn on the Privacy page, or in Local mode, it isn't asked for.
+    const restricted = await startWithHosts();
+    await restricted.core.saveChatProvider({ ...PROVIDERS.openrouter, keepDefault: true });
+    await restricted.core.revokeConsent("chat", "https://openrouter.ai");
+    expect((await status(restricted.core, "openrouter"))?.models).toHaveLength(9);
+    const local = await startWithHosts();
+    await local.core.saveChatProvider({ ...PROVIDERS.openrouter, keepDefault: true });
+    await local.core.setLocalOnly(true);
+    expect((await status(local.core, "openrouter"))?.models).toHaveLength(9);
+    expect([restricted.hosts.listings, local.hosts.listings]).toEqual([[], []]);
   });
 
   test("a refused key is kept nowhere, and says why in words", async () => {
