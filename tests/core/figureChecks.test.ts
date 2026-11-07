@@ -245,6 +245,8 @@ async function checkWith(options: {
   providerKind?: ChatProviderKind;
   /** It never calls cite: its sources and its calculation's inputs give their quotes inline. */
   neverCites?: boolean;
+  /** The sentence cites its Document, so a calculation's citation 1 names a citation it has. */
+  citeSentence?: boolean;
   /** Asked once more for its record, it gives this quote, under the markers asked for if any. */
   recordWhenAsked?: string;
   scope?: { documentIds: string[] | null; excluded: Map<string, "own-file"> };
@@ -412,6 +414,15 @@ async function checkWith(options: {
     claim: options.claim ?? "Revenue in 2024 was £20 and revenue in 2025 was £20.",
     figures: options.figures,
     scope: options.scope ?? { documentIds: null, excluded: new Map() },
+    ...(options.citeSentence && {
+      cited: [
+        {
+          documentName: source.documentName,
+          quote: source.text,
+          passageId: source.passageId,
+        },
+      ],
+    }),
     model: prepared,
     signal: new AbortController().signal,
   });
@@ -989,6 +1000,18 @@ test("a figure left undecided with neither its source nor a reason is asked once
   expect(result.figures?.[0]?.result.verdict).toBe("supported");
 });
 
+test("a supported figure with no source is asked for its source, and a reply without a new quote is not accepted", async () => {
+  const { result, calls } = await checkWith({
+    figures: [target("f1")],
+    text: reply([{ ...item(), source: null }]),
+    askedAgain: { note: "a supported figure needs its source", text: reply([item()]) },
+  });
+  expect(
+    calls.filter((call) => call.prompt.includes("a supported figure needs its source")),
+  ).toHaveLength(1);
+  expect(result.figures?.[0]?.result.verdict).toBe("not-checked");
+});
+
 test("a source position that names another number than the one given is read as the number the quote writes once", async () => {
   const body = "Revenue\t100\t120";
   const units: UnitText[] = [
@@ -1047,7 +1070,8 @@ test("two calculates that raced their cite are both worked out again, and the re
     figures: [target("f1")],
     calculations: [calculation(1), calculation(2)],
     calculatesBeforeCite: 2,
-    text: reply([item()]),
+    citeSentence: true,
+    text: reply([{ ...item(), source: null, calculation: 1 }]),
   });
   expect(result.figures?.[0]?.result.verdict).toBe("supported");
 });

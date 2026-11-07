@@ -901,22 +901,25 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
             } else {
               stated.delete(marker);
               pending.set(marker, number);
-              // A quote on a citation the sentence has may only be a `cite` that ran in this
-              // same turn, which will record it: that is no failed repair (#2719). A citation
-              // the sentence does not have can never be recorded, so it uses the one repair.
-              const cites = (number.given as { inputs?: readonly unknown[] } | undefined)?.inputs ?? [];
+              // A quote on a citation the sentence has, or one already recorded, may only be a
+              // `cite` that ran in this same turn: that is no failed repair (#2719). A citation
+              // that neither names can never be recorded, so it uses the one repair.
+              const cites =
+                (number.given as { inputs?: readonly unknown[] } | undefined)?.inputs ?? [];
               const known = cites.every((input) => {
                 const marker =
                   typeof input === "object" && input !== null
                     ? whole((input as Record<string, unknown>).citation)
                     : null;
-                return marker === null || (marker >= 1 && marker <= (request.cited?.length ?? 0));
+                return (
+                  marker === null ||
+                  marker <= (request.cited?.length ?? 0) ||
+                  session.tools.hasRecord?.(marker) === true
+                );
               });
               if (!known) calculationFailures++;
             }
           }
-          // A pending figure's quote may only be a `cite` that ran in this same turn, which will
-          // record it: that is no failed repair, so it doesn't use up the second one (#2719).
           // The model is told the figure it will be judged on: a cost it marked as printed in
           // brackets is taken at its size, as the card shows it (#1908).
           let toldAtSize = result;
