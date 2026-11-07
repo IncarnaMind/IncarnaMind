@@ -194,12 +194,9 @@ export function checkInstructions(
         "Search the Documents with search_documents for what the sentence claims, in the Documents' language. Search again with other words if the Passages don't decide it; three searches at most.",
         figures
           ? `Before replying, use cite to record every quote used by a requested figure or remainder, each under its own marker: ${RECORD}.`
-          : `Before you reply, call cite with every quote used for the result, each under its own marker: ${RECORD}. This includes covered parts, supported domain members and the domain's membership when the whole sentence is unsupported. Use Evidence: [] only when no quote backs any part; never substitute handwritten markers for recorded Citations.`,
-        ...(besideCite && !figures
-          ? [
-              "Write your reply in the same turn as that cite call, after it: don't wait for cite to return. A quote cite can't find comes back to you to fix, with your reply.",
-            ]
-          : []),
+          : besideCite
+            ? `In one turn, give your reply and call cite with every quote used for the result, each under its own marker: ${RECORD}. Write the reply as text first, its sentence ending with the markers of those quotes ([^1]), then make the cite tool call itself; never write the call out as text. Don't wait for cite's result before you reply: a quote it can't find comes back to you to fix. Record covered parts, supported domain members and the domain's membership when the whole sentence is unsupported too. Use Evidence: [] only when no quote backs any part; never substitute handwritten markers for recorded Citations.`
+            : `Before you reply, call cite with every quote used for the result, each under its own marker: ${RECORD}. This includes covered parts, supported domain members and the domain's membership when the whole sentence is unsupported. Use Evidence: [] only when no quote backs any part; never substitute handwritten markers for recorded Citations.`,
         ...(calculate ? ["", calculationInstructions(figures)] : []),
         "",
         REPLY,

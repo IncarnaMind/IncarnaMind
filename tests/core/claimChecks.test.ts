@@ -823,7 +823,7 @@ describe("One claim check", () => {
     "a model %s writes its verdict beside cite and ends there, or after it",
     async (_, listed, requests) => {
       const quote = "Spring tides happen at new moon and at full moon";
-      const told = "Write your reply in the same turn as that cite call";
+      const told = "In one turn, give your reply and call cite";
       const model = scriptedModel(
         (call) => {
           const searched = call.results.find((result) => result.tool === "search_documents");
