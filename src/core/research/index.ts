@@ -264,14 +264,23 @@ function foundOf(step: StepRecord | null): StepFound | null {
   };
 }
 
-/** A search or a page read worth a step of its own; null for the rest (`cite`, a Skill). */
+/**
+ * A search or a page read worth a step of its own; null for the rest (`cite`, a Skill). A page
+ * being read is the page at its address until the read says what it was.
+ */
 function callStepOf(call: AnswerToolCall): CallStep | null {
   const query = typeof call.input.query === "string" ? call.input.query : "";
   if (call.tool === "search_web") return { kind: "web-search", query, found: call.resultCount };
   if (call.tool === "search_documents") {
     return { kind: "library-search", query, found: call.resultCount };
   }
-  if (call.tool !== "read_web_page" || !call.webPage) return null;
+  if (call.tool !== "read_web_page") return null;
+  if (!call.webPage) {
+    const url = call.input.url;
+    return call.status === "running" && typeof url === "string" && url !== ""
+      ? { kind: "unread", address: url }
+      : null;
+  }
   return "documentId" in call.webPage
     ? { kind: "read", name: call.webPage.name }
     : { kind: "unread", address: call.webPage.address };
@@ -361,15 +370,23 @@ export function createResearch(options: ResearchOptions) {
     }
     const call = callStepFrom(step?.result);
     if (!call) return key;
+    // A call's row shows from its start, in the words the assistant's steps use while it runs (#1624).
+    const running = step?.status === "started";
     switch (call.kind) {
       case "web-search":
-        return options.say("research.step.searchedWeb", { query: call.query });
+        return options.say(running ? "web.call.searching" : "research.step.searchedWeb", {
+          query: call.query,
+        });
       case "library-search":
-        return options.say("research.step.searchedLibrary", { query: call.query });
+        return running
+          ? options.say("search.running")
+          : options.say("research.step.searchedLibrary", { query: call.query });
       case "read":
         return options.say("research.step.read", { name: call.name });
       case "unread":
-        return options.say("research.step.unread", { host: hostOf(call.address) });
+        return running
+          ? options.say("web.call.reading", { address: call.address })
+          : options.say("research.step.unread", { host: hostOf(call.address) });
     }
   }
 
@@ -441,15 +458,21 @@ export function createResearch(options: ResearchOptions) {
     const attempt = task.step(key)?.attempts ?? 1;
     const read = new Set<string>();
     let calls = 0;
+    const rows = new Map<string, { key: string; shown: CallStep }>();
     const onCall = (call: AnswerToolCall) => {
       if (call.webPage && "documentId" in call.webPage) read.add(call.webPage.documentId);
-      const shown = callStepOf(call);
+      let row = rows.get(call.id);
+      const shown = callStepOf(call) ?? row?.shown;
       if (!shown) return;
-      calls += 1;
-      const callKey = `call:${index}:${attempt}:${calls}`;
-      task.started(callKey);
+      if (!row) {
+        calls += 1;
+        row = { key: `call:${index}:${attempt}:${calls}`, shown };
+        rows.set(call.id, row);
+        task.started(row.key, shown);
+      }
+      if (call.status === "running") return;
       task.settled(
-        callKey,
+        row.key,
         call.status === "done" && shown.kind !== "unread" ? "completed" : "failed",
         shown,
       );
@@ -484,6 +507,12 @@ export function createResearch(options: ResearchOptions) {
   async function runTask(task: TaskRun): Promise<TaskEnd> {
     const input = inputOf(task.input);
     if (!input || !task.mindId) return { status: "failed", problem: "unknown" };
+    // No call runs yet: a call's row still running was cut short by a quit, and ended there.
+    for (const step of options.tasks.steps(task.id)) {
+      if (step.status === "started" && step.key.startsWith("call:")) {
+        task.settled(step.key, "failed", step.result);
+      }
+    }
     const ready = await readyModel({ providerId: input.providerId, modelId: input.modelId });
     if (!("model" in ready)) return { status: "paused", reason: "not-ready" };
     if (task.signal.aborted) return { status: "stopped" };
