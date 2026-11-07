@@ -42,7 +42,7 @@ test.afterEach(async () => {
   for (const folder of folders.splice(0)) await rm(folder, { recursive: true, force: true });
 });
 
-// protects=meeting transcription works in the packaged app, through its real speech engine and model (#1233 failed only there, with every test passing on the fake transcriber), told Words to know none of which is said (#1031), keeps going past its first stretch, and saves the Transcript; then the speaker pass runs to the end on its real engine and models in its own process (#138), and the room's lines are numbered; fails_when=the engine doesn't load in the packaged app, the transcript misses the words spoken, it stops after the first line, or the speaker process, its bundle or its models are broken, which leaves every line "Speaker ?"; no_claim=the computer's sound, how well voices are told apart (eval/speakers), Linux, or a cloud transcription service; on Windows the speech process also loads exactly one ONNX Runtime library, the app's own (#2152), which fails when the speech package brings its own older copy back.
+// protects=meeting transcription works in the packaged app, through its real speech engine and model (#1233 failed only there, with every test passing on the fake transcriber), with its streaming model's live words while a line is said (#2662), told Words to know none of which is said (#1031), keeps going past its first stretch, and saves the Transcript; then the speaker pass runs to the end on its real engine and models in its own process (#138), and the room's lines are numbered; fails_when=the engine doesn't load in the packaged app, the transcript misses the words spoken, it stops after the first line, or the speaker process, its bundle or its models are broken, which leaves every line "Speaker ?"; no_claim=the computer's sound, how well voices are told apart (eval/speakers), Linux, or a cloud transcription service; on Windows the speech process also loads exactly one ONNX Runtime library, the app's own (#2152), which fails when the speech package brings its own older copy back.
 test("the packaged app transcribes a meeting from the microphone on this computer, and tells its speakers apart", async () => {
   expect(existsSync(packagedExecutable), `${packagedExecutable}: run npm run dist:dir first`).toBe(
     true,
@@ -78,6 +78,11 @@ test("the packaged app transcribes a meeting from the microphone on this compute
   });
   await expect(stopped).toHaveCount(0);
   await toggle.click();
+  // The words being said, before their line is finished: the streaming model loaded and reads.
+  await expect(window.getByTestId("transcript-partial").locator(".transcript-text")).toContainText(
+    /\p{L}/u,
+    { timeout: 2 * 60_000 },
+  );
   const lines = window.getByTestId("transcript-lines");
   for (const word of [/fathers/i, /nation/i, /liberty/i, /equal/i]) {
     await expect(lines).toContainText(word, { timeout: 2 * 60_000 });

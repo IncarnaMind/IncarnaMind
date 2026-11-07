@@ -4484,6 +4484,7 @@ export function createCore(adapters: CoreAdapters): Core {
         return isRecord(value) ? (value as Record<string, number>) : {};
       },
       emitStatus: () => meetingsChanged(),
+      log: adapters.log ?? silentLogger,
     });
   // Where meeting audio is transcribed (#141): this computer, or the cloud service the User chose.
   const cloudTranscription = createCloudTranscription({
