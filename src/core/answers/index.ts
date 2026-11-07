@@ -1261,11 +1261,11 @@ export function createAnswers(options: AnswersOptions) {
     /** The output limit of its replies, when it writes more than an Answer (see `AnswerRequest`). */
     outputKind?: ModelCallKind;
     /**
-     * How much it thinks first, when not as its kind does. A Meeting's notes think at their own
-     * kind's effort, which is an Answer's on Claude: at the provider's default effort, the
-     * thinking alone filled their replies' limits (#2306).
+     * How much it thinks first, when not as its kind does. A Meeting's notes think as an Answer
+     * does: at the provider's default effort, the thinking alone filled their replies' limits
+     * (#2306).
      */
-    thinking?: "notes" | "summary";
+    thinking?: "answer" | "summary";
     /** A comparison table's cell (#1798): an amount it writes at another scale than its Citations give is asked about once. */
     checkScales?: boolean;
     /**
@@ -4951,7 +4951,7 @@ export function createAnswers(options: AnswersOptions) {
           outside: true,
           toolSet: "check",
           outputKind: "meeting-fill",
-          thinking: "notes",
+          thinking: "answer",
           task: true,
           transcript: input.passages,
         });
