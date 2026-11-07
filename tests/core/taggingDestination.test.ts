@@ -277,13 +277,15 @@ describe("A Document held off stays off, for every sender", () => {
         db.close();
       }
       core = startCore(dataDir, options);
-      await vi.waitFor(() =>
-        expect(
-          queryDatabase<{ processing_version: number }>(
-            dataDir,
-            "SELECT DISTINCT processing_version FROM documents WHERE deleted_at IS NULL",
-          ).map((row) => row.processing_version),
-        ).toEqual([PROCESSING_VERSION]),
+      await vi.waitFor(
+        () =>
+          expect(
+            queryDatabase<{ processing_version: number }>(
+              dataDir,
+              "SELECT DISTINCT processing_version FROM documents WHERE deleted_at IS NULL",
+            ).map((row) => row.processing_version),
+          ).toEqual([PROCESSING_VERSION]),
+        { timeout: 15_000 },
       );
       await waitForProcessing(core, ids);
       const reread = await waitForTagging(core, ids, (each) => each.tagging === "off");

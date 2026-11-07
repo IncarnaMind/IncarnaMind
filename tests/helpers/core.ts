@@ -1,3 +1,4 @@
+import { mkdtempSync } from "node:fs";
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -49,6 +50,16 @@ export async function createTempDataFolder(): Promise<string> {
   const dataDir = await mkdtemp(join(tmpdir(), "incarnamind-test-"));
   onTestFinished(() => rm(dataDir, { recursive: true, force: true }));
   return dataDir;
+}
+
+/**
+ * A temporary folder for one core, removed after it closes. In the system's own, each core's
+ * count of changes waiting stayed for good, and every core start lists that folder (#1741).
+ */
+function temporaryFolder(): string {
+  const folder = mkdtempSync(join(tmpdir(), "incarnamind-test-temp-"));
+  onTestFinished(() => rm(folder, { recursive: true, force: true }));
+  return folder;
 }
 
 /**
@@ -167,6 +178,7 @@ export function startCore(dataDir: string, overrides: TestAdapters = {}): Core {
         home: join(dataDir, "home"),
         documents: join(dataDir, "Documents"),
         citationStyles: CITATION_STYLES,
+        ...(paths?.tempDir === undefined && { tempDir: temporaryFolder() }),
       },
       Object.getOwnPropertyDescriptors(paths ?? {}),
     ),
