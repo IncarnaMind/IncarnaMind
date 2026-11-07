@@ -156,6 +156,22 @@ describe("A meeting's Transcript is never filed alone", { timeout: 60_000 }, () 
     );
   });
 
+  // The cut falls inside a wave's surrogate pair in both: 13 + 487 and 6 + 1 + 493 units.
+  test.each([
+    ["en", "👋".repeat(260), `Transcript · ${"👋".repeat(243)}`],
+    ["zh-CN", `会${"👋".repeat(260)}`, `转写稿 · 会${"👋".repeat(246)}`],
+  ] as const)(
+    "in %s, a Note title past a Document's length cuts its Transcript's name between characters (#2579)",
+    async (language, title, expected) => {
+      const { core, dataDir, meeting } = await recordedMeeting(language);
+      const { document } = await stoppedMeeting(core, dataDir, meeting.id);
+      await core.renameMind(meeting.mindId, title);
+      const name = (await core.listDocuments()).find((each) => each.id === document.id)?.name;
+      expect(name).toBe(expected);
+      expect(name).not.toContain("\uFFFD");
+    },
+  );
+
   test("a move, a drag's filing, Tags and Organize leave it with its Note; another Document files as before", async () => {
     const fake = classifierModel();
     const { core, dataDir, meeting } = await recordedMeeting("en", {}, () => fake.model);

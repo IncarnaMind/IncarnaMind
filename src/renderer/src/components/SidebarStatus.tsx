@@ -60,7 +60,7 @@ import { useTaggingService } from "./useTaggingService";
 import { useTip } from "./useTip";
 
 const statusActionClass =
-  "group inline-flex h-7 min-w-7 shrink-0 items-center justify-center rounded-md text-[12px] font-semibold text-ink-secondary focus-visible:outline-offset-0";
+  "group inline-flex h-7 min-w-7 shrink-0 items-center justify-center rounded-md text-[12px] font-semibold text-ink-secondary focus-visible:outline-offset-0 aria-disabled:cursor-default aria-disabled:opacity-50";
 
 const statusActionPillClass =
   "inline-flex h-6 items-center rounded-md px-2 group-hover:bg-rule group-hover:text-ink";
@@ -102,7 +102,8 @@ interface Status {
   figure?: string;
   /** All of it: the tooltip, and what a screen reader reads. */
   full: string;
-  action?: { label: string; testId?: string; title?: string; run(): void };
+  /** `busy`: its work is under way, so the action shows it and takes no second press. */
+  action?: { label: string; testId?: string; title?: string; busy?: boolean; run(): void };
   dismiss?: () => void;
   /** What the dismissing control says, where "Dismiss" isn't what it does. */
   dismissLabel?: string;
@@ -216,7 +217,9 @@ function StatusRow({ status, children }: { status: Status; children?: ReactNode 
                 data-testid={action.testId}
                 title={action.title}
                 onClick={action.run}
-                className="rounded-sm px-0.5 font-semibold text-accent hover:text-accent-strong"
+                aria-busy={action.busy || undefined}
+                aria-disabled={action.busy || undefined}
+                className="rounded-sm px-0.5 font-semibold text-accent hover:text-accent-strong aria-disabled:cursor-default aria-disabled:opacity-50"
               >
                 {action.label}
               </button>
@@ -261,6 +264,8 @@ function StatusRow({ status, children }: { status: Status; children?: ReactNode 
             data-testid={action.testId}
             title={action.title}
             onClick={action.run}
+            aria-busy={action.busy || undefined}
+            aria-disabled={action.busy || undefined}
             className={statusActionClass}
           >
             <span className={statusActionPillClass}>{action.label}</span>
@@ -858,13 +863,14 @@ function useStatuses(): Status[] {
     });
     statuses.push({
       testId: `meeting-joined-${join.id}`,
-      tone: "info",
+      tone: join.undoing ? "progress" : "info",
       short: text,
       full: text,
       wraps: true,
       action: {
         label: t("meetings.joined.undo"),
         testId: "meeting-joined-undo",
+        busy: join.undoing === true,
         run: () => {
           useJoinedMeetings.getState().undo(join.id).catch(useAppStore.getState().reportError);
         },

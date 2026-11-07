@@ -11,6 +11,7 @@ import type { DrawnPage } from "../shared/citedPage";
 import { ACCEPT_SUGGESTIONS } from "../shared/commands";
 import { optionsFor } from "../shared/exportOptions";
 import { figureScheduleChange } from "../shared/figureSchedule";
+import { graphemeBoundary } from "../shared/graphemes";
 import { translate } from "../shared/i18n";
 import { organizeModelOf, supportsLibraryImages } from "../shared/libraryModels";
 import { parseCitedArea } from "../shared/locations";
@@ -686,7 +687,9 @@ export function createCore(adapters: CoreAdapters): Core {
       : translate(settings.get().language, "meetings.transcript.nameAlone");
     events.emit(
       "documents.renamed",
-      transcripts.map((document) => documents.rename(document.id, name.slice(0, MAX_NAME_LENGTH))),
+      transcripts.map((document) =>
+        documents.rename(document.id, name.slice(0, graphemeBoundary(name, MAX_NAME_LENGTH))),
+      ),
     );
   }
   // The assistant's conversations (ADR-0017); Answers a quit left being written are settled now.

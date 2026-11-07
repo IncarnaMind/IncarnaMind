@@ -10,7 +10,9 @@ import {
   createDataFolder,
   dismissChatSetup,
   launchApp,
+  motionSettled,
   pointAndClick,
+  pointAt,
   recordMeetingNow,
   removeDataFolder,
   setLanguage,
@@ -252,6 +254,28 @@ test("a meeting's Transcript has no row; a ⌘K hit inside it is the Note's and 
   await pointAndClick(window, window.getByTestId("mind-tab").first(), { button: "right" });
   await pointAndClick(window, window.getByRole("menuitem", { name: "重新引用转写稿" }));
   await expect.poll(notCited).toBe(false);
+
+  // In Chinese too, the joined Transcript has no Tags of its own: no Tags button, no 标签… in its
+  // menu, and a Tag asked for it through the bridge is refused (“请改为给会议的笔记加标签。”), so it
+  // stays untagged.
+  await expect(header.getByTestId("document-tags")).toHaveCount(0);
+  await pointAndClick(window, header.getByTestId("document-file-menu"));
+  await expect(header.getByTestId("document-file-actions").getByTestId("file.info")).toBeVisible();
+  await expect(
+    header.getByTestId("document-file-actions").getByTestId("document.tags"),
+  ).toHaveCount(0);
+  await window.keyboard.press("Escape");
+  const refused = await (await core(window)).evaluate(async (bridge, id) => {
+    const tag = await bridge.createTag({ name: "Harbour" });
+    const said = await bridge.addTagToDocuments([id], tag.id).then(
+      () => "tagged",
+      (error: unknown) => String(error),
+    );
+    const tags = (await bridge.listDocuments()).find((each) => each.id === id)?.tags ?? null;
+    return { said, tags };
+  }, transcriptId);
+  expect(refused.said).toContain("error.transcript.tagWithNote");
+  expect(refused.tags).toEqual([]);
 
   // In English too: a rename made in English names the Transcript in English, and Don't cite
   // says the Note's current name (#2579).
@@ -578,12 +602,48 @@ test("a meeting two walls keep apart from its Transcript stays where it is, and 
   const apartHeader = window.getByTestId("viewer-header");
   await expect(apartHeader).toContainText("Transcript");
   await expect(apartHeader.getByTestId("document-tags")).toHaveCount(1);
+  const documentName = await (await core(window)).evaluate(
+    async (bridge, id) => (await bridge.listDocuments()).find((each) => each.id === id)?.name ?? "",
+    documentId,
+  );
+  // It takes a Tag as any Document does, from its row in the Library, in English and in Chinese.
+  await pointAndClick(window, window.getByTestId("open-library"));
+  const apartRow = window
+    .getByTestId("library")
+    .getByTestId("library-document")
+    .filter({ hasText: documentName });
+  await expect(apartRow).toHaveCount(1);
+  const tagIt = async (name: string) => {
+    await pointAt(window, apartRow);
+    await pointAndClick(window, apartRow.getByTestId("document-tags-menu"));
+    await expect(window.getByTestId("tag-picker-input")).toBeFocused();
+    await window.keyboard.type(name);
+    await window.keyboard.press("Enter");
+    await window.keyboard.press("Escape");
+    await expect(apartRow.getByTestId("document-tags")).toContainText(name);
+  };
+  await tagIt("Harbour");
+  await setLanguage(window, "zh-CN");
+  await expect(apartRow.getByTestId("document-tags-menu")).toHaveAttribute("aria-label", /标签/);
+  await tagIt("港口");
+  await expect(window.getByTestId("tag-picker-input")).toHaveCount(0);
+  await motionSettled(window);
+  await shot(window, "one-item-left-apart-tagged-zh");
   await app.close();
+  const tagsOf = async (page: Page) =>
+    (await core(page)).evaluate(async (bridge, id) => {
+      const tags = await bridge.listTags();
+      const document = (await bridge.listDocuments()).find((each) => each.id === id);
+      return (document?.tags ?? [])
+        .map((applied) => tags.find((tag) => tag.id === applied.tagId)?.name)
+        .sort();
+    }, documentId);
 
-  // Said once, and left alone: the next start says nothing.
+  // Said once, and left alone: the next start says nothing; the Tags it took are still on it.
   const again = await launchApp(dataDir);
   await expect(again.window.getByTestId("sidebar-status")).toBeVisible();
   await expect(again.window.getByTestId("meetings-left-apart")).toHaveCount(0);
+  expect(await tagsOf(again.window)).toEqual(["Harbour", "港口"].sort());
   await again.app.close();
 });
 

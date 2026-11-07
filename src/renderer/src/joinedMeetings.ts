@@ -3,8 +3,11 @@ import type { JoinedMeeting } from "../../core/api";
 import { core } from "./core";
 import { CONFIRMATION_SHOWN_MS } from "./notices";
 
-/** A join, and whether its Undo just ran: the line then says it worked for a few seconds (#2579). */
-export type ShownJoin = JoinedMeeting & { undone?: boolean };
+/**
+ * A join, whether its Undo is waiting on Core (the line shows it is working), and whether it just
+ * ran: the line then says it worked for a few seconds (#2579).
+ */
+export type ShownJoin = JoinedMeeting & { undoing?: boolean; undone?: boolean };
 
 interface JoinedMeetingsState {
   joined: ShownJoin[];
@@ -15,7 +18,6 @@ interface JoinedMeetingsState {
 }
 
 const undoneTimers = new Map<string, ReturnType<typeof setTimeout>>();
-const undoing = new Set<string>();
 
 /**
  * The meetings this version joined on the walled side of the one wall between a Note and its
@@ -40,17 +42,20 @@ export const useJoinedMeetings = create<JoinedMeetingsState>()((set, get) => ({
     set((state) => ({ joined: state.joined.filter((each) => each.id !== id) }));
   },
   async undo(id) {
-    if (undoing.has(id) || !get().joined.some((each) => each.id === id && !each.undone)) return;
-    undoing.add(id);
+    if (!get().joined.some((each) => each.id === id && !each.undoing && !each.undone)) return;
+    const mark = (fields: Pick<ShownJoin, "undoing" | "undone">) =>
+      set((state) => ({
+        joined: state.joined.map((each) => (each.id === id ? { ...each, ...fields } : each)),
+      }));
+    mark({ undoing: true });
     try {
       await core.undoMeetingJoin(id);
-    } finally {
-      undoing.delete(id);
+    } catch (error) {
+      mark({ undoing: false });
+      throw error;
     }
     if (!get().joined.some((each) => each.id === id)) return;
-    set((state) => ({
-      joined: state.joined.map((each) => (each.id === id ? { ...each, undone: true } : each)),
-    }));
+    mark({ undoing: false, undone: true });
     clearTimeout(undoneTimers.get(id));
     undoneTimers.set(
       id,
