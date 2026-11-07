@@ -850,17 +850,16 @@ describe("One claim check", () => {
     },
   );
 
-  test("DeepSeek V4.1 Flash writes its verdict beside cite by the list; Claude Haiku 5.5, Sonnet 5.5 and models outside the catalog don't", () => {
-    expect(verdictBesideCite({ catalogId: "deepseek", modelId: "deepseek-flash" })).toBe(true);
-    expect(verdictBesideCite({ catalogId: "anthropic", modelId: "claude-haiku-5-5" })).toBe(false);
-    expect(verdictBesideCite({ catalogId: "anthropic", modelId: "claude-sonnet-5-5" })).toBe(false);
-    expect(verdictBesideCite({ catalogId: null, modelId: "deepseek-flash" })).toBe(false);
-    expect(
-      verdictBesideCite(
-        { catalogId: "deepseek", modelId: "deepseek-flash" },
-        { verdictBesideCite: () => false },
-      ),
-    ).toBe(false);
+  test("no model writes its verdict beside cite by the list, Claude Haiku 5.5, Sonnet 5.5 and DeepSeek V4.1 Flash included; an override still can", () => {
+    for (const model of [
+      { catalogId: "anthropic", modelId: "claude-haiku-5-5" },
+      { catalogId: "anthropic", modelId: "claude-sonnet-5-5" },
+      { catalogId: "deepseek", modelId: "deepseek-flash" },
+    ]) {
+      expect(verdictBesideCite(model)).toBe(false);
+      expect(verdictBesideCite(model, { verdictBesideCite: () => undefined })).toBe(false);
+      expect(verdictBesideCite(model, { verdictBesideCite: () => true })).toBe(true);
+    }
   });
 
   test("the quotes a sentence cites name their Document as it is now, and as cited once it is gone", async () => {

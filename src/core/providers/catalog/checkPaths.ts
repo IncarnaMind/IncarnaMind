@@ -28,16 +28,13 @@ const QUICK_FIRST_LOOK: readonly Admitted[] = [];
  * one request fewer per sentence (#2532). A model joins only once it holds
  * eval/speed/gates/verdict-beside-cite.md on paired runs against today's check, and leaves the
  * same way. A model not listed records its quote, then writes its verdict once `cite` returns.
+ *
+ * None yet: Claude Haiku 5.5 and Sonnet 5.5 each Supported a sentence that drops a condition of the
+ * terms on the held-out set, which today's check didn't. DeepSeek V4.1 Flash held the held-out
+ * set, then Supported a sentence the agreement only partly states, in one of four timed Notes
+ * where today's check didn't.
  */
-// Not Claude Haiku 5.5 or Sonnet 5.5: on the held-out set each Supported a sentence that drops
-// the terms' condition, which today's check didn't (#2532).
-const VERDICT_BESIDE_CITE: readonly { model: string; since: string; gate: string }[] = [
-  {
-    model: "deepseek/deepseek-flash",
-    since: "2026-11-07",
-    gate: "Against today's check, paired, the third held-out set twice (52 items): 4.81 → 3.96 calls, done 5.8 → 4.5 s, sooner in 44 of 52, judged right 44 → 44, every Citation found 52 → 52, false Supported 8 → 6 with none new, other guards 8 → 8, none failed.",
-  },
-];
+const VERDICT_BESIDE_CITE: readonly { model: string; since: string; gate: string }[] = [];
 
 /** What tests and the evaluation decide instead of the lists; undefined: the list's. */
 export interface CheckPathsOverride {
