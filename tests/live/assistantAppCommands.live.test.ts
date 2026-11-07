@@ -370,7 +370,8 @@ const SAYS_IT_MOVED = new RegExp(
   [
     String.raw`${TAKEN_BACK}\b(?:has|have) been (?:filed|moved|put)\b`,
     String.raw`${TAKEN_BACK}\b(?:were|was) (?:filed|moved|put) (?:in|into|there)\b`,
-    String.raw`${TAKEN_BACK}\b(?:are|were) (?:now )?(?:grouped|filed|sorted|placed) in(?:to)?\b`,
+    String.raw`${TAKEN_BACK}\b(?:are|were) (?:now )?(?:grouped|filed|sorted|placed) (?:in(?:to)?|together)\b`,
+    "(?<!建议|提议)都归在",
     String.raw`${TAKEN_BACK}\b(?:files|moves|puts) them in(?:to)?\b`,
     String.raw`\bwent into\b`,
     String.raw`\b(?:it|I|Organize) (?:put|filed|moved) \d`,
