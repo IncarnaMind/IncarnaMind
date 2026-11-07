@@ -46,9 +46,19 @@ test("a first open shows the example page in its one tab, with no assistant and 
   await expect(sidebar.getByTestId("open-library")).toHaveCount(0);
   await expect(sidebar.getByTestId("folders-section")).toHaveCount(0);
   await expect(sidebar.getByTestId("sidebar-tags")).toHaveCount(0);
-  await expect(sidebar.getByTestId("document-list-item")).toHaveCount(0);
   await expect(sidebar.getByTestId("not-in-a-folder-title")).toHaveText("Examples");
   await expect(sidebar.getByTestId("mind-list-item")).toHaveCount(1);
+  // The Examples hold the Note, then its two Documents, and nothing else is listed.
+  const exampleRows = sidebar
+    .getByTestId("not-in-a-folder-section")
+    .locator('[data-testid="mind-list-item"], [data-testid="document-list-item"]');
+  await expect(exampleRows).toHaveCount(3);
+  expect(await exampleRows.evaluateAll((rows) => rows.map((row) => row.dataset.testid))).toEqual([
+    "mind-list-item",
+    "document-list-item",
+    "document-list-item",
+  ]);
+  await expect(sidebar.getByTestId("document-list-item")).toHaveCount(2);
   await expect(sidebar.getByTestId("sidebar-status")).toHaveCount(0);
   await expect(window.getByTestId("mind-count-button")).toHaveCount(0);
 

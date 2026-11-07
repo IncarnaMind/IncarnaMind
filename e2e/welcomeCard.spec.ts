@@ -171,7 +171,11 @@ for (const language of ["en", "zh-CN"] as const) {
         await expect(sidebar.getByTestId("document-list-item")).toHaveCount(1);
         await window.keyboard.press("ControlOrMeta+z");
         await expect(exampleRow()).toHaveCount(0);
-        await expect(sidebar.getByTestId("document-list-item")).toHaveCount(0);
+        // Back on the first open: the examples' two Documents are listed, and none of the User's.
+        await expect(sidebar.getByTestId("document-list-item")).toHaveCount(2);
+        await expect(
+          sidebar.getByTestId("document-list-item").filter({ hasText: "Harbours" }),
+        ).toHaveCount(0);
 
         // Back in, then 2 Ask, from the card's title with the keyboard.
         await window.getByTestId("add-documents-input").setInputFiles([harbours]);
