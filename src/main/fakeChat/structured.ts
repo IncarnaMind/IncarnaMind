@@ -45,8 +45,11 @@ const organizes = (options: GenerateOptions): boolean => {
 function plans(options: GenerateOptions): boolean {
   const format = options.responseFormat;
   const properties = format?.type === "json" ? format.schema?.properties : undefined;
-  const sorted = properties?.folders as { items?: { properties?: { documents?: unknown } } } | undefined;
-  return !!(sorted?.items?.properties?.documents || properties?.placements || properties?.groups);
+  return !!(
+    (properties?.folders && properties.documents) ||
+    properties?.placements ||
+    properties?.groups
+  );
 }
 
 /** Tagging, or Organize, takes a moment for a Document whose text says "slowly". */
@@ -198,21 +201,29 @@ function fakePlanOutput(options: GenerateOptions): string {
       }),
     });
   }
-  const sorted = new Map<string, { id: string; name: string; description: string; documents: string[] }>();
+  const listed = new Map<string, { key: string; name: string; description: string }>();
+  const placed: { ref: string; folder: string }[] = [];
   for (const document of input.documents ?? []) {
     const area = fakeArea(document, folders);
-    if (!area.name) continue;
-    const key = area.id || area.name.toLowerCase();
-    const folder = sorted.get(key) ?? {
-      id: area.id,
-      name: area.name,
-      description: `Documents about ${area.name}.`,
-      documents: [],
-    };
-    folder.documents.push(document.ref);
-    sorted.set(key, folder);
+    if (!area.name) {
+      placed.push({ ref: document.ref, folder: "none" });
+      continue;
+    }
+    const known = area.id || area.name.toLowerCase();
+    let folder = listed.get(known);
+    if (!folder) {
+      folder = {
+        key:
+          area.id ||
+          `N${[...listed.values()].filter((each) => /^N\d+$/.test(each.key)).length + 1}`,
+        name: area.name,
+        description: `Documents about ${area.name}.`,
+      };
+      listed.set(known, folder);
+    }
+    placed.push({ ref: document.ref, folder: folder.key });
   }
-  return JSON.stringify({ folders: [...sorted.values()] });
+  return JSON.stringify({ folders: [...listed.values()], documents: placed });
 }
 
 const proposesFolders = (options: GenerateOptions): boolean => {

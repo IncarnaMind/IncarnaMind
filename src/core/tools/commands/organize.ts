@@ -266,7 +266,7 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
           counts.set(folder.name, { count: (was?.count ?? 0) + 1, made: folder.made });
         }
         const parts = [...counts].map(([name, { count, made }]) =>
-          made ? `${count} into the new Folder “${name}”` : `${count} into “${name}”`,
+          made ? `${count} for the new Folder “${name}”` : `${count} for “${name}”`,
         );
         // What Organize reached and couldn't place; the rest it never read.
         const unsorted = ids.length - untouched - placed.length;
@@ -324,7 +324,7 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
               ? `Organize stopped at “${reason ?? "a failure"}” before reading any Document; the other ${plural(untouched, "Document")} stayed as they were.`
               : placed.length === 0
                 ? `Organize proposed no Folder for any Document: ${reason ?? "no Folder fitted"}. Nothing moved.`
-                : `Organize proposed Folders for ${plural(placed.length, "Document")}: ${parts.join(", ")}. Nothing has moved yet: they wait in Suggested Folders, ${plural(review.count, "Document")} in all, until the User confirms them with Review.${unsorted > 0 ? ` ${plural(unsorted, "Document")} got no Folder: ${reason ?? "no Folder fitted"}.` : ""}${untouched > 0 ? ` It stopped at “${reason ?? "a failure"}”; the other ${plural(untouched, "Document")} stayed as they were.` : ""} Name each Folder and its count in your reply, not a list under it, and say that nothing moves until the User reviews them.`,
+                : `Organize proposed Folders for ${plural(placed.length, "Document")}: ${parts.join(", ")}. These are only proposals: no Document has moved or been filed, and no Folder has been made. They wait in Suggested Folders, ${plural(review.count, "Document")} in all, until the User confirms them with Review.${unsorted > 0 ? ` ${plural(unsorted, "Document")} got no Folder: ${reason ?? "no Folder fitted"}.` : ""}${untouched > 0 ? ` It stopped at “${reason ?? "a failure"}”; the other ${plural(untouched, "Document")} stayed as they were.` : ""} In your reply, name each proposed Folder with its count in a sentence, not a list under it, and say that nothing moves until the User reviews and confirms them. Never say a Document was moved, filed or put into a Folder.`,
         };
       }),
       documents.length > 0 ? "organize" : null,
