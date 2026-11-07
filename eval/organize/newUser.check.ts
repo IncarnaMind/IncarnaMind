@@ -7,7 +7,7 @@
  * confirms anything.
  */
 import { execFileSync } from "node:child_process";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -130,7 +130,8 @@ function metered(dataDir: string): NewUserRun["spend"] {
  * its own, with the Python that has its libraries (`INCARNAMIND_ORGANIZE_PYTHON`).
  */
 async function scaleSet(count: number): Promise<string> {
-  const folder = await mkdtemp(join(tmpdir(), "incarnamind-organize-scale-"));
+  // The core lists Documents by their real path, which on macOS is under /private.
+  const folder = await realpath(await mkdtemp(join(tmpdir(), "incarnamind-organize-scale-")));
   const python = process.env.INCARNAMIND_ORGANIZE_PYTHON?.trim() || "python3";
   const seed = process.env.INCARNAMIND_ORGANIZE_SEED?.trim() || "1";
   execFileSync(
