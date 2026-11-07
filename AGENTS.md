@@ -93,6 +93,6 @@ Read [`docs/agents/testing.md`](docs/agents/testing.md). Work is done when its p
 - Say what the User gets and why. List each issue's acceptance criteria with ticks: "Closes #123" only when all are met, otherwise "Part of #123" with a line "What is left".
 - File issues one per theme, as [`docs/agents/issue-tracker.md`](docs/agents/issue-tracker.md) › Filing an issue says.
 - Push when the work is done and open the pull request ready, so CI starts at once; push as few times as you can. Merge `main` into your branch to resolve a conflict or to pick up something you need.
-- Watch CI with `gh pr checks <number> --watch --interval 300`. A pull request merges when its sign-off check and CI are green (about 10 minutes, 20 when it runs every smoke spec), or each red check is a known flaky spec named with its issue, and you have read your own diff (rule 13).
+- Watch CI with `gh pr checks <number> --watch --interval 300`. A pull request merges when its sign-off check and CI are green (about 10 minutes), or each red check is a known flaky spec named with its issue, and you have read your own diff (rule 13).
 - There is no separate review round, except for a change to the User's data, privacy or consent, a check's verdict or a Citation, AI behaviour, the sandbox, CI's checks, a migration or a dependency: someone else reads that first.
 - The whole suite runs on `main` every night; a red night is fixed before new work.

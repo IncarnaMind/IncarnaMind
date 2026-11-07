@@ -84,8 +84,8 @@ jobs:
           fi
           npm test -- --shard=${{ matrix.shard }}/4 "${only[@]}"
 
-  # A pull request's own specs, or every spec when it changes what they all run on
-  # (scripts/smoke-shard.mjs); every spec when the nightly run or a release calls this file.
+  # A pull request's own specs (scripts/smoke-shard.mjs); every spec when the nightly run or a
+  # release calls this file.
   smoke-plan:
     name: Smoke specs to run
     if: github.event.pull_request.draft != true

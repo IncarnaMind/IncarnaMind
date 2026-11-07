@@ -64,10 +64,12 @@ describe("the smoke specs a pull request runs", () => {
     ["the Playwright config", "playwright.config.ts"],
     ["the dependencies", "package-lock.json"],
     ["the workflow", ".github/workflows/ci.yml"],
-  ])("a change to %s runs every spec in ten shards", (_, file) => {
-    const { specs, count } = planFor([file]);
-    expect(specs.sort()).toEqual([...EVERY_SPEC].sort());
-    expect(count).toBe(10);
+  ])("a change to %s runs only the specs the pull request changes", (_, file) => {
+    expect(planFor([file])).toEqual({ specs: [], count: 0 });
+    expect(planFor([file, "e2e/tabNames.spec.ts"])).toEqual({
+      specs: ["e2e/tabNames.spec.ts"],
+      count: 1,
+    });
   });
 
   test("the nightly run and a release run every spec in ten shards", () => {
