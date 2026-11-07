@@ -11,7 +11,7 @@
  */
 import { ExtractionError } from "./errors";
 import { elements, local, parseXml, type XmlElement } from "./xml";
-import { resolvePart, type ZipArchive } from "./zip";
+import { PartTooLargeError, resolvePart, type ZipArchive } from "./zip";
 
 /** An internal target as the part name it resolves to; an external one (a hyperlink) as written. */
 export interface Relationship {
@@ -28,13 +28,25 @@ export function relationshipsPartOf(part: string): string {
   return `${part.slice(0, slash + 1)}_rels/${part.slice(slash + 1)}.rels`;
 }
 
-/** A part's relationships by id ("" for the package's own); none when it has no relationships part. */
+/**
+ * A part's relationships by id ("" for the package's own); none when it has no
+ * relationships part. One that can't be read throws an `ExtractionError` naming it.
+ */
 export async function relationshipsOf(
   zip: ZipArchive,
   part: string,
 ): Promise<Map<string, Relationship>> {
   const name = relationshipsPartOf(part);
-  return parseRelationships(zip.has(name) ? await zip.readText(name) : undefined, part);
+  if (!zip.has(name)) return new Map();
+  try {
+    return parseRelationships(await zip.readText(name), part);
+  } catch (error) {
+    // The Word import refuses a part too large to read as too large, not as damaged.
+    if (error instanceof PartTooLargeError) throw error;
+    const message = error instanceof Error ? error.message : String(error);
+    const reason = error instanceof ExtractionError ? error.reason : "unreadable";
+    throw new ExtractionError(reason, `${name}: ${message}`);
+  }
 }
 
 /** The relationships a relationships part's XML lists, for the part they belong to. */
@@ -45,8 +57,9 @@ export function parseRelationships(
   const rels = new Map<string, Relationship>();
   for (const rel of xml ? elements(parseXml(xml)) : []) {
     const { Id: id, Target: target, TargetMode: mode, Type: type = "" } = rel.attrs;
-    if (!id || target === undefined) continue;
     const external = mode === "External";
+    // An empty internal target names no part, and would hide the part's usual name.
+    if (!id || target === undefined || (!external && target === "")) continue;
     rels.set(id, { target: external ? target : resolvePart(part, target), type, external });
   }
   return rels;

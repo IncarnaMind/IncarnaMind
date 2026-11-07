@@ -19,13 +19,14 @@ const packageOf = (entries: Record<string, string>) =>
   openPackage(buildZip(Object.entries(entries).map(([name, data]) => ({ name, data }))));
 
 describe("A part's relationships (#2620)", () => {
-  test("internal targets are part names, external ones stay as written, and one with no id or target is left out", async () => {
+  test("internal targets are part names, external ones stay as written, and one with no id or target, or an empty internal one, is left out", async () => {
     const zip = packageOf({
       "word/_rels/document2.xml.rels": relationships(
         `<Relationship Id="rId1" Type="${REL}/styles" Target="styles2.xml"/>`,
         `<Relationship Id="rId2" Type="${REL}/hyperlink" Target="https://example.org/a" TargetMode="External"/>`,
         `<Relationship Type="${REL}/comments" Target="comments.xml"/>`,
         `<Relationship Id="rId4" Type="${REL}/footnotes"/>`,
+        `<Relationship Id="rId5" Type="${REL}/sharedStrings" Target=""/>`,
       ),
     });
 
@@ -38,6 +39,7 @@ describe("A part's relationships (#2620)", () => {
     expect(partOfType(rels, "/styles", "word/styles.xml")).toBe("word/styles2.xml");
     expect(partOfType(rels, "/hyperlink", "none")).toBe("none");
     expect(partOfType(rels, "/comments", "word/comments.xml")).toBe("word/comments.xml");
+    expect(partOfType(rels, "/sharedStrings", "xl/sharedStrings.xml")).toBe("xl/sharedStrings.xml");
   });
 
   test("a part with no relationships part has none; one that can't be read throws, or is kept aside to log", async () => {
@@ -53,7 +55,13 @@ describe("A part's relationships (#2620)", () => {
     });
 
     expect((await relationshipsOf(zip, "word/styles.xml")).size).toBe(0);
-    await expect(relationshipsOf(zip, "word/document2.xml")).rejects.toThrow();
+    const failure = await relationshipsOf(zip, "word/document2.xml").then(
+      () => null,
+      (error: unknown) => error,
+    );
+    expect(failure).toBeInstanceOf(ExtractionError);
+    expect(failure).toMatchObject({ reason: "unreadable" });
+    expect((failure as ExtractionError).message).toMatch(/^word\/_rels\/document2\.xml\.rels: /);
 
     const pkg = new OfficePackage(zip);
     expect(await pkg.mainPart("word/document.xml")).toBe("word/document2.xml");

@@ -134,8 +134,9 @@ const CHANGE_TAG =
   /<w:(?:ins|del|moveFrom|moveTo|rPrChange|pPrChange|sectPrChange|tblPrChange|trPrChange|tcPrChange|numberingChange|cellIns|cellDel|cellMerge)\b([^>]*)>/g;
 const COMMENT_TAG = /<w:comment\b([^>]*)>/g;
 const AUTHOR = /\bw:author\s*=\s*"([^"]*)"/;
-/** The parts other than the main one that may hold tracked changes. */
+/** The parts other than the main one that may hold tracked changes, by their usual names and by type. */
 const REVIEWED_PART = /^word\/(?:header\d*|footer\d*|footnotes|endnotes)\.xml$/;
+const REVIEWED_TYPE = /\/(?:header|footer|footnotes|endnotes)$/;
 
 /**
  * The tracked changes and comments in a document, read from its parts' text
@@ -156,7 +157,14 @@ export async function reviewOf(pkg: WordPackage): Promise<WordReview> {
   let changes = 0;
   let comments = 0;
   try {
-    const parts = [pkg.part, ...pkg.zip.names().filter((name) => REVIEWED_PART.test(name))];
+    const rels = await relationshipsOf(pkg.zip, pkg.part);
+    const parts = new Set([
+      pkg.part,
+      ...pkg.zip.names().filter((name) => REVIEWED_PART.test(name)),
+      ...[...rels.values()]
+        .filter((rel) => !rel.external && REVIEWED_TYPE.test(rel.type))
+        .map((rel) => rel.target),
+    ]);
     for (const part of parts) {
       const xml = (await pkg.zip.readText(part)) ?? "";
       if (part === pkg.part) {
@@ -172,7 +180,6 @@ export async function reviewOf(pkg: WordPackage): Promise<WordReview> {
         addAuthor(match[1] ?? "");
       }
     }
-    const rels = await relationshipsOf(pkg.zip, pkg.part);
     const commentsPart = relationshipOfType(rels, "/comments")?.target;
     const xml = commentsPart ? ((await pkg.zip.readText(commentsPart)) ?? "") : "";
     for (const match of xml.matchAll(COMMENT_TAG)) {

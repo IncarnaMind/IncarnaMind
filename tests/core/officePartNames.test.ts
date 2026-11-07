@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { DATABASE_FILE } from "../../src/core";
 import { extractDocx } from "../../src/core/documents/formats/docx";
+import { openWordPackage, reviewOf } from "../../src/core/documents/formats/docxPackage";
 import { extractPptx } from "../../src/core/documents/formats/pptx";
 import { openPackage } from "../../src/core/documents/formats/zip";
 import { openDatabase } from "../../src/core/storage";
@@ -57,7 +58,7 @@ const harbourFile = () =>
       paragraph(run("潮汐记录"), { style: "标题1" }),
       paragraph(run("每月记录一次潮汐高度。")),
     ].join(""),
-    footnotes: `<w:footnote w:id="1"><w:p>${run("Dues are set in pounds.")}</w:p></w:footnote>`,
+    footnotes: `<w:footnote w:id="1"><w:p><w:ins w:id="7" w:author="Dana Kim" w:date="2026-11-01T09:00:00Z">${run("Dues are set in pounds.")}</w:ins></w:p></w:footnote>`,
   });
 
 const RENAMED_WORD = {
@@ -102,6 +103,11 @@ describe("A Word file, deck or workbook is read where its package says its parts
     expect(found).toMatchObject({ documentId: document.id, pageFrom: 1 });
 
     expect((await core.checkWordFile(path)).refusal).toBeNull();
+    expect(await reviewOf(await openWordPackage(bytes))).toEqual({
+      authors: ["Dana Kim"],
+      changes: 1,
+      comments: 0,
+    });
     expect(await core.importWordFile({ path, origin: "own" })).toMatchObject({ ok: true });
     core.close();
   });
