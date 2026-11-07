@@ -1,6 +1,8 @@
 # The gate for checking a reply's claimed changes beside the working-notes judgement (#1624)
 
-Written and committed on 2026-11-07, before any run it gates. #1624's baseline found that an Answer's closing calls hold Done back one after the other. On Claude Haiku 5.5, a reply written beside `cite` first waits for the judgement of its working notes (#2371, about 1.0 s), then for the check of the changes it claims (#2037, about 0.8 s). The step starts that check on the reply as it stands when the judgement starts, and takes its verdict at the end only for that same reply; a reply the judgement changed is checked again. The check's request is the same as before, so what it catches is the same: the step changes when it runs, not what it reads.
+Written and committed on 2026-11-07, before any run it gates. #1624's baseline found that an Answer's closing calls hold Done back one after the other. On Claude Haiku 5.5, a reply written beside `cite` first waits for the judgement of its working notes (#2371, about 1.0 s), then for the check of the changes it claims (#2037, about 0.8 s). The step starts that check on the reply as it stands when the judgement starts, and takes its verdict at the end only for that same reply and record; a reply the judgement changed, or a call made since, is checked again. The check's request is the same as before, so what it catches is the same: the step changes when it runs, not what it reads.
+
+*Changed on 2026-11-07, after review and before a complete run: the early verdict is reused only when the judge's whole prompt is the same at the end (the reply and the record of what the calls did), since a call made after the check started changes the record though not the reply. A first run of the earlier version was stopped after 10 everyday items when that was found, and is not read. The runs below are of this version.*
 
 ## The runs
 
