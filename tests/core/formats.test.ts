@@ -542,6 +542,43 @@ describe("a sheet's header row is found from its shape (#2373)", () => {
     expect(units[1]?.label?.rows?.[0]).toBe(1);
     expect(units[1]?.text.split("\n")[0]).toBe("Name\tCity");
   });
+
+  test.each(["csv", "xlsx"] as const)(
+    "%s: a blank cell in the first data row leaves the header heading its column",
+    async (format) => {
+      const units = await unitsOf(format, [
+        ["Store", "City", "Sales"],
+        ["Alice", "Paris"],
+        ...Array.from({ length: 120 }, (_, index) => [
+          `Store ${index + 1}`,
+          "Hangzhou",
+          100 + index,
+        ]),
+      ]);
+
+      // Half-filled sheets are normal: the first data row lacks the figure, and the rows below
+      // give the column its kind.
+      expect(units[1]?.label?.header).toBe(true);
+      expect(units[1]?.label?.rows?.[0]).toBe(1);
+      expect(units[1]?.text.split("\n")[0]).toBe("Store\tCity\tSales");
+    },
+  );
+
+  test("a header whose only figure cell already sits over figures is not told from a table without one", async () => {
+    const units = await unitsOf("xlsx", [
+      ["Region", "Owner", "2025"],
+      ...Array.from({ length: 120 }, (_, index) => [
+        `Region ${index + 1}`,
+        `Owner ${index + 1}`,
+        100 + index,
+      ]),
+    ]);
+
+    // "2025" is a figure in its own cell, and the data rows have the same kinds, so by shape this
+    // is the same table as one without a header: its first row stays data (#2373).
+    for (const unit of units) expect(unit.label?.header).toBeUndefined();
+    expect(units[0]?.text.split("\n")[0]).toBe("Region\tOwner\t2025");
+  });
 });
 
 describe("Files that can't be read fail cleanly, with a reason", () => {

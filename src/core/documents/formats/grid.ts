@@ -96,6 +96,26 @@ export function looksLikeFigure(value: string): boolean {
   return NUMERIC.test(value);
 }
 
+/**
+ * A figure a title row may hold: a number with a thousands separator, a
+ * currency, a decimal, a percent, or five digits or more. A bare year or a
+ * small count ("2026") is a label, so it can still name a table (#2373).
+ */
+const FIGURE_IN_TEXT = /[£$€¥]\s*\d|(?<![\d.,])\d{1,3}(?:[ ,]\d{3})+(?!\d)|\d+\.\d+|\d+\s*%|\d{5,}/;
+
+/** Whether a text holds such a figure, wherever it sits in the text (#2373). */
+export function holdsFigure(text: string): boolean {
+  return FIGURE_IN_TEXT.test(text);
+}
+
+/** A value a half-filled sheet leaves where a figure would be: N/A, or a dash. */
+const MISSING = /^(?:n\/a|[-–—]+)$/i;
+
+const isMissing = (cell: Pick<Cell, "value">): boolean => {
+  const value = cell.value.trim();
+  return value === "" || MISSING.test(value);
+};
+
 const isFigure = (cell: Pick<Cell, "value" | "numeric">): boolean =>
   cell.numeric || looksLikeFigure(cell.value);
 
@@ -107,17 +127,24 @@ export function looksLikeHeader(cells: readonly Pick<Cell, "value" | "numeric">[
 }
 
 /**
- * Whether a row heads the rows below it: a column whose cell is words where
- * the next row of the table is a figure, and none the other way round. A row
- * of one cell is a section's own label ("2025") and is passed over.
+ * Whether a row heads the rows below it: for each of its columns, the first
+ * value the table's rows below give that column, where a heading has words
+ * over figures and no figure over words. A row of one cell is a section's own
+ * label ("2025") and is passed over, as is a missing value ("N/A", "—").
  */
 function headsBelow(cells: readonly Cell[], below: readonly (readonly Cell[])[]): boolean {
-  const columns = new Set(cells.map((cell) => cell.column));
-  const next = below.find((row) => row.length >= 2 && row.some((cell) => columns.has(cell.column)));
-  if (!next) return false;
+  const rows = below.filter((row) => row.filter((cell) => !isMissing(cell)).length >= 2);
+  const valueIn = (column: number): Cell | undefined => {
+    for (const row of rows) {
+      const value = row.find((each) => each.column === column);
+      if (value && !isMissing(value)) return value;
+    }
+    return undefined;
+  };
   let heads = false;
   for (const cell of cells) {
-    const under = next.find((each) => each.column === cell.column);
+    if (isMissing(cell)) continue;
+    const under = valueIn(cell.column);
     if (!under) continue;
     if (isFigure(cell)) {
       if (!isFigure(under)) return false;
@@ -128,8 +155,8 @@ function headsBelow(cells: readonly Cell[], below: readonly (readonly Cell[])[])
 
 /**
  * The sheet's header row: among its first 10 rows, the first whose words head
- * the figures of the row below. A table of words alone has no kinds to tell
- * its rows apart, and its first header-like row heads it.
+ * the figures of its columns below. A table of words alone has no kinds to
+ * tell its rows apart, and its first header-like row heads it.
  */
 export function headerRow(rows: ReadonlyMap<number, Cell[]>): number | null {
   const numbers = [...rows.keys()].sort((a, b) => a - b);

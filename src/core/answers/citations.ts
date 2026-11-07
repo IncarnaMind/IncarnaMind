@@ -74,7 +74,7 @@ import {
 } from "../api";
 import type { CitationSource, DocumentDate } from "../documents";
 import { BOILERPLATE_PARAMETERS } from "../documents/boilerplate";
-import { looksLikeFigure } from "../documents/formats/grid";
+import { holdsFigure } from "../documents/formats/grid";
 import type { PageText } from "../documents/passages";
 import { unsureSpansIn } from "../documents/scan/layout";
 import type { WindowedPassage } from "../documents/search";
@@ -1563,8 +1563,8 @@ export function createCitationSession(
    * The text of a sheet's title rows, above its header, by Document version
    * and sheet: the rows that name the table a Citation's rows are in, which an
    * Answer may quote as the table's title while citing one of its rows (#2358).
-   * A row of figures names nothing (#2373). A sheet read in one block keeps
-   * its title rows in the cited Unit itself.
+   * A title row that holds a figure names nothing (#2373). A sheet read in one
+   * block keeps its title rows in the cited Unit itself.
    */
   const titles = new Map<string, string>();
   function titleRows(record: Pick<Accepted, "source">, sheet: string | null): string {
@@ -1588,9 +1588,7 @@ export function createCitationSession(
             .split("\n")
             .filter((line, at) => {
               const row = rows[at] ?? 0;
-              return (
-                row > 0 && row < header && !line.split("\t").some((cell) => looksLikeFigure(cell))
-              );
+              return row > 0 && row < header && !line.split("\t").some((cell) => holdsFigure(cell));
             })
             .join("\n");
     titles.set(key, text);
