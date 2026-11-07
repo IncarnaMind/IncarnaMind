@@ -2139,10 +2139,9 @@ const GRAPHEMES = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 /**
  * Words and signs as one reading compares them: any case, unless `asWritten`; each character as
  * Unicode composes it, so "résumé" typed either way reads the same; and no spaces but one where
- * a real space parts two letters or digits, as it parts "now here" from "nowhere" (#2589). Beside
- * a Chinese character a space parts nothing, so "使用 Excel" reads as "使用Excel", and an inline
- * node (a Citation, a formula, a line break) parts nothing either: it is no space. Each character
- * of the reading keeps where its character starts and ends in the text, in UTF-16 units.
+ * a space or a line break parts two letters or digits, as it parts "now here" from "nowhere"
+ * (#2589). Beside a Chinese character a space parts nothing, so "使用 Excel" reads as "使用Excel".
+ * Each character of the reading keeps where its character starts and ends in the text, in UTF-16 units.
  */
 function readChars(characters: Iterable<{ char: string; at: number }>, asWritten = false): Reading {
   const read: Reading = { chars: "", at: [], ends: [] };
@@ -2174,19 +2173,31 @@ function readChars(characters: Iterable<{ char: string; at: number }>, asWritten
 const graphemesOf = (text: string, from: number) =>
   [...GRAPHEMES.segment(text)].map(({ segment, index }) => ({ char: segment, at: from + index }));
 
+/**
+ * What a reading reads of a token. A line break parts two words on the page as a space does, and a
+ * reply may write a space beside it or leave one out, so it reads as one; a Citation, a footnote
+ * or a formula between two letters parts nothing (#2589).
+ */
+const readingOf = (token: { text?: string; node?: InlineNode }) =>
+  token.text ?? (token.node?.name === BREAK ? "\n" : undefined);
+
 /** A paragraph's words and signs as `readChars` reads them, each character where it is in its Block. */
 function charsOf(tokens: readonly OldToken[], asWritten = false): Reading {
   return readChars(
-    tokens.flatMap((token) =>
-      token.text === undefined ? [] : graphemesOf(token.text, token.from),
-    ),
+    tokens.flatMap((token) => {
+      const text = readingOf(token);
+      return text === undefined ? [] : graphemesOf(text, token.from);
+    }),
     asWritten,
   );
 }
 
 /** New text's words and signs as `charsOf` reads a paragraph's, each character where it is in that text. */
 function newCharsOf(tokens: readonly NewToken[], asWritten = false): Reading {
-  return readChars(graphemesOf(tokens.map((token) => token.text ?? "").join(""), 0), asWritten);
+  return readChars(
+    graphemesOf(tokens.map((token) => readingOf(token) ?? "").join(""), 0),
+    asWritten,
+  );
 }
 
 /** A Chinese character: words run on without spaces there. */
@@ -2222,7 +2233,10 @@ function placeQuote(paragraph: Reading, quote: string): { first: number; end: nu
     : null;
 }
 
-/** Every place a quote's words are in a paragraph, word for word, never cutting a word: "draft" isn't in "drafts". */
+/**
+ * Every place a quote's words are in a paragraph, word for word, never cutting a word or a
+ * character: "draft" isn't in "drafts", nor "किताब" in "किताबें", nor "👍" in "👍🏽".
+ */
 function placesOf(paragraph: Reading, quote: string): number[] {
   if (quote === "") return [];
   const places: number[] = [];
@@ -2235,8 +2249,10 @@ function placesOf(paragraph: Reading, quote: string): number[] {
     const runsOn = (inside: number, outside: number) => {
       const [before, after] = inside < outside ? [inside, outside] : [outside, inside];
       return (
-        paragraph.ends[before] === paragraph.at[after] &&
-        partsWords(charOf(paragraph.chars, inside), charOf(paragraph.chars, outside))
+        // One character's UTF-16 units share its start; a quote's edge between them cuts it.
+        paragraph.at[before] === paragraph.at[after] ||
+        (paragraph.ends[before] === paragraph.at[after] &&
+          partsWords(charOf(paragraph.chars, inside), charOf(paragraph.chars, outside)))
       );
     };
     if (at > 0 && runsOn(at, at - 1)) continue;
