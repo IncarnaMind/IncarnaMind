@@ -1260,7 +1260,7 @@ export function createAnswers(options: AnswersOptions) {
     listening?: () => Promise<LiveTranscript | null>;
     /**
      * A Meeting's saved Transcript to fill its notes in from (#142): shown with the Question as
-     * `listening` is, as much of it as fits half the model's window.
+     * `listening` is; tagged facts require the whole part, other requests keep half the window.
      */
     transcript?: WindowedPassage[];
     /** Words the User selected in Documents to ask about (#101), right before the Question. */
@@ -2508,10 +2508,12 @@ export function createAnswers(options: AnswersOptions) {
         }
       }
       if (input.transcript) {
-        const kept = newestWithin(
-          input.transcript,
-          prepared.window ? Math.floor(prepared.window.tokens / 2) : Number.MAX_SAFE_INTEGER,
-        );
+        const kept = context.meetingFacts
+          ? input.transcript
+          : newestWithin(
+              input.transcript,
+              prepared.window ? Math.floor(prepared.window.tokens / 2) : Number.MAX_SAFE_INTEGER,
+            );
         if (kept.length > 0) {
           messages = withTranscript(messages, session.show(kept));
           for (const passage of kept) transcripts.add(passage.documentId);
@@ -3459,6 +3461,7 @@ export function createAnswers(options: AnswersOptions) {
           : messages,
         ...(mindRequest && { mind: mindRequest }),
         question: context.question,
+        ...(context.meetingFacts && { meetingFacts: context.meetingFacts }),
         ...(input.mindsLine && { mindsLine: input.mindsLine }),
         model: prepared.model,
         ...(prepareQuick && { quickModel: () => prepareQuick(model, prepared) }),

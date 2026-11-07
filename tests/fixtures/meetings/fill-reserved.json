@@ -1,0 +1,609 @@
+[
+  {
+    "id": "reserved-en-a",
+    "language": "en",
+    "notes": [
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "Citrus shipment date" }]
+      },
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "Insulated liner budget" }]
+      }
+    ],
+    "turns": [
+      {
+        "side": "me",
+        "text": "I'm Orla. Let's settle the citrus shipment date and the insulated liner budget."
+      },
+      {
+        "side": "them",
+        "text": "I'm Benoit. I propose February 26, 2027 for the citrus shipment."
+      },
+      {
+        "side": "me",
+        "text": "Agreed: the citrus shipment date is February 26, 2027. I propose a total insulated liner budget of US$4,275."
+      },
+      {
+        "side": "them",
+        "text": "Agreed: the total insulated liner budget is US$4,275."
+      },
+      {
+        "side": "me",
+        "text": "I'll email the citrus packing list by February 19, 2027."
+      },
+      {
+        "side": "them",
+        "text": "I'll book the citrus shipment's refrigerated van by February 22, 2027."
+      },
+      {
+        "side": "me",
+        "text": "Farah has confirmed that she'll send the insulated liner invoice by February 24, 2027."
+      },
+      {
+        "side": "them",
+        "text": "The shipment date, liner budget, and those three tasks are all recorded."
+      }
+    ],
+    "facts": [
+      {
+        "name": "Agreed shipment date",
+        "kind": "decision",
+        "pattern": [
+          "\\bcitrus\\b",
+          "(?:\\b(?:Feb(?:ruary)?\\.?\\s+(?:26(?:th)?|twenty[- ]sixth)|(?:26(?:th)?|twenty[- ]sixth)\\s+Feb(?:ruary)?\\.?)\\b|\\b2027[-/.]0?2[-/.]26\\b|\\b(?:0?2[-/]26|26[-/]0?2)(?:[-/]2027)?\\b)"
+        ],
+        "said": [2],
+        "underLine": "Citrus shipment date",
+        "subject": "\\b(?:citrus|shipment|dispatch)\\b"
+      },
+      {
+        "name": "Agreed liner budget",
+        "kind": "decision",
+        "pattern": [
+          "\\bliners?\\b",
+          "\\b(?:budget|cap|allowance|limit)\\b",
+          "(?:(?:US\\s*\\$|USD\\s*|\\$)\\s*(?:4[,\\s]?275(?:\\.00)?|4\\.275\\s*k)(?!\\d|\\.\\d)|(?:4[,\\s]?275(?:\\.00)?|4\\.275\\s*k|four\\s+thousand(?:\\s+and)?\\s+two\\s+hundred(?:\\s+and)?\\s+seventy[- ]five)\\s*(?:US\\s+dollars?|U\\.S\\.\\s+dollars?|USD|dollars?)\\b)"
+        ],
+        "said": [3],
+        "underLine": "Insulated liner budget",
+        "subject": "\\b(?:insulated\\s+liners?|liners?\\s+(?:budget|cap|allowance))\\b"
+      },
+      {
+        "name": "Packing list commitment",
+        "kind": "action",
+        "pattern": [
+          "\\b(?:Orla|Me|I)\\b",
+          "\\bpacking\\s+(?:list|checklist)\\b",
+          "\\b(?:e-?mail|send|share)\\b",
+          "(?:\\b(?:Feb(?:ruary)?\\.?\\s+(?:19(?:th)?|nineteenth)|(?:19(?:th)?|nineteenth)\\s+Feb(?:ruary)?\\.?)\\b|\\b2027[-/.]0?2[-/.]19\\b|\\b(?:0?2[-/]19|19[-/]0?2)(?:[-/]2027)?\\b)"
+        ],
+        "said": [4]
+      },
+      {
+        "name": "Refrigerated van commitment",
+        "kind": "action",
+        "pattern": [
+          "\\b(?:Benoit|Them)\\b",
+          "\\b(?:refrigerated|chilled|cold[- ]chain)\\s+(?:van|vehicle|transport)\\b",
+          "\\b(?:book|reserve|arrange|hire)\\b",
+          "(?:\\b(?:Feb(?:ruary)?\\.?\\s+(?:22(?:nd)?|twenty[- ]second)|(?:22(?:nd)?|twenty[- ]second)\\s+Feb(?:ruary)?\\.?)\\b|\\b2027[-/.]0?2[-/.]22\\b|\\b(?:0?2[-/]22|22[-/]0?2)(?:[-/]2027)?\\b)"
+        ],
+        "said": [5]
+      },
+      {
+        "name": "Liner invoice commitment",
+        "kind": "action",
+        "pattern": [
+          "\\bFarah\\b",
+          "\\bliners?\\b",
+          "\\binvoice\\b",
+          "\\b(?:send|e-?mail|share|forward)\\b",
+          "(?:\\b(?:Feb(?:ruary)?\\.?\\s+(?:24(?:th)?|twenty[- ]fourth)|(?:24(?:th)?|twenty[- ]fourth)\\s+Feb(?:ruary)?\\.?)\\b|\\b2027[-/.]0?2[-/.]24\\b|\\b(?:0?2[-/]24|24[-/]0?2)(?:[-/]2027)?\\b)"
+        ],
+        "said": [6]
+      }
+    ],
+    "requireSections": true,
+    "openQuestions": false
+  },
+  {
+    "id": "reserved-zh-a",
+    "language": "zh-CN",
+    "notes": [
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "柑橘发货日期" }]
+      },
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "保温内衬预算" }]
+      }
+    ],
+    "turns": [
+      {
+        "side": "me",
+        "text": "我是欧拉。我们把柑橘的发货日期和保温内衬预算定下来。"
+      },
+      {
+        "side": "them",
+        "text": "我是贝努瓦。我提议在2027年2月26日发出柑橘。"
+      },
+      {
+        "side": "me",
+        "text": "同意，柑橘就定在2027年2月26日发货。保温内衬的总预算我提议定为4275美元。"
+      },
+      {
+        "side": "them",
+        "text": "同意，保温内衬总预算就定为4275美元。"
+      },
+      {
+        "side": "me",
+        "text": "柑橘装箱清单由我在2027年2月19日前发邮件。"
+      },
+      {
+        "side": "them",
+        "text": "柑橘运输的冷藏车由我在2027年2月22日前订好。"
+      },
+      {
+        "side": "me",
+        "text": "法拉已经确认，她会在2027年2月24日前发来保温内衬发票。"
+      },
+      {
+        "side": "them",
+        "text": "发货日期、内衬预算和这三项任务都记下了。"
+      }
+    ],
+    "facts": [
+      {
+        "name": "确定的发货日期",
+        "kind": "decision",
+        "pattern": [
+          "柑橘",
+          "(?:(?:2027年\\s*)?(?:2|二)\\s*月\\s*(?:26|二十六)\\s*(?:日|号)|2027[-/.]0?2[-/.]26(?!\\d)|(?:0?2[-/]26|26[-/]0?2)(?:[-/]2027)?(?!\\d))"
+        ],
+        "said": [2],
+        "underLine": "柑橘发货日期",
+        "subject": "(?:柑橘|发货|出货)"
+      },
+      {
+        "name": "确定的内衬预算",
+        "kind": "decision",
+        "pattern": [
+          "内衬",
+          "(?:预算|上限|限额)",
+          "(?:(?:4[,，\\s]?275(?:\\.00)?|四千(?:二百|两百)七十五|肆仟贰佰柒拾伍)\\s*(?:美元|美金)|(?:US\\s*\\$|USD\\s*|\\$)\\s*4[,，\\s]?275(?:\\.00)?(?!\\d|\\.\\d))"
+        ],
+        "said": [3],
+        "underLine": "保温内衬预算",
+        "subject": "(?:保温内衬|内衬预算|内衬上限)"
+      },
+      {
+        "name": "装箱清单承诺",
+        "kind": "action",
+        "pattern": [
+          "(?:欧拉|我|本人)",
+          "(?:装箱|打包)清单",
+          "(?:邮件|电邮|发送|发出|发来|提供)",
+          "(?:(?:2027年\\s*)?(?:2|二)\\s*月\\s*(?:19|十九)\\s*(?:日|号)|2027[-/.]0?2[-/.]19(?!\\d)|(?:0?2[-/]19|19[-/]0?2)(?:[-/]2027)?(?!\\d))"
+        ],
+        "said": [4]
+      },
+      {
+        "name": "冷藏车预订承诺",
+        "kind": "action",
+        "pattern": [
+          "(?:贝努瓦|对方)",
+          "(?:冷藏|冷链)车(?:辆)?",
+          "(?:预订|预定|订好|订车|预约|安排|租)",
+          "(?:(?:2027年\\s*)?(?:2|二)\\s*月\\s*(?:22|二十二)\\s*(?:日|号)|2027[-/.]0?2[-/.]22(?!\\d)|(?:0?2[-/]22|22[-/]0?2)(?:[-/]2027)?(?!\\d))"
+        ],
+        "said": [5]
+      },
+      {
+        "name": "内衬发票承诺",
+        "kind": "action",
+        "pattern": [
+          "法拉",
+          "内衬",
+          "发票",
+          "(?:发送|发来|发出|提供|邮件|电邮)",
+          "(?:(?:2027年\\s*)?(?:2|二)\\s*月\\s*(?:24|二十四)\\s*(?:日|号)|2027[-/.]0?2[-/.]24(?!\\d)|(?:0?2[-/]24|24[-/]0?2)(?:[-/]2027)?(?!\\d))"
+        ],
+        "said": [6]
+      }
+    ],
+    "requireSections": true,
+    "openQuestions": false
+  },
+  {
+    "id": "reserved-en-b",
+    "language": "en",
+    "notes": [
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "Family interview archive format" }]
+      },
+      {
+        "type": "heading",
+        "attrs": { "level": 2 },
+        "content": [{ "type": "text", "text": "What happens next" }]
+      },
+      {
+        "type": "heading",
+        "attrs": { "level": 2 },
+        "content": [{ "type": "text", "text": "In a nutshell" }]
+      }
+    ],
+    "turns": [
+      {
+        "side": "me",
+        "text": "I'm Mireya. For the family interview archive I first suggested MP3 as the master format."
+      },
+      {
+        "side": "them",
+        "text": "I'm Soren. I don't agree to MP3 masters. I propose FLAC masters instead."
+      },
+      {
+        "side": "me",
+        "text": "Agreed: use FLAC for the family interview archive masters, not MP3."
+      },
+      {
+        "side": "them",
+        "text": "Agreed, FLAC is the final master format for the family interview archive."
+      },
+      {
+        "side": "me",
+        "text": "I'll transcribe the grandparents' interview by June 14, 2027."
+      },
+      {
+        "side": "them",
+        "text": "I'll send the microphone inventory by June 16, 2027."
+      },
+      {
+        "side": "me",
+        "text": "Rafi confirmed that he'll label the interview consent forms by June 18, 2027."
+      },
+      {
+        "side": "them",
+        "text": "One question remains open: may the cousins download the archive masters? We haven't agreed on that."
+      },
+      {
+        "side": "me",
+        "text": "That download-permission question is still open."
+      }
+    ],
+    "facts": [
+      {
+        "name": "Final archive master format",
+        "kind": "decision",
+        "pattern": ["\\b(?:archive|interview|masters?)\\b", "\\bFLAC\\b"],
+        "said": [2, 3],
+        "subject": "\\b(?:archive|interview|master\\s+format|masters)\\b"
+      },
+      {
+        "name": "Interview transcript commitment",
+        "kind": "action",
+        "pattern": [
+          "\\b(?:Mireya|Me|I)\\b",
+          "\\bgrandparents?['’]?\\b",
+          "\\binterview\\b",
+          "\\b(?:transcribe|transcription|transcript)\\b",
+          "(?:\\b(?:Jun(?:e)?\\.?\\s+(?:14(?:th)?|fourteenth)|(?:14(?:th)?|fourteenth)\\s+Jun(?:e)?\\.?)\\b|\\b2027[-/.]0?6[-/.]14\\b|\\b(?:0?6[-/]14|14[-/]0?6)(?:[-/]2027)?\\b)"
+        ],
+        "said": [4]
+      },
+      {
+        "name": "Microphone inventory commitment",
+        "kind": "action",
+        "pattern": [
+          "\\b(?:Soren|Them)\\b",
+          "\\b(?:microphone|mic)\\s+(?:inventory|list)\\b",
+          "\\b(?:send|e-?mail|share|forward)\\b",
+          "(?:\\b(?:Jun(?:e)?\\.?\\s+(?:16(?:th)?|sixteenth)|(?:16(?:th)?|sixteenth)\\s+Jun(?:e)?\\.?)\\b|\\b2027[-/.]0?6[-/.]16\\b|\\b(?:0?6[-/]16|16[-/]0?6)(?:[-/]2027)?\\b)"
+        ],
+        "said": [5]
+      },
+      {
+        "name": "Consent form labeling commitment",
+        "kind": "action",
+        "pattern": [
+          "\\bRafi\\b",
+          "\\bconsent\\s+forms?\\b",
+          "\\b(?:label|labeling|labelling|tag|mark)\\b",
+          "(?:\\b(?:Jun(?:e)?\\.?\\s+(?:18(?:th)?|eighteenth)|(?:18(?:th)?|eighteenth)\\s+Jun(?:e)?\\.?)\\b|\\b2027[-/.]0?6[-/.]18\\b|\\b(?:0?6[-/]18|18[-/]0?6)(?:[-/]2027)?\\b)"
+        ],
+        "said": [6]
+      }
+    ],
+    "requireSections": true,
+    "openQuestions": true,
+    "sectionHeadings": {
+      "actions": "What happens next",
+      "summary": "In a nutshell"
+    }
+  },
+  {
+    "id": "reserved-zh-b",
+    "language": "zh-CN",
+    "notes": [
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "家庭访谈存档格式" }]
+      },
+      {
+        "type": "heading",
+        "attrs": { "level": 2 },
+        "content": [{ "type": "text", "text": "接下来要办的事" }]
+      },
+      {
+        "type": "heading",
+        "attrs": { "level": 2 },
+        "content": [{ "type": "text", "text": "简要回顾" }]
+      }
+    ],
+    "turns": [
+      {
+        "side": "me",
+        "text": "我是米蕾娅。家庭访谈存档的母版格式，我最初提议用MP3。"
+      },
+      {
+        "side": "them",
+        "text": "我是索伦。我不同意用MP3做母版，我提议改用FLAC。"
+      },
+      {
+        "side": "me",
+        "text": "同意，家庭访谈存档的母版就用FLAC，不用MP3。"
+      },
+      {
+        "side": "them",
+        "text": "同意，家庭访谈存档的母版格式最终定为FLAC。"
+      },
+      {
+        "side": "me",
+        "text": "我会在2027年6月14日前把祖父母的访谈转写成文字。"
+      },
+      {
+        "side": "them",
+        "text": "我会在2027年6月16日前发送麦克风清单。"
+      },
+      {
+        "side": "me",
+        "text": "拉菲已经确认，他会在2027年6月18日前给访谈同意书加上标签。"
+      },
+      {
+        "side": "them",
+        "text": "还有一个问题没定：表亲们能否下载存档母版？这个问题还没有达成一致。"
+      },
+      {
+        "side": "me",
+        "text": "下载权限这个问题仍然没有定下来。"
+      }
+    ],
+    "facts": [
+      {
+        "name": "最终的存档母版格式",
+        "kind": "decision",
+        "pattern": ["(?:存档|访谈|母版)", "FLAC"],
+        "said": [2, 3],
+        "subject": "(?:存档|访谈|母版格式|母版)"
+      },
+      {
+        "name": "访谈转写承诺",
+        "kind": "action",
+        "pattern": [
+          "(?:米蕾娅|我|本人)",
+          "(?:祖父母|爷爷奶奶)",
+          "(?:访谈|采访)",
+          "(?:转写|誊写|文字稿|整理成文字)",
+          "(?:(?:2027年\\s*)?(?:6|六)\\s*月\\s*(?:14|十四)\\s*(?:日|号)|2027[-/.]0?6[-/.]14(?!\\d)|(?:0?6[-/]14|14[-/]0?6)(?:[-/]2027)?(?!\\d))"
+        ],
+        "said": [4]
+      },
+      {
+        "name": "麦克风清单承诺",
+        "kind": "action",
+        "pattern": [
+          "(?:索伦|对方)",
+          "(?:麦克风|话筒)",
+          "(?:清单|盘点表|清册)",
+          "(?:发送|发来|发出|提供|邮件|电邮)",
+          "(?:(?:2027年\\s*)?(?:6|六)\\s*月\\s*(?:16|十六)\\s*(?:日|号)|2027[-/.]0?6[-/.]16(?!\\d)|(?:0?6[-/]16|16[-/]0?6)(?:[-/]2027)?(?!\\d))"
+        ],
+        "said": [5]
+      },
+      {
+        "name": "同意书标签承诺",
+        "kind": "action",
+        "pattern": [
+          "拉菲",
+          "(?:同意书|同意表|授权书)",
+          "(?:标签|标记|标注)",
+          "(?:(?:2027年\\s*)?(?:6|六)\\s*月\\s*(?:18|十八)\\s*(?:日|号)|2027[-/.]0?6[-/.]18(?!\\d)|(?:0?6[-/]18|18[-/]0?6)(?:[-/]2027)?(?!\\d))"
+        ],
+        "said": [6]
+      }
+    ],
+    "requireSections": true,
+    "openQuestions": true,
+    "sectionHeadings": {
+      "actions": "接下来要办的事",
+      "summary": "简要回顾"
+    }
+  },
+  {
+    "id": "reserved-en-c",
+    "language": "en",
+    "notes": [
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "Aquarium lighting trial" }]
+      },
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "Warm-white and neutral-white lamp proposals" }]
+      }
+    ],
+    "turns": [
+      {
+        "side": "me",
+        "text": "I'm Tamsin. I'm proposing warm-white lamps for the aquarium lighting trial."
+      },
+      {
+        "side": "them",
+        "text": "I'm Ivo. My proposal is neutral-white lamps for that trial."
+      },
+      {
+        "side": "me",
+        "text": "Both lamp colours are proposals only; neither has been approved."
+      },
+      {
+        "side": "them",
+        "text": "We're recording the proposals, not choosing a lamp colour in this call."
+      },
+      {
+        "side": "me",
+        "text": "I'll photograph the existing aquarium light brackets by March 15, 2027."
+      },
+      {
+        "side": "them",
+        "text": "I'll measure the aquarium lid clearance by March 17, 2027."
+      },
+      {
+        "side": "me",
+        "text": "Yasmin confirmed that she'll email the lamp socket specifications by March 19, 2027."
+      },
+      {
+        "side": "them",
+        "text": "Those three preparation tasks are commitments."
+      }
+    ],
+    "facts": [
+      {
+        "name": "Light bracket photograph commitment",
+        "kind": "action",
+        "pattern": [
+          "\\b(?:Tamsin|Me|I)\\b",
+          "\\b(?:light|lamp|lighting)\\s+(?:brackets?|mounts?)\\b",
+          "\\b(?:photograph|photos?|pictures?)\\b",
+          "(?:\\b(?:Mar(?:ch)?\\.?\\s+(?:15(?:th)?|fifteenth)|(?:15(?:th)?|fifteenth)\\s+Mar(?:ch)?\\.?)\\b|\\b2027[-/.]0?3[-/.]15\\b|\\b(?:0?3[-/]15|15[-/]0?3)(?:[-/]2027)?\\b)"
+        ],
+        "said": [4]
+      },
+      {
+        "name": "Lid clearance measurement commitment",
+        "kind": "action",
+        "pattern": [
+          "\\b(?:Ivo|Them)\\b",
+          "\\b(?:lid|cover)\\b",
+          "\\b(?:clearance|gap|space)\\b",
+          "\\b(?:measure|measurement|measurements)\\b",
+          "(?:\\b(?:Mar(?:ch)?\\.?\\s+(?:17(?:th)?|seventeenth)|(?:17(?:th)?|seventeenth)\\s+Mar(?:ch)?\\.?)\\b|\\b2027[-/.]0?3[-/.]17\\b|\\b(?:0?3[-/]17|17[-/]0?3)(?:[-/]2027)?\\b)"
+        ],
+        "said": [5]
+      },
+      {
+        "name": "Lamp socket specification commitment",
+        "kind": "action",
+        "pattern": [
+          "\\bYasmin\\b",
+          "\\b(?:lamp|light)\\s+(?:sockets?|holders?)\\b",
+          "\\b(?:specifications?|specs?)\\b",
+          "\\b(?:e-?mail|send|share|forward)\\b",
+          "(?:\\b(?:Mar(?:ch)?\\.?\\s+(?:19(?:th)?|nineteenth)|(?:19(?:th)?|nineteenth)\\s+Mar(?:ch)?\\.?)\\b|\\b2027[-/.]0?3[-/.]19\\b|\\b(?:0?3[-/]19|19[-/]0?3)(?:[-/]2027)?\\b)"
+        ],
+        "said": [6]
+      }
+    ],
+    "requireSections": true,
+    "openQuestions": false
+  },
+  {
+    "id": "reserved-zh-c",
+    "language": "zh-CN",
+    "notes": [
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "鱼缸照明试验" }]
+      },
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "暖白光和中性白光灯的提议" }]
+      }
+    ],
+    "turns": [
+      {
+        "side": "me",
+        "text": "我是塔姆辛。我提议鱼缸照明试验用暖白光灯。"
+      },
+      {
+        "side": "them",
+        "text": "我是伊沃。我的提议是试验用中性白光灯。"
+      },
+      {
+        "side": "me",
+        "text": "两种灯光颜色都只是提议，都没有获批。"
+      },
+      {
+        "side": "them",
+        "text": "这次只记录提议，不选定灯光颜色。"
+      },
+      {
+        "side": "me",
+        "text": "我会在2027年3月15日前给鱼缸现有的灯架拍照。"
+      },
+      {
+        "side": "them",
+        "text": "我会在2027年3月17日前测量鱼缸盖的净空高度。"
+      },
+      {
+        "side": "me",
+        "text": "雅丝敏已经确认，她会在2027年3月19日前通过邮件发送灯座规格。"
+      },
+      {
+        "side": "them",
+        "text": "这三项准备工作都已经承诺会做。"
+      }
+    ],
+    "facts": [
+      {
+        "name": "灯架拍照承诺",
+        "kind": "action",
+        "pattern": [
+          "(?:塔姆辛|我|本人)",
+          "(?:灯架|灯具支架|照明支架|灯的支架)",
+          "(?:拍照|拍摄|照片)",
+          "(?:(?:2027年\\s*)?(?:3|三)\\s*月\\s*(?:15|十五)\\s*(?:日|号)|2027[-/.]0?3[-/.]15(?!\\d)|(?:0?3[-/]15|15[-/]0?3)(?:[-/]2027)?(?!\\d))"
+        ],
+        "said": [4]
+      },
+      {
+        "name": "鱼缸盖净空测量承诺",
+        "kind": "action",
+        "pattern": [
+          "(?:伊沃|对方)",
+          "(?:缸盖|鱼缸盖|盖子)",
+          "(?:净空|间隙|可用空间|剩余空间)",
+          "(?:测量|量取)",
+          "(?:(?:2027年\\s*)?(?:3|三)\\s*月\\s*(?:17|十七)\\s*(?:日|号)|2027[-/.]0?3[-/.]17(?!\\d)|(?:0?3[-/]17|17[-/]0?3)(?:[-/]2027)?(?!\\d))"
+        ],
+        "said": [5]
+      },
+      {
+        "name": "灯座规格承诺",
+        "kind": "action",
+        "pattern": [
+          "雅丝敏",
+          "(?:灯座|灯头座)",
+          "(?:规格|参数)",
+          "(?:邮件|电邮|发送|发来|发出|提供)",
+          "(?:(?:2027年\\s*)?(?:3|三)\\s*月\\s*(?:19|十九)\\s*(?:日|号)|2027[-/.]0?3[-/.]19(?!\\d)|(?:0?3[-/]19|19[-/]0?3)(?:[-/]2027)?(?!\\d))"
+        ],
+        "said": [6]
+      }
+    ],
+    "requireSections": true,
+    "openQuestions": false
+  }
+]

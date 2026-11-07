@@ -33,6 +33,7 @@ export interface ViewerFrame {
   tabId: string;
   /** The tab is a preview: the toolbar offers to keep it open. */
   preview: boolean;
+  embedded?: boolean;
   keep(): void;
   /** Where the tab was opened, when a Citation opened it: its version and quote. */
   target?: ViewerTarget;
@@ -83,7 +84,7 @@ export function ViewerHeader({
   const t = useT();
   const language = useLanguage();
   const gap = useGap();
-  const { document, preview, keep, target } = useContext(ViewerFrameContext);
+  const { document, preview, keep, target, embedded } = useContext(ViewerFrameContext);
   const documents = useAppStore((state) =>
     state.status.kind === "ready" ? state.documents : null,
   );
@@ -114,6 +115,7 @@ export function ViewerHeader({
           pageFrom: cited.pageFrom ?? target.pageFrom ?? null,
           pageTo: cited.pageTo ?? target.pageTo ?? null,
           quote: target.quote,
+          location: cited.location,
         }
       : null,
     changedState,
@@ -163,6 +165,17 @@ export function ViewerHeader({
       );
     });
   };
+
+  if (embedded) {
+    return children ? (
+      <header
+        data-testid="viewer-embedded-header"
+        className="flex min-h-7 shrink-0 flex-wrap items-center gap-x-3 gap-y-1 px-4 py-1 text-[12px] leading-5 text-ink-meta [&_.viewer-meta]:not-sr-only"
+      >
+        {children}
+      </header>
+    ) : null;
+  }
 
   return (
     <>

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { create } from "zustand";
 import type { AudioSource, Meeting, Settings } from "../../core/api";
 import { meetingTimeAt } from "../../shared/blockTimes";
+import { isPartialMeetingFill } from "../../shared/meetingFill";
 import { mindName } from "../../shared/naming";
 import { core, files } from "./core";
 import { errorMessage } from "./errors";
@@ -305,7 +306,14 @@ function offerUndoOfFill(before: readonly Meeting[], after: readonly Meeting[]):
     if (was === undefined || was === "filled") continue;
     const memo = meeting.kind === "memo";
     useUndo.getState().push({
-      said: (t) => t(memo ? "memos.fill.filled" : "meetings.fill.filled"),
+      said: (t) =>
+        t(
+          memo
+            ? "memos.fill.filled"
+            : isPartialMeetingFill(meeting.fill)
+              ? "meetings.fill.partial"
+              : "meetings.fill.filled",
+        ),
       name: (t) => t(memo ? "memos.fill.undoName" : "meetings.fill.undoName"),
       undo: () => core.undoMeetingFill(meeting.id).then(() => undefined),
       also: {
@@ -339,7 +347,9 @@ export const useMeetingOf = (mindId: string): Meeting | undefined =>
   useMeetings((state) => state.meetings.find((each) => each.mindId === mindId));
 
 /** A Meeting is recording or paused: its Mind shows the meeting bar. */
-export const isLive = (meeting: Meeting | undefined): meeting is Meeting =>
+export const isLive = (
+  meeting: Meeting | undefined,
+): meeting is Meeting & { status: "recording" | "paused" } =>
   meeting?.status === "recording" || meeting?.status === "paused";
 
 /** Whether some Meeting's audio is being captured now: background work waits meanwhile. */

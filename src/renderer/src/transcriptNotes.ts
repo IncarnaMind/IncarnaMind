@@ -23,6 +23,12 @@ async function citationOf(document: Document, cue: Cue, page: number | null, min
     pageFrom: page,
     pageTo: page,
     quote: cue.text,
+    location: {
+      kind: "time",
+      from: cue.startMs,
+      to: cue.endMs,
+      ...(cue.speaker && { speaker: cue.speaker }),
+    },
   });
   // A Transcript is filed with its Meeting's Note, so never behind another wall from it.
   if ("keptInside" in found) throw new Error(translateNow("transcript.addToNote.failed"));

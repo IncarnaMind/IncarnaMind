@@ -2296,6 +2296,8 @@ export interface CitationToRecheck {
   pageFrom: number | null;
   pageTo: number | null;
   quote: string;
+  /** The stored Location: a Transcript recheck stays at these cues, not repeated words elsewhere. */
+  location?: CitationLocation | null;
   /**
    * The version the Citation quotes. When the Document has a newer one, the result also says
    * how the Citation stands in this version (`inQuotedVersion`) and how its words changed
@@ -10939,6 +10941,12 @@ export interface MeetingFill {
   /** The model that wrote it runs on this computer. */
   local: boolean;
   problem: MeetingFillProblem | null;
+  /** Known rejected additions, including an unavailable overview; absent on older fills. */
+  omitted?: number;
+  /** Transcript parts not finished when a request failed; absent on older fills. */
+  unfinishedParts?: number;
+  /** Blocks inserted by this fill, for status placement without changing the Note. */
+  addedBlockIds?: string[];
 }
 
 /**

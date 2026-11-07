@@ -48,12 +48,14 @@ export function PageMenu({
   mindId,
   verification,
   readOnly,
+  revealEditor,
 }: {
   editor: Editor;
   doc: Y.Doc;
   mindId: string;
   verification: Verification | null;
   readOnly: boolean;
+  revealEditor(): void;
 }) {
   const t = useT();
   const language = useLanguage();
@@ -132,7 +134,10 @@ export function PageMenu({
                       data-testid="page-review-changes"
                       onClick={() => {
                         close();
-                        requestAnimationFrame(() => reviewApplied(editor, { focus: true }));
+                        requestAnimationFrame(() => {
+                          revealEditor();
+                          reviewApplied(editor, { focus: true });
+                        });
                       }}
                       className={`${menuItemClass} pl-2`}
                     >
@@ -149,6 +154,7 @@ export function PageMenu({
                           data-testid="page-review"
                           onClick={() => {
                             close();
+                            revealEditor();
                             useReviewPanes.getState().open(mindId);
                           }}
                           className={`${menuItemClass} pl-2`}

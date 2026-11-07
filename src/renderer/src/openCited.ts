@@ -121,6 +121,7 @@ async function movedPlace(
       pageFrom: citation.pageFrom,
       pageTo: citation.pageTo,
       contentHash: citation.contentHash,
+      location: citation.location,
     })
     .catch((failure: unknown) => {
       console.error("A moved quote couldn't be looked for in its Document's new version.", failure);

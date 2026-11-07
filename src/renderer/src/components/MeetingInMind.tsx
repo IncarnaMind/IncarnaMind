@@ -43,7 +43,7 @@ export function MeetingInMind({ mindId }: { mindId: string }) {
   return (
     <div className="mb-4">
       <TranscriptLines meeting={meeting} className="" />
-      <MeetingFillLine meeting={meeting} />
+      {meeting.kind === "memo" && <MeetingFillLine meeting={meeting} />}
       <CaptureProblem meeting={meeting} />
       <MeetingAudioLine meeting={meeting} />
       <CaptureDetailsLine meeting={meeting} />

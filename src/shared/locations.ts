@@ -635,8 +635,8 @@ export type RequestedLocation =
   | { kind: "page" | "slide" | "lines"; from: number; to: number }
   | { kind: "rows"; sheet: string | null; from: number; to: number }
   | { kind: "section"; heading: string }
-  /** A time in a Transcript, "14:26" or "14:26–15:02", in ms. */
-  | { kind: "time"; from: number; to: number };
+  /** A time in a Transcript, "14:26 Dana" or "14:26–15:02", in ms. */
+  | { kind: "time"; from: number; to: number; speaker?: string };
 
 /**
  * What a comment's Location adds after its section, as its label words it in
@@ -658,7 +658,7 @@ const range = (from: string | undefined, to: string | undefined) => {
 
 /**
  * Reads a Location written as its label ("slide 4", "Revenue, rows 12–14",
- * "§ 2.1 Sensitivity", "lines 120–134", "p. 4", "14:26"), or as a cell range
+ * "§ 2.1 Sensitivity", "lines 120–134", "p. 4", "14:26 Dana"), or as a cell range
  * ("Revenue!A12:F14"). Null if it can't be read.
  */
 export function parseRequestedLocation(input: string): RequestedLocation | null {
@@ -675,15 +675,6 @@ export function parseRequestedLocation(input: string): RequestedLocation | null 
       .trim();
   }
   if (!text) return null;
-  const times =
-    /^(?:at\s+)?(\d{1,2}(?::\d{2}){1,2})(?:\s*[-–—]\s*(\d{1,2}(?::\d{2}){1,2}))?$/i.exec(text);
-  if (times) {
-    const from = parseClockTime(times[1] as string);
-    const to = times[2] === undefined ? from : parseClockTime(times[2]);
-    if (from !== null && to !== null) {
-      return { kind: "time", from: Math.min(from, to), to: Math.max(from, to) };
-    }
-  }
   let match = new RegExp(String.raw`^(?:pp?\.?|pages?)\s*${RANGE}$`, "i").exec(text);
   if (match) return { kind: "page", ...range(match[1], match[2]) };
   match = new RegExp(
@@ -700,6 +691,26 @@ export function parseRequestedLocation(input: string): RequestedLocation | null 
   match = /^(?:§+|sections?\b|heading\b)\s*(.+)$/i.exec(text);
   const heading = match?.[1]?.replace(A_PARAGRAPH, "").replace(A_COMMENT, "").trim();
   if (heading) return { kind: "section", heading };
+  // A sheet name may start with a clock time; its rows or cells still take precedence.
+  const written = input.trim();
+  const cueLabel =
+    written.startsWith("[") && written.endsWith("]") ? written.slice(1, -1).trim() : written;
+  const timePattern =
+    /^(?:at\s+)?(\d{1,2}(?::\d{2}){1,2})(?:\s*[-–—]\s*(\d{1,2}(?::\d{2}){1,2}))?(?:[ \t]+(\p{L}[^\r\n[\]]*))?$/iu;
+  const times = timePattern.exec(cueLabel) ?? timePattern.exec(text);
+  if (times) {
+    const from = parseClockTime(times[1] as string);
+    const to = times[2] === undefined ? from : parseClockTime(times[2]);
+    const speaker = times[3]?.trim();
+    if (from !== null && to !== null) {
+      return {
+        kind: "time",
+        from: Math.min(from, to),
+        to: Math.max(from, to),
+        ...(speaker && { speaker }),
+      };
+    }
+  }
   return null;
 }
 
