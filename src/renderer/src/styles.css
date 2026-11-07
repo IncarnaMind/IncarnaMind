@@ -3774,6 +3774,16 @@
   .mind-editor > .answer-folded {
     display: none;
   }
+  /* What My notes hides: lines of AI text only (see editor/myNotes). */
+  .mind-editor .my-notes-hidden {
+    display: none;
+  }
+  .my-notes-empty {
+    font-size: var(--text-meta);
+    line-height: var(--text-meta--line-height);
+    color: var(--color-ink-meta);
+    margin-bottom: 8px;
+  }
   /* What it searched, opened from its meta line: under its text. */
   .answer-searches-open {
     font-family: var(--font-sans);

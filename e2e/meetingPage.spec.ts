@@ -59,6 +59,7 @@ async function recordOnClose(app: ElectronApplication, window: Page, name: strin
 const WORDS = {
   en: {
     notes: "Notes",
+    mine: "My notes",
     transcript: "Transcript",
     views: "Meeting views",
     switchTip: /^Switch views \(\S+ \S+\)$/,
@@ -85,6 +86,7 @@ const WORDS = {
   },
   "zh-CN": {
     notes: "笔记",
+    mine: "我的笔记",
     transcript: "转写稿",
     views: "会议视图",
     switchTip: /^切换视图（\S+ \S+）$/,
@@ -555,6 +557,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(menu).toBeVisible();
       await expect(menu.locator('[role="menuitemradio"]')).toHaveText([
         words.notes,
+        words.mine,
         words.transcript,
       ]);
       await expect(menu.getByTestId("meeting-details-toggle")).toHaveText(words.details);
@@ -570,6 +573,8 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(menu).toBeHidden();
       await expect(chip).toHaveText(words.transcript);
       await expect(panel.getByTestId("meeting-note-transcript")).toBeVisible();
+      await window.keyboard.press("ControlOrMeta+Alt+ArrowLeft");
+      await expect(chip).toHaveText(words.mine);
       await window.keyboard.press("ControlOrMeta+Alt+ArrowLeft");
       await expect(editor).toBeFocused();
       await expect(chip).toHaveText(words.recorded);

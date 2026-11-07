@@ -6,7 +6,7 @@
  * name is.
  */
 import { passagesIn, recordFor, withSurroundingWords } from "./passages";
-import { lastUserText, type Prompt, type Reply, toolResults } from "./prompt";
+import { lastUserText, type Prompt, type Reply, type StreamPart, toolResults } from "./prompt";
 
 const HELP = /pressed a button for help/;
 
@@ -49,16 +49,21 @@ const LINES = {
     `- 上线推迟到 11 月 18 日${cite}\n- 合作伙伴预览仍在 10 月 28 日\n- 市场部等新日期确定后再公布`,
 };
 
-export function helpReply(prompt: Prompt, tools: readonly string[]): Reply | null {
-  const asked = lastUserText(prompt);
+function callOf(asked: string) {
   // The button's instructions follow its Question, in its message.
-  const help = block(asked, "help");
-  if (!HELP.test(help)) return null;
   const question = asked.slice(0, asked.indexOf("\n\n<help>")).split("\n\n").at(-1) ?? "";
-  const found = passagesIn(block(asked, "found-in-documents"));
   const heard = passagesIn(block(asked, "live-transcript"));
   const newest = heard.at(-1)?.text ?? question;
-  const language = /\p{Script=Han}/u.test(newest) ? "zh" : "en";
+  const language: "en" | "zh" = /\p{Script=Han}/u.test(newest) ? "zh" : "en";
+  return { question, heard, language };
+}
+
+export function helpReply(prompt: Prompt, tools: readonly string[]): Reply | null {
+  const asked = lastUserText(prompt);
+  const help = block(asked, "help");
+  if (!HELP.test(help)) return null;
+  const { question, heard, language } = callOf(asked);
+  const found = passagesIn(block(asked, "found-in-documents"));
   const shape = /One or two readings/.test(help)
     ? "readings"
     : /At most three short lines/.test(help)
@@ -88,4 +93,31 @@ export function helpReply(prompt: Prompt, tools: readonly string[]): Reply | nul
   if (shape === "lines") return { text: LINES[language](quote ? " [^1]" : "") };
   const first = quote ? OPTIONS[language].cited(quote) : OPTIONS[language].first;
   return { text: `${first}\n\n${OPTIONS[language].second}` };
+}
+
+const NOTES = {
+  en: "The newest lines ask about the Enterprise price, and the price sheet has it, so the record comes first.",
+  zh: "最新的几句在问企业版的价格，价目表里有这一条，先记下引用。",
+};
+
+/**
+ * For a model id ending "-notes-first": a help reply's records come after a paragraph of the
+ * model's own notes in the same step, as Claude Sonnet 5.5 writes them (#2526); the core takes
+ * the notes back once the records come. Other steps are as they were.
+ */
+export function withNotesFirst(prompt: Prompt, parts: StreamPart[]): StreamPart[] {
+  const asked = lastUserText(prompt);
+  if (!HELP.test(block(asked, "help"))) return parts;
+  const at = parts.findIndex((part) => part.type === "tool-call" && part.toolName === "cite");
+  if (at === -1) return parts;
+  const notes = NOTES[callOf(asked).language];
+  return [
+    ...parts.slice(0, at),
+    { type: "text-start", id: "notes" },
+    ...notes
+      .split(/(?<=\s)|(?<=\p{Script=Han})/u)
+      .map((delta): StreamPart => ({ type: "text-delta", id: "notes", delta })),
+    { type: "text-end", id: "notes" },
+    ...parts.slice(at),
+  ];
 }

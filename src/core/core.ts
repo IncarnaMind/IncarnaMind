@@ -1293,8 +1293,11 @@ export function createCore(adapters: CoreAdapters): Core {
   if (documents.searchableCount() > 0) rerank.prepare();
   /** Set once outside agents exist: Local mode pauses them. */
   let agentsLocalModeChanged = () => {};
-  /** Where meeting audio may go changed: a live cloud stream whose gate closed stops now (#141). */
-  let transcriptionGateChanged = () => {};
+  /**
+   * Where meeting audio may go changed: a live cloud stream whose gate closed stops now (#141).
+   * Resolves once the transcription process has dropped it (#2702).
+   */
+  let transcriptionGateChanged = (): Promise<void> => Promise.resolve();
   /** Set once Connectors exist: Local mode pauses those on other computers. */
   let connectorsLocalModeChanged = () => {};
   /**
@@ -1312,7 +1315,7 @@ export function createCore(adapters: CoreAdapters): Core {
         () => new LocalModeError(),
       );
     }
-    transcriptionGateChanged();
+    const dropped = transcriptionGateChanged();
     if (wasLocal !== embedding.localOnly()) {
       usageData.localModeChanged();
       privacyChanged();
@@ -1326,6 +1329,7 @@ export function createCore(adapters: CoreAdapters): Core {
       // An Answer on its way to a cloud model stops at once, with the reason.
       if (embedding.localOnly()) await answers.stopCloud();
     }
+    await dropped;
     return embeddingSettings();
   };
 
@@ -4668,7 +4672,7 @@ export function createCore(adapters: CoreAdapters): Core {
       removeDocuments(documentIds, deletedAt);
     }
   });
-  transcriptionGateChanged = () => transcripts?.recheckCloud();
+  transcriptionGateChanged = () => transcripts?.recheckCloud() ?? Promise.resolve();
   meetingHelpOf = (mindId, question) => {
     const meeting = meetings.liveOf(mindId);
     if (!meeting) return null;
@@ -5455,9 +5459,10 @@ export function createCore(adapters: CoreAdapters): Core {
       const languageWas = settings.get().language;
       const updated = settings.update(change);
       // Choosing a cloud service where its line says meeting audio goes to it is the consent (ADR-0022).
+      let dropped = Promise.resolve();
       if (route !== undefined) {
         cloudTranscription.chose(updated.device.transcriptionRoute);
-        transcriptionGateChanged();
+        dropped = transcriptionGateChanged();
       }
       if (!updated.user.suggestWhileWriting) suggestions.stop();
       events.emit("settings.changed", updated);
@@ -5477,6 +5482,7 @@ export function createCore(adapters: CoreAdapters): Core {
           .followLanguage()
           .catch((error) => console.error("The example Minds didn't follow the language:", error));
       }
+      await dropped;
       return updated;
     },
     addDocuments,
@@ -5934,9 +5940,10 @@ export function createCore(adapters: CoreAdapters): Core {
       if (riding.length > 0) await decisionsChanged(await decisionHosts.list());
       // A transcription route that used this provider's key has none now.
       await cloudTranscription.refreshKeys();
-      transcriptionGateChanged();
+      const dropped = transcriptionGateChanged();
       settingsChanged();
       await readinessChanged();
+      await dropped;
     },
     testChatConnection: (input) => loggingTest("chat")(chat.test(input)),
     testChatProvider: (providerId) => loggingTest("chat")(chat.testProvider(providerId)),
@@ -6173,9 +6180,10 @@ export function createCore(adapters: CoreAdapters): Core {
       if (typeof flowId === "string" && typeof serviceId === "string") {
         cloudTranscription.revoked(flowId, serviceId);
       }
-      transcriptionGateChanged();
+      const dropped = transcriptionGateChanged();
       settingsChanged();
       await dataFlowsChanged();
+      await dropped;
       return revokedAt;
     },
     restoreConsent: async (flowId, serviceId, revokedAt) => {
@@ -7019,8 +7027,9 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     removeTranscriptionKey: async (route) => {
       const listed = await cloudTranscription.removeKey(route);
-      transcriptionGateChanged();
+      const dropped = transcriptionGateChanged();
       settingsChanged();
+      await dropped;
       return listed;
     },
     openAudioSettings: (source) => meetings.openSettings(source),
