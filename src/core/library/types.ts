@@ -224,7 +224,10 @@ export interface DocumentBatch {
   read: number;
   /** How many Organize has finished with: a Folder suggested or none, and their Tags. */
   sorted: number;
-  /** How many wait in each Suggested Folder, most first. */
+  /**
+   * How many wait in Suggestions for each Folder, most first: a live Folder's id, or a proposed
+   * one's (`OrganizeReviewFolder.id`) (#1569).
+   */
   suggested: { groupId: string; count: number }[];
 }
 
@@ -257,6 +260,11 @@ export interface LibrarySnapshot {
   sortWaitsFor?: ExternalService;
   /** How many Documents wait in Suggestions with something to confirm (#1569). */
   reviewCount: number;
+  /**
+   * How many Documents an upgrade moved from their Suggested Folders into Suggestions, where they
+   * are in no Folder until confirmed: the Library says so once, until the User closes the line.
+   */
+  reviewMoved?: number;
 }
 
 export interface LibraryGroupInput {

@@ -210,7 +210,7 @@ const leftOutColumns = (leftOut: OrganizeReviewLeftOut | null) => ({
 });
 
 function parseLeftOut(input: unknown): OrganizeReviewLeftOut {
-  const invalid = new InvalidInputError("A left-out Document needs a known reason.");
+  const invalid = new InvalidInputError({ key: "error.organizeReview.invalid" });
   if (!isRecord(input)) throw invalid;
   const { reason } = input;
   if (reason === "doesntFit" || reason === "noText") return { reason };
@@ -221,15 +221,15 @@ function parseLeftOut(input: unknown): OrganizeReviewLeftOut {
   throw invalid;
 }
 
-export function parseIds(input: unknown, what: string): string[] {
+export function parseIds(input: unknown): string[] {
   if (!Array.isArray(input) || !input.every((id) => typeof id === "string" && id !== ""))
-    throw new InvalidInputError(`${what} must be a list of ids.`);
+    throw new InvalidInputError({ key: "error.organizeReview.invalid" });
   return [...new Set(input as string[])];
 }
 
-export function parseId(input: unknown, what: string): string {
+export function parseId(input: unknown): string {
   if (typeof input !== "string" || input === "")
-    throw new InvalidInputError(`${what} must be an id.`);
+    throw new InvalidInputError({ key: "error.organizeReview.invalid" });
   return input;
 }
 
@@ -261,7 +261,8 @@ function parseTagName(input: unknown): string {
 
 function parseTagDescription(input: unknown): string {
   if (input === undefined) return "";
-  if (typeof input !== "string") throw new InvalidInputError("A Tag's description must be text.");
+  if (typeof input !== "string")
+    throw new InvalidInputError({ key: "error.organizeReview.invalid" });
   const description = input.trim();
   if (description.length > TAG_DESCRIPTION_MAX)
     throw new InvalidInputError({
@@ -272,64 +273,64 @@ function parseTagDescription(input: unknown): string {
 }
 
 function parseTarget(input: unknown): OrganizeReviewTarget {
-  if (!isRecord(input)) throw new InvalidInputError("Choose where to move it.");
-  if (input.kind === "folder")
-    return { kind: "folder", folderId: parseId(input.folderId, "A Folder") };
+  if (!isRecord(input)) throw new InvalidInputError({ key: "error.organizeReview.invalid" });
+  if (input.kind === "folder") return { kind: "folder", folderId: parseId(input.folderId) };
   if (input.kind === "newFolder")
-    return { kind: "newFolder", newFolderId: parseId(input.newFolderId, "A new Folder") };
+    return { kind: "newFolder", newFolderId: parseId(input.newFolderId) };
   if (input.kind === "leftOut") return { kind: "leftOut" };
-  throw new InvalidInputError("Choose where to move it.");
+  throw new InvalidInputError({ key: "error.organizeReview.invalid" });
 }
 
 function parseEdit(input: unknown): OrganizeReviewEdit {
-  if (!isRecord(input)) throw new InvalidInputError("An edit to the suggestions is an object.");
+  if (!isRecord(input)) throw new InvalidInputError({ key: "error.organizeReview.invalid" });
   switch (input.kind) {
     case "tick":
       if (typeof input.ticked !== "boolean")
-        throw new InvalidInputError("ticked must be true or false.");
-      return { kind: "tick", itemIds: parseIds(input.itemIds, "itemIds"), ticked: input.ticked };
+        throw new InvalidInputError({ key: "error.organizeReview.invalid" });
+      return { kind: "tick", itemIds: parseIds(input.itemIds), ticked: input.ticked };
     case "move":
       return {
         kind: "move",
-        itemIds: parseIds(input.itemIds, "itemIds"),
+        itemIds: parseIds(input.itemIds),
         to: parseTarget(input.to),
       };
     case "addTag": {
       const { tag } = input;
-      if (!isRecord(tag)) throw new InvalidInputError("Name the Tag to add.");
+      if (!isRecord(tag)) throw new InvalidInputError({ key: "error.organizeReview.invalid" });
       return {
         kind: "addTag",
-        itemId: parseId(input.itemId, "itemId"),
+        itemId: parseId(input.itemId),
         tag:
           tag.tagId !== undefined
-            ? { tagId: parseId(tag.tagId, "A Tag") }
+            ? { tagId: parseId(tag.tagId) }
             : { name: parseTagName(tag.name), description: parseTagDescription(tag.description) },
       };
     }
     case "removeTag":
       return {
         kind: "removeTag",
-        itemId: parseId(input.itemId, "itemId"),
-        tagRowId: parseId(input.tagRowId, "tagRowId"),
+        itemId: parseId(input.itemId),
+        tagRowId: parseId(input.tagRowId),
       };
     case "renameFolder":
       return {
         kind: "renameFolder",
-        newFolderId: parseId(input.newFolderId, "newFolderId"),
+        newFolderId: parseId(input.newFolderId),
         name: parseFolderName(input.name),
       };
     case "mergeFolder": {
       const into = parseTarget(input.into);
-      if (into.kind === "leftOut") throw new InvalidInputError("Merge it into a Folder.");
-      return { kind: "mergeFolder", newFolderId: parseId(input.newFolderId, "newFolderId"), into };
+      if (into.kind === "leftOut")
+        throw new InvalidInputError({ key: "error.organizeReview.invalid" });
+      return { kind: "mergeFolder", newFolderId: parseId(input.newFolderId), into };
     }
     default:
-      throw new InvalidInputError("Unknown edit to the suggestions.");
+      throw new InvalidInputError({ key: "error.organizeReview.invalid" });
   }
 }
 
 function parseRows(input: unknown): OrganizeReviewRow[] {
-  const invalid = new InvalidInputError("Rows of the suggestions, as a change returned them.");
+  const invalid = new InvalidInputError({ key: "error.organizeReview.invalid" });
   if (!Array.isArray(input)) throw invalid;
   return input.map((each): OrganizeReviewRow => {
     if (!isRecord(each) || typeof each.id !== "string" || !isRecord(each.values)) throw invalid;
@@ -454,6 +455,30 @@ export function createOrganizeReviewStore(db: Database, now: () => string) {
                       AND i.state = 'open' AND i.deleted_at IS NULL))
        ORDER BY f.created_at, f.rowid`,
     );
+  /**
+   * The proposed Folders a run may choose: one with a row waiting in it, or one proposed and not
+   * used yet. One whose rows were all discarded or confirmed isn't offered again.
+   */
+  const offeredFolders = () => {
+    const live = liveGroups();
+    return db
+      .all<FolderRow>(
+        `SELECT f.* FROM organize_review_folders f WHERE f.deleted_at IS NULL AND (
+           EXISTS (SELECT 1 FROM organize_review_items i
+                   WHERE i.folder_id = f.id AND i.placement = 'newFolder'
+                     AND i.state = 'open' AND i.deleted_at IS NULL)
+           OR NOT EXISTS (SELECT 1 FROM organize_review_items i
+                          WHERE i.folder_id = f.id AND i.deleted_at IS NULL))
+         ORDER BY f.created_at, f.rowid`,
+      )
+      .filter((folder) => !live.some((group) => sameName(group.name, folder.name)));
+  };
+  const folderOf = (folder: FolderRow): OrganizeReviewFolder => ({
+    id: folder.id,
+    name: folder.name,
+    description: folder.description,
+    parentId: folder.parent_id && liveGroup(folder.parent_id) ? folder.parent_id : null,
+  });
   const openFolder = (id: string) => {
     const folder = openFolders().find((each) => each.id === id);
     if (!folder) throw new NotFoundError({ key: "error.folder.notFound" });
@@ -566,16 +591,19 @@ export function createOrganizeReviewStore(db: Database, now: () => string) {
     | StoredPlacement
     | { newFolder: { name: string; description: string; parentId: string | null } } => {
     if (placement.kind === "unchanged") return UNCHANGED;
-    if (placement.kind === "leftOut")
-      return {
-        ...UNCHANGED,
-        placement: "leftOut",
-        ...leftOutColumns(parseLeftOut(placement.leftOut)),
-      };
     const assignment = db.get<{ group_id: string | null; source: string }>(
       "SELECT group_id, source FROM document_groups WHERE document_id = ? AND deleted_at IS NULL",
       [documentId],
     );
+    // Left out says where a Document in no Folder stays; one in a Folder stays there unsaid.
+    if (placement.kind === "leftOut")
+      return assignment?.group_id
+        ? UNCHANGED
+        : {
+            ...UNCHANGED,
+            placement: "leftOut",
+            ...leftOutColumns(parseLeftOut(placement.leftOut)),
+          };
     // The User's own filing stands, but for a run the User started on the Folder it is in.
     if (
       assignment?.source === "user" &&
@@ -735,6 +763,55 @@ export function createOrganizeReviewStore(db: Database, now: () => string) {
 
     count: () => organizeReviewCount(db),
 
+    offeredFolders: () => offeredFolders().map(folderOf),
+
+    /**
+     * Keeps these Folders, proposed by name, for runs to choose and the User to confirm: none is
+     * made. A live Folder's name, or one already proposed, isn't proposed again.
+     */
+    proposeFolders(
+      folders: readonly { name: string; description: string; parentId?: string | null }[],
+    ): OrganizeReviewFolder[] {
+      return db.transaction(() => {
+        const ids: string[] = [];
+        for (const folder of folders) {
+          const name = parseFolderName(folder.name);
+          if (liveGroups().some((group) => sameName(group.name, name))) continue;
+          const id = proposedFolder({
+            name,
+            description: parseFolderDescription(folder.description),
+            parentId: folder.parentId && liveGroup(folder.parentId) ? folder.parentId : null,
+          });
+          if (!ids.includes(id)) ids.push(id);
+        }
+        return ids.flatMap((id) => {
+          const row = folderRow(id);
+          return row ? [folderOf(row)] : [];
+        });
+      });
+    },
+
+    /**
+     * Takes a run's rows out, but those the User edited, and the Folders it proposed that nothing
+     * waits in any more: the assistant's Undo. Restoring the change puts them back.
+     */
+    withdraw(runId: string | null, folderIds: readonly string[]): OrganizeReviewChange {
+      return change(() => {
+        for (const item of db.all<ItemRow>(
+          `SELECT * FROM organize_review_items WHERE run_id = ? AND edited = 0 AND ${OPEN}`,
+          [runId],
+        ))
+          dropItem(item);
+        for (const id of folderIds) {
+          const waits = db.get(
+            `SELECT 1 FROM organize_review_items WHERE folder_id = ? AND placement = 'newFolder' AND ${OPEN}`,
+            [id],
+          );
+          if (!waits && folderRow(id)) remove("folders", id);
+        }
+      });
+    },
+
     /**
      * Writes what an Organize run proposes for each Document, by the rules the User's choices
      * set (#1569). Returns how many rows it wrote.
@@ -756,8 +833,8 @@ export function createOrganizeReviewStore(db: Database, now: () => string) {
                   folder_id: proposedFolder(resolved.newFolder),
                 }
               : resolved;
-          if (placement.placement === "unchanged" && tags.length === 0) continue;
           if (existing) dropItem(existing);
+          if (placement.placement === "unchanged" && tags.length === 0) continue;
           const id = insertItem(run, proposal.documentId, proposal.contentHash, placement);
           addTags(id, tags);
           written++;
@@ -838,14 +915,7 @@ export function createOrganizeReviewStore(db: Database, now: () => string) {
       );
       const folders = openFolders()
         .filter((folder) => folderIds.has(folder.id))
-        .map(
-          (folder): OrganizeReviewFolder => ({
-            id: folder.id,
-            name: folder.name,
-            description: folder.description,
-            parentId: folder.parent_id && liveGroup(folder.parent_id) ? folder.parent_id : null,
-          }),
-        );
+        .map(folderOf);
       return { items, folders, count: organizeReviewCount(db) };
     },
 
@@ -955,7 +1025,7 @@ export function createOrganizeReviewStore(db: Database, now: () => string) {
             if (into.kind === "folder" && !liveGroup(into.folderId))
               throw new NotFoundError({ key: "error.folder.notFound" });
             if (into.kind === "newFolder" && openFolder(into.newFolderId).id === folder.id)
-              throw new InvalidInputError("A Folder can't be merged into itself.");
+              throw new InvalidInputError({ key: "error.organizeReview.mergeIntoItself" });
             for (const item of db.all<{ id: string }>(
               `SELECT id FROM organize_review_items WHERE folder_id = ? AND placement = 'newFolder' AND ${OPEN}`,
               [folder.id],
@@ -985,7 +1055,7 @@ export function createOrganizeReviewStore(db: Database, now: () => string) {
         before.length !== after.length ||
         before.some((row, at) => row.table !== after[at]?.table || row.id !== after[at]?.id)
       )
-        throw new InvalidInputError("Restore the rows a change returned, before and after.");
+        throw new InvalidInputError({ key: "error.organizeReview.invalid" });
       const fits = (row: OrganizeReviewRow) => {
         const values = read(row.table, row.id);
         return values !== undefined && sameValues(values, row.values);
@@ -1017,7 +1087,7 @@ export function createOrganizeReviewStore(db: Database, now: () => string) {
 
     /** Sets these open rows aside with one id, which `restoreDiscarded` brings back. Null when none was open. */
     discard(itemIdsInput: unknown): string | null {
-      const ids = parseIds(itemIdsInput, "itemIds");
+      const ids = parseIds(itemIdsInput);
       return db.transaction(() => {
         const id = crypto.randomUUID();
         let any = false;
@@ -1032,7 +1102,7 @@ export function createOrganizeReviewStore(db: Database, now: () => string) {
 
     /** Brings back what a Discard set aside, but for a Document a later run proposed for since. */
     restoreDiscarded(discardId: unknown): void {
-      const id = parseId(discardId, "A Discard");
+      const id = parseId(discardId);
       db.transaction(() => {
         for (const item of db.all<ItemRow>(
           "SELECT * FROM organize_review_items WHERE discard_id = ? AND state = 'discarded' AND deleted_at IS NULL",

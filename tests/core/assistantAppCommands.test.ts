@@ -160,6 +160,27 @@ const approvals = (core: Core, response: "allow-once" | "deny") => {
   return asked;
 };
 
+/** The Documents Organize proposes for the Folder of this name, made or not, waiting in Suggestions (#1569). */
+async function proposedInto(core: Core, name: string): Promise<string[]> {
+  const [review, library] = await Promise.all([core.getOrganizeReview(), core.getLibrary()]);
+  const names = new Map([
+    ...library.groups.map((group) => [group.id, group.name] as const),
+    ...review.folders.map((folder) => [folder.id, folder.name] as const),
+  ]);
+  return review.items
+    .filter(({ placement }) => {
+      const id =
+        placement.kind === "folder"
+          ? placement.folderId
+          : placement.kind === "newFolder"
+            ? placement.newFolderId
+            : null;
+      return id !== null && names.get(id) === name;
+    })
+    .map((item) => item.documentId)
+    .sort();
+}
+
 const runOf = (answer: ConversationAnswer): string => {
   const ran = commandCalls(answer).find((call) => call.command)?.command?.run;
   if (!ran) throw new Error("No command ran.");
@@ -415,8 +436,8 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
     expect((await core.listTags()).map((tag) => tag.name)).not.toContain("Decks");
   });
 
-  // protects="re organise the files" runs Organize in the turn, files the Documents at once, and one Undo puts them back (#2252, ADR-0013's 2026-11-03 amendment); fails_when=it leaves suggestions, files nothing, or asks the User to confirm a small Organize; no_claim=which Folder the classifier picks.
-  test("Organize files the Documents at once, and one Undo puts them back", async () => {
+  // protects="re organise the files" runs Organize in the turn and proposes, moving nothing and making no Folder; its reply names the proposals and the Review count, and one Undo takes them back out (#2252, #1569); fails_when=it files a Document, makes a Folder, asks the User about a small Organize, or Undo leaves a proposal; no_claim=which Folder the classifier picks.
+  test("Organize proposes Folders and moves nothing, and one Undo takes the proposals back", async () => {
     let classified = 0;
     const answers = scriptedModel(
       (call) => {
@@ -472,32 +493,33 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
       ...FROM_WINDOW,
     });
 
-    // A small Organize asks nothing: the request is the acceptance, and it runs at once.
+    // Proposing moves nothing, so even this asks nothing: the request runs at once.
     expect(requests).toHaveLength(0);
 
-    const leases = (await core.getLibrary()).groups.find((each) => each.name === "Leases");
-    expect(leases?.description).toBe("Lease papers: tenancies and rent");
+    // The Folder it names waits with the Documents, made only at the User's Confirm.
+    expect((await core.getLibrary()).groups.map((each) => each.name)).not.toContain("Leases");
+    expect(
+      (await core.getOrganizeReview()).folders.find((each) => each.name === "Leases")?.description,
+    ).toBe("Lease papers: tenancies and rent");
+    expect((await core.getLibrary()).assignments.filter((each) => each.groupId !== null)).toEqual(
+      [],
+    );
     const aboutRent = documents
       .filter((each) => !each.name.startsWith("Q3"))
       .map((each) => each.id)
       .sort();
-    const filed = async () =>
-      (await core.getLibrary()).assignments
-        .filter((each) => each.groupId === leases?.id)
-        .map((each) => ({ id: each.documentId, suggested: each.suggested, source: each.source }))
-        .sort((a, b) => a.id.localeCompare(b.id));
-    expect(await filed()).toEqual(
-      aboutRent.map((id) => ({ id, suggested: false, source: "user" })),
-    );
-    // The reply names what moved, and no Document the run left where it was.
-    expect(answer.text).toContain("Organize filed 3 Documents");
-    // The record counts every Document it read, so a reply's "3 of the 4" adds up.
+    expect(await proposedInto(core, "Leases")).toEqual(aboutRent);
+    // The reply names what it proposes, and no Document the run left where it was.
+    expect(answer.text).toContain("Organize proposed Folders for 3 Documents");
+    // The record counts every Document it read, so a reply's "3 of the 4" adds up, and how many
+    // wait, for its Review button.
     expect(commandCalls(answer).at(-1)?.command?.considered).toBe(4);
+    expect(commandCalls(answer).at(-1)?.command?.review).toEqual({ count: 3 });
     expect(answer.text).toContain("Leases");
     expect(answer.text).not.toContain("Q3 commentary");
     // The reply already names the Folder, so the app doesn't say it a second time; what the reply
     // leaves out, the couldn't-be-sorted count, the app still says.
-    expect(answer.text).not.toContain("Sorted 3 Documents");
+    expect(answer.text).not.toContain("Proposed Folders for 3 Documents");
     expect(answer.text).toContain("1 Document couldn’t be sorted.");
 
     // Undo takes back the Tags Organize added, and Redo adds them again.
@@ -508,31 +530,20 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
     const classifications = classified;
     await core.undoCommands(runOf(answer));
     expect((await Promise.all(aboutRent.map(tagsOf))).every((count) => count === 0)).toBe(true);
-    const after = await core.getLibrary();
-    expect(after.groups.map((each) => each.name)).not.toContain("Leases");
-    expect(after.assignments.filter((each) => each.groupId !== null)).toEqual([]);
+    expect(await proposedInto(core, "Leases")).toEqual([]);
+    expect((await core.getOrganizeReview()).folders).toEqual([]);
 
-    // Redo files the Folders it recorded, without asking the model again.
+    // Redo puts the proposals back as they were, without asking the model again.
     await core.redoCommands(runOf(answer));
     expect(classified).toBe(classifications);
-    const again = await core.getLibrary();
-    const remade = again.groups.find((each) => each.name === "Leases");
-    expect(remade).toBeDefined();
-    expect(
-      again.assignments
-        .filter((each) => each.groupId === remade?.id && !each.suggested)
-        .map((each) => each.documentId)
-        .sort(),
-    ).toEqual(aboutRent);
-
+    expect(await proposedInto(core, "Leases")).toEqual(aboutRent);
     expect((await Promise.all(aboutRent.map(tagsOf))).every((count) => count > 0)).toBe(true);
 
-    // Undo again puts them back: Redo's filing is what this Undo compares against.
+    // Undo again takes them out: Redo's proposals are what this Undo compares against.
     await core.undoCommands(runOf(answer));
-    const undoneTwice = await core.getLibrary();
-    expect(undoneTwice.groups.map((each) => each.name)).not.toContain("Leases");
-    expect(undoneTwice.assignments.filter((each) => each.groupId !== null)).toEqual([]);
+    expect(await proposedInto(core, "Leases")).toEqual([]);
     expect((await Promise.all(aboutRent.map(tagsOf))).every((count) => count === 0)).toBe(true);
+    expect((await core.getLibrary()).groups.map((each) => each.name)).not.toContain("Leases");
   });
 
   // protects=Undo leaves the Tags of a Document Organize never touched (#2252); fails_when=the other Document loses its Tag; no_claim=which Folder the classifier picks.
@@ -587,7 +598,7 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
     expect(after?.tags.some((each) => each.tagId === budget.id)).toBe(true);
   });
 
-  // protects=a Tag added while the Organize card waits stays after Undo, while the Tags the run added go (#2252); fails_when=the waiting Tag is removed or an automatic one stays; no_claim=which Folder the classifier picks.
+  // protects=a Tag added while the Organize card waits, for the first cloud read, stays after Undo, while the Tags the run added go (#2252); fails_when=the waiting Tag is removed or an automatic one stays; no_claim=which Folder the classifier picks.
   test("Undo keeps a Tag added while the card waited", async () => {
     const model = scriptedModel(
       (call) => {
@@ -618,17 +629,25 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
         },
       },
     );
-    const { core, mind, documents } = await setUpWithDocuments(model, MANY_DOCUMENTS);
+    const { core, mind, documents } = await setUpWithDocuments(model, DOCUMENTS);
     const lease = documents.find((each) => each.name === "Lease Mill Lane");
     if (!lease) throw new Error("No lease.");
     const late = await core.createTag({ name: "Late" });
-    const provider = (await core.listChatProviders())[0];
-    if (!provider) throw new Error("No provider.");
+    const provider = await core.saveChatProvider({
+      kind: "openai",
+      apiKey: "test-key",
+      modelId: "small",
+    });
     const settings = (await core.getLibrary()).settings;
     await core.saveLibrarySettings({
-      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "local-model" } },
+      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "small" } },
       automatic: settings.automatic,
     });
+    const classification = (await core.listDataFlows()).find(
+      (each) => each.flow.id === "classification",
+    );
+    if (!classification) throw new Error("No classification flow.");
+    await core.revokeConsent("classification", classification.flow.service.id);
     core.on("approval.requested", (request) => {
       void core
         .addTagToDocuments([lease.id], late.id)
@@ -1325,10 +1344,7 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
     });
 
     expect(requests).toHaveLength(0);
-    const leases = (await core.getLibrary()).groups.find((each) => each.name === "Leases");
-    expect(
-      (await core.getLibrary()).assignments.filter((each) => each.groupId === leases?.id),
-    ).toHaveLength(4);
+    expect(await proposedInto(core, "Leases")).toHaveLength(4);
   });
 
   // protects=the first cloud read of the Documents asks on the Organize card, naming the service, and the Allow is that consent (#2252, ADR-0022); fails_when=it runs without asking; no_claim=which Folder the classifier picks.
@@ -1388,10 +1404,7 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
     });
     const after = (await core.listDataFlows()).find((each) => each.flow.id === "classification");
     expect(after?.consent).toBe("accepted");
-    const leases = (await core.getLibrary()).groups.find((each) => each.name === "Leases");
-    expect(
-      (await core.getLibrary()).assignments.filter((each) => each.groupId === leases?.id),
-    ).toHaveLength(4);
+    expect(await proposedInto(core, "Leases")).toHaveLength(4);
   });
 
   // protects=a declined classification makes the Organize card send this time only: the run sorts and files, Undo and Redo restore them, the no and the automatic switch stay, background work still sends nothing, and the next request asks again (#2252, ADR-0022); fails_when=Allow stores accepted, turns the switch on, files nothing, or lets background sorting send; no_claim=which Folder the classifier picks.
@@ -1488,19 +1501,15 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
       (await core.listDataFlows()).find((each) => each.flow.id === "classification")?.consent;
     expect(await consent()).toBe("declined");
     expect((await core.getLibrary()).settings.automatic).toBe(automatic);
-    // The permit carried from Allow reaches the classifier: the run sorts and files all four.
+    // The permit carried from Allow reaches the classifier: the run sorts all four, and proposes.
     expect(classified - classifiedBefore).toBe(4);
-    const leasesOf = async () =>
-      (await core.getLibrary()).groups.find((each) => each.name === "Leases");
-    const leases = await leasesOf();
-    expect(leases).toBeDefined();
-    const filedIn = async () =>
-      (await core.getLibrary()).assignments.filter((each) => each.groupId === leases?.id).length;
+    expect((await core.getLibrary()).groups.map((each) => each.name)).not.toContain("Leases");
+    const filedIn = async () => (await proposedInto(core, "Leases")).length;
     expect(await filedIn()).toBe(4);
-    // One Undo takes the run back, and Redo files them again, with the decline still stored.
+    // One Undo takes the proposals back, and Redo puts them back, with the decline still stored.
     const run = runOf(answer);
     await core.undoCommands(run);
-    expect(await leasesOf()).toBeUndefined();
+    expect(await filedIn()).toBe(0);
     expect((await core.getLibrary()).assignments.filter((each) => each.groupId !== null)).toEqual(
       [],
     );
@@ -1643,8 +1652,8 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
     expect(consents).toContainEqual([anthropic.service.id, "declined"]);
   });
 
-  // protects=Organize above 20 Documents asks on its card, and files them when allowed (#2252, ADR-0013); fails_when=it runs without asking or files before the allow; no_claim=which Folder the classifier picks.
-  test("Organize above 20 Documents asks, then files them", async () => {
+  // protects=Organize above 20 Documents asks nothing, since it moves nothing, and proposes them all (#1569, ADR-0013); fails_when=it asks, files a Document or makes a Folder; no_claim=which Folder the classifier picks.
+  test("Organize above 20 Documents asks nothing, and proposes them", async () => {
     const answers = scriptedModel(
       (call) => {
         const ran = call.results.filter((each) => each.tool === "run_command");
@@ -1684,22 +1693,13 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
       ...FROM_WINDOW,
     });
 
-    expect(requests).toHaveLength(1);
-    expect(requests[0] && "ask" in requests[0] ? requests[0].ask : null).toMatchObject({
-      kind: "change",
-      reason: "organize",
-      count: 21,
-      into: "Leases",
-    });
-    const leases = (await core.getLibrary()).groups.find((each) => each.name === "Leases");
-    expect(leases).toBeDefined();
-    expect(
-      (await core.getLibrary()).assignments.filter((each) => each.groupId === leases?.id),
-    ).toHaveLength(21);
+    expect(requests).toHaveLength(0);
+    expect((await core.getLibrary()).groups.map((each) => each.name)).not.toContain("Leases");
+    expect(await proposedInto(core, "Leases")).toHaveLength(21);
   });
 
-  // protects=Organize above 20 that the User doesn't allow moves nothing (#2252); fails_when=a Document is filed or a Folder made; no_claim=the card's words.
-  test("Organize above 20 not allowed moves nothing", async () => {
+  // protects=Organize above 20 shows no card a User could answer, and moves nothing (#1569); fails_when=a card asks, a Document is filed or a Folder made; no_claim=which Folder the classifier picks.
+  test("Organize above 20 shows no card and moves nothing", async () => {
     const model = calling(
       run("documents.organize", { folder: "Leases", about: "Rent papers" }, false),
     );
@@ -1712,16 +1712,16 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
       ...FROM_WINDOW,
     });
 
-    expect(requests).toHaveLength(1);
+    expect(requests).toHaveLength(0);
     expect((await core.getLibrary()).groups.map((each) => each.name)).not.toContain("Leases");
     expect((await core.getLibrary()).assignments.filter((each) => each.groupId !== null)).toEqual(
       [],
     );
-    expect(commandCalls(answer).at(-1)?.approval).toBe("denied");
+    expect(commandCalls(answer).at(-1)?.approval).not.toBe("denied");
   });
 
-  // protects="把讲租金的文档归到一起" does the same in Chinese: the Documents filed at once, one Undo back; fails_when=it leaves suggestions, asks for a small Organize, or Undo leaves them filed; no_claim=the Folder's name.
-  test("Organize files the Documents at once in Chinese too", async () => {
+  // protects="把讲租金的文档归到一起" does the same in Chinese: proposals, nothing moved, one Undo takes them back; fails_when=it files a Document, asks for a small Organize, or Undo leaves a proposal; no_claim=the Folder's name.
+  test("Organize proposes in Chinese too", async () => {
     const answers = scriptedModel(
       (call) => {
         const ran = call.results.filter((each) => each.tool === "run_command");
@@ -1775,22 +1775,20 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
     });
 
     expect(requests).toHaveLength(0);
-    const leases = (await core.getLibrary()).groups.find((each) => each.name === "租赁");
     const aboutRent = documents
       .filter((each) => !each.name.startsWith("Q3"))
       .map((each) => each.id)
       .sort();
-    expect(
-      (await core.getLibrary()).assignments
-        .filter((each) => each.groupId === leases?.id && !each.suggested)
-        .map((each) => each.documentId)
-        .sort(),
-    ).toEqual(aboutRent);
+    expect(await proposedInto(core, "租赁")).toEqual(aboutRent);
+    expect((await core.getLibrary()).assignments.filter((each) => each.groupId !== null)).toEqual(
+      [],
+    );
     expect(answer.text).toContain("租赁");
-    expect(answer.text).not.toContain("已整理 3 个文档");
+    expect(answer.text).not.toContain("已为 3 个文档建议文件夹");
     expect(answer.text).toContain("1 个文档未能整理。");
 
     await core.undoCommands(runOf(answer));
+    expect(await proposedInto(core, "租赁")).toEqual([]);
     expect((await core.getLibrary()).groups.map((each) => each.name)).not.toContain("租赁");
   });
 
@@ -1849,11 +1847,7 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
         (call) => call.input?.command === "documents.organize" && call.status === "done",
       ),
     ).toBe(true);
-    expect(
-      (await core.getLibrary()).assignments.some(
-        (each) => each.groupId !== null && !each.suggested,
-      ),
-    ).toBe(true);
+    expect((await proposedInto(core, "Leases")).length).toBeGreaterThan(0);
   });
 
   // protects=Organize with no Document in no Folder says so and makes no Folder, named or not (#2252); fails_when=a Folder is made or left in Recently deleted; no_claim=the card's words.
@@ -2045,11 +2039,8 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
       expect(
         assignments.filter((each) => each.status === "pending" || each.status === "classifying"),
       ).toEqual([]);
-      expect(
-        assignments
-          .filter((each) => each.groupId !== null && !each.suggested)
-          .map((each) => each.documentId),
-      ).toEqual([first]);
+      expect(assignments.filter((each) => each.groupId !== null)).toEqual([]);
+      expect(await proposedInto(core, "Leases")).toEqual([first]);
     });
   });
 
@@ -2260,7 +2251,7 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
       ...FROM_WINDOW,
     });
 
-    expect(answer.text).toContain("Sorted 3 Documents: 3 → Leases.");
+    expect(answer.text).toContain("Proposed Folders for 3 Documents: 3 → Leases.");
     expect(answer.text).toContain("1 Document couldn’t be sorted.");
     expect(answer.text).not.toContain("Organize filed");
   });
@@ -2392,7 +2383,7 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
     });
 
     expect(answer.text).toContain(reply);
-    expect(answer.text).toContain(`Sorted 3 Documents: 3 → ${folder}.`);
+    expect(answer.text).toContain(`Proposed Folders for 3 Documents: 3 → ${folder}.`);
     expect(answer.text).toContain("1 Document couldn’t be sorted.");
   });
 
@@ -2444,7 +2435,7 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
       ...FROM_WINDOW,
     });
 
-    const summary = translate("en", "library.review.summary", {
+    const summary = translate("en", "answer.commands.proposed", {
       count: 4,
       parts: translate("en", "library.review.part", { count: 4, folder }),
     });

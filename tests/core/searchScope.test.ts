@@ -13,6 +13,7 @@ import {
 } from "../helpers/citations";
 import { startCore } from "../helpers/core";
 import { createSourceFolder, linkAndProcess, writeSourceFile } from "../helpers/documents";
+import { proposedFor } from "../helpers/library";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
 import {
   answerIn,
@@ -188,7 +189,7 @@ describe("Resolving a Search scope", { timeout: 30_000 }, () => {
     expect(searches).toHaveLength(before);
   });
 
-  test("a Suggested Folder counts in its Folder's scope until it is rejected", async () => {
+  test("a Document proposed for a Folder joins its scope only once the User confirms it (#1569)", async () => {
     let suggested = "";
     const { core, client, mind, searches, id } = await setUpLibrary(
       searchingModel(() => ({ text: JSON.stringify({ groupId: suggested, tags: [] }) })),
@@ -204,17 +205,14 @@ describe("Resolving a Search scope", { timeout: 30_000 }, () => {
       automatic: false,
     });
     await core.classifyDocuments([id("Moon")]);
-    await vi.waitFor(async () =>
-      expect((await core.getLibrary()).assignments).toEqual([
-        expect.objectContaining({ groupId: folder.id, suggested: true, status: "classified" }),
-      ]),
-    );
+    await vi.waitFor(async () => expect(await proposedFor(core, id("Moon"))).toBe(folder.id));
 
     await askScoped(core, client, mind.id, { folderIds: [folder.id] });
-    expect(searches).toEqual([["Moon"]]);
-    await core.rejectAssignments([id("Moon")]);
+    expect(searches).toEqual([]);
+    const { items } = await core.getOrganizeReview();
+    await core.confirmOrganizeReview(items.map((item) => item.id));
     await askScoped(core, client, mind.id, { folderIds: [folder.id] });
-    expect(searches).toHaveLength(1);
+    expect(searches).toEqual([["Moon"]]);
   });
 
   test("a Folder covers its Documents and those of its sub-Folders, at any depth", async () => {

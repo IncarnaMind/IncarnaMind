@@ -32,7 +32,7 @@ import {
   turnOnEmbeddings,
 } from "../helpers/embedding";
 import { mockEmbeddingModels } from "../helpers/embeddingProviders";
-import { classifierModel } from "../helpers/library";
+import { classifierModel, proposedFor } from "../helpers/library";
 
 const PLANTS = `Photosynthesis converts light energy into chemical energy stored in glucose.
 
@@ -343,7 +343,8 @@ describe("Turning embeddings on leaves every Document's Organize state as it was
       const assignment = (await core.getLibrary()).assignments.find(
         (each) => each.documentId === id,
       );
-      expect(assignment).toMatchObject({ groupId: group.id, status: "classified" });
+      expect(assignment).toMatchObject({ groupId: null, status: "classified" });
+      expect(await proposedFor(core, id)).toBe(group.id);
       return assignment;
     });
     if (!before) throw new Error("No assignment.");
@@ -389,12 +390,12 @@ describe("Turning embeddings on leaves every Document's Organize state as it was
     );
     expect(await organizeStateOf(core, id)).toBe("library.notClassified");
 
-    // Retried from the failed status, it is embedded and filed as main files it.
+    // Retried from the failed status, it is embedded and proposed for the Folder, as main does.
     await core.retryDocument(id);
-    await vi.waitFor(async () => expect(await organizeStateOf(core, id)).toBe("library.suggested"));
+    await vi.waitFor(async () => expect(await proposedFor(core, id)).toBe(group.id));
     expect(
       (await core.getLibrary()).assignments.find((each) => each.documentId === id),
-    ).toMatchObject({ groupId: group.id, status: "classified", suggested: true });
+    ).toMatchObject({ groupId: null, status: "classified", suggested: false });
   });
 });
 

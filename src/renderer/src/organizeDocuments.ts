@@ -1,9 +1,9 @@
 import { create } from "zustand";
-import type { DocumentGroupAssignment, LibraryGroup } from "../../core/api";
+import type { DocumentGroupAssignment, OrganizeReviewFolder } from "../../core/api";
 import { organizeModelOf } from "../../shared/libraryModels";
 import { core } from "./core";
 import { useNotices } from "./notices";
-import { removeEmpty, sayWhenOrganized, useOrganizeAsk } from "./organizeRun";
+import { sayWhenOrganized, useOrganizeAsk } from "./organizeRun";
 import { type AppState, allExamples, isOwnDocument, useAppStore } from "./store";
 
 /** Whether Organize is reading the Documents to propose Folders, before it sorts them. */
@@ -54,7 +54,7 @@ export async function organizeDocuments(
         .filter((item) => ids.includes(item.documentId))
         .map((item) => [item.documentId, item]),
     );
-  let made: LibraryGroup[] = [];
+  let proposed: readonly OrganizeReviewFolder[] = [];
   if (library.groups.length === 0) {
     if (model.kind !== "chat") {
       app.openLibrary("starters");
@@ -66,7 +66,7 @@ export async function organizeDocuments(
     }
     useProposing.setState({ proposing: true });
     try {
-      made = await core.proposeFolders(
+      proposed = await core.proposeFolders(
         [...ids],
         forService === undefined ? undefined : { forService },
       );
@@ -74,23 +74,13 @@ export async function organizeDocuments(
       useProposing.setState({ proposing: false });
     }
     await app.refreshLibrary();
-    if (made.length === 0) {
+    if (proposed.length === 0) {
       useNotices.getState().confirm("library.organize.noneFit");
       return;
     }
   }
-  try {
-    await core.classifyDocuments([...ids], forService === undefined ? undefined : { forService });
-    await app.refreshLibrary();
-  } catch (error) {
-    // Nothing would offer to take back the Folders made for a run that never started. The run's
-    // own failure is what the User is told; one in taking them back is only logged.
-    if (made.length > 0) {
-      await removeEmpty(made).catch((cleanup: unknown) =>
-        console.error("The Folders Organize made couldn't be taken back.", cleanup),
-      );
-    }
-    throw error;
-  }
-  sayWhenOrganized(ids, before, made);
+  // Proposed Folders are made only when the User confirms them, so nothing is taken back here.
+  await core.classifyDocuments([...ids], forService === undefined ? undefined : { forService });
+  await app.refreshLibrary();
+  sayWhenOrganized(ids, before);
 }

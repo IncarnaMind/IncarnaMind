@@ -588,6 +588,31 @@ describe("Confirm makes it the User's, in one step with one Undo", () => {
     expect(redone.reviewCount).toBe(0);
   });
 
+  test("a left-out row's Tags wait: Confirm adds those of the rows it files, and none of a left-out one", async () => {
+    const setup = await setUp();
+    const { core, dataDir, clock, lease, minutes, contracts, invoiceTag } = setup;
+    propose(dataDir, clock, { origin: "library" }, [
+      {
+        documentId: lease.id,
+        contentHash: lease.contentHash,
+        placement: { kind: "folder", folderId: contracts.id },
+        tags: [{ tagId: invoiceTag.id }],
+      },
+      {
+        documentId: minutes.id,
+        contentHash: minutes.contentHash,
+        placement: { kind: "leftOut", leftOut: { reason: "doesntFit" } },
+        tags: [{ tagId: invoiceTag.id }],
+      },
+    ]);
+
+    await core.confirmOrganizeReview((await core.getOrganizeReview()).items.map((item) => item.id));
+
+    expect(await tagsOn(core, lease.id)).toEqual([{ name: "Invoice", source: "user" }]);
+    expect(await tagsOn(core, minutes.id)).toEqual([]);
+    expect((await assignmentOf(core, minutes.id))?.groupId ?? null).toBeNull();
+  });
+
   test("an unticked row closes with nothing done, and a row added since keeps waiting", async () => {
     const setup = await setUp();
     const { core, dataDir, clock, lease, invoice, minutes } = setup;

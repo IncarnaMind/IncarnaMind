@@ -2744,6 +2744,42 @@ export const migrations: readonly Migration[] = [
       ) STRICT;
     `,
   },
+  {
+    version: 135,
+    description:
+      "A Document waiting in a Suggested Folder waits in Suggestions instead, in no Folder until the User confirms it (#1569)",
+    sql: `
+      -- A deleted Document's row waits with it, and shows again if it is restored. A deleted
+      -- Folder's suggestions are kept by its deletion and join Suggestions when it is restored.
+      INSERT INTO organize_review_items
+        (id, document_id, placement, group_id, ticked, origin, edited, content_hash, state,
+         created_at, updated_at)
+        SELECT ${UUID_V4_SQL}, g.document_id, 'folder', g.group_id, 1, 'migrated', 0,
+          d.content_hash, 'open',
+          strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        FROM document_groups g
+        JOIN library_groups f ON f.id = g.group_id AND f.deleted_at IS NULL
+        JOIN documents d ON d.id = g.document_id
+        WHERE g.deleted_at IS NULL AND g.suggested = 1
+          AND NOT EXISTS (
+            SELECT 1 FROM organize_review_items i
+            WHERE i.document_id = g.document_id AND i.state = 'open' AND i.deleted_at IS NULL
+          );
+      -- How many moved, for the Library's one line the first time (device-local, never synced).
+      INSERT INTO device_settings (id, key, value, created_at, updated_at)
+        SELECT ${UUID_V4_SQL}, 'organizeReviewMovedNotice', json(moved.count),
+          strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        FROM (
+          SELECT count(*) AS count FROM organize_review_items i
+          JOIN documents d ON d.id = i.document_id AND d.deleted_at IS NULL
+          WHERE i.origin = 'migrated' AND i.state = 'open' AND i.deleted_at IS NULL
+        ) moved
+        WHERE moved.count > 0;
+      UPDATE document_groups
+        SET group_id = NULL, suggested = 0, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        WHERE deleted_at IS NULL AND suggested = 1;
+    `,
+  },
 ];
 
 /**

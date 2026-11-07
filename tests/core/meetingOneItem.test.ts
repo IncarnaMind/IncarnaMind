@@ -7,7 +7,7 @@ import { citationState } from "../../src/shared/citations";
 import { askAndFinish, citationsIn, citingModel } from "../helpers/citations";
 import { createTempDataFolder } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
-import { classifierModel } from "../helpers/library";
+import { classifierModel, proposedFor } from "../helpers/library";
 import { connectToMind } from "../helpers/mindClient";
 import { note, writeMind } from "../helpers/minds";
 import { scriptedModels } from "../helpers/models";
@@ -205,7 +205,7 @@ describe("A meeting's Transcript is never filed alone", { timeout: 60_000 }, () 
       harbour.id,
     ]);
 
-    // Organize files the User's Documents and leaves the Transcript where its Note is.
+    // Organize proposes a Folder for the User's Documents and leaves the Transcript where its Note is.
     const loose = await addAndProcess(core, [
       await writeSourceFile(await createTempDataFolder(), "pier-survey.txt", "The pier survey."),
     ]);
@@ -215,12 +215,12 @@ describe("A meeting's Transcript is never filed alone", { timeout: 60_000 }, () 
       automatic: true,
     });
     await core.classifyDocuments();
-    await vi.waitFor(async () => {
-      const filed = await filedTranscripts(core, loose[0]?.id ?? "");
-      expect(filed.map((each) => each.groupId)).toEqual([harbour.id]);
-    });
+    await vi.waitFor(async () =>
+      expect(await proposedFor(core, loose[0]?.id ?? "")).toBe(harbour.id),
+    );
     await core.classifyDocuments([document.id]);
     expect(await filedTranscripts(core, document.id)).toEqual([]);
+    expect(await proposedFor(core, document.id)).toBeNull();
   });
 });
 

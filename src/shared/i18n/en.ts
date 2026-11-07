@@ -3940,6 +3940,8 @@ export const en = {
   "answer.wait.usually.minutesShort": "usually about {count} minutes",
   "answer.regenerate": "Regenerate",
   "answer.more": "More for this Answer",
+  "answer.commands.proposed": "Proposed Folders for {count} Documents: {parts}",
+  "answer.commands.proposed.one": "Proposed a Folder for 1 Document: {parts}",
   "answer.commands.unsorted": "{count} Documents couldn’t be sorted.",
   "answer.commands.untouched": "{count} Documents were left as they were.",
   "answer.commands.untouched.one": "1 Document was left as it was.",
@@ -5314,6 +5316,9 @@ export const en = {
     "Use a name of 1–100 characters and a description of at most 500 characters.",
   "error.folder.nameTaken": "A Folder with this name already exists.",
   "error.folder.insideItself": "A Folder can’t go inside itself or one of its sub-Folders.",
+  "error.organizeReview.invalid":
+    "This change to the suggestions couldn’t be read. Open them again and try once more.",
+  "error.organizeReview.mergeIntoItself": "A Folder can’t be merged into itself.",
   "error.folder.limit": "The Library supports up to 100 Folders.",
   "error.mind.notFound": "That note doesn’t exist or has been deleted.",
   "error.layout.units": "That place in a Document counts from 1.",

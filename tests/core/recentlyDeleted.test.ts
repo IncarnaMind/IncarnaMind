@@ -26,7 +26,7 @@ import {
   writeSourceFile,
 } from "../helpers/documents";
 import { createControlledEmbedder, turnOnEmbeddings } from "../helpers/embedding";
-import { classifierModel } from "../helpers/library";
+import { classifierModel, proposedFor } from "../helpers/library";
 import { connectToMind } from "../helpers/mindClient";
 import { note, readMind, writeMind } from "../helpers/minds";
 import { scriptedModel, scriptedModels } from "../helpers/models";
@@ -61,7 +61,7 @@ async function addText(core: Core, name: string, text: string): Promise<Document
   return document;
 }
 
-/** A core whose Organize files each Document in the Folder `fake.choose` names, as a suggestion. */
+/** A core whose Organize proposes for each Document the Folder `fake.choose` names (#1569). */
 async function startOrganizing() {
   const fake = classifierModel();
   const { core, clock } = await start({ createChatModel: () => fake.model });
@@ -72,13 +72,14 @@ async function startOrganizing() {
     classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "classifier" } },
     automatic: false,
   });
-  /** Organizes a Document into `folderId` and returns its assignment, a suggestion. */
+  /** Organizes a Document, which proposes `folderId` for it, and returns its assignment. */
   const suggest = async (documentId: string, folderId: string) => {
     fake.choose(folderId);
     await core.classifyDocuments([documentId]);
     return vi.waitFor(async () => {
       const assignment = await assignmentOf(core, documentId);
-      expect(assignment).toMatchObject({ groupId: folderId, status: "classified" });
+      expect(assignment).toMatchObject({ status: "classified" });
+      expect(await proposedFor(core, documentId)).toBe(folderId);
       return assignment;
     });
   };
@@ -228,14 +229,14 @@ describe("Restoring what was deleted", { timeout: 30_000 }, () => {
     await core.assignDocumentGroup(invoice.id, finance.id);
     fake.choose(research.id);
     await core.classifyDocuments([paper.id]);
-    await vi.waitFor(async () =>
+    await vi.waitFor(async () => {
       expect(await assignmentOf(core, paper.id)).toMatchObject({
-        groupId: research.id,
+        groupId: null,
         source: "automatic",
-        suggested: true,
         status: "classified",
-      }),
-    );
+      });
+      expect(await proposedFor(core, paper.id)).toBe(research.id);
+    });
     const before = (await core.getLibrary()).assignments.toSorted((a, b) =>
       a.documentId.localeCompare(b.documentId),
     );
@@ -256,6 +257,7 @@ describe("Restoring what was deleted", { timeout: 30_000 }, () => {
         .map(withoutTagging),
     ).toEqual(before.map(withoutTagging));
     expect(await assignmentOf(core, tides.id)).toBeUndefined();
+    expect(await proposedFor(core, paper.id)).toBe(research.id);
   });
 
   test("a Document embedded again after a restore isn't claimed by Organize (#1433)", async () => {
@@ -302,13 +304,10 @@ describe("Restoring what was deleted", { timeout: 30_000 }, () => {
 
     clock.advance(1000);
     await core.restore([{ kind: "document", id: invoice.id }]);
-    await vi.waitFor(async () =>
-      expect(await assignmentOf(core, invoice.id)).toMatchObject({
-        groupId: finance.id,
-        suggested: true,
-        status: "classified",
-      }),
-    );
+    await vi.waitFor(async () => {
+      expect(await assignmentOf(core, invoice.id)).toMatchObject({ status: "classified" });
+      expect(await proposedFor(core, invoice.id)).toBe(finance.id);
+    });
   });
 
   test("a Document in a Linked folder comes back, and the next scan keeps it", async () => {
@@ -410,27 +409,28 @@ describe("Restoring what was deleted", { timeout: 30_000 }, () => {
     expect((await core.getLibrary()).assignments).toEqual(before.assignments);
   });
 
-  test("a Folder holding a suggested and a chosen Document gives each back as it was", async () => {
+  test("a Folder holding a chosen Document, and one proposed for it, gives each back as it was", async () => {
     const { core, clock, finance, suggest } = await startOrganizing();
     const invoice = await addText(core, "Invoice.txt", "Invoice for the harbour dues.");
     const budget = await addText(core, "Budget.txt", "The budget for next year.");
     await suggest(invoice.id, finance.id);
     await core.assignDocumentGroup(budget.id, finance.id);
     const before = (await core.getLibrary()).assignments;
-    expect(before.map((each) => [each.documentId, each.source, each.suggested])).toEqual([
-      [invoice.id, "automatic", true],
-      [budget.id, "user", false],
+    expect(before.map((each) => [each.documentId, each.groupId, each.source])).toEqual([
+      [invoice.id, null, "automatic"],
+      [budget.id, finance.id, "user"],
     ]);
+    const review = await core.getOrganizeReview();
 
     clock.advance(1000);
     await core.deleteLibraryGroup(finance.id);
-    expect(await assignmentOf(core, invoice.id)).toMatchObject({ groupId: null, suggested: false });
+    // Its proposal waits while the Folder is gone, and shows again once it is back (#1569).
+    expect((await core.getOrganizeReview()).items).toEqual([]);
     clock.advance(1000);
     await core.restore([{ kind: "folder", id: finance.id }]);
 
     expect((await core.getLibrary()).assignments).toEqual(before);
-    // Still a suggestion: the User can accept it.
-    expect(await core.acceptAssignments([invoice.id])).toHaveLength(1);
+    expect(await core.getOrganizeReview()).toEqual(review);
   });
 
   test("a Tag comes back with its links", async () => {

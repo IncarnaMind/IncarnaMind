@@ -13,9 +13,21 @@ import {
   parseIds,
   type TagsProposal,
 } from "./store";
-import type { OrganizeReview, OrganizeReviewChange, OrganizeReviewConfirmation } from "./types";
+import type {
+  OrganizeReview,
+  OrganizeReviewChange,
+  OrganizeReviewConfirmation,
+  OrganizeReviewFolder,
+} from "./types";
 
 export type { OrganizeReviewProposal, OrganizeReviewRun, TagsProposal } from "./store";
+
+/**
+ * Whether Confirm adds a left-out row's Tags. Left out has no tick to say no with, so its Tags
+ * wait until the User files it (#1569).
+ */
+const LEFT_OUT_TAGS_CONFIRMED = false;
+
 export { createOrganizeReviewStore, organizeReviewCount } from "./store";
 
 /** What a Confirm or its Undo changed in the Library, for the events each change sends once saved. */
@@ -162,7 +174,9 @@ export function createOrganizeReview(options: {
           into.add(groupId);
         }
         const decided = new Set(tags.owned(item.document_id));
-        for (const row of store.tagRowsOf(item.id)) {
+        const tagRows =
+          item.placement === "leftOut" && !LEFT_OUT_TAGS_CONFIRMED ? [] : store.tagRowsOf(item.id);
+        for (const row of tagRows) {
           const tag = tagFor(row);
           if (!tag) continue;
           if (row.added_by_user === 0 && decided.has(tag.tagId)) continue;
@@ -225,6 +239,25 @@ export function createOrganizeReview(options: {
 
     count: () => store.count(),
 
+    /** Internal: the proposed Folders a run may choose (see `OrganizeReviewStore.offeredFolders`). */
+    offeredFolders: (): OrganizeReviewFolder[] => store.offeredFolders(),
+
+    /** Internal: Folders proposed by name, none made (see `OrganizeReviewStore.proposeFolders`). */
+    proposeFolders(
+      folders: readonly { name: string; description: string; parentId?: string | null }[],
+    ): OrganizeReviewFolder[] {
+      const proposed = store.proposeFolders(folders);
+      changed();
+      return proposed;
+    },
+
+    /** Internal: the assistant's Undo of its run (see `OrganizeReviewStore.withdraw`). */
+    withdraw(runId: string | null, folderIds: readonly string[]): OrganizeReviewChange {
+      const change = store.withdraw(runId, folderIds);
+      if (change.after.length > 0) changed();
+      return change;
+    },
+
     get(): OrganizeReview {
       return store.view();
     },
@@ -246,7 +279,7 @@ export function createOrganizeReview(options: {
      * when none of them waits any more.
      */
     confirm(itemIdsInput: unknown): OrganizeReviewConfirmation | null {
-      const ids = parseIds(itemIdsInput, "itemIds");
+      const ids = parseIds(itemIdsInput);
       return finish(
         db.transaction(() => {
           const items = store.visibleOpen(ids);
@@ -268,7 +301,7 @@ export function createOrganizeReview(options: {
      * Tags it made that hold nothing else go to Recently deleted, and its rows wait again.
      */
     undoConfirmation(idInput: unknown): void {
-      const id = parseId(idInput, "A confirmation");
+      const id = parseId(idInput);
       const saved: OrganizeReviewSaved = { filed: [], folderIds: [], tagged: [], tagsMade: false };
       const undone = db.transaction(() => {
         const at = now();
@@ -344,7 +377,7 @@ export function createOrganizeReview(options: {
 
     /** Confirms again what an Undo of `id` put back, bringing back the Folders and Tags it took away. */
     redoConfirmation(idInput: unknown): OrganizeReviewConfirmation | null {
-      const id = parseId(idInput, "A confirmation");
+      const id = parseId(idInput);
       return finish(
         db.transaction(() => {
           const undone = db.get(

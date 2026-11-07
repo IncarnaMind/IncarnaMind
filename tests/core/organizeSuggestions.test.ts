@@ -17,6 +17,7 @@ import { migrate, openDatabase } from "../../src/core/storage";
 import { migrations } from "../../src/core/storage/migrations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, createSourceFolder, sha256, writeSourceFile } from "../helpers/documents";
+import { proposedFor } from "../helpers/library";
 
 type Rule = (name: string, choices: string[]) => { groupId: string; tags?: string[] };
 
@@ -223,12 +224,15 @@ describe("Organize suggests a Folder and waits for the User", () => {
       expect(report.read).toBeGreaterThanOrEqual(before.read);
       expect(report.sorted).toBeGreaterThanOrEqual(before.sorted);
     }
-    // Listed in their Suggested Folders, marked as suggestions.
+    // Each waits in Suggestions for its Folder, and none is filed before the User confirms (#1569).
     const { assignments } = await core.getLibrary();
     expect(assignments).toHaveLength(12);
     for (const assignment of assignments) {
-      expect(assignment).toMatchObject({ source: "automatic", suggested: true });
+      expect(assignment).toMatchObject({ source: "automatic", groupId: null, suggested: false });
     }
+    const waiting = await Promise.all(documents.map((each) => proposedFor(core, each.id)));
+    expect(waiting.filter((id) => id === finance.id)).toHaveLength(8);
+    expect(waiting.filter((id) => id === thesis.id)).toHaveLength(4);
   });
 
   test("accepting makes Suggested Folders the User's choices, which a later Organize leaves alone", async () => {
@@ -749,11 +753,11 @@ describe("Organize suggests a Folder and waits for the User", () => {
       expect(assignments).toHaveLength(2);
       for (const assignment of assignments) {
         expect(assignment).toMatchObject({
-          groupId: thesis.id,
+          groupId: null,
           source: "automatic",
-          suggested: true,
           status: "classified",
         });
+        expect(await proposedFor(core, assignment.documentId)).toBe(thesis.id);
       }
     });
   });
@@ -810,12 +814,10 @@ describe("Organize suggests a Folder and waits for the User", () => {
       organizeWith: offered.classifier,
     });
     for (const document of [early, later]) {
-      await vi.waitFor(async () =>
-        expect(await assignmentOf(core, document.id)).toMatchObject({
-          status: "classified",
-          suggested: true,
-        }),
-      );
+      await vi.waitFor(async () => {
+        expect(await assignmentOf(core, document.id)).toMatchObject({ status: "classified" });
+        expect(await proposedFor(core, document.id)).not.toBeNull();
+      });
     }
 
     const classifier = {

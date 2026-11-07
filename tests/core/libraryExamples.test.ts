@@ -5,7 +5,7 @@ import { askAssistant } from "../helpers/assistant";
 import { answerEnded } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
-import { classifierModel } from "../helpers/library";
+import { classifierModel, proposedFor } from "../helpers/library";
 import { connectToMind } from "../helpers/mindClient";
 import { editMind, note, question, writeMind } from "../helpers/minds";
 import type { ModelCall } from "../helpers/models";
@@ -52,7 +52,7 @@ describe("the examples' Documents", () => {
       { timeout: 30_000 },
     );
 
-    // A Document of the User's own is filed as Organize does; the example's stay as they are.
+    // A Document of the User's own is proposed a Folder as Organize does; the example's stay as they are.
     const [own] = await addAndProcess(core, [
       await writeSourceFile(
         await createTempDataFolder(),
@@ -61,12 +61,7 @@ describe("the examples' Documents", () => {
       ),
     ]);
     if (!own) throw new Error("No Document added.");
-    await vi.waitFor(async () => {
-      const filed = (await core.getLibrary()).assignments.find(
-        (each) => each.documentId === own.id,
-      );
-      expect(filed?.groupId).toBe(group.id);
-    });
+    await vi.waitFor(async () => expect(await proposedFor(core, own.id)).toBe(group.id));
     const filed = (await core.getLibrary()).assignments.filter((each) =>
       exampleIds.includes(each.documentId),
     );
