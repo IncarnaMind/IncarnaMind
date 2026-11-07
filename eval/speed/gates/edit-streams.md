@@ -33,3 +33,22 @@ When `edit_mind` gives the whole new text of the assistant's own text (`content`
 ## What decides
 
 The step ships if every cell holds every bar. If a cell fails one, the pull request names it with its numbers, and what ships is decided in a dated note below, not by reading these bars again.
+
+## Result, 2026-11-07
+
+All 36 runs ran on one route per model: Claude Haiku 5.5 and Claude Sonnet 5.5 on the direct Anthropic route, DeepSeek V4.1 Flash 1017 on DeepSeek's API; `main` at 84d621707, the step at f43c66763 (the later commits change only a take-back's report, tests and the feel check). Seconds; medians of three runs, over the runs whose page changed for the first change.
+
+| Cell | First change, `main` → step (runs that changed the page) | Done, `main` → step | Runs written over by `edit_mind` | Refused `edit_mind` calls | Bars it fails |
+|---|---|---|---|---|---|
+| Haiku, English | – → – (0 → 0) | 17.6 → 14.3 | 0 → 0 | 0 → 0 | 1 can't be read: no run in either arm called `edit_mind` |
+| Haiku, Chinese | 24.1 → 16.3 (1 → 3) | 18.1 → 28.5 | 1 → 3 | 1 → 5 | 3 |
+| Sonnet, English | 14.9 → 14.0 (3 → 3) | 23.9 → 27.9 | 2 → 1 | 4 → 3 | 3 |
+| Sonnet, Chinese | 13.2 → 14.0 (3 → 3) | 27.2 → 24.3 | 1 → 2 | 3 → 3 | 1 |
+| DeepSeek, English | – → 22.8 (0 → 1) | 49.9 → 58.1 | 3 → 3 | 2 → 2 | 2 (a 77.9 s run against 73.0) |
+| DeepSeek, Chinese | 35.5 → 30.9 (3 → 3) | 49.4 → 46.5 | 3 → 3 | 3 → 2 | none |
+
+- Every refusal, in either arm, was one the call makes of the model's input as before: off the length asked for, sentences added without a Citation, a part that names no heading, content over the User's text, changes waiting. None was "changed" (the User's text changed meanwhile) or a take-back. No request failed or met a rate limit.
+- Bar 4 holds: the whole-call tests pass unchanged, and the new tests hold the end equal to the whole call's.
+- Calls whose text could come in, `content` with its `part` named first and no `instruction` before it, over the assistant's own text: on the step, 1 of Sonnet's 10 calls, none of Haiku's 8, and 5 of DeepSeek's 12 (two of which were refused once whole and taken back). Sonnet and Haiku mostly name `part` after `content`, give `instruction` beside it, or give content over the User's text, which is refused. So the step rarely acted on Claude, and the target of 2 to 3 s sooner on Sonnet isn't met: 14.9 → 14.0 s in English, 13.2 → 14.0 s in Chinese.
+
+The gate fails: bar 1 in one cell and unreadable in another, bar 2 in one, bar 3 in two. What ships is the decision below. Spent: $2.56 (Sonnet $2.12, Haiku $0.15, DeepSeek $0.29).
