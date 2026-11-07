@@ -138,6 +138,11 @@ export interface CheckWrittenInput {
   ids: readonly string[];
   prepared: PreparedChatModel;
   signal: AbortSignal;
+  /**
+   * The Answer failed before its text could be checked: each cited sentence lands not checked,
+   * and nothing is sent to the provider that just failed.
+   */
+  answerFailed?: boolean;
   /** How many sentences are being checked, as the check starts. */
   checking(count: number): void;
   /** Changes the Mind's content, in one transaction. */
@@ -818,11 +823,12 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         }),
       );
     });
-    if (!waiting) input.checking(sending.length);
+    const holding = waiting || input.answerFailed === true;
+    if (!holding) input.checking(sending.length);
     const request = randomUUID();
     const startedAt = options.now().toISOString();
     const limit = slots(claimsAtOnce(prepared));
-    const quick = waiting
+    const quick = holding
       ? null
       : await options.quickModel(prepared).catch((error: unknown) => {
           console.warn(
@@ -994,7 +1000,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       landNow({ sentence, nodes: null, mark });
     };
     const { stop } = await runItems(
-      waiting ? [] : sending,
+      holding ? [] : sending,
       (sentence): Promise<Checked> =>
         asCheckWork(async () => {
           const read = reads.get(sentence) ?? { claim: sentence.text, context: sentence.context };
@@ -1060,6 +1066,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     );
     if (signal.aborted) return null;
     if (waiting) for (const sentence of sending) failed(sentence, "consent-widened", null);
+    else if (holding) for (const sentence of sending) failed(sentence, "answer-failed", null);
     const at = options.now().toISOString();
     landAll([
       ...held.sort((a, b) => a.index - b.index).map(({ landing }) => landing),
