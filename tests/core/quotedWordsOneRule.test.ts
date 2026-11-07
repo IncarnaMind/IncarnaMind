@@ -942,3 +942,88 @@ describe("a Note outside the wall Board.md is kept inside", { timeout: 30_000 },
     expect(result.boardLanded).toMatchObject(result.boardCitation);
   });
 });
+
+const REVENUE = {
+  en: {
+    files: [
+      {
+        name: "Schedule.md",
+        contents: "# Schedule\n\nRevenue rose by a third in 2026. The fee is 5% per week.\n",
+      },
+      {
+        name: "Board.md",
+        contents: "# Board\n\nThe board met on 4 May. Members discussed the budget.\n",
+      },
+    ],
+    quotes: ["Revenue rose by a third in 2026.", "The board met on 4 May."],
+    sentence: (words: string) => `Revenue rose[^1]. “${words}” said the board[^2].`,
+    notFound: "the fee is 5% per week",
+    found: "the board met on 4 May",
+  },
+  zh: {
+    files: [
+      {
+        name: "Schedule.md",
+        contents: "# 收费表\n\n收入在2026年增长了三分之一。每周收取5%的费用。\n",
+      },
+      { name: "Board.md", contents: "# 董事会\n\n董事会于5月4日开会。成员讨论了预算。\n" },
+    ],
+    quotes: ["收入在2026年增长了三分之一。", "董事会于5月4日开会。"],
+    sentence: (words: string) => `收入增长了[^1]。“${words}”董事会说[^2]。`,
+    notFound: "每周收取5%的费用",
+    found: "董事会于5月4日开会",
+  },
+} as const;
+
+/** The check of the Board's Citation, [^2], in an Answer whose text is `answer`. */
+async function boardCheck(language: "en" | "zh", answer: string) {
+  const wanted = REVENUE[language];
+  const model = scriptedModel(
+    (call: ModelCall): ScriptedReply => {
+      const search = call.results.filter((result) => result.tool === "search_documents").at(-1);
+      if (!search) {
+        return {
+          calls: [
+            {
+              tool: "search_documents",
+              input: { query: language === "en" ? "revenue board fee" : "收入 董事会 费用" },
+            },
+          ],
+        };
+      }
+      if (!call.results.some((result) => result.tool === "cite")) {
+        const passages = shownPassages(search.text);
+        const records = ["Schedule", "Board"].map((document, at) => ({
+          marker: at + 1,
+          passage: passages.find((each) => each.document === document)?.id,
+          quote: wanted.quotes[at],
+        }));
+        return { calls: [{ tool: "cite", input: { citations: records } }] };
+      }
+      return { text: answer };
+    },
+    { judgesItsAnswers: true },
+  );
+  const { core } = await setUpWithDocuments(model, [...wanted.files]);
+  const { citations } = await askAssistant(core, { text: "What happened?" });
+  return citations.find((each) => each.documentName === "Board")?.check;
+}
+
+// protects=after a full stop and a space, an opening quotation mark starts a sentence though a lowercase word follows, so the quote is checked with its own sentence's Citation and never found on the previous sentence's Document (#2712); fails_when=the splitter joins the two sentences and the Board's Citation reads found for words only the Schedule holds; no_claim=a stop that ends an abbreviation, the splitter's own test.
+describe.each(["en", "zh"] as const)(
+  "a quote that starts a sentence in lower case (%s)",
+  { timeout: 30_000 },
+  (language) => {
+    test("words only the previous sentence's Document holds: not found", async () => {
+      expect(
+        await boardCheck(language, REVENUE[language].sentence(REVENUE[language].notFound)),
+      ).toBe("not-found");
+    });
+
+    test("words its own Citation's Document holds: found", async () => {
+      expect(await boardCheck(language, REVENUE[language].sentence(REVENUE[language].found))).toBe(
+        "found",
+      );
+    });
+  },
+);
