@@ -10,6 +10,7 @@ import {
   dismissChatSetup,
   enterContent,
   launchApp,
+  leaveText,
   motionSettled,
   newMind,
   pointAndClick,
@@ -440,6 +441,8 @@ for (const { language, width, lineChanged } of SETTINGS) {
     await expect(window.getByText(lineChanged)).toBeVisible();
     await window.keyboard.press("Escape");
     await expect(panel).toBeHidden();
+    // ⌘K gives the focus back to the text, where ⌘Z is the note's own: leave it for the app's.
+    await leaveText(window);
     await window.keyboard.press("ControlOrMeta+z");
     await expect.poll(async () => (await drawn(lines[2])).leading).toBe(26);
 

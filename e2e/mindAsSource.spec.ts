@@ -11,6 +11,7 @@ import {
   film,
   frontMind,
   launchApp,
+  leaveText,
   motionSettled,
   newMind,
   openMoreMenu,
@@ -325,8 +326,10 @@ for (const language of ["en", "zh-CN"] as const) {
     await capture(window, `removed-${language}-1440`);
 
     // Undo: the snapshot is a source again, and the Citation reads as its own note once more.
+    // The line is gone after 10 s, so Undo is the keyboard's, which stays.
     await window.keyboard.press("Escape");
-    await pointAndClick(window, window.getByTestId("undo-action"));
+    await leaveText(window);
+    await window.keyboard.press("ControlOrMeta+z");
     await showMind(window, "Field visit");
     const undone = await openPageMenu(window);
     await expect(undone.getByTestId("mind-source-foot")).toBeVisible();
