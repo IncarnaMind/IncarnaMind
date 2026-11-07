@@ -39,7 +39,7 @@ import {
 import { parseUnreadParts } from "../../shared/unreadFiles";
 import { silentLogger } from "../activityLog";
 import type { Logger } from "../adapters";
-import { cleanQuote } from "../answers/citations";
+import { cleanQuote, documentNameKey } from "../answers/citations";
 import type { CitedUnits } from "../answers/citedVersions";
 import type {
   AddDocumentsResult,
@@ -2553,9 +2553,34 @@ export function createDocuments(options: DocumentsOptions) {
     /** How many live Documents have Passages to search: of all of them, or only of these. */
     searchableCount,
 
-    /** The Documents among these that a search term of `text` names (./search, `documentsNamedBy`). */
-    namedBy: (text: string, documentIds: readonly string[] | undefined) =>
-      documentsNamedBy(db, text, documentIds),
+    /**
+     * The Documents with Passages to search, among these, that a search term of `text` names
+     * (./search, `documentsNamedBy`), each with its name. A word counts as one Document's only
+     * among these, so one still being read or with no text doesn't take it. One whose name
+     * another of these shares is left out: a search by that name could reach the other.
+     */
+    namedBy(
+      text: string,
+      documentIds: readonly string[] | undefined,
+    ): { id: string; name: string }[] {
+      const { where, params } = searchable(documentIds);
+      const listed = db.all<{ id: string; name: string }>(
+        `SELECT d.id, d.name FROM documents d WHERE ${where}`,
+        params,
+      );
+      const names = new Map<string, number>();
+      for (const { name } of listed) {
+        names.set(documentNameKey(name), (names.get(documentNameKey(name)) ?? 0) + 1);
+      }
+      return documentsNamedBy(
+        db,
+        text,
+        listed.map((each) => each.id),
+      ).flatMap((id) => {
+        const document = listed.find((each) => each.id === id);
+        return document && names.get(documentNameKey(document.name)) === 1 ? [document] : [];
+      });
+    },
 
     /** Whether another Document among these holds half the words of `text` (./search, `othersHoldTerms`). */
     othersHoldTerms: (

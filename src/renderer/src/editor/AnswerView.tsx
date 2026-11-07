@@ -22,7 +22,7 @@ import { toolCallsOf } from "../../../shared/toolCalls";
 import { type AnswerFigures, figuresOf, uncalculatedWords } from "../answerFigures";
 import { AnswerWriting } from "../answerPhase";
 import { RUN_SCRIPT, SEARCH } from "../answerSteps";
-import { documentReadText } from "../answerStepWords";
+import { documentReadText, searchedQueryText } from "../answerStepWords";
 import { useAnswers } from "../answers";
 import { useApprovals, waitingFor } from "../approvals";
 import { signInAgain } from "../chatGptSignIn";
@@ -1344,11 +1344,10 @@ function SearchList({
   return (
     <ul className="answer-searches-list">
       {searches.map((call) => {
-        const query = typeof call.input.query === "string" ? call.input.query : "";
         const found = results(call);
         return (
           <li key={call.id} data-testid="answer-tool-call" data-status={call.status}>
-            {t("search.query", { query })}
+            {searchedQueryText(t, call)}
             {found && <span className="answer-searches-found"> · {found}</span>}
           </li>
         );

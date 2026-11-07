@@ -15,6 +15,8 @@ import {
   documentReadText,
   documentsReadText,
   foldedWords,
+  searchedQueryText,
+  searchedScope,
 } from "../../src/renderer/src/answerStepWords";
 import { translate } from "../../src/shared/i18n";
 
@@ -163,6 +165,30 @@ describe("an Answer's steps", () => {
       "No passages read from “Filing”",
     );
     expect(documentReadText(zh, { ...read, resultCount: 0 })).toBe("未读取到“Filing”的内容");
+  });
+
+  // The search made first in a Document the Question names repeats the Question's words, so its
+  // line names the Document, or it reads as the same search twice (#1633).
+  test("a search in one Document names it, in its line and as where it looked", () => {
+    const everywhere = search("s1", "For how many steps does the rate ramp up?");
+    const inOne = search("s2", "For how many steps does the rate ramp up?", {
+      input: { query: "For how many steps does the rate ramp up?", document: "Kestrel settings" },
+    });
+    expect(searchedQueryText(en, everywhere)).toBe("“For how many steps does the rate ramp up?”");
+    expect(searchedQueryText(en, inOne)).toBe(
+      "“For how many steps does the rate ramp up?” in “Kestrel settings”",
+    );
+    expect(searchedQueryText(zh, inOne)).toBe(
+      "在“Kestrel settings”中：“For how many steps does the rate ramp up?”",
+    );
+    expect(
+      en("steps.search", { scope: searchedScope(en, inOne, "All Documents"), query: "q" }),
+    ).toBe("Searched “Kestrel settings” for “q”");
+    expect(zh("steps.search", { scope: searchedScope(zh, inOne, "全部文档"), query: "q" })).toBe(
+      "在“Kestrel settings”中搜索“q”",
+    );
+    expect(searchedScope(en, everywhere, "All Documents")).toBe("All Documents");
+    expect(searchedScope(en, undefined, "All Documents")).toBe("All Documents");
   });
 
   test("a failed Document read is its own row, not a failed search", () => {

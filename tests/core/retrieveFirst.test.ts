@@ -439,6 +439,45 @@ describe("An Answer that retrieves first", { timeout: 30_000 }, () => {
     expect(citationsIn(client, answerId)).toMatchObject([{ quote: SPRING, check: "found" }]);
   });
 
+  test("a search made first that fails is handed to the model as failed, and the model searches itself", async () => {
+    const model = scriptedModel((call: ModelCall): ScriptedReply => {
+      const found = call.results
+        .flatMap((result) => shownPassages(result.text))
+        .find((each) => each.text.includes(SPRING));
+      if (!found) {
+        return { calls: [{ tool: "search_documents", input: { query: "spring tides moon" } }] };
+      }
+      return {
+        text: ANSWER,
+        calls: [
+          {
+            tool: "cite",
+            input: { citations: [{ marker: 1, passage: found.id, quote: SPRING }] },
+          },
+        ],
+      };
+    });
+    const { core, client, mind } = await setUpWithDocuments(
+      model,
+      [{ name: "Tides.md", contents: TIDES_MD }],
+      {
+        answerPaths: { retrievesFirst: () => true, writesThenCites: () => true },
+        // Only the search made first reranks: the model's own searches don't.
+        reranker: async () => {
+          throw new Error("The reranker stopped.");
+        },
+      },
+    );
+
+    const { answerId } = await askAndFinish(core, client, mind.id, "When are spring tides?");
+
+    expect(JSON.stringify(model.doStreamCalls[0]?.prompt)).toContain(
+      "The search of the User's Documents failed.",
+    );
+    expect(model.doStreamCalls).toHaveLength(2);
+    expect(citationsIn(client, answerId)).toMatchObject([{ quote: SPRING, check: "found" }]);
+  });
+
   test("falls back to the loop when the model searches again", async () => {
     const model = answering(1);
     const { core, client, mind } = await setUp(model, true);

@@ -41,6 +41,8 @@ import {
   foldedWords,
   mindLabel,
   mindStepText,
+  searchedQueryText,
+  searchedScope,
 } from "../../answerStepWords";
 import { useAnswers } from "../../answers";
 import { waitText, waitTextShort } from "../../answerWaitWords";
@@ -796,7 +798,10 @@ function StepItem({
       return (
         <Step kind={row.kind} icon={<SearchIcon />}>
           <p className="answer-step-title">
-            {t("steps.search.stopped", { scope, query: field(row.call, "query") })}
+            {t("steps.search.stopped", {
+              scope: searchedScope(t, row.call, scope),
+              query: field(row.call, "query"),
+            })}
           </p>
         </Step>
       );
@@ -946,27 +951,33 @@ function SearchStep({ row, scope }: { row: Extract<StepRow, { kind: "search" }>;
   const reads = row.calls.filter((call) => call.tool === "read_document");
   const queries = searches.map((call) => field(call, "query"));
   const current = row.calls.at(-1);
+  const only = searches.length === 1 ? searches[0] : undefined;
   return (
     <Step kind={row.kind} icon={<SearchIcon />} running={row.running}>
       <p className="answer-step-title">
         {row.running
           ? current?.tool === "read_document"
             ? documentReadText(t, current, true)
-            : t("steps.search.running", { scope, query: queries.at(-1) ?? "" })
+            : t("steps.search.running", {
+                scope: searchedScope(t, current, scope),
+                query: queries.at(-1) ?? "",
+              })
           : searches.length === 0 && reads.length > 0
             ? reads.length > 1
               ? t("steps.readDocument.times", { count: reads.length })
               : documentReadText(t, reads[0] as AnswerToolCall)
             : queries.length > 1
               ? t("steps.search.times", { scope, count: queries.length })
-              : t("steps.search", { scope, query: queries[0] ?? "" })}
+              : t("steps.search", {
+                  scope: searchedScope(t, only, scope),
+                  query: queries[0] ?? "",
+                })}
       </p>
       {queries.length > 1 && (
         <ul className="answer-step-queries">
-          {queries.map((query, index) => (
-            // biome-ignore lint/suspicious/noArrayIndexKey: the same query may be searched twice.
-            <li key={index} className="answer-step-detail">
-              {t("search.query", { query })}
+          {searches.map((call) => (
+            <li key={call.id} className="answer-step-detail">
+              {searchedQueryText(t, call)}
             </li>
           ))}
         </ul>

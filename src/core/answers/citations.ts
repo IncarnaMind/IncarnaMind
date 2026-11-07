@@ -508,7 +508,10 @@ export interface AnswerDocuments {
   documentDate(documentId: string): DocumentDate | null;
   /** The id of the Document to search named `name`, as the instructions list it; null for none. */
   documentNamed?(name: string): string | null;
-  /** The Documents to search that a word of `text` names, one only that Document holds, with their names as the instructions list them. */
+  /**
+   * The Documents to search that a word of `text` names, one only that Document holds, with their
+   * names as the instructions list them; none whose name another Document to search shares.
+   */
   namedBy?(text: string): readonly { id: string; name: string }[];
   /** The User's highlights and notes that hold the words (#327), as lines for the model; "" for none. */
   annotationText?(query: string, within?: readonly string[]): string;
@@ -525,6 +528,10 @@ export interface AnswerDocuments {
   ): WindowedPassage[];
 }
 
+/** A Document's name as `documentNamedAmong` compares names: two Documents with the same key share a name. */
+export const documentNameKey = (text: string) =>
+  text.replace(/\s+/g, " ").trim().toLocaleLowerCase();
+
 /**
  * The Document among `documents` a model named for a search: by its name as listed, else one
  * whose name holds the name given or is held in it. Null for none.
@@ -533,7 +540,7 @@ export function documentNamedAmong(
   documents: readonly { id: string; name: string }[],
   name: string,
 ): string | null {
-  const key = (text: string) => text.replace(/\s+/g, " ").trim().toLocaleLowerCase();
+  const key = documentNameKey;
   const wanted = key(name.replace(/\s*\(“[^”]*”\)\s*$/, ""));
   return (
     documents.find((each) => key(each.name) === wanted)?.id ??
@@ -2309,11 +2316,7 @@ export function createCitationSession(
         passageIds.map((passageId) => documents.citationSource(passageId)?.documentId),
       );
       if (named.some((each) => reached.has(each.id))) return [];
-      // A name another Document shares would send the search to that one.
-      return named
-        .filter((each) => documents.documentNamed?.(each.name) === each.id)
-        .slice(0, NAMED_SEARCHES)
-        .map((each) => each.name);
+      return named.slice(0, NAMED_SEARCHES).map((each) => each.name);
     },
 
     ...(documents.documentNamed && documents.passagesCovering && documents.passagesBetween

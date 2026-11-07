@@ -10,6 +10,31 @@ export const checkedWords = (t: Translate, count: number): string =>
 export const checkingWords = (t: Translate, count: number): string =>
   t(count === 1 ? "steps.live.checking.one" : "steps.live.checking", { count });
 
+const inputText = (call: AnswerToolCall, name: string): string => {
+  const value: unknown = call.input?.[name];
+  return typeof value === "string" ? value : "";
+};
+
+/** A search's query as its line shows it, with the one Document it searched when it named one. */
+export function searchedQueryText(t: Translate, call: AnswerToolCall): string {
+  const query = inputText(call, "query");
+  const document = inputText(call, "document");
+  return document ? t("search.query.document", { query, document }) : t("search.query", { query });
+}
+
+/**
+ * Where a search looked, for the step that names it: the one Document it searched, else the
+ * Question's scope. Without it, the same words searched again in one Document read as a repeat.
+ */
+export function searchedScope(
+  t: Translate,
+  call: AnswerToolCall | undefined,
+  scope: string,
+): string {
+  const document = call ? inputText(call, "document") : "";
+  return document ? t("steps.search.document", { document }) : scope;
+}
+
 export function documentReadText(t: Translate, call: AnswerToolCall, live = false): string {
   const field = (name: string) => {
     const value: unknown = call.input?.[name];
