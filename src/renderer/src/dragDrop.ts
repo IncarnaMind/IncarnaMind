@@ -158,15 +158,26 @@ function setPicture(event: DragEvent<HTMLElement>, name: string, count: number):
   document.body.append(picture);
   pointerAt = pointOf(event);
   placePicture(picture, pointerAt);
-  // A 1×1 transparent image: the browser's own picture is outside this layer's control.
-  event.dataTransfer.setDragImage(invisibleImage(), 0, 0);
+  hideBrowserPicture(event);
 }
 
-function invisibleImage(): HTMLElement {
+// A 1×1 transparent image, so the browser's own picture is never the one shown. It must be on the
+// page for the browser to copy it, so it sits in the corner for the frame it is taken.
+function hideBrowserPicture(event: DragEvent<HTMLElement>): void {
   const canvas = document.createElement("canvas");
   canvas.width = 1;
   canvas.height = 1;
-  return canvas;
+  Object.assign(canvas.style, {
+    position: "fixed",
+    top: "0",
+    left: "0",
+    width: "1px",
+    height: "1px",
+    pointerEvents: "none",
+  });
+  document.body.append(canvas);
+  event.dataTransfer.setDragImage(canvas, 0, 0);
+  afterFrame(() => canvas.remove());
 }
 
 function pictureOf(source: Element, name: string, count: number): HTMLElement {
