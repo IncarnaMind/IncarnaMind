@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import type { Document, DocumentGroupAssignment, LibraryGroup } from "../../src/core/api";
+import type { Document, DocumentGroupAssignment } from "../../src/core/api";
 import { attentionIds, attentionOrder } from "../../src/renderer/src/attention";
 import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
 
@@ -18,17 +18,6 @@ const doc = (id: string, over: Partial<Document> = {}): Document =>
     ...over,
   }) as Document;
 
-const folder = (id: string, name = id): LibraryGroup => ({
-  id,
-  name,
-  description: "",
-  parentId: null,
-  countsOwnFiles: false,
-  keepInside: false,
-  createdAt: "2026-10-01T00:00:00.000Z",
-  updatedAt: "2026-10-01T00:00:00.000Z",
-});
-
 const held = (
   documentId: string,
   over: Partial<DocumentGroupAssignment> = {},
@@ -37,7 +26,6 @@ const held = (
     documentId,
     groupId: null,
     source: "automatic",
-    suggested: false,
     status: "classified",
     error: null,
     model: null,
@@ -82,45 +70,29 @@ describe("what the sidebar says needs attention", () => {
 });
 
 describe("the order Review walks them in", () => {
-  const finance = folder("finance", "Finance");
-
-  test("To review's Documents first, then the page's order", () => {
+  test("those Organize couldn't sort first, then the page's order", () => {
     const documents = [
       doc("waiting", { name: "A waiting" }),
-      doc("suggested", { name: "B suggested" }),
+      doc("filed", { name: "B filed" }),
       doc("unsorted", { name: "C unsorted" }),
     ];
     const assignments = [
-      held("suggested", { groupId: "finance", suggested: true, status: "failed" }),
+      held("filed", { groupId: "finance", status: "failed" }),
       held("unsorted", { status: "failed" }),
       held("waiting", { status: "waiting" }),
     ];
     expect(
       attentionOrder(
         documents,
-        [finance],
         assignments,
         { key: "name", direction: "asc", foldersFirst: true },
         en,
         "en",
       ),
-    ).toEqual(["suggested", "unsorted", "waiting"]);
+    ).toEqual(["unsorted", "waiting", "filed"]);
   });
 
   test("nothing when nothing needs attention", () => {
-    expect(attentionOrder([doc("a")], [], [held("a")], null, en, "en")).toEqual([]);
-  });
-
-  test("a Suggested Folder that waits to be accepted is not one the status counts", () => {
-    expect(
-      attentionOrder(
-        [doc("suggested", { name: "A suggested" })],
-        [finance],
-        [held("suggested", { groupId: "finance", suggested: true })],
-        { key: "name", direction: "asc", foldersFirst: true },
-        en,
-        "en",
-      ),
-    ).toEqual([]);
+    expect(attentionOrder([doc("a")], [held("a")], null, en, "en")).toEqual([]);
   });
 });

@@ -56,7 +56,6 @@ const assignment = (documentId: string, groupId: string | null): DocumentGroupAs
   documentId,
   groupId,
   source: "automatic",
-  suggested: false,
   status: "classified",
   error: null,
   model: null,

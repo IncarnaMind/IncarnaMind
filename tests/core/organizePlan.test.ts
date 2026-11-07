@@ -20,6 +20,7 @@ import { createFakeEmbedder } from "../../src/core/embedding/fake";
 import type { GroupClassifier } from "../../src/core/library/classifier";
 import { createLibraryOrganizer } from "../../src/core/library/organizeLibrary";
 import {
+  aimAfter,
   bestClustering,
   type FolderAim,
   finishPlan,
@@ -204,6 +205,14 @@ describe("The plan's local steps", () => {
     if (!lease || !lease2 || !minutes || !zhLease || !zhLease2) throw new Error("Five vectors.");
     expect(similarity(lease, lease2)).toBeGreaterThan(similarity(lease, minutes));
     expect(similarity(zhLease, zhLease2)).toBeGreaterThan(similarity(zhLease, minutes));
+  });
+
+  test("Fewer and More Folders aim one or two from the last plan's count, still 3 to 7", () => {
+    expect(aimAfter(null)).toEqual({ least: 3, most: 7 });
+    expect(aimAfter({ fewerThan: 5 })).toEqual({ least: 3, most: 4 });
+    expect(aimAfter({ fewerThan: 3 })).toEqual({ least: 3, most: 3 });
+    expect(aimAfter({ moreThan: 5 })).toEqual({ least: 6, most: 7 });
+    expect(aimAfter({ moreThan: 7 })).toEqual({ least: 7, most: 7 });
   });
 });
 
