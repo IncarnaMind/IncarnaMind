@@ -15,8 +15,8 @@
  *
  * Set INCARNAMIND_LIVE_REPORT to a file to keep, for each request, the calls, the reply and the
  * tokens each model used, and how many requests passed; INCARNAMIND_LIVE_ONLY to request ids,
- * comma-separated, to run only those. Each request is asked in a Library of its own, set up as
- * the first one was.
+ * comma-separated, to run only those, in that order, an id named twice running twice. Each
+ * request is asked in a Library of its own, set up as the first one was.
  */
 import { randomUUID } from "node:crypto";
 import { appendFileSync, readdirSync, realpathSync } from "node:fs";
@@ -346,11 +346,11 @@ const SAYS_IT_WAITS = new RegExp(
     "(?:not|n[’']t) (?:been |be )?moved?",
     String.raw`until (?:you|then)\b[^.;]{0,30}\b(?:review|confirm|approve|filed)`,
     "needs? your review",
-    "(?:确认|审核|审阅)(?:之)?[前后]",
+    "(?:确认|审核|审阅)(?:（[^）]{0,12}）)?(?:之)?[前后]",
     "尚未(?:移动|归档)",
     "还没(?:有)?(?:真正)?(?:移动|动)",
     "没有(?:任何)?(?:文档|文件)?(?:被|会)?(?:移动|归档)",
-    "(?:不会|未)(?:被)?移动",
+    "(?:不会|未)(?:有任何)?(?:文档|文件)?(?:被)?移动",
   ].join("|"),
   "i",
 );
@@ -451,6 +451,29 @@ const organizedAfterDecline: Check = (seen) => {
   expect(cards).toHaveLength(1);
   expect(cards[0] && "ask" in cards[0] ? cards[0].ask : null).toMatchObject({ declined: true });
 };
+
+/**
+ * "Put them together in one folder" is organizing (#1569): Organize runs and proposes, no move
+ * runs, and nothing is filed or made. The reply is `organized`'s to judge.
+ */
+const routedToOrganize: Check = (seen) => {
+  expect(organizeRuns(seen).length).toBeGreaterThan(0);
+  expect(ran(seen).some((done) => done.command === "document.moveTo")).toBe(false);
+  expect(seen.after.folders).toEqual(seen.before.folders);
+  expect(seen.after.review).toBeGreaterThan(seen.before.review);
+};
+
+/** A move that names the Document and the Folder files that Document there, and nothing else. */
+const movedInto =
+  (folder: string, names: readonly string[]): Check =>
+  (seen) => {
+    expect(ran(seen).some((done) => done.command === "document.moveTo")).toBe(true);
+    expect(organizeRuns(seen)).toEqual([]);
+    expect(seen.after.folders).toEqual({
+      ...seen.before.folders,
+      [folder]: [...(seen.before.folders[folder] ?? []), ...names].sort(),
+    });
+  };
 
 /** After "Re organise the files" is taken back once: its proposals are gone, and the Library is as it was. */
 const organizedUndone = (seen: Seen, undone: Library) => {
@@ -718,6 +741,8 @@ const REQUESTS: {
   declined?: boolean;
   /** Documents its Library has besides `DOCUMENTS`. */
   more?: readonly { name: string; contents: string }[];
+  /** Folders its Library has, empty, before the request. */
+  folders?: readonly string[];
 }[] = [
   {
     id: "folder-en",
@@ -1019,6 +1044,25 @@ const REQUESTS: {
     more: MORE_TO_SORT,
   },
   { id: "proposes-zh", text: "帮我整理一下这些文件", check: organized, more: MORE_TO_SORT },
+  // Organizing in a move's words goes to Organize, and a move that names both still moves (#1569).
+  {
+    id: "route-zh",
+    text: "把提到房租的文件整理到一个文件夹里",
+    check: routedToOrganize,
+    more: MORE_TO_SORT,
+  },
+  {
+    id: "route-en",
+    text: "Put the lease papers together in one folder",
+    check: routedToOrganize,
+    more: MORE_TO_SORT,
+  },
+  {
+    id: "move-en",
+    text: "Move Lease Harbour Street to the Finance folder",
+    check: movedInto("Finance", ["Lease Harbour Street"]),
+    folders: ["Finance"],
+  },
   { id: "held-permanent-en", text: "Permanently get rid of the Q3 memo", check: neverForGood },
   {
     id: "held-permanent-en-2",
@@ -1139,8 +1183,11 @@ const NOTE = [
 async function libraryFor(
   live: (typeof LIVE)[number],
   choose: Choose,
-  declined = false,
-  more: readonly { name: string; contents: string }[] = [],
+  {
+    declined = false,
+    more = [],
+    folders = [],
+  }: Pick<(typeof REQUESTS)[number], "declined" | "more" | "folders"> = {},
 ) {
   const dataDir = await createTempDataFolder();
   // The app gives the core a printer, so "save this note as a PDF" can be made here too.
@@ -1199,6 +1246,7 @@ async function libraryFor(
     )),
     await writeSourceFile(elsewhere, NAMESAKE.name, NAMESAKE.contents),
   ]);
+  for (const name of folders) await core.createLibraryGroup({ name, description: "" });
   const memo = documents.find((each) => each.name === "Q3 memo");
   if (memo) await core.deleteDocuments([memo.id]);
   const old = await core.createTag({ name: "Old" });
@@ -1241,9 +1289,9 @@ describe.each(LIVE)("The assistant does what the User can in the app, live: $nam
     { timeout: 3_600_000 },
     async () => {
       const only = process.env.INCARNAMIND_LIVE_ONLY?.split(",");
-      const requests = REQUESTS.filter(
-        (each) => (!only || only.includes(each.id)) && (!each.declined || !live.local),
-      );
+      const requests = (
+        only ? only.flatMap((id) => REQUESTS.filter((each) => each.id === id)) : REQUESTS
+      ).filter((each) => !each.declined || !live.local);
       record(`## ${live.name} · ${live.model} · ${requests.length} requests`);
       let passed = 0;
       onTestFinished(() =>
@@ -1251,7 +1299,7 @@ describe.each(LIVE)("The assistant does what the User can in the app, live: $nam
       );
       for (const request of requests) {
         const { core, dataDir, mind, commands, window, asked, questions, exportTo } =
-          await libraryFor(live, request.choose ?? first, request.declined, request.more);
+          await libraryFor(live, request.choose ?? first, request);
         const before = await libraryOf(core, mind.id);
         const text = request.text.replace("{folder}", exportTo);
         let line = `- ${request.id} “${text}”`;
@@ -1276,8 +1324,9 @@ describe.each(LIVE)("The assistant does what the User can in the app, live: $nam
           if (seen.questions.length > 0)
             line += `\n  questions: ${seen.questions.map((each) => each.request.question.question).join(" | ")}`;
           const proposed = proposedBy(seen);
-          if (proposed.length > 0 || seen.after.review !== before.review)
-            line += `\n  proposed: ${proposed.map((each) => `${each.name} ${each.count}`).join(", ") || "none"}; in Suggestions ${before.review} → ${seen.after.review}; Folders ${JSON.stringify(seen.after.folders) === JSON.stringify(before.folders) ? "as before" : "changed"}; the app's Folder line ${ownWords(seen).appAdded ? "added" : "not needed"}`;
+          const filed = JSON.stringify(seen.after.folders) !== JSON.stringify(before.folders);
+          if (proposed.length > 0 || seen.after.review !== before.review || filed)
+            line += `\n  proposed: ${proposed.map((each) => `${each.name} ${each.count}`).join(", ") || "none"}; in Suggestions ${before.review} → ${seen.after.review}; Folders ${filed ? `changed to ${JSON.stringify(seen.after.folders)}` : "as before"}; the app's Folder line ${ownWords(seen).appAdded ? "added" : "not needed"}`;
           // What the claim check left under the reply (#2407).
           const flagged = [
             ...(answer.steps?.unbackedCommands ?? []),
