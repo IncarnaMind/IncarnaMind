@@ -146,6 +146,19 @@ describe("Rewrite is offered", () => {
     ["注册资本增加为1000万元。", "注册资本增加为2000万元。", true],
     ["Rent rose 500 dollars.", "Rent rose to 3000 dollars.", false],
     ["Rent rose to 2500 dollars.", "Rent rose to 3000 dollars.", true],
+    ["租赁期限延长2年。", "租赁期限延长为5年。", false],
+    ["付款期限缩短10天。", "付款期限缩短为30天。", false],
+    ["成本压缩500万元。", "成本压缩为2000万元。", false],
+    ["亏损收窄2000万元。", "亏损收窄为500万元。", false],
+    ["授信额度放宽1000万元。", "授信额度放宽为5000万元。", false],
+    ["管道加长20米。", "管道加长为50米。", false],
+    ["租赁期限延长为2年。", "租赁期限延长为5年。", true],
+    ["乙方以设备作抵押，借款500万元。", "乙方以设备作为抵押，借款600万元。", true],
+    ["因乙方逾期，违约金为500元。", "因为乙方逾期，违约金为700元。", true],
+    ["董事会认为损失为500万元。", "董事会认为损失为800万元。", true],
+    ["公司为客户垫付500元。", "公司为客户垫付600元。", true],
+    ["The lease was extended by 2 years.", "The lease was extended to 5 years.", false],
+    ["The lease was extended to 2 years.", "The lease was extended to 5 years.", true],
   ])("for %s from %s: %s", (sentence, quote, offered) => {
     expect(mayRewrite(sentence, quote)).toBe(offered);
   });

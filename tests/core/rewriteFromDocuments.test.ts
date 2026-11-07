@@ -1376,6 +1376,48 @@ describe("rewriteFromDocuments", () => {
     },
   );
 
+  test.each([
+    ["租赁期限延长2年。", "租赁期限延长为5年。", "2", "5", "kept"],
+    ["付款期限缩短10天。", "付款期限缩短为30天。", "10", "30", "kept"],
+    ["成本压缩500万元。", "成本压缩为2000万元。", "500", "2000", "kept"],
+    ["亏损收窄2000万元。", "亏损收窄为500万元。", "2000", "500", "kept"],
+    ["授信额度放宽1000万元。", "授信额度放宽为5000万元。", "1000", "5000", "kept"],
+    ["管道加长20米。", "管道加长为50米。", "20", "50", "kept"],
+    ["租赁期限延长为2年。", "租赁期限延长为5年。", "2", "5", "rewritten"],
+    [
+      "乙方以设备作抵押，借款500万元。",
+      "乙方以设备作为抵押，借款600万元。",
+      "500",
+      "600",
+      "rewritten",
+    ],
+    ["因乙方逾期，违约金为500元。", "因为乙方逾期，违约金为700元。", "500", "700", "rewritten"],
+    ["董事会认为损失为500万元。", "董事会认为损失为800万元。", "500", "800", "rewritten"],
+    ["公司为客户垫付500元。", "公司为客户垫付600元。", "500", "600", "rewritten"],
+    ["The lease was extended by 2 years.", "The lease was extended to 5 years.", "2", "5", "kept"],
+    [
+      "The lease was extended to 2 years.",
+      "The lease was extended to 5 years.",
+      "2",
+      "5",
+      "rewritten",
+    ],
+  ])(
+    'compares 为 in %s unless its word says no "to", from %s',
+    async (sentence, line, from, to, kind) => {
+      const { core, mindId } = await noteWithCheck(
+        () => ({ text: `Change 1: ${from}\nTo 1: ${to}` }),
+        { text: sentence },
+        sentence,
+        false,
+        line,
+      );
+      expect(await core.rewriteFromDocuments({ mindId, checkId: "check-rent" })).toMatchObject({
+        kind,
+      });
+    },
+  );
+
   test("keeps the sentence when the model's words aren't the Passage's", async () => {
     const { core, mindId, calls } = await noteWithCheck(() => ({
       text: "Change 1: 1100\nTo 1: 1300",
