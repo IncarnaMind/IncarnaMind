@@ -2619,6 +2619,11 @@ export function mindTools(options: MindToolsOptions): {
       return;
     }
     revision.written = written;
+    // Stop can come as this paragraph's change is announced, before the take-back on Stop sees it.
+    if (options.signal.aborted) {
+      takeBack(revision);
+      return;
+    }
     revision.reported = true;
     options.changed(toolCallId, {
       ...changeIn(mind.id, request, false),

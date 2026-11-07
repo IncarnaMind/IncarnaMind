@@ -2147,7 +2147,7 @@ describe("New text coming in over the assistant's own text (#1635)", { timeout: 
     streamed = true,
     input = { part: "Tide notes", content: CONTENT } as Record<string, unknown>,
     holdAt = JSON.stringify(input).indexOf(NEW[2] as string) + 4,
-    prepare = async (_core: Core): Promise<void> => {},
+    prepare = async (_core: Core, _client: MindClient): Promise<void> => {},
   } = {}) {
     let release = () => {};
     let fail = (_error: Error) => {};
@@ -2174,7 +2174,7 @@ describe("New text coming in over the assistant's own text (#1635)", { timeout: 
       model: null,
     });
     await client.settled();
-    await prepare(core);
+    await prepare(core, client);
     const before = exactly(client);
     const seen: string[][] = [];
     client.blocks.observeDeep(() => seen.push(applied(client)));
@@ -2619,6 +2619,30 @@ describe("New text coming in over the assistant's own text (#1635)", { timeout: 
       NEW[1],
       OLD[2],
     ]);
+  });
+
+  // protects=Stop that comes while a paragraph of the new text is going in, as the Note's change is announced, still finds it and takes it back: the Note is exactly as it was (#1635); fails_when=the paragraph written as Stop came stays in the Note; no_claim=how soon the window's Stop arrives.
+  test("Stop as a paragraph goes in still takes it back", async () => {
+    let answer: { conversationId: string; answerId: string } | null = null;
+    let stopped = false;
+    const { core, client, before, asked, release } = await longer({
+      prepare: async (core, client) => {
+        core.on("answer.started", (event) => {
+          answer ??= { conversationId: event.conversationId ?? "", answerId: event.answerId };
+        });
+        core.on("mind.update", () => {
+          if (stopped || !answer || !applied(client).includes(NEW[0] as string)) return;
+          stopped = true;
+          void core.stopConversationAnswer(answer);
+        });
+      },
+    });
+    await answerEnded(core, asked.answerId);
+    release();
+    await client.settled();
+
+    expect(stopped).toBe(true);
+    expect(exactly(client)).toEqual(before);
   });
 
   // protects=Stop, or a model that fails, while edit_mind's new text is coming takes back what came: the Note is exactly as it was, and the card claims no change for the window to apply (#1635); fails_when=part of the new text stays in place of the old, or a change is claimed; no_claim=the words of the stop or the failure.
