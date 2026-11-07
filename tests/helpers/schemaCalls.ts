@@ -9,6 +9,7 @@ import { retryFigures } from "../../src/core/answers/figureRetry";
 import { retryQuotes } from "../../src/core/answers/quoteRetry";
 import { citeUnmarked } from "../../src/core/answers/unmarkedQuotes";
 import { createWindowBudget } from "../../src/core/answers/window";
+import { judgeWorkingText } from "../../src/core/answers/workingText";
 import { chatGroupClassifier } from "../../src/core/library/classifier";
 import type { ChatLanguageModel } from "../../src/core/providers/models";
 import { suggestionSchema } from "../../src/core/suggestions/prompt";
@@ -21,6 +22,7 @@ export const SCHEMA_CALLS = {
   "answers/figureRetry.ts": ["calculations"],
   "answers/quoteRetry.ts": ["quotes"],
   "answers/unmarkedQuotes.ts": ["citations"],
+  "answers/workingText.ts": ["part"],
   "library/classifier.ts": ["document_group", "folder_proposals"],
   "suggestions/index.ts": ["suggestion"],
   "tags/classify.ts": ["document_tags"],
@@ -111,6 +113,14 @@ export async function callEverySchema(model: ChatLanguageModel): Promise<AnswerE
     output: Output.object({ schema: suggestionSchema, name: "suggestion" }),
     maxRetries: 0,
   });
+  await judgeWorkingText(
+    model,
+    undefined,
+    signal,
+    "When are spring tides?",
+    "Spring tides come at new and full moon [^1].",
+    "Citations need to be recorded now.",
+  );
 
   const window = WINDOW;
   const request = { model, documents, signal };

@@ -45,6 +45,7 @@ const systemOf = (options: Options) =>
 /** The kinds a request of these instructions may be, as each call site names its own. */
 const KINDS: readonly [RegExp, readonly ModelCallKind[]][] = [
   [/^You check one sentence/, ["check-step"]],
+  [/^You say whether text a model wrote/, ["working-text"]],
   [/^You turn a Question from the User's notebook/, ["search-query"]],
   [/^You translate a query/, ["search-query"]],
   [/^You check an AI assistant's reply/, ["claimed-changes"]],
