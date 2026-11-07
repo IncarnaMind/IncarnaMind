@@ -70,9 +70,9 @@
         "underLine": "Oat biscuit box price"
       },
       {
-        "name": "Cora sends the allergen sheet to the printer",
+        "name": "The User sends the allergen sheet to the printer, in the first person",
         "kind": "action",
-        "pattern": "(?=[\\s\\S]*[Aa]llergen\\s+(?:[Ss]heet|[Ii]nformation|[Dd]etails))(?=[\\s\\S]*[Pp]rinter)(?=[\\s\\S]*(?:[Ee]mail|[Ss]end|[Ff]orward))(?=[\\s\\S]*\\b[Cc]ora\\b)(?=[\\s\\S]*(?:\\b[Mm]ar(?:ch)?\\.?\\s+8(?:th)?,?\\s+2027\\b|\\b8(?:th)?\\s+[Mm]ar(?:ch)?\\.?\\s+2027\\b|\\b2027[-/]0?3[-/]0?8\\b))[\\s\\S]+",
+        "pattern": "^(?![\\s\\S]*\\b[Cc]ora\\b)(?=[\\s\\S]*[Aa]llergen\\s+(?:[Ss]heet|[Ii]nformation|[Dd]etails))(?=[\\s\\S]*[Pp]rinter)(?=[\\s\\S]*(?:[Ee]mail|[Ss]end|[Ff]orward))(?=[\\s\\S]*(?:\\bI\\b(?![./-])|\\b[Mm]y\\b))(?=[\\s\\S]*(?:\\b[Mm]ar(?:ch)?\\.?\\s+8(?:th)?,?\\s+2027\\b|\\b8(?:th)?\\s+[Mm]ar(?:ch)?\\.?\\s+2027\\b|\\b2027[-/]0?3[-/]0?8\\b))[\\s\\S]+",
         "subject": "[Aa]llergen\\s+(?:[Ss]heet|[Ii]nformation|[Dd]etails)",
         "said": [4]
       },
@@ -163,9 +163,9 @@
         "underLine": "燕麦饼干每盒售价"
       },
       {
-        "name": "柯拉把过敏原信息表发给印刷商",
+        "name": "用户以第一人称把过敏原信息表发给印刷商",
         "kind": "action",
-        "pattern": "(?=[\\s\\S]*(?:过敏原|致敏原)(?:信息表|清单|说明表|说明|表))(?=[\\s\\S]*印刷(?:商|方|厂))(?=[\\s\\S]*(?:发送|发给|发往|寄给|交给|电邮|邮件))(?=[\\s\\S]*柯拉)(?=[\\s\\S]*(?:2027\\s*年\\s*3\\s*月\\s*8\\s*[日号]|2027[-/]0?3[-/]0?8\\b))[\\s\\S]+",
+        "pattern": "^(?![\\s\\S]*柯拉)(?=[\\s\\S]*(?:过敏原|致敏原)(?:信息表|清单|说明表|说明|表))(?=[\\s\\S]*印刷(?:商|方|厂))(?=[\\s\\S]*(?:发送|发给|发往|寄给|交给|电邮|邮件))(?=[\\s\\S]*我(?![们方]))(?=[\\s\\S]*(?:2027\\s*年\\s*3\\s*月\\s*8\\s*[日号]|2027[-/]0?3[-/]0?8\\b))[\\s\\S]+",
         "subject": "(?:过敏原|致敏原)(?:信息表|清单|说明表|说明|表)",
         "said": [4]
       },
@@ -261,9 +261,9 @@
         "said": [3]
       },
       {
-        "name": "Hugo runs the restore drill",
+        "name": "The User runs the restore drill, in the first person",
         "kind": "action",
-        "pattern": "(?=[\\s\\S]*[Rr]estore\\s+(?:[Dd]rill|[Tt]est|[Ee]xercise))(?=[\\s\\S]*(?:[Rr]un|[Cc]onduct|[Pp]erform))(?=[\\s\\S]*\\b[Hh]ugo\\b)(?=[\\s\\S]*(?:\\b[Aa]pr(?:il)?\\.?\\s+7(?:th)?,?\\s+2027\\b|\\b7(?:th)?\\s+[Aa]pr(?:il)?\\.?\\s+2027\\b|\\b2027[-/]0?4[-/]0?7\\b))[\\s\\S]+",
+        "pattern": "^(?![\\s\\S]*\\b[Hh]ugo\\b)(?=[\\s\\S]*[Rr]estore\\s+(?:[Dd]rill|[Tt]est|[Ee]xercise))(?=[\\s\\S]*(?:[Rr]un|[Cc]onduct|[Pp]erform))(?=[\\s\\S]*(?:\\bI\\b(?![./-])|\\b[Mm]y\\b))(?=[\\s\\S]*(?:\\b[Aa]pr(?:il)?\\.?\\s+7(?:th)?,?\\s+2027\\b|\\b7(?:th)?\\s+[Aa]pr(?:il)?\\.?\\s+2027\\b|\\b2027[-/]0?4[-/]0?7\\b))[\\s\\S]+",
         "subject": "[Rr]estore\\s+(?:[Dd]rill|[Tt]est|[Ee]xercise)",
         "said": [4]
       },
@@ -352,9 +352,9 @@
         "said": [3]
       },
       {
-        "name": "雨果进行恢复演练",
+        "name": "用户以第一人称进行恢复演练",
         "kind": "action",
-        "pattern": "(?=[\\s\\S]*恢复(?:演练|测试|试验))(?=[\\s\\S]*(?:进行|执行|开展|完成|做))(?=[\\s\\S]*雨果)(?=[\\s\\S]*(?:2027\\s*年\\s*4\\s*月\\s*7\\s*[日号]|2027[-/]0?4[-/]0?7\\b))[\\s\\S]+",
+        "pattern": "^(?![\\s\\S]*雨果)(?=[\\s\\S]*恢复(?:演练|测试|试验))(?=[\\s\\S]*(?:进行|执行|开展|完成|做))(?=[\\s\\S]*我(?![们方]))(?=[\\s\\S]*(?:2027\\s*年\\s*4\\s*月\\s*7\\s*[日号]|2027[-/]0?4[-/]0?7\\b))[\\s\\S]+",
         "subject": "恢复(?:演练|测试|试验)",
         "said": [4]
       },
@@ -439,9 +439,9 @@
         "underLine": "Apartment acoustic panels: material choice and division of work"
       },
       {
-        "name": "Priya orders cork samples",
+        "name": "The User orders cork samples, in the first person",
         "kind": "action",
-        "pattern": "(?=[\\s\\S]*[Cc]ork\\s+[Ss]amples?)(?=[\\s\\S]*(?:[Oo]rder|[Pp]urchas|[Bb]uy))(?=[\\s\\S]*\\b[Pp]riya\\b)(?=[\\s\\S]*(?:\\b[Mm]ay\\s+5(?:th)?,?\\s+2027\\b|\\b5(?:th)?\\s+[Mm]ay\\s+2027\\b|\\b2027[-/]0?5[-/]0?5\\b))[\\s\\S]+",
+        "pattern": "^(?![\\s\\S]*\\b[Pp]riya\\b)(?=[\\s\\S]*[Cc]ork\\s+[Ss]amples?)(?=[\\s\\S]*(?:[Oo]rder|[Pp]urchas|[Bb]uy))(?=[\\s\\S]*(?:\\bI\\b(?![./-])|\\b[Mm]y\\b))(?=[\\s\\S]*(?:\\b[Mm]ay\\s+5(?:th)?,?\\s+2027\\b|\\b5(?:th)?\\s+[Mm]ay\\s+2027\\b|\\b2027[-/]0?5[-/]0?5\\b))[\\s\\S]+",
         "subject": "[Cc]ork\\s+[Ss]amples?",
         "said": [4],
         "underLine": "Apartment acoustic panels: material choice and division of work"
@@ -523,9 +523,9 @@
         "underLine": "公寓吸音板：材料选择与工作分工"
       },
       {
-        "name": "普莉娅订购软木样品",
+        "name": "用户以第一人称订购软木样品",
         "kind": "action",
-        "pattern": "(?=[\\s\\S]*软木样(?:品|本))(?=[\\s\\S]*(?:订购|采购|购买|下单))(?=[\\s\\S]*普莉娅)(?=[\\s\\S]*(?:2027\\s*年\\s*5\\s*月\\s*5\\s*[日号]|2027[-/]0?5[-/]0?5\\b))[\\s\\S]+",
+        "pattern": "^(?![\\s\\S]*普莉娅)(?=[\\s\\S]*软木样(?:品|本))(?=[\\s\\S]*(?:订购|采购|购买|下单))(?=[\\s\\S]*我(?![们方]))(?=[\\s\\S]*(?:2027\\s*年\\s*5\\s*月\\s*5\\s*[日号]|2027[-/]0?5[-/]0?5\\b))[\\s\\S]+",
         "subject": "软木样(?:品|本)",
         "said": [4],
         "underLine": "公寓吸音板：材料选择与工作分工"
@@ -639,12 +639,12 @@
         "underLine": "hall + fee"
       },
       {
-        "name": "Maren sends the signed booking form",
+        "name": "The User sends the signed booking form, in the first person",
         "kind": "action",
         "pattern": [
           "booking\\s+(?:form|paperwork)|signed\\s+form",
           "(?:\\bMar(?:ch)?\\.?\\s+5(?:st|nd|rd|th)?\\b|\\b5(?:st|nd|rd|th)?\\s+(?:of\\s+)?Mar(?:ch)?\\b|\\b2027-03-05\\b)",
-          "(?<!\\bme\\b[\\s\\S]*)\\bMaren\\b(?![\\s\\S]*\\bme\\b)"
+          "(?<!\\bMaren\\b[\\s\\S]*)(?:\\bI\\b(?![./-])|\\bmy\\b)(?![\\s\\S]*\\bMaren\\b)"
         ],
         "subject": "booking\\s+(?:form|paperwork)|signed\\s+form",
         "said": [6]
@@ -873,11 +873,11 @@
         "underLine": "print run"
       },
       {
-        "name": "Leona sends the final cover file",
+        "name": "The User sends the final cover file, in the first person",
         "kind": "action",
         "pattern": [
           "\\bcover\\b",
-          "(?<!\\bme\\b[\\s\\S]*)\\bLeona\\b(?![\\s\\S]*\\bme\\b)",
+          "(?<!\\bLeona\\b[\\s\\S]*)(?:\\bI\\b(?![./-])|\\bmy\\b)(?![\\s\\S]*\\bLeona\\b)",
           "(?:\\bApr(?:il)?\\.?\\s+2(?:st|nd|rd|th)?\\b|\\b2(?:st|nd|rd|th)?\\s+(?:of\\s+)?Apr(?:il)?\\b|\\b2027-04-02\\b)"
         ],
         "subject": "\\bcover\\b",
@@ -1126,11 +1126,11 @@
         "underLine": "收购价"
       },
       {
-        "name": "苏晴把收购合同发给茶农",
+        "name": "用户以第一人称把收购合同发给茶农",
         "kind": "action",
         "pattern": [
           "合同",
-          "(?<!\\bme\\b[\\s\\S]*)苏晴(?![\\s\\S]*\\bme\\b)",
+          "(?<!苏晴[\\s\\S]*)我(?![们方])(?![\\s\\S]*苏晴)",
           "(?:(?<![\\d十])(?:4|04|四)\\s*月\\s*(?:1|01|一)\\s*[日号]|2027[-/.]0?4[-/.]0?1(?!\\d))"
         ],
         "subject": "合同",
@@ -1358,11 +1358,11 @@
         "underLine": "price + delivery"
       },
       {
-        "name": "Callum sends the site plan",
+        "name": "The User sends the site plan, in the first person",
         "kind": "action",
         "pattern": [
           "site\\s+plan",
-          "(?<!(?:\\bme\\b)[\\s\\S]*)\\bCallum\\b(?![\\s\\S]*(?:\\bme\\b))",
+          "(?<!\\bCallum\\b[\\s\\S]*)(?:\\bI\\b(?![./-])|\\bmy\\b)(?![\\s\\S]*\\bCallum\\b)",
           "(?:\\bMar(?:ch)?\\.?\\s+24(?:st|nd|rd|th)?\\b|\\b24(?:st|nd|rd|th)?\\s+(?:of\\s+)?Mar(?:ch)?\\b|\\b2027-03-24\\b)"
         ],
         "subject": "site\\s+plan",
@@ -1613,12 +1613,12 @@
         "underLine": "contract terms"
       },
       {
-        "name": "Rosalind returns the signed contract",
+        "name": "The User returns the signed contract, in the first person",
         "kind": "action",
         "pattern": [
           "contract",
           "\\bsign|\\breturn",
-          "(?<!(?:\\bme\\b)[\\s\\S]*)\\bRosalind\\b(?![\\s\\S]*(?:\\bme\\b))",
+          "(?<!\\bRosalind\\b[\\s\\S]*)(?:\\bI\\b(?![./-])|\\bmy\\b)(?![\\s\\S]*\\bRosalind\\b)",
           "(?:\\bMay\\.?\\s+14(?:st|nd|rd|th)?\\b|\\b14(?:st|nd|rd|th)?\\s+(?:of\\s+)?May\\b|\\b2027-05-14\\b)"
         ],
         "subject": "contract",
@@ -1861,11 +1861,11 @@
         "underLine": "价格和发货"
       },
       {
-        "name": "郁岚寄农残检测报告",
+        "name": "用户以第一人称寄农残检测报告",
         "kind": "action",
         "pattern": [
           "检测报告|农残",
-          "(?<!(?:\\bme\\b)[\\s\\S]*)郁岚(?![\\s\\S]*(?:\\bme\\b))",
+          "(?<!郁岚[\\s\\S]*)我(?![们方])(?![\\s\\S]*郁岚)",
           "(?:(?<![\\d十])(?:5|05|五)\\s*月\\s*(?:10|十)\\s*[日号]|2027[-/.]0?5[-/.]0?10(?!\\d))"
         ],
         "subject": "检测报告|农残|检测",
@@ -2021,6 +2021,721 @@
           "(?:(?<![\\d十])(?:6|06|六)\\s*月\\s*(?:5|05|五)\\s*[日号]|2027[-/.]0?6[-/.]0?5(?!\\d))"
         ],
         "subject": "鼓",
+        "said": [8]
+      }
+    ]
+  },
+  {
+    "id": "reserved-en-structured-j",
+    "language": "en",
+    "requireSections": true,
+    "openQuestions": false,
+    "notes": [
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "mode + price" }]
+      },
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "booking?" }]
+      },
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "pallets ready?" }]
+      }
+    ],
+    "turns": [
+      {
+        "side": "me",
+        "text": "Hello, this is Mira from Hollin Ceramics. I'd like to settle how our two pallets of mugs get to the Rotterdam warehouse."
+      },
+      {
+        "side": "them",
+        "text": "Tobias, Northway Freight. For that route I'd suggest air freight first: 3,900 dollars for both pallets, arriving within a week."
+      },
+      {
+        "side": "me",
+        "text": "That would eat our whole margin on the mugs, so no air freight. What would sea freight cost?"
+      },
+      {
+        "side": "them",
+        "text": "Sea freight is 1,150 dollars for both pallets, sailing from Felixstowe on September 21, 2027."
+      },
+      {
+        "side": "me",
+        "text": "Good. Then it's final: sea freight at 1,150 dollars, sailing September 21, 2027, and we drop the air freight idea."
+      },
+      {
+        "side": "them",
+        "text": "Confirmed, two pallets by sea for 1,150 dollars, sailing September 21, 2027. I'll email you the booking confirmation by September 3."
+      },
+      {
+        "side": "me",
+        "text": "Thanks. I'll send you the packing list by September 10."
+      },
+      {
+        "side": "them",
+        "text": "Good. And who gets the pallets wrapped and ready at your end?"
+      },
+      {
+        "side": "me",
+        "text": "Wen, our warehouse manager, will have both pallets shrink-wrapped and ready by September 17. That job is Wen's."
+      },
+      {
+        "side": "them",
+        "text": "Perfect, that covers everything on my side. I have no open questions."
+      },
+      {
+        "side": "me",
+        "text": "Nothing open on mine either. Thanks, Tobias."
+      }
+    ],
+    "facts": [
+      {
+        "name": "Sea freight for 1,150 dollars, sailing September 21, 2027",
+        "kind": "decision",
+        "pattern": [
+          "\\b(?:sea|ocean)\\b",
+          "(?:(?:\\$|US\\$|USD\\s*)1,?150(?:\\.00)?(?!\\d|[.,]\\d)|(?<![\\d.,])1,?150(?:\\.00)?\\s*(?:dollars|USD)\\b)",
+          "(?:\\bSep(?:t(?:ember)?)?\\.?\\s+21(?:st|nd|rd|th)?\\b|\\b21(?:st|nd|rd|th)?\\s+(?:of\\s+)?Sep(?:t(?:ember)?)?\\b|\\b2027-09-21\\b)"
+        ],
+        "subject": "\\b(?:sea|ocean)\\b|freight|shipping|shipment",
+        "said": [3, 4, 5],
+        "underLine": "mode + price"
+      },
+      {
+        "name": "The User sends the packing list, in the first person",
+        "kind": "action",
+        "pattern": [
+          "packing\\s+list",
+          "(?<!\\bMira\\b[\\s\\S]*)(?:\\bI\\b(?![./-])|\\bmy\\b)(?![\\s\\S]*\\bMira\\b)",
+          "(?:\\bSep(?:t(?:ember)?)?\\.?\\s+10(?:st|nd|rd|th)?\\b|\\b10(?:st|nd|rd|th)?\\s+(?:of\\s+)?Sep(?:t(?:ember)?)?\\b|\\b2027-09-10\\b)"
+        ],
+        "subject": "packing\\s+list",
+        "said": [6]
+      },
+      {
+        "name": "Tobias sends the booking confirmation",
+        "kind": "action",
+        "pattern": [
+          "booking|confirmation",
+          "\\bTobias\\b",
+          "(?:\\bSep(?:t(?:ember)?)?\\.?\\s+3(?:st|nd|rd|th)?\\b|\\b3(?:st|nd|rd|th)?\\s+(?:of\\s+)?Sep(?:t(?:ember)?)?\\b|\\b2027-09-03\\b)"
+        ],
+        "subject": "booking|confirmation",
+        "said": [5],
+        "underLine": "booking?"
+      },
+      {
+        "name": "Wen gets the pallets shrink-wrapped and ready",
+        "kind": "action",
+        "pattern": [
+          "shrink|wrap|ready|prepar",
+          "\\bWen\\b",
+          "(?:\\bSep(?:t(?:ember)?)?\\.?\\s+17(?:st|nd|rd|th)?\\b|\\b17(?:st|nd|rd|th)?\\s+(?:of\\s+)?Sep(?:t(?:ember)?)?\\b|\\b2027-09-17\\b)"
+        ],
+        "subject": "pallets?|shrink|wrap",
+        "said": [8],
+        "underLine": "pallets ready?"
+      }
+    ]
+  },
+  {
+    "id": "reserved-en-structured-k",
+    "language": "en",
+    "requireSections": true,
+    "openQuestions": true,
+    "notes": [
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "monthly fee" }]
+      },
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "documents needed" }]
+      },
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "VAT sign-up" }]
+      }
+    ],
+    "turns": [
+      {
+        "side": "me",
+        "text": "Thanks for taking the call. We run a small café in Leeds, and I'd like to hand over our bookkeeping and VAT returns from April."
+      },
+      {
+        "side": "them",
+        "text": "Happy to help. Our full-service package, with payroll and year-end accounts included, is 240 pounds a month."
+      },
+      {
+        "side": "me",
+        "text": "We only have two part-time staff, so payroll through you is overkill. Could you do just the bookkeeping and the quarterly VAT returns?"
+      },
+      {
+        "side": "them",
+        "text": "Yes, bookkeeping plus quarterly VAT returns is 195 pounds a month, starting April 1, 2027."
+      },
+      {
+        "side": "me",
+        "text": "Then it's final: 195 pounds a month for bookkeeping and VAT returns from April 1, 2027, and we drop the 240-pound package."
+      },
+      {
+        "side": "them",
+        "text": "Agreed, 195 pounds a month from April 1, 2027. We'll send you the engagement letter to sign by March 15."
+      },
+      {
+        "side": "me",
+        "text": "Good. I'll send you our last twelve months of bank statements by March 12."
+      },
+      {
+        "side": "them",
+        "text": "Thanks. Our VAT specialist, Ingrid, will register the café for quarterly returns by March 24."
+      },
+      {
+        "side": "me",
+        "text": "Great. What I don't know is whether the takings from our farmers' market stall count toward the VAT threshold."
+      },
+      {
+        "side": "them",
+        "text": "I can't say either until we've seen the stall's records, so that stays an open question."
+      },
+      {
+        "side": "me",
+        "text": "Agreed, the farmers' market question stays open for now."
+      }
+    ],
+    "facts": [
+      {
+        "name": "Bookkeeping and VAT returns for 195 pounds a month from April 1, 2027",
+        "kind": "decision",
+        "pattern": [
+          "bookkeeping",
+          "(?:(?:£|GBP\\s*)195(?:\\.00)?(?!\\d|[.,]\\d)|(?<![\\d.,])195(?:\\.00)?[\\s-]*(?:pounds?|GBP)\\b)",
+          "(?:\\bApr(?:il)?\\.?\\s+1(?:st|nd|rd|th)?\\b|\\b1(?:st|nd|rd|th)?\\s+(?:of\\s+)?Apr(?:il)?\\b|\\b2027-04-01\\b)"
+        ],
+        "subject": "bookkeeping|VAT|fee|package",
+        "said": [3, 4, 5],
+        "underLine": "monthly fee"
+      },
+      {
+        "name": "The User sends the bank statements, in the first person",
+        "kind": "action",
+        "pattern": [
+          "bank\\s+statements?",
+          "(?:\\bI\\b(?![./-])|\\bmy\\b)",
+          "(?:\\bMar(?:ch)?\\.?\\s+12(?:st|nd|rd|th)?\\b|\\b12(?:st|nd|rd|th)?\\s+(?:of\\s+)?Mar(?:ch)?\\b|\\b2027-03-12\\b)"
+        ],
+        "subject": "bank\\s+statements?",
+        "said": [6],
+        "underLine": "documents needed"
+      },
+      {
+        "name": "The other side sends the engagement letter",
+        "kind": "action",
+        "pattern": [
+          "engagement\\s+letter|\\bletter\\b",
+          "\\bother side\\b",
+          "(?:\\bMar(?:ch)?\\.?\\s+15(?:st|nd|rd|th)?\\b|\\b15(?:st|nd|rd|th)?\\s+(?:of\\s+)?Mar(?:ch)?\\b|\\b2027-03-15\\b)"
+        ],
+        "subject": "engagement\\s+letter|\\bletter\\b",
+        "said": [5]
+      },
+      {
+        "name": "Ingrid registers the café for quarterly VAT returns",
+        "kind": "action",
+        "pattern": [
+          "regist",
+          "\\bIngrid\\b",
+          "(?:\\bMar(?:ch)?\\.?\\s+24(?:st|nd|rd|th)?\\b|\\b24(?:st|nd|rd|th)?\\s+(?:of\\s+)?Mar(?:ch)?\\b|\\b2027-03-24\\b)"
+        ],
+        "subject": "regist|VAT",
+        "said": [7],
+        "underLine": "VAT sign-up"
+      }
+    ]
+  },
+  {
+    "id": "reserved-en-structured-l",
+    "language": "en",
+    "requireSections": true,
+    "openQuestions": false,
+    "sectionHeadings": {
+      "actions": "Action items"
+    },
+    "notes": [
+      {
+        "type": "heading",
+        "attrs": { "level": 2 },
+        "content": [{ "type": "text", "text": "Action items" }]
+      }
+    ],
+    "turns": [
+      {
+        "side": "me",
+        "text": "Hi, I'm Noor, the office manager at Fenwick Surveyors. I'm calling about renewing our CRM licences, which run out on June 30."
+      },
+      {
+        "side": "them",
+        "text": "Hi Noor, this is Kaito from Brightdesk. As it stands, your renewal is 30 seats at 48 dollars a seat per month."
+      },
+      {
+        "side": "me",
+        "text": "We're down to 22 people, so thirty seats is too many. Can we cut the seats and get a lower rate?"
+      },
+      {
+        "side": "them",
+        "text": "For 25 seats on a one-year term I can do 42 dollars a seat per month, starting July 1, 2027."
+      },
+      {
+        "side": "me",
+        "text": "Fine, let's settle it: 25 seats at 42 dollars a seat per month from July 1, 2027, instead of the 30 seats at 48 dollars."
+      },
+      {
+        "side": "them",
+        "text": "Confirmed, Noor: 25 seats at 42 dollars each per month from July 1, 2027. I'll send the updated order form by June 7."
+      },
+      {
+        "side": "me",
+        "text": "Thanks. I'll send you the list of active users by June 4, so you can match the seats."
+      },
+      {
+        "side": "them",
+        "text": "Good. And somebody needs to tidy the duplicate contacts before the renewal goes through."
+      },
+      {
+        "side": "me",
+        "text": "Beatriz, our IT contractor, will merge the duplicate contact records by June 14. That job is Beatriz's."
+      },
+      {
+        "side": "them",
+        "text": "Great. Once you have the updated order form, please sign and return it."
+      },
+      {
+        "side": "me",
+        "text": "I will sign and return the order form by June 11."
+      },
+      {
+        "side": "them",
+        "text": "Those are all the jobs. Nothing else is outstanding on my side."
+      },
+      {
+        "side": "me",
+        "text": "Nothing else on mine, no open questions. Thanks, Kaito."
+      }
+    ],
+    "facts": [
+      {
+        "name": "25 seats at 42 dollars a seat per month from July 1, 2027",
+        "kind": "decision",
+        "pattern": [
+          "(?<![\\d.,])(?:25|twenty-five)(?![\\d,]|\\.\\d)[\\s-]*(?:seats?|licen[cs]es?|users?)",
+          "(?:(?:\\$|US\\$|USD\\s*)42(?:\\.00)?(?!\\d|[.,]\\d)|(?<![\\d.,])42(?:\\.00)?\\s*(?:dollars|USD)\\b)",
+          "(?:\\bJul(?:y)?\\.?\\s+1(?:st|nd|rd|th)?\\b|\\b1(?:st|nd|rd|th)?\\s+(?:of\\s+)?Jul(?:y)?\\b|\\b2027-07-01\\b)"
+        ],
+        "subject": "seats?|licen[cs]es?|renewal|CRM",
+        "said": [3, 4, 5]
+      },
+      {
+        "name": "The User sends the list of active users, in the first person",
+        "kind": "action",
+        "pattern": [
+          "\\bactive\\s+users?\\b|\\buser\\s+list\\b|\\blist\\s+of\\s+(?:the\\s+)?users\\b",
+          "(?<!\\bNoor\\b[\\s\\S]*)(?:\\bI\\b(?![./-])|\\bmy\\b)(?![\\s\\S]*\\bNoor\\b)",
+          "(?:\\bJun(?:e)?\\.?\\s+4(?:st|nd|rd|th)?\\b|\\b4(?:st|nd|rd|th)?\\s+(?:of\\s+)?Jun(?:e)?\\b|\\b2027-06-04\\b)"
+        ],
+        "subject": "active\\s+users?|user\\s+list|list\\s+of\\s+(?:the\\s+)?users",
+        "said": [6]
+      },
+      {
+        "name": "Kaito sends the updated order form",
+        "kind": "action",
+        "pattern": [
+          "order\\s+form",
+          "\\bKaito\\b",
+          "(?:\\bJun(?:e)?\\.?\\s+7(?:st|nd|rd|th)?\\b|\\b7(?:st|nd|rd|th)?\\s+(?:of\\s+)?Jun(?:e)?\\b|\\b2027-06-07\\b)"
+        ],
+        "subject": "order\\s+form",
+        "said": [5]
+      },
+      {
+        "name": "Beatriz merges the duplicate contact records",
+        "kind": "action",
+        "pattern": [
+          "duplicate|merg|contacts?",
+          "\\bBeatriz\\b",
+          "(?:\\bJun(?:e)?\\.?\\s+14(?:st|nd|rd|th)?\\b|\\b14(?:st|nd|rd|th)?\\s+(?:of\\s+)?Jun(?:e)?\\b|\\b2027-06-14\\b)"
+        ],
+        "subject": "duplicate|contacts?",
+        "said": [8]
+      },
+      {
+        "name": "The User signs and returns the order form, in the first person",
+        "kind": "action",
+        "pattern": [
+          "order\\s+form",
+          "\\bsign|\\breturn",
+          "(?<!\\bNoor\\b[\\s\\S]*)(?:\\bI\\b(?![./-])|\\bmy\\b)(?![\\s\\S]*\\bNoor\\b)",
+          "(?:\\bJun(?:e)?\\.?\\s+11(?:st|nd|rd|th)?\\b|\\b11(?:st|nd|rd|th)?\\s+(?:of\\s+)?Jun(?:e)?\\b|\\b2027-06-11\\b)"
+        ],
+        "subject": "order\\s+form|\\bsign",
+        "said": [10]
+      }
+    ]
+  },
+  {
+    "id": "reserved-zh-structured-j",
+    "language": "zh-CN",
+    "requireSections": true,
+    "openQuestions": false,
+    "notes": [
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "维保费用" }]
+      },
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "合同" }]
+      },
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "现场检查" }]
+      }
+    ],
+    "turns": [
+      {
+        "side": "me",
+        "text": "你好，我是顾青，小区业委会的。今天想把电梯维保合同的价钱和起算日期定下来。"
+      },
+      {
+        "side": "them",
+        "text": "我是邵峰，宏达电梯的销售经理。上次我们报的是全包维保，一年三万六千元，零配件都包在里面。"
+      },
+      {
+        "side": "me",
+        "text": "零配件全包太贵了，我们十二部电梯都比较新。只做例行保养和故障响应，怎么算？"
+      },
+      {
+        "side": "them",
+        "text": "这样的话，一年两万八千八百元，从二〇二七年七月一日起算，合同期一年。"
+      },
+      {
+        "side": "me",
+        "text": "好，就这么定：电梯维保一年两万八千八百元，七月一日起算，三万六千元的全包方案不要了。"
+      },
+      {
+        "side": "them",
+        "text": "确认，一年两万八千八百元，七月一日起算。合同我六月十日前发给你们。"
+      },
+      {
+        "side": "me",
+        "text": "好。我六月十八日前把去年的电梯故障记录发给你们。"
+      },
+      {
+        "side": "them",
+        "text": "收到。现场检查那天，谁带我们的检修员逐部看电梯？"
+      },
+      {
+        "side": "me",
+        "text": "物业经理薛敏会在六月二十五日前带你们的检修员逐部看一遍，这件事交给薛敏。"
+      },
+      {
+        "side": "them",
+        "text": "好，我这边没有别的事了，也没有没解决的问题。"
+      },
+      {
+        "side": "me",
+        "text": "我这边也没有，今天的事都定了。"
+      }
+    ],
+    "facts": [
+      {
+        "name": "电梯维保一年两万八千八百元，七月一日起算",
+        "kind": "decision",
+        "pattern": [
+          "维保|保养|维护",
+          "(?<![\\d.一二三四五六七八九十百千万两]|\\d[,，])(?:[二两]万八千八百|2\\.88\\s*万|28,?800)(?![\\d.])\\s*(?:元|块|人民币)",
+          "(?:(?<![\\d十])(?:7|07|七)\\s*月\\s*(?:1|01|一)\\s*[日号]|2027[-/.]0?7[-/.]0?1(?!\\d))"
+        ],
+        "subject": "电梯|维保|保养",
+        "said": [3, 4, 5],
+        "underLine": "维保费用"
+      },
+      {
+        "name": "邵峰发合同",
+        "kind": "action",
+        "pattern": [
+          "合同",
+          "邵峰",
+          "(?:(?<![\\d十])(?:6|06|六)\\s*月\\s*(?:10|十)\\s*[日号]|2027[-/.]0?6[-/.]0?10(?!\\d))"
+        ],
+        "subject": "合同",
+        "said": [5],
+        "underLine": "合同"
+      },
+      {
+        "name": "用户以第一人称发电梯故障记录",
+        "kind": "action",
+        "pattern": [
+          "故障记录|维修记录|故障报告|故障",
+          "(?<!顾青[\\s\\S]*)我(?![们方])(?![\\s\\S]*顾青)",
+          "(?:(?<![\\d十])(?:6|06|六)\\s*月\\s*(?:18|十八)\\s*[日号]|2027[-/.]0?6[-/.]0?18(?!\\d))"
+        ],
+        "subject": "故障",
+        "said": [6]
+      },
+      {
+        "name": "薛敏带检修员看电梯",
+        "kind": "action",
+        "pattern": [
+          "检修|检查|巡检|看电梯|陪同|带领|带着|带",
+          "薛敏",
+          "(?:(?<![\\d十])(?:6|06|六)\\s*月\\s*(?:25|二十五|廿五)\\s*[日号]|2027[-/.]0?6[-/.]0?25(?!\\d))"
+        ],
+        "subject": "检修|检查|电梯",
+        "said": [8],
+        "underLine": "现场检查"
+      }
+    ]
+  },
+  {
+    "id": "reserved-zh-structured-k",
+    "language": "zh-CN",
+    "requireSections": true,
+    "openQuestions": true,
+    "notes": [
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "方案和价钱" }]
+      },
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "流程表" }]
+      },
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "化妆时间？" }]
+      }
+    ],
+    "turns": [
+      {
+        "side": "me",
+        "text": "你好，我们十月办婚礼，想订婚礼当天的摄影。今天把方案和价钱定下来，再把要准备的事分一分。"
+      },
+      {
+        "side": "them",
+        "text": "好的。我们先推荐全天两位摄影师跟拍的方案，一万五千八百元。"
+      },
+      {
+        "side": "me",
+        "text": "两位摄影师太多了，我们宾客只有六十个人。能不能一位摄影师全天跟拍？"
+      },
+      {
+        "side": "them",
+        "text": "可以。一位摄影师全天跟拍，含八十张精修照片，九千八百元，婚礼是二〇二七年十月十六日。"
+      },
+      {
+        "side": "me",
+        "text": "好，就这么定：一位摄影师全天跟拍，九千八百元，十月十六日，不要两位摄影师的方案了。"
+      },
+      {
+        "side": "them",
+        "text": "确认，九千八百元，十月十六日。拍摄合同我们九月五日前发给你们。"
+      },
+      {
+        "side": "me",
+        "text": "好。我八月二十八日前把婚礼的流程表发给你们。"
+      },
+      {
+        "side": "them",
+        "text": "收到。化妆那边的时间也要提前对一下，谁来联系？"
+      },
+      {
+        "side": "me",
+        "text": "化妆师程蕾会在九月二十日前把化妆时间表发给你们，这件事交给程蕾。"
+      },
+      {
+        "side": "them",
+        "text": "好。司仪那边的主持稿也要给我们看一下。"
+      },
+      {
+        "side": "me",
+        "text": "司仪罗展答应十月八日前把主持稿发给你们。这件事归罗展，不是我。"
+      },
+      {
+        "side": "them",
+        "text": "好。我现在回答不了的是酒店允不允许无人机航拍，要问场地方，这个先挂着。"
+      },
+      {
+        "side": "me",
+        "text": "我们也不清楚，航拍的事先放着，没人能回答。"
+      }
+    ],
+    "facts": [
+      {
+        "name": "一位摄影师全天跟拍，九千八百元，十月十六日",
+        "kind": "decision",
+        "pattern": [
+          "摄影",
+          "(?<![\\d.一二三四五六七八九十百千万两]|\\d[,，])(?:九千八百|9,?800|0\\.98\\s*万)(?![\\d.])\\s*(?:元|块|人民币)",
+          "(?:(?<![\\d十])(?:10|十)\\s*月\\s*(?:16|十六)\\s*[日号]|2027[-/.]0?10[-/.]0?16(?!\\d))"
+        ],
+        "subject": "摄影|拍摄|跟拍",
+        "said": [3, 4, 5],
+        "underLine": "方案和价钱"
+      },
+      {
+        "name": "用户以第一人称发婚礼流程表",
+        "kind": "action",
+        "pattern": [
+          "流程表|流程|日程",
+          "我(?![们方])",
+          "(?:(?<![\\d十])(?:8|08|八)\\s*月\\s*(?:28|二十八|廿八)\\s*[日号]|2027[-/.]0?8[-/.]0?28(?!\\d))"
+        ],
+        "subject": "流程表|流程|日程",
+        "said": [6],
+        "underLine": "流程表"
+      },
+      {
+        "name": "对方发拍摄合同",
+        "kind": "action",
+        "pattern": [
+          "合同",
+          "对方",
+          "(?:(?<![\\d十])(?:9|09|九)\\s*月\\s*(?:5|05|五)\\s*[日号]|2027[-/.]0?9[-/.]0?5(?!\\d))"
+        ],
+        "subject": "合同",
+        "said": [5]
+      },
+      {
+        "name": "程蕾发化妆时间表",
+        "kind": "action",
+        "pattern": [
+          "化妆",
+          "程蕾",
+          "(?:(?<![\\d十])(?:9|09|九)\\s*月\\s*(?:20|二十|廿)\\s*[日号]|2027[-/.]0?9[-/.]0?20(?!\\d))"
+        ],
+        "subject": "化妆",
+        "said": [8],
+        "underLine": "化妆时间？"
+      },
+      {
+        "name": "罗展发主持稿",
+        "kind": "action",
+        "pattern": [
+          "主持稿|主持",
+          "罗展",
+          "(?:(?<![\\d十])(?:10|十)\\s*月\\s*(?:8|08|八)\\s*[日号]|2027[-/.]0?10[-/.]0?8(?!\\d))"
+        ],
+        "subject": "主持稿|主持|司仪",
+        "said": [10]
+      }
+    ]
+  },
+  {
+    "id": "reserved-zh-structured-l",
+    "language": "zh-CN",
+    "requireSections": true,
+    "openQuestions": false,
+    "sectionHeadings": {
+      "actions": "待办"
+    },
+    "notes": [
+      {
+        "type": "heading",
+        "attrs": { "level": 2 },
+        "content": [{ "type": "text", "text": "待办" }]
+      }
+    ],
+    "turns": [
+      {
+        "side": "me",
+        "text": "你好，我是简宁，开花店的。想把店里小程序外包开发的价格和上线时间定下来。"
+      },
+      {
+        "side": "them",
+        "text": "我是胡昊，星桥软件的项目经理。之前报给你们的是六万八千元，九月底上线。"
+      },
+      {
+        "side": "me",
+        "text": "九月底太晚了，我们想赶在八月底前上线，价格也希望能低一些。"
+      },
+      {
+        "side": "them",
+        "text": "那就把后台管理砍掉一部分，五万二千元，八周完成，二〇二七年八月二十日上线。"
+      },
+      {
+        "side": "me",
+        "text": "好，就这么定：小程序五万二千元，八月二十日上线，原来六万八千元的方案不要了。"
+      },
+      {
+        "side": "them",
+        "text": "确认，五万二千元，八月二十日上线。简宁，我六月七日前把需求确认书发给你。"
+      },
+      {
+        "side": "me",
+        "text": "好的。我六月三日前把商品清单发给你们。"
+      },
+      {
+        "side": "them",
+        "text": "还需要会员数据，谁来整理？"
+      },
+      {
+        "side": "me",
+        "text": "店员阿佩会在六月十二日前把会员名单导出来发给你们，这件事交给阿佩。"
+      },
+      {
+        "side": "them",
+        "text": "好，三件事都清楚了，我这边没有别的遗留问题。"
+      },
+      {
+        "side": "me",
+        "text": "我这边也没有，没有待解决的问题。谢谢胡昊。"
+      }
+    ],
+    "facts": [
+      {
+        "name": "小程序五万二千元，八月二十日上线",
+        "kind": "decision",
+        "pattern": [
+          "小程序",
+          "(?<![\\d.一二三四五六七八九十百千万两]|\\d[,，])(?:五万二千?|5\\.2\\s*万|52,?000)(?![\\d.])\\s*(?:元|块|人民币)",
+          "(?:(?<![\\d十])(?:8|08|八)\\s*月\\s*(?:20|二十|廿)\\s*[日号]|2027[-/.]0?8[-/.]0?20(?!\\d))"
+        ],
+        "subject": "小程序|外包|开发",
+        "said": [3, 4, 5]
+      },
+      {
+        "name": "胡昊发需求确认书",
+        "kind": "action",
+        "pattern": [
+          "需求确认书|需求",
+          "胡昊",
+          "(?:(?<![\\d十])(?:6|06|六)\\s*月\\s*(?:7|07|七)\\s*[日号]|2027[-/.]0?6[-/.]0?7(?!\\d))"
+        ],
+        "subject": "需求确认书|需求",
+        "said": [5]
+      },
+      {
+        "name": "用户以第一人称发商品清单",
+        "kind": "action",
+        "pattern": [
+          "商品清单|商品",
+          "(?<!简宁[\\s\\S]*)我(?![们方])(?![\\s\\S]*简宁)",
+          "(?:(?<![\\d十])(?:6|06|六)\\s*月\\s*(?:3|03|三)\\s*[日号]|2027[-/.]0?6[-/.]0?3(?!\\d))"
+        ],
+        "subject": "商品清单|商品",
+        "said": [6]
+      },
+      {
+        "name": "阿佩导出会员名单",
+        "kind": "action",
+        "pattern": [
+          "会员名单|会员",
+          "阿佩",
+          "(?:(?<![\\d十])(?:6|06|六)\\s*月\\s*(?:12|十二)\\s*[日号]|2027[-/.]0?6[-/.]0?12(?!\\d))"
+        ],
+        "subject": "会员名单|会员",
         "said": [8]
       }
     ]
