@@ -1,6 +1,6 @@
 import { afterEach, beforeAll, describe, expect, test } from "vitest";
 import { keysLabel } from "../../src/renderer/src/commands/keys";
-import { buildMenu, type MenuEntry } from "../../src/renderer/src/commands/menus";
+import { buildMenu, isMenuItem, type MenuEntry } from "../../src/renderer/src/commands/menus";
 import {
   type CommandContext,
   commands,
@@ -118,7 +118,7 @@ class FakeElement {
 const english = (key: MessageKey, params?: MessageParams) => translate("en", key, params);
 const chinese = (key: MessageKey, params?: MessageParams) => translate("zh-CN", key, params);
 const idsIn = (entries: MenuEntry[]) =>
-  entries.flatMap((entry) => (entry === "rule" ? [] : [entry.command.id]));
+  entries.flatMap((entry) => (isMenuItem(entry) ? [entry.command.id] : []));
 
 let peek: typeof import("../../src/renderer/src/peek");
 

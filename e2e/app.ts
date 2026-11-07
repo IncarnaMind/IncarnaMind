@@ -2601,6 +2601,18 @@ export async function openPageMenu(window: Page): Promise<Locator> {
   return menu;
 }
 
+/**
+ * The More › submenu of an object's menu that is open, opened with a click on its row, as a person
+ * opens it. Its items sit beside the menu, not inside it.
+ */
+export async function openMoreMenu(window: Page, menu: Locator): Promise<Locator> {
+  const prefix = ((await menu.getAttribute("data-testid")) ?? "").replace(/-actions$/, "");
+  await pointAndClick(window, menu.getByTestId(`${prefix}-more`));
+  const more = window.locator(`[data-testid="${prefix}-more-menu"]:visible`);
+  await expect(more).toBeVisible();
+  return more;
+}
+
 /** Look › The Word file's look or Plain note, in a Word Note's ⋯ menu beside Style. */
 export async function chooseLook(window: Page, look: "word" | "plain"): Promise<void> {
   const menu = await openPageMenu(window);
@@ -3418,6 +3430,17 @@ export async function exportFromMenu(window: Page, format?: ExportFormat): Promi
     await expect(window.getByTestId("export-more-menu")).toBeVisible();
   }
   await pointAndClick(window, item);
+}
+
+/** Export's More formats › menu for the Mind in the shown tab, opened as a person opens it. */
+export async function openExportMore(window: Page): Promise<Locator> {
+  await pointAndClick(window, window.getByTestId("export-mind"));
+  const menu = window.getByTestId("export-menu");
+  await expect(menu).toBeVisible();
+  await pointAndClick(window, menu.getByTestId("export-more"));
+  const more = window.getByTestId("export-more-menu");
+  await expect(more).toBeVisible();
+  return more;
 }
 
 /** The fonts Chromium drew an element's text with, by name, and whether each is bundled with the app. */

@@ -376,6 +376,7 @@ export const zhCN = {
   "folder.refuse.inside": "文件夹不能放进它自己或其子文件夹中",
   "folder.delete": "删除",
   "mind.more": "“{title}”的更多操作",
+  "menu.more": "更多",
   "mind.open": "打开",
   "mind.count": "笔记（{count}）",
   "mind.moveTo": "移动到…",

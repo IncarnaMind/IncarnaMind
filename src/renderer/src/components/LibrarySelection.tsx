@@ -3,7 +3,7 @@ import { useShallow } from "zustand/react/shallow";
 import type { Document } from "../../../core/api";
 import type { CommandId } from "../../../shared/commands";
 import { keysHere, menuKeysLabel } from "../commands/keymap";
-import { buildMenu, type MenuItem } from "../commands/menus";
+import { buildMenu, isMenuItem, type MenuItem } from "../commands/menus";
 import { type CommandContext, commands, menuLabelOf } from "../commands/registry";
 import { dialogOrMenuOpen } from "../escapeDismiss";
 import { useLanguage, useT } from "../i18n";
@@ -108,7 +108,7 @@ export function LibrarySelectionBar({ shownIds }: { shownIds: readonly string[] 
     surface: "library",
     here: { "document.moveTo": () => moveBeside('[data-command="document.moveTo"]') },
   };
-  const offered = buildMenu("document", ctx).filter((entry): entry is MenuItem => entry !== "rule");
+  const offered = buildMenu("document", ctx).filter(isMenuItem);
   const named = NAMED.flatMap(({ id, from, keys }) => {
     const item = offered.find((entry) => entry.command.id === id);
     return item ? [{ item, from, keys: keys && keysHere(keys) }] : [];
