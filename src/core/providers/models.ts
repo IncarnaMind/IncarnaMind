@@ -175,9 +175,10 @@ export const summarizesReasoning = (kind: ChatProviderKind): boolean =>
 
 /**
  * The provider options of a call that thinks: its provider's summary of the reasoning, where it
- * gives one, and the effort the catalog gives the call's kind. None for a small call, a model
- * that doesn't think by default (thinking isn't turned on for one), or one the catalog knows
- * doesn't reason.
+ * gives one, and the effort the catalog gives the call's kind. None for a small call, a model the
+ * summary leaves out (one that doesn't think by default: thinking isn't turned on for it), or one
+ * the catalog knows doesn't reason; on a provider without a summary, only the effort its entry
+ * names for the model.
  */
 function thinkingOptions(
   spec: Pick<ChatModelSpec, "kind" | "modelId" | "endpoint" | "catalogId" | "thinking">,

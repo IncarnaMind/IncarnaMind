@@ -34,7 +34,6 @@ export const CLAUDE_LOW_EFFORT: ProviderOptions = {
 };
 
 const GEMINI_LOW: ProviderOptions = { google: { thinkingConfig: { thinkingLevel: "low" } } };
-const DEEPSEEK_LOW: ProviderOptions = { deepseek: { reasoningEffort: "low" } };
 const QWEN_THINKING_BUDGET = 512;
 const QWEN_BUDGET: ProviderOptions = { alibaba: { thinkingBudget: QWEN_THINKING_BUDGET } };
 const OPENROUTER_LOW: ProviderOptions = { openrouter: { reasoning: { effort: "low" } } };
@@ -257,7 +256,13 @@ const PROVIDERS = [
     docsUrl: "https://ai.google.dev/gemini-api/docs/models",
     pricingUrl: "https://ai.google.dev/gemini-api/docs/pricing",
     request: {
-      effort: { models: { "gemini-3.8-flash": { answer: GEMINI_LOW } } },
+      effort: {
+        models: { "gemini-3.8-flash": { answer: GEMINI_LOW } },
+        refused: [
+          { names: "thinking", options: { google: { thinkingConfig: undefined } } },
+          { names: "Thinking", options: { google: { thinkingConfig: undefined } } },
+        ],
+      },
     },
     roles: {
       answers: "gemini-3.8-flash",
@@ -435,14 +440,12 @@ const PROVIDERS = [
       },
     ],
     docsUrl: "https://api-docs.deepseek.com/quick_start/pricing",
-    // Its own effort, reasoning_effort (high by default), was measured at low on DeepSeek Flash
-    // (#1631): Answers finished 1.5 to 5 s sooner, but on the everyday requests one claimed a change
-    // it hadn't made and one asked instead of writing, and its comparison cells were judged right
-    // less often. So every kind thinks at its default.
-    request: {
-      thinkingOff: { options: { deepseek: { thinking: { type: "disabled" } } } },
-      effort: { models: { "deepseek-flash": { answer: DEEPSEEK_LOW } } },
-    },
+    // Its own effort, reasoning_effort (high by default), was measured at low on DeepSeek Flash twice
+    // (#1631): Answers finished sooner (about 5 s, then 9 s, on the everyday requests), but
+    // each time an everyday request failed at low that hadn't at the default (a change claimed but
+    // not made, then a write that changed nothing), and its comparison cells and its check of an
+    // Answer's sentences were judged right less often. So every kind thinks at its default.
+    request: { thinkingOff: { options: { deepseek: { thinking: { type: "disabled" } } } } },
     roles: {
       answers: "deepseek-flash",
       strongest: "deepseek-v4-pro",
@@ -504,7 +507,12 @@ const PROVIDERS = [
     docsUrl: "https://www.alibabacloud.com/help/en/model-studio/regions",
     request: {
       thinkingOff: { options: { alibaba: { enableThinking: false } } },
-      effort: { models: { "qwen3.7-plus": { task: QWEN_BUDGET } } },
+      effort: {
+        models: { "qwen3.7-plus": { task: QWEN_BUDGET } },
+        refused: [
+          { names: "thinking_budget", options: { alibaba: { thinkingBudget: undefined } } },
+        ],
+      },
     },
     roles: {
       answers: "qwen3.7-plus",
