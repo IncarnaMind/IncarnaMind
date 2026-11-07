@@ -21,7 +21,7 @@ export const WINDOW_ID =
   new URLSearchParams(globalThis.location?.search ?? "").get("window") ?? "main";
 
 /**
- * A group is never dragged narrower than this: 220px, and the 10px a tab list now keeps before its
+ * A group is never dragged narrower than this: 220px plus the 10px a tab list keeps before its
  * first tab. Narrower, the shown tab at its least width is too short for its own icon and ✕.
  */
 export const GROUP_MIN_WIDTH = 230;
