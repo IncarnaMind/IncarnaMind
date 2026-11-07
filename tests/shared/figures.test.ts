@@ -980,17 +980,12 @@ describe("the golden set", () => {
 describe("a period a Chinese sentence counts (#2215)", () => {
   const year = { kind: "other", word: "year" };
 
-  test.each([
-    "在这一年里",
-    "那一年",
-    "每一年",
-    "当一年",
-    "这一个月里",
-    "那一天",
-    "每一季度",
-  ])("%s states no count", (text) => {
-    expect(figuresInClaim(text, ZH)).toEqual([]);
-  });
+  test.each(["在这一年里", "那一年", "每一年", "当一年", "这一个月里", "那一天", "每一季度"])(
+    "%s states no count",
+    (text) => {
+      expect(figuresInClaim(text, ZH)).toEqual([]);
+    },
+  );
 
   test.each([
     ["一年内", "一年", 1],
