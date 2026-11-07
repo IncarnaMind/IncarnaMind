@@ -44,8 +44,7 @@ ul,ol{margin:0 0 .9rem;padding-left:1.5rem}
 li>p{margin-bottom:.3rem}
 ol.numbered{list-style:none}
 ol.numbered>li{position:relative}
-ol.numbered>li::before{content:attr(data-marker);position:absolute;right:100%;margin-right:.3rem;white-space:nowrap}
-ol.numbered>li.continued::before{content:none}
+ol.numbered>li>.list-marker{position:absolute;right:100%;margin-right:.3rem;white-space:nowrap}
 hr{margin:1.2rem 0;border:0;border-top:1px solid var(--rule-strong)}
 table{width:100%;margin:0 0 1.1rem;border-collapse:collapse;font-size:.95rem;line-height:1.4}
 th,td{padding:.3rem .5rem;border:1px solid var(--rule-strong);text-align:left;vertical-align:top}
