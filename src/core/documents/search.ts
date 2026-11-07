@@ -144,6 +144,49 @@ export function othersHoldTerms(
   return false;
 }
 
+/**
+ * The live Documents among `documentIds` (undefined: every Document) that a search term of `text`
+ * names: a term that only one of them holds, in its Passages or its name. In the order of the
+ * terms, each once.
+ */
+export function documentsNamedBy(
+  db: Database,
+  text: string,
+  documentIds: readonly string[] | undefined,
+): string[] {
+  const named: string[] = [];
+  for (const term of keywordTerms(text)) {
+    const match = `"${term.replaceAll('"', '""')}"`;
+    const holders = new Set(
+      db
+        .all<{ documentId: string }>(
+          `SELECT DISTINCT p.document_id AS documentId FROM passages_fts
+           JOIN passages p ON p.seq = passages_fts.rowid
+           JOIN documents d ON d.id = p.document_id
+           WHERE passages_fts MATCH ? AND p.deleted_at IS NULL AND d.deleted_at IS NULL
+             ${scopeClause(documentIds)}
+           LIMIT 2`,
+          [match, ...scopeParams(documentIds)],
+        )
+        .map((row) => row.documentId),
+    );
+    if (holders.size > 1) continue;
+    for (const { documentId } of db.all<{ documentId: string }>(
+      `SELECT n.document_id AS documentId FROM document_names_fts n
+       JOIN documents d ON d.id = n.document_id
+       WHERE document_names_fts MATCH ? AND d.deleted_at IS NULL
+         ${documentIds ? "AND d.id IN (SELECT value FROM json_each(?))" : ""}
+       LIMIT 2`,
+      [match, ...scopeParams(documentIds)],
+    )) {
+      holders.add(documentId);
+    }
+    const [only] = holders;
+    if (holders.size === 1 && only !== undefined && !named.includes(only)) named.push(only);
+  }
+  return named;
+}
+
 /** How many of a Document's best Passages a text search looks at for one that holds the words. */
 const PASSAGES_PER_DOCUMENT = 3;
 

@@ -274,6 +274,13 @@ export interface AnswerTools {
     signal?: AbortSignal,
     options?: AnswerSearchOptions,
   ): Promise<SearchResultForModel>;
+  /**
+   * The Documents to search that a word of `question` names, by their names as the instructions
+   * list them, when none of them holds a Passage of `passageIds` (#1633): a word that only that
+   * Document holds, in its Passages or its name. Empty when the Question names none, or its own
+   * search reached one.
+   */
+  namedNotReached?(question: string, passageIds: readonly string[]): readonly string[];
   /** Reads pages of a Document in the Search scope, when the Answer offers `read_document`. */
   readDocument?(request: ReadDocumentRequest): Promise<SearchResultForModel>;
   /** Takes Citation records; returns what to tell the model about them. */
@@ -1313,17 +1320,67 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
 
       // A model without Tools searches once, for the Question rewritten to stand on its own, and
       // again in the Documents' language if the Question is in another (see `searchLanguage`); the
-      // result is kept for the next way of answering if the provider refuses this one. The search
-      // made before the Tool loop's first call (#1633) is `asAsked`, neither rewritten nor
-      // translated: either is a call of its own before the first (the translation cost most of what
-      // answering in one call saved), and the loop's model searches on in other words when the
-      // Passages don't answer. It is the Answer's one search too: a way of answering after a refusal
-      // reads its Passages, since searching the same words again finds nothing new.
+      // result is kept for the next way of answering if the provider refuses this one.
       let searched: SearchResultForModel | undefined;
       const read = new Set<ReadThirdPartySource>();
-      async function* searchOnce(
-        asAsked = false,
-      ): AsyncGenerator<AnswerEngineEvent, SearchResultForModel> {
+      function* started(
+        id: string,
+        input: SearchInput,
+        parameters?: Partial<SearchToolParameters>,
+      ): Generator<AnswerEngineEvent, { pending: Promise<SearchResultForModel> }> {
+        yield {
+          type: "tool-call-started",
+          id,
+          provider: DOCUMENTS_PROVIDER,
+          tool: DOCUMENT_TOOLS.search,
+          input: { ...input },
+        };
+        const result = request.documents.searchDocuments(input.query, signal, {
+          ...(parameters && { parameters }),
+          ...(input.document !== undefined && { document: input.document }),
+        });
+        // Awaited in order; one that fails before then is told there.
+        result.catch(() => undefined);
+        // Wrapped: an async generator's yield* would await a promise returned bare.
+        return { pending: result };
+      }
+      async function* ended(
+        id: string,
+        { pending }: { pending: Promise<SearchResultForModel> },
+      ): AsyncGenerator<AnswerEngineEvent, SearchResultForModel | null> {
+        try {
+          const result = await pending;
+          for (const source of result.thirdParty ?? []) {
+            if (read.has(source)) continue;
+            read.add(source);
+            yield { type: "read-third-party", source };
+          }
+          yield {
+            type: "tool-call-finished",
+            id,
+            ok: true,
+            resultCount: result.passageCount,
+            ...(result.passageIds && { passages: result.passageIds }),
+          };
+          return result;
+        } catch (error) {
+          if (signal.aborted) throw error;
+          console.error(error);
+          yield {
+            type: "tool-call-finished",
+            id,
+            ok: false,
+            resultCount: null,
+            error: classifyProviderError(error),
+          };
+          return null;
+        }
+      }
+      const mergedOrFailed = (results: readonly SearchResultForModel[]): SearchResultForModel =>
+        results.length > 0
+          ? mergeSearches(results)
+          : { text: "The search of the User's Documents failed.", passageCount: 0 };
+      async function* searchOnce(): AsyncGenerator<AnswerEngineEvent, SearchResultForModel> {
         if (searched !== undefined) return searched;
         // The quick-tasks model is asked for once, and only if a call needs it.
         let small: Promise<SmallCallModel> | undefined;
@@ -1331,34 +1388,22 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
           small ??= smallCallModel(request, temperature());
           return small;
         };
-        const rewrite = asAsked
-          ? { value: request.question, usage: null }
-          : await inStep("search-rewrite", () => searchQuery(request, smallModel));
+        const rewrite = await inStep("search-rewrite", () => searchQuery(request, smallModel));
         if (rewrite.usage) yield { type: "usage", usage: rewrite.usage };
         const query = rewrite.value;
         signal.throwIfAborted();
         yield { type: "phase", phase: "searching" };
-        const searches: { id: string; result: Promise<SearchResultForModel> }[] = [];
-        function* search(id: string, each: string): Generator<AnswerEngineEvent> {
-          yield {
-            type: "tool-call-started",
-            id,
-            provider: DOCUMENTS_PROVIDER,
-            tool: DOCUMENT_TOOLS.search,
-            input: { query: each },
-          };
-          const result = request.documents.searchDocuments(each, signal, {
-            parameters: ONE_SEARCH_PARAMETERS,
-          });
-          // Awaited in order below; one that fails before then is told there.
-          result.catch(() => undefined);
-          searches.push({ id, result });
-        }
         // The Question's own search runs while the quick model translates it.
-        yield* search("question-search", query);
-        const language = asAsked
-          ? null
-          : searchLanguage(request.question, request.documents.documentLanguages ?? []);
+        const searches = [
+          {
+            id: "question-search",
+            result: yield* started("question-search", { query }, ONE_SEARCH_PARAMETERS),
+          },
+        ];
+        const language = searchLanguage(
+          request.question,
+          request.documents.documentLanguages ?? [],
+        );
         const translation = language
           ? await inStep("search-translation", () =>
               translatedQuery(request, query, language, smallModel),
@@ -1367,43 +1412,62 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
         if (translation?.usage) yield { type: "usage", usage: translation.usage };
         const translated = translation?.value ?? null;
         signal.throwIfAborted();
-        if (translated) yield* search("question-search-translated", translated);
-        const results: SearchResultForModel[] = [];
-        for (const { id, result: pending } of searches) {
-          try {
-            const result = await pending;
-            for (const source of result.thirdParty ?? []) {
-              if (read.has(source)) continue;
-              read.add(source);
-              yield { type: "read-third-party", source };
-            }
-            yield {
-              type: "tool-call-finished",
-              id,
-              ok: true,
-              resultCount: result.passageCount,
-              ...(result.passageIds && { passages: result.passageIds }),
-            };
-            results.push(result);
-          } catch (error) {
-            if (signal.aborted) throw error;
-            console.error(error);
-            yield {
-              type: "tool-call-finished",
-              id,
-              ok: false,
-              resultCount: null,
-              error: classifyProviderError(error),
-            };
-          }
+        if (translated) {
+          const id = "question-search-translated";
+          searches.push({
+            id,
+            result: yield* started(id, { query: translated }, ONE_SEARCH_PARAMETERS),
+          });
         }
-        const merged =
-          results.length > 0
-            ? mergeSearches(results)
-            : { text: "The search of the User's Documents failed.", passageCount: 0 };
-        searched = merged;
+        const results: SearchResultForModel[] = [];
+        for (const { id, result } of searches) {
+          const found = yield* ended(id, result);
+          if (found) results.push(found);
+        }
+        searched = mergedOrFailed(results);
         yield { type: "phase", phase: "writing" };
-        return merged;
+        return searched;
+      }
+      /**
+       * The searches made before the Tool loop's first call (#1633). The Question is searched as
+       * asked, neither rewritten nor translated: either is a call of its own before the first (the
+       * translation cost most of what answering in one call saved), and the loop's model searches
+       * on in other words when the Passages don't answer. Then, where its Passages come from none
+       * of the Documents its words name, it is searched again in each of those: answered in one
+       * call from another Document's Passages, an Answer went wrong where the loop's own search
+       * found the Document it was about. Their Passages are the Answer's one search too, for a way
+       * of answering after a refusal, since searching the same words again finds nothing new.
+       */
+      async function* searchFirst(): AsyncGenerator<AnswerEngineEvent, MadeSearch[]> {
+        yield { type: "phase", phase: "searching" };
+        const query = request.question;
+        const asked = yield* ended(
+          "question-search",
+          yield* started("question-search", { query }, ONE_SEARCH_PARAMETERS),
+        );
+        const made: MadeSearch[] = asked
+          ? [{ id: "question-search", input: { query }, result: asked }]
+          : [];
+        const named = asked
+          ? (request.documents.namedNotReached?.(query, asked.passageIds ?? []) ?? [])
+          : [];
+        const pending = [];
+        for (const [index, document] of named.entries()) {
+          const id = `question-search-named-${index + 1}`;
+          pending.push({
+            id,
+            input: { query, document },
+            result: yield* started(id, { query, document }),
+          });
+        }
+        for (const { id, input, result } of pending) {
+          const found = yield* ended(id, result);
+          if (found) made.push({ id, input, result: found });
+        }
+        signal.throwIfAborted();
+        searched = mergedOrFailed(made.map((each) => each.result));
+        yield { type: "phase", phase: "writing" };
+        return made;
       }
 
       // Structured output isn't tried for a model known to give none, unless it is where to start
@@ -1423,10 +1487,11 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
             // An experiment beside the catalog (#1633, ADR-0007's amendment): the loop starts from
             // the Question's own search and answers from it unless it needs more. Not while
             // there is nothing to search yet (web search on, or only unread Documents).
-            const presearched =
+            const made =
               request.retrieveFirst && request.documents.documentCount > 0
-                ? { result: yield* searchOnce(true), query: request.question, read: [...read] }
-                : undefined;
+                ? yield* searchFirst()
+                : [];
+            const presearched = made.length > 0 ? { searches: made, read: [...read] } : undefined;
             if (signal.aborted) return;
             attempt = fitted(() =>
               tempered((sent) =>
@@ -1779,38 +1844,53 @@ const runMessage = (message: AnswerMessage): RunMessage =>
 const PRESEARCH_NOTE =
   "IncarnaMind searched the Question's own words for you. If these Passages don't hold all of the answer, search again with other words before writing.";
 
-/** The search an Answer made before its first call (#1633), and the third-party text it read. */
-interface Presearched {
+/** What a search made by the engine looked for, as its card shows it: in one Document, or all. */
+interface SearchInput {
   query: string;
+  document?: string;
+}
+
+/** A search the engine made for the Answer, under the id its card has. */
+interface MadeSearch {
+  id: string;
+  input: SearchInput;
   result: SearchResultForModel;
+}
+
+/** The searches an Answer made before its first call (#1633), and the third-party text they read. */
+interface Presearched {
+  searches: readonly MadeSearch[];
   read: readonly ReadThirdPartySource[];
 }
 
 /**
- * The search made before the first call, as the Tool loop's own first call of it: its result read
- * as any search's is, and carried by the first request within the window.
+ * The searches made before the first call, as the Tool loop's own first calls of it, in order:
+ * each result read as any search's is, and carried by the first request within the window.
  */
 function presearchMessages(
-  { query, result }: Presearched,
+  { searches }: Presearched,
   tool: string,
   request: AnswerRequest,
   loop: ReturnType<WindowBudget["loop"]> | null,
 ): RunMessage[] {
-  const id = "question-search";
-  const input = { query };
-  const read = (passages: string) =>
-    `${fittedResultText(result, passages, request.documents, request.languageNote)}\n\n${PRESEARCH_NOTE}`;
-  const fitted = loop
-    ? loop.carried(result.text, result.passageCount, result.ranks, (passages) => [
-        JSON.stringify(input),
-        read(passages),
-      ])
-    : result;
-  request.fitted?.(fittedPassageIds(result, fitted.text));
-  return [
-    { role: "assistant", text: "", toolCalls: [{ id, tool, input }] },
-    { role: "tool", id, tool, result: read(fitted.text), ok: true },
-  ];
+  return searches.flatMap(({ id, input, result }, index): RunMessage[] => {
+    const last = index === searches.length - 1;
+    const read = (passages: string) => {
+      const text = fittedResultText(result, passages, request.documents, request.languageNote);
+      return last ? `${text}\n\n${PRESEARCH_NOTE}` : text;
+    };
+    const fitted = loop
+      ? loop.carried(result.text, result.passageCount, result.ranks, (passages) => [
+          JSON.stringify(input),
+          read(passages),
+        ])
+      : result;
+    request.fitted?.(fittedPassageIds(result, fitted.text));
+    return [
+      { role: "assistant", text: "", toolCalls: [{ id, tool, input: { ...input } }] },
+      { role: "tool", id, tool, result: read(fitted.text), ok: true },
+    ];
+  });
 }
 
 /** The Tools a Run offers, by the name the model calls them; never a Connector's with one of ours. */
@@ -1916,7 +1996,7 @@ async function* toolLoop(
    * Tool with `untrustedResult` that returned some, each call's gate is told.
    */
   let tainted = Boolean(
-    search?.untrustedResult && presearched && presearched.result.passageCount > 0,
+    search?.untrustedResult && presearched?.searches.some((each) => each.result.passageCount > 0),
   );
   /**
    * Why this Run counts as having read third-party text: what it started

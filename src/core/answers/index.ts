@@ -922,6 +922,8 @@ export interface DocumentsForAnswers
   recheckWhereSelected(quote: AskedQuote): CitedSelection;
   /** The languages the Documents to search are in, the most common first, with how many are in each. */
   searchableLanguages(documentIds: readonly string[] | null): DocumentLanguage[];
+  /** The Documents among these (null: every Document) that a word of `text` names: one only that Document holds. */
+  namedBy(text: string, documentIds: readonly string[] | null): string[];
   /** The Documents among these (null: every Document) whose text couldn't be read, or some of it. */
   unread(documentIds: readonly string[] | null): UnreadFile[];
   /** The Documents among these (null: every Document) whose text is still being read: nothing a search finds is from them yet. */
@@ -967,6 +969,12 @@ function inScope(
     passagesCovering: (documentId, from, to, overlapping) =>
       documents.passagesCovering(documentId, from, to, overlapping),
     documentNamed: (name) => documentNamedAmong(documents.searchableBySize(documentIds), name),
+    namedBy: (text) => {
+      const named = documents.namedBy(text, documentIds);
+      if (named.length === 0) return [];
+      const listed = documents.searchableBySize(documentIds);
+      return named.flatMap((id) => listed.find((each) => each.id === id) ?? []);
+    },
     annotationText: (query, within) => documents.highlightText(within ?? documentIds, query),
   };
 }
@@ -2960,6 +2968,8 @@ export function createAnswers(options: AnswersOptions) {
         readingDocuments: () => options.documents.reading(documentIds),
         searchDocuments: (query, signal, searchOptions) =>
           session.tools.searchDocuments(query, signal, searchOptions),
+        namedNotReached: (question, passageIds) =>
+          session.tools.namedNotReached?.(question, passageIds) ?? [],
         readDocument: (request) =>
           session.tools.readDocument?.(request) ??
           Promise.resolve({

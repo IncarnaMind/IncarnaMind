@@ -481,6 +481,9 @@ export function checkCitation(input: {
   return unsure.length > 0 ? { check: "cant-check", checkReason: "unsure-word", unsure } : FOUND;
 }
 
+/** The most Documents a Question's words name that are searched for it (#1633): each search reranks. */
+const NAMED_SEARCHES = 2;
+
 /** What the core needs from Documents for an Answer: search, and what Citations point to. */
 export interface AnswerDocuments {
   /** How many live Documents have Passages to search. */
@@ -505,6 +508,8 @@ export interface AnswerDocuments {
   documentDate(documentId: string): DocumentDate | null;
   /** The id of the Document to search named `name`, as the instructions list it; null for none. */
   documentNamed?(name: string): string | null;
+  /** The Documents to search that a word of `text` names, one only that Document holds, with their names as the instructions list them. */
+  namedBy?(text: string): readonly { id: string; name: string }[];
   /** The User's highlights and notes that hold the words (#327), as lines for the model; "" for none. */
   annotationText?(query: string, within?: readonly string[]): string;
   /** One live Passage by id, when reading around it is offered. */
@@ -2296,6 +2301,15 @@ export function createCitationSession(
           thirdParty: ["web-page"] as const,
         }),
       };
+    },
+
+    namedNotReached(question, passageIds) {
+      const named = documents.namedBy?.(question) ?? [];
+      const reached = new Set(
+        passageIds.map((passageId) => documents.citationSource(passageId)?.documentId),
+      );
+      if (named.some((each) => reached.has(each.id))) return [];
+      return named.slice(0, NAMED_SEARCHES).map((each) => each.name);
     },
 
     ...(documents.documentNamed && documents.passagesCovering && documents.passagesBetween

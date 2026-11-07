@@ -18,6 +18,7 @@ import {
   answerEnded,
   askAndFinish,
   citationsIn,
+  recordSearches,
   setUpWithDocuments,
   shownPassages,
 } from "../helpers/citations";
@@ -270,6 +271,74 @@ describe("An Answer that retrieves first", { timeout: 30_000 }, () => {
     );
 
     expect(finished.citationSupport).toBe("structured-output");
+    expect(citationsIn(client, answerId)).toMatchObject([{ quote: SPRING, check: "found" }]);
+  });
+
+  // Answered in one call from another Document's Passages, a Question about warm-up steps that
+  // named no Document went wrong where the loop's own search found the settings table (#1633).
+  test("searches the Question again in the Document a word of it names, when its own search reached none of them", async () => {
+    const ramp = "Ramp steps: 6,000 for both configurations.";
+    const asked = "For how many steps does the learning rate ramp up?";
+    const model = scriptedModel((call: ModelCall): ScriptedReply => {
+      const passage = call.results
+        .flatMap((result) => shownPassages(result.text))
+        .find((each) => each.text.includes(ramp));
+      if (!passage) return { text: "The Documents don't say." };
+      return {
+        text: "It ramps up for 6,000 steps[^1].",
+        calls: [
+          { tool: "cite", input: { citations: [{ marker: 1, passage: passage.id, quote: ramp }] } },
+        ],
+      };
+    });
+    const { searches, answerSearch } = recordSearches();
+    const { core, client, mind } = await setUpWithDocuments(
+      model,
+      [
+        {
+          name: "Schedules.md",
+          contents:
+            "# Schedules\n\nFor how many steps does the learning rate go up? It goes up for 2,000 steps, then the learning rate decays.",
+        },
+        {
+          name: "Glossary.md",
+          contents:
+            "# Glossary\n\nA learning rate says how far each update moves; how many steps it goes up for is set before a run.",
+        },
+        { name: "Kestrel settings.md", contents: `# Settings\n\n${ramp}` },
+      ],
+      {
+        answerPaths: { retrievesFirst: () => true, writesThenCites: () => true },
+        answerSearch: { ...answerSearch, maxPassages: 2 },
+      },
+    );
+    const cards: unknown[] = [];
+    core.on("answer.toolCallStarted", (event) => cards.push(event.call.input));
+
+    const { answerId } = await askAndFinish(core, client, mind.id, asked);
+
+    expect(searches[0]).toEqual(["Glossary", "Schedules"]);
+    expect(cards).toEqual([{ query: asked }, { query: asked, document: "Kestrel settings" }]);
+    expect(model.doStreamCalls).toHaveLength(1);
+    expect(citationsIn(client, answerId)).toMatchObject([{ quote: ramp, check: "found" }]);
+  });
+
+  test("searches once when its own search reached a Document a word of the Question names", async () => {
+    const { searches, answerSearch } = recordSearches();
+    const model = answering();
+    const { core, client, mind } = await setUpWithDocuments(
+      model,
+      [
+        { name: "Tides.md", contents: TIDES_MD },
+        { name: "Moon.md", contents: "# Moon\n\nThe moon goes round the earth in about a month." },
+      ],
+      { answerPaths: { retrievesFirst: () => true, writesThenCites: () => true }, answerSearch },
+    );
+
+    const { answerId } = await askAndFinish(core, client, mind.id, "When are spring tides?");
+
+    expect(searches).toEqual([["Tides"]]);
+    expect(model.doStreamCalls).toHaveLength(1);
     expect(citationsIn(client, answerId)).toMatchObject([{ quote: SPRING, check: "found" }]);
   });
 

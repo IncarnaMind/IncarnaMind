@@ -120,6 +120,7 @@ import { unsureSpansIn } from "./scan/layout";
 import { MIN_PAGE_TEXT } from "./scan/pages";
 import {
   distinctPassages,
+  documentsNamedBy,
   fuseRankingScores,
   fuseRankings,
   HYBRID_CANDIDATES,
@@ -2551,6 +2552,10 @@ export function createDocuments(options: DocumentsOptions) {
 
     /** How many live Documents have Passages to search: of all of them, or only of these. */
     searchableCount,
+
+    /** The Documents among these that a search term of `text` names (./search, `documentsNamedBy`). */
+    namedBy: (text: string, documentIds: readonly string[] | undefined) =>
+      documentsNamedBy(db, text, documentIds),
 
     /** Whether another Document among these holds half the words of `text` (./search, `othersHoldTerms`). */
     othersHoldTerms: (

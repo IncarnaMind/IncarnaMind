@@ -2217,6 +2217,7 @@ export function createCore(adapters: CoreAdapters): Core {
         documents.passagesCovering(documentId, from, to, overlapping),
       recheckWhereSelected: (quote) => recheckWhereSelected(documents, quote),
       searchableLanguages: (documentIds) => documents.searchableLanguages(documentIds ?? undefined),
+      namedBy: (text, documentIds) => documents.namedBy(text, documentIds ?? undefined),
       unread: (documentIds) => findUnreadDocuments(documents.unread(documentIds ?? undefined)),
       reading: (documentIds) =>
         documents.reading(documentIds ?? undefined).map((each) => ({ name: each.name })),
