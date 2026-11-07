@@ -32,7 +32,7 @@ import { useReadableQuote } from "./citationScan";
 import type { ShownClaim } from "./claimChecks";
 import { ClaimMarkIcon } from "./icons";
 import { LibrarySource } from "./LibrarySource";
-import { SignOffsContext } from "./mindContext";
+import { SignOffsContext, useCitedOrigin } from "./mindContext";
 import { PropertySource, showFileProperties } from "./PropertySource";
 import { SignOffLine, SignOffToggle } from "./SignOff";
 import {
@@ -55,6 +55,7 @@ function PartCitation({
   citation: CitationAttributes;
   onOpen(): void;
 }) {
+  const origin = useCitedOrigin();
   const t = useT();
   const documents = useAppStore((store) =>
     store.status.kind === "ready" ? store.documents : null,
@@ -90,7 +91,7 @@ function PartCitation({
     if (property) return showFileProperties(citation.documentId, onOpen);
     void openCited(
       { ...citation, documentId: state.documentId ?? citation.documentId },
-      { check: state.check, withQuote: quoteSaysSo(state.check), label: where },
+      { origin, check: state.check, withQuote: quoteSaysSo(state.check), label: where },
     );
     onOpen();
   };

@@ -102,8 +102,9 @@ const CATCH_UP_CHUNK_MS = 20_000;
 /** The speed probe counts once this much audio has been decoded live. */
 const PROBE_MS = 30_000;
 /**
- * Partial text reaches the window at most this often: cloud services send theirs every 0.2 to
- * 0.3 s, and the live Transcript keeps up with them without layout shifts or long tasks (#138).
+ * Partial text reaches the window at once, then at most this often: cloud services send theirs
+ * every 0.2 to 0.3 s, and the live Transcript keeps up with them without layout shifts or long
+ * tasks (#138).
  */
 const PARTIAL_EVERY_MS = 250;
 /** Cloud audio is counted against the cap this much ahead of what is sent, so the cap is never passed. */
@@ -228,6 +229,8 @@ interface State extends Saved {
   lastIndexed: number;
   indexTimer: ReturnType<typeof setTimeout> | null;
   partialTimer: ReturnType<typeof setTimeout> | null;
+  /** Partial text changed while `partialTimer` waits. */
+  partialDue: boolean;
   finishing: Promise<void> | null;
   /** A voice memo (#1568): its lines name no speaker, and no pass tells speakers apart. */
   memo: boolean;
@@ -393,6 +396,7 @@ export function createTranscripts(options: TranscriptsOptions) {
       lastIndexed: 0,
       indexTimer: null,
       partialTimer: null,
+      partialDue: false,
       finishing: null,
       memo: options.memo?.(meetingId) ?? false,
       words: null,
@@ -623,10 +627,7 @@ export function createTranscripts(options: TranscriptsOptions) {
     if (!segment.final) {
       if (!live || state.state !== "live") return;
       state.partials.set(segment.stream, { startMs, text, id: segment.id, speaker });
-      state.partialTimer ??= setTimeout(() => {
-        state.partialTimer = null;
-        options.changed();
-      }, PARTIAL_EVERY_MS);
+      partialChanged(state);
       return;
     }
     if (live && state.partials.get(segment.stream)?.id === segment.id) {
@@ -648,6 +649,20 @@ export function createTranscripts(options: TranscriptsOptions) {
     }
     writeLines(state);
     options.changed();
+  }
+
+  /** Tells the window of the partial text: at once, then the latest at most every `PARTIAL_EVERY_MS` (#2662). */
+  function partialChanged(state: State): void {
+    if (state.partialTimer) {
+      state.partialDue = true;
+      return;
+    }
+    state.partialDue = false;
+    options.changed();
+    state.partialTimer = setTimeout(() => {
+      state.partialTimer = null;
+      if (state.partialDue) partialChanged(state);
+    }, PARTIAL_EVERY_MS);
   }
 
   /** The speed probe: how long decoding takes for the audio it decodes, kept for the next Meeting's choice of model. */
@@ -881,9 +896,10 @@ export function createTranscripts(options: TranscriptsOptions) {
       startCloud(state, live);
       return;
     }
+    // Ready too: a speech model from before #2662 gets its streaming model in the background.
+    model.ensure();
     if (model.status().state !== "ready") {
       state.state = "preparing";
-      model.ensure();
       return;
     }
     if (state.state !== "behind") state.state = "preparing";
