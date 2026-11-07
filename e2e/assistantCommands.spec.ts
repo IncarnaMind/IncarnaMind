@@ -1,6 +1,7 @@
 import { readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
+import type { Editor } from "@tiptap/core";
 import type { CoreBridge } from "../src/core/api";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
@@ -314,6 +315,114 @@ test("a file that appears while the export card waits refreshes it, marks the ne
   const allowed = assistantAnswers(window).last();
   await expect(allowed).toHaveAttribute("data-status", "done", { timeout: 15_000 });
   await expect.poll(() => readdir(elsewhere)).toEqual(["Deal notes 2.docx", "Deal notes.docx"]);
+  await app.close();
+});
+
+/** Pictures at the end of the Note in front, each its own colour so each is its own file (#2514). */
+async function addPictures(window: Page, from: number, count: number): Promise<void> {
+  await window.getByTestId("mind-editor").evaluate(
+    (dom, [first, many]) => {
+      const pictures = Array.from({ length: many }, (_, index) => {
+        const canvas = document.createElement("canvas");
+        canvas.width = 8;
+        canvas.height = 8;
+        const drawing = canvas.getContext("2d");
+        if (!drawing) throw new Error("Canvas is unavailable.");
+        drawing.fillStyle = `hsl(${(first + index) * 13}, 70%, 50%)`;
+        drawing.fillRect(0, 0, 8, 8);
+        return {
+          type: "paragraph",
+          content: [
+            {
+              type: "image",
+              attrs: { src: canvas.toDataURL("image/png"), alt: `Chart ${first + index}` },
+            },
+          ],
+        };
+      });
+      const { editor } = dom as unknown as { editor: Editor };
+      editor.commands.insertContentAt(editor.state.doc.content.size, pictures);
+    },
+    [from, count] as const,
+  );
+}
+
+test("a Markdown export with pictures names every file on its card, a long list scrolls inside it, and the keyboard allows it, narrow and wide, in English and Chinese", async () => {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await useLocalChatModel(window);
+  await setUp(app, window);
+  await useOutputLocation(window, out);
+  await addPictures(window, 1, 2);
+  const names = (card: Locator) =>
+    card
+      .getByTestId("approval-file")
+      .evaluateAll((rows) => rows.map((row) => row.firstChild?.textContent ?? ""));
+
+  const words = {
+    en: { 3: "This writes 3 new files", 25: "This writes 25 new files" },
+    "zh-CN": { 3: "写入 3 个新文件", 25: "写入 25 个新文件" },
+  } as const;
+  /** The card at a wide and a narrow window, in English and Chinese, while it waits. */
+  async function everyLayout(card: Locator, count: 3 | 25): Promise<string[]> {
+    const listed = await names(card);
+    expect(listed).toHaveLength(count);
+    expect(listed[0]).toBe("Deal notes.md");
+    expect(listed.slice(1).every((name) => /^picture-[0-9a-f]{12}\.png$/.test(name))).toBe(true);
+    for (const language of ["en", "zh-CN"] as const) {
+      await setLanguage(window, language);
+      for (const width of [1440, 900]) {
+        await setWindowSize(app, window, width, 900);
+        await expect(card.locator(".approval-explanation")).toContainText(words[language][count]);
+        // One name to a row, each whole: a long name wraps inside the card rather than being cut.
+        const files = card.getByTestId("approval-files");
+        expect(
+          await files.evaluate((list) => {
+            const rows = [...list.children].map((row) => row.getBoundingClientRect());
+            return {
+              oneColumn: rows.every((row) => row.left === rows[0]?.left),
+              cut: list.scrollWidth > list.clientWidth,
+            };
+          }),
+        ).toEqual({ oneColumn: true, cut: false });
+        // The list scrolls inside the card, and the card's buttons stay in the window.
+        expect(await files.evaluate((list) => list.scrollHeight > list.clientHeight)).toBe(
+          count === 25,
+        );
+        await expect(card.getByTestId("approval-allow-once")).toBeInViewport();
+        await screenshot(window, `commands-export-${count}-files-${language}-${width}`);
+      }
+    }
+    await setLanguage(window, "en");
+    return listed;
+  }
+
+  const three = await askAndWait(window, `Export this Mind as Markdown to ${elsewhere}`);
+  await everyLayout(three, 3);
+  await pointAndClick(window, three.getByTestId("approval-deny"));
+  await expect(assistantAnswers(window).last()).toHaveAttribute("data-status", "done", {
+    timeout: 15_000,
+  });
+  expect(await readdir(elsewhere)).toEqual([]);
+
+  // By the keyboard: from the card's title, Tab reaches the long list, End scrolls it to its
+  // last name, Tab reaches Allow, and Enter allows.
+  await addPictures(window, 3, 22);
+  const card = await askAndWait(window, `Export this Mind as Markdown to ${elsewhere}`);
+  const listed = await everyLayout(card, 25);
+  const files = card.getByTestId("approval-files");
+  await pointAndClick(window, card.locator(".approval-title-text"));
+  await window.keyboard.press("Tab");
+  await expect(files).toBeFocused();
+  await window.keyboard.press("End");
+  await expect(card.getByTestId("approval-file").last()).toBeInViewport();
+  await window.keyboard.press("Tab");
+  await expect(card.getByTestId("approval-allow-once")).toBeFocused();
+  await window.keyboard.press("Enter");
+  await expect(assistantAnswers(window).last()).toHaveAttribute("data-status", "done", {
+    timeout: 15_000,
+  });
+  await expect.poll(async () => (await readdir(elsewhere)).sort()).toEqual([...listed].sort());
   await app.close();
 });
 

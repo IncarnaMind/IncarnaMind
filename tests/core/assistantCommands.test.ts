@@ -17,9 +17,11 @@ import { createTempDataFolder, nextEvent } from "../helpers/core";
 import { waitForProcessing } from "../helpers/documents";
 import { unzip } from "../helpers/docx";
 import type { MindClient } from "../helpers/mindClient";
-import { note, writeMind } from "../helpers/minds";
+import { editMind, note, writeMind } from "../helpers/minds";
 import { type ModelCall, scriptedModel } from "../helpers/models";
 import { fakePrinter } from "../helpers/printer";
+import { wordFile, picture as wordPicture } from "../helpers/word";
+import { importWordBytes } from "../helpers/wordMinds";
 
 /**
  * The assistant does what the app can (#1110), through the core's public interface as the
@@ -564,10 +566,13 @@ describe("Commands that reach outside IncarnaMind wait for the User (#1110)", {
     const folder = join(await createTempDataFolder(), "not-a-folder");
     await writeFile(folder, "A file, not a folder.");
     const { core, mind } = await setUpWithDocuments(exportMind(folder), DOCUMENTS);
-    await expect(core.previewMindExport(mind.id, { format: "markdown" }, folder)).rejects.toThrow();
+    await expect(
+      core.previewMindExport(mind.id, { format: "markdown" }, folder),
+    ).rejects.toMatchObject({ code: "ENOTDIR" });
+    expect(await readFile(folder, "utf8")).toBe("A file, not a folder.");
   });
 
-  // protects=Allow writes exactly the files the card named: a file appearing while it waits makes the card ask again, and the first Allow writes nothing; fails_when=the export silently picks the next free name; why_new=Codex reproduced Tides 2.md written from a card that named Tides.md; no_claim=the card's look.
+  // protects=Allow writes exactly the files the card named: a file appearing while it waits makes the card ask again, and the first Allow writes nothing; fails_when=the export silently picks the next free name; why_new=a card that named Tides.md must never lead to Tides 2.md; no_claim=the card's look.
   test("a file that appears after the card asks again before writing, and only what is allowed then is written", async () => {
     const elsewhere = await createTempDataFolder();
     const { core, mind } = await setUpWithDocuments(exportMind(elsewhere), DOCUMENTS);
@@ -597,7 +602,7 @@ describe("Commands that reach outside IncarnaMind wait for the User (#1110)", {
     expect((await readdir(elsewhere)).sort()).toEqual(["Tides 2.md", "Tides.md"]);
   });
 
-  // protects=Allow writes exactly the file the card named, even when the name appears during the print; fails_when=the export writes "Tides 2.pdf" from a card that named "Tides.pdf"; why_new=Codex reproduced the deferred print; no_claim=the card's look.
+  // protects=Allow writes exactly the file the card named, even when the name appears during the print; fails_when=the export writes "Tides 2.pdf" from a card that named "Tides.pdf"; why_new=a name taken during a slow print must not move the write to the next free name; no_claim=the card's look.
   test("a name taken while the export prints asks again, and the first Allow writes nothing", async () => {
     const elsewhere = await createTempDataFolder();
     let release = () => {};
@@ -656,7 +661,7 @@ describe("Commands that reach outside IncarnaMind wait for the User (#1110)", {
     );
   });
 
-  // protects=Allow writes exactly the files the card named: a picture added while it waits makes the card ask again with the new list; fails_when=the export writes a picture the card never named; why_new=Codex reproduced an unlisted GIF; no_claim=the card's look.
+  // protects=Allow writes exactly the files the card named: a picture added while it waits makes the card ask again with the new list; fails_when=the export writes a picture the card never named; why_new=a picture added while the card waits must not be written unlisted; no_claim=the card's look.
   test("a picture added while the card waits makes it ask again with the new list", async () => {
     const elsewhere = await createTempDataFolder();
     const { core, mind, client } = await setUpWithDocuments(exportMind(elsewhere), DOCUMENTS);
@@ -697,6 +702,80 @@ describe("Commands that reach outside IncarnaMind wait for the User (#1110)", {
       "Tides.md",
       "picture-6b7fa434f92a.png",
       "picture-ef1955ae757c.gif",
+    ]);
+  });
+
+  // protects=the card applies the saved export choices the write applies: with someone's changes saved as accepted, a picture they deleted is neither named nor written; fails_when=the card previews with the format alone and names the deleted picture; no_claim=the card's look.
+  test("with someone's changes saved as accepted, the card names the pictures Allow writes, and not the one they deleted", async () => {
+    const elsewhere = await createTempDataFolder();
+    const { core, dataDir } = await setUpWithDocuments(
+      calling(
+        find("Redline pictures", "mind"),
+        run("mind.export", { format: "markdown", folder: elsewhere }),
+      ),
+      DOCUMENTS,
+    );
+    const PRIYA = 'w:author="Priya Nair" w:date="2026-10-02T09:00:00Z"';
+    const { mindId, client } = await importWordBytes(
+      core,
+      dataDir,
+      wordFile({
+        body: [
+          `<w:p>${wordPicture("rId5", "A kept chart")}</w:p>`,
+          `<w:p><w:pPr><w:rPr><w:del w:id="3" ${PRIYA}/></w:rPr></w:pPr><w:del w:id="4" ${PRIYA}><w:r><w:delText xml:space="preserve">The old chart: </w:delText></w:r></w:del></w:p>`,
+        ].join(""),
+        media: {
+          rId5: {
+            name: "media/image1.png",
+            data: Buffer.from(PIXEL.split(",")[1] ?? "", "base64"),
+          },
+        },
+        rels: `<Relationship Id="rId5" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image1.png"/>`,
+      }),
+      { name: "Redline pictures.docx", origin: "someone-else" },
+    );
+    // Priya deleted the paragraph that holds the old chart: the picture goes with it.
+    editMind(client, (blocks) =>
+      blocks.map((block) =>
+        (block.attrs?.proposal as { kind?: string } | undefined)?.kind === "delete"
+          ? {
+              ...block,
+              content: [
+                ...(block.content ?? []),
+                { type: "image", attrs: { src: PICTURE, alt: "The old chart" } },
+              ],
+            }
+          : block,
+      ),
+    );
+    await client.settled();
+    expect(
+      (await core.previewMindExport(mindId, { format: "markdown", theirChanges: "shown" }))
+        .pictures,
+    ).toEqual(["picture-6b7fa434f92a.png", "picture-ef1955ae757c.gif"]);
+    const saved = await core.getSettings();
+    await core.updateSettings({
+      user: { exportOptions: { ...saved.user.exportOptions, theirChanges: "accepted" } },
+    });
+
+    const requested = nextEvent(core, "approval.requested");
+    const asking = askAssistant(core, {
+      text: "Export this Note as Markdown to that folder",
+      mindId,
+    });
+    const request = await requested;
+    expect(request).toMatchObject({
+      ask: {
+        kind: "export",
+        fileName: "Redline pictures.md",
+        pictures: ["picture-6b7fa434f92a.png"],
+      },
+    });
+    await core.respondToApproval(request.requestId, "allow-once");
+    await asking;
+    expect((await readdir(elsewhere)).sort()).toEqual([
+      "Redline pictures.md",
+      "picture-6b7fa434f92a.png",
     ]);
   });
 

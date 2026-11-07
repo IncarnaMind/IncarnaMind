@@ -5,7 +5,7 @@
 import { DOMParser } from "linkedom";
 import { act, type ComponentType, createElement } from "react";
 import { createRoot } from "react-dom/client";
-import { afterEach, beforeAll, expect, test, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import type { CommandApprovalRequest } from "../../src/core/api";
 
 const request = (previous: boolean, count: number): CommandApprovalRequest => {
@@ -98,40 +98,83 @@ async function render(approval: CommandApprovalRequest) {
   return container;
 }
 
-test("a changed list says so, marks what is new, and holds Allow for a moment", async () => {
-  vi.useFakeTimers();
-  const card = await render(request(true, 3));
-  expect(card.querySelector(".approval-title")?.textContent).toContain(
-    "The files changed since you looked. Allow these instead?",
+/** Each row's name, without the New mark beside it. */
+const namesOn = (card: HTMLElement) =>
+  Array.from(
+    card.querySelectorAll('[data-testid="approval-file"]'),
+    (row) => row.firstChild?.textContent,
   );
-  const files = card.querySelectorAll('[data-testid="approval-file"]');
-  expect(files).toHaveLength(3);
-  expect(files[2]?.textContent).toContain("New");
-  expect(card.querySelectorAll('[data-testid="approval-file-new"]')).toHaveLength(1);
-  expect(card.querySelector(".approval-explanation")?.textContent).toBe(
-    "This writes 3 new files outside your Output location.",
-  );
-  const allow = card.querySelector('[data-testid="approval-allow-once"]') as HTMLButtonElement;
-  expect(allow.disabled).toBe(true);
-  await act(() => vi.advanceTimersByTime(1_000));
-  expect(allow.disabled).toBe(false);
-});
 
-test("a list that did not change keeps today's title, and Allow works at once", async () => {
-  const card = await render(request(false, 3));
-  expect(card.querySelector(".approval-title")?.textContent).toContain(
-    "Save “Tides” as Markdown (.md) in “Exports”?",
+/** The names marked New. */
+const markedNew = (card: HTMLElement) =>
+  Array.from(
+    card.querySelectorAll('[data-testid="approval-file-new"]'),
+    (mark) => mark.parentElement?.firstChild?.textContent,
   );
-  expect(card.querySelectorAll('[data-testid="approval-file-new"]')).toHaveLength(0);
-  const allow = card.querySelector('[data-testid="approval-allow-once"]') as HTMLButtonElement;
-  expect(allow.disabled).toBe(false);
-});
 
-test("a long list lists every name, in its own scrolling list, and the count follows it", async () => {
-  const card = await render(request(false, 25));
-  expect(card.querySelectorAll('[data-testid="approval-file"]')).toHaveLength(25);
-  expect(card.querySelector(".approval-explanation")?.textContent).toBe(
-    "This writes 25 new files outside your Output location.",
-  );
-  expect(card.querySelector('[data-testid="approval-files"]')).not.toBeNull();
+const WORDS = {
+  en: {
+    changed: "The files changed since you looked. Allow these instead?",
+    first: "Save “Tides” as Markdown (.md) in “Exports”?",
+    three: "This writes 3 new files outside your Output location.",
+    many: "This writes 25 new files outside your Output location.",
+    new: "New",
+  },
+  "zh-CN": {
+    changed: "文件已有变化。改为允许这些吗？",
+    first: "将“Tides”以 Markdown（.md） 格式保存到“Exports”？",
+    three: "这会在保存位置之外写入 3 个新文件。",
+    many: "这会在保存位置之外写入 25 个新文件。",
+    new: "新增",
+  },
+} as const;
+
+async function inLanguage(language: keyof typeof WORDS) {
+  const { useAppStore } = await import("../../src/renderer/src/store");
+  useAppStore.setState({ settings: { language } } as never);
+}
+
+describe.each(["en", "zh-CN"] as const)("in %s", (language) => {
+  const words = WORDS[language];
+  beforeEach(() => inLanguage(language));
+
+  test("a changed list says so, names every file, marks what is new, and holds Allow a full second", async () => {
+    vi.useFakeTimers();
+    const card = await render(request(true, 3));
+    expect(card.querySelector(".approval-title")?.textContent).toContain(words.changed);
+    expect(namesOn(card)).toEqual(["Tides.md", "picture-1.png", "picture-2.png"]);
+    expect(markedNew(card)).toEqual(["picture-2.png"]);
+    expect(card.querySelector('[data-testid="approval-file-new"]')?.textContent).toBe(words.new);
+    expect(card.querySelector(".approval-explanation")?.textContent).toBe(words.three);
+    const allow = card.querySelector('[data-testid="approval-allow-once"]') as HTMLButtonElement;
+    const deny = card.querySelector('[data-testid="approval-deny"]') as HTMLButtonElement;
+    expect(allow.disabled).toBe(true);
+    expect(deny.disabled).toBe(false);
+    await act(() => vi.advanceTimersByTime(999));
+    expect(allow.disabled).toBe(true);
+    await act(() => vi.advanceTimersByTime(1));
+    expect(allow.disabled).toBe(false);
+  });
+
+  test("a list that did not change keeps today's title, names every file, and Allow works at once", async () => {
+    const card = await render(request(false, 3));
+    expect(card.querySelector(".approval-title")?.textContent).toContain(words.first);
+    expect(namesOn(card)).toEqual(["Tides.md", "picture-1.png", "picture-2.png"]);
+    expect(markedNew(card)).toEqual([]);
+    expect(card.querySelector(".approval-explanation")?.textContent).toBe(words.three);
+    const allow = card.querySelector('[data-testid="approval-allow-once"]') as HTMLButtonElement;
+    expect(allow.disabled).toBe(false);
+  });
+
+  test("a long list names every file in its own scrolling list, and the count follows it", async () => {
+    const card = await render(request(false, 25));
+    expect(namesOn(card)).toEqual([
+      "Tides.md",
+      ...Array.from({ length: 24 }, (_, index) => `picture-${index + 1}.png`),
+    ]);
+    expect(card.querySelector(".approval-explanation")?.textContent).toBe(words.many);
+    expect(card.querySelector('[data-testid="approval-files"]')?.className).toContain(
+      "overflow-y-auto",
+    );
+  });
 });

@@ -254,7 +254,7 @@ export function CommandApprovalCard({
           )}
           <ul
             data-testid="approval-files"
-            className="approval-args max-h-40 list-none overflow-y-auto"
+            className="approval-args max-h-40 list-none grid-cols-1 overflow-y-auto wrap-anywhere"
           >
             {names.map((name, index) => (
               // biome-ignore lint/suspicious/noArrayIndexKey: two Documents may have the same name.

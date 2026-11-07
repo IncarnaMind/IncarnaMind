@@ -5,7 +5,7 @@
  * moves what it found by "lease" in one call, "Tag every invoice Finance" (给发票加上“财务”标签)
  * tags those found by "invoice", "Delete the drafts" sends those found by "draft" to Recently
  * deleted, and "Delete the document with id X" names an id nothing has. "Export this Mind as Word"
- * exports the Mind in focus, to the folder after "to" when there is one, marking the text IncarnaMind
+ * (or "as Markdown") exports the Mind in focus, to the folder after "to" when there is one, marking the text IncarnaMind
  * wrote ("with the AI marks") or not ("without the AI marks") when it says so, and "Delete this Mind"
  * sends it to Recently deleted; "Add the PDFs in /path"
  * adds a folder's PDFs. From the window's list (#1421): "Make a Folder called Leases and move the
@@ -68,7 +68,8 @@ const TAG = /\btag every invoice (.+?)[.?!]*$|给发票加上“(.+?)”标签/i
 const DELETE_DRAFTS = /\bdelete the drafts\b/i;
 const DELETE_ID = /\bdelete the document with id (\S+?)[.?!]*$/i;
 const DELETE_MIND = /\bdelete this mind\b/i;
-const EXPORT = /\bexport this mind as word(?: (with|without) the ai marks)?(?: to (\S+?))?[.?!]*$/i;
+const EXPORT =
+  /\bexport this mind as (word|markdown)(?: (with|without) the ai marks)?(?: to (\S+?))?[.?!]*$/i;
 const ADD = /\badd the pdfs in (\S+?)[.?!]*$/i;
 const FOLDER_AND_MOVE =
   /\bmake a folder called (.+?) and move the (.+?)s? into it\b|新建一个叫“(.+?)”的文件夹，把(.+?)移进去/i;
@@ -180,9 +181,9 @@ export function commandsReply(
         ? {
             command: "mind.export",
             ids: [mind.id],
-            format: "docx",
-            ...(exported[1] && { marks: exported[1].toLowerCase() === "with" ? "mark" : "leave" }),
-            ...(exported[2] && { folder: exported[2] }),
+            format: exported[1]?.toLowerCase() === "markdown" ? "markdown" : "docx",
+            ...(exported[2] && { marks: exported[2].toLowerCase() === "with" ? "mark" : "leave" }),
+            ...(exported[3] && { folder: exported[3] }),
           }
         : null;
     });
