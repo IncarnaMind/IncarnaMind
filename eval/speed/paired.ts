@@ -35,9 +35,11 @@ import { repeatChecks } from "../repeats/repeat";
 import { verdictOf } from "../repeats/score";
 import { SIGNS } from "./flows";
 import type { Expectation, Grade } from "./judge";
+import { RETRIEVE_FIRST_HELD_OUT } from "./retrieveFirstHeldOut";
 
 export const SET_IDS = [
   "gating",
+  "retrieve-first-held-out",
   "hard",
   "everyday",
   "checks",
@@ -262,13 +264,18 @@ function questionItem(
 const groupOfQuestion = (question: EvalQuestion) =>
   question.crossLingual ? "cross-lingual" : question.paraphrase ? "paraphrase" : question.language;
 
-export function gatingSet(root: string, timeoutMs: number): PairedGroup[] {
+export function gatingSet(
+  root: string,
+  timeoutMs: number,
+  id: "gating" | "retrieve-first-held-out" = "gating",
+): PairedGroup[] {
   const set = loadEvaluationSet(root);
+  const questions = id === "gating" ? set.questions : RETRIEVE_FIRST_HELD_OUT;
   return [
     {
-      name: "gating",
-      items: set.questions.map((question) =>
-        questionItem("gating", question, groupOfQuestion(question), {}, timeoutMs),
+      name: id,
+      items: questions.map((question) =>
+        questionItem(id, question, groupOfQuestion(question), {}, timeoutMs),
       ),
       async open(base) {
         const library = await openLibrary({
