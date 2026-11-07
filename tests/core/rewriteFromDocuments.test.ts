@@ -1196,6 +1196,24 @@ describe("rewriteFromDocuments", () => {
       "500",
       "2025",
     ],
+    [
+      "The cost was stated as a constant 500 dollars.",
+      "The cost was stated in constant 2025 dollars.",
+      "500",
+      "2025",
+    ],
+    [
+      "The fee was agreed at about 500 in long negotiations.",
+      "The fee was agreed in about 2025 in long negotiations.",
+      "500",
+      "2025",
+    ],
+    [
+      "The fee was agreed in about 500 in long negotiations.",
+      "The fee was agreed in about 2025 in long negotiations.",
+      "500",
+      "2025",
+    ],
   ])("keeps %s where the Passage gives a year: %s", async (sentence, line, from, to) => {
     const { core, mindId } = await noteWithCheck(
       () => ({ text: `Change 1: ${from}\nTo 1: ${to}` }),
@@ -1222,6 +1240,12 @@ describe("rewriteFromDocuments", () => {
       "1800",
       "2020",
     ],
+    [
+      "The cost was stated as a constant 500 dollars.",
+      "The cost was stated as a constant 2025 dollars.",
+      "500",
+      "2025",
+    ],
   ])(
     "writes %s's figure from a measure whose digits look like a year: %s",
     async (sentence, line, from, to) => {
@@ -1234,6 +1258,27 @@ describe("rewriteFromDocuments", () => {
       );
       expect(await core.rewriteFromDocuments({ mindId, checkId: "check-rent" })).toMatchObject({
         kind: "rewritten",
+      });
+    },
+  );
+
+  test.each([
+    ["Revenue rose by about 8%.", "Revenue rose to about 12%.", "kept"],
+    ["Revenue rose to about 8%.", "Revenue rose to about 12%.", "rewritten"],
+    ["营收增长约8%。", "营收增长至约12%。", "kept"],
+    ["营收增长至约8%。", "营收增长至约12%。", "rewritten"],
+  ])(
+    "reads the word that makes %s's figure a change or a level past the word after it, from %s: %s",
+    async (sentence, line, kind) => {
+      const { core, mindId } = await noteWithCheck(
+        () => ({ text: "Change 1: 8%\nTo 1: 12%" }),
+        { text: sentence },
+        sentence,
+        false,
+        line,
+      );
+      expect(await core.rewriteFromDocuments({ mindId, checkId: "check-rent" })).toMatchObject({
+        kind,
       });
     },
   );

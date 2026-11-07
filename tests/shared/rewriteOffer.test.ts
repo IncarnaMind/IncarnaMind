@@ -83,6 +83,30 @@ describe("Rewrite is offered", () => {
       false,
     ],
     ["The hall seats 1800 people.", "The hall seats 2020 people. It opened last year.", true],
+    [
+      "The cost was stated as a constant 500 dollars.",
+      "The cost was stated in constant 2025 dollars.",
+      false,
+    ],
+    [
+      "The cost was stated as a constant 500 dollars.",
+      "The cost was stated as a constant 2025 dollars.",
+      true,
+    ],
+    [
+      "The fee was agreed at about 500 in long negotiations.",
+      "The fee was agreed in about 2025 in long negotiations.",
+      false,
+    ],
+    [
+      "The fee was agreed in about 500 in long negotiations.",
+      "The fee was agreed in about 2025 in long negotiations.",
+      false,
+    ],
+    ["Revenue rose by about 8%.", "Revenue rose to about 12%.", false],
+    ["Revenue rose to about 8%.", "Revenue rose to about 12%.", true],
+    ["营收增长约8%。", "营收增长至约12%。", false],
+    ["营收增长至约8%。", "营收增长至约12%。", true],
   ])("for %s from %s: %s", (sentence, quote, offered) => {
     expect(mayRewrite(sentence, quote)).toBe(offered);
   });
