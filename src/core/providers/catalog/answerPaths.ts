@@ -24,10 +24,9 @@ interface Admitted {
  * is listed. Claude Sonnet 5.5 was measured and left out (2026-10-26): it still gave its records
  * first, drafting the Answer in its thinking, and came out slower (+1.2 s, 3.25 → 3.34 calls) with
  * fewer expected Passages cited on the gating set (62 → 59). Claude Haiku 5.5, listed for
- * Questions from 2026-10-26, came off on 2026-11-07 (#2720): its gate's "no new false Supported"
- * had been read as 0 on every Question, and measured (a sentence with a found Citation its quotes
- * don't state, eval/speed/gates/write-then-cite-questions-recheck.md) writing first gave one that
- * citing first didn't on the gating set's fourth Question, en-03: 4 such sentences against 3.
+ * Questions from 2026-10-26, came off on 2026-11-07 (#2720): on two gating runs, read by hand, a
+ * found Citation whose quote doesn't state its sentence was 33.9–40.4% writing first against
+ * 25.4–30.7% citing first, and a quote about a different claim 12–13% against 6%.
  */
 const WRITES_THEN_CITES: readonly Admitted[] = [];
 
