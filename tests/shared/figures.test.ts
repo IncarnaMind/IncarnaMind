@@ -1195,29 +1195,29 @@ describe("stated units", () => {
       expect([line, statesForWholeDocument(line)]).toEqual([line, false]);
   });
 
-  // protects=#2365; fails_when=a bracket's currency is read alone although a scale later in the
-  // bracket states one, so "(in £, thousands)" gives £900 instead of refusing, or "(in £ and $
-  // thousands)" picks one of its two currencies instead of refusing.
-  test("a bracket's tail is read whole: a scale later in it is not a currency alone", () => {
+  // protects=#2365; fails_when=a bracket's currency is dropped once its tail's scale is read, so
+  // "(in £, thousands)" reads a plain thousand, or "(in £ and $ thousands)" picks one of its two
+  // currencies instead of refusing.
+  test("a bracket's tail is read whole: its currency and the scale after it", () => {
     for (const line of [
-      "(in £, thousands)",
-      "(in £, '000)",
-      "(in US$, millions)",
-      "(in euros, millions)",
       "(in $US thousands)",
       "(in £ and $ thousands)",
       "(in US dollars millions)",
       "(in dollars thousands)",
     ])
       expect([line, stated(line)]).toEqual([line, []]);
-    expect(stated("(in dollars, in thousands)")).toEqual([
-      {
-        chars: "in thousands",
-        scale: 1000,
-        scaleWord: "thousands",
-        unit: { kind: "plain" },
-      },
-    ]);
+    for (const [line, scale, code] of [
+      ["(in £, thousands)", 1000, "GBP"],
+      ["(in £, '000)", 1000, "GBP"],
+      ["(in US$, millions)", 1000000, "USD"],
+      ["(in euros, millions)", 1000000, "EUR"],
+      ["(in dollars, in thousands)", 1000, "USD"],
+      ["(in HK$, figures in millions)", 1000000, "HKD"],
+    ] as const)
+      expect([line, stated(line)]).toMatchObject([
+        line,
+        [{ scale, unit: { kind: "currency", code } }],
+      ]);
     for (const line of ["(in £ and pence)", "(in £, GBP)", "(in £, see note 3)"])
       expect([line, stated(line)]).toEqual([
         line,
@@ -1515,6 +1515,7 @@ describe("the scale forms a Document states apart from its figures (#2365)", () 
     ["一万人", [], []],
     ["约3（万）人", [], []],
     ["人民币千万不要", [], []],
+    ["所以千元以下的产品", [], []],
     ["今欠到吴梅废书款伍拾肆万捌仟元整", [], []],
     ["他是村里的万元户", [], []],
     ["(K) the Seller's costs", [], []],
