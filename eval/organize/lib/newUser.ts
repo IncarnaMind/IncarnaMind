@@ -65,6 +65,8 @@ export interface NewUserScores {
   folderSizes: { folder: ProposedFolder; size: number }[];
   samePairs: number;
   sameShared: number;
+  /** Same-label pairs together, counting a split by area (`splitByArea`) as together. */
+  sameTogether: number;
   differentPairs: number;
   differentShared: number;
   kinds: { tp: number; fp: number; fn: number };
@@ -80,14 +82,78 @@ export interface NewUserScores {
 
 const kindsOf = (tags: readonly string[]) => new Set(tags.flatMap((tag) => kindOf(tag) ?? []));
 
+/** The bar's allowance for a label split in two: each part this big and this much the label. */
+const SPLIT_SIZE = 3;
+const SPLIT_PURITY = 0.9;
+/** A kind carried by this share of a part's Documents is that part's kind. */
+const PART_KIND = 0.8;
+
+/**
+ * The labels whose filed Documents the proposal split by area, which the same-label bar counts as
+ * together. A label's readable Documents in a Folder lie in exactly two Folders, each holding at
+ * least `SPLIT_SIZE` readable Documents of which at least `SPLIT_PURITY` carry the label, and the
+ * split isn't by kind. It is by kind when, in each part, the kinds that at least `PART_KIND` of
+ * its Documents carry by their labels make a set that isn't empty, and the two sets differ: kind
+ * is a Tag, never a Folder.
+ */
+export function splitByArea(outcomes: readonly Outcome[]): Set<string> {
+  const readable = outcomes.filter((each) => each.readable);
+  const allowed = new Set<string>();
+  const labels = new Set(
+    readable.flatMap((each) => (each.doc.folder === null ? [] : [each.doc.folder])),
+  );
+  for (const label of labels) {
+    const parts = [
+      ...new Set(
+        readable.flatMap((each) =>
+          each.doc.folder === label && each.folder !== null ? [each.folder] : [],
+        ),
+      ),
+    ];
+    if (parts.length !== 2) continue;
+    const members = parts.map((folder) => readable.filter((each) => each.folder === folder));
+    const fits = members.every(
+      (held) =>
+        held.length >= SPLIT_SIZE &&
+        held.filter((each) => each.doc.folder === label).length >= SPLIT_PURITY * held.length,
+    );
+    if (!fits) continue;
+    const kindsOfPart = members.map((held) => {
+      const all = [...new Set(held.flatMap((each) => each.doc.tags))];
+      return all
+        .filter(
+          (kind) =>
+            held.filter((each) => each.doc.tags.includes(kind)).length >= PART_KIND * held.length,
+        )
+        .sort()
+        .join("+");
+    });
+    const [first, second] = kindsOfPart;
+    const byKind = first !== "" && second !== "" && first !== second;
+    if (!byKind) allowed.add(label);
+  }
+  return allowed;
+}
+
 /** Readable Documents with a labelled Folder, in pairs: whether they share a label, and a Folder. */
 function pairs(outcomes: readonly Outcome[]) {
   const labelled = outcomes.filter((each) => each.readable && each.doc.folder !== null);
+  const allowed = splitByArea(outcomes);
   return labelled.flatMap((a, at) =>
-    labelled.slice(at + 1).map((b) => ({
-      sameLabel: a.doc.folder === b.doc.folder,
-      shared: a.folder !== null && a.folder === b.folder,
-    })),
+    labelled.slice(at + 1).map((b) => {
+      const shared = a.folder !== null && a.folder === b.folder;
+      const sameLabel = a.doc.folder === b.doc.folder;
+      return {
+        sameLabel,
+        shared,
+        together:
+          shared ||
+          (sameLabel &&
+            a.folder !== null &&
+            b.folder !== null &&
+            allowed.has(a.doc.folder as string)),
+      };
+    }),
   );
 }
 
@@ -118,6 +184,7 @@ export function scoreNewUser(
     })),
     samePairs: same.length,
     sameShared: same.filter((pair) => pair.shared).length,
+    sameTogether: same.filter((pair) => pair.together).length,
     differentPairs: different.length,
     differentShared: different.filter((pair) => pair.shared).length,
     kinds,
@@ -154,7 +221,13 @@ export function bars(s: NewUserScores): Bar[] {
       pass: smallest !== null && smallest >= 3,
     },
     {
-      name: "Same-label pairs sharing a Folder",
+      name: "Same-label pairs together, a split by area allowed",
+      value: fraction(s.sameTogether, s.samePairs),
+      bar: "≥ 90%",
+      pass: ratio(s.sameTogether, s.samePairs) >= 0.9,
+    },
+    {
+      name: "Same-label pairs sharing one Folder, no allowance",
       value: fraction(s.sameShared, s.samePairs),
       bar: "≥ 90%",
       pass: ratio(s.sameShared, s.samePairs) >= 0.9,
