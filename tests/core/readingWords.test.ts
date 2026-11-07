@@ -8,11 +8,11 @@ import { resolveChanges, shownWithChanges, writeMind } from "../helpers/minds";
 import { type ModelCall, type ScriptedReply, scriptedModel } from "../helpers/models";
 
 /*
- * How an edit reads the User's words against the reply's (#2589): a space parts two words only
- * where there is one, never where an inline node stands between two letters; and a character is
- * read whole, as Unicode composes it, whatever UTF-16 units or marks it is typed with. So a line
- * the reply writes as it was, with its Citation, formula, footnote or line break, reads the same,
- * and a quote that joins or parts other words takes nothing out.
+ * How an edit reads the User's words against the reply's (#2589): a space or a line break parts
+ * two words only where there is one, never where another inline node stands between two letters;
+ * and a character is read whole, as Unicode composes it, whatever UTF-16 units or marks it is typed
+ * with. So a line the reply writes as it was, with its Citation, formula, footnote or line break,
+ * reads the same, and a quote that joins or parts other words, or cuts a character, takes nothing out.
  */
 
 const NOTES = {
@@ -117,7 +117,9 @@ const CASES = (["en", "zh"] as const).flatMap((language) =>
   ),
 );
 
-describe("An inline node between two letters parts no words (#2589)", { timeout: 30_000 }, () => {
+describe("An inline node between two letters reads the same in the Note and the reply (#2589)", {
+  timeout: 30_000,
+}, () => {
   test.each(CASES)(
     "$language, $name in a line the reply $how, through Edit with AI",
     async ({ language, atom, keeps }) => {
@@ -154,6 +156,53 @@ describe("An inline node between two letters parts no words (#2589)", { timeout:
       expect(shownWithChanges(client).includes(LINES[language].first)).toBe(keeps);
     },
   );
+});
+
+/** A Note with a line break between two letters, a space before it or none, and a reply that writes that line again with a space or none. */
+const BREAKS = (["en", "zh"] as const).flatMap((language) =>
+  [
+    { how: "adds a space before the line break", note: "", written: " " },
+    { how: "adds two spaces before it, as Markdown writes one", note: "", written: "  " },
+    { how: "drops the space the Note has before it", note: " ", written: "" },
+    { how: "writes it as it was, with its space", note: " ", written: " " },
+  ].flatMap((each) =>
+    (["Edit with AI", "the assistant"] as const).map((path) => ({ language, path, ...each })),
+  ),
+);
+
+describe("A line break parts two words as a space does, in the Note and the reply (#2589)", {
+  timeout: 30_000,
+}, () => {
+  test.each(BREAKS)("$language, a reply that $how, through $path", async (each) => {
+    const lines = LINES[each.language];
+    const second = `${lines.around[0]}${each.written}\n${lines.around[1]}`;
+    const reply = [lines.added, second, lines.last].join("\n\n");
+    const { core, mind, client } = await setUpWithDocuments(
+      scriptedModel((call: ModelCall): ScriptedReply => {
+        if (/<passage>\n/.test(call.prompt)) return { text: `${reply}\n<why>Done.</why>` };
+        return call.results.length === 0
+          ? { calls: [{ tool: "edit_mind", input: { instruction: lines.asked } }] }
+          : { text: "Done." };
+      }),
+      [],
+    );
+    writeMind(client, [
+      block(text(lines.first)),
+      block(text(`${lines.around[0]}${each.note}`), { type: "hardBreak" }, text(lines.around[1])),
+      block(text(lines.last)),
+    ]);
+    await client.settled();
+
+    if (each.path === "Edit with AI")
+      await core.editWithAi(wholeMind(client, mind.id, lines.asked));
+    else await askAssistant(core, { text: lines.asked, mindId: mind.id });
+    await client.settled();
+    await resolveChanges(client, "accept");
+
+    const shown = shownWithChanges(client);
+    expect(shown).toContain(lines.added);
+    expect(shown).toContain(lines.first);
+  });
 });
 
 interface Quoted {
@@ -193,6 +242,21 @@ const REFUSED: readonly Quoted[] = [
     case: "hi, two words with vowel signs run together",
     line: "किताब यहाँ है।",
     quote: "किताबयहाँ है।",
+  },
+  {
+    case: "hi, a word quoted without the signs that end its last character",
+    line: "किताबें यहाँ हैं।",
+    quote: "किताब",
+  },
+  {
+    case: "en, an emoji quoted without its skin tone",
+    line: "Great work 👍🏽",
+    quote: "Great work 👍",
+  },
+  {
+    case: "en, an emoji quoted from the middle of its joined family",
+    line: "The 👨‍👩‍👧 family is here.",
+    quote: "👩‍👧 family is here.",
   },
 ];
 
@@ -237,6 +301,28 @@ const TAKEN: readonly Quoted[] = [
   },
 ];
 
+/** Quotes of whole words of a line, which end or start beside a character of several UTF-16 units: those words go. */
+const PARTS: readonly (Quoted & { after: string })[] = [
+  {
+    case: "hi, a word quoted with the signs that end its last character",
+    line: "किताबें यहाँ हैं।",
+    quote: "किताबें",
+    after: "यहाँ हैं।",
+  },
+  {
+    case: "en, an emoji quoted with its skin tone",
+    line: "Great work 👍🏽 today.",
+    quote: "Great work 👍🏽",
+    after: "today.",
+  },
+  {
+    case: "en, an emoji quoted with its whole joined family",
+    line: "The 👨‍👩‍👧 family is here.",
+    quote: "👨‍👩‍👧 family is here.",
+    after: "The",
+  },
+];
+
 const OTHERS = ["Rent is monthly.", "Water is quarterly."] as const;
 
 async function quoting(each: Quoted, path: "editWithAi" | "assistant") {
@@ -270,6 +356,10 @@ describe("A quote is read as its characters compose, its words parted where they
 
     test.each(TAKEN)(`$case takes the line out, ${path}`, async (each) => {
       expect(await quoting(each, path)).toEqual([...OTHERS]);
+    });
+
+    test.each(PARTS)(`$case takes those words out, ${path}`, async (each) => {
+      expect(await quoting(each, path)).toEqual([OTHERS[0], each.after, OTHERS[1]]);
     });
   }
 });
