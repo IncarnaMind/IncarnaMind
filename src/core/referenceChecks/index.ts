@@ -70,7 +70,7 @@ export function createReferenceChecks(options: ReferenceChecksOptions) {
   });
 
   return {
-    /** `again` (Check again) asks about every miss again, however recent. */
+    /** `again` (Check again, the User asking for a fresh look) asks about every kept miss and failure again. */
     async check(mindIdInput: unknown, again = false): Promise<CheckReferencesResult> {
       const mindId = parseMindId(mindIdInput);
       const entries = options.content

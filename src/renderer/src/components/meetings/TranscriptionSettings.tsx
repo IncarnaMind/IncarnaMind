@@ -1,6 +1,7 @@
-import { useEffect, useId, useState } from "react";
+import { type KeyboardEvent, useEffect, useId, useState } from "react";
 import type { SecretStorageStatus, TranscriptionServiceStatus } from "../../../../core/api";
 import { checkApiKey } from "../../../../shared/apiKey";
+import { typedServerChecksKey } from "../../../../shared/deepgram";
 import { core } from "../../core";
 import { errorMessage } from "../../errors";
 import { useLanguage, useT } from "../../i18n";
@@ -13,7 +14,7 @@ import {
 } from "../../transcriptionServices";
 import { KeyCharacterLine } from "../KeyCharacterLine";
 import { ProblemLine } from "../ProblemLine";
-import { SecretStorageNotice } from "../providers/ProviderForm";
+import { KeyNotCheckedLine, SecretStorageNotice } from "../providers/ProviderForm";
 import { ReadProblem } from "../ReadProblem";
 import {
   buttonStyle,
@@ -25,6 +26,7 @@ import {
   ruledRowClass,
 } from "../ui";
 import { CloudLine } from "./CloudLine";
+import { LanguagesLine } from "./LanguagesLine";
 
 /**
  * Under "Transcribe on" in Settings › Meetings (#141). Before a cloud service is chosen it says
@@ -72,6 +74,7 @@ export function TranscriptionRouteLine({ id, read }: { id?: string; read: Servic
       ) : (
         <CloudLine service={service} className={rowTextClass} />
       )}
+      <LanguagesLine service={service} className={rowTextClass} />
     </div>
   );
 }
@@ -107,11 +110,14 @@ export function TranscriptionRouteConsent({ read }: { read: ServicesView }) {
     );
   }
   return (
-    <CloudLine
-      service={service}
-      testId="meetings-route-consent"
-      className="text-[12px] leading-5 text-ink-meta"
-    />
+    <>
+      <CloudLine
+        service={service}
+        testId="meetings-route-consent"
+        className="text-[12px] leading-5 text-ink-meta"
+      />
+      <LanguagesLine service={service} className="text-[12px] leading-5 text-ink-meta" />
+    </>
   );
 }
 
@@ -129,7 +135,12 @@ function chooseAgainLine(
   });
 }
 
-/** A transcription service's own key (Soniox's): pasted, checked with the service, kept in the keychain. */
+/**
+ * A transcription service's own key (Soniox's, Deepgram's, AssemblyAI's, ElevenLabs',
+ * Speechmatics', Gladia's): pasted, checked with the service where it has a check, kept in the
+ * keychain. Deepgram's takes the server too, where it isn't Deepgram's own:
+ * Cloudflare Workers AI's or the User's, whose key may be left out.
+ */
 export function TranscriptionKeyRows({ read }: { read: ServicesView }) {
   const services = read.state === "ready" ? read.data : [];
   return (
@@ -146,7 +157,10 @@ export function TranscriptionKeyRows({ read }: { read: ServicesView }) {
 function TranscriptionKeyRow({ service }: { service: TranscriptionServiceStatus }) {
   const t = useT();
   const inputId = useId();
+  const serverId = useId();
   const [open, setOpen] = useState(false);
+  const takesServer = service.route === "deepgram";
+  const [server, setServer] = useState("");
   const [storage, setStorage] = useState<SecretStorageStatus | null>(null);
   useEffect(() => {
     core
@@ -166,17 +180,36 @@ function TranscriptionKeyRow({ service }: { service: TranscriptionServiceStatus 
   const { key: text, stray } = checkApiKey(key);
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
+  const localMode = useAppStore((state) => state.embedding?.localOnly === true);
+  const [notChecked, setNotChecked] = useState(false);
   const name = { provider: t(ROUTE_LABELS[service.route]) };
+  const checksKey = takesServer && open ? typedServerChecksKey(server) : service.keyChecked;
   const save = async () => {
     setSaving(true);
-    const failed = await useTranscriptionServices.getState().setKey(service.route, key);
+    const unchecked = localMode && checksKey && text !== "";
+    const failed = await useTranscriptionServices
+      .getState()
+      .setKey(service.route, key, takesServer ? server : undefined);
     setSaving(false);
     setProblem(failed);
     if (!failed) {
       setKey("");
       setOpen(false);
+      setNotChecked(unchecked);
     }
   };
+  const close = () => {
+    setOpen(false);
+    setKey("");
+  };
+  const closeOnEscape = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key !== "Escape") return;
+    // Esc puts the form away before it closes Settings.
+    event.preventDefault();
+    event.stopPropagation();
+    close();
+  };
+  const given = text !== "" || (takesServer && server.trim() !== "");
 
   return (
     <div data-testid={`transcription-key-${service.route}`} className={ruledRowClass}>
@@ -185,7 +218,7 @@ function TranscriptionKeyRow({ service }: { service: TranscriptionServiceStatus 
           {t("meetings.key.title", name)}
         </label>
         <p className={rowTextClass}>
-          {t("meetings.key.line", name)}
+          {t(checksKey && !localMode ? "meetings.key.lineChecked" : "meetings.key.line", name)}
           {service.keyUrl && (
             <>
               {" "}
@@ -200,12 +233,40 @@ function TranscriptionKeyRow({ service }: { service: TranscriptionServiceStatus 
             </>
           )}
         </p>
+        {service.server && !open && (
+          <p data-testid="transcription-key-server-saved" className={`${rowTextClass} break-words`}>
+            {t("meetings.key.serverSaved", { server: service.server })}
+          </p>
+        )}
+        {open && takesServer && (
+          <div className="mt-1.5 flex flex-col gap-1">
+            <label htmlFor={serverId} className="text-[13px] leading-5 text-ink">
+              {t("meetings.key.server")}
+            </label>
+            <input
+              id={serverId}
+              type="url"
+              autoComplete="off"
+              spellCheck={false}
+              data-testid="transcription-key-server"
+              placeholder={t("meetings.key.serverPlaceholder")}
+              aria-describedby={`${serverId}-tip`}
+              value={server}
+              onChange={(event) => setServer(event.target.value)}
+              onKeyDown={closeOnEscape}
+              className={`${inputClass} mt-0 min-w-48`}
+            />
+            <p id={`${serverId}-tip`} className={rowTextClass}>
+              {t("meetings.key.serverTip")}
+            </p>
+          </div>
+        )}
         {open && (
           <form
             className="mt-1.5 flex flex-wrap items-center gap-2"
             onSubmit={(event) => {
               event.preventDefault();
-              if (text !== "" && !stray && !saving) void save();
+              if (given && !stray && !saving) void save();
             }}
           >
             <input
@@ -221,20 +282,14 @@ function TranscriptionKeyRow({ service }: { service: TranscriptionServiceStatus 
               aria-describedby={stray ? `${inputId}-stray` : undefined}
               value={key}
               onChange={(event) => setKey(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Escape") {
-                  event.stopPropagation();
-                  setOpen(false);
-                  setKey("");
-                }
-              }}
+              onKeyDown={closeOnEscape}
               className={`${inputClass} mt-0 min-w-48 flex-1`}
             />
             <button
               type="submit"
               data-testid="transcription-key-save"
               disabled={
-                text === "" || stray !== null || saving || (storage !== null && !storage.canSave)
+                !given || stray !== null || saving || (storage !== null && !storage.canSave)
               }
               className={buttonStyle("primary")}
             >
@@ -246,6 +301,7 @@ function TranscriptionKeyRow({ service }: { service: TranscriptionServiceStatus 
         {open && storage && !storage.canSave && (
           <SecretStorageNotice status={storage} onAccept={() => void acceptPlainText()} />
         )}
+        {notChecked && !open && <KeyNotCheckedLine provider={name.provider} />}
         {problem && (
           <ProblemLine className="mt-1" testId="transcription-key-problem">
             {problem}
@@ -264,6 +320,8 @@ function TranscriptionKeyRow({ service }: { service: TranscriptionServiceStatus 
             data-testid="transcription-key-add"
             onClick={() => {
               setProblem(null);
+              setNotChecked(false);
+              setServer(service.server ?? "");
               setOpen(true);
             }}
             className={buttonStyle("secondary")}

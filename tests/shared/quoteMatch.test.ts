@@ -54,6 +54,55 @@ describe("finding a quote", () => {
     expect(findQuote(text, "value εls = 0.1 ^36. This")).toBeNull();
   });
 
+  test("reads a superscript digit as a footnote's mark, never as another digit of a figure (#2474)", () => {
+    const text = "Hollin Pumps was paid 1,240.50¹ on 2 April";
+    expect(covered(text, "Hollin Pumps was paid 1,240.50")).toBe("Hollin Pumps was paid 1,240.50");
+    expect(covered(text, "1,240.50¹ on 2 April")).toBe("1,240.50¹ on 2 April");
+    expect(findQuote(text, "Hollin Pumps was paid 1,240.501 on 2 April")).toBeNull();
+    // A drawn page, as a Word viewer draws it, keeps the mark a digit: the quote is still found.
+    expect(covered("Hollin Pumps was paid 1,240.501 on 2 April", "1,240.50¹ on 2 April")).toBe(
+      "1,240.501 on 2 April",
+    );
+    // A length's "²" is a power, not a mark: it still matches the digit a model writes.
+    expect(covered("The room is 12 m² in all", "12 m2 in all")).toBe("12 m² in all");
+  });
+
+  test("a superscript that isn't a mark after a figure is no mark (#2474)", () => {
+    expect(covered("see the note¹ here", "see the note1 here")).toBe("see the note¹ here");
+    expect(covered("the area is x² wide", "the area is x2 wide")).toBe("the area is x² wide");
+    expect(covered("Ca²⁺ ions", "Ca2+ ions")).toBe("Ca²⁺ ions");
+    expect(covered("the 2ⁿᵈ row", "the 2nd row")).toBe("the 2ⁿᵈ row");
+  });
+
+  test("reads a circled mark after a figure as a footnote's mark, never another digit (#2646)", () => {
+    const text = "Hollin Pumps was paid 1,240.50① on 2 April";
+    expect(covered(text, "Hollin Pumps was paid 1,240.50")).toBe("Hollin Pumps was paid 1,240.50");
+    expect(covered(text, "1,240.50① on 2 April")).toBe("1,240.50① on 2 April");
+    expect(findQuote(text, "Hollin Pumps was paid 1,240.501 on 2 April")).toBeNull();
+    // A drawn page, as a Word viewer draws it, keeps the mark a digit: the quote is still found.
+    expect(covered("Hollin Pumps was paid 1,240.501 on 2 April", "1,240.50① on 2 April")).toBe(
+      "1,240.501 on 2 April",
+    );
+    expect(findQuote("The fee (1,240.50)① was paid", "The fee (1,240.50)1 was paid")).toBeNull();
+    expect(findQuote("the share was 45%① of revenue", "the share was 45%1 of revenue")).toBeNull();
+  });
+
+  test("reads a circled mark after a Chinese figure as a footnote's mark (#2646)", () => {
+    const text = "公司支付了 1,240.50① 元，毛利率为 45%②。";
+    expect(covered(text, "公司支付了 1,240.50① 元")).toBe("公司支付了 1,240.50① 元");
+    expect(findQuote(text, "公司支付了 1,240.501 元")).toBeNull();
+    expect(findQuote(text, "毛利率为 45%2。")).toBeNull();
+    expect(findQuote("销售（1,240.50）③ 元", "销售（1,240.50）3 元")).toBeNull();
+    const percent = "毛利率为 45％②。";
+    expect(findQuote(percent, "毛利率为 45%2。")).toBeNull();
+    expect(covered(percent, "毛利率为 45％②。")).toBe("毛利率为 45％②。");
+  });
+
+  test("a circled mark that isn't after a figure is no mark (#2646)", () => {
+    expect(covered("see the note① here", "see the note1 here")).toBe("see the note① here");
+    expect(covered("第①章 引言", "第1章 引言")).toBe("第①章 引言");
+  });
+
   test("matches a line-end hyphen the quote keeps with a space after it", () => {
     const text = "if the initial hyper-\nstep sizes are too large";
     expect(covered(text, "initial hyper- step sizes")).toBe("initial hyper-\nstep sizes");
@@ -100,6 +149,16 @@ describe("finding a quote", () => {
     expect(covered(text, "international trade")).toBe("inter-\nnational trade");
     expect(covered(text, "inter-national")).toBe("inter-\nnational");
     expect(findQuote(text, "inter national")).toBeNull();
+  });
+
+  test("a quotation mark matches its own kind only, as in code the kind carries the meaning (#2504)", () => {
+    const sql = "ALTER TABLE “users” DROP COLUMN “email”;";
+    expect(covered(sql, 'alter table "users" drop column "email"')).toBe(sql.slice(0, -1));
+    expect(findQuote(sql, "alter table ‘users’ drop column ‘email’")).toBeNull();
+    expect(covered("他的「软权重」特性", "他的“软权重”特性")).toBe("他的「软权重」特性");
+    expect(findQuote("他的“软权重”特性", "他的‘软权重’特性")).toBeNull();
+    expect(covered("The ‘Drop table’ item", "the 'drop table' item")).toBe("The ‘Drop table’ item");
+    expect(findQuote("The “Drop table” item", "the ‘drop table’ item")).toBeNull();
   });
 });
 

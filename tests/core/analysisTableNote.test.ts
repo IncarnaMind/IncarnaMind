@@ -910,6 +910,15 @@ const NAMED = {
     others: ["North", "In Central"],
     rewordedTo: "South",
     outOfOrder: "Central's average amount is [=6], and its total amount is [=7].",
+    listed: [
+      "- Central: total amount [=6]",
+      "1. Central's total amount is [=6]",
+      "- Central's total amount is [=6], and Central's average amount is [=7]",
+      "Central's total amount is [=6]",
+    ],
+    nested: "- By region:\n  - Central: total amount [=6]",
+    listedWrong: "- North: total amount [=6]",
+    listedUnclear: "- South: total amount [=6]",
   },
   "zh-CN": {
     total: "中部地区金额合计",
@@ -930,8 +939,43 @@ const NAMED = {
     others: ["北部", "在中部"],
     rewordedTo: "南部",
     outOfOrder: "中部地区平均金额为 [=6]，金额合计为 [=7]。",
+    listed: [
+      "- 中部地区：金额合计 [=6]",
+      "1. 中部地区金额合计为 [=6]",
+      "- 中部地区金额合计为 [=6]，中部地区平均金额为 [=7]",
+      "中部地区金额合计为 [=6]",
+    ],
+    nested: "- 按地区：\n  - 中部地区：金额合计 [=6]",
+    listedWrong: "- 北部地区：金额合计 [=6]",
+    listedUnclear: "- 南部地区：金额合计 [=6]",
   },
 } as const;
+
+/**
+ * One wrong name of each kind #2544 found, in the Note's lines after the right one: what the
+ * sentence, its paragraph, the heading above or a typed table's column says besides the name.
+ */
+const WORDS_AROUND: Record<Language, readonly [kind: string, ...lines: string[]][]> = {
+  en: [
+    ["per unit", "A Central order's total amount is [=6]."],
+    ["sign or symbol", "Central's total amount is -[=6]."],
+    ["scale said before", "All amounts below are in thousands. Central's total amount is [=6]."],
+    ["typed-table column", "| Region | Total amount % |\n| --- | --- |\n| Central | [=6] |"],
+    ["target", "Central's total amount has to reach [=6]."],
+    ["currency the unit doesn't back", "Central's total amount is €[=6]."],
+    ["subset", "Central's closed orders had a total amount of [=6]."],
+  ],
+  "zh-CN": [
+    ["per unit", "中部地区每笔订单的金额合计为 [=6]。"],
+    ["sign or symbol, a slash before the input's word", "中部地区金额合计为 [=6]/order。"],
+    ["sign or symbol", "中部地区金额合计为 [=6]%。"],
+    ["scale said before", "## 金额（单位：千元）", "中部地区金额合计为 [=6]。"],
+    ["typed-table column", "| 地区 | 金额合计（%） |\n| --- | --- |\n| 中部地区 | [=6] |"],
+    ["target", "中部地区金额合计须达到 [=6]。"],
+    ["currency the unit doesn't back", "中部地区金额合计为 ¥[=6]。"],
+    ["subset", "中部地区已完成订单的金额合计为 [=6]。"],
+  ],
+};
 
 describe.each(["en", "zh-CN"] as const)("%s: an Analysis figure's sentence (#2378)", (language) => {
   const words = NAMED[language];
@@ -1309,7 +1353,9 @@ describe.each(["en", "zh-CN"] as const)("%s: an Analysis figure's sentence (#237
       text.insert(0, language === "en" ? "South's total" : "南部地区");
     });
     await client.settled();
-    expect(await scheduleStates(core, madeId)).toEqual(["not-checked"]);
+    // The check left on the full stop is still the sentence's: Needs re-check, as the sentence
+    // shows (#2584).
+    expect(await scheduleStates(core, madeId)).toEqual(["needs-recheck"]);
     await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "changed" });
     await client.settled();
     expect(stateOf(client, words.reworded)).toMatchObject({
@@ -1556,6 +1602,430 @@ describe.each(["en", "zh-CN"] as const)("%s: an Analysis figure's sentence (#237
     const types = blocksOf(client).map((block) => block.type);
     expect(types.filter((type) => type === "table")).toHaveLength(1);
     expect(types.filter((type) => type === CHART_NODE)).toHaveLength(2);
+    core.close();
+  });
+
+  /** Each check that holds an Analysis figure, in the Note's order: a sentence's, or a typed cell's own. */
+  const analysisVerdicts = (client: MindClient) => {
+    const found = new Map<string, string>();
+    const said = (check: ReturnType<typeof readClaimCheck>) =>
+      check?.state === "not-checked" ? `not-checked ${check.reason}` : (check?.state ?? "none");
+    const visit = (node: NodeJSON, path: string) => {
+      for (const mark of node.marks ?? []) {
+        const check = mark.type === CLAIM_CHECK_MARK ? readClaimCheck(mark.attrs) : null;
+        if (check?.figures?.some((figure) => figure.calculated?.figure.analysis))
+          found.set(`${path}:${check.text}`, said(check));
+      }
+      if (node.type === CALCULATED_FIGURE_NODE && path.includes("table")) {
+        const check = readClaimCheck(node.attrs?.claimCheck);
+        if (check) found.set(`${path}:${found.size}`, said(check));
+      }
+      for (const child of node.content ?? []) visit(child, `${path}/${node.type}`);
+    };
+    for (const [at, block] of blocksOf(client).entries()) visit(block, String(at));
+    return [...found.values()];
+  };
+  const homeOf = async (core: Core, madeId: string) => {
+    const [stored] = await core.readMindContents([madeId]);
+    if (!stored) throw new Error("No content.");
+    return homeReading(stored, {
+      documents: await core.listDocuments(),
+      keptCitationTexts: [],
+      library: await core.getLibrary(),
+      folderId: null,
+    });
+  };
+
+  test.each(WORDS_AROUND[language])(
+    "%s: a judge's consistent same never stands, on the sentence, its row, the badge or Home, while the right name beside it is Supported (#2544)",
+    async (_kind, ...wrong) => {
+      const { core, madeId, client } = await walked(
+        language,
+        lines(words.right, ...wrong),
+        false,
+        null,
+        withFigures(),
+      );
+      await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
+      await client.settled();
+      expect(analysisVerdicts(client)).toEqual(["supported", "not-checked analysis-unnamed"]);
+      expect(await scheduleStates(core, madeId)).toEqual(["supported", "not-checked"]);
+      expect((await reading(core, client))?.kind).not.toBe("checked");
+      // Home's row, which the export's line reads too, counts the right name and nothing more.
+      const home = await homeOf(core, madeId);
+      expect(home.state?.kind).not.toBe("checked");
+      expect(home.health.supported).toBe(1);
+      core.close();
+    },
+  );
+
+  test("a scale said in a line above, or in the heading the sentence is under, is said of its figure too (#2544)", async () => {
+    const above =
+      language === "en" ? "All amounts below are in thousands." : "以下金额单位为万元。";
+    const { core, madeId, client } = await walked(
+      language,
+      lines(words.right, `## ${WORDS[language].caption}`, above, words.right),
+      false,
+      null,
+      withFigures(),
+    );
+    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
+    await client.settled();
+    expect(analysisVerdicts(client)).toEqual(["supported", "not-checked analysis-unnamed"]);
+    // The check's record keeps the line that says a scale, and not the Note's title above it.
+    const stored: string[] = [];
+    const visit = (node: NodeJSON) => {
+      for (const mark of node.marks ?? [])
+        if (mark.type === CLAIM_CHECK_MARK) stored.push(JSON.stringify(mark.attrs));
+      for (const child of node.content ?? []) visit(child);
+    };
+    for (const block of blocksOf(client)) visit(block);
+    const underTheLine = stored.filter((each) => each.includes(above));
+    expect(underTheLine.length).toBeGreaterThan(0);
+    expect(underTheLine.some((each) => each.includes(WORDS[language].title))).toBe(false);
+    core.close();
+    const titled = await walked(
+      language,
+      [
+        `# ${WORDS[language].title} (${language === "en" ? "in thousands" : "单位：千元"})`,
+        "",
+        `## ${WORDS[language].caption}`,
+        "",
+        words.right,
+      ].join("\n\n"),
+      false,
+      null,
+      withFigures(),
+    );
+    await titled.core.checkMind({ requestId: randomUUID(), mindId: titled.madeId, mode: "all" });
+    await titled.client.settled();
+    expect(analysisVerdicts(titled.client)).toEqual(["not-checked analysis-unnamed"]);
+    titled.core.close();
+  });
+
+  test("an enclosing section's opening lines are said of the sections under it (#2544)", async () => {
+    const scale =
+      language === "en" ? "All amounts below are in thousands." : "以下金额单位为万元。";
+    const { core, madeId, client } = await walked(
+      language,
+      lines(words.right, scale, `## ${WORDS[language].caption}`, words.right),
+      false,
+      null,
+      withFigures(),
+    );
+    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
+    await client.settled();
+    expect(analysisVerdicts(client)).toEqual(["supported", "not-checked analysis-unnamed"]);
+    core.close();
+  });
+
+  test("a long sibling section between the title's units line and the sentence doesn't hide it (#2544)", async () => {
+    const scale =
+      language === "en" ? "All amounts below are in thousands." : "以下金额单位为万元。";
+    const long =
+      language === "en"
+        ? `${"the regions kept their records by month, ".repeat(56)}as before.`
+        : `${"各地区按月记录数据，".repeat(230)}与往常一样。`;
+    expect(long.length).toBeGreaterThan(2_200);
+    const { core, madeId, client } = await walked(
+      language,
+      lines(scale, "## A", long, "## B", words.right),
+      false,
+      null,
+      withFigures(),
+    );
+    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
+    await client.settled();
+    expect(analysisVerdicts(client)).toEqual(["not-checked analysis-unnamed"]);
+    core.close();
+    // The same Note without the units line keeps its Supported.
+    const plain = await walked(
+      language,
+      lines("## A", long, "## B", words.right),
+      false,
+      null,
+      withFigures(),
+    );
+    await plain.core.checkMind({ requestId: randomUUID(), mindId: plain.madeId, mode: "all" });
+    await plain.client.settled();
+    expect(analysisVerdicts(plain.client)).toEqual(["supported"]);
+    plain.core.close();
+  });
+
+  test("a heading or a line the User types above the sentence after the Answer is read by its first Check (#2544)", async () => {
+    for (const [kind, words_] of [
+      ["heading", language === "en" ? "Amounts (in thousands)" : "金额（单位：千元）"],
+      ["paragraph", language === "en" ? "Currency: EUR" : "以下金额均以欧元计。"],
+    ] as const) {
+      const { core, madeId, client } = await walked(
+        language,
+        lines(words.right, words.right),
+        false,
+        null,
+        withFigures(),
+      );
+      // The Note's figures were read before the edit, as its schedule or badge reads them.
+      expect(await scheduleStates(core, madeId)).toHaveLength(2);
+      const blocks = client.blocks.toArray();
+      const second = blocks.findLastIndex(
+        (each) => each instanceof Y.XmlElement && each.nodeName === "paragraph",
+      );
+      client.doc.transact(() => {
+        const line = new Y.XmlElement(kind);
+        line.setAttribute("id", randomUUID());
+        if (kind === "heading") line.setAttribute("level", "2");
+        line.insert(0, [new Y.XmlText(words_)]);
+        client.blocks.insert(second, [line]);
+      });
+      await client.settled();
+      await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
+      await client.settled();
+      expect(analysisVerdicts(client), kind).toEqual(["supported", "not-checked analysis-unnamed"]);
+      core.close();
+    }
+  });
+
+  test("a heading typed above a typed table after the Answer is read by its cell's next Check (#2544)", async () => {
+    const table =
+      language === "en"
+        ? "| Region | Total amount |\n| --- | --- |\n| Central | [=6] |"
+        : "| 地区 | 金额合计 |\n| --- | --- |\n| 中部地区 | [=6] |";
+    const { core, madeId, client } = await walked(
+      language,
+      lines(words.right, table),
+      false,
+      null,
+      withFigures(),
+    );
+    expect(await scheduleStates(core, madeId)).toHaveLength(2);
+    const at = client.blocks
+      .toArray()
+      .findIndex((each) => each instanceof Y.XmlElement && each.nodeName === "table");
+    client.doc.transact(() => {
+      const heading = new Y.XmlElement("heading");
+      heading.setAttribute("id", randomUUID());
+      heading.setAttribute("level", "2");
+      heading.insert(0, [
+        new Y.XmlText(language === "en" ? "Amounts (in thousands)" : "金额（单位：千元）"),
+      ]);
+      client.blocks.insert(at, [heading]);
+    });
+    await client.settled();
+    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
+    await client.settled();
+    expect(analysisVerdicts(client)).toEqual(["supported", "not-checked analysis-unnamed"]);
+    core.close();
+  });
+
+  test("the judge reads the heading above as it is when the check runs, not as the Note was first read (#2544)", async () => {
+    const before = language === "en" ? "Northern figures" : "北方数字";
+    const after = language === "en" ? "Central figures" : "中部数字";
+    const prompts: string[] = [];
+    const { core, madeId, client } = await walked(
+      language,
+      lines(`## ${before}`, words.right),
+      false,
+      null,
+      withFigures(),
+      null,
+      (sentence) =>
+        sentence.includes("8,325")
+          ? {
+              reply: (call) => {
+                prompts.push(call.prompt);
+                return checkReply(call, {});
+              },
+            }
+          : undefined,
+    );
+    expect(await scheduleStates(core, madeId)).toHaveLength(1);
+    const heading = client.blocks
+      .toArray()
+      .find(
+        (each): each is Y.XmlElement =>
+          each instanceof Y.XmlElement &&
+          each.nodeName === "heading" &&
+          each.toString().includes(before),
+      );
+    const text = heading?.toArray().find((each): each is Y.XmlText => each instanceof Y.XmlText);
+    if (!text) throw new Error("No heading.");
+    client.doc.transact(() => {
+      text.delete(0, text.length);
+      text.insert(0, after);
+    });
+    await client.settled();
+    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
+    await client.settled();
+    expect(prompts.length).toBeGreaterThan(0);
+    expect(prompts.every((prompt) => prompt.includes(`"heading":"${after}"`))).toBe(true);
+    expect(prompts.some((prompt) => prompt.includes(before))).toBe(false);
+    expect(analysisVerdicts(client)).toEqual(["supported"]);
+    core.close();
+  });
+
+  test("the lines above are its own section's, and a table's caption is its table's (#2544)", async () => {
+    const scale =
+      language === "en" ? "All amounts below are in thousands." : "以下金额单位为万元。";
+    const caption = language === "en" ? "Totals (in thousands)" : "合计（单位：千元）";
+    const table = "| A | B |\n| --- | --- |\n| x | 1 |";
+    const { core, madeId, client } = await walked(
+      language,
+      lines(`## ${caption}`, scale, "## B", words.right, caption, table, words.right),
+      false,
+      null,
+      withFigures(),
+    );
+    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
+    await client.settled();
+    expect(analysisVerdicts(client)).toEqual(["supported", "supported"]);
+    core.close();
+  });
+
+  test("code never makes a Supported: the judge's other stays Unsupported and its unclear Not checked, whatever the sentence's symbols (#2544)", async () => {
+    const [, wrong = ""] = WORDS_AROUND[language].find(([kind]) => kind === "sign or symbol") ?? [];
+    const prefix = wrong.slice(0, 8);
+    for (const [names, shown] of [
+      ["other", "unsupported"],
+      ["unclear", "not-checked analysis-unnamed"],
+    ] as const) {
+      const { core, madeId, client } = await walked(
+        language,
+        lines(words.right, wrong),
+        false,
+        null,
+        withFigures(),
+        null,
+        (sentence) =>
+          sentence.startsWith(prefix) && sentence !== words.right.replace("[=6]", "8,325")
+            ? { names, verdict: "unsupported" }
+            : undefined,
+      );
+      await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
+      await client.settled();
+      expect(analysisVerdicts(client)).toEqual(["supported", shown]);
+      core.close();
+    }
+  });
+
+  test("a figure that ends its list item or its line has its sentence's one verdict on its row, the badge and Home (#2584)", async () => {
+    const { core, madeId, client } = await walked(
+      language,
+      lines(...words.listed),
+      false,
+      null,
+      withFigures(),
+    );
+    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
+    await client.settled();
+    expect(analysisVerdicts(client)).toEqual(["supported", "supported", "supported", "supported"]);
+    expect(await scheduleStates(core, madeId)).toEqual(Array(5).fill("supported"));
+    expect((await reading(core, client))?.kind).toBe("checked");
+    // Home's row, which the export's line reads too.
+    const home = await homeOf(core, madeId);
+    expect(home.state?.kind).toBe("checked");
+    expect(home.health.supported).toBe(4);
+    core.close();
+  });
+
+  test("a list item's wrong name is Unsupported on its row too, one the judge can't tell and a figure no sentence holds are Not checked, and nothing is green (#2584)", async () => {
+    const [north, south] = language === "en" ? ["North", "South"] : ["北部", "南部"];
+    const { core, madeId, client } = await walked(
+      language,
+      lines(words.nested, words.listedWrong, words.listedUnclear, "- [=7]"),
+      false,
+      null,
+      withFigures(),
+      null,
+      (sentence) =>
+        sentence.startsWith(north)
+          ? { names: "other", verdict: "unsupported" }
+          : sentence.startsWith(south)
+            ? { names: "unclear", verdict: "unsupported" }
+            : undefined,
+    );
+    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
+    await client.settled();
+    expect(analysisVerdicts(client)).toEqual([
+      "supported",
+      "unsupported",
+      "not-checked analysis-unnamed",
+    ]);
+    expect(await scheduleStates(core, madeId)).toEqual([
+      "supported",
+      "unsupported",
+      "not-checked",
+      "not-checked",
+    ]);
+    expect((await reading(core, client))?.kind).toBe("needs-look");
+    const home = await homeOf(core, madeId);
+    expect(home.state?.kind).not.toBe("checked");
+    expect(home.health.supported).toBe(1);
+    core.close();
+  });
+
+  test("a reply whose Roles line gives a list item to someone else, while its figure's item names it, leaves the figure Not checked on the sentence, its row and the badge (#2584)", async () => {
+    const [item = ""] = words.listed;
+    const [subject, other] = language === "en" ? ["Central", "North"] : ["中部地区", "北部地区"];
+    const { core, madeId, client } = await walked(
+      language,
+      lines(item),
+      false,
+      null,
+      withFigures(),
+      null,
+      (sentence) =>
+        sentence.startsWith(subject)
+          ? { verdict: "unsupported", roles: `${subject} / ${other}, other` }
+          : undefined,
+    );
+    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
+    await client.settled();
+    expect(analysisVerdicts(client)).toEqual(["not-checked malformed"]);
+    expect(await scheduleStates(core, madeId)).toEqual(["not-checked"]);
+    expect((await reading(core, client))?.kind).toBe("not-checked");
+    expect((await homeOf(core, madeId)).state?.kind).toBe("not-checked");
+    core.close();
+  });
+  test("a wrong name stays Unsupported on the sentence and its row when the reply's Roles line also gives the sentence to someone else (#2596)", async () => {
+    const [item, subject, roles] =
+      language === "en"
+        ? ["- North: total amount [=6]", "North", "North / Central, other"]
+        : ["- 北部地区：金额合计 [=6]", "北部地区", "北部地区 / 中部地区, other"];
+    const { core, madeId, client } = await walked(
+      language,
+      lines(item),
+      false,
+      null,
+      withFigures(),
+      null,
+      (sentence) =>
+        sentence.startsWith(subject)
+          ? { names: "other", verdict: "unsupported", roles }
+          : undefined,
+    );
+    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
+    await client.settled();
+    expect(analysisVerdicts(client)).toEqual(["unsupported"]);
+    expect(await scheduleStates(core, madeId)).toEqual(["unsupported"]);
+    expect((await reading(core, client))?.kind).toBe("needs-look");
+    core.close();
+  });
+
+  test("a figure that starts its list item has its sentence's verdict on its row (#2596)", async () => {
+    const item =
+      language === "en" ? "- [=6] is Central's total amount" : "- [=6] 是中部地区金额合计";
+    const { core, madeId, client } = await walked(
+      language,
+      lines(item),
+      false,
+      null,
+      withFigures(),
+    );
+    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
+    await client.settled();
+    expect(analysisVerdicts(client)).toEqual(["supported"]);
+    expect(await scheduleStates(core, madeId)).toEqual(["supported"]);
+    expect((await reading(core, client))?.kind).toBe("checked");
     core.close();
   });
 });

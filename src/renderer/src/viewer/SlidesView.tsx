@@ -21,6 +21,7 @@ import { core, files } from "../core";
 import { translateNow, useT } from "../i18n";
 import { useSettingUp } from "../modelSetup";
 import { preparePicture } from "../pictureFile";
+import { openDocumentPicture, pictureClickHandlers } from "../pictureViewer";
 import { useAppStore, type ViewerTarget } from "../store";
 import { visiblePartOf } from "./captureRect";
 import { useCitedArea } from "./citedArea";
@@ -56,6 +57,9 @@ const read = async (bytes: Uint8Array): Promise<Loaded> => {
     drawing = await drawPptx(bytes);
   } catch {
     drawing = null;
+  }
+  if (drawing && drawing.unreadable.length > 0) {
+    console.warn("viewer.pptx.partsNotRead", drawing.unreadable.join(", "));
   }
   return { bytes, deck, drawing };
 };
@@ -415,6 +419,7 @@ function Slides({
     depth: 0,
     prefix: String(slide.number),
   }));
+  const pictureClick = useMemo(() => pictureClickHandlers(openDocumentPicture), []);
   const goTo = (number: number) => {
     const container = scroller.current;
     const element = slideElements.current.get(number);
@@ -450,6 +455,7 @@ function Slides({
           onScroll={onScroll}
           className={`viewer-backdrop min-w-0 flex-1 overflow-auto select-text ${drawing ? "viewer-deck-backdrop" : "viewer-slides-backdrop"}`}
           style={drawing ? { paddingLeft: padding, paddingRight: gutter } : undefined}
+          {...pictureClick}
         >
           {viewWidth > 0 &&
             slides.map((slide) => {
@@ -785,11 +791,24 @@ function SlideSheet({
               ))}
             </figure>
           ))}
-          {slide.images.map((image, index) => {
+          {slide.images.map((image) => {
             const url = images.get(image.part);
             return url ? (
-              // biome-ignore lint/suspicious/noArrayIndexKey: a slide's images never reorder
-              <img key={index} src={url} alt={image.alt} className="viewer-slide-image" />
+              <button
+                key={image.part}
+                type="button"
+                data-picture-button=""
+                aria-label={image.alt || undefined}
+                className="my-1 inline-block max-w-full cursor-zoom-in border-0 bg-transparent p-0"
+              >
+                <img
+                  src={url}
+                  alt={image.alt}
+                  className="viewer-slide-image"
+                  data-picture-viewer=""
+                  draggable={false}
+                />
+              </button>
             ) : null;
           })}
         </div>

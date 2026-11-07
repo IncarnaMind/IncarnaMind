@@ -36,7 +36,8 @@ import {
 } from "../../api";
 import { nodesByPlace, noteXmlIn, readWordDocument } from "../../documents/formats/docxImport";
 import { WORD_LOOK_VERSION } from "../../documents/formats/docxLook";
-import { openWordPackage, relationshipsOf, reviewOf } from "../../documents/formats/docxPackage";
+import { openWordPackage, reviewOf } from "../../documents/formats/docxPackage";
+import { relationshipsOf } from "../../documents/formats/officePackage";
 import { child, elements, type XmlElement } from "../../documents/formats/xml";
 import {
   type Block,

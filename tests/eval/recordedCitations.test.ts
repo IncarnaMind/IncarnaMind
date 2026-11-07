@@ -10,7 +10,7 @@
  * fictional sample Documents' own text. Each is checked against the
  * cited pages' stored text, which the processing pipeline (`processFile`, as
  * the core runs it before writing `document_pages`) gives for the sample PDFs
- * in data/ and the Chinese fixtures in eval/retrieval/fixtures/, and its
+ * in eval/data/ and the Chinese fixtures in eval/retrieval/fixtures/, and its
  * outcome is classified as the evaluation classifies it.
  */
 import { existsSync, readFileSync } from "node:fs";
@@ -45,7 +45,7 @@ const RECORDED = (
 /** A Document's stored page text, as processing gives it, by its name. */
 async function storedPages(name: string): Promise<PageText[]> {
   const file = [
-    join(ROOT, "data", `${name}.pdf`),
+    join(ROOT, "eval", "data", `${name}.pdf`),
     join(ROOT, "eval/retrieval/fixtures", `${name}.pdf`),
   ].find((path) => existsSync(path));
   if (!file) throw new Error(`No sample Document is called "${name}".`);

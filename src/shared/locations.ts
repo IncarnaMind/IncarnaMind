@@ -20,6 +20,7 @@ import {
 } from "../core/api";
 import { clockTime, parseClockTime } from "./clock";
 import { type MessageKey, type MessageParams, translate } from "./i18n";
+import { parseLibraryFact, parseLibrarySource } from "./libraryFacts";
 import { findQuote, type MatchOptions, type TextRange } from "./quoteMatch";
 import { speakerName } from "./speakers";
 import {
@@ -149,6 +150,11 @@ export function parseLocation(value: unknown): CitationLocation | null {
       return property && typeof value === "string" && value !== ""
         ? { kind, property, value }
         : null;
+    }
+    case "library": {
+      const source = parseLibrarySource(location.source);
+      const fact = parseLibraryFact(location.fact);
+      return source && fact ? { kind, source, fact } : null;
     }
     default:
       return null;
@@ -280,6 +286,8 @@ export function formatLocation(location: CitationLocation, t: Translate, speaker
     }
     case "properties":
       return t("location.properties");
+    case "library":
+      return t("claim.library.source.library");
   }
 }
 
@@ -323,7 +331,9 @@ export const englishPrintedLocation = (location: CitationLocation): string =>
 
 /** The kinds of Location the card's "Open …" button names: the page, the slide, the section… */
 export const openKind = (location: CitationLocation | null) =>
-  location === null || location.kind === "properties" ? "document" : location.kind;
+  location === null || location.kind === "properties" || location.kind === "library"
+    ? "document"
+    : location.kind;
 
 /** A Citation of a Transcript, whose Location is a time: checked against the Transcript's text, not a page. */
 export const isTranscriptLocation = (location: CitationLocation | null) =>

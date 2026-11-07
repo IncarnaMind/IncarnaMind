@@ -3,7 +3,7 @@
  * calls and tokens, the candidate against the baseline item by item, and the quality guards, each
  * held or not; then every item, both arms side by side.
  */
-import type { ArmRun, Language, SetId } from "./paired";
+import type { ArmRun, Language, RequestTiming, SetId } from "./paired";
 import { percentile } from "./report";
 
 export interface PairedRow {
@@ -38,7 +38,8 @@ type Flag = (run: ArmRun) => boolean;
 
 /**
  * A guard over the items both arms finished that it applies to (`counted`). One where more is
- * better holds with up to `margin` fewer items in 30; one where more is worse, with none new.
+ * better holds with up to `margin` fewer items in 30; one where more is worse, with none new, or,
+ * `noMore`, with no more items than the baseline has.
  */
 function guard(
   name: string,
@@ -47,6 +48,7 @@ function guard(
   counted: Flag,
   higherIsBetter: boolean,
   margin = 0,
+  noMore = false,
 ): Guard | null {
   const both = rows.filter(
     (row) =>
@@ -76,7 +78,11 @@ function guard(
     lost,
     gained,
     allowed,
-    holds: higherIsBetter ? candidate >= baseline - allowed : lost === 0,
+    holds: higherIsBetter
+      ? candidate >= baseline - allowed
+      : noMore
+        ? candidate <= baseline
+        : lost === 0,
   };
 }
 
@@ -86,7 +92,12 @@ function guard(
  * default); no new false Supported, duplicate Answer or change claimed that no Tool made; and no
  * more items failing to run.
  */
-export function guards(rows: readonly PairedRow[], margin = 0): Guard[] {
+export function guards(
+  rows: readonly PairedRow[],
+  margin = 0,
+  /** False Supported counted over the set: no more items with one than the baseline (`FALSE_SUPPORTED=counted`). */
+  falseSupportedCounted = false,
+): Guard[] {
   const all: Flag = () => true;
   const found: Flag = (run) => run.citations > 0 && run.found === run.citations;
   return [
@@ -107,7 +118,15 @@ export function guards(rows: readonly PairedRow[], margin = 0): Guard[] {
       margin,
     ),
     guard("Every Citation found", rows, found, (run) => run.citations > 0, true, margin),
-    guard("False Supported", rows, (run) => run.falseSupported > 0, all, false),
+    guard(
+      "False Supported",
+      rows,
+      (run) => run.falseSupported > 0,
+      all,
+      false,
+      0,
+      falseSupportedCounted,
+    ),
     guard("Duplicate Answer", rows, (run) => run.duplicate, all, false),
     guard(
       "Change claimed, none made",
@@ -176,6 +195,7 @@ export function pairedSection(
   margin = 0,
   /** False: the rows are part of a set the guards hold on as a whole, so none is judged here. */
   judged = true,
+  falseSupportedCounted = false,
 ): string {
   const [a, b] = names;
   const of = (pick: (run: ArmRun) => number | null) =>
@@ -222,7 +242,7 @@ export function pairedSection(
     "",
     `| Guard, items both finished | ${a} | ${b} | lost / gained | holds |`,
     "|---|---|---|---|---|",
-    ...guards(rows, margin).map(rule),
+    ...guards(rows, margin, falseSupportedCounted).map(rule),
   ].join("\n");
 }
 
@@ -249,5 +269,95 @@ export function itemTable(rows: readonly PairedRow[], names: [string, string]): 
       (row) =>
         `| ${row.id}${row.run > 1 ? ` #${row.run}` : ""} | ${row.language} | ${seconds(row.baseline.firstWordsMs)} / ${seconds(row.candidate.firstWordsMs)} | ${seconds(row.baseline.doneMs)} / ${seconds(row.candidate.doneMs)} | ${row.baseline.modelCalls} / ${row.candidate.modelCalls} | ${outcomeOf(row.baseline)} | ${outcomeOf(row.candidate)} |`,
     ),
+  ].join("\n");
+}
+
+/**
+ * Where an item's time went, for items that read their requests (a help reply): each arm's
+ * median, from the User's action, to its first request, to each of the Answer's own requests'
+ * first byte, first text and end, and to its first whole option; the requests made for other
+ * steps, the time spent reasoning, the steps on this computer, and the first request's tokens.
+ */
+export function timeTable(rows: readonly PairedRow[], names: [string, string]): string {
+  const runs = (pick: (row: PairedRow) => ArmRun) =>
+    rows.map(pick).filter((run) => run.status === "done" && run.requests);
+  const arms = [runs((row) => row.baseline), runs((row) => row.candidate)] as const;
+  const requests = (run: ArmRun) => run.requests ?? [];
+  const own = (run: ArmRun) =>
+    requests(run).filter((request) => request.kind === "model" && request.step === null);
+  const time = (label: string, value: (run: ArmRun) => number | null) =>
+    `| ${label} | ${arms.map((runs) => seconds(percentile(known(runs.map(value)), 0.5))).join(" | ")} |`;
+  const counted = (label: string, value: (run: ArmRun) => number) =>
+    `| ${label} | ${arms.map((runs) => mean(runs.map(value))).join(" | ")} |`;
+  const tokens = (label: string, value: (run: ArmRun) => number | null) =>
+    `| ${label} | ${arms.map((runs) => percentile(known(runs.map(value)), 0.5) ?? "–").join(" | ")} |`;
+  const at = (index: number, mark: (request: RequestTiming) => number | null) => (run: ArmRun) => {
+    const request = own(run)[index];
+    const ms = request ? mark(request) : null;
+    return request && ms !== null ? request.startMs + ms : null;
+  };
+  const most = Math.max(0, ...arms.flat().map((run) => own(run).length));
+  const others = [
+    ...new Set(
+      arms
+        .flat()
+        .flatMap((run) =>
+          requests(run).flatMap((request) =>
+            request.kind === "model" && request.step === null
+              ? []
+              : [`${request.kind}:${request.step}`],
+          ),
+        ),
+    ),
+  ];
+  const ofKey = (run: ArmRun, key: string) =>
+    requests(run).filter((request) => `${request.kind}:${request.step}` === key);
+  const reasoning = (run: ArmRun) =>
+    requests(run).reduce((sum, request) => {
+      if (request.firstReasoningMs === null) return sum;
+      const until = request.firstTextMs ?? request.firstToolMs ?? request.endMs;
+      return sum + Math.max(0, until - request.firstReasoningMs);
+    }, 0);
+  return [
+    `| From the User's action (median; counts are means) | ${names[0]} | ${names[1]} |`,
+    "|---|---|---|",
+    time(
+      "First request sent",
+      (run) => requests(run).find((each) => each.kind === "model")?.startMs ?? null,
+    ),
+    ...Array.from({ length: most }, (_, index) => [
+      time(
+        `Request ${index + 1}: first byte`,
+        at(index, (request) => request.firstByteMs),
+      ),
+      time(
+        `Request ${index + 1}: first text`,
+        at(index, (request) => request.firstTextMs),
+      ),
+      time(
+        `Request ${index + 1}: end`,
+        at(index, (request) => request.endMs),
+      ),
+    ]).flat(),
+    time("First whole option", (run) => run.firstOptionMs ?? null),
+    counted("The reply's own requests", (run) => own(run).length),
+    counted("Written again by another model (share)", (run) =>
+      new Set(own(run).map((request) => request.model)).size > 1 ? 1 : 0,
+    ),
+    ...others.flatMap((key) => {
+      const [kind, step] = key.split(":");
+      const name = kind === "local" ? `On this computer: ${step}` : `Requests for ${step}`;
+      return [
+        counted(`${name}, how many`, (run) => ofKey(run, key).length),
+        time(`${name}, each`, (run) =>
+          percentile(
+            ofKey(run, key).map((each) => each.endMs),
+            0.5,
+          ),
+        ),
+      ];
+    }),
+    time("Reasoning, all requests", reasoning),
+    tokens("Input tokens, first request", (run) => own(run)[0]?.inputTokens ?? null),
   ].join("\n");
 }

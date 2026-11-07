@@ -18,8 +18,8 @@ export interface FakeCaptureOptions {
   systemAudio?: boolean;
   /** What the computer's sound does when asked for: plays, is denied, or gives only silence. */
   system?: "allowed" | "denied" | "silent";
-  /** What the microphone does when asked for: records (by default), or is denied. */
-  microphone?: "allowed" | "denied";
+  /** What the microphone does when asked for: records (by default), is denied, or waits for the system's permission prompt. */
+  microphone?: "allowed" | "denied" | "waiting";
   /** Makes audio by itself, as captured, every `realTime` ms. */
   realTime?: number;
   /** The computer's sound plays these samples once, then silence; the microphone is quiet meanwhile. */
@@ -44,8 +44,10 @@ export function wavSamples(bytes: Uint8Array): Int16Array {
 }
 
 export interface FakeCapture extends AudioCapture {
-  /** Sends `ms` of audio from a source while a capture runs. */
-  push(source: AudioSource, ms: number): void;
+  /** The system's microphone permission was answered: it records from now, or is denied. */
+  answerPermission(allowed?: boolean): void;
+  /** Sends `ms` of audio from a source while a capture runs; `quiet`: silence, as when no one speaks into it. */
+  push(source: AudioSource, ms: number, quiet?: boolean): void;
   /** Reports a source's state while a capture runs. */
   report(source: AudioSource, state: CaptureState): void;
   /**
@@ -64,7 +66,10 @@ export interface FakeCapture extends AudioCapture {
 export function createFakeCapture(options: FakeCaptureOptions = {}): FakeCapture {
   const systemAudio = options.systemAudio ?? true;
   const system = options.system ?? "allowed";
-  const microphone = options.microphone ?? "allowed";
+  let microphone = options.microphone ?? "allowed";
+  let waiting = microphone === "waiting";
+  let micOn = true;
+  let systemWanted = false;
   let sink: AudioSink | null = null;
   let started = 0;
   /** Samples made so far per source, so the tone carries on across pushes. */
@@ -74,10 +79,10 @@ export function createFakeCapture(options: FakeCaptureOptions = {}): FakeCapture
   let timer: ReturnType<typeof setInterval> | null = null;
   const settingsOpened: AudioSource[] = [];
 
-  const samplesOf = (source: AudioSource, ms: number): Int16Array => {
+  const samplesOf = (source: AudioSource, ms: number, quiet: boolean): Int16Array => {
     const count = Math.round((ms * MEETING_SAMPLE_RATE) / 1000);
     const samples = new Int16Array(count);
-    if (source === "system" && system === "silent") return samples;
+    if (quiet || (source === "system" && system === "silent")) return samples;
     if (options.recording) {
       if (source === "system")
         samples.set(options.recording.subarray(made.system, made.system + count));
@@ -94,10 +99,10 @@ export function createFakeCapture(options: FakeCaptureOptions = {}): FakeCapture
   };
 
   const now = options.now ?? Date.now;
-  const push = (source: AudioSource, ms: number) => {
+  const push = (source: AudioSource, ms: number, quiet = false) => {
     if (!sink || !wanted[source]) return;
     if (source === "microphone" && Date.now() < micQuietUntil) return;
-    sink.audio(source, samplesOf(source, ms), now());
+    sink.audio(source, samplesOf(source, ms, quiet), now());
   };
 
   return {
@@ -116,12 +121,19 @@ export function createFakeCapture(options: FakeCaptureOptions = {}): FakeCapture
     start(request, given) {
       started++;
       sink = given;
+      micOn = true;
+      systemWanted = request.systemAudio && system !== "denied";
       wanted = {
-        microphone: microphone !== "denied",
-        system: request.systemAudio && system !== "denied",
+        microphone: !waiting && microphone !== "denied",
+        system: !waiting && systemWanted,
       };
-      given.state("microphone", microphone === "denied" ? "denied" : "recording");
-      if (request.systemAudio) given.state("system", system === "denied" ? "denied" : "recording");
+      given.state(
+        "microphone",
+        waiting ? "waiting" : microphone === "denied" ? "denied" : "recording",
+      );
+      if (request.systemAudio && !waiting) {
+        given.state("system", system === "denied" ? "denied" : "recording");
+      }
       const tick = options.realTime;
       if (tick) {
         let last = Date.now();
@@ -136,7 +148,8 @@ export function createFakeCapture(options: FakeCaptureOptions = {}): FakeCapture
       }
       return {
         setMicrophone(on) {
-          if (sink !== given || wanted.microphone === on) return;
+          micOn = on;
+          if (sink !== given || waiting || wanted.microphone === on) return;
           wanted = { ...wanted, microphone: on };
           if (on) given.state("microphone", "recording");
         },
@@ -150,6 +163,16 @@ export function createFakeCapture(options: FakeCaptureOptions = {}): FakeCapture
 
     async openSettings(source) {
       settingsOpened.push(source);
+    },
+
+    answerPermission(allowed = true) {
+      if (!waiting) return;
+      waiting = false;
+      microphone = allowed ? "allowed" : "denied";
+      if (!sink) return;
+      wanted = { microphone: allowed && micOn, system: systemWanted };
+      sink.state("microphone", allowed ? "recording" : "denied");
+      if (systemWanted) sink.state("system", "recording");
     },
 
     push,

@@ -5,11 +5,17 @@
  * one sentence on what the Document says, carrying the marker.
  */
 import type { Reading } from "../../../shared/figures";
-import type { CheckFigure, CitationSupport, ClaimVerdict, UnsupportedReason } from "../../api";
+import type {
+  CheckFigure,
+  CitationSupport,
+  ClaimVerdict,
+  FigureLocator,
+  UnsupportedReason,
+} from "../../api";
 import { LANGUAGE_NAMES, type Language } from "../../language";
 import { asAttribute, asData, fromData, type PromptTag, tagged } from "../../promptData";
 import { setAsideRowsMeaning } from "../prompt";
-import { PART_RULES, PARTS_LINE } from "./claims";
+import { LIBRARY_PART_RULES, PART_RULES, PARTS_LINE } from "./claims";
 
 /** The checks' tags: none of them may be opened or closed by what they hold (#2423). */
 export const CHECK_TAGS: readonly PromptTag[] = [
@@ -147,10 +153,15 @@ const FIGURE_INSTRUCTIONS = [
   'remainder is null ONLY when the sentence has no assertion beyond those requested numeric facts. Otherwise give its independent {"text":"an exact nonnumeric assertion copied from the sentence","verdict":"supported","scope":"same","topic":"found","roles":"same","says":null,"citation":1}. Do not repeat the whole numerical verdict as the remainder. Preserve an adverse qualitative assertion even when all figures agree.',
 ].join("\n");
 
-/** A check with no sorted parts sorts its sentence in its first turn, so a one-fact sentence costs no sorting request (#1635). */
-const PARTS_FIRST = [
-  'Before your first search, in that same turn, write one line: Parts: and one JSON array of the sentence\'s ordered literal parts, [{"kind":"fact","text":"exact original words"},{"kind":"opinion","text":"exact original words"}], with kind fact or opinion only. Use [] only for a heading, greeting, question or other text with no factual assertion, opinion or advice.',
-  ...PART_RULES,
+/**
+ * A check with no sorted parts sorts its sentence in its first turn, so a one-fact sentence costs
+ * no sorting request (#1635); with `library`, as a check against the Library's facts sorts it.
+ */
+const partsFirst = (library: boolean) => [
+  library
+    ? 'Before your first search, in that same turn, write one line: Parts: and one JSON array of the sentence\'s ordered literal parts, [{"kind":"fact","text":"exact original words"},{"kind":"opinion","text":"exact original words"}], with kind fact, opinion or about-this-text only. Use [] only for a heading, greeting, question or other text with no factual assertion, opinion, advice or words about the text itself.'
+    : 'Before your first search, in that same turn, write one line: Parts: and one JSON array of the sentence\'s ordered literal parts, [{"kind":"fact","text":"exact original words"},{"kind":"opinion","text":"exact original words"}], with kind fact or opinion only. Use [] only for a heading, greeting, question or other text with no factual assertion, opinion or advice.',
+  ...(library ? LIBRARY_PART_RULES : PART_RULES),
   "",
 ];
 
@@ -158,7 +169,7 @@ const PARTS_FIRST = [
  * The instructions of a check Run, for a way of citing; `passages`: what the
  * one search found, for a model without Tools; `calculate`: the model is
  * offered `calculate`, for a figure no Passage states; `findsParts`: the
- * Run's first turn names the sentence's parts.
+ * Run's first turn names the sentence's parts; `library`: the Run may show the Library's facts.
  */
 export function checkInstructions(
   mode: CitationSupport | "no-documents",
@@ -167,6 +178,7 @@ export function checkInstructions(
   calculate = false,
   figures = false,
   findsParts = false,
+  library = false,
 ): string {
   // A sentence checked figure by figure names each figure's calculation on its Figures line.
   const REPLY =
@@ -177,7 +189,7 @@ export function checkInstructions(
       return [
         ...rules(calculate),
         "",
-        ...(findsParts ? PARTS_FIRST : []),
+        ...(findsParts ? partsFirst(library) : []),
         "Search the Documents with search_documents for what the sentence claims, in the Documents' language. Search again with other words if the Passages don't decide it; three searches at most.",
         figures
           ? `Before replying, use cite to record every quote used by a requested figure or remainder, each under its own marker: ${RECORD}.`
@@ -214,6 +226,33 @@ export function checkInstructions(
   }
 }
 
+/**
+ * A requested figure's id in a check's request, by its place among them: a Note's own ids hold
+ * its Blocks' ids, which never go to a model (#2525). `readFigureReply` reads it back.
+ */
+export const figureHandle = (index: number) => `F${index + 1}`;
+
+/** Where a figure is, its Block named by a handle for this request alone, as its id is. */
+function locatorSent(locator: FigureLocator, blocks: Map<string, string>) {
+  const handle = (blockId: string) => {
+    const known = blocks.get(blockId) ?? `B${blocks.size + 1}`;
+    blocks.set(blockId, known);
+    return known;
+  };
+  return locator.kind === "chart"
+    ? { ...locator, blockId: handle(locator.blockId) }
+    : {
+        ...locator,
+        from: { ...locator.from, blockId: handle(locator.from.blockId) },
+        to: { ...locator.to, blockId: handle(locator.to.blockId) },
+      };
+}
+
+const ID_KEYS: ReadonlySet<string> = new Set(["passageId", "documentId", "contentHash"]);
+
+/** A saved figure's Citations without the ids and versions the request has no use for. */
+const withoutIds = (key: string, value: unknown) => (ID_KEYS.has(key) ? undefined : value);
+
 /** How many of an Analysis figure's runs of rows the judge reads: the count says how many there are. */
 const JUDGED_ROW_RUNS = 20;
 
@@ -230,6 +269,7 @@ export function claimPrompt(input: {
   const context = input.context?.trim();
   const cited = input.cited ?? [];
   const setAside = meaningOf(input.citedShown ?? "");
+  const blocks = new Map<string, string>();
   return [
     ...(context && context !== input.claim.trim()
       ? [
@@ -258,9 +298,9 @@ export function claimPrompt(input: {
             "figures",
             JSON.stringify(
               input.figures?.map(
-                ({ id, locator, reading, calculated, context, label, analysisRecord }) => ({
-                  id,
-                  locator,
+                ({ locator, reading, calculated, context, label, analysisRecord }, index) => ({
+                  id: figureHandle(index),
+                  locator: locatorSent(locator, blocks),
                   shown: reading.chars,
                   unit: reading.unit,
                   ...(reading.ambiguous.length > 0 && {
@@ -291,6 +331,7 @@ export function claimPrompt(input: {
                   }),
                 }),
               ),
+              withoutIds,
             ),
             "",
             CHECK_TAGS,
@@ -674,6 +715,8 @@ const REASON_KIND =
   /^[\s>*_#`'"“”-]*(?:reason kind|原因类型)[\s*_]*[:：][\s*_]*(forecast-certainty|unbacked-cause)\s*$/i;
 /** "Property: modified", the file properties a sentence states (./fileProperties), on a line of its own. */
 export const PROPERTY = /^[\s>*_#`'"“”-]*(?:property|属性)[\s*_]*[:：][\s*_]*(.*)$/i;
+/** "Library: documents", the Library's facts a sentence states (./libraryFacts), on a line of its own. */
+export const LIBRARY_LINE_FIELD = /^[\s>*_#`'"“”-]*(?:library|资料库)[\s*_]*[:：][\s*_]*(.*)$/i;
 const FIELDS = [
   PARTS_LINE,
   COVERED,
@@ -690,6 +733,7 @@ const FIELDS = [
   COVERAGE,
   REASON_KIND,
   PROPERTY,
+  LIBRARY_LINE_FIELD,
   FIGURES,
 ];
 const MAX_PHRASE = 120;

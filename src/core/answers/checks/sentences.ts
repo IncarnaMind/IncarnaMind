@@ -11,6 +11,7 @@ import { citationAttributesOf } from "../../../shared/citations";
 import { keptOn, readClaimCheck } from "../../../shared/claimChecks";
 import { partCitations, readClaimParts } from "../../../shared/claimParts";
 import { keptBinding } from "../../../shared/figureRuns";
+import { countFigureSteps } from "../../../shared/figures";
 import {
   type InlineTextPiece,
   type InlineTextProjection,
@@ -42,7 +43,12 @@ import {
 } from "../../api";
 import { layout, textBlocks, textBlocksOf } from "../../proposals/write";
 import type { NoteParagraph, RecordCiteNote, RecordCitePlace } from "../../recordCites/referents";
-import { type FigureOccurrence, figuresInMind, inTableCell } from "./figureOccurrences";
+import {
+  type FigureOccurrence,
+  figuresInMind,
+  inTableCell,
+  withAboveNow,
+} from "./figureOccurrences";
 
 const BREAK = "hardBreak";
 
@@ -136,15 +142,34 @@ function inlinePieces(element: Y.XmlElement): InlineTextPiece[] {
   });
 }
 
+// A projection is never changed once made, so where its Citations start and end is worked out
+// once, and each sentence's words cost no more than its own length (#2523).
+const citationEdges = new WeakMap<
+  InlineTextProjection,
+  { starts: Set<number>; ends: Set<number> }
+>();
+
 function projectedRange(
   projection: InlineTextProjection,
   pieces: readonly InlineTextPiece[],
   from: number,
   to: number,
 ): InlineTextProjection | null {
-  const citations = pieces.filter((piece) => piece.kind === "citation");
-  while (citations.some((piece) => piece.from === from)) from++;
-  while (citations.some((piece) => piece.to === to)) to--;
+  let edges = citationEdges.get(projection);
+  if (!edges) {
+    const starts = new Set<number>();
+    const ends = new Set<number>();
+    for (const piece of pieces)
+      if (piece.kind === "citation") {
+        starts.add(piece.from);
+        ends.add(piece.to);
+      }
+    countFigureSteps(pieces.length);
+    edges = { starts, ends };
+    citationEdges.set(projection, edges);
+  }
+  while (edges.starts.has(from)) from++;
+  while (edges.ends.has(to)) to--;
   const span = inlineSpan(projection, from, to);
   return span ? sliceInlineText(projection, span.start, span.end) : null;
 }
@@ -175,7 +200,9 @@ export function checkText(sentence: SelectedSentence) {
     context:
       (sentence.figures?.[0]?.label !== undefined ? sentence.figures[0]?.context : undefined) ??
       wordsOf(sentence.element),
-    ...(sentence.figures?.length && { figures: sentence.figures }),
+    ...(sentence.figures?.length && {
+      figures: withAboveNow(sentence.figures, sentence.element),
+    }),
   };
 }
 
@@ -704,12 +731,18 @@ type CheckedSentence = MarkedSentence & {
   cited: CitedQuote[];
   noteText?: string;
   place?: RecordCitePlace;
+  /**
+   * Where the whole sentences its mark is in are in the Block. A mark covers only their text, so
+   * a figure that ends its line ("- North: total amount 9,450") is inside these but past the mark.
+   */
+  sentences: { from: number; to: number };
 };
 
 const checkedOfBlock = perBlock((block): readonly CheckedSentence[] =>
   marksOfBlock(block).map((marked) => {
     const { element, from, to } = marked;
-    if (element.nodeName === CHART_NODE) return { ...marked, sentence: textOf(element), cited: [] };
+    if (element.nodeName === CHART_NODE)
+      return { ...marked, sentence: textOf(element), cited: [], sentences: { from: 0, to: 1 } };
     const { text, spans } = claimFrame(element);
     const touched = spans.filter((span) => span.from < to && span.to > from);
     const blockId = element.getAttribute(BLOCK_ID_ATTRIBUTE);
@@ -720,6 +753,10 @@ const checkedOfBlock = perBlock((block): readonly CheckedSentence[] =>
       cited: touched.flatMap((span) => span.cited),
       noteText: textOf(element).slice(start, touched.at(-1)?.to ?? 0),
       ...(typeof blockId === "string" && { place: { blockId, from: start } }),
+      sentences: {
+        from: Math.min(touched[0]?.from ?? from, from),
+        to: Math.max(touched.at(-1)?.to ?? to, to),
+      },
     };
   }),
 );

@@ -33,6 +33,7 @@ import {
 } from "../../../shared/figures";
 import { type MessageKey, type MessageParams, translate } from "../../../shared/i18n";
 import type { InlineTextProjection } from "../../../shared/inlineText";
+import { LIBRARY_FACTS } from "../../../shared/libraryFacts";
 import { formatLocation, joinUnits, locationOf, quoteInUnits } from "../../../shared/locations";
 import { isPeriod } from "../../../shared/periods";
 import { sentenceSpans } from "../../../shared/sentences";
@@ -60,6 +61,7 @@ import type {
   PassageSearchResult,
   ProviderError,
   RecordAiUseInput,
+  SearchScope,
   ThirdPartyReason,
   UnsupportedReason,
 } from "../../api";
@@ -117,6 +119,7 @@ import {
   withSentenceVerdict,
 } from "./figureChecks";
 import { type FilePropertySearch, withFileProperties } from "./fileProperties";
+import { type LibraryFactSearch, type LibraryListing, withLibraryFacts } from "./libraryFacts";
 import { figuresMatch, nearestLine } from "./nearest";
 import {
   type AbsenceAnswer,
@@ -177,6 +180,10 @@ export interface ClaimCheckDependencies {
   };
   /** The Run's searches may show the Documents' file properties (./fileProperties). */
   fileProperties?: FilePropertySearch;
+  /** What a scope sees of the Library, Folder walls applied, from a Note in `mindId` (./libraryFacts). */
+  libraryListing?(mindId: string | null, searched: SearchScope | null): LibraryListing;
+  /** The Run's searches may show the Library's own facts (./libraryFacts). */
+  libraryFacts?: LibraryFactSearch;
 }
 
 /** A Citation the sentence has, as its check reads it: `passageId` when it quotes the Document as it is now. */
@@ -196,6 +203,11 @@ export interface ClaimCheckRequest {
   context?: string;
   cited?: readonly CheckedCitation[];
   scope: EvidenceScope;
+  /**
+   * The Search scope `scope` was resolved from, as its chip names it; null for every Document.
+   * Only a check that gives it may be shown the Library's facts (./libraryFacts).
+   */
+  searched?: SearchScope | null;
   model: PreparedChatModel;
   /** The Run reads the document being checked (#97): it is third-party from its start. */
   thirdParty?: readonly ThirdPartyReason[];
@@ -583,6 +595,8 @@ const calculatesIn = (
 export type CheckStart = Pick<ClaimCheckRequest, "claim" | "context" | "cited" | "figures"> & {
   /** Its first turn names the sentence's parts (`ClaimCheckRequest.findParts`). */
   findsParts?: boolean;
+  /** It may show the Library's facts (`ClaimCheckRequest.searched`), so it sorts as their checks do. */
+  library?: boolean;
 };
 
 /** A check Run's instructions, for the way its model gives Citations, and its prompt. */
@@ -596,6 +610,7 @@ function runStart(request: CheckStart, language: Language, calculating: boolean)
         calculating,
         (request.figures?.length ?? 0) > 0,
         request.findsParts === true,
+        request.library === true,
       ),
     prompt: (citedShown: string | null) => claimPrompt({ ...request, citedShown, language }),
   };
@@ -638,7 +653,9 @@ export function checkRunStart(
 }
 
 export function createClaimCheck(deps: ClaimCheckDependencies) {
-  return withFileProperties(deps, createSentenceCheck);
+  return withLibraryFacts(deps, (withLibrary) =>
+    withFileProperties(withLibrary, createSentenceCheck),
+  );
 }
 
 function createSentenceCheck(deps: ClaimCheckDependencies) {
@@ -697,10 +714,13 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
         const matched = (request.window ?? found?.passages ?? []).filter(
           (passage) => decisions.length === 0 || !deps.documents.savedBySearch(passage.documentId),
         );
-        const passages =
-          options?.properties && deps.fileProperties
-            ? [...matched, ...deps.fileProperties.add(matched, within, options)]
-            : matched;
+        const passages = [
+          ...matched,
+          ...(options?.properties && deps.fileProperties
+            ? deps.fileProperties.add(matched, within, options)
+            : []),
+          ...(options?.library && deps.libraryFacts ? deps.libraryFacts.add() : []),
+        ];
         if (!request.window) {
           for (const passage of passages) read.set(passage.documentId, passage.contentHash);
         }
@@ -765,15 +785,17 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
       },
       documentLanguages: deps.documents.searchableLanguages(scope.documentIds),
       ...(deps.fileProperties && { fileProperties: true }),
+      ...(deps.libraryFacts && { libraryFacts: true }),
       // Only the model's searches count: looking up a cited court decision shows it nothing.
       searchDocuments: (query, searchSignal, options) => {
         searches++;
         if (!request.window) {
-          const found = session.tools.searchDocuments(query, searchSignal, options);
-          const { fileProperties } = deps;
-          return options?.properties && fileProperties
-            ? found.then((result) => fileProperties.told(result, options))
-            : found;
+          const { fileProperties, libraryFacts } = deps;
+          return session.tools.searchDocuments(query, searchSignal, options).then((found) => {
+            const told =
+              options?.properties && fileProperties ? fileProperties.told(found, options) : found;
+            return options?.library && libraryFacts ? libraryFacts.told(told) : told;
+          });
         }
         // Claude Haiku 5.5 searched a window two or three times, at once or in turn, and each
         // search returned the whole window again: its verdict request carried it two or three
@@ -939,16 +961,21 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
         const reason = t(key, { document, amount });
         return problem({ reason, covered: null, uncovered: null, found: true }, true);
       }
+      // A Library fact's number is the Library's, not a Document's (#2525).
+      const unitKey =
+        candidates.length > 0 && candidates.every((each) => each.documentId === LIBRARY_FACTS)
+          ? "claim.unsupported.unit.library"
+          : "claim.unsupported.unit";
       if (found.kind === "scale") {
         return problem({
           found: true,
-          reason: t("claim.unsupported.unit", { amount, figure: found.figure }),
+          reason: t(unitKey, { amount, figure: found.figure }),
           covered: t("claim.unsupported.currency.covered", { amount }),
           uncovered: t("claim.unsupported.scale.uncovered", { figure: found.figure }),
         });
       }
       if (found.kind === "unit") {
-        const reason = t("claim.unsupported.unit", { amount, figure: found.figure });
+        const reason = t(unitKey, { amount, figure: found.figure });
         return problem({ reason, covered: null, uncovered: null, found: true });
       }
       return problem({
@@ -1152,7 +1179,11 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
       }),
     };
     const start = runStart(
-      { ...asked, findsParts: request.findParts !== undefined },
+      {
+        ...asked,
+        findsParts: request.findParts !== undefined,
+        library: deps.libraryFacts !== undefined,
+      },
       deps.language(),
       calculating,
     );
@@ -1200,6 +1231,9 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
         // In a window of a whole read every search returns that window: the read is the search.
         ...(request.window ? [] : [searchAgain(() => searches, readsWhole)]),
         ...(deps.fileProperties ? [deps.fileProperties.turnCheck] : []),
+        ...(deps.libraryFacts
+          ? [deps.libraryFacts.turnCheck(() => session.tools.recordedQuotes?.() ?? [])]
+          : []),
         ...figuresReplied(
           asked,
           figures,
@@ -1247,6 +1281,7 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
     }
     if (!failed) hear(heard);
     deps.fileProperties?.replied(replyAcrossTurns(reply, setAside));
+    deps.libraryFacts?.replied(replyAcrossTurns(reply, setAside));
     if (signal.aborted) return notChecked("stopped");
     if (failed) return failedCheck(failed);
     if (request.figures?.length) {
@@ -1492,8 +1527,8 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
             changes(stated.correction.from, choice.wording),
           )
             ? stated
-            : // "（¥98,000）" after 人民币九万八千元 reads as a negative number: it never takes
-              // the place of a positive one.
+            : // A number of the other sign never takes this one's place: the sentence's "a loss
+              // of 1,250" is the Document's "(1,250)".
               deciding && Math.sign(deciding.number.value) === Math.sign(owner.reading.value)
               ? corrected(
                   {

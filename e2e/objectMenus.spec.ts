@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import { buildPdf } from "../tests/helpers/pdf";
+import { contractFile } from "../tests/helpers/wordLookFiles";
 import {
   addDocuments,
   addToNote,
@@ -10,6 +11,7 @@ import {
   coreOf,
   createDataFolder,
   dismissChatSetup,
+  importWordFile,
   launchApp,
   linkedFolderRow,
   linkFolderFromSidebar,
@@ -19,6 +21,7 @@ import {
   nameMind,
   newMind,
   openPageMenu,
+  pageMenuButton,
   removeDataFolder,
   setLanguage,
   setWindowSize,
@@ -543,7 +546,7 @@ test("each item shows its shortcut as the system writes it, and the labels are i
     "作为来源使用",
     "导出…",
     "导出 AI 使用声明",
-    "导出核对记录…",
+    "导出核对记录",
     "历史版本",
     "核对",
     "核对数字",
@@ -992,3 +995,51 @@ for (const language of ["en", "zh-CN"] as const) {
     await app.close();
   });
 }
+
+test("the page menu keeps the place it opened in when its counts come in", async () => {
+  test.setTimeout(180_000);
+  const { app, window } = await launchApp(dataDir);
+  await dismissChatSetup(window);
+  await setWindowSize(app, window, 1440, 900);
+  await importWordFile(app, window, sources, "Supply agreement.docx", contractFile());
+  const editor = window.getByTestId("mind-editor");
+  await expect(editor.locator("[data-word-look]").first()).toBeVisible({ timeout: 120_000 });
+  await expect(window.getByTestId("mind-word-progress")).toHaveCount(0);
+
+  // The height the menu takes once its counts are in.
+  const first = await openPageMenu(window);
+  await expect(first.getByTestId("page-counts")).toBeVisible();
+  const height = await first.evaluate((element) => element.scrollHeight);
+  await window.keyboard.press("Escape");
+  await expect(first).toBeHidden();
+
+  // A window where the menu without its counts fits under its button and with them it does not.
+  const button = await pageMenuButton(window).boundingBox();
+  if (!button) throw new Error("The page's menu button isn't drawn.");
+  const below = button.y + button.height + 4;
+  await setWindowSize(app, window, 1440, Math.round(below + 8 + height - 1));
+
+  // Every place the menu is given, from before it opens until its counts are in.
+  await window.evaluate(() => {
+    const popover = document.querySelector<HTMLElement>('[data-testid="page-actions"]');
+    if (!popover) throw new Error("No page menu.");
+    const recorded = window as unknown as { __menuTops: string[] };
+    recorded.__menuTops = [popover.style.top];
+    new MutationObserver(() => recorded.__menuTops.push(popover.style.top)).observe(popover, {
+      attributes: true,
+      attributeFilter: ["style"],
+    });
+  });
+  const menu = await openPageMenu(window);
+  await expect(menu.getByTestId("page-counts")).toBeVisible();
+  const tops = await window.evaluate(() =>
+    [...new Set((window as unknown as { __menuTops: string[] }).__menuTops)].filter(
+      (top) => top !== "",
+    ),
+  );
+  // A menu that moves while the User is on their way to an item runs the item that took the
+  // aimed one's place: here "Plain note" went and the original Document opened instead.
+  expect(tops, "the menu's top as its counts came in").toHaveLength(1);
+  expect(Math.abs(Number.parseFloat(tops[0] ?? "0") - below)).toBeLessThanOrEqual(1);
+  await app.close();
+});

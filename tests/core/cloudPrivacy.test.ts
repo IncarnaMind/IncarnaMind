@@ -12,7 +12,11 @@ import {
 import { OPENAI_TRANSCRIPTION_URL } from "../../src/core/transcription/cloud/openai";
 import type { CloudConnect } from "../../src/core/transcription/cloud/socket";
 import { createFakeSpeechEngine } from "../../src/core/transcription/fake";
-import { createFakeCloud, type FakeCloudOptions } from "../../src/core/transcription/fakeCloud";
+import {
+  createFakeCloud,
+  createFakeCloudFetch,
+  type FakeCloudOptions,
+} from "../../src/core/transcription/fakeCloud";
 import {
   createMemoryKeychain,
   createTempDataFolder,
@@ -22,13 +26,57 @@ import {
 import { NO_TRANSCRIPTION_FILES, until } from "../helpers/transcription";
 
 const SECOND = 1000;
-const ROUTES = ["soniox", "openai", "qwen"] as const;
+const ROUTES = [
+  "soniox",
+  "openai",
+  "qwen",
+  "deepgram",
+  "assemblyai",
+  "gemini",
+  "elevenlabs",
+  "speechmatics",
+  "gladia",
+  "xai",
+] as const;
 type Route = (typeof ROUTES)[number];
 const SERVICES: Record<Route, string> = {
   soniox: "https://stt-rt.soniox.com",
   openai: "https://api.openai.com",
   qwen: "https://dashscope.aliyuncs.com",
+  deepgram: "https://api.deepgram.com",
+  assemblyai: "https://streaming.assemblyai.com",
+  gemini: "https://generativelanguage.googleapis.com",
+  elevenlabs: "https://api.elevenlabs.io",
+  speechmatics: "https://global.rt.speechmatics.com",
+  gladia: "https://api.gladia.io",
+  xai: "https://api.x.ai",
 };
+/** The routes with a key of their own, kept in Settings › Meetings. */
+const OWN_KEYS: readonly Route[] = [
+  "soniox",
+  "deepgram",
+  "assemblyai",
+  "elevenlabs",
+  "speechmatics",
+  "gladia",
+];
+/** The routes on a chat provider's key from Settings › Models, as each is saved there. */
+const PROVIDER_KEYS = {
+  openai: { kind: "openai", apiKey: "sk-test", modelId: "gpt-6-luna" },
+  qwen: { kind: "qwen", apiKey: "sk-qwen-test", modelId: "qwen3.7-plus" },
+  gemini: { kind: "google", apiKey: "AIza-test", modelId: "gemini-3.8-flash" },
+  xai: { kind: "xai", apiKey: "xai-test-key", modelId: "grok-4.3" },
+} as const;
+
+/** Audio in a JSON message, as base64 PCM at 16 kHz (Gemini's, ElevenLabs'), in ms. */
+function jsonAudioMs(data: string): number {
+  const message = JSON.parse(data) as {
+    audio_base_64?: string;
+    realtimeInput?: { audio?: { data: string } };
+  };
+  const audio = message.realtimeInput?.audio?.data ?? message.audio_base_64;
+  return audio ? (Buffer.from(audio, "base64").byteLength / 2 / 16_000) * 1000 : 0;
+}
 
 /**
  * The pretend cloud service, counting the audio that reaches its socket: what the User's choices
@@ -43,13 +91,25 @@ function counting(options: FakeCloudOptions = {}) {
   let closes = 0;
   const opened: string[] = [];
   const held: (() => void)[] = [];
+  const fakeFetch = createFakeCloudFetch(options);
+  const requested: string[] = [];
+  let requestedAtMark = 0;
   const service = {
+    /** Gladia's session requests, which come before its socket, carrying the key. */
+    fetch: (async (input, init) => {
+      requested.push(String(input));
+      return fakeFetch(input, init);
+    }) as typeof fetch,
     holdOpen: false,
     errorAfterMs: undefined as number | undefined,
     mark: () => {
       marked = total;
+      requestedAtMark = requested.length;
     },
     sentSinceMark: () => total - marked,
+    /** Session requests since the mark: a key goes in each. */
+    requestedSinceMark: () => requested.length - requestedAtMark,
+    requested: () => [...requested],
     /** How many cloud streams the app has closed: the audio sent before one has all arrived by then. */
     closes: () => closes,
     /** The address of every connection the app opened, in order. */
@@ -62,18 +122,29 @@ function counting(options: FakeCloudOptions = {}) {
       const openai = url === OPENAI_TRANSCRIPTION_URL;
       opened.push(url);
       let quiet = false;
+      // A connection still opening hears nothing yet: AssemblyAI's Begin comes once it is open.
+      let isOpen = false;
+      const early: string[] = [];
+      const open = () => {
+        isOpen = true;
+        events.open();
+        for (const text of early.splice(0)) events.message(text);
+      };
       const inner = fake(url, key, {
         open: () => {
-          if (service.holdOpen) held.push(() => events.open());
-          else events.open();
+          if (service.holdOpen) held.push(open);
+          else open();
         },
         message: (text) => {
-          if (!quiet) events.message(text);
+          if (quiet) return;
+          if (isOpen) events.message(text);
+          else early.push(text);
         },
         closed: events.closed,
       });
       return {
         send(data) {
+          if (!openai && typeof data === "string") total += jsonAudioMs(data);
           if (openai && typeof data === "string") {
             const event = JSON.parse(data) as { type: string; audio?: string };
             if (event.type === "input_audio_buffer.append" && event.audio) {
@@ -117,6 +188,7 @@ function transcriberOn(service: Service): Transcriber {
     };
     serveTranscriber(async () => createFakeSpeechEngine(), port, {
       connect: service.connect,
+      fetch: service.fetch,
       detectors: async () => createFakeSpeechEngine().detector,
     });
     return {
@@ -144,12 +216,10 @@ async function meetingOn(route: Route, service: Service, keychain = createMemory
   const core = open();
   await core.updateSettings({ device: { meetingNoticeAccepted: true } });
   await core.setOutputLocation(join(dataDir, "Documents", "IncarnaMind"));
-  if (route === "soniox") {
-    await core.setTranscriptionKey({ route: "soniox", apiKey: "soniox-test-key" });
-  } else if (route === "qwen") {
-    await core.saveChatProvider({ kind: "qwen", apiKey: "sk-qwen-test", modelId: "qwen3.7-plus" });
+  if (route in PROVIDER_KEYS) {
+    await core.saveChatProvider(PROVIDER_KEYS[route as keyof typeof PROVIDER_KEYS]);
   } else {
-    await core.saveChatProvider({ kind: "openai", apiKey: "sk-test", modelId: "gpt-6-luna" });
+    await core.setTranscriptionKey({ route, apiKey: `${route}-test-key` });
   }
   await core.updateSettings({ device: { transcriptionRoute: route } });
   const meeting = await core.createMeeting();
@@ -185,7 +255,7 @@ const CHANGES: [string, Change][] = [
   [
     "the key removed",
     async (core, route) => {
-      if (route === "soniox") return core.removeTranscriptionKey("soniox");
+      if (OWN_KEYS.includes(route)) return core.removeTranscriptionKey(route);
       const [provider] = await core.listChatProviders();
       return core.deleteChatProvider(provider?.id ?? "");
     },
@@ -200,6 +270,12 @@ describe("Nothing more goes to the cloud once the User says no", { timeout: 60_0
         const { core, record, meeting } = await meetingOn(route, service);
         await until(core, meeting.id, (each) => each.cloud === route);
         record(4 * SECOND);
+        if (route === "gladia") {
+          await vi.waitFor(
+            () => expect(service.requested()).toContain("https://api.gladia.io/v2/live"),
+            { timeout: 20_000, interval: 20 },
+          );
+        }
         await change(core, route);
         // The drop reaches the socket after every audio message sent before it, in channel order:
         // once the app has closed the stream, only what it records next could still go out.
@@ -214,6 +290,7 @@ describe("Nothing more goes to the cloud once the User says no", { timeout: 60_0
         // is drained: anything the cloud got after the mark would have arrived by now.
         await until(core, meeting.id, (each) => each.lines > before);
         expect(service.sentSinceMark()).toBe(0);
+        expect(service.requestedSinceMark()).toBe(0);
         const transcript = (await core.listMeetings())[0]?.transcript;
         expect(transcript?.cloud).toBeNull();
         expect((await core.listMeetings())[0]?.status).toBe("recording");
@@ -487,7 +564,7 @@ describe("Nothing more goes to the cloud once the User says no", { timeout: 60_0
     expect(service.opened()).toEqual([]);
   });
 
-  for (const route of ["soniox", "qwen"] as const) {
+  for (const route of ["soniox", "qwen", "elevenlabs", "speechmatics", "gladia", "xai"] as const) {
     test(`${route}: a key the service refuses says so, and the next Meeting goes to this computer until the key changes`, async () => {
       const service = counting({ refuse: true });
       const { core, record, meeting } = await meetingOn(route, service);
@@ -504,6 +581,9 @@ describe("Nothing more goes to the cloud once the User says no", { timeout: 60_0
       record(2 * SECOND);
       await settle();
       expect(service.sentSinceMark()).toBe(0);
+      // Gladia's key went in the first Meeting's session request, and in none since.
+      expect(service.requested().length > 0).toBe(route === "gladia");
+      expect(service.requestedSinceMark()).toBe(0);
     });
   }
 
@@ -521,5 +601,50 @@ describe("Nothing more goes to the cloud once the User says no", { timeout: 60_0
     expect(service.sentSinceMark()).toBe(0);
     const live = await until(core, meeting.id, (each) => each.state === "live");
     expect(live.cloud).toBeNull();
+  });
+});
+
+describe("A key saved for a meeting service", () => {
+  async function keyed() {
+    const asked: string[] = [];
+    const core = startCore(await createTempDataFolder(), {
+      transcriptionModelSource: NO_TRANSCRIPTION_FILES,
+      transcriptionKeyFetch: async (url, init) => {
+        const headers = Object.keys(init?.headers ?? {}).filter((name) => name === "xi-api-key");
+        const body = typeof init?.body === "string" ? [init.body] : [];
+        asked.push([init?.method ?? "GET", String(url), ...headers, ...body].join(" "));
+        return new Response(null, { status: 200 });
+      },
+      keychain: createMemoryKeychain(),
+    });
+    return { core, asked };
+  }
+
+  test("in Local mode, is kept with nothing sent to check it", async () => {
+    const { core, asked } = await keyed();
+    await core.setLocalOnly(true);
+    for (const route of OWN_KEYS) {
+      const listed = await core.setTranscriptionKey({ route, apiKey: `${route}-test-key` });
+      expect(listed.services.find((each) => each.route === route)).toMatchObject({
+        hasKey: true,
+        // Gladia has no request that checks a key and reads nothing of the User's.
+        keyChecked: route !== "gladia",
+      });
+    }
+    expect(asked).toEqual([]);
+  });
+
+  test("out of Local mode, is checked with its service before it's kept, in a request that reads nothing of the User's", async () => {
+    const { core, asked } = await keyed();
+    for (const route of OWN_KEYS) {
+      await core.setTranscriptionKey({ route, apiKey: `${route}-test-key` });
+    }
+    expect(asked).toEqual([
+      "GET https://api.soniox.com/v1/models",
+      "GET https://api.deepgram.com/v1/projects",
+      "GET https://streaming.assemblyai.com/v3/token?expires_in_seconds=60",
+      "POST https://api.elevenlabs.io/v1/single-use-token/realtime_scribe xi-api-key",
+      'POST https://mp.speechmatics.com/v1/jwts?type=rt {"ttl":60}',
+    ]);
   });
 });

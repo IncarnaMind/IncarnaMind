@@ -832,7 +832,8 @@
   }
   /*
    * A Meeting recording, on its tab and in its bar: a small red dot, the one
-   * red outside Citation checks (the owner's choice), grey while paused.
+   * red outside Citation checks (the owner's choice), grey while paused or
+   * while the system's permission prompt is open.
    */
   .recording-dot {
     flex-shrink: 0;
@@ -841,7 +842,8 @@
     border-radius: 9999px;
     background: var(--color-danger);
 
-    &[data-status="paused"] {
+    &[data-status="paused"],
+    &[data-status="waiting"] {
       background: var(--color-ink-meta);
     }
   }
@@ -4227,6 +4229,23 @@
     overflow-y: auto;
     overscroll-behavior: contain;
   }
+  .answer-asked {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  /* The question the assistant asked, folded to its words in the Answer's ink (#2530); its options are gone. */
+  .answer-asked-question {
+    margin: 0;
+    font-size: 14px;
+    line-height: 22px;
+    color: var(--color-ink-answer);
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+  }
+  .answer-asked-turn .assistant-question {
+    margin-top: 0;
+  }
   .answer-asked-line {
     font-size: 13px;
     line-height: 20px;
@@ -5178,7 +5197,8 @@
   .mind-picture-block {
     margin: 16px 0;
 
-    &.ProseMirror-selectednode .mind-picture-block-image {
+    &.ProseMirror-selectednode .mind-picture-block-image,
+    &[data-picture-selected] .mind-picture-block-image {
       outline: 2px solid var(--color-accent);
       outline-offset: 2px;
     }
@@ -7458,10 +7478,11 @@
    */
   .assistant-thread {
     --scrollbar: 8px;
+    --fade-bleed: 12px;
 
     flex: 1 1 auto;
     min-height: 0;
-    padding: 12px calc(var(--edge) - var(--scrollbar)) 12px var(--edge);
+    padding: 12px calc(var(--edge) - var(--scrollbar)) var(--fade-bleed) var(--edge);
     overflow-y: auto;
     overscroll-behavior: contain;
     scrollbar-gutter: stable;
@@ -7475,16 +7496,31 @@
       background: var(--color-rule-strong) padding-box;
     }
   }
-  /* A scrolling frame's last 12px fade to the sheet, so a cut line never meets its edge (#614). */
+  /*
+   * A line the foot of a scrolling frame cuts fades out whole instead of looking sliced (#614,
+   * #2616). `lh` is the frame's line height, so the fade follows its text size.
+   */
   .scroll-fade::after {
     content: "";
     position: sticky;
-    bottom: 0;
-    display: block;
-    height: 12px;
-    margin-top: -12px;
+    /* A sticky box stops at the frame's padding, so a frame with padding below reaches into it (--fade-bleed) to end at its foot. */
+    bottom: calc(0px - var(--fade-bleed, 0px));
+    display: none;
+    height: 1.5lh;
+    margin-top: -1.5lh;
     background: linear-gradient(to bottom, transparent, var(--color-sheet));
     pointer-events: none;
+  }
+  .scroll-fade[data-more-after]::after {
+    display: block;
+  }
+  /*
+   * What a scroll into view brings to the foot (the Answer a link back seeks, the keyboard moving
+   * focus) stops above the fade rather than under it (#2622): the frame keeps the fade's height
+   * clear at its bottom.
+   */
+  .scroll-fade {
+    scroll-padding-bottom: 1.5lh;
   }
   .assistant-empty {
     margin: 0;
@@ -8609,8 +8645,43 @@
    * change (a layout shift the feel check counts).
    */
   .answer-steps-live {
+    /* The wait takes the first form that fits (#2531): its own row when it cannot. */
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
     position: relative;
     align-self: stretch;
+  }
+  .answer-steps-live-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    min-width: 0;
+  }
+  /* A wait on a second row sits under the step's words, in the smaller ink of a note. */
+  .answer-steps-live-row--second {
+    padding-left: 20px;
+    font-size: 13px;
+    line-height: 18px;
+    color: var(--color-ink-meta);
+  }
+  .answer-steps-wait-measures {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 0;
+    height: 0;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  .answer-steps-wait-measure {
+    position: absolute;
+    top: 0;
+    left: 0;
+    visibility: hidden;
+    white-space: nowrap;
   }
   .answer-steps-live-toggle {
     display: inline-flex;
@@ -8662,22 +8733,13 @@
     background: var(--color-attention);
     animation: none;
   }
+  /*
+   * The wait that joins the live line after 15 seconds (#2530, #2531): never
+   * dropped; the form is measured so the step's own words stay whole.
+   */
   .answer-steps-wait {
-    max-width: calc(100% - 20px);
-    margin: 0 0 0 20px;
-    font-size: 13px;
-    line-height: 18px;
-    color: var(--color-ink-meta);
-  }
-  .answer-steps-wait-stop {
-    padding: 0;
-    border-radius: 4px;
-    font-weight: 600;
-    color: var(--color-ink-secondary);
-
-    &:hover {
-      color: var(--color-ink);
-    }
+    flex: none;
+    white-space: nowrap;
   }
   .answer-timeline {
     display: flex;

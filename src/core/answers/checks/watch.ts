@@ -47,6 +47,7 @@ import type { EvidenceScope } from "../../documents/evidence";
 import type { MindContent } from "../../mindContent";
 import type { PreparedChatModel } from "../../providers/chat";
 import type { RecordCitePlace } from "../../recordCites/referents";
+import { asCheckWork } from "../../reranking/order";
 import { currentTask } from "../../runs/current";
 import { RunItemError, runItems } from "../../runs/stop";
 import { type ClaimCheckRequest, recordJudged, runFailureOf } from "./claimCheck";
@@ -112,6 +113,8 @@ export interface WatchOptions {
   prepare(choice: ChatModelChoice | null): Promise<Prepared>;
   /** The model, when it can be used now without asking the User anything; null otherwise. */
   prepareQuietly(choice: ChatModelChoice | null): Promise<PreparedChatModel | null>;
+  /** Whether the watch waits for the User to allow what checks send now, which they allowed before it sent more. */
+  waitsForConsent(choice: ChatModelChoice | null): Promise<boolean>;
   claimCheck(request: ClaimCheckRequest): Promise<ClaimCheckResult>;
   withResult(
     check: ClaimCheckAttributes,
@@ -289,24 +292,26 @@ export function createContradictionWatch(options: WatchOptions) {
     const { stop } = await runItems(
       ready.claims,
       (claim) =>
-        currentTask.run({ id: runId }, async () => {
-          const result = await options.claimCheck({
-            claim: claim.projection?.text ?? comparableSentence(claim.text),
-            ...(claim.projection && { projection: claim.projection }),
-            recordClaim: claim.noteText,
-            context: claim.context,
-            scope: claim.scope,
-            ...(claim.figures && { figures: claim.figures }),
-            model: prepared,
-            mindId,
-            place: claim.place,
-            cacheKey: mindId,
-            signal,
-          });
-          const failure = runFailureOf(result);
-          if (failure) throw new RunItemError(failure);
-          return result;
-        }),
+        asCheckWork(() =>
+          currentTask.run({ id: runId }, async () => {
+            const result = await options.claimCheck({
+              claim: claim.projection?.text ?? comparableSentence(claim.text),
+              ...(claim.projection && { projection: claim.projection }),
+              recordClaim: claim.noteText,
+              context: claim.context,
+              scope: claim.scope,
+              ...(claim.figures && { figures: claim.figures }),
+              model: prepared,
+              mindId,
+              place: claim.place,
+              cacheKey: mindId,
+              signal,
+            });
+            const failure = runFailureOf(result);
+            if (failure) throw new RunItemError(failure);
+            return result;
+          }),
+        ),
       {
         concurrency: claimsAtOnce(prepared),
         signal,
@@ -378,12 +383,38 @@ export function createContradictionWatch(options: WatchOptions) {
     );
   }
 
+  /** Records a watch that sent nothing, waiting for the User's OK, as the Note's last one. */
+  function waited(mindId: string, documentName: string | null, claims: number): void {
+    try {
+      options.requireMind(mindId);
+      content.editSettings(mindId, (settings) =>
+        writeContradictionWatch(settings, {
+          at: options.now().toISOString(),
+          documentName,
+          claims,
+          checked: 0,
+          contradicted: 0,
+          cost: null,
+          stop: { reason: "consent-widened" },
+          smallModel: false,
+        }),
+      );
+    } catch (error) {
+      options.log.error("contradictions.recordFailed", { error: nameOf(error) });
+    }
+  }
+
   /** Queues each claim of the Mind as a background job, and records the run once all are done. */
   async function checkInBackground(mindId: string, documentName: string | null): Promise<void> {
     if (closed) return;
     const ready = plan(mindId);
     if (ready.kind !== "ready") return;
     const prepared = await options.prepareQuietly(modelOf(mindId));
+    if (!prepared && !closed && (await options.waitsForConsent(modelOf(mindId)))) {
+      // Background work never asks, nor stops without a word (ADR-0022): the line says it waits.
+      waited(mindId, documentName, ready.claims.length);
+      return;
+    }
     if (!prepared || closed) return;
     const runId = randomUUID();
     const request = randomUUID();

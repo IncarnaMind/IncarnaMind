@@ -264,6 +264,27 @@ li > p {
   margin-bottom: 3pt;
 }
 
+/* Each numbered item's marker as the editor draws it (#2334): drawn, not the browser's own. */
+ol.numbered {
+  list-style: none;
+}
+
+ol.numbered > li {
+  position: relative;
+}
+
+ol.numbered > li::before {
+  content: attr(data-marker);
+  position: absolute;
+  right: 100%;
+  margin-right: 4pt;
+  white-space: nowrap;
+}
+
+ol.numbered > li.continued::before {
+  content: none;
+}
+
 li.continued {
   list-style: none;
 }

@@ -12,8 +12,9 @@ const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const MIND = /\bMinds?\b/g;
 const ONE_MIND = /\bMinds?\b/;
 const NOTE = /\bnotes?\b/i;
-const HAS_NOTES = /笔记(?!本)/;
-const NOTES_ALL = /笔记(?!本)/g;
+// 笔记本 is a notebook, but 笔记本身 is the note itself (#2525).
+const HAS_NOTES = /笔记(?!本(?!身))/;
+const NOTES_ALL = /笔记(?!本(?!身))/g;
 const HAS_YOUR_TEXT = /你写的内容/;
 const YOUR_TEXT = /\byour text\b/i;
 

@@ -5,7 +5,6 @@ import {
   useCallback,
   useContext,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -43,6 +42,7 @@ import {
   useChecks,
   widenCitation,
 } from "../checks";
+import { useChecksWaitForConsent } from "../checksConsent";
 import { useCitesWorks } from "../citationFormatting";
 import { CountItLine } from "../components/CountItLine";
 import { MetaLine } from "../components/MetaLine";
@@ -93,6 +93,7 @@ import { badgeCorner, claimCardPlace } from "./claimCardPlace";
 import { claimPartRows, markOf, type ShownClaim } from "./claimChecks";
 import { DocumentCheckAction } from "./DocumentCheckAction";
 import { ClaimMarkIcon, type ClaimMarkState } from "./icons";
+import { LibrarySource } from "./LibrarySource";
 import { MindIdContext } from "./mindContext";
 import { checkOpinion, opinionChecks } from "./opinionChecks";
 import { Popover } from "./Popover";
@@ -462,8 +463,9 @@ export function ClaimMark({
                 done();
               }}
               onCorrect={(span) => {
-                applyCorrection(editor, mindId, claim, span);
-                done(true);
+                applyCorrection(editor, mindId, doc, claim, span);
+                // A whole read is asked again in this card, which stays open for it.
+                if (claim.check.action !== "check-against-document") done(true);
               }}
               use={offersUseFigure(editor, claim)}
               onUse={() => {
@@ -714,8 +716,14 @@ export function ClaimCard({
   const location = evidence ? citationLocation(evidence) : null;
   // A file's properties decided it (#2458): its row names the property and opens the info panel.
   const property = location?.kind === "properties" ? location : null;
+  // The Library's facts decided it (#2525): its row names the fact and where it is from.
+  const library = location?.kind === "library" ? location : null;
   const already = decision.kind === "already" ? decision.citation : null;
-  const citedQuote = already?.attributes.quote ? already.attributes : property ? null : evidence;
+  const citedQuote = already?.attributes.quote
+    ? already.attributes
+    : property || library
+      ? null
+      : evidence;
   const quote = useReadableQuote(citedQuote);
   const where = location ? formatLocation(location, t) : null;
   const decisionUnchecked = partRows
@@ -757,6 +765,18 @@ export function ClaimCard({
   const checkedIn = decided || state === "unsupported";
   const cuttable = fixes && uncoveredOf(claim) !== null;
   const pastCap = shown.state === "not-checked" && shown.reason === "too-many";
+  // Review… is the Check, which asks the User to allow what checks send now (#2525); allowed
+  // since, the sentence is only not checked.
+  const consentWaiting = useChecksWaitForConsent();
+  const widened = shown.state === "not-checked" && shown.reason === "consent-widened";
+  const waitingConsent = widened && consentWaiting;
+  // A description of the Library its facts can't settle: no check can change it, so none is offered.
+  const described = shown.state === "not-checked" && shown.reason === "library-unsettled";
+  const lineAction = pastCap
+    ? { label: t("claim.checkNow"), testId: "claim-check-now" }
+    : waitingConsent
+      ? { label: t("claim.reviewConsent"), testId: "claim-review-consent" }
+      : null;
   // A whole read stopped at its budget before it judged every part, the sentence's verdict resting
   // on those it did: Continue sizes what is left and asks again.
   const sentenceStopped = shown.state === "not-checked" && shown.reason === "read-budget";
@@ -778,7 +798,9 @@ export function ClaimCard({
   const unreadLocation = unread ? citationLocation(unread) : null;
   const reason =
     shown.state === "not-checked"
-      ? reasonText(t, language, shown.reason, check.detail, { cap: SENTENCES_CHECKED_AT_MOST })
+      ? widened && !consentWaiting
+        ? null
+        : reasonText(t, language, shown.reason, check.detail, { cap: SENTENCES_CHECKED_AT_MOST })
       : shown.state === "needs-recheck"
         ? t(`claim.recheck.${shown.why}`)
         : null;
@@ -793,10 +815,12 @@ export function ClaimCard({
   // to it as its parts load, even while the Note's other sentences are still checked.
   const [heldHeight, setHeldHeight] = useState<number | null>(null);
   const holdHeight = state === "checking" && !reading && !asking && Boolean(mindId);
-  useLayoutEffect(() => {
+  // Measured once the Popover holding the card has shown it: a layout effect here runs before the
+  // Popover's own, while the card is still a closed popover, and held a height of 0.
+  useEffect(() => {
     if (!holdHeight || heldHeight !== null) return;
-    const element = rootRef.current;
-    if (element) setHeldHeight(element.offsetHeight);
+    const height = rootRef.current?.offsetHeight ?? 0;
+    if (height > 0) setHeldHeight(height);
   }, [holdHeight, heldHeight, rootRef]);
   // Closing the card drops its question: opened again, it sizes the read afresh.
   useEffect(() => () => setDocumentAsk(check.id, null), [check.id]);
@@ -970,7 +994,14 @@ export function ClaimCard({
                 onOpen={onOpen}
               />
             )}
-            {evidence && !property && (
+            {evidence && library && (
+              <LibrarySource
+                location={library}
+                className="citation-card-source claim-property"
+                testId="claim-library"
+              />
+            )}
+            {evidence && !property && !library && (
               <p data-testid="claim-source" className="citation-card-source">
                 {[
                   citedName(
@@ -1116,20 +1147,13 @@ export function ClaimCard({
           </button>
         </p>
       )}
-      {reason && pastCap && (
+      {reason && lineAction && (
         <div className="citation-card-note">
           <MetaLine
             data-testid="claim-reason"
             parts={[
               reason,
-              <LineAction
-                key="now"
-                action={{
-                  label: t("claim.checkNow"),
-                  testId: "claim-check-now",
-                  onClick: () => onCheckAgain(),
-                }}
-              />,
+              <LineAction key="now" action={{ ...lineAction, onClick: () => onCheckAgain() }} />,
             ]}
           />
         </div>
@@ -1152,7 +1176,7 @@ export function ClaimCard({
           />
         </div>
       )}
-      {reason && !pastCap && !sentenceStopped && (
+      {reason && !lineAction && !sentenceStopped && (
         <p data-testid="claim-reason" className="citation-card-note">
           {reason}
         </p>
@@ -1278,7 +1302,7 @@ export function ClaimCard({
             {t("claim.useFigure", { figure: calculation.figure.shown })}
           </button>
         )}
-        {!partRows && !property && evidence?.documentId && (
+        {!partRows && !property && !library && evidence?.documentId && (
           <button
             type="button"
             data-testid="claim-open"
@@ -1414,7 +1438,8 @@ export function ClaimCard({
             {t("claim.removeMark")}
           </button>
         )}
-        {(state === "needs-recheck" || (state === "not-checked" && added === 0 && !pastCap)) && (
+        {(state === "needs-recheck" ||
+          (state === "not-checked" && added === 0 && !lineAction && !described)) && (
           <button
             type="button"
             data-testid="claim-check-again"

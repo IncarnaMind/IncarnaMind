@@ -504,8 +504,8 @@ function ownerOf(occurrence: FigureOccurrence, owners: readonly Owner[]): Owner 
       .filter(
         (owner) =>
           owner.element.getAttribute("id") === from.blockId &&
-          owner.from < to.offset &&
-          owner.to > from.offset,
+          owner.sentences.from < to.offset &&
+          owner.sentences.to > from.offset,
       )
       .sort((a, b) => b.check.checkedAt.localeCompare(a.check.checkedAt))[0] ?? null
   );

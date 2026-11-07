@@ -6,9 +6,10 @@
  * chart shows a picture only when the file keeps one as its fallback. Pure.
  */
 import { dataUrlOf, imageTypeOf } from "./images";
+import type { OfficePackage, Relationships } from "./officePackage";
 import type { SheetDrawing, SheetPoint } from "./sheetLayout";
 import { child, descendants, elements, is, local, parseXml, textOf, type XmlElement } from "./xml";
-import { resolvePart, type ZipArchive } from "./zip";
+import type { ZipArchive } from "./zip";
 
 /** EMUs (DrawingML's unit) in a CSS pixel. */
 const EMU_PER_PIXEL = 9525;
@@ -20,35 +21,6 @@ export const MAX_WORKBOOK_IMAGE_BYTES = 64 * 1024 * 1024;
 /** How many more picture bytes may be read from a workbook. */
 export interface ImageBudget {
   left: number;
-}
-
-/** A relationship: the part it points to, and its type's URI. */
-export interface Relationship {
-  target: string;
-  type: string;
-}
-
-/** A part's relationships to other parts of the package, by id. */
-export async function relationshipsOf(
-  zip: ZipArchive,
-  part: string,
-): Promise<Map<string, Relationship>> {
-  const slash = part.lastIndexOf("/");
-  const rels = `${part.slice(0, slash + 1)}_rels/${part.slice(slash + 1)}.rels`;
-  const targets = new Map<string, Relationship>();
-  let xml: string | undefined;
-  try {
-    xml = zip.has(rels) ? await zip.readText(rels) : undefined;
-    for (const rel of xml ? elements(parseXml(xml)) : []) {
-      const { Id: id, Target: target, TargetMode: mode, Type: type = "" } = rel.attrs;
-      if (id && target && mode !== "External") {
-        targets.set(id, { target: resolvePart(part, target), type });
-      }
-    }
-  } catch {
-    // Relationships that can't be read lead nowhere.
-  }
-  return targets;
 }
 
 /** A part of the package as a `data:` URL; null for formats a browser can't show, or too large. */
@@ -128,7 +100,7 @@ const shapeText = (shape: XmlElement) => {
 async function readContent(
   content: XmlElement,
   zip: ZipArchive,
-  rels: Map<string, Relationship>,
+  rels: Relationships,
   budget: ImageBudget,
 ): Promise<Omit<SheetDrawing, "from" | "to" | "size"> | null> {
   if (is(content, "AlternateContent")) {
@@ -178,10 +150,11 @@ async function readContent(
 
 /** The drawings of a sheet's drawing part. */
 export async function readDrawings(
-  zip: ZipArchive,
+  pkg: OfficePackage,
   part: string,
   budget: ImageBudget,
 ): Promise<SheetDrawing[]> {
+  const { zip } = pkg;
   if (!zip.has(part)) return [];
   let root: XmlElement;
   try {
@@ -189,7 +162,7 @@ export async function readDrawings(
   } catch {
     return [];
   }
-  const rels = await relationshipsOf(zip, part);
+  const rels = await pkg.internalRelationships(part);
   const drawings: SheetDrawing[] = [];
   for (const anchor of elements(root)) {
     const kind = local(anchor.name);
