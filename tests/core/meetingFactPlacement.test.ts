@@ -219,7 +219,7 @@ describe("Meeting fact placement (#2306)", () => {
     expect(placed.sections.size).toBe(0);
   });
 
-  test("a decision's pointers under the User's lines look up or down to its routed heading", () => {
+  test("a decision answering a line inside its routed heading is written whole there, and the User's other lines point up or down to it", () => {
     const accepted = fact("The final rate is 18%.", {
       lines: ["L99", "L8", "L30"],
       sections: ["decisions"],
@@ -237,16 +237,15 @@ describe("Meeting fact placement (#2306)", () => {
       }),
     );
 
-    expect(placed.sections).toEqual(new Map([["decisions", [accepted.body]]]));
+    expect(placed.sections.size).toBe(0);
+    expect(placed.lines.get("L99")).toEqual([accepted.body]);
     const pointers = new Map(
-      [...placed.lines].map(([marker, nodes]) => [
-        marker,
-        nodes.map((node) => textOf(node).trim()),
-      ]),
+      [...placed.lines]
+        .filter(([marker]) => marker !== "L99")
+        .map(([marker, nodes]) => [marker, nodes.map((node) => textOf(node).trim())]),
     );
     expect(pointers).toEqual(
       new Map([
-        ["L99", ["Contract: see below."]],
         ["L8", ["Contract: see below."]],
         ["L30", ["Contract: see above."]],
       ]),
@@ -256,7 +255,7 @@ describe("Meeting fact placement (#2306)", () => {
     }
   });
 
-  test("an arbitrary routed category spans every descendant heading, so a line inside it points below", () => {
+  test("an arbitrary routed category spans every descendant heading, so a line deep inside it is filled out in place", () => {
     const accepted = fact("林周五前发送合同。");
     const placed = placeFacts(
       input([accepted], {
@@ -270,10 +269,8 @@ describe("Meeting fact placement (#2306)", () => {
       }),
     );
 
-    expect(placed.sections).toEqual(new Map([["actions", [accepted.body]]]));
-    expect(placed.lines.get("L1")).toHaveLength(1);
-    const pointer = placed.lines.get("L1")?.[0];
-    expect(pointer && textOf(pointer).trim()).toBe("Contract: see below.");
+    expect(placed.lines.get("L1")).toEqual([accepted.body]);
+    expect(placed.sections.size).toBe(0);
   });
 
   test("a full fact in an ordinary line needs no Summary reference even under a different heading", () => {

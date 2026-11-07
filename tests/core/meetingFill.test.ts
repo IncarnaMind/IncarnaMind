@@ -1511,7 +1511,7 @@ for (const call of CALLS) {
       },
     );
 
-    test("a repeated decision under its routed heading is written whole once, and its line points to it", async () => {
+    test("a repeated decision answering a line under its routed heading is written whole once, in place", async () => {
       const { core, meeting, client } = await recordedWith(
         [heading(2, call.otherHeadings[1]), note(call.typed[0])],
         undefined,
@@ -1539,7 +1539,6 @@ for (const call of CALLS) {
         expect(shown(client)).toEqual([
           call.otherHeadings[1],
           call.typed[0],
-          reference(call.topics.price, "below"),
           ai(written.L1),
           ai(written.DECISIONS),
         ]),
@@ -1735,9 +1734,17 @@ for (const call of CALLS) {
         const full = lines.filter((line) => line.includes(written.L2.trim()));
         expect(full).toHaveLength(1);
         expect(lines.indexOf(full[0] ?? "")).toBeGreaterThan(lines.indexOf(call.actionsHeading));
-        const pointer = `${reference(call.topics.contract, "below")}${combined ? "\uFFFC" : ""}`;
-        expect(lines.filter((line) => line === pointer)).toHaveLength(1);
-        expect(lines[lines.indexOf(combined ? call.typed[0] : call.typed[1]) + 1]).toBe(pointer);
+        if (combined) {
+          const pointer = `${reference(call.topics.contract, "below")}\uFFFC`;
+          expect(lines.filter((line) => line === pointer)).toHaveLength(1);
+          expect(lines[lines.indexOf(call.typed[0]) + 1]).toBe(pointer);
+        } else {
+          // Its line is already under Action items, so it is filled out there, with no pointer.
+          expect(lines[lines.indexOf(call.typed[1]) + 1]).toBe(full[0]);
+          expect(
+            lines.filter((line) => line.includes(reference(call.topics.contract, "below"))),
+          ).toEqual([]);
+        }
         expect(lines).not.toContain(`«${titles[2]}»`);
         await core.undoMeetingFill(meeting.id);
         await vi.waitFor(() => expect(exactly(client)).toEqual(before));

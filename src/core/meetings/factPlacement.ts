@@ -89,8 +89,16 @@ export function placeFacts(input: FactPlacementInput): FactPlacement {
       placed.unplaced++;
     }
     // A decision, an action or an open question is written whole in its section, so Action items
-    // reads who does what by when; the User's line it answers points there (#2306).
-    const lineHome = home === "summary" && marker !== undefined ? ordinary.get(marker) : undefined;
+    // reads who does what by when; the User's line it answers points there, unless that line is
+    // already in the section (#2306).
+    const answered = marker === undefined ? undefined : ordinary.get(marker);
+    const homeHeading = input.headings.get(home);
+    const lineHome =
+      answered &&
+      (home === "summary" ||
+        (homeHeading !== undefined && answered.ancestors.includes(homeHeading)))
+        ? answered
+        : undefined;
     if (lineHome && marker !== undefined) append(placed.lines, marker, [fact.body]);
     else append(placed.sections, home, [fact.body]);
     const canonical = lineHome ?? sectionPlace(input, home);
