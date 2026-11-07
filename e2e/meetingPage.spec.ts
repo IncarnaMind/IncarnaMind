@@ -332,6 +332,7 @@ for (const language of ["en", "zh-CN"] as const) {
     });
 
     for (const round of [1, 2]) {
+      await motionSettled(window);
       const bar = await recordMeetingNow(window);
       const { panel, mindId } = await notePanel(window);
       const editor = panel.getByTestId("mind-editor");
