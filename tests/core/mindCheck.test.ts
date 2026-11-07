@@ -1836,9 +1836,10 @@ describe("Check this note starts each sentence's check once its claims are named
     return sent;
   }
 
-  // protects=a sentence whose check starts while the rest are still being named is shown to the window as checking at once, never written into the Note, and the list empties once the run marks its claims (#1624); fails_when=nothing is sent before the reply ends, the Note is marked early, or the list stays after the run; no_claim=how the window draws it.
+  // protects=a sentence whose check starts while the rest are still being named is shown to the window as checking at once, never written into the Note, and the list empties as soon as the run marks its claims, while its checks still run (#1624); fails_when=nothing is sent before the reply ends, the Note is marked early, or the list stays until the run ends; no_claim=how the window draws it.
   test("the first sentence is shown as checking while the rest are still being named, and the Note isn't marked until then", async () => {
-    const { core, client, mindId, sort, runsOf } = await noteOfTwo("held");
+    const firstRun = Promise.withResolvers<void>();
+    const { core, client, mindId, sort, runsOf } = await noteOfTwo("held", [firstRun.promise]);
     const shown = earlyShown(core, client);
 
     const checking = core.checkMind(request(mindId, "all"));
@@ -1847,6 +1848,11 @@ describe("Check this note starts each sentence's check once its claims are named
     expect(shown).toEqual([[MOON]]);
     expect(claimSpans(readMind(client))).toEqual([]);
     sort.release();
+    // Once the run has marked its claims, the list is empty while its checks still run: a
+    // sentence edited away meanwhile, which the run doesn't mark, shows as checking no longer.
+    await vi.waitFor(() => expect(shown.at(-1)).toEqual([]));
+    expect(sort.ended).toBe(true);
+    firstRun.resolve();
 
     expect(await checking).toMatchObject({ kind: "checked", sentences: 2, checked: 2 });
     expect(shown).toEqual([[MOON], [MOON, SECOND], []]);

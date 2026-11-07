@@ -435,7 +435,7 @@ export function checkTimesReport(runs: readonly FlowTimes[], counts: Map<string,
   }
   lines.push(
     "| Flow · model · language | Runs | First sign | Check starts | First mark | First verdict | Done | Requests | Per sentence: requests, searches | Model time / wait for first byte / thinking, per request | Reranks (median ms) | Reranks repeated | Load (1 / 15 min) | Spent |",
-    "|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|",
+    "|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|",
   );
   for (const [key, list] of groups) {
     const count = counts.get(list[0]?.flow ?? "") ?? 0;

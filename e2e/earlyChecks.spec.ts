@@ -21,8 +21,8 @@ import {
 
 /*
  * Check this Note (#1624): a sentence whose check starts while the model still names the rest
- * shows the checking mark in the margin at once, and the run's line counts it, before the Note
- * itself is marked. The scripted model holds its sort after the first sentence it names until the
+ * shows the checking mark in the margin at once, before the Note itself is marked; the run's line
+ * counts once its total is known. The scripted model holds its sort after the first sentence it names until the
  * test releases it. Set INCARNAMIND_SCREENSHOTS to a folder to also save screenshots.
  */
 
@@ -83,7 +83,7 @@ async function harbourNotes(app: ElectronApplication, window: Page, language: "e
 }
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`a sentence whose check starts while the claims are named shows as checking, and is counted (${language})`, async () => {
+  test(`a sentence whose check starts while the claims are named shows as checking (${language})`, async () => {
     test.setTimeout(120_000);
     await writeFile(join(sources, "Tides.pdf"), TIDES);
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
@@ -95,8 +95,9 @@ for (const language of ["en", "zh-CN"] as const) {
       const early = window.getByTestId("claim-mark-early");
       await expect(early).toHaveCount(1, { timeout: 30_000 });
       await expect(window.getByTestId("claim-mark")).toHaveCount(0);
+      // The line keeps saying the claims are being found until the run's total is known.
       await expect(window.getByTestId("badge-progress").first()).toHaveText(
-        translate(language, "badge.checking", { done: "0", total: "1" }),
+        translate(language, "verify.finding"),
       );
       // Beside its paragraph's first line, in the margin.
       const line = await window.getByTestId("mind-editor").locator("p").first().boundingBox();

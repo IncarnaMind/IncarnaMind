@@ -854,11 +854,11 @@ export function createMindCheck(options: MindCheckOptions) {
       );
       ran = { ...result, sentences: queued.length };
     } finally {
-      early.drop();
       if (shownEarly.length > 0) {
         shownEarly.length = 0;
         showEarly();
       }
+      early.drop();
     }
     if (signal.aborted) {
       options.settleStopped(mindId, requestId);
