@@ -477,14 +477,15 @@ describe("A rewritten figure keeps every word before it that the quote says", ()
     expect(rewritten(same, reply, quote)).toMatchObject({ kind: "rewritten" });
   });
 
-  test("rewrites a Chinese figure where only the sentence says 为", () => {
-    expect(
-      rewritten(
-        "公司去年营收为1.2亿元。",
-        "Change 1: 1.2亿元\nTo 1: 1.5亿元",
-        "公司去年营收 1.5亿元。",
-      ),
-    ).toMatchObject({ kind: "rewritten", correction: { choices: [{ wording: "1.5亿元" }] } });
+  test('keeps a Chinese figure where only the sentence says 为, which may say "to", and rewrites one where both do', () => {
+    const reply = "Change 1: 1.2亿元\nTo 1: 1.5亿元";
+    expect(rewritten("公司去年营收为1.2亿元。", reply, "公司去年营收 1.5亿元。")).toEqual({
+      kind: "kept",
+    });
+    expect(rewritten("公司去年营收为1.2亿元。", reply, "公司去年营收为 1.5亿元。")).toMatchObject({
+      kind: "rewritten",
+      correction: { choices: [{ wording: "1.5亿元" }] },
+    });
   });
 });
 

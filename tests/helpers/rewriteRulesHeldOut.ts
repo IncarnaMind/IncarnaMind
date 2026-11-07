@@ -84,6 +84,15 @@ export const REWRITE_RULE_CASES: readonly RewriteRuleCase[] = [
     quote: "续约前，保证金为 7000 元。",
     kind: "kept",
   },
+  // 为 only one side says, which after a verb says "to".
+  {
+    id: "only-the-sentence-says-为",
+    language: "zh-CN",
+    sentence: "物业费为每月 800 元。",
+    reply: "Change 1: 800\nTo 1: 950",
+    quote: "物业费每月 950 元。",
+    kind: "kept",
+  },
   // What the figure is of, said in a label or an earlier clause.
   {
     id: "label",
@@ -164,14 +173,6 @@ export const REWRITE_RULE_CASES: readonly RewriteRuleCase[] = [
     sentence: "物业费为每月不超过 800 元。",
     reply: "Change 1: 800\nTo 1: 950",
     quote: "物业费为每月不超过 950 元。",
-    kind: "rewritten",
-  },
-  {
-    id: "only-the-sentence-says-为",
-    language: "zh-CN",
-    sentence: "物业费为每月 800 元。",
-    reply: "Change 1: 800\nTo 1: 950",
-    quote: "物业费每月 950 元。",
     kind: "rewritten",
   },
   // A name: the quote must name the same party, in the same words around it.

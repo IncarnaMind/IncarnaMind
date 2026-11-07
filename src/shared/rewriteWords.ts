@@ -141,10 +141,13 @@ const sameWords = (one: string, other: string): boolean =>
 const FUNCTION_WORDS = new Set(
   "a an the of is are was were be been with for as and or its this that".split(" "),
 );
-const FUNCTION_CHARACTERS = new Set([..."的为是与和"]);
-/** The change verbs after which 为 says "to", as 至 does: 增加为 gives a level, 增加 a change. */
-const CHANGE_VERB =
-  /(?:[增减升降涨跌]|增加|增长|提高|调高|降低|调低|上调|下调|上浮|下浮|调整|减少|下滑|扩大|缩小)$/u;
+const FUNCTION_CHARACTERS = new Set([..."的是与和"]);
+/**
+ * 为 where it says no "to": in 作为, 认为, 因为, 成为 and 以为, in 为了, and as "for" before 公司
+ * or 客户. Anywhere else it is compared, since after a change verb it says "to" (增加为2000万元
+ * is a level, 增加1000万元 a change), and no list of those verbs is whole.
+ */
+const NOT_TO = /(?<=[作认因成以])为|为(?=了|公司|客户)/gu;
 /** Words either side may say where the other doesn't, without changing what a figure is of. */
 const ADDABLE = new Set([..."shall must each every any all".split(" "), ..."应当须本每位"]);
 
@@ -206,11 +209,10 @@ const BY_GIVING_NOTICE = /\b[Bb]y\s+(?:giving|sending|serving)\s*$/u;
  */
 function figureWords(text: string, periods: ReadonlySet<Rate>): string[] {
   const words: string[] = [];
-  for (const token of tokensOf(text.replace(BY_GIVING_NOTICE, ""))) {
+  for (const token of tokensOf(text.replace(BY_GIVING_NOTICE, "").replace(NOT_TO, ""))) {
     const word = /^\p{Lu}$/u.test(token) ? token : token.toLowerCase();
     if (/^\p{Script=Han}$/u.test(token)) {
-      const tie = token === "为" && CHANGE_VERB.test(words.slice(-2).join(""));
-      if (tie || (!FUNCTION_CHARACTERS.has(token) && !ADDABLE.has(token))) words.push(token);
+      if (!FUNCTION_CHARACTERS.has(token) && !ADDABLE.has(token)) words.push(token);
       continue;
     }
     const rate = RATE_WORDS[word];
