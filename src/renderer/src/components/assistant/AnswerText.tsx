@@ -14,8 +14,13 @@ import { checklistLabel } from "../../editor/checklistLabel";
 import { CitationGlue, withCitationGlue } from "../../editor/citationGlue";
 import { CitationNumbers } from "../../editor/citationNumbers";
 import { CopyCitations } from "../../editor/copyCitations";
-import { JudgedAnswerContext, RegenerateAnswerContext } from "../../editor/mindContext";
+import {
+  JudgedAnswerContext,
+  PictureSurfaceContext,
+  RegenerateAnswerContext,
+} from "../../editor/mindContext";
 import { noteExtensions } from "../../editor/noteSchema";
+import { PictureView } from "../../editor/PictureView";
 import { UncheckedFigures } from "../../editor/uncheckedFigures";
 import { useT } from "../../i18n";
 import { useTableFades } from "../useTableFades";
@@ -106,6 +111,8 @@ export function AnswerText({
             (props) => <AnalysisTableView {...props} doc={runs} />,
             { as: "span" },
           ),
+          // A plot an Analysis drew is looked at at full size (#2377).
+          pictureView: ReactNodeViewRenderer(PictureView),
         }),
         CitationGlue,
         CitationNumbers,
@@ -141,10 +148,12 @@ export function AnswerText({
     // A quote not found offers to write the Answer again, from its Citation's card.
     <RegenerateAnswerContext.Provider value={regenerate}>
       <JudgedAnswerContext.Provider value={judged}>
-        <div ref={frame} className="assistant-answer-frame">
-          <EditorContent editor={editor} />
-          <OpenAsTable frame={frame} editor={editor} streaming={streaming} onOpen={onOpenTable} />
-        </div>
+        <PictureSurfaceContext.Provider value="answer">
+          <div ref={frame} className="assistant-answer-frame">
+            <EditorContent editor={editor} />
+            <OpenAsTable frame={frame} editor={editor} streaming={streaming} onOpen={onOpenTable} />
+          </div>
+        </PictureSurfaceContext.Provider>
       </JudgedAnswerContext.Provider>
     </RegenerateAnswerContext.Provider>
   );

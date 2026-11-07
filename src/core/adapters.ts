@@ -652,12 +652,13 @@ export const MEETING_SAMPLE_RATE = 16_000;
 
 /**
  * What a capture says about one source (see `AudioCapture`):
+ * - "waiting": the system's permission prompt is open, and nothing is captured until it is answered;
  * - "recording": its audio is coming in, again after a device change too;
  * - "denied": the OS or the User doesn't allow it;
  * - "unavailable": there is no such device, or this computer can't record it;
  * - "ended": it stopped and couldn't be started again.
  */
-export type CaptureState = "recording" | "denied" | "unavailable" | "ended";
+export type CaptureState = "waiting" | "recording" | "denied" | "unavailable" | "ended";
 
 /** Where a capture delivers what it hears. */
 export interface AudioSink {

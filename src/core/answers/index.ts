@@ -52,7 +52,7 @@ import {
 import { hasText, markersIn, pageBlocks, withCalculatedFigures } from "../../shared/answerBlocks";
 import { ANSWER_CHECKING_LIMIT } from "../../shared/answerChecking";
 import { runsByDefault } from "../../shared/approvalRules";
-import { appliedAsAsked } from "../../shared/askedChanges";
+import { appliedAsAsked, appliedRequests } from "../../shared/askedChanges";
 import { PICTURE_DATA_URL, quoteKey } from "../../shared/askedQuote";
 import { citationNode, withCitations } from "../../shared/blockJson";
 import { type LiveDocument, shownDocumentName } from "../../shared/citations";
@@ -2707,6 +2707,13 @@ export function createAnswers(options: AnswersOptions) {
       const focusedId = input.assistant?.focused?.mindId ?? null;
       const wallId = turnWall;
       const allMinds = given;
+      // Read again in the turn that made them, its changes that the window applies at once read as
+      // applied: the window may not have taken them in yet (#2321).
+      const appliedRequestsIn = (mindId: string): ReadonlySet<string> =>
+        allMinds?.read(mindId, (blocks) => {
+          const doc = blocks.doc;
+          return doc === null ? new Set<string>() : appliedRequests(doc, mindId, toolCalls);
+        }) ?? new Set<string>();
       const minds: MindsForTools | undefined = given && {
         ...given,
         list: () =>
@@ -2725,6 +2732,8 @@ export function createAnswers(options: AnswersOptions) {
             }
             return result;
           }),
+        text: (mindId, name, tokens, ids) =>
+          given.text(mindId, name, tokens, ids, appliedRequestsIn(mindId)),
       };
       // A new piece fills the empty Mind the User is in rather than making another (#1109).
       const focusedEmpty =

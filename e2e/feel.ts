@@ -39,15 +39,6 @@ type Known = { flow: string; step: string; issue: number; sometimes?: true } & (
 const TIMES_FAIL = process.env.CI !== undefined;
 
 export const KNOWN: readonly Known[] = [
-  {
-    flow: "library-2000",
-    step: "add 2,000 Documents",
-    kind: "shift",
-    moved: ["library-row-count", "document-list-item"],
-    max: 0.0413,
-    sometimes: true,
-    issue: 1329,
-  },
   { flow: "library-2000", step: "show all 2,000", kind: "input", max: 2900, issue: 1313 },
   { flow: "library-2000", step: "show all 2,000", kind: "long-task", max: 2500, issue: 1313 },
   {

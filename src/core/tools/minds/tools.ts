@@ -174,13 +174,15 @@ export interface MindsForTools {
   /**
    * The Mind as the model reads the one in focus, within about `tokens`
    * tokens, its Citations with their ids in `ids`, and where the third-party
-   * text in what it gives came from (#78).
+   * text in what it gives came from (#78). A change whose request is in
+   * `applied` reads as applied, as the window takes it in at once (#2321).
    */
   text(
     mindId: string,
     name: string,
     tokens: number,
     ids: ContextCitations,
+    applied?: ReadonlySet<string>,
   ): { text: string; origins: readonly ThirdPartySource[] };
   /** Saves a Checkpoint of the Mind as it is, before the AI changes it (#113). */
   checkpoint(mindId: string): void;
@@ -835,6 +837,7 @@ function waitingMessage(
   mixed: boolean,
   applies: boolean,
   review: string,
+  ownRemoval = false,
 ): string {
   const how =
     "Make no other change for this request: don't add the text elsewhere or make a new Note.";
@@ -843,6 +846,9 @@ function waitingMessage(
       ? "The earlier requested changes in that text apply in the Note with Undo; they are not waiting for review."
       : "No changes are waiting for review.";
     return `Nothing was changed in “${name}”: the text you named is not solely the assistant's own current revision, so replacing it would risk the other text. ${state} Say that nothing was changed, then name a smaller range containing only the assistant's own text. ${how}`;
+  }
+  if (ownRemoval) {
+    return `Nothing was changed in “${name}”: your own change there takes text out of it, and it is still waiting for the User to accept or reject it, so that text can't be revised in place. Say so first, in one sentence: the User needs to accept or reject it first, and ${review} under your reply shows it. ${how}`;
   }
   return mixed
     ? `Nothing was changed in “${name}”: the text you named holds the User's text and your own changes still waiting. To revise only your waiting text, call edit_mind again naming its section's heading in part. To change the User's text, the User needs to accept or reject the ${changes(count)} waiting first: if that is what they asked, say so first, in one sentence. ${how}`
@@ -2315,18 +2321,24 @@ export function mindTools(options: MindToolsOptions): {
 
   const refuseWaiting = (
     mind: ChangeableMind,
-    waiting: { count: number; mixed: boolean; applies: boolean },
+    waiting: { count: number; mixed: boolean; applies: boolean; ownRemoval?: boolean },
   ) =>
     new Refusal(
       waiting.applies || waiting.count === 0
         ? { kind: "content-not-own", mindId: mind.id }
-        : { kind: "waiting", mindId: mind.id, ...waiting },
+        : {
+            kind: "waiting",
+            mindId: mind.id,
+            count: waiting.count,
+            mixed: waiting.mixed,
+          },
       waitingMessage(
         mind.name,
         waiting.count,
         waiting.mixed,
         waiting.applies,
         translate(options.language, "mindChanges.review"),
+        waiting.ownRemoval === true,
       ),
     );
 
@@ -2400,6 +2412,16 @@ export function mindTools(options: MindToolsOptions): {
           count: waiting.count,
           mixed: waiting.kind === "mixed",
           applies: waiting.applies,
+          ownRemoval: waiting.ownRemoval,
+        });
+      }
+      // A rewrite has no text to work on where its own waiting change takes it out whole (#2502).
+      if (markdown === null && waiting.kind === "own" && waiting.removesWhole) {
+        throw refuseWaiting(mind, {
+          count: waiting.count,
+          mixed: false,
+          applies: waiting.applies,
+          ownRemoval: true,
         });
       }
       if (markdown !== null) {
@@ -2502,6 +2524,7 @@ export function mindTools(options: MindToolsOptions): {
             count: now.kind === "none" || now.kind === "own" ? 0 : now.count,
             mixed: now.kind === "mixed",
             applies: now.kind === "mixed" || now.kind === "other" ? now.applies : false,
+            ownRemoval: now.kind === "mixed" || now.kind === "other" ? now.ownRemoval : false,
           });
         }
         throw why;

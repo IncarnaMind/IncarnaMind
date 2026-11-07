@@ -88,19 +88,95 @@ export interface Workbook {
   unreadable: string[];
 }
 
-const NUMERIC = /^[-+(]?[£$€¥]?\d[\d,.]*%?\)?$/;
+/** A figure's text: digits, with the separators, currency and percent a sheet shows. */
+const NUMERIC = /^[-+(]?[£$€¥]?\d[\d,.]*(?: \d{3})*%?\)?$/;
+
+/** Whether a cell's text is a figure, such as "4.2%" or "1 234 567", rather than words. */
+export function looksLikeFigure(value: string): boolean {
+  return NUMERIC.test(value);
+}
+
+/**
+ * A title cell's amount: a number with a thousands separator, a currency, or a
+ * percent, wherever it sits in the cell. A bare year or a small count ("2026")
+ * is a label, so it can still name a table (#2373).
+ */
+const AMOUNT_IN_TEXT = /[£$€¥]\s*\d|(?<![\d.,])\d{1,3}(?:[ ,]\d{3})+(?!\d)|\d+\s*%/;
+
+/** A decimal, or five digits or more: a figure only when its cell has no words. */
+const BARE_NUMBER = /\d+\.\d+|\d{5,}/;
+const LETTER_IN_TEXT = /\p{L}/u;
+
+/**
+ * Whether a title cell holds a figure, which stops it naming a table (#2373).
+ * A number beside words is part of a label instead: a date-like decimal
+ * ("2026.10 门店销售") or an ID ("Section 12345") still names the table (#2658).
+ */
+export function holdsFigure(text: string): boolean {
+  return AMOUNT_IN_TEXT.test(text) || (!LETTER_IN_TEXT.test(text) && BARE_NUMBER.test(text));
+}
+
+/** A value a half-filled sheet leaves where a figure would be: N/A, or a dash. */
+const MISSING = /^(?:n\/a|[-–—]+)$/i;
+
+const isMissing = (cell: Pick<Cell, "value">): boolean => {
+  const value = cell.value.trim();
+  return value === "" || MISSING.test(value);
+};
+
+const isFigure = (cell: Pick<Cell, "value" | "numeric">): boolean =>
+  cell.numeric || looksLikeFigure(cell.value);
 
 /** Whether a row looks like a header: two cells or more, mostly words. */
 export function looksLikeHeader(cells: readonly Pick<Cell, "value" | "numeric">[]): boolean {
   if (cells.length < 2) return false;
-  const words = cells.filter((cell) => !cell.numeric && !NUMERIC.test(cell.value)).length;
+  const words = cells.filter((cell) => !isFigure(cell)).length;
   return words * 2 > cells.length;
 }
 
-/** The sheet's header row: among its first 10 rows, the first that looks like one. */
+/**
+ * Whether a row heads the rows below it: for each of its columns, the first
+ * value the table's rows below give that column, where a heading has words
+ * over figures and no figure over words. A row of one cell is a section's own
+ * label ("2025") and is passed over, as is a missing value ("N/A", "—").
+ */
+function headsBelow(cells: readonly Cell[], below: readonly (readonly Cell[])[]): boolean {
+  const rows = below.filter((row) => row.filter((cell) => !isMissing(cell)).length >= 2);
+  const valueIn = (column: number): Cell | undefined => {
+    for (const row of rows) {
+      const value = row.find((each) => each.column === column);
+      if (value && !isMissing(value)) return value;
+    }
+    return undefined;
+  };
+  let heads = false;
+  for (const cell of cells) {
+    if (isMissing(cell)) continue;
+    const under = valueIn(cell.column);
+    if (!under) continue;
+    if (isFigure(cell)) {
+      if (!isFigure(under)) return false;
+    } else if (isFigure(under)) heads = true;
+  }
+  return heads;
+}
+
+/**
+ * The sheet's header row: among its first 10 rows, the first whose words head
+ * the figures of its columns below. A table of words alone has no kinds to
+ * tell its rows apart, and its first header-like row heads it.
+ */
 export function headerRow(rows: ReadonlyMap<number, Cell[]>): number | null {
-  const numbers = [...rows.keys()].sort((a, b) => a - b).slice(0, 10);
-  return numbers.find((number) => looksLikeHeader(rows.get(number) ?? [])) ?? null;
+  const numbers = [...rows.keys()].sort((a, b) => a - b);
+  const first = numbers.slice(0, 10);
+  const candidates = first.filter((number) => looksLikeHeader(rows.get(number) ?? []));
+  for (const number of candidates) {
+    const below = numbers.slice(numbers.indexOf(number) + 1).map((row) => rows.get(row) ?? []);
+    if (headsBelow(rows.get(number) ?? [], below)) return number;
+  }
+  return first.some((number) => (rows.get(number) ?? []).some(isFigure))
+    ? null
+    : (candidates[0] ?? null);
 }
 
 /** A row's line: its cells from `firstColumn`, tab-separated, empty cells empty. */
