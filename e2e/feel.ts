@@ -446,7 +446,7 @@ function tableOf(
   ].join("\n");
 }
 
-async function film(window: Page, folder: string): Promise<() => Promise<void>> {
+export async function film(window: Page, folder: string): Promise<() => Promise<void>> {
   await rm(folder, { recursive: true, force: true });
   await mkdir(folder, { recursive: true });
   const session = await window.context().newCDPSession(window);
@@ -482,7 +482,7 @@ async function film(window: Page, folder: string): Promise<() => Promise<void>> 
   };
 }
 
-async function encode(folder: string, video: string): Promise<void> {
+export async function encode(folder: string, video: string): Promise<void> {
   const made = await new Promise<boolean>((resolve) => {
     const ffmpeg = spawn(
       "ffmpeg",

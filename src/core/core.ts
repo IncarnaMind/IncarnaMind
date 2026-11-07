@@ -15,8 +15,9 @@ import { graphemeBoundary } from "../shared/graphemes";
 import type { MessageKey, MessageParams } from "../shared/i18n";
 import { translate } from "../shared/i18n";
 import { organizeModelOf, supportsLibraryImages } from "../shared/libraryModels";
-import { formatLocation, parseCitedArea } from "../shared/locations";
+import { formatLocation, parseCitedArea, parseLocation } from "../shared/locations";
 import { holdsOnlyItsTitle } from "../shared/madeMind";
+import { isPartialMeetingFill } from "../shared/meetingFill";
 import {
   HEARD_FROM,
   helpKindsFor,
@@ -4827,7 +4828,13 @@ export function createCore(adapters: CoreAdapters): Core {
           title:
             meeting.kind === "memo"
               ? translate(language, "memos.fill.notify", { memo: name })
-              : translate(language, "meetings.fill.notify", { meeting: name }),
+              : translate(
+                  language,
+                  isPartialMeetingFill(meeting.fill)
+                    ? "meetings.fill.notify.partial"
+                    : "meetings.fill.notify",
+                  { meeting: name },
+                ),
           body: "",
         },
         (windowIds) => mindShown(meeting.mindId, windowIds),
@@ -5647,6 +5654,7 @@ export function createCore(adapters: CoreAdapters): Core {
         pageTo: page(input.pageTo) ?? page(input.pageFrom),
         contentHash: typeof input.contentHash === "string" ? input.contentHash : null,
         quotedWords: parseQuotedWords(input.quotedWords),
+        ...(input.location !== undefined && { location: parseLocation(input.location) }),
         mindId: input.mindId,
       });
     },

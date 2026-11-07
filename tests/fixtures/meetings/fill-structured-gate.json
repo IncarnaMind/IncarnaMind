@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "provider": "deepseek",
+  "model": "deepseek-flash",
+  "label": "DeepSeek V4.1 Flash 1017",
+  "callIds": [
+    "reserved-en-structured-g",
+    "reserved-en-structured-h",
+    "reserved-en-structured-i",
+    "reserved-zh-structured-g",
+    "reserved-zh-structured-h",
+    "reserved-zh-structured-i"
+  ],
+  "repliesPerCall": 1,
+  "perObservationCapUsd": 0.25,
+  "independentRawAuditAfterEach": true,
+  "stopOnFirstFailure": true,
+  "retries": 0,
+  "extraSemanticReviewGenerations": 0,
+  "releasePriorReserves": false
+}

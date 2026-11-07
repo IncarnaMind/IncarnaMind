@@ -81,6 +81,23 @@ describe("Opening a Citation from a step, a chart point or a check card", () => 
 });
 
 describe("Open the current version, out of the cited one's view", () => {
+  test("forwards a Transcript Citation's exact stored cue to the rechecker", async () => {
+    const location = { kind: "time", from: 7000, to: 10_000, speaker: "Dana" } as const;
+    recheckCitation.mockResolvedValue(recheckOf({ location }));
+    const citation = { ...CITED, quote: "We agreed to review the plan.", location };
+    await opened.openCurrentVersion(citation, { ...HOW, label: "Dana · 0:07" });
+    expect(recheckCitation).toHaveBeenCalledWith({
+      mindId: null,
+      documentId: citation.documentId,
+      contentHash: citation.contentHash,
+      pageFrom: citation.pageFrom,
+      pageTo: citation.pageTo,
+      quote: citation.quote,
+      location,
+    });
+    expect(openDocument.mock.calls[0]?.[0].citation.location).toEqual(location);
+  });
+
   test("opens where the quote is now when its Document changed and the quote moved inside the same Units", async () => {
     recheckCitation.mockResolvedValue(
       recheckOf({

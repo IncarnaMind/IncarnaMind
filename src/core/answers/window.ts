@@ -18,7 +18,7 @@
  * 3. Every request keeps the room the model's output cap needs.
  *
  * A request whose instructions and Question alone don't fit fails with a
- * "too-long" error before anything is sent.
+ * "too-long" error before anything is sent. Required context stays whole or fails too.
  *
  * Token counts are estimated (see `estimateTokens`) times a factor, until
  * Ollama's own count of a request comes back (`prompt_eval_count`, its input
@@ -86,6 +86,8 @@ export interface FitRequest {
   instructions: string;
   /** The Question context, oldest first, ending with the Question. */
   messages: readonly AnswerMessage[];
+  /** The Transcript, protocol and retained fact IDs must not be cut apart (#2306). */
+  requiredContext?: true;
   question: string;
   /** The Tools' definitions as sent (their names, descriptions and schemas), if any. */
   tools?: string;
@@ -179,10 +181,17 @@ export function createWindowBudget(
     /**
      * Fits a request: the Question context loses its oldest content until the
      * instructions, the Tools, the Question context and `reserve` fit, but the
-     * reserve gives way before the Question does.
+     * reserve gives way before the Question does. Required context is never cut.
      */
     fit(request: FitRequest): Fitted {
       const fixed = tokens(request.instructions) + tokens(request.tools ?? "") + MESSAGE_TOKENS;
+      if (request.requiredContext) {
+        const estimated = fixed + messagesTokens(request.messages);
+        if (estimated > limit) {
+          return { ok: false, error: tooLong(estimated + window.outputTokens) };
+        }
+        return { ok: true, messages: [...request.messages], estimated };
+      }
       const room = limit - fixed;
       const question = tokens(request.question) + MESSAGE_TOKENS;
       if (question > room)

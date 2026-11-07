@@ -1061,11 +1061,56 @@ test("a stopped Transcript has no row of its own: from its Note, Get info names 
   await expect(library.getByTestId("library-document")).toHaveCount(0);
   await pointAndClick(window, window.getByTestId("mind-tab").first());
   await pointAndClick(window, line.getByTestId("meeting-transcript-open"));
-  await expect(window.getByTestId("viewer")).toBeVisible();
-  // Opened, it has no "Open in default app": its file is IncarnaMind's, not the User's.
+  // It opens in its Note's own tab, in place of the notes, with no file of the User's to act on:
+  // its file is IncarnaMind's.
+  const shown = window.getByTestId("meeting-note-transcript");
+  await expect(shown).toBeVisible();
+  await expect(shown.getByTestId("viewer-open-externally")).toHaveCount(0);
+  await expect(shown.getByTestId("document-file-menu")).toHaveCount(0);
+  await pointAndClick(window, window.getByTestId("meeting-view-chip"));
+  await pointAndClick(window, window.getByTestId("meeting-view-notes"));
+  await expect(shown).toHaveCount(0);
+
+  // Found from ⌘K once its words are indexed, it opens beside its Note; there too it has no
+  // "Open in default app".
+  const documentId = (await bridge(window))[0]?.transcript?.documentId;
+  await expect
+    .poll(() =>
+      window.evaluate(
+        async (id) =>
+          (
+            await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.listDocuments()
+          ).find((each) => each.id === id)?.status,
+        documentId,
+      ),
+    )
+    .toBe("ready");
+  // A word the call said, whichever side's line was saved first.
+  const said = await window.evaluate(
+    async (id) =>
+      (
+        await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.readDocumentText(
+          id ?? "",
+        )
+      ).pages
+        .map((page) => page.text)
+        .join(" "),
+    documentId,
+  );
+  const word = /[A-Za-z]{6,}/.exec(said)?.[0] ?? "";
+  expect(word).not.toBe("");
+  await searchPalette(window, word);
+  await expect(
+    window
+      .getByTestId("palette")
+      .locator('[data-testid="palette-group"][data-group="meetingText"]')
+      .getByTestId("palette-item")
+      .first(),
+  ).toBeVisible();
+  await window.keyboard.press("Enter");
+  await expect(window.getByTestId("viewer-transcript")).toBeVisible();
   await expect(window.getByTestId("viewer-open-externally")).toHaveCount(0);
   const header = window.getByTestId("viewer-header");
-  await pointAndClick(window, window.getByTestId("document-tab"));
   await pointAndClick(window, header.getByTestId("document-file-menu"));
   const menu = header.getByTestId("document-file-actions");
   await expect(menu.getByTestId("file.info")).toBeVisible();
