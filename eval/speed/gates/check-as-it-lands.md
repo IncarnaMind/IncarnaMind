@@ -47,3 +47,25 @@ The other bars are unchanged.
 ## Amended a third time 2026-11-07, before any counted run
 
 A second review found the digit rule missed figures written without digits (Chinese numerals such as 百分之二十五, ², ½). DeepSeek's English cell had run on the version before; it is not counted, and every cell runs fresh. The step now holds back, until the whole write is in, any sentence whose read finds a figure, or that has a digit; a held sentence lands in its place in the write's order, as on `main`. While the call's input is still coming in, its row says it is writing, as on `main`; the count of sentences being checked shows once the input is whole. Bar 5 reads: a sentence with no figure and no digit sends what it sends on `main`, whenever it starts. The other bars are unchanged.
+
+## Result, 2026-11-07
+
+All 36 runs ran on one route per model: Claude Haiku 5.5 and Claude Sonnet 5.5 on the direct Anthropic route, DeepSeek V4.1 Flash 1017 on DeepSeek's API; `main` at 01677e631 with the flow added, the step at b3c945449. Seconds; medians of three runs. "Lead": how long before the write's input ended its first written check began, each run (on `main`, always 0.1 to 0.2 s after).
+
+| Cell | Done, `main` → step | First written check, `main` → step | Lead, step | Not checked in the cap, `main` → step | Bars it fails |
+|---|---|---|---|---|---|
+| Haiku, English | 56.4 → 56.6 | 25.8 → 20.4 | −0.2, 4.8, 2.5 | 4 → 5 | 1, 3 (a 74.4 s run against 67.2), 4 |
+| Haiku, Chinese | 47.6 → 52.5 | 24.9 → 18.3 | −0.1, −0.1, 1.8 | 8 → 4 | 1 |
+| Sonnet, English | 27.2 → 33.2 | 11.3 → 9.1 | 1.0, 1.9, 2.2 | 0 → 0 | 1 |
+| Sonnet, Chinese | 29.6 → 24.6 | 10.2 → 9.4 | 0.7, 1.8, 0.4 | 2 → 2 | none |
+| DeepSeek, English | 95.9 → 86.4 | 73.9 → 67.4 | 2.2, 2.7, 3.2 | 1 → 3 | 4 |
+| DeepSeek, Chinese | 74.3 → 87.5 | 45.3 → 69.6 | 5.2, 2.5, 2.7 | 3 → 3 | 1, 2, 3 (a 103.5 s run against 77.7) |
+
+- No written-check request failed or met a rate limit in any run of either arm. The sentences not checked inside the cap were not checked for what the check found (no evidence, a reply it couldn't read, an empty sentence), never a request that failed.
+- Bar 5 holds: the request equivalence tests pass unchanged, and the figure and streaming tests pass.
+- #1635's Sonnet bar, from the step's runs: first change 9.0 s in English (15.2, 7.7, 9.0) and 7.5 s in Chinese; Done 33.2 s and 24.6 s. It holds in Chinese only.
+- Written-check requests per write, `main` → step (medians): Haiku 51 → 48 and 43 → 48; Sonnet 24 → 27 and 24 → 13; DeepSeek 53 → 48 and 64 → 69.
+
+What the runs show: on the step the first check began while the write was still coming in, 0.4 to 5.2 s before its end, in 15 of 18 runs; the three that didn't came in at once or held figures. Done moves between runs of one arm by 3 to 40 s with what the model searches and how much it writes, more than this step can move it, so three runs a cell can't show a gain of a few seconds either way.
+
+The gate fails: bar 1 in four cells, bar 3 in two, bar 4 in two, bar 2 in one. What ships is the decision below. Spent: $3.08 (Sonnet $2.37, Haiku $0.37, DeepSeek $0.34).
