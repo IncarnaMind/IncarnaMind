@@ -58,7 +58,11 @@ export function themeWindow(window: BrowserWindow, surface: WindowSurface): void
 }
 
 /** Electron follows the core's setting from now on, and the next launch starts in it. */
-export function followAppearance(core: Core, dataDir: string, log: FileLogger): void {
+export function followAppearance(
+  core: Core,
+  dataDir: string,
+  log: Pick<FileLogger, "exception">,
+): void {
   let kept = storedAppearance(dataDir);
   const keep = (appearance: Appearance) => {
     showAppearance(appearance);
@@ -71,9 +75,16 @@ export function followAppearance(core: Core, dataDir: string, log: FileLogger): 
       log.exception("appearance.notKept", error);
     }
   };
+  let changed = false;
+  core.on("settings.changed", (settings) => {
+    changed = true;
+    keep(settings.device.appearance);
+  });
   core.getSettings().then(
-    (settings) => keep(settings.device.appearance),
+    (settings) => {
+      // A change heard meanwhile is newer than what was read.
+      if (!changed) keep(settings.device.appearance);
+    },
     (error: unknown) => log.exception("appearance.notRead", error),
   );
-  core.on("settings.changed", (settings) => keep(settings.device.appearance));
 }
