@@ -1085,11 +1085,25 @@ test("a stopped Transcript has no row of its own: from its Note, Get info names 
       ),
     )
     .toBe("ready");
-  await searchPalette(window, "launch");
+  // A word the call said, whichever side's line was saved first.
+  const said = await window.evaluate(
+    async (id) =>
+      (
+        await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.readDocumentText(
+          id ?? "",
+        )
+      ).pages
+        .map((page) => page.text)
+        .join(" "),
+    documentId,
+  );
+  const word = /[A-Za-z]{6,}/.exec(said)?.[0] ?? "";
+  expect(word).not.toBe("");
+  await searchPalette(window, word);
   await expect(
     window
       .getByTestId("palette")
-      .locator('[data-testid="palette-group"][data-group="notes"]')
+      .locator('[data-testid="palette-group"][data-group="meetingText"]')
       .getByTestId("palette-item")
       .first(),
   ).toBeVisible();
