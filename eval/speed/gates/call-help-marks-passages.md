@@ -105,3 +105,18 @@ The runs were made at 8aaadba53, over the 24 cases, three runs each, on the fixe
   - words match with a plural "s" folded;
   - a marker whose Passage has nothing like its claim goes, rather than stand on another sentence's Citation.
 - **Run again:** the 24 cases have now been seen by runs of the step. All three gates are run again on the fixed code over the same 24 cases, one at a time, each started at a 15-minute load of 24 or less. Read their result with that in mind. Spend: about $5 more, about $31 in all for this work.
+
+## The fresh slice (added 2026-11-07, committed before any run on it)
+
+The fix above came from the 24 cases, so a pass on them alone is weak evidence for it. `../callHelpFresh.ts` (`call-help-fresh`) holds 16 new presses, 8 English and 8 Chinese, written after the fix. No run, prompt or probe has seen them, and they share no case or Document with the sets before them.
+
+- **Six kinds:** answer, say, ask, check, check-right and no.
+- **Documents of their own:** fuel cards, route planning, security, support plans and the drivers' app.
+- **What English "cited" is tested on here:** markers after a full stop, plurals and two lines of one Document.
+
+How the runs go:
+
+- **Order:** Sonnet runs on the 24 cases (the regression run, started before this slice was written) and on the fresh slice. Then Haiku on both, then DeepSeek on both.
+- **One at a time,** each started at a 15-minute load of 24 or less. Three runs of every case, the same arms, judges and keys as above.
+- **The bar** above holds on the fresh slice, per language, for a model to be listed. The 24 cases are a regression check: each of their lines is reported, and one that fails is said in the PR.
+- **Spend:** about $9 more, about $35 in all, within this work's $40.

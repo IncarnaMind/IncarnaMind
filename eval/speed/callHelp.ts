@@ -40,6 +40,7 @@ import {
   callOf,
   TRANSCRIPT,
 } from "./callHelpCases";
+import { CALL_HELP_FRESH } from "./callHelpFresh";
 import { CALL_HELP_HELD_OUT } from "./callHelpHeldOut";
 import type { GroupOptions, Measured, OpenedGroup, PairedGroup, RequestTiming } from "./paired";
 
@@ -518,11 +519,17 @@ export async function openCall(
   }
 }
 
-type CallHelpSet = "call-help" | "call-help-held-out";
+type CallHelpSet = "call-help" | "call-help-held-out" | "call-help-fresh";
+
+const CASES: Readonly<Record<CallHelpSet, readonly CallHelpCase[]>> = {
+  "call-help": CALL_HELP_CASES,
+  "call-help-held-out": CALL_HELP_HELD_OUT,
+  "call-help-fresh": CALL_HELP_FRESH,
+};
 
 /** One group a case: its own Library, its own Meeting heard before the press. */
 export function callHelpSet(set: CallHelpSet = "call-help"): PairedGroup[] {
-  return (set === "call-help" ? CALL_HELP_CASES : CALL_HELP_HELD_OUT).map(
+  return CASES[set].map(
     (each): PairedGroup => ({
       name: `${set}-${each.id}`,
       items: [item(each, set)],

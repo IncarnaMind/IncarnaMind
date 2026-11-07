@@ -11,6 +11,7 @@ import { afterEach, describe, expect, test } from "vitest";
 import { newestStretch } from "../../eval/speed/arms";
 import { callHelpSet } from "../../eval/speed/callHelp";
 import { CALL_HELP_CASES, callOf, TRANSCRIPT } from "../../eval/speed/callHelpCases";
+import { CALL_HELP_FRESH } from "../../eval/speed/callHelpFresh";
 import { CALL_HELP_HELD_OUT } from "../../eval/speed/callHelpHeldOut";
 import { openLedger } from "../../eval/speed/ledger";
 import { runOnArm } from "../../eval/speed/paired";
@@ -138,14 +139,15 @@ async function pressed(
 
 describe("The call-help cases", () => {
   test.each([
-    ["first", CALL_HELP_CASES],
-    ["held-out", CALL_HELP_HELD_OUT],
-  ])(
-    "%s set: 15 cases a language, each with ids of its own, Documents of its own, and the lines it rests on in them",
-    (_, cases) => {
-      expect(new Set(cases.map((each) => each.id)).size).toBe(30);
-      expect(cases.filter((each) => each.language === "en")).toHaveLength(15);
-      expect(cases.filter((each) => each.language === "zh-CN")).toHaveLength(15);
+    ["first", CALL_HELP_CASES, 15],
+    ["held-out", CALL_HELP_HELD_OUT, 15],
+    ["fresh", CALL_HELP_FRESH, 8],
+  ] as const)(
+    "%s set: as many cases in each language, each with ids of its own, Documents of its own, and the lines it rests on in them",
+    (_, cases, perLanguage) => {
+      expect(new Set(cases.map((each) => each.id)).size).toBe(2 * perLanguage);
+      expect(cases.filter((each) => each.language === "en")).toHaveLength(perLanguage);
+      expect(cases.filter((each) => each.language === "zh-CN")).toHaveLength(perLanguage);
       for (const each of cases) {
         const said = callOf(each).map((turn) => turn.text);
         expect(each.documents.length, each.id).toBeGreaterThan(0);
@@ -163,10 +165,13 @@ describe("The call-help cases", () => {
     },
   );
 
-  test("the held-out set shares no case and no Document with the first", () => {
-    const ids = new Set(CALL_HELP_CASES.map((each) => each.id));
-    const files = new Set(CALL_HELP_CASES.flatMap((each) => each.documents.map((one) => one.file)));
-    for (const each of CALL_HELP_HELD_OUT) {
+  test.each([
+    ["the held-out set", CALL_HELP_HELD_OUT, [CALL_HELP_CASES]],
+    ["the fresh slice", CALL_HELP_FRESH, [CALL_HELP_CASES, CALL_HELP_HELD_OUT]],
+  ])("%s shares no case and no Document with a set before it", (_, cases, before) => {
+    const ids = new Set(before.flat().map((each) => each.id));
+    const files = new Set(before.flat().flatMap((each) => each.documents.map((one) => one.file)));
+    for (const each of cases) {
       expect(ids.has(each.id), each.id).toBe(false);
       for (const document of each.documents) expect(files.has(document.file), each.id).toBe(false);
     }
