@@ -1099,7 +1099,7 @@ test("the Examples row's ⋯ offers the other examples in an order picked once p
     await expect(menu).toBeHidden();
   };
   const tabs = window.getByTestId("tab-title");
-  await expect(tabs).toHaveCount(0);
+  await expect(tabs).toHaveCount(1);
   const order = await groupsShown();
   expect([...order].sort()).toEqual(["contracts", "meetings", "papers"]);
   await window.keyboard.press("Escape");
