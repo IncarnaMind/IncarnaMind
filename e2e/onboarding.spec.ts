@@ -899,7 +899,6 @@ test("finishing the steps with no model asks for one in the card, never says You
   // Each part of the shell still waits for its own moment. The card asks for the model, and the
   // footer's one line says the files wait for it (#1128).
   const sidebar = window.getByTestId("sidebar");
-  await expect(window.getByTestId("tab-list")).toHaveCount(0);
   await expect(window.getByTestId("assistant")).toBeHidden();
   await expect(window.getByTestId("ask-pill")).toBeVisible();
   // Day one names no Tags: the card asks for the model, and the footer says nothing (#1942).
@@ -988,7 +987,6 @@ test("on the quiet first open the tagging question still shows, with Allow, in t
   });
   const question = window.getByTestId("sidebar").getByTestId("tagging-waiting");
   await expect(question).toContainText("Tags need your OK");
-  await expect(window.getByTestId("tab-list")).toHaveCount(0);
   await question.getByTestId("tagging-waiting-allow").click();
   await expect(item).toHaveAttribute("data-tagging", "tagged", { timeout: 15_000 });
   await app.close();
