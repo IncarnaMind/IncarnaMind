@@ -54,7 +54,7 @@ const RETRIEVES_FIRST: readonly Admitted[] = [
     model: "anthropic/claude-haiku-5-5",
     since: "2026-11-07",
     flows: ["question"],
-    gate: "With the second search, against the loop, paired, one run of each set, within one item in 30: gating 65, done −1.2 s, 2.88 → 1.83 calls, cited 63 → 64, judged right 60 → 60, every Citation found 63 → 63; held-out 30, cited 29 → 29, right 26 → 29, found 29 → 29; hard tier 224, done −0.5 s, cited 152 → 160, right 206 → 214, found 209 → 213; no false Supported, duplicate, unmade change or tool text.",
+    gate: "With the second search, against the loop, paired, one run of each set, within one item in 30: gating 65, done −1.2 s, 2.88 → 1.83 calls, cited 63 → 64, judged right 60 → 60, every Citation found 63 → 63; held-out 30, cited 29 → 29, right 26 → 29, found 29 → 29; hard tier 224, done −0.5 s, cited 152 → 160, right 206 → 214, found 209 → 213; no duplicate or tool text; false Supported and unmade changes weren't measured on these sets.",
   },
 ];
 
