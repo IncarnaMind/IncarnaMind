@@ -3,12 +3,13 @@ import { createContext, type ReactNode, useContext, useMemo, useRef, useState } 
 import type { Document } from "../../../core/api";
 import { changedSourceLines, citationState } from "../../../shared/citations";
 import { displayName, sourceOf } from "../../../shared/documentNames";
+import { useAnnotations } from "../annotations";
 import { useCitationRecheck } from "../citationVersion";
 import { CountItLine } from "../components/CountItLine";
 import { YourNoteLabel } from "../components/DocumentsSection";
 import { InlineName } from "../components/InlineName";
 import { moveDocumentsBeside } from "../components/library/DocumentMoveTo";
-import { DocumentLineIcon, PinLineIcon } from "../components/lineIcons";
+import { DocumentLineIcon, NoteLineIcon, PinLineIcon } from "../components/lineIcons";
 import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
 import { ProblemLine } from "../components/ProblemLine";
 import { DocumentTagChips } from "../components/TagChips";
@@ -83,7 +84,7 @@ export function ViewerHeader({
   const t = useT();
   const language = useLanguage();
   const gap = useGap();
-  const { document, preview, keep, target } = useContext(ViewerFrameContext);
+  const { document, tabId, preview, keep, target } = useContext(ViewerFrameContext);
   const documents = useAppStore((state) =>
     state.status.kind === "ready" ? state.documents : null,
   );
@@ -146,6 +147,10 @@ export function ViewerHeader({
   const [problem, setProblem] = useState<Said | null>(null);
   const leftOut = useLeftOutOfEvidence(document);
   const objectMenu = useObjectMenu({ kind: "document", id: document?.id ?? "" });
+  const panelOpen = useAnnotations((state) => state.panelOpen[tabId] === true);
+  const room = useAnnotations((state) => state.room[tabId] ?? true);
+  const listInPlace = useAnnotations((state) => state.listInPlace[tabId] === true);
+  const togglePanel = useAnnotations((state) => state.togglePanel);
   const areaMode = useContext(AreaModeContext);
   const rename = useRename<HTMLButtonElement>(`viewer:${document?.id}`);
   const header = useRef<HTMLElement>(null);
@@ -170,7 +175,9 @@ export function ViewerHeader({
         data-testid="viewer-header"
         {...(document ? objectMenu.rowProps : {})}
         ref={header}
-        className={areaMode ? "viewer-header viewer-header--area" : "viewer-header"}
+        className={`viewer-header${areaMode ? " viewer-header--area" : ""}${
+          listInPlace ? " viewer-header--list-only" : ""
+        }`}
       >
         {leading}
         {document && (
@@ -210,7 +217,9 @@ ${sourceOf(document)}`
           {document && <YourNoteLabel item={document} />}
           {document && isListedDocument(document) && <DocumentTagChips document={document} />}
         </div>
-        {children}
+        <div className="contents" inert={listInPlace}>
+          {children}
+        </div>
         {areaMode && (
           <button
             type="button"
@@ -219,7 +228,9 @@ ${sourceOf(document)}`
             aria-label={areaMode.active ? t("viewer.area.selected") : t("viewer.area.select")}
             title={
               areaMode.active
-                ? t("viewer.area.activeTip")
+                ? areaMode.purpose === "highlight"
+                  ? t("viewer.area.highlightTip")
+                  : t("viewer.area.activeTip")
                 : t("viewer.area.selectTip", { key: isMacOS() ? "⌥" : "Alt" })
             }
             onClick={() => areaMode.setActive(!areaMode.active)}
@@ -259,6 +270,24 @@ ${sourceOf(document)}`
               <OpenExternallyIcon className="size-4" />
             </button>
           )}
+        {document && (
+          <button
+            type="button"
+            data-testid="viewer-annotations-toggle"
+            aria-pressed={panelOpen}
+            aria-label={t("annotations.open")}
+            title={
+              !room && !panelOpen
+                ? t("annotations.needsRoom")
+                : t(panelOpen ? "annotations.close" : "annotations.open")
+            }
+            disabled={!room && !panelOpen}
+            onClick={() => togglePanel(!panelOpen, tabId)}
+            className="viewer-icon-button viewer-annotations-toggle"
+          >
+            <NoteLineIcon className="size-4" />
+          </button>
+        )}
         {document && (
           <ObjectMenu
             target={{ kind: "document", id: document.id }}

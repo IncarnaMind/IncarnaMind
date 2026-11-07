@@ -1,4 +1,5 @@
 import type { ChatModelChoice, ExternalService, ProviderError, TaggingState } from "../api";
+import type { DecisionHost } from "../providers/catalog/decisions";
 
 /** An in-app folder. The legacy Group API name keeps saved assignments compatible. */
 export interface LibraryGroup {
@@ -24,6 +25,7 @@ export interface LibraryGroup {
  * chosen by hand, and never fall back to another provider:
  * - "chat": a model on a saved chat provider;
  * - "jev": TypeSafe Jev, with the key saved on this device;
+ * - "decision": a decision model on another host, with the key it reaches (#1907);
  * - "auto": the local decision models in Ollama, picked per Document;
  * - "ollama": one local decision model, by name.
  */
@@ -31,6 +33,7 @@ export type LibraryClassifier =
   | { kind: "automatic" }
   | { kind: "chat"; choice: ChatModelChoice }
   | { kind: "jev" }
+  | { kind: "decision"; host: DecisionHost; modelId: string }
   | { kind: "auto"; baseUrl: string }
   | { kind: "ollama"; baseUrl: string; modelId: string; usePageImages?: boolean };
 
@@ -57,11 +60,11 @@ export interface TaggingModelOption {
   group: TaggingModelGroup;
   /** Its name in the catalog, else its id, e.g. "Claude Haiku 5.5", "tev1:4b". */
   name: string;
-  /** The provider it is reached through, in English and Chinese; null for Ollama's decision models. */
+  /** The host it is reached through, in English and Chinese; null for Ollama's decision models. */
   provider: { en: string; zh: string } | null;
   /** The provider's tagging model, or a local decision model: picked for tagging. */
   goodForTagging: boolean;
-  /** A local decision model in Ollama, or Ollama's decision models picked per Document ("auto"). */
+  /** A decision model: Jev, one on another host, a local one in Ollama, or Ollama's picked per Document ("auto"). */
   decisionModel: boolean;
   /** It says how likely each Tag is, so the Tags it isn't sure of are marked for review (Jev, decision models). */
   likelihoods: boolean;

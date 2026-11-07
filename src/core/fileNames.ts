@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { link, open, readdir, rename, rm, stat } from "node:fs/promises";
+import { link, lstat, open, readdir, rename, rm, stat } from "node:fs/promises";
 import { dirname, extname, join } from "node:path";
 import { cutAtWord } from "../shared/naming";
 
@@ -9,8 +9,15 @@ const MAX_NAME_LENGTH = 120;
 /** Names Windows keeps for devices, with or without an extension. */
 const WINDOWS_DEVICE = /^(con|prn|aux|nul|com[0-9]|lpt[0-9])$/i;
 
-/** How many names `writeNewFile` tries ("Tides 2.docx", "Tides 3.docx"…) before giving up. */
+/** How many names a save tries ("Tides 2.docx", "Tides 3.docx"…) before giving up. */
 const MAX_TRIES = 1000;
+
+/** The names a save of `name` tries, as `writeNewFile` and `freeFileName` pick them. */
+function* nameCandidates(name: string): Generator<string> {
+  const extension = extname(name);
+  const stem = name.slice(0, name.length - extension.length);
+  for (let n = 1; n <= MAX_TRIES; n++) yield n === 1 ? name : `${stem} ${n}${extension}`;
+}
 
 /**
  * A file name (without its extension) from a title, e.g. a Mind's or a
@@ -78,14 +85,19 @@ export async function removeStalePartials(folder: string): Promise<void> {
  * out the next run (`removeStalePartials`). Where the file system has no hard
  * links, the name is made first and the finished file renamed onto it.
  */
+/** The one name a save was allowed to take, and something is there already. */
+export class NameTakenError extends Error {
+  override name = "NameTakenError";
+}
+
 export async function writeNewFile(
   folder: string,
   name: string,
   data: Uint8Array,
+  /** Write this name or nothing: a save the User allowed by name is never written under another. */
+  exact = false,
 ): Promise<string> {
   await removeStalePartials(folder);
-  const extension = extname(name);
-  const stem = name.slice(0, name.length - extension.length);
   const temporary = join(folder, `.${randomUUID()}.partial`);
   try {
     const file = await open(temporary, "wx");
@@ -96,8 +108,7 @@ export async function writeNewFile(
       await file.close();
     }
     let linking = true;
-    for (let n = 1; n <= MAX_TRIES; n++) {
-      const candidate = n === 1 ? name : `${stem} ${n}${extension}`;
+    for (const candidate of nameCandidates(name)) {
       const path = join(folder, candidate);
       if (linking) {
         try {
@@ -105,7 +116,10 @@ export async function writeNewFile(
           return candidate;
         } catch (error) {
           const code = (error as NodeJS.ErrnoException).code;
-          if (code === "EEXIST") continue;
+          if (code === "EEXIST") {
+            if (exact) throw new NameTakenError(`"${candidate}" is taken in that folder.`);
+            continue;
+          }
           // Node reports a FAT or exFAT drive on Windows as EISDIR or EINVAL, a network share by
           // other codes: any refusal of the link falls back, and a real problem (EACCES, ENOSPC)
           // is raised again by the file made below.
@@ -116,7 +130,10 @@ export async function writeNewFile(
       try {
         await (await open(path, "wx")).close();
       } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "EEXIST") continue;
+        if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+          if (exact) throw new NameTakenError(`"${candidate}" is taken in that folder.`);
+          continue;
+        }
         throw error;
       }
       try {
@@ -131,6 +148,27 @@ export async function writeNewFile(
   } finally {
     await rm(temporary, { force: true });
   }
+}
+
+/**
+ * The name a save of `name` would take in `folder`, as `writeNewFile` picks it, without writing:
+ * the name itself, or the next free "Tides 2.docx". `taken` holds names chosen in the same batch.
+ */
+export async function freeFileName(
+  folder: string,
+  name: string,
+  taken: ReadonlySet<string> = new Set(),
+): Promise<string> {
+  for (const candidate of nameCandidates(name)) {
+    if (taken.has(candidate)) continue;
+    try {
+      await lstat(join(folder, candidate));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return candidate;
+      throw error;
+    }
+  }
+  throw new Error(`Every name like "${name}" is taken in that folder.`);
 }
 
 /**

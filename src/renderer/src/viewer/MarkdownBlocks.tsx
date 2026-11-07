@@ -2,8 +2,10 @@ import { createContext, type ReactNode, useContext, useEffect, useState } from "
 import type { TextRange } from "../../../shared/quoteMatch";
 import { lowlight } from "../editor/codeLanguages";
 import { useT } from "../i18n";
+import type { AnnotationRange } from "./annotationMarks";
 import { loadDocumentPicture } from "./documentPicture";
 import { type Block, type Inline, type ListItem, sectionHeadings } from "./markdown";
+import { NoteMark } from "./NoteMark";
 
 /** The Markdown Document shown, whose pictures beside it its images load. */
 export const MarkdownDocumentContext = createContext<string | null>(null);
@@ -12,6 +14,8 @@ export const MarkdownDocumentContext = createContext<string | null>(null);
 interface Rendering {
   source: string;
   highlight: readonly TextRange[];
+  /** The Document's highlights, where their quotes are in the source (#327). */
+  annotations: readonly AnnotationRange[];
   /** Section headings' indexes among the file's headings, which the outline and Citations go to. */
   headings: ReadonlyMap<Block, number>;
 }
@@ -22,36 +26,73 @@ export function Slice({
   start,
   end,
   highlight,
+  annotations = NO_ANNOTATIONS,
 }: {
   source: string;
   start: number;
   end: number;
   highlight: readonly TextRange[];
+  annotations?: readonly AnnotationRange[];
 }) {
-  const inside = highlight.filter((range) => range.end > start && range.start < end);
+  const quotes = highlight.filter((range) => range.end > start && range.start < end);
+  const marks = annotations.filter((range) => range.end > start && range.start < end);
   // Where it starts in the file, so a selection reads the file's own characters (`sourceSelection`).
-  if (inside.length === 0) return <span data-at={start}>{source.slice(start, end)}</span>;
+  if (quotes.length === 0 && marks.length === 0)
+    return <span data-at={start}>{source.slice(start, end)}</span>;
+  const points = new Set<number>([start, end]);
+  for (const range of [...quotes, ...marks]) {
+    if (range.start > start && range.start < end) points.add(range.start);
+    if (range.end > start && range.end < end) points.add(range.end);
+  }
+  const sorted = [...points].sort((a, b) => a - b);
   const parts: ReactNode[] = [];
-  let at = start;
-  for (const range of inside) {
-    const from = Math.max(at, range.start);
-    const to = Math.min(end, range.end);
-    if (from >= to) continue;
-    parts.push(source.slice(at, from));
+  for (let index = 0; index < sorted.length - 1; index++) {
+    const from = sorted[index] as number;
+    const to = sorted[index + 1] as number;
+    const quote = quotes.find((range) => range.start <= from && range.end >= to);
+    const annotation = marks.find((range) => range.start <= from && range.end >= to);
+    if (!quote && !annotation) {
+      parts.push(source.slice(from, to));
+      continue;
+    }
     // A part split across inlines (e.g. at a line break) joins up square at the seam.
-    const joins = `${from > range.start ? " quote-highlight--joins-before" : ""}${
-      to < range.end ? " quote-highlight--joins-after" : ""
-    }`;
+    const joins = quote
+      ? `${from > quote.start ? " quote-highlight--joins-before" : ""}${
+          to < quote.end ? " quote-highlight--joins-after" : ""
+        }`
+      : "";
+    const classes = [
+      quote ? `quote-highlight${joins}` : null,
+      annotation ? `annotation-highlight annotation-highlight--${annotation.colour}` : null,
+    ]
+      .filter(Boolean)
+      .join(" ");
     parts.push(
-      <mark key={from} data-quote-highlight="" className={`quote-highlight${joins}`}>
+      <mark
+        key={from}
+        {...(quote ? { "data-quote-highlight": "" } : {})}
+        {...(annotation ? { "data-annotation-id": annotation.id } : {})}
+        className={classes}
+      >
         {source.slice(from, to)}
       </mark>,
     );
-    at = to;
+    // Its note's mark goes where the highlight ends; one split across a block gets one, at its end.
+    if (annotation && annotation.end === to && to <= end) {
+      parts.push(
+        <NoteMark
+          key={`note${annotation.id}`}
+          annotationId={annotation.id}
+          hasNote={annotation.hasNote}
+        />,
+      );
+    }
   }
-  parts.push(source.slice(at, end));
+  parts.push(source.slice(sorted.at(-1) ?? end, end));
   return <span data-at={start}>{parts}</span>;
 }
+
+const NO_ANNOTATIONS: readonly AnnotationRange[] = [];
 
 function renderInlines(inlines: readonly Inline[], rendering: Rendering): ReactNode[] {
   return inlines.map((inline, index) => renderInline(inline, index, rendering));
@@ -68,12 +109,19 @@ function renderInline(inline: Inline, key: number, rendering: Rendering): ReactN
           start={inline.start}
           end={inline.end}
           highlight={highlight}
+          annotations={rendering.annotations}
         />
       );
     case "code":
       return (
         <code key={key}>
-          <Slice source={source} start={inline.start} end={inline.end} highlight={highlight} />
+          <Slice
+            source={source}
+            start={inline.start}
+            end={inline.end}
+            highlight={highlight}
+            annotations={rendering.annotations}
+          />
         </code>
       );
     case "strong":
@@ -113,7 +161,15 @@ function Code({
   const { source, highlight } = rendering;
   const code = source.slice(start, end);
   if (!language || !lowlight.registered(language)) {
-    return <Slice source={source} start={start} end={end} highlight={highlight} />;
+    return (
+      <Slice
+        source={source}
+        start={start}
+        end={end}
+        highlight={highlight}
+        annotations={rendering.annotations}
+      />
+    );
   }
   // The highlighted tree's text is the code itself, in order: each piece keeps its place in the source.
   let at = start;
@@ -124,7 +180,16 @@ function Code({
         const from = at;
         at += node.value.length;
         // biome-ignore lint/suspicious/noArrayIndexKey: the pieces never reorder
-        return <Slice key={index} source={source} start={from} end={at} highlight={highlight} />;
+        return (
+          <Slice
+            key={from}
+            source={source}
+            start={from}
+            end={at}
+            highlight={highlight}
+            annotations={rendering.annotations}
+          />
+        );
       }
       if (node.type !== "element") return null;
       const className = node.properties?.className;
@@ -138,7 +203,15 @@ function Code({
   try {
     return <>{render(lowlight.highlight(language, code).children)}</>;
   } catch {
-    return <Slice source={source} start={start} end={end} highlight={highlight} />;
+    return (
+      <Slice
+        source={source}
+        start={start}
+        end={end}
+        highlight={highlight}
+        annotations={rendering.annotations}
+      />
+    );
   }
 }
 
@@ -250,12 +323,19 @@ export function MarkdownBlocks({
   blocks,
   source,
   highlight,
+  annotations = NO_ANNOTATIONS,
 }: {
   blocks: readonly Block[];
   source: string;
   highlight: readonly TextRange[];
+  annotations?: readonly AnnotationRange[];
 }) {
-  const rendering: Rendering = { source, highlight, headings: sectionHeadings(blocks) };
+  const rendering: Rendering = {
+    source,
+    highlight,
+    annotations,
+    headings: sectionHeadings(blocks),
+  };
   return (
     <div className="document-markdown">
       {blocks.map((block, index) => (

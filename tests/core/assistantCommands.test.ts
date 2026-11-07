@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, symlink, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { describe, expect, test } from "vitest";
 import type {
   ApprovalRequest,
@@ -10,14 +10,18 @@ import type {
   WindowLayout,
 } from "../../src/core";
 import { openDatabase } from "../../src/core/storage";
+import { translate } from "../../src/shared/i18n";
 import { askAssistant, lastResult } from "../helpers/assistant";
 import { answerEnded, askAndFinish, setUpWithDocuments } from "../helpers/citations";
 import { createTempDataFolder, nextEvent } from "../helpers/core";
 import { waitForProcessing } from "../helpers/documents";
 import { unzip } from "../helpers/docx";
 import type { MindClient } from "../helpers/mindClient";
-import { writeMind } from "../helpers/minds";
+import { editMind, note, writeMind } from "../helpers/minds";
 import { type ModelCall, scriptedModel } from "../helpers/models";
+import { fakePrinter } from "../helpers/printer";
+import { wordFile, picture as wordPicture } from "../helpers/word";
+import { importWordBytes } from "../helpers/wordMinds";
 
 /**
  * The assistant does what the app can (#1110), through the core's public interface as the
@@ -439,6 +443,471 @@ describe("Commands that reach outside IncarnaMind wait for the User (#1110)", {
       expect(commandCalls(answer).at(-1)?.approval).toBe(
         decision === "deny" ? "denied" : "allowed",
       );
+    },
+  );
+
+  const PIXEL =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+  const PICTURE = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+
+  /** A paragraph holding one picture, as the editor writes one. */
+  const picture = (src: string, alt: string) => ({
+    ...note(""),
+    content: [{ type: "image", attrs: { src, alt } }],
+  });
+
+  // protects=a Markdown export to another folder asks for the file and the pictures it writes beside it, and Allow writes exactly those; fails_when=the ask names the main file alone, or Allow writes more or fewer files; no_claim=the card's look.
+  test("a Markdown export with 2 pictures asks for all 3 files, and Allow writes them", async () => {
+    const elsewhere = await createTempDataFolder();
+    const { core, mind, client } = await setUpWithDocuments(exportMind(elsewhere), DOCUMENTS);
+    writeMind(client, [picture(PIXEL, "A chart"), picture(PICTURE, "Another chart")]);
+    await client.settled();
+
+    const requested = nextEvent(core, "approval.requested");
+    const asking = askAssistant(core, {
+      text: "Export this Mind as Markdown to that folder",
+      mindId: mind.id,
+    });
+    const request = await requested;
+    expect(request).toMatchObject({
+      ask: {
+        kind: "export",
+        fileName: "Tides.md",
+        pictures: ["picture-6b7fa434f92a.png", "picture-ef1955ae757c.gif"],
+      },
+    });
+    const folder = basename(elsewhere);
+    expect(
+      translate("en", "commands.ask.export.title", {
+        mind: "Tides",
+        format: "Markdown (.md)",
+        folder,
+      }),
+    ).toBe(`Save “Tides” as Markdown (.md) in “${folder}”?`);
+    expect(translate("en", "commands.ask.export.why.files", { count: 3 })).toBe(
+      "This writes 3 new files outside your Output location.",
+    );
+    expect(
+      translate("zh-CN", "commands.ask.export.title", {
+        mind: "Tides",
+        format: "Markdown（.md）",
+        folder,
+      }),
+    ).toBe(`将“Tides”以 Markdown（.md） 格式保存到“${folder}”？`);
+    expect(translate("zh-CN", "commands.ask.export.why.files", { count: 3 })).toBe(
+      "这会在保存位置之外写入 3 个新文件。",
+    );
+    expect(await readdir(elsewhere)).toEqual([]);
+    await core.respondToApproval(request.requestId, "allow-once");
+    await asking;
+
+    const written = await readdir(elsewhere);
+    expect(written.sort()).toEqual([
+      "Tides.md",
+      "picture-6b7fa434f92a.png",
+      "picture-ef1955ae757c.gif",
+    ]);
+
+    const againRequested = nextEvent(core, "approval.requested");
+    const askingAgain = askAssistant(core, {
+      text: "Export this Mind as Markdown to that folder",
+      mindId: mind.id,
+    });
+    const again = await againRequested;
+    expect(again).toMatchObject({
+      ask: { kind: "export", fileName: "Tides 2.md", pictures: [] },
+    });
+    await core.respondToApproval(again.requestId, "allow-once");
+    await askingAgain;
+    expect((await readdir(elsewhere)).sort()).toEqual([
+      "Tides 2.md",
+      "Tides.md",
+      "picture-6b7fa434f92a.png",
+      "picture-ef1955ae757c.gif",
+    ]);
+  });
+
+  // Value: protects=an export ask names a file as the folder will take it when the name is there already; fails_when=the ask shows a name the save changes, or a picture the save renames; why_new=#2514 ruling; seam=two taken names in the target folder; no_claim=the card's look.
+  test("a Markdown export to a folder that already holds those names asks for the names it will write", async () => {
+    const elsewhere = await createTempDataFolder();
+    await writeFile(join(elsewhere, "Tides.md"), "An older export.");
+    await writeFile(join(elsewhere, "picture-6b7fa434f92a.png"), "An older picture.");
+    const { core, mind, client } = await setUpWithDocuments(exportMind(elsewhere), DOCUMENTS);
+    writeMind(client, [picture(PIXEL, "A chart"), picture(PICTURE, "Another chart")]);
+    await client.settled();
+
+    const requested = nextEvent(core, "approval.requested");
+    const asking = askAssistant(core, {
+      text: "Export this Mind as Markdown to that folder",
+      mindId: mind.id,
+    });
+    const request = await requested;
+    expect(request).toMatchObject({
+      ask: {
+        kind: "export",
+        fileName: "Tides 2.md",
+        pictures: ["picture-6b7fa434f92a 2.png", "picture-ef1955ae757c.gif"],
+      },
+    });
+    await core.respondToApproval(request.requestId, "allow-once");
+    await asking;
+
+    expect((await readdir(elsewhere)).sort()).toEqual([
+      "Tides 2.md",
+      "Tides.md",
+      "picture-6b7fa434f92a 2.png",
+      "picture-6b7fa434f92a.png",
+      "picture-ef1955ae757c.gif",
+    ]);
+  });
+
+  // protects=a preview that can't check the folder's names says so, instead of showing names it couldn't read; fails_when=every error but "not there" is treated as a free name; no_claim=the text of the failure.
+  test("a preview whose folder can't be read fails rather than checking its names", async () => {
+    const folder = join(await createTempDataFolder(), "not-a-folder");
+    await writeFile(folder, "A file, not a folder.");
+    const { core, mind } = await setUpWithDocuments(exportMind(folder), DOCUMENTS);
+    await expect(
+      core.previewMindExport(mind.id, { format: "markdown" }, folder),
+    ).rejects.toMatchObject({ code: "ENOTDIR" });
+    expect(await readFile(folder, "utf8")).toBe("A file, not a folder.");
+  });
+
+  // protects=Allow writes exactly the files the card named: a file appearing while it waits makes the card ask again, and the first Allow writes nothing; fails_when=the export silently picks the next free name; why_new=a card that named Tides.md must never lead to Tides 2.md; no_claim=the card's look.
+  test("a file that appears after the card asks again before writing, and only what is allowed then is written", async () => {
+    const elsewhere = await createTempDataFolder();
+    const { core, mind } = await setUpWithDocuments(exportMind(elsewhere), DOCUMENTS);
+    const requested = nextEvent(core, "approval.requested");
+    const asking = askAssistant(core, {
+      text: "Export this Mind as Markdown to that folder",
+      mindId: mind.id,
+    });
+    const first = await requested;
+    expect(first).toMatchObject({ ask: { kind: "export", fileName: "Tides.md" } });
+    await writeFile(join(elsewhere, "Tides.md"), "A file that appeared while the card waited.");
+
+    const again = nextEvent(core, "approval.requested");
+    await core.respondToApproval(first.requestId, "allow-once");
+    const second = await again;
+    expect(second).toMatchObject({
+      ask: {
+        kind: "export",
+        fileName: "Tides 2.md",
+        previous: { fileName: "Tides.md", pictures: [] },
+      },
+    });
+    expect(await readdir(elsewhere)).toEqual(["Tides.md"]);
+
+    await core.respondToApproval(second.requestId, "allow-once");
+    await asking;
+    expect((await readdir(elsewhere)).sort()).toEqual(["Tides 2.md", "Tides.md"]);
+  });
+
+  // protects=Allow writes exactly the file the card named, even when the name appears during the print; fails_when=the export writes "Tides 2.pdf" from a card that named "Tides.pdf"; why_new=a name taken during a slow print must not move the write to the next free name; no_claim=the card's look.
+  test("a name taken while the export prints asks again, and the first Allow writes nothing", async () => {
+    const elsewhere = await createTempDataFolder();
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let printing = () => {};
+    const started = new Promise<void>((resolve) => {
+      printing = resolve;
+    });
+    const { printer } = fakePrinter();
+    const { core, mind } = await setUpWithDocuments(
+      calling(find("Tides", "mind"), run("mind.export", { format: "pdf", folder: elsewhere })),
+      DOCUMENTS,
+      {
+        printer: {
+          print: async (document) => {
+            printing();
+            await held;
+            return printer.print(document);
+          },
+          printToPrinter: printer.printToPrinter,
+        },
+      },
+    );
+    const requested = nextEvent(core, "approval.requested");
+    const asking = askAssistant(core, {
+      text: "Export this Mind as PDF to that folder",
+      mindId: mind.id,
+    });
+    const first = await requested;
+    expect(first).toMatchObject({ ask: { kind: "export", fileName: "Tides.pdf" } });
+
+    const again = nextEvent(core, "approval.requested");
+    await core.respondToApproval(first.requestId, "allow-once");
+    // The name appears while the export prints, after the card's own recheck.
+    await started;
+    await writeFile(join(elsewhere, "Tides.pdf"), "A file that appeared while the export printed.");
+    release();
+
+    const second = await again;
+    expect(second).toMatchObject({
+      ask: {
+        kind: "export",
+        fileName: "Tides 2.pdf",
+        previous: { fileName: "Tides.pdf", pictures: [] },
+      },
+    });
+    expect(await readdir(elsewhere)).toEqual(["Tides.pdf"]);
+
+    await core.respondToApproval(second.requestId, "allow-once");
+    await asking;
+    expect((await readdir(elsewhere)).sort()).toEqual(["Tides 2.pdf", "Tides.pdf"]);
+    expect(await readFile(join(elsewhere, "Tides.pdf"), "utf8")).toBe(
+      "A file that appeared while the export printed.",
+    );
+  });
+
+  // protects=Allow writes exactly the files the card named: a picture added while it waits makes the card ask again with the new list; fails_when=the export writes a picture the card never named; why_new=a picture added while the card waits must not be written unlisted; no_claim=the card's look.
+  test("a picture added while the card waits makes it ask again with the new list", async () => {
+    const elsewhere = await createTempDataFolder();
+    const { core, mind, client } = await setUpWithDocuments(exportMind(elsewhere), DOCUMENTS);
+    writeMind(client, [picture(PIXEL, "A chart")]);
+    await client.settled();
+    const requested = nextEvent(core, "approval.requested");
+    const asking = askAssistant(core, {
+      text: "Export this Mind as Markdown to that folder",
+      mindId: mind.id,
+    });
+    const first = await requested;
+    expect(first).toMatchObject({
+      ask: {
+        kind: "export",
+        fileName: "Tides.md",
+        pictures: ["picture-6b7fa434f92a.png"],
+      },
+    });
+
+    writeMind(client, [picture(PIXEL, "A chart"), picture(PICTURE, "Another chart")]);
+    await client.settled();
+    const again = nextEvent(core, "approval.requested");
+    await core.respondToApproval(first.requestId, "allow-once");
+    const second = await again;
+    expect(second).toMatchObject({
+      ask: {
+        kind: "export",
+        fileName: "Tides.md",
+        pictures: ["picture-6b7fa434f92a.png", "picture-ef1955ae757c.gif"],
+        previous: { fileName: "Tides.md", pictures: ["picture-6b7fa434f92a.png"] },
+      },
+    });
+    expect(await readdir(elsewhere)).toEqual([]);
+
+    await core.respondToApproval(second.requestId, "allow-once");
+    await asking;
+    expect((await readdir(elsewhere)).sort()).toEqual([
+      "Tides.md",
+      "picture-6b7fa434f92a.png",
+      "picture-ef1955ae757c.gif",
+    ]);
+  });
+
+  // protects=the card applies the saved export choices the write applies: with someone's changes saved as accepted, a picture they deleted is neither named nor written; fails_when=the card previews with the format alone and names the deleted picture; no_claim=the card's look.
+  test("with someone's changes saved as accepted, the card names the pictures Allow writes, and not the one they deleted", async () => {
+    const elsewhere = await createTempDataFolder();
+    const { core, dataDir } = await setUpWithDocuments(
+      calling(
+        find("Redline pictures", "mind"),
+        run("mind.export", { format: "markdown", folder: elsewhere }),
+      ),
+      DOCUMENTS,
+    );
+    const PRIYA = 'w:author="Priya Nair" w:date="2026-10-02T09:00:00Z"';
+    const { mindId, client } = await importWordBytes(
+      core,
+      dataDir,
+      wordFile({
+        body: [
+          `<w:p>${wordPicture("rId5", "A kept chart")}</w:p>`,
+          `<w:p><w:pPr><w:rPr><w:del w:id="3" ${PRIYA}/></w:rPr></w:pPr><w:del w:id="4" ${PRIYA}><w:r><w:delText xml:space="preserve">The old chart: </w:delText></w:r></w:del></w:p>`,
+        ].join(""),
+        media: {
+          rId5: {
+            name: "media/image1.png",
+            data: Buffer.from(PIXEL.split(",")[1] ?? "", "base64"),
+          },
+        },
+        rels: `<Relationship Id="rId5" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image1.png"/>`,
+      }),
+      { name: "Redline pictures.docx", origin: "someone-else" },
+    );
+    // Priya deleted the paragraph that holds the old chart: the picture goes with it.
+    editMind(client, (blocks) =>
+      blocks.map((block) =>
+        (block.attrs?.proposal as { kind?: string } | undefined)?.kind === "delete"
+          ? {
+              ...block,
+              content: [
+                ...(block.content ?? []),
+                { type: "image", attrs: { src: PICTURE, alt: "The old chart" } },
+              ],
+            }
+          : block,
+      ),
+    );
+    await client.settled();
+    expect(
+      (await core.previewMindExport(mindId, { format: "markdown", theirChanges: "shown" }))
+        .pictures,
+    ).toEqual(["picture-6b7fa434f92a.png", "picture-ef1955ae757c.gif"]);
+    const saved = await core.getSettings();
+    await core.updateSettings({
+      user: { exportOptions: { ...saved.user.exportOptions, theirChanges: "accepted" } },
+    });
+
+    const requested = nextEvent(core, "approval.requested");
+    const asking = askAssistant(core, {
+      text: "Export this Note as Markdown to that folder",
+      mindId,
+    });
+    const request = await requested;
+    expect(request).toMatchObject({
+      ask: {
+        kind: "export",
+        fileName: "Redline pictures.md",
+        pictures: ["picture-6b7fa434f92a.png"],
+      },
+    });
+    await core.respondToApproval(request.requestId, "allow-once");
+    await asking;
+    expect((await readdir(elsewhere)).sort()).toEqual([
+      "Redline pictures.md",
+      "picture-6b7fa434f92a.png",
+    ]);
+  });
+
+  /** Asks for a Markdown export of the Note named `name` to `folder`; Allow once, and says what followed. */
+  async function exportNamed(name: string, folder: string, ownName = name) {
+    const { core, mind } = await setUpWithDocuments(
+      calling(find(name, "mind"), run("mind.export", { format: "markdown", folder })),
+      DOCUMENTS,
+    );
+    await core.renameMind(mind.id, name);
+    const requested = nextEvent(core, "approval.requested");
+    const asking = askAssistant(core, {
+      text: "Export this Note as Markdown to that folder",
+      mindId: mind.id,
+    });
+    const request = await requested;
+    expect(request).toMatchObject({
+      ask: { kind: "export", fileName: `${ownName}.md`, pictures: [] },
+    });
+    const again = nextEvent(core, "approval.requested");
+    await core.respondToApproval(request.requestId, "allow-once");
+    const outcome = await Promise.race([
+      asking.then(() => "written" as const),
+      again.then(async (second) => {
+        await core.respondToApproval(second.requestId, "deny");
+        await asking;
+        return "asked again" as const;
+      }),
+    ]);
+    return outcome;
+  }
+
+  // protects=a number at the end of the Note's own name is part of the name the User allowed, not a clash's suffix; fails_when=Allow asks again with the same name and nothing is ever written; no_claim=the card's look.
+  test.each(["Budget 2026", "Meeting 2", "预算 2026"])(
+    "a Note named %s, exported to another folder, is written on one Allow",
+    async (name) => {
+      const elsewhere = await createTempDataFolder();
+      expect(await exportNamed(name, elsewhere)).toBe("written");
+      expect(await readdir(elsewhere)).toEqual([`${name}.md`]);
+    },
+  );
+
+  // protects=a real clash still takes the next free name, named on the card, and one Allow writes it; fails_when=the card names the taken name, or Allow asks again; no_claim=the card's look.
+  test("a Note named Budget 2026 whose name the folder holds is asked for as Budget 2026 2.md and written on one Allow", async () => {
+    const elsewhere = await createTempDataFolder();
+    await writeFile(join(elsewhere, "Budget 2026.md"), "An older export.");
+    expect(await exportNamed("Budget 2026", elsewhere, "Budget 2026 2")).toBe("written");
+    expect((await readdir(elsewhere)).sort()).toEqual(["Budget 2026 2.md", "Budget 2026.md"]);
+    expect(await readFile(join(elsewhere, "Budget 2026.md"), "utf8")).toBe("An older export.");
+  });
+
+  // protects=a Markdown export with no pictures still asks for one file, and Allow writes exactly it; fails_when=the ask counts a picture or Allow writes one beside it; no_claim=the card's look.
+  test("a Markdown export with no pictures asks for one file, and Allow writes only it", async () => {
+    const elsewhere = await createTempDataFolder();
+    const { core, mind } = await setUpWithDocuments(exportMind(elsewhere), DOCUMENTS);
+
+    const requested = nextEvent(core, "approval.requested");
+    const asking = askAssistant(core, {
+      text: "Export this Mind as Markdown to that folder",
+      mindId: mind.id,
+    });
+    const request = await requested;
+    expect(request).toMatchObject({
+      ask: { kind: "export", fileName: "Tides.md", pictures: [] },
+    });
+    expect(
+      translate("en", "commands.ask.export.title", {
+        mind: "Tides",
+        format: "Markdown (.md)",
+        folder: basename(elsewhere),
+      }),
+    ).toBe(`Save “Tides” as Markdown (.md) in “${basename(elsewhere)}”?`);
+    expect(translate("en", "commands.ask.export.text")).toBe(
+      "This writes a new file outside your Output location.",
+    );
+    expect(await readdir(elsewhere)).toEqual([]);
+    await core.respondToApproval(request.requestId, "allow-once");
+    await asking;
+
+    expect(await readdir(elsewhere)).toEqual(["Tides.md"]);
+  });
+
+  // protects=a share page and a source pack stay one file each, with no pictures or folder beside them; fails_when=the ask counts a picture or Allow writes a second file; no_claim=the card's look.
+  test.each(["share-page", "source-pack"])(
+    "a %s export asks for one file and writes only it",
+    async (format) => {
+      const elsewhere = await createTempDataFolder();
+      const { printer } = fakePrinter();
+      const { core, mind, client, documents } = await setUpWithDocuments(
+        calling(find("Tides", "mind"), run("mind.export", { format, folder: elsewhere })),
+        DOCUMENTS,
+        { printer },
+      );
+      const [source] = documents;
+      if (format === "source-pack" && source) {
+        writeMind(client, [
+          {
+            ...note(""),
+            content: [
+              { type: "text", text: "Northwind billed this. " },
+              {
+                type: "citation",
+                attrs: {
+                  passageId: "passage-1",
+                  documentId: source.id,
+                  documentName: source.name,
+                  contentHash: source.contentHash,
+                  pageFrom: null,
+                  pageTo: null,
+                  quote: "Northwind billed 1,200 euros.",
+                  check: "found",
+                  checkReason: null,
+                },
+              },
+            ],
+          },
+        ]);
+        await client.settled();
+      }
+
+      const requested = nextEvent(core, "approval.requested");
+      const asking = askAssistant(core, {
+        text: "Export this Mind to that folder",
+        mindId: mind.id,
+      });
+      const request = await requested;
+      expect(request).toMatchObject({ ask: { kind: "export", pictures: [] } });
+      expect(await readdir(elsewhere)).toEqual([]);
+      await core.respondToApproval(request.requestId, "allow-once");
+      await asking;
+
+      expect(await readdir(elsewhere)).toHaveLength(1);
     },
   );
 

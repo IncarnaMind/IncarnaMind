@@ -2580,6 +2580,74 @@ export const migrations: readonly Migration[] = [
       DROP TABLE temp.tagging_ranks;
     `,
   },
+  {
+    version: 133,
+    description:
+      "A Document keeps its highlights and notes, with their quote and Location, ready to sync (#327)",
+    sql: `
+      -- A highlight on a Document, with the note the User wrote under it: the quote, its
+      -- Location in the Document's own units (ADR-0011) and its check, so it can become a
+      -- Citation. source says whether the User made it or it was in a PDF's file. anchor keeps
+      -- the selection it was made from, as JSON, so a new version finds its words again; missing
+      -- is 1 when they are gone. Sync-ready: UUID id, ISO 8601 UTC times, soft delete.
+      CREATE TABLE document_annotations (
+        seq INTEGER PRIMARY KEY,
+        id TEXT NOT NULL UNIQUE,
+        document_id TEXT NOT NULL,
+        -- The version its quote was placed in, so a new version re-anchors it once.
+        content_hash TEXT,
+        -- The Passage a Citation of it points at, as a Citation keeps.
+        passage_id TEXT,
+        source TEXT NOT NULL,
+        colour TEXT NOT NULL,
+        quote TEXT NOT NULL,
+        note TEXT,
+        -- The file's own note and colour as they were read, to tell the User's from the file's (#327).
+        file_note TEXT,
+        file_colour TEXT,
+        -- The version whose read last paired this row: kept when a later read does not pair it,
+        -- so a re-read of that version carries the row again by the same file (#327).
+        paired_hash TEXT,
+        -- The copy's place on its page among its own words, from the file: higher first, then
+        -- further left, so copies the file lists in another order still pair the same (#327).
+        file_order REAL,
+        page_from INTEGER,
+        page_to INTEGER,
+        -- Its Location, as JSON (CitationLocation), so its label reads without the Document.
+        location TEXT,
+        check_state TEXT NOT NULL,
+        check_reason TEXT,
+        -- The selection it was made from, as JSON (SelectedPart[]): its words' way back.
+        anchor TEXT,
+        -- A file annotation's author, as the file says.
+        author TEXT,
+        missing INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      ) STRICT;
+      CREATE INDEX document_annotations_by_document ON document_annotations (document_id)
+        WHERE deleted_at IS NULL;
+
+      -- Keyword index, as for Passages (migration 10): each annotation's quote and note,
+      -- segmented by the core; rowid is the row's seq. Only the index is stored.
+      CREATE VIRTUAL TABLE annotation_text_fts USING fts5 (
+        text,
+        content = '',
+        contentless_delete = 1,
+        tokenize = 'unicode61 remove_diacritics 2'
+      );
+      CREATE TRIGGER annotation_text_fts_soft_delete AFTER UPDATE OF deleted_at
+      ON document_annotations
+      WHEN old.deleted_at IS NULL AND new.deleted_at IS NOT NULL BEGIN
+        DELETE FROM annotation_text_fts WHERE rowid = old.seq;
+      END;
+      CREATE TRIGGER annotation_text_fts_delete AFTER DELETE ON document_annotations
+      WHEN old.deleted_at IS NULL BEGIN
+        DELETE FROM annotation_text_fts WHERE rowid = old.seq;
+      END;
+    `,
+  },
 ];
 
 /**

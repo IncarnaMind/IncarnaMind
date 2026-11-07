@@ -38,6 +38,8 @@ import type {
 import { EXPORT_FORMATS, RECENTLY_DELETED_DAYS } from "../../api";
 import { isInside, kindOf } from "../../documents/files";
 import { InvalidInputError, isRecord, NotFoundError } from "../../errors";
+import { ExportChangedError } from "../../exports";
+import { NameTakenError } from "../../fileNames";
 import type { Language } from "../../language";
 import type { Findable } from "./find";
 import type { CommandStep } from "./steps";
@@ -100,6 +102,9 @@ export type CommandExportFormat = (typeof COMMAND_EXPORT_FORMATS)[number];
 export type CommandAsking =
   | ((question: (language: Language) => UserQuestion) => Promise<UserAnswer>)
   | null;
+
+/** Asks the User again with a changed ask, after the first Allow: true when they allow it (#2514). */
+export type CommandReask = (ask: CommandAsk) => Promise<boolean>;
 
 /** How a Word file's choice about marking the text IncarnaMind wrote was settled for an export. */
 export type MarkingSettled = ExportMarking;
@@ -164,6 +169,8 @@ export interface CommandsHost {
     folder: string | null,
     approved: boolean,
     marking: { named: MarkAiTextChoice | null },
+    /** The names the card showed: the write is exactly these, or nothing (#2514). */
+    approvedFiles?: { fileName: string; pictures: readonly string[] },
   ): Promise<{ file: SavedFile; marking: MarkingSettled | null }>;
   /**
    * Runs a command of the window's list in the window that asked (#1421), as ⌘K runs it: how it
@@ -237,10 +244,18 @@ export interface CheckedCommand {
   cloud?: ExternalService;
   /** The User said no to sending Documents for sorting before: this Allow is for this request only (#2252). */
   cloudDeclined?: boolean;
-  run(asking: CommandAsking, signal: AbortSignal, permit?: CloudReadPermit): Promise<Ran>;
+  run(
+    asking: CommandAsking,
+    signal: AbortSignal,
+    permit?: CloudReadPermit,
+    reask?: CommandReask,
+  ): Promise<Ran>;
 }
 
 export const IN_APP: Effect[] = [{ action: "write", scope: { kind: "library" } }];
+
+const sameFiles = (a: readonly string[], b: readonly string[]): boolean =>
+  a.length === b.length && a.every((name, index) => name === b[index]);
 
 export const text = (value: unknown): string | null =>
   typeof value === "string" && value.trim() !== "" ? value.trim() : null;
@@ -723,26 +738,6 @@ export const LIBRARY_CHECKERS = {
     // Only the Output location itself: a folder in it may be one a sync service shares.
     const elsewhere = given !== null && given !== output;
     const into = elsewhere ? given : null;
-    const run = async (): Promise<Ran> => {
-      const { file, marking } = await host.exportMind(mind.id, input.format, into, elsewhere, {
-        named: input.format === "docx" ? input.marks : null,
-      });
-      return {
-        done: {
-          items: [mindItem(mind)],
-          file: {
-            path: file.path,
-            name: file.name,
-            folder: file.folder,
-            inDefaultFolder: file.inDefaultFolder,
-          },
-          inOutputLocation: !elsewhere,
-          ...(marking && { marking }),
-        },
-        step: null,
-        said: `Saved “${mindName(mind)}” as “${file.name}” in ${elsewhere ? file.folder : `the Output location, ${file.folder}`}. A file can't be taken back with Undo.${markingSaid(marking)}`,
-      };
-    };
     const items = [mindItem(mind)];
     if (!elsewhere || given === null) {
       return {
@@ -752,24 +747,105 @@ export const LIBRARY_CHECKERS = {
         into: null,
         outside: null,
         ...OUTSIDE_IT,
-        run,
+        run: async (): Promise<Ran> => {
+          const { file, marking } = await host.exportMind(mind.id, input.format, into, elsewhere, {
+            named: input.format === "docx" ? input.marks : null,
+          });
+          return {
+            done: {
+              items,
+              file: {
+                path: file.path,
+                name: file.name,
+                folder: file.folder,
+                inDefaultFolder: file.inDefaultFolder,
+              },
+              inOutputLocation: !elsewhere,
+              ...(marking && { marking }),
+            },
+            step: null,
+            said: `Saved “${mindName(mind)}” as “${file.name}” in ${elsewhere ? file.folder : `the Output location, ${file.folder}`}. A file can't be taken back with Undo.${markingSaid(marking)}`,
+          };
+        },
       };
     }
-    const { fileName } = await host.core.previewMindExport(mind.id, { format: input.format });
+    const { fileName, pictures } = await host.core.previewMindExport(
+      mind.id,
+      { format: input.format },
+      given,
+    );
+    const outside: CommandAsk = {
+      kind: "export",
+      mind: { id: mind.id, name: mindName(mind) },
+      format: input.format,
+      folder: given,
+      fileName,
+      pictures,
+    };
+    // What the card showed last: the files written must be exactly these (#2514).
+    let shown = { fileName, pictures: [...pictures] };
     return {
       command: "mind.export",
       effects: [{ action: "write", scope: { kind: "folder", path: given } }],
       items,
       into: null,
-      outside: {
-        kind: "export",
-        mind: { id: mind.id, name: mindName(mind) },
-        format: input.format,
-        folder: given,
-        fileName,
-      },
+      outside,
       ...OUTSIDE_IT,
-      run,
+      run: async (_asking, _signal, _permit, reask?: CommandReask): Promise<Ran> => {
+        const askTheChange = async (now: { fileName: string; pictures: readonly string[] }) => {
+          const allowed = reask
+            ? await reask({
+                ...outside,
+                fileName: now.fileName,
+                pictures: now.pictures,
+                previous: shown,
+              })
+            : false;
+          if (!allowed) throw new InvalidInputError({ key: "error.commands.exportDenied" });
+          shown = { fileName: now.fileName, pictures: [...now.pictures] };
+        };
+        // Anything that would change the list since the User looked asks again before writing,
+        // and so does a name taken, or a list changed, between that look and the write (#2514).
+        let mustAsk = false;
+        for (;;) {
+          const now = await host.core.previewMindExport(mind.id, { format: input.format }, given);
+          const changed =
+            now.fileName !== shown.fileName || !sameFiles(now.pictures, shown.pictures);
+          if (mustAsk || changed) {
+            await askTheChange(now);
+            mustAsk = false;
+          }
+          try {
+            const { file, marking } = await host.exportMind(
+              mind.id,
+              input.format,
+              into,
+              elsewhere,
+              { named: input.format === "docx" ? input.marks : null },
+              shown,
+            );
+            return {
+              done: {
+                items,
+                file: {
+                  path: file.path,
+                  name: file.name,
+                  folder: file.folder,
+                  inDefaultFolder: file.inDefaultFolder,
+                },
+                inOutputLocation: !elsewhere,
+                ...(marking && { marking }),
+              },
+              step: null,
+              said: `Saved “${mindName(mind)}” as “${file.name}” in ${file.folder}. A file can't be taken back with Undo.${markingSaid(marking)}`,
+            };
+          } catch (error) {
+            if (!(error instanceof NameTakenError) && !(error instanceof ExportChangedError))
+              throw error;
+            mustAsk = true;
+          }
+        }
+      },
     };
   },
 

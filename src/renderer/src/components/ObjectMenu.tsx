@@ -23,13 +23,20 @@ import { useSelection } from "../selection";
 import { useAppStore } from "../store";
 import { CheckLineIcon, MoreLineIcon } from "./lineIcons";
 import { rowActionButtonClass } from "./sidebarRows";
-import { menuClass, menuItemClass, menuItemUnavailableClass, menuRuleClass } from "./ui";
+import {
+  menuClass,
+  menuItemClass,
+  menuItemUnavailableClass,
+  menuRuleClass,
+  tallMenuItemClass,
+} from "./ui";
 import { openMenuFromRightClick, usePopoverMenu } from "./usePopoverMenu";
 
 const TEST_ID_PREFIX: Record<ObjectKind, string> = {
   mind: "mind",
   conversation: "conversation",
   document: "document-file",
+  annotation: "annotation",
   folder: "folder",
   tag: "tag",
   linkedFolder: "linked-folder",
@@ -258,6 +265,7 @@ export function ObjectMenu({
     const keys = menuKeysLabel(command);
     const reason = enabled === true ? undefined : t(enabled.reason);
     const hint = command.hint ? t(command.hint) : undefined;
+    const long = menuLabelOf(command, ctx, t).length > 40;
     return (
       // biome-ignore lint/a11y/useAriaPropsSupportedByRole: only a toggle's item takes aria-checked.
       <button
@@ -270,7 +278,7 @@ export function ObjectMenu({
         aria-description={hint}
         title={reason ?? hint}
         onClick={() => run(entry)}
-        className={`${menuItemClass} ${menuItemUnavailableClass} pl-2`}
+        className={`${long ? tallMenuItemClass : menuItemClass} ${menuItemUnavailableClass} pl-2`}
       >
         {checked !== undefined && (
           <span aria-hidden="true" className="flex size-4 shrink-0 items-center justify-center">
