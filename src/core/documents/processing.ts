@@ -83,9 +83,11 @@ import type { PictureProblem } from "./web/pictures";
  * the amount, written as Unicode's superscript digit). 27: #2365 (a scale
  * marker reads a bracket's currency with its tail's scale and a Chinese
  * bracket's currency and scale, and a heading that only looks like a scale
- * states none).
+ * states none). 28: #2426 (a web page's merged cells fill every column they
+ * span, and a sheet's rows keep their blank cells at the end up to its last
+ * column, so a table's rows line up with its heading row).
  */
-export const PROCESSING_VERSION = 27;
+export const PROCESSING_VERSION = 28;
 
 /**
  * Per kind, the oldest version whose Passages and Units are still what this
@@ -133,7 +135,10 @@ export const PROCESSING_VERSION = 27;
  * page's raised footnote digit after an amount keeps apart from it, so its
  * Passages come out as they are now (#2474). Version 27 PDFs', Word files',
  * decks' and workbooks': their scale markers read the forms #2365 adds; their
- * text, Passages and embeddings come out as they were.
+ * text, Passages and embeddings come out as they were. Version 28 only web
+ * pages', workbooks' and CSVs', whose table rows keep their blank and merged
+ * cells; a Word file's come out as they were, its reader having kept them
+ * since version 23 (#2426).
  */
 export const CURRENT_SINCE: Readonly<Record<DocumentKind, number>> = {
   pdf: 27,
@@ -141,12 +146,12 @@ export const CURRENT_SINCE: Readonly<Record<DocumentKind, number>> = {
   markdown: 5,
   docx: 27,
   pptx: 27,
-  xlsx: 27,
-  csv: 5,
+  xlsx: 28,
+  csv: 28,
   image: 22,
   rtf: 22,
   html: 22,
-  web: 7,
+  web: 28,
   transcript: 7,
 };
 

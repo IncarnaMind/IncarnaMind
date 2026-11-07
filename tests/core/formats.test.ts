@@ -34,6 +34,7 @@ import { anchorsOf, type TextUnit } from "../../src/shared/units";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
 import { docxOf, encryptedOfficeFile, legacyOfficeFile, xlsxOf } from "../helpers/office";
+import { paragraph, table, wordFile } from "../helpers/word";
 import { buildZip } from "../helpers/zip";
 
 const fixture = (name: string) =>
@@ -257,6 +258,74 @@ describe("Word", () => {
     // Its other sections have none.
     expect(units.slice(1).some((unit) => unit.label?.comments)).toBe(false);
   });
+
+  test("a table's row keeps every cell, a blank corner included, so it lines up with its headings (#2426)", async () => {
+    const read = async (heading: string, rows: string[][]) => {
+      const { units } = await extractDocx(
+        wordFile({ body: `${paragraph(heading, { style: "Heading1" })}${table(rows)}` }),
+      );
+      return units[0];
+    };
+
+    const english = await read("Depot performance", [
+      ["", "On-time rate", "Space occupancy"],
+      ["Felixstowe", "94%", "81%"],
+      ["Southampton", "88%", "79%"],
+    ]);
+    expect(english?.text).toBe(
+      "Depot performance\n\tOn-time rate\tSpace occupancy\nFelixstowe\t94%\t81%\nSouthampton\t88%\t79%",
+    );
+    expect(english?.label?.tables).toEqual([
+      {
+        headings: ["", "On-time rate", "Space occupancy"],
+        rows: [
+          ["Felixstowe", "94%", "81%"],
+          ["Southampton", "88%", "79%"],
+        ],
+      },
+    ]);
+
+    const chinese = await read("仓库表现", [
+      ["", "准点率", "空间占用率"],
+      ["费利克斯托", "94%", "81%"],
+      ["南安普顿", "88%", "79%"],
+    ]);
+    expect(chinese?.text).toBe(
+      "仓库表现\n\t准点率\t空间占用率\n费利克斯托\t94%\t81%\n南安普顿\t88%\t79%",
+    );
+  });
+
+  test("a merged cell fills every column it spans, so the rows under it line up with their headings (#2426)", async () => {
+    const span = (text: string) => `<w:tcPr><w:gridSpan w:val="2"/></w:tcPr>${paragraph(text)}`;
+    const read = async (heading: string, rows: string[][]) => {
+      const { units } = await extractDocx(
+        wordFile({ body: `${paragraph(heading, { style: "Heading1" })}${table(rows)}` }),
+      );
+      return units[0];
+    };
+
+    const english = await read("Rates", [
+      ["Depot", span("Rates")],
+      ["", "On-time", "Late"],
+      ["Felixstowe", "94%", "81%"],
+      ["Southampton", "88%", "79%"],
+    ]);
+    expect(english?.text).toBe(
+      "Rates\nDepot\tRates\t\n\tOn-time\tLate\nFelixstowe\t94%\t81%\nSouthampton\t88%\t79%",
+    );
+    expect(english?.label?.tables?.[0]?.headings).toEqual(["Depot", "Rates On-time", "Rates Late"]);
+
+    const chinese = await read("费率", [
+      ["仓库", span("费率")],
+      ["", "准点", "迟到"],
+      ["费利克斯托", "94%", "81%"],
+      ["南安普顿", "88%", "79%"],
+    ]);
+    expect(chinese?.text).toBe(
+      "费率\n仓库\t费率\t\n\t准点\t迟到\n费利克斯托\t94%\t81%\n南安普顿\t88%\t79%",
+    );
+    expect(chinese?.label?.tables?.[0]?.headings).toEqual(["仓库", "费率准点", "费率迟到"]);
+  });
 });
 
 describe("PowerPoint", () => {
@@ -320,7 +389,7 @@ describe("Excel", () => {
     ]);
     const lines = units[0]?.text.split("\n") ?? [];
     expect(lines[6]).toBe("West\t£350,200\t£389,600\t£421,800\t£466,100\t£1,627,700");
-    expect(lines[8]).toBe("Change on 2025\t-4.2%\t1.8%\t6.1%\t-1.3%");
+    expect(lines[8]).toBe("Change on 2025\t-4.2%\t1.8%\t6.1%\t-1.3%\t");
     expect(units[1]?.text.split("\n")[2]).toBe(
       "2026-07-03\tJ. Moreau\tNorthern figures exclude the Leeds office, which reported late.",
     );
@@ -333,14 +402,51 @@ describe("Excel", () => {
     expect(workbook.sheets.map((sheet) => sheet.name)).toEqual(["Revenue", "Notes", "Empty"]);
     expect(revenue?.merges).toEqual(["A1:F1", "B2:E2"]);
     const lines = units[0]?.text.split("\n") ?? [];
-    expect(lines[0]).toBe("Revenue by region, 2026 (GBP)");
-    expect(lines[1]).toBe("\tQuarters");
+    expect(lines[0]).toBe("Revenue by region, 2026 (GBP)\t\t\t\t\t");
+    expect(lines[1]).toBe("\tQuarters\t\t\t\t");
     expect(notes?.cells.length).toBe(12);
     expect(empty?.cells).toEqual([]);
     expect(units.some((unit) => unit.label?.sheet === "Empty")).toBe(false);
     // Each cell's text is anchored by its reference.
     const cells = anchorsOf(units[0] as never).filter((anchor) => anchor.target.endsWith("7"));
     expect(cells.map((anchor) => anchor.target)).toEqual(["A7", "B7", "C7", "D7", "E7", "F7"]);
+  });
+
+  test("a row keeps its blank cells at the end, up to the last column its table uses (#2426)", async () => {
+    const read = async (rows: (string | number)[][]) =>
+      (await extractXlsx(xlsxOf([{ name: "Depots", rows }]))).units[0]?.text;
+
+    expect(
+      await read([
+        ["Depot", "On-time rate", "Space occupancy"],
+        ["Felixstowe", "94%"],
+        ["Southampton", "88%", "79%"],
+      ]),
+    ).toBe("Depot\tOn-time rate\tSpace occupancy\nFelixstowe\t94%\t\nSouthampton\t88%\t79%");
+
+    expect(
+      await read([
+        ["仓库", "准点率", "空间占用率"],
+        ["费利克斯托", "94%"],
+        ["南安普顿", "88%", "79%"],
+      ]),
+    ).toBe("仓库\t准点率\t空间占用率\n费利克斯托\t94%\t\n南安普顿\t88%\t79%");
+  });
+
+  test("a sheet too wide to be a table keeps each row to its own cells, not the far right's", async () => {
+    const farRight = Array.from({ length: 1500 }, (_, column) => (column === 1499 ? "1" : ""));
+    const { units } = await extractXlsx(
+      xlsxOf([
+        {
+          name: "Wide",
+          rows: [["Depot", "On-time rate", "Space occupancy"], ["Felixstowe", "94%"], farRight],
+        },
+      ]),
+    );
+
+    const lines = units.flatMap((unit) => unit.text.split("\n"));
+    expect(lines.find((line) => line.startsWith("Felixstowe"))?.split("\t")).toHaveLength(1000);
+    expect(lines.find((line) => line.split("\t").length === 1500)).toBeDefined();
   });
 
   test("blocks hold about 400 tokens of rows, and each block after a sheet's first repeats its header", async () => {
@@ -436,6 +542,18 @@ describe("CSV", () => {
       ["a", "b"],
       ["x;y", "2"],
     ]);
+  });
+
+  test("a row keeps its blank cells at the end, as a sheet's does (#2426)", () => {
+    const { units } = extractCsv(
+      new TextEncoder().encode(
+        "Depot,On-time rate,Space occupancy\nFelixstowe,94%\nSouthampton,88%,79%\n",
+      ),
+    );
+
+    expect(units[0]?.text).toBe(
+      "Depot\tOn-time rate\tSpace occupancy\nFelixstowe\t94%\t\nSouthampton\t88%\t79%",
+    );
   });
 
   test("a huge file stays bounded too", () => {
