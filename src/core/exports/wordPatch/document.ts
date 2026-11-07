@@ -25,7 +25,7 @@ import {
   type WordExportLoss,
 } from "../../api";
 import type { WordDocument } from "../../documents/formats/docxImport";
-import type { Relationship } from "../../documents/formats/docxPackage";
+import type { Relationship } from "../../documents/formats/officePackage";
 import { child, elements, walk, type XmlElement } from "../../documents/formats/xml";
 import {
   type Block,
