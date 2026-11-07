@@ -57,6 +57,7 @@ import { useMeetings } from "../../meetings";
 import { useModelNames } from "../../modelNames";
 import type { Translate } from "../../objects";
 import { openCited, quoteSaysSo } from "../../openCited";
+import { useIsExampleDocument } from "../../ownDocuments";
 import { usePythonRuntime } from "../../pythonRuntime";
 import { scopeChips } from "../../scope";
 import { skillTitle } from "../../skills";
@@ -592,8 +593,14 @@ function FoldedToggle({
   const t = useT();
   const nameOf = useModelNames();
   const documentOf = useDocumentNames();
+  const isExample = useIsExampleDocument();
   const documentKind = useOnlyDocumentKind(line.kind === "read-documents" ? line.documents : []);
-  const words = { scope: scopeOf, modelOf: (id: string) => nameOf(id).name, documentOf };
+  const words = {
+    scope: scopeOf,
+    modelOf: (id: string) => nameOf(id).name,
+    documentOf,
+    isExample: (document: ReadDocument) => isExample(document.documentId),
+  };
   const label =
     askedAgain === undefined
       ? foldedWords(t, line, words)
@@ -988,10 +995,15 @@ function SearchStep({ row, scope }: { row: Extract<StepRow, { kind: "search" }>;
 function ReadDocumentsStep({ row }: { row: Extract<StepRow, { kind: "read-documents" }> }) {
   const t = useT();
   const nameOf = useDocumentNames();
+  const isExample = useIsExampleDocument();
   const kind = useOnlyDocumentKind(row.documents);
   return (
     <Step kind={row.kind} icon={<DocumentLineIcon kind={kind ?? "text"} />}>
-      <p className="answer-step-title">{documentsReadText(t, row.documents, nameOf)}</p>
+      <p className="answer-step-title">
+        {documentsReadText(t, row.documents, nameOf, null, (document) =>
+          isExample(document.documentId),
+        )}
+      </p>
       <SourceList sources={row.sources} />
     </Step>
   );

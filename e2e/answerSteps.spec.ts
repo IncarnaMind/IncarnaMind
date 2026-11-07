@@ -129,8 +129,13 @@ const core = (window: Page) => ({
 });
 
 /** The app with Tides added; the chat model on an Anthropic key, or, `local`, on this computer. */
-async function start(options: { documents?: boolean; local?: boolean; model?: string } = {}) {
-  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+async function start(
+  options: { documents?: boolean; examples?: boolean; local?: boolean; model?: string } = {},
+) {
+  const { app, window } = await launchApp(dataDir, {
+    fakeChat: true,
+    ...(options.examples && { examples: true }),
+  });
   await setWindowSize(app, window, 1440, 900);
   await dismissChatSetup(window);
   if (options.local) {
@@ -769,6 +774,62 @@ test("Documents sent whole are read whether or not the Answer cites them: the li
   await expect(read).toContainText("读了 2 个文档");
   await app.close();
 });
+
+const EXAMPLE_LINES = {
+  en: {
+    note: "Draft: credit committee paper",
+    question: "What is the monthly rent in the lease? Answer without searching and without citing.",
+    line: "Read “Draft: credit committee paper”, 2 of your Documents and 2 example Documents",
+    row: "Read 2 of your Documents and 2 example Documents",
+  },
+  "zh-CN": {
+    note: "授信委员会报告（草稿）",
+    question: "租赁合同里的月租金是多少？不用搜索，也不用引用。",
+    line: "读了“授信委员会报告（草稿）”、你的 2 个文档和 2 个示例文档",
+    row: "读了你的 2 个文档和 2 个示例文档",
+  },
+} as const;
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`asked from the example's Note, the line counts the User's two Documents as the sidebar does, and the example's apart (${language})`, async () => {
+    test.setTimeout(180_000);
+    const words = EXAMPLE_LINES[language];
+    const { app, window } = await start({ documents: false, examples: true });
+    await core(window).language(language);
+    await expect(window.getByTestId("mind-editor")).toContainText(words.note);
+    await expect
+      .poll(
+        () =>
+          window.evaluate(async () => {
+            const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+            const { linkedFolderId } = await bridge.getExamples();
+            const read = (await bridge.listDocuments()).filter(
+              (each) => each.linkedFolderId === linkedFolderId && each.status === "ready",
+            );
+            return read.length;
+          }),
+        { timeout: 60_000 },
+      )
+      .toBe(2);
+    await writeFile(join(sources, "Lease 2026.pdf"), LEASE);
+    await writeFile(join(sources, "Tides.pdf"), TIDES);
+    await addDocuments(window, [join(sources, "Lease 2026.pdf"), join(sources, "Tides.pdf")]);
+    await expect(
+      window.getByTestId("not-in-a-folder-section").getByTestId("sidebar-section-count"),
+    ).toHaveText("2");
+
+    const answer = await ask(window, words.question);
+
+    // The scripted model searches in English though all four Documents went with the Question, so
+    // only the Chinese line folds to what was read; the timeline's row names it in both.
+    if (language === "zh-CN") {
+      await expect(answer.getByTestId("answer-steps-line")).toHaveText(words.line);
+    }
+    const timeline = await openSteps(window, answer);
+    await expect(timeline.locator('[data-step="read-documents"]')).toContainText(words.row);
+    await app.close();
+  });
+}
 
 test("at a 320px assistant a long Mind title and a long Document name are cut, the line stays on one line inside the Answer, and the whole line is its tooltip", async () => {
   const { app, window } = await start({ documents: false });
