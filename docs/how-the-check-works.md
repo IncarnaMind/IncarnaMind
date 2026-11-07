@@ -6,9 +6,9 @@ IncarnaMind checks in two ways. It checks each Citation's quote on this computer
 
 ## A Citation's quote
 
-`Quote found on p. 68` means the quoted words are in the text at that place. `Quote not found on p. 68` means they are not. This is a test of the words and their place, not of whether the claim is true. A Citation whose Document is gone from IncarnaMind, or whose cited place has no text it can read, says `Can’t check`.
+`Quote found on p. 68` means the quoted words are in the text at that place. `Quote not found on p. 68` means they are not. This is a test of the words and their place, not of whether the claim is true. A Citation whose Document is gone from IncarnaMind, or whose cited place has no text it can read, says `Can’t check`; one that points at a picture says `Picture, not checked`.
 
-When a sentence with a Citation puts words in quotation marks, those words are checked too: a span of at least 4 words, or 6 characters in Chinese or Japanese, must be in the text at the places the sentence cites.
+When a sentence with a Citation puts words in quotation marks, those words are checked too: a span of at least 4 words, or 6 characters in Chinese or Japanese, must be in the text at the places the sentence cites. The name of a Document the sentence cites, or a part of it, in quotation marks is a name, not a quote: the card says `This is the Document’s name, not a quote from its pages`.
 
 ## A sentence's claim
 

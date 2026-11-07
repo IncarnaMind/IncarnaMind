@@ -48,6 +48,8 @@ const QUOTES: readonly DocQuote[] = [
     params: { en: { location: "p. 68" }, "zh-CN": { location: "第 68 页" } },
   },
   { page: "check", key: "citation.badge.cantCheck" },
+  { page: "check", key: "citation.badge.pictureNotChecked" },
+  { page: "check", key: "citation.quotedName" },
   { page: "check", key: "citation.meaning" },
   { page: "check", key: "aiStatement.citations.notFound" },
   { page: "check", key: "editor.ai.checkAgainstDocuments" },
