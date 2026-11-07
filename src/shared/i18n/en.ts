@@ -1370,6 +1370,7 @@ export const en = {
   "claim.reason.out-of-credit": "The model’s service says the credit balance is too low.",
   "claim.reason.failed": "The check failed: {detail}",
   "claim.reason.stopped": "Stopped before it was checked.",
+  "claim.reason.answer-failed": "The Answer stopped with an error before this was checked.",
   "claim.reason.too-many":
     "Not checked yet: only the first {cap} cited sentences are checked as they’re written",
   "claim.checkNow": "Check now",

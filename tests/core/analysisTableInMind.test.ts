@@ -1,9 +1,12 @@
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { createFakeAnalysisRuntime, type FakeAnswer } from "../../src/core/analysis/fake";
 import { ANALYSIS_TABLE_ATTRIBUTE, ANALYSIS_TABLE_NODE } from "../../src/core/api";
+import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { type AnalysisJob, noAnalysisOutput } from "../../src/shared/analysis";
-import { askAssistant } from "../helpers/assistant";
+import { INLINE_NODE } from "../../src/shared/sentences";
+import { askAssistant, changesIn } from "../helpers/assistant";
+import { checkReply, isCheckRun } from "../helpers/checks";
 import { shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
@@ -205,5 +208,84 @@ describe("an Analysis's own result table written into a Note (#2378)", () => {
     expect(table.textContent).toContain("999");
     expect(citationsInTable(table)).toEqual([]);
     core.close();
+  });
+});
+
+describe("text written before cite, read as more Blocks once an Analysis has run (#1635)", () => {
+  // protects=a write made before cite whose markers an Analysis run after it reads as more Blocks is still checked, as it stands, once the Run ends: its found Citation lands marked and its card counts the check; fails_when=the Citation stays found with no mark and no check on the card, which reads as checked; no_claim=how often a real model runs an Analysis after it writes.
+  test("is still checked as it stands", async () => {
+    const warned = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const analysis = (passage: string) => ({
+        tool: "run_analysis",
+        input: {
+          title: "Revenue by region",
+          inputs: [{ name: "sales", passage }],
+          code: 'result("by_region", inputs["sales"].groupby("Region")["Revenue"].sum())',
+        },
+      });
+      const model = scriptedModel((call: ModelCall) => {
+        if (isCheckRun(call)) return checkReply(call, {});
+        const search = call.results.find((result) => result.tool === "search_documents");
+        if (!search) return { calls: [{ tool: "search_documents", input: { query: "revenue" } }] };
+        const [passage] = shownPassages(search.text);
+        const cite = (marker: number) => ({
+          tool: "cite",
+          input: {
+            citations: [{ marker, passage: passage?.id, quote: quoteOf(passage ?? { text: "" }) }],
+          },
+        });
+        const runs = call.results.filter((result) => result.tool === "run_analysis").length;
+        const cites = call.results.filter((result) => result.tool === "cite").length;
+        const wrote = call.results.some((result) => result.tool === "add_to_mind");
+        if (runs === 0) return { calls: [analysis(passage?.id ?? "")] };
+        if (cites === 0) return { calls: [cite(1)] };
+        if (!wrote) {
+          const content =
+            "North revenue was 270.5 [^1].\n\nSouth revenue was 80 [^2].\n\n[=table 2]";
+          return { calls: [{ tool: "add_to_mind", input: { content } }] };
+        }
+        if (runs === 1) return { calls: [analysis(passage?.id ?? "")] };
+        if (cites === 1) return { calls: [cite(2)] };
+        return { text: "Written into the note." };
+      });
+      const runtime = createFakeAnalysisRuntime({ answer: () => TOTAL_BY_REGION });
+      const core = startCore(await createTempDataFolder(), {
+        createChatModel: scriptedModels(model).createChatModel,
+        analysisRuntime: runtime,
+      });
+      const saved = await core.saveChatProvider({
+        kind: "anthropic",
+        apiKey: "sk-ant-test",
+        modelId: "claude-haiku-5-5",
+      });
+      for (const flow of ["chat", "checks"] as const) {
+        if (saved.service) await core.allowDataFlow(flow, saved.service.id);
+      }
+      const sources = await createTempDataFolder();
+      await addAndProcess(core, [await writeSourceFile(sources, "sales.csv", SALES_CSV)]);
+      const mind = await core.createMind({ title: "Revenue" });
+      const client = await connectToMind(core, mind.id);
+
+      const answer = await askAssistant(core, {
+        text: "What was revenue by region? Put it in the note.",
+        mindId: mind.id,
+        analyse: true,
+      });
+      await client.settled();
+
+      expect(warned.mock.calls.some(([line]) => String(line).includes("the text reads as"))).toBe(
+        true,
+      );
+      const [change] = changesIn(answer);
+      expect(change?.selfCheck).toMatchObject({ sent: 1 });
+      const marked = claimSpans(readMind(client)).map((span) =>
+        span.sentence.text.replaceAll(INLINE_NODE, "").trim(),
+      );
+      expect(marked).toContain("North revenue was 270.5 .");
+      core.close();
+    } finally {
+      warned.mockRestore();
+    }
   });
 });
