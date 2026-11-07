@@ -2641,9 +2641,10 @@
    * ⋯; then "Recording" leaves the dot and the timer, and the Transcript its level bars. The
    * state and timer, Pause my mic, Pause, Stop and Notes | Transcript stay. By the bar's own
    * width, so nothing is measured and nothing moves while the window is dragged. A row needs, in
-   * English, which needs most: 585px with words, 439px with icons, 413px without Mark and Call
-   * help (the ⋯ takes Mark's place), 387px without details, 317px without "Recording" and 291px
-   * without the level bars; each query below is the width that still fits.
+   * English: 585px with words, 439px with icons, 413px without Mark and Call help (the ⋯ takes
+   * Mark's place), 387px without details, 317px without "Recording" and 291px without the level
+   * bars; in Chinese, whose words are shorter, 395px, 369px, 343px, 287px and 261px. Each query
+   * is the width that still fits.
    */
   @container meeting-bar (width < 586px) {
     .meeting-button--words {
@@ -2657,21 +2658,49 @@
     }
   }
   @container meeting-bar (width < 440px) {
-    .meeting-more {
-      display: inline-flex;
+    :root:not(:lang(zh)) {
+      & .meeting-more {
+        display: inline-flex;
+      }
+      & [data-fold="mark"],
+      & [data-fold="help"] {
+        display: none;
+      }
     }
-    [data-fold="mark"],
-    [data-fold="help"] {
-      display: none;
+  }
+  @container meeting-bar (width < 396px) {
+    :root:lang(zh) {
+      & .meeting-more {
+        display: inline-flex;
+      }
+      & [data-fold="mark"],
+      & [data-fold="help"] {
+        display: none;
+      }
     }
   }
   @container meeting-bar (width < 414px) {
-    [data-fold="details"] {
+    :root:not(:lang(zh)) [data-fold="details"] {
+      display: none;
+    }
+  }
+  @container meeting-bar (width < 370px) {
+    :root:lang(zh) [data-fold="details"] {
       display: none;
     }
   }
   @container meeting-bar (width < 388px) {
-    .meeting-bar[data-kind="meeting"] .meeting-state-word {
+    :root:not(:lang(zh)) .meeting-bar[data-kind="meeting"] .meeting-state-word {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+  }
+  @container meeting-bar (width < 344px) {
+    :root:lang(zh) .meeting-bar[data-kind="meeting"] .meeting-state-word {
       position: absolute;
       width: 1px;
       height: 1px;
@@ -2681,7 +2710,12 @@
     }
   }
   @container meeting-bar (width < 318px) {
-    .meeting-views .level-meter {
+    :root:not(:lang(zh)) .meeting-views .level-meter {
+      display: none;
+    }
+  }
+  @container meeting-bar (width < 288px) {
+    :root:lang(zh) .meeting-views .level-meter {
       display: none;
     }
   }

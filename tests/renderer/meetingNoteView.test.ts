@@ -564,7 +564,7 @@ describe("the Meeting's Note-local views", () => {
       expect(transcript.querySelector('[data-testid="transcript-empty"]')).toBeNull();
       expect(requests).toHaveLength(0);
       const beside = find("meeting-transcript-beside", transcript) as HTMLButtonElement;
-      expect(beside.textContent).toBe(translate(language, "meetings.views.beside"));
+      expect(beside.textContent).toBe(translate(language, "command.openBeside"));
       expect(beside.disabled).toBe(true);
       expect(beside.title).toBe(translate(language, "meetings.bar.transcriptSoon"));
       expect(container.querySelector('[data-testid="meeting-view-chip"]')).toBeNull();

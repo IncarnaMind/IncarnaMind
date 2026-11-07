@@ -1086,13 +1086,24 @@ test("a stopped Transcript has no row of its own: from its Note, Get info names 
   await pointAndClick(window, window.getByTestId("meeting-view-notes"));
   await expect(shown).toHaveCount(0);
 
-  // Found from ⌘K, it opens beside its Note; there too it has no "Open in default app".
+  // Found from ⌘K under "Said in meetings" once its saved words are searchable, it opens beside
+  // its Note; there too it has no "Open in default app".
+  const transcriptId = (await bridge(window))[0]?.transcript?.documentId ?? "";
+  await expect
+    .poll(() =>
+      window.evaluate(async () => {
+        const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        const found = await core.searchPassages("launch", { mode: "keyword" });
+        return found.map((passage) => passage.documentId);
+      }),
+    )
+    .toContain(transcriptId);
   await window.keyboard.press("ControlOrMeta+k");
   await window.getByTestId("palette-search").fill("launch");
   await expect(
     window
       .getByTestId("palette")
-      .locator('[data-testid="palette-group"][data-group="notes"]')
+      .locator('[data-testid="palette-group"][data-group="meetingText"]')
       .getByTestId("palette-item")
       .first(),
   ).toBeVisible();

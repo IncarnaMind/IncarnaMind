@@ -178,6 +178,16 @@ describe("Output location", () => {
 });
 
 /**
+ * Commands that share keys but never act at once: a meeting page's ⌥⌘← and ⌥⌘→ switch its views
+ * (#138) except while the User types in a table, where they add a column, as in any note; the
+ * meeting's come first, and aren't offered there.
+ */
+const TAKE_TURNS = new Set([
+  "meeting.previousView table.columnLeft",
+  "meeting.nextView table.columnRight",
+]);
+
+/**
  * In the note, the note's own keymap tries a Block's command first, and the window's acts where
  * it isn't offered: ⌘K edits the link on selected text, and opens ⌘K anywhere else.
  */
@@ -301,7 +311,10 @@ describe("shortcuts", () => {
           (!one.appliesTo ||
             !other.appliesTo ||
             one.appliesTo.some((kind) => other.appliesTo?.includes(kind)));
-        expect(sameKeys && overlap, `${one.id} and ${other.id}`).toBe(false);
+        expect(
+          sameKeys && overlap && !TAKE_TURNS.has(`${one.id} ${other.id}`),
+          `${one.id} and ${other.id}`,
+        ).toBe(false);
       }
     }
   });

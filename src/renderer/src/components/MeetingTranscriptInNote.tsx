@@ -47,7 +47,7 @@ export function MeetingTranscriptInNote({ meeting, tabId }: { meeting: Meeting; 
       className="meeting-beside"
     >
       <OpenBesideLineIcon className="size-3.5" />
-      {t("meetings.views.beside")}
+      {t("command.openBeside")}
     </button>
   );
   return (

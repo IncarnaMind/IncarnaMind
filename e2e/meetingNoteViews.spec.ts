@@ -158,7 +158,7 @@ test("a meeting's ⌘K views retain its editor; assistant return and page Review
     expect(await noteState()).toEqual(before);
     await expectSameTab();
 
-    await runCommand(window, "meeting.showNotes", "Show Notes");
+    await runCommand(window, "meeting.showNotes", "Show notes");
     await expect(editor).toBeVisible();
     await expect(transcript).toHaveCount(0);
     expect(await noteState()).toEqual(before);

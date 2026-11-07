@@ -1,3 +1,4 @@
+import { isInTable } from "@tiptap/pm/tables";
 import type { Meeting } from "../../../core/api";
 import { writingTime } from "../../../shared/blockTimes";
 import { markNow, noteOf } from "../editor/meetingNotes";
@@ -15,7 +16,7 @@ import {
 import { useRequests } from "../requests";
 import { useAppStore } from "../store";
 import { openTranscriptBeside } from "../transcripts";
-import { transcriptHandle } from "./handles";
+import { readMindHandle, transcriptHandle } from "./handles";
 import type { Command, CommandContext } from "./registry";
 
 /*
@@ -121,6 +122,12 @@ const showViewCommand = (
   },
 });
 
+/** The notes' cursor is in a table: there ⌥⌘← and ⌥⌘→ add a column, as they do in any note. */
+function typingInTable(): boolean {
+  const editor = readMindHandle.current?.editor;
+  return !!editor && !editor.isDestroyed && editor.view.hasFocus() && isInTable(editor.state);
+}
+
 const stepViewCommand = (id: string, by: -1 | 1, keys: string): Command => ({
   id: `meeting.${id}`,
   label: by < 0 ? "meetings.views.showNotes" : "meetings.views.showTranscript",
@@ -129,7 +136,7 @@ const stepViewCommand = (id: string, by: -1 | 1, keys: string): Command => ({
   group: "main",
   reversible: true,
   assistant: false,
-  when: (ctx) => meetingPageInView(ctx) !== null,
+  when: (ctx) => meetingPageInView(ctx) !== null && !typingInTable(),
   run(ctx) {
     const page = meetingPageInView(ctx);
     if (page) stepMeetingNoteView(page.tabId, page.mindId, by);
@@ -223,7 +230,7 @@ export const meetingCommands: readonly Command[] = [
   {
     id: "meeting.transcriptBeside",
     label: "meetings.views.besideCommand",
-    keywords: ["meetings.views.transcript", "meetings.views.beside"],
+    keywords: ["meetings.views.transcript", "command.openBeside"],
     group: "main",
     // Its tab closes again.
     reversible: true,

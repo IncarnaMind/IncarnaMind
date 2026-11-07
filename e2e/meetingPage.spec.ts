@@ -5,6 +5,7 @@ import type { Editor } from "@tiptap/core";
 import type { CoreBridge, Meeting } from "../src/core/api";
 import { FAKE_CLOUD_LINES } from "../src/core/transcription/fakeCloud";
 import {
+  acceptPlainTextKeys,
   createDataFolder,
   dismissChatSetup,
   expectBarOneRow,
@@ -59,10 +60,10 @@ const WORDS = {
     transcript: "Transcript",
     views: "Meeting views",
     switchTip: /^Switch views \(\S+ \S+\)$/,
-    beside: "Open beside",
-    besideTip: "Open the Transcript beside",
+    beside: "Open in a split on the right",
+    besideTip: "Open the Transcript in a split on the right",
     soon: "The transcript appears with its first line",
-    showNotes: "Show Notes",
+    showNotes: "Show notes",
     showTranscript: "Show the Transcript",
     speakers: ["Me", "Them"],
     filled: "Note filled in from the call",
@@ -71,7 +72,7 @@ const WORDS = {
     undone: "Fill-in undone",
     again: "Fill in again",
     recorded: /^Recorded \d+:\d{2}$/,
-    audio: /^Audio kept until .+\d{2}:\d{2}/,
+    audio: /^Audio kept until .+\d:\d{2}/,
     deleteNow: "Delete now",
     confirm: "Delete this meeting’s audio for good? The note stays.",
     keep: "Keep it",
@@ -84,8 +85,8 @@ const WORDS = {
     transcript: "转写稿",
     views: "会议视图",
     switchTip: /^切换视图（\S+ \S+）$/,
-    beside: "在旁边打开",
-    besideTip: "在旁边打开转写稿",
+    beside: "在右侧一栏中打开",
+    besideTip: "在右侧一栏中打开转写稿",
     soon: "第一句话转写后即可显示转写稿",
     showNotes: "显示笔记",
     showTranscript: "显示转写稿",
@@ -96,7 +97,7 @@ const WORDS = {
     undone: "已撤销补全",
     again: "重新补全",
     recorded: /^已录制 \d+:\d{2}$/,
-    audio: /^音频保留到 .+\d{2}:\d{2}/,
+    audio: /^音频保留到 .+\d:\d{2}/,
     deleteNow: "立即删除",
     confirm: "永久删除这次会议的音频？笔记会保留。",
     keep: "保留",
@@ -156,6 +157,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await recordOnClose(app, window, `meeting-page-live-${language}`);
     await dismissChatSetup(window);
     await setLanguage(window, language);
+    await acceptPlainTextKeys(window);
     await window.evaluate(async () => {
       const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
       await bridge.setTranscriptionKey({ route: "soniox", apiKey: "soniox-test-key" });
