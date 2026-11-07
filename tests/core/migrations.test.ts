@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { DataFromNewerVersionError } from "../../src/core/errors";
+import { wasIn } from "../../src/core/recentlyDeleted";
 import { type Database, migrate, openDatabase } from "../../src/core/storage";
 import { migrations } from "../../src/core/storage/migrations";
 import { createTempDataFolder } from "../helpers/core";
@@ -308,13 +309,10 @@ describe("Migrations", () => {
     expect(db.all("SELECT id FROM deleted_folder_items")).toEqual([
       { id: "00000000-0000-4000-8000-000000000001" },
     ]);
+    // The listing's own subquery, in the context its Documents query gives it.
     const plan = db
       .all<{ detail: string }>(
-        `EXPLAIN QUERY PLAN SELECT f.folder_id FROM deleted_folder_items f
-         WHERE f.item_kind = 'document' AND f.item_id = 'document-a' AND f.deleted_at IS NULL
-           AND f.created_at >= ?
-         ORDER BY f.rowid DESC LIMIT 1`,
-        [at],
+        `EXPLAIN QUERY PLAN SELECT ${wasIn("document", "d")} AS folder_id FROM documents d`,
       )
       .map((row) => row.detail)
       .join("\n");
