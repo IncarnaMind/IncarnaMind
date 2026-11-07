@@ -90,6 +90,8 @@ function counting(options: FakeCloudOptions = {}) {
   let marked = 0;
   let closes = 0;
   const opened: string[] = [];
+  const sends: { url: string; key: string; ms: number }[] = [];
+  let sendsAtMark = 0;
   const held: (() => void)[] = [];
   const fakeFetch = createFakeCloudFetch(options);
   const requested: string[] = [];
@@ -104,9 +106,12 @@ function counting(options: FakeCloudOptions = {}) {
     errorAfterMs: undefined as number | undefined,
     mark: () => {
       marked = total;
+      sendsAtMark = sends.length;
       requestedAtMark = requested.length;
     },
     sentSinceMark: () => total - marked,
+    /** Each audio message since the mark: the address and key of the socket it reached, and its ms. */
+    sendsSinceMark: () => sends.slice(sendsAtMark),
     /** Session requests since the mark: a key goes in each. */
     requestedSinceMark: () => requested.length - requestedAtMark,
     requested: () => [...requested],
@@ -144,6 +149,7 @@ function counting(options: FakeCloudOptions = {}) {
       });
       return {
         send(data) {
+          const before = total;
           if (!openai && typeof data === "string") total += jsonAudioMs(data);
           if (openai && typeof data === "string") {
             const event = JSON.parse(data) as { type: string; audio?: string };
@@ -159,6 +165,7 @@ function counting(options: FakeCloudOptions = {}) {
           } else if (!openai && typeof data !== "string") {
             total += (data.byteLength / 2 / 16_000) * 1000;
           }
+          if (total > before) sends.push({ url, key, ms: total - before });
           inner.send(data);
         },
         close: () => {
@@ -173,7 +180,60 @@ function counting(options: FakeCloudOptions = {}) {
 
 type Service = ReturnType<typeof counting>;
 
-function transcriberOn(service: Service): Transcriber {
+/**
+ * The channel to the transcription process, counting the audio the core hands over it for cloud
+ * streams: what the send gate let go. `hold` keeps what the core sends on its way, as a busy
+ * process does, until `deliver`.
+ */
+function transcriptionChannel() {
+  const cloud = new Set<string>();
+  let handed = 0;
+  let handedAtMark = 0;
+  let onTheWay = 0;
+  let opened = 0;
+  let holding = false;
+  const held: (() => void)[] = [];
+  return {
+    hold: () => {
+      holding = true;
+    },
+    deliver: () => {
+      holding = false;
+      for (const delivery of held.splice(0)) setImmediate(delivery);
+    },
+    mark: () => {
+      handedAtMark = handed;
+    },
+    /** Cloud audio the core handed over since the mark, in ms. */
+    handedSinceMark: () => handed - handedAtMark,
+    /** Cloud audio handed over and not yet delivered, in ms. */
+    onTheWay: () => onTheWay,
+    /** How many cloud streams the core has heard are open. */
+    opened: () => opened,
+    send(request: TranscriberRequest, deliver: (request: TranscriberRequest) => void) {
+      if (request.type === "open") cloud.add(request.stream);
+      const ms =
+        request.type === "audio" && cloud.has(request.stream)
+          ? (request.samples.length / 16_000) * 1000
+          : 0;
+      handed += ms;
+      onTheWay += ms;
+      const delivery = () => {
+        onTheWay -= ms;
+        deliver(request);
+      };
+      if (holding) held.push(delivery);
+      else setImmediate(delivery);
+    },
+    heard(response: TranscriberResponse) {
+      if (response.type === "opened") opened++;
+    },
+  };
+}
+
+type Channel = ReturnType<typeof transcriptionChannel>;
+
+function transcriberOn(service: Service, channel: Channel): Transcriber {
   return createChannelTranscriber(() => {
     let deliver: (request: TranscriberRequest) => void = () => {};
     const responses: ((response: TranscriberResponse) => void)[] = [];
@@ -184,6 +244,7 @@ function transcriberOn(service: Service): Transcriber {
       respond: (response) =>
         setImmediate(() => {
           for (const listener of responses) listener(response);
+          channel.heard(response);
         }),
     };
     serveTranscriber(async () => createFakeSpeechEngine(), port, {
@@ -192,7 +253,7 @@ function transcriberOn(service: Service): Transcriber {
       detectors: async () => createFakeSpeechEngine().detector,
     });
     return {
-      send: (request) => setImmediate(() => deliver(request)),
+      send: (request) => channel.send(request, (each) => deliver(each)),
       onResponse: (listener) => responses.push(listener),
       onExit: () => {},
       stop: () => {},
@@ -204,10 +265,11 @@ async function meetingOn(route: Route, service: Service, keychain = createMemory
   const dataDir = await createTempDataFolder();
   const clock = manualClock();
   const capture = createFakeCapture({ now: () => clock.now().getTime() });
+  const channel = transcriptionChannel();
   const open = () =>
     startCore(dataDir, {
       audioCapture: capture,
-      transcriber: transcriberOn(service),
+      transcriber: transcriberOn(service, channel),
       transcriptionModelSource: NO_TRANSCRIPTION_FILES,
       transcriptionKeyFetch: async () => new Response(null, { status: 200 }),
       keychain,
@@ -237,7 +299,7 @@ async function meetingOn(route: Route, service: Service, keychain = createMemory
     core.close();
     return open();
   };
-  return { core, record, meeting, restart };
+  return { core, record, meeting, restart, channel };
 }
 
 /** Lets messages cross the channel and the pretend socket. */
@@ -348,56 +410,90 @@ describe("Nothing more goes to the cloud once the User says no", { timeout: 60_0
     });
   }
 
-  test("qwen: deleting one regional provider cannot authorize its old socket with the other region's consent", async () => {
-    const service = counting();
-    const { core, record, meeting } = await meetingOn("qwen", service);
-    const first = (await core.listChatProviders())[0]?.id ?? "";
-    await core.saveChatProvider({
-      kind: "qwen",
-      endpoint: "intl",
-      apiKey: "intl-first-dummy",
-      modelId: "qwen3.7-plus",
-    });
-    await core.deleteChatProvider(first);
-    await core.updateSettings({ device: { transcriptionRoute: "qwen" } });
+  // In CI the connections once opened late, so the audio the core had held for them was still on
+  // its way to the transcription process when the User acted (#2702): `hold` keeps it there.
+  for (const when of [
+    "with the audio before it still on its way",
+    "while its connection is still opening",
+  ] as const) {
+    test(`qwen: deleting one regional provider cannot authorize its old socket with the other region's consent, ${when}`, async () => {
+      const beijing = "wss://dashscope.aliyuncs.com/api-ws/v1/inference";
+      const service = counting();
+      const { core, record, meeting, channel } = await meetingOn("qwen", service);
+      const first = (await core.listChatProviders())[0]?.id ?? "";
+      await core.saveChatProvider({
+        kind: "qwen",
+        endpoint: "intl",
+        apiKey: "intl-first-dummy",
+        modelId: "qwen3.7-plus",
+      });
+      await core.deleteChatProvider(first);
+      await core.updateSettings({ device: { transcriptionRoute: "qwen" } });
 
-    const international = (await core.listChatProviders()).find(
-      (provider) => provider.endpoint === "intl",
-    )?.id;
-    await core.deleteChatProvider(international ?? "");
-    await core.saveChatProvider({
-      kind: "qwen",
-      apiKey: "cn-active-dummy",
-      modelId: "qwen3.7-plus",
-    });
-    await core.updateSettings({ device: { transcriptionRoute: "qwen" } });
-    await core.saveChatProvider({
-      kind: "qwen",
-      endpoint: "intl",
-      apiKey: "intl-remaining-dummy",
-      modelId: "qwen3.7-plus",
-    });
-    await core.stopMeeting(meeting.id);
-    const exercised = await core.createMeeting();
-    await core.startMeeting({ meetingId: exercised.id });
-    await until(core, exercised.id, (each) => each.cloud === "qwen");
+      const international = (await core.listChatProviders()).find(
+        (provider) => provider.endpoint === "intl",
+      )?.id;
+      await core.deleteChatProvider(international ?? "");
+      await core.saveChatProvider({
+        kind: "qwen",
+        apiKey: "cn-active-dummy",
+        modelId: "qwen3.7-plus",
+      });
+      await core.updateSettings({ device: { transcriptionRoute: "qwen" } });
+      await core.saveChatProvider({
+        kind: "qwen",
+        endpoint: "intl",
+        apiKey: "intl-remaining-dummy",
+        modelId: "qwen3.7-plus",
+      });
+      await core.stopMeeting(meeting.id);
+      service.holdOpen = true;
+      const exercised = await core.createMeeting();
+      await core.startMeeting({ meetingId: exercised.id });
+      await until(core, exercised.id, (each) => each.cloud === "qwen");
 
-    record(4 * SECOND);
-    await settle();
-    const active = (await core.listChatProviders()).find(
-      (provider) => provider.endpoint !== "intl",
-    )?.id;
-    service.mark();
-    await core.deleteChatProvider(active ?? "");
-    await core.revokeConsent("transcription", SERVICES.qwen);
-    record(4 * SECOND);
-    await settle();
+      record(4 * SECOND);
+      await vi.waitFor(() => expect(service.opened()).toEqual([beijing, beijing]), {
+        timeout: 20_000,
+        interval: 20,
+      });
+      if (when === "with the audio before it still on its way") {
+        channel.hold();
+        service.release();
+        await vi.waitFor(() => expect(channel.opened()).toBe(2), { timeout: 20_000, interval: 20 });
+        expect(channel.onTheWay()).toBeGreaterThan(0);
+      }
+      const onTheWay = channel.onTheWay();
+      const active = (await core.listChatProviders()).find(
+        (provider) => provider.endpoint !== "intl",
+      )?.id;
+      service.mark();
+      channel.mark();
+      await core.deleteChatProvider(active ?? "");
+      await core.revokeConsent("transcription", SERVICES.qwen);
+      const before =
+        (await core.listMeetings()).find((each) => each.id === exercised.id)?.transcript?.lines ??
+        0;
+      record(4 * SECOND);
+      channel.deliver();
+      service.release();
+      // Lines for what was recorded after the User said no: all handed over before it has arrived.
+      const after = await until(core, exercised.id, (each) => each.lines > before);
 
-    expect(service.sentSinceMark()).toBe(0);
-    expect(
-      (await core.listMeetings()).find((each) => each.id === exercised.id)?.transcript?.cloud,
-    ).toBeNull();
-  });
+      // The core let nothing go once the User acted. What still reached a socket had been handed
+      // over before, to Beijing's sockets with Beijing's key, and both are closed.
+      expect(channel.handedSinceMark()).toBe(0);
+      expect(service.sentSinceMark()).toBeLessThanOrEqual(onTheWay);
+      expect(
+        service
+          .sendsSinceMark()
+          .filter((each) => each.url !== beijing || each.key !== "cn-active-dummy"),
+      ).toEqual([]);
+      expect(service.opened()).toEqual([beijing, beijing]);
+      expect(service.closes()).toBe(2);
+      expect(after.cloud).toBeNull();
+    });
+  }
 
   test("qwen: the key moving to another region sends nothing there, sets Meetings back to this computer and says so, until Qwen is chosen again for that region", async () => {
     const service = counting();
@@ -484,9 +580,17 @@ describe("Nothing more goes to the cloud once the User says no", { timeout: 60_0
       }
       return read(name);
     };
-    const { core, record, meeting } = await meetingOn("qwen", service, keychain);
+    const { core, record, meeting, channel } = await meetingOn("qwen", service, keychain);
     await until(core, meeting.id, (each) => each.cloud === "qwen");
     record(2 * SECOND);
+    // Open and drained before the mark, so when the connections opened can't decide it (#2702).
+    await vi.waitFor(
+      () => {
+        expect(channel.opened()).toBe(2);
+        expect(channel.onTheWay()).toBe(0);
+      },
+      { timeout: 20_000, interval: 20 },
+    );
     const beijing = (await core.listChatProviders())[0]?.id ?? "";
     await core.saveChatProvider({
       kind: "qwen",
@@ -497,9 +601,11 @@ describe("Nothing more goes to the cloud once the User says no", { timeout: 60_0
     service.mark();
     slow = true;
     const deleted = core.deleteChatProvider(beijing);
+    // A step recorded in the instant the delete is asked, before the key is gone, still goes to
+    // Beijing as it may: each comes a turn later.
     for (let step = 0; step < 8; step++) {
-      record(SECOND / 2);
       await new Promise((resolve) => setTimeout(resolve, 100));
+      record(SECOND / 2);
     }
     await deleted;
     slow = false;
