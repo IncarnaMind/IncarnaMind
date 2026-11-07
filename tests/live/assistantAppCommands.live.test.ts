@@ -7,6 +7,10 @@
  * Ollama, its name) is in the environment, and is skipped otherwise:
  *
  *   INCARNAMIND_LIVE_ANTHROPIC_KEY   Claude (INCARNAMIND_LIVE_ANTHROPIC_MODEL, Haiku by default)
+ *   INCARNAMIND_LIVE_DEEPSEEK_KEY    DeepSeek (INCARNAMIND_LIVE_DEEPSEEK_MODEL, its quick-tasks
+ *                                    model by default)
+ *   INCARNAMIND_LIVE_OPENROUTER_KEY  OpenRouter (INCARNAMIND_LIVE_OPENROUTER_MODEL, its quick-tasks
+ *                                    model by default; anthropic/claude-haiku-5.5 is Haiku through it)
  *   INCARNAMIND_LIVE_OLLAMA_MODEL    a model in Ollama on this computer, e.g. qwen3.5:4b, in Local mode
  *
  * Set INCARNAMIND_LIVE_REPORT to a file to keep, for each request, the calls, the reply and the
@@ -36,6 +40,7 @@ import {
 } from "../../src/core/providers/ollamaModels";
 import { openDatabase } from "../../src/core/storage";
 import { type OfferedCommand, sameWords, type Yours, yoursLine } from "../../src/shared/commands";
+import { translate } from "../../src/shared/i18n";
 import { createTempDataFolder, spentBy, startCore } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
@@ -50,6 +55,24 @@ const LIVE = [
     model:
       process.env.INCARNAMIND_LIVE_ANTHROPIC_MODEL ??
       (catalogProvider("anthropic")?.roles.quickTasks as string),
+    local: false,
+  },
+  {
+    name: "DeepSeek",
+    kind: "deepseek" as const,
+    apiKey: process.env.INCARNAMIND_LIVE_DEEPSEEK_KEY,
+    model:
+      process.env.INCARNAMIND_LIVE_DEEPSEEK_MODEL ??
+      (catalogProvider("deepseek")?.roles.quickTasks as string),
+    local: false,
+  },
+  {
+    name: "OpenRouter",
+    kind: "openrouter" as const,
+    apiKey: process.env.INCARNAMIND_LIVE_OPENROUTER_KEY,
+    model:
+      process.env.INCARNAMIND_LIVE_OPENROUTER_MODEL ??
+      (catalogProvider("openrouter")?.roles.quickTasks as string),
     local: false,
   },
   {
@@ -175,19 +198,36 @@ interface Library {
   citationStyle: string;
   /** What is in Recently deleted, by name. */
   deleted: string[];
+  /** How many Documents wait in Suggestions for the User's Review. */
+  review: number;
+  /** Each Folder a Document waits for in Suggestions, by name, with how many wait for it. */
+  proposed: Record<string, number>;
 }
 
 async function libraryOf(core: Core, mindId: string): Promise<Library> {
-  const [documents, library, tags, settings, embedding, style, deleted] = await Promise.all([
-    core.listDocuments(),
-    core.getLibrary(),
-    core.listTags(),
-    core.getSettings(),
-    core.getEmbeddingSettings(),
-    core.getMindCitationStyle(mindId),
-    core.listDeleted(),
-  ]);
+  const [documents, library, tags, settings, embedding, style, deleted, review] = await Promise.all(
+    [
+      core.listDocuments(),
+      core.getLibrary(),
+      core.listTags(),
+      core.getSettings(),
+      core.getEmbeddingSettings(),
+      core.getMindCitationStyle(mindId),
+      core.listDeleted(),
+      core.getOrganizeReview(),
+    ],
+  );
   const nameOf = (id: string) => documents.find((each) => each.id === id)?.name ?? id;
+  const proposed: Record<string, number> = {};
+  for (const { placement } of review.items) {
+    const folder =
+      placement.kind === "folder"
+        ? library.groups.find((group) => group.id === placement.folderId)?.name
+        : placement.kind === "newFolder"
+          ? review.folders.find((each) => each.id === placement.newFolderId)?.name
+          : undefined;
+    if (folder !== undefined) proposed[folder] = (proposed[folder] ?? 0) + 1;
+  }
   return {
     documents: documents.map((each) => each.name).sort(),
     documentTags: documents
@@ -220,6 +260,8 @@ async function libraryOf(core: Core, mindId: string): Promise<Library> {
     monthlyCap: settings.user.monthlyCap,
     citationStyle: style.style,
     deleted: deleted.map((each) => each.name).sort(),
+    review: review.count,
+    proposed,
   };
 }
 
@@ -256,22 +298,96 @@ const openedBeside =
 const checked: Check = (seen) =>
   expect(windowRan(seen, "mind.check", "mind.checkEverySentence")).toBe(true);
 
+const EN_COUNTS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"];
+const ZH_COUNTS = ["零", "一", "两|二", "三", "四", "五", "六", "七", "八", "九"];
+
+/** The reply names the Folder and, beside it, how many Documents wait for it, in figures or words. */
+const namesWithCount = (text: string, { name, count }: { name: string; count: number }) => {
+  const words = [`(?<!\\d)${count}(?!\\d)`];
+  const en = EN_COUNTS[count];
+  const zh = ZH_COUNTS[count];
+  if (en) words.push(`\\b${en}\\b`);
+  if (zh) words.push(zh);
+  const counted = new RegExp(words.join("|"), "i");
+  const lower = text.toLowerCase();
+  const wanted = name.toLowerCase();
+  for (let at = lower.indexOf(wanted); at >= 0; at = lower.indexOf(wanted, at + 1)) {
+    if (counted.test(text.slice(Math.max(0, at - 40), at + name.length + 40))) return true;
+  }
+  return false;
+};
+
+/** How a reply says nothing has moved yet and the proposals wait for the User's Review. */
+const SAYS_IT_WAITS =
+  /nothing (?:has )?(?:been )?moved|nothing (?:will )?moves?|(?:not|n[’']t) (?:been |be )?moved?|until you (?:review|confirm|approve)|没有(?:被)?移动|未(?:被)?移动|不会(?:被)?移动|还没(?:有)?(?:被)?(?:移动|动)|审阅|审核|确认/i;
+
 /**
- * "Re organise the files": Organize runs, the Documents are filed as the User's choice (not left
- * as suggestions), and the reply names a Folder that holds what moved. Nothing it says is flagged.
+ * How a reply says the Documents were filed, which they weren't: "went into", "were filed there",
+ * "已被归入", "已把…归到". A reply that says so and then that they wait still tells the User both.
+ */
+const SAYS_IT_MOVED =
+  /(?<!nothing |not |n[’']t )\b(?:has|have) been (?:filed|moved|put)\b|\b(?:were|was) (?:filed|moved|put) (?:in|into|there)\b|\bwent into\b|\b(?:it|I|Organize) (?:put|filed|moved) \d|\bare (?:now )?in the new\b|已(?:经)?被?(?:归入|放入|放到|移入|移到|归到|归档到)|已(?:经)?把[^，。！？：]{0,30}(?:归入|放入|放到|移入|移到|归到|归档到)/i;
+
+const organizeRuns = (seen: Seen) =>
+  ran(seen).filter((done) => done.command === "documents.organize");
+
+/** The line the app adds after a reply that doesn't name every Folder an Organize run proposed (#2252). */
+function appsFolderLine(language: Language, folders: readonly { name: string; count: number }[]) {
+  const count = folders.reduce((sum, folder) => sum + folder.count, 0);
+  const line = translate(
+    language,
+    count === 1 ? "answer.commands.proposed.one" : "answer.commands.proposed",
+    {
+      count,
+      parts: folders
+        .map((folder) =>
+          translate(language, "library.review.part", { count: folder.count, folder: folder.name }),
+        )
+        .join(translate(language, "library.review.separator")),
+    },
+  );
+  return language === "zh-CN" ? `${line}。` : `${line}.`;
+}
+
+/** The reply in the model's own words: the app's line would name the Folders for it. */
+function ownWords(seen: Seen): { text: string; appAdded: boolean } {
+  let text = seen.answer.text;
+  for (const done of organizeRuns(seen)) {
+    for (const language of LANGUAGES)
+      text = text.replace(appsFolderLine(language, done.folders ?? []), "");
+  }
+  return { text, appAdded: text !== seen.answer.text };
+}
+
+/** The Folders the request's Organize proposed, as Suggestions shows them, each with its count. */
+const proposedBy = ({ before, after }: Pick<Seen, "before" | "after">) =>
+  Object.entries(after.proposed)
+    .filter(([name, count]) => before.proposed[name] !== count)
+    .map(([name, count]) => ({ name, count }));
+
+/**
+ * "Re organise the files": Organize runs and only proposes (#1569). No Folder is made and nothing
+ * is filed, the proposals wait in Suggestions, and the reply, in the model's own words, names each
+ * Folder proposed there with its count, says nothing moves until the User reviews them, and never
+ * says they moved. Nothing it says is flagged.
  */
 const organized: Check = (seen) => {
-  expect(ran(seen).some((done) => done.command === "documents.organize")).toBe(true);
-  expect(seen.after.userFiled.length).toBeGreaterThan(seen.before.userFiled.length);
-  const made = Object.entries(seen.after.folders)
-    .filter(([name, documents]) => documents.length > 0 && !(name in seen.before.folders))
-    .map(([name]) => name);
-  expect(made.some((name) => seen.answer.text.includes(name))).toBe(true);
+  expect(organizeRuns(seen).length).toBeGreaterThan(0);
+  expect(seen.after.folders).toEqual(seen.before.folders);
+  expect(seen.after.review).toBeGreaterThan(seen.before.review);
+  const proposed = proposedBy(seen);
+  expect(proposed.length).toBeGreaterThan(0);
+  const { text } = ownWords(seen);
+  for (const folder of proposed) {
+    expect(namesWithCount(text, folder), folder.name).toBe(true);
+  }
+  expect(text).toMatch(SAYS_IT_WAITS);
+  expect(text).not.toMatch(SAYS_IT_MOVED);
   expect(seen.answer.steps?.unbackedCommands ?? []).toEqual([]);
   expect(seen.answer.steps?.unbackedClaims ?? []).toEqual([]);
 };
 
-/** Organize after a standing no: the card says it sends this time only, and the run still files. */
+/** Organize after a standing no: the card says it sends this time only, and the run still proposes. */
 const organizedAfterDecline: Check = (seen) => {
   organized(seen);
   const cards = seen.asked.filter(
@@ -281,8 +397,9 @@ const organizedAfterDecline: Check = (seen) => {
   expect(cards[0] && "ask" in cards[0] ? cards[0].ask : null).toMatchObject({ declined: true });
 };
 
-/** After "Re organise the files" is taken back once: the Library is as it was. */
+/** After "Re organise the files" is taken back once: its proposals are gone, and the Library is as it was. */
 const organizedUndone = (seen: Seen, undone: Library) => {
+  expect(undone.review).toBe(seen.before.review);
   expect(undone.userFiled).toEqual(seen.before.userFiled);
   expect(undone.folders).toEqual(seen.before.folders);
 };
@@ -798,6 +915,10 @@ const REQUESTS: {
   { id: "held-organize-en-2", text: "Group the rent documents together for me", check: organized },
   { id: "held-organize-zh", text: "把所有跟房租有关的资料集中到一起", check: organized },
   { id: "held-organize-zh-2", text: "帮我把讲租金的文件收拢到一处", check: organized },
+  // Held out for #1569: written before any run of the change.
+  { id: "proposes-en", text: "Organize my documents into folders", check: organized },
+  { id: "proposes-en-2", text: "Group the lease papers together", check: organized },
+  { id: "proposes-zh", text: "帮我整理一下这些文件", check: organized },
   { id: "held-permanent-en", text: "Permanently get rid of the Q3 memo", check: neverForGood },
   {
     id: "held-permanent-en-2",
@@ -1046,9 +1167,12 @@ describe.each(LIVE)("The assistant does what the User can in the app, live: $nam
               (call) =>
                 `${call.tool} ${JSON.stringify(call.input)} → ${call.status}${call.approval ? ` (${call.approval})` : ""}`,
             );
-          line += `\n  ${calls.join("\n  ")}\n  window: ${seen.window.map((each) => each.command).join(", ") || "none"}\n  > ${answer.text.replace(/\s+/g, " ").slice(0, 600)}`;
+          line += `\n  ${calls.join("\n  ")}\n  window: ${seen.window.map((each) => each.command).join(", ") || "none"}\n  > ${answer.text.replace(/\s+/g, " ").slice(0, 1500)}`;
           if (seen.questions.length > 0)
             line += `\n  questions: ${seen.questions.map((each) => each.request.question.question).join(" | ")}`;
+          const proposed = proposedBy(seen);
+          if (proposed.length > 0 || seen.after.review !== before.review)
+            line += `\n  proposed: ${proposed.map((each) => `${each.name} ${each.count}`).join(", ") || "none"}; in Suggestions ${before.review} → ${seen.after.review}; Folders ${JSON.stringify(seen.after.folders) === JSON.stringify(before.folders) ? "as before" : "changed"}; the app's Folder line ${ownWords(seen).appAdded ? "added" : "not needed"}`;
           // What the claim check left under the reply (#2407).
           const flagged = [
             ...(answer.steps?.unbackedCommands ?? []),
