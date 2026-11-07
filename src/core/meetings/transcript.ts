@@ -230,6 +230,8 @@ interface State extends Saved {
   memo: boolean;
   /** The words its speech may hold, once gathered (`TranscriptsOptions.wordsOf`). */
   words: readonly string[] | null;
+  /** Where the capture began waiting for the system's permission, in the Meeting's time; null otherwise. */
+  waitingFrom: number | null;
 }
 
 export interface TranscriptDocuments {
@@ -391,6 +393,7 @@ export function createTranscripts(options: TranscriptsOptions) {
       finishing: null,
       memo: options.memo?.(meetingId) ?? false,
       words: null,
+      waitingFrom: null,
     };
     states.set(meetingId, state);
     return state;
@@ -1119,6 +1122,29 @@ export function createTranscripts(options: TranscriptsOptions) {
 
   // ---- Finishing ----
 
+  /** Adds a gap, merging one that overlaps a gap of its reason: a stall both sources saw is one gap. */
+  function addGap(state: State, gap: TranscriptGap): void {
+    const overlapping = state.gaps.filter(
+      (each) => each.reason === gap.reason && each.fromMs <= gap.toMs && gap.fromMs <= each.toMs,
+    );
+    if (overlapping.length === 0) {
+      state.gaps.push(gap);
+      return;
+    }
+    const fromMs = Math.min(gap.fromMs, ...overlapping.map((each) => each.fromMs));
+    const toMs = Math.max(gap.toMs, ...overlapping.map((each) => each.toMs));
+    state.gaps = state.gaps.filter((each) => !overlapping.includes(each));
+    state.gaps.push({ fromMs, toMs, reason: gap.reason });
+  }
+
+  /** Ends a wait for the system's permission at `toMs`: the stretch it took is a gap that says so. */
+  function closeWaiting(state: State, toMs: number): void {
+    const fromMs = state.waitingFrom;
+    if (fromMs === null) return;
+    state.waitingFrom = null;
+    if (toMs - fromMs >= MIN_GAP_MS) addGap(state, { fromMs, toMs, reason: "permission" });
+  }
+
   /** Transcribes a stretch from the audio on disk, each source on its own; the part with no audio left is a gap. */
   async function catchUp(state: State, range: Range): Promise<void> {
     const parts = options
@@ -1130,8 +1156,13 @@ export function createTranscripts(options: TranscriptsOptions) {
     for (const part of parts) {
       covered = addRange(covered, { fromMs: part.offsetMs, toMs: part.offsetMs + part.durationMs });
     }
+    // These stretches had no audio to transcribe, for a reason its own gap already says.
+    for (const gap of state.gaps) {
+      if (gap.reason === "muted" || gap.reason === "permission" || gap.reason === "stalled") {
+        covered = addRange(covered, gap);
+      }
+    }
     const pauses = state.gaps.filter((gap) => gap.reason === "muted");
-    for (const pause of pauses) covered = addRange(covered, pause);
     const reason = options.audioDeleted(state.meetingId) ? "lost" : "uncaptured";
     let at = range.fromMs;
     for (const each of [...covered, { fromMs: range.toMs, toMs: range.toMs }]) {
@@ -1423,6 +1454,7 @@ export function createTranscripts(options: TranscriptsOptions) {
   function endLive(state: State, endMs: number): void {
     const live = state.live;
     if (!live) return;
+    closeWaiting(state, endMs);
     feed(state, live.tracks.flush());
     const leaving = gateClosed(live);
     if (leaving) leaveCloud(state, live, leaving);
@@ -1594,6 +1626,30 @@ export function createTranscripts(options: TranscriptsOptions) {
       const state = load(meetingId);
       if (state.savedPath) return;
       state.gaps.push({ fromMs, toMs, reason: "muted" });
+      writeLines(state, { now: true });
+      options.changed();
+    },
+
+    /** The capture began waiting for the system's permission at `atMs`: nothing is captured until it is answered. */
+    waitingForPermission(meetingId: string, atMs: number): void {
+      const state = states.get(meetingId);
+      if (state && state.waitingFrom === null) state.waitingFrom = atMs;
+    },
+
+    /** The permission was answered at `atMs`: the stretch it took is a gap that says the capture waited. */
+    permissionAnswered(meetingId: string, atMs: number): void {
+      const state = states.get(meetingId);
+      if (state) closeWaiting(state, atMs);
+    },
+
+    /**
+     * Audio came again at `toMs` after a stretch with none: from `fromMs` to there the capture
+     * stalled, and the gap says so rather than that the audio went.
+     */
+    captureStalled(meetingId: string, fromMs: number, toMs: number): void {
+      const state = states.get(meetingId);
+      if (!state || state.savedPath || toMs - fromMs < MIN_GAP_MS) return;
+      addGap(state, { fromMs, toMs, reason: "stalled" });
       writeLines(state, { now: true });
       options.changed();
     },

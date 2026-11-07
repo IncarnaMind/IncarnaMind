@@ -3,6 +3,7 @@ import type { Meeting, MeetingSourceState } from "../../../../core/api";
 import type { MessageKey } from "../../../../shared/i18n";
 import { useT } from "../../i18n";
 import { LEVEL_BARS, useMeetingLevels } from "../../meetingLevels";
+import { isWaitingForPermission } from "../../meetings";
 import { motionMode, subscribeMotion } from "../../motion";
 import { StopLineIcon, WarningLineIcon } from "../lineIcons";
 
@@ -28,6 +29,7 @@ export function LevelBars({ meeting, onStop }: { meeting: Meeting; onStop?: () =
   const readings = useMeetingLevels((state) => state.levels[meeting.id]);
   const mode = useSyncExternalStore(subscribeMotion, motionMode);
   const [pointed, setPointed] = useState(false);
+  if (isWaitingForPermission(meeting)) return null;
   const problem = MICROPHONE_PROBLEMS[meeting.sources.microphone];
   if (problem) {
     return (
