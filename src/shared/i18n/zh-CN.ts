@@ -4452,6 +4452,7 @@ export const zhCN = {
   "scripts.call.missingPackage.model":
     "{problem}在这台电脑上安装这个包也没有用：IncarnaMind 用自己的 Python 运行技能。",
   "scripts.call.timedOut": "{script}（{skill}）运行超时，已停止",
+  "scripts.call.diskUnmeasured": "无法测量 {script}（{skill}）的磁盘用量，已停止",
   "scripts.call.exited": "已运行 {script}（{skill}）：退出码 {code}",
   "scripts.call.stopped": "{script}（{skill}）已停止",
   "scripts.call.details": "参数和输出",
@@ -7285,6 +7286,7 @@ export const zhCN = {
   "analysis.call.error.none": "数据分析因出错而停止",
   "analysis.call.timedOut": "数据分析超过 {seconds} 秒，已停止",
   "analysis.call.outOfMemory": "数据分析内存不足，已停止",
+  "analysis.call.diskUnmeasured": "无法测量数据分析的磁盘用量，已停止",
   "analysis.call.stopped": "已停止数据分析",
   "analysis.table.more": "数据分析中还有 {count} 行。",
   "analysis.table.more.one": "数据分析中还有 1 行。",

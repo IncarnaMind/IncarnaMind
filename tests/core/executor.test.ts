@@ -11,23 +11,19 @@
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import {
-  chmod,
-  mkdir,
-  mkdtemp,
-  readdir,
-  readFile,
-  realpath,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import { mkdtemp, readdir, readFile, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, onTestFinished, test, vi } from "vitest";
 import type { ExecAllow, ExecRequest, Executor, ProcessLauncher } from "../../src/core";
-import { createLocalExecutor, declaredAccess, WORKING_FOLDER } from "../../src/core/execution";
+import {
+  createLocalExecutor,
+  declaredAccess,
+  type ProgramMeter,
+  type ProgramUse,
+  WORKING_FOLDER,
+} from "../../src/core/execution";
 import { createProcessLauncher } from "../../src/main/processes";
-import { footprints, programMeter, treeMemory } from "../../src/main/programMeter";
 import { loadOsSandbox } from "../../src/main/sandbox";
 import { isRunning } from "../helpers/connectors";
 import { createTempDataFolder } from "../helpers/core";
@@ -585,75 +581,88 @@ test("a program with a memory or folder limit doesn't run where nothing can meas
   expect(started).toEqual([]);
 });
 
-describe("a program's memory, as its limit counts it", () => {
-  // pid ppid pgid rss(KiB): 100 is the program; bubblewrap's child 200 has a session of its own.
-  const LISTING = [
-    "  1     0     1   9000",
-    "100     1   100   1000",
-    "101   100   100   2000",
-    "200   100   200   4000",
-    "201   200   200   8000",
-    "300     1   300  16000",
-    "",
-  ].join("\n");
-
-  test("counts its group and every process under it, in a session of its own or not", () => {
-    expect(treeMemory(LISTING, 100)).toBe((1000 + 2000 + 4000 + 8000) * 1024);
+test("a program is stopped at the first limit its meter measures it past, and a part it couldn't read is reported once and stops nothing", async () => {
+  const reports: unknown[] = [];
+  const watching: { use: (use: ProgramUse) => void; unmeasured: (error: unknown) => void }[] = [];
+  let stopped = 0;
+  const meter: ProgramMeter = {
+    watch(_root, _folder, use, unmeasured) {
+      watching.push({ use, unmeasured });
+      return () => {
+        stopped += 1;
+      };
+    },
+  };
+  const executor = createLocalExecutor({
+    processes: createProcessLauncher(async () => smallEnvironment()),
+    tempDir: await createTempDataFolder(),
+    reportError: (error) => reports.push(error),
+    confinement: {
+      level: "os",
+      confine: async ({ command, args, env }) => ({ command, args, env, meter }),
+      release: () => {},
+    },
   });
-
-  test("counts nothing of another program's", () => {
-    expect(treeMemory(LISTING, 300)).toBe(16000 * 1024);
-    expect(treeMemory(LISTING, 999)).toBe(0);
+  const run = executor.run({
+    command: "/bin/sleep",
+    args: ["30"],
+    env: {},
+    allow: { read: [], write: [], network: "none" },
+    timeoutMs: 30_000,
+    maxOutputBytes: 1024,
+    signal: new AbortController().signal,
+    limits: { memoryBytes: 1000, folderBytes: 500 },
   });
+  await vi.waitFor(() => expect(watching).toHaveLength(1));
+  const watched = watching[0];
+  if (!watched) throw new Error("Nothing was watched.");
+  watched.unmeasured(new Error("lsof didn't answer in time."));
+  watched.unmeasured(new Error("lsof didn't answer in time."));
+  // At its limits, not past them: the first limit it goes past is the one it is stopped at.
+  watched.use({ memory: 1000, folder: 500 });
+  watched.use({ memory: 1001, folder: 0 });
 
-  test("counts what macOS swapped or compressed, by each process's footprint where it is larger", () => {
-    // 101 holds 3 GB of which 2 MB is resident; 201's footprint is under its resident memory.
-    const held = new Map([
-      [101, 3_000_000_000],
-      [201, 1024],
-      [300, 5_000_000_000],
-    ]);
-    expect(treeMemory(LISTING, 100, held)).toBe(
-      1000 * 1024 + 3_000_000_000 + 4000 * 1024 + 8000 * 1024,
-    );
-  });
-
-  test("reads each process's footprint from macOS's report", () => {
-    const report = [
-      "======================================================================",
-      "python3.12 [4101]: 64-bit    Footprint: 3000000000 B (16384 bytes per page)",
-      "======================================================================",
-      "",
-      "Auxiliary data:",
-      "    phys_footprint: 3000016384 B",
-      "    phys_footprint_peak: 3100000000 B",
-      "",
-      "======================================================================",
-      "a [name] with brackets [4102]: 64-bit    Footprint: 2015568 B (16384 bytes per page)",
-      "======================================================================",
-      "",
-      "Auxiliary data:",
-      "    phys_footprint: 2031952 B",
-      "    phys_footprint_peak: 2031952 B",
-      "",
-      "======================================================================",
-      "Summary Footprint: 3002031952 B",
-      "======================================================================",
-    ].join("\n");
-    expect([...footprints(report)]).toEqual([
-      [4101, 3000016384],
-      [4102, 2031952],
-    ]);
-  });
+  await expect(run).resolves.toMatchObject({ exitCode: null, timedOut: false, limit: "memory" });
+  expect(reports.map(String)).toEqual(["Error: lsof didn't answer in time."]);
+  expect(stopped).toBe(1);
 });
 
-test("a folder the program made unreadable counts as more than any folder limit", async () => {
-  const folder = await createTempDataFolder();
-  await mkdir(join(folder, "hide"));
-  await writeFile(join(folder, "hide", "a"), "x".repeat(1000));
-  await writeFile(join(folder, "seen"), "x".repeat(10));
-  expect(await programMeter.folder(folder)).toBe(1010);
-  await chmod(join(folder, "hide"), 0o300);
-  onTestFinished(() => chmod(join(folder, "hide"), 0o700));
-  expect(await programMeter.folder(folder)).toBe(Number.POSITIVE_INFINITY);
+test("a program whose folder the meter can't measure is stopped, so one run can't hide another's disk use", async () => {
+  const watching: ((use: ProgramUse) => void)[] = [];
+  const meter: ProgramMeter = {
+    watch(_root, _folder, use) {
+      watching.push(use);
+      return () => undefined;
+    },
+  };
+  const executor = createLocalExecutor({
+    processes: createProcessLauncher(async () => smallEnvironment()),
+    tempDir: await createTempDataFolder(),
+    reportError: failOnError,
+    confinement: {
+      level: "os",
+      confine: async ({ command, args, env }) => ({ command, args, env, meter }),
+      release: () => {},
+    },
+  });
+  const run = executor.run({
+    command: "/bin/sleep",
+    args: ["30"],
+    env: {},
+    allow: { read: [], write: [], network: "none" },
+    timeoutMs: 30_000,
+    maxOutputBytes: 1024,
+    signal: new AbortController().signal,
+    limits: { folderBytes: 500 },
+  });
+  await vi.waitFor(() => expect(watching).toHaveLength(1));
+  const use = watching[0];
+  if (!use) throw new Error("Nothing was watched.");
+  use({ memory: 0, folder: 10 });
+  use({ memory: 0, folder: "unknown" });
+  await expect(run).resolves.toMatchObject({
+    exitCode: null,
+    timedOut: false,
+    limit: "folder-unknown",
+  });
 });
