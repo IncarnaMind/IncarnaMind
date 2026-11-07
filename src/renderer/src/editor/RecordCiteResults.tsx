@@ -6,6 +6,7 @@ import { errorMessage } from "../errors";
 import { useT } from "../i18n";
 import { openCited } from "../openCited";
 import { useAppStore } from "../store";
+import { useCitedOrigin } from "./mindContext";
 import {
   chooseRecordCite,
   recordCiteCandidateOptions,
@@ -27,6 +28,7 @@ export function RecordCiteResults({
   onOpen(): void;
   onPickerChange(open: boolean): void;
 }) {
+  const origin = useCitedOrigin();
   const t = useT();
   const documents = useAppStore((store) => store.documents);
   const [picker, setPicker] = useState<{
@@ -94,6 +96,7 @@ export function RecordCiteResults({
         ...(place.location && { location: place.location }),
       },
       {
+        origin,
         check: nearby || cite.outcome === "supported" ? "found" : "unsupported",
         withQuote: true,
         label: location ? formatLocation(location, t) : null,

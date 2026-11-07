@@ -374,7 +374,11 @@ test.each(["en", "zh-CN"] as const)(
         .find((button) => button.textContent === translate(language, "figures.inline.openInput"))
         ?.click();
     });
-    expect(state.open).toHaveBeenCalledWith(input.citation, { check: "found", withQuote: true });
+    expect(state.open).toHaveBeenCalledWith(input.citation, {
+      origin: "note",
+      check: "found",
+      withQuote: true,
+    });
   },
 );
 
@@ -410,6 +414,7 @@ test.each(["en", "zh-CN"] as const)(
       opens.at(-1)?.click();
     });
     expect(state.open).toHaveBeenCalledWith(statement.citation, {
+      origin: "note",
       check: "found",
       withQuote: true,
     });

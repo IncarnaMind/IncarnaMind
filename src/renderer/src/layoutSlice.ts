@@ -20,6 +20,9 @@ import { core } from "./core";
 export const WINDOW_ID =
   new URLSearchParams(globalThis.location?.search ?? "").get("window") ?? "main";
 
+/** A group is never dragged narrower than this. */
+export const GROUP_MIN_WIDTH = 220;
+
 /** The card's width as last measured, which the groups share; null until it is. */
 export const useCardWidth = create<{ width: number | null }>()(() => ({ width: null }));
 
