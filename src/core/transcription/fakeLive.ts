@@ -1,6 +1,7 @@
 /**
- * The pretend Deepgram, AssemblyAI and Gemini Live services (#866), for the tests and the smoke
- * tests, beside ./fakeCloud's other three. Each speaks its service's messages as its published
+ * The pretend Deepgram, AssemblyAI, Gemini Live, xAI, Speechmatics, ElevenLabs and Gladia
+ * services (#866), for the tests and the smoke tests, beside ./fakeCloud's other three. Each
+ * speaks its service's messages as its published
  * protocol shows them, never the network: a line for every two seconds of sound, with its words'
  * times and, where the service tells voices apart, its speaker; a refused key and an account
  * out of credit as each service says them; and a connection that drops.
@@ -12,6 +13,7 @@
  * Gemini: https://aistudio.google.com/api-reference/live.
  */
 import { MEETING_SAMPLE_RATE } from "../adapters";
+import type { CloudServing } from "./channel";
 import { HANDSHAKE_NO_CREDIT, HANDSHAKE_REFUSED } from "./cloud/protocol";
 import type { CloudSocket, CloudSocketEvents } from "./cloud/socket";
 
@@ -350,3 +352,295 @@ export const fakeGemini: Make = (options, nextLine, events) => {
     close: () => link.close(1000),
   };
 };
+
+/** A line's words with a closing mark apart, as services that send punctuation on its own do. */
+function splitMarks(line: HeardLine) {
+  return wordsOf(line).flatMap((word) => {
+    const mark = /[.,!?]$/.exec(word.text)?.[0];
+    if (!mark) return [{ ...word, mark: false }];
+    return [
+      { ...word, text: word.text.slice(0, -1), mark: false },
+      { text: mark, startMs: word.endMs, endMs: word.endMs, mark: true },
+    ];
+  });
+}
+
+const twoPlaces = (ms: number) => Math.round(ms / 10) / 100;
+
+/**
+ * xAI: https://docs.x.ai/developers/model-capabilities/audio/speech-to-text. Its handshake refuses
+ * a wrong key with a 400 "Incorrect API key provided" and an account out of credit with a 403
+ * "used all available credits", which the socket's probe reads as these closes.
+ */
+export const fakeXai: Make = (options, nextLine, events) => {
+  const link = connection(events);
+  const lines = lineMaker(nextLine, options.voices ?? 2);
+  later(() => {
+    if (options.refuse) return link.close(HANDSHAKE_REFUSED);
+    if (options.noCredit) return link.close(HANDSHAKE_NO_CREDIT);
+    events.open();
+    link.reply({ type: "transcript.created", id: "83f2f6fd-1cd1-4747-bc52-cebddc961c32" });
+  });
+  const partial = (line: HeardLine, words: ReturnType<typeof wordsOf>, flags: object) => ({
+    type: "transcript.partial",
+    text: words.map((word) => word.text).join(" "),
+    words: words.map((word) => ({
+      text: word.text,
+      start: twoPlaces(word.startMs),
+      end: twoPlaces(word.endMs),
+      confidence: 0.95,
+      speaker: line.voice,
+    })),
+    start: twoPlaces(words[0]?.startMs ?? line.startMs),
+    duration: twoPlaces(line.endMs - (words[0]?.startMs ?? line.startMs)),
+    ...flags,
+  });
+  return {
+    send(data) {
+      if (link.closed) return;
+      if (typeof data === "string") {
+        if ((JSON.parse(data) as { type?: string }).type === "audio.done") {
+          link.reply({
+            type: "transcript.done",
+            text: "",
+            words: [],
+            duration: twoPlaces(lines.sentMs),
+          });
+          link.close(1000);
+        }
+        return;
+      }
+      for (const line of lines.hear(samplesOf(data)).lines) {
+        const words = wordsOf(line);
+        const half = Math.ceil(words.length / 2);
+        link.reply(partial(line, words.slice(0, 2), { is_final: false, speech_final: false }));
+        // A chunk locked, then the utterance whole, its locked chunk again among it.
+        link.reply(partial(line, words.slice(0, half), { is_final: true, speech_final: false }));
+        link.reply(partial(line, words, { is_final: true, speech_final: true }));
+      }
+      if (options.dropAfterMs !== undefined && lines.sentMs >= options.dropAfterMs) {
+        link.close(1011);
+      }
+    },
+    close: () => link.close(1000),
+  };
+};
+
+/**
+ * Speechmatics: https://github.com/speechmatics/docs/blob/main/spec/realtime.yaml. A refused key
+ * is a 401 at the handshake; an account at its usage quota is a `timelimit_exceeded` Error and
+ * close 4006, the nearest the API says to out of credit.
+ */
+export const fakeSpeechmatics: Make = (options, nextLine, events) => {
+  const link = connection(events);
+  const lines = lineMaker(nextLine, options.voices ?? 2);
+  let added = 0;
+  later(() => {
+    if (options.refuse) return link.close(HANDSHAKE_REFUSED);
+    events.open();
+  });
+  const results = (line: HeardLine, upTo: number) =>
+    splitMarks(line)
+      .slice(0, upTo)
+      .map((word) => ({
+        type: word.mark ? "punctuation" : "word",
+        start_time: word.startMs / 1000,
+        end_time: word.endMs / 1000,
+        ...(word.mark && { attaches_to: "previous", is_eos: word.text === "." }),
+        alternatives: [
+          { content: word.text, confidence: 0.98, language: "en", speaker: `S${line.voice + 1}` },
+        ],
+      }));
+  const transcript = (message: string, line: HeardLine, upTo: number) => ({
+    message,
+    format: "2.9",
+    metadata: {
+      start_time: line.startMs / 1000,
+      end_time: line.endMs / 1000,
+      transcript: line.text,
+    },
+    results: results(line, upTo),
+  });
+  return {
+    send(data) {
+      if (link.closed) return;
+      if (typeof data === "string") {
+        const message = JSON.parse(data) as { message?: string };
+        if (message.message === "StartRecognition") {
+          if (options.noCredit) {
+            link.reply({
+              message: "Error",
+              type: "timelimit_exceeded",
+              reason: "Usage quota for the contract has been reached",
+            });
+            return link.close(4006);
+          }
+          link.reply({ message: "RecognitionStarted", id: "807670e9-14af-4fa2-9e8f-5d525c22156e" });
+        }
+        if (message.message === "EndOfStream") {
+          link.reply({ message: "EndOfTranscript" });
+          link.close(1000);
+        }
+        return;
+      }
+      link.reply({ message: "AudioAdded", seq_no: ++added });
+      for (const line of lines.hear(samplesOf(data)).lines) {
+        link.reply(transcript("AddPartialTranscript", line, 2));
+        link.reply(transcript("AddTranscript", line, Number.POSITIVE_INFINITY));
+        link.reply({
+          message: "EndOfUtterance",
+          metadata: { start_time: line.endMs / 1000, end_time: line.endMs / 1000 },
+        });
+      }
+      if (options.dropAfterMs !== undefined && lines.sentMs >= options.dropAfterMs) {
+        link.close(1011);
+      }
+    },
+    close: () => link.close(1000),
+  };
+};
+
+/**
+ * ElevenLabs: https://elevenlabs.io/docs/api-reference/speech-to-text/v-1-speech-to-text-realtime.
+ * Its socket opens for any key, then says what is wrong in a message and closes with 1000.
+ */
+export const fakeElevenLabs: Make = (options, nextLine, events) => {
+  const link = connection(events);
+  const lines = lineMaker(nextLine, 1);
+  const fail = (message_type: string, error: string) => {
+    link.reply({ message_type, error });
+    link.close(1000);
+  };
+  later(() => {
+    events.open();
+    if (options.refuse)
+      return fail("auth_error", "You must be authenticated to use this endpoint.");
+    if (options.noCredit) return fail("quota_exceeded", "You have exceeded your usage quota.");
+    link.reply({
+      message_type: "session_started",
+      session_id: "fake-session",
+      config: { model_id: "scribe_v2_realtime", audio_format: "pcm_16000" },
+    });
+  });
+  return {
+    send(data) {
+      if (link.closed || typeof data !== "string") return;
+      const chunk = JSON.parse(data) as { audio_base_64?: string; commit?: boolean };
+      if (!chunk.audio_base_64) return;
+      for (const line of lines.hear(samplesOf(Buffer.from(chunk.audio_base_64, "base64"))).lines) {
+        const words = wordsOf(line);
+        link.reply({
+          message_type: "partial_transcript",
+          text: words
+            .slice(0, 2)
+            .map((word) => word.text)
+            .join(" "),
+        });
+        link.reply({ message_type: "committed_transcript", text: line.text });
+        link.reply({
+          message_type: "committed_transcript_with_timestamps",
+          text: line.text,
+          language_code: "eng",
+          words: words.flatMap((word, index) => [
+            ...(index > 0
+              ? [
+                  {
+                    text: " ",
+                    start: word.startMs / 1000,
+                    end: word.startMs / 1000,
+                    type: "spacing",
+                  },
+                ]
+              : []),
+            { text: word.text, start: word.startMs / 1000, end: word.endMs / 1000, type: "word" },
+          ]),
+        });
+      }
+      if (options.dropAfterMs !== undefined && lines.sentMs >= options.dropAfterMs) {
+        link.close(1006);
+      }
+    },
+    close: () => link.close(1000),
+  };
+};
+
+/**
+ * Gladia's socket, at the address its session's request gave (`fakeGladiaFetch`):
+ * https://docs.gladia.io/api-reference/v2/live/websocket.
+ */
+export const fakeGladia: Make = (options, nextLine, events) => {
+  const link = connection(events);
+  const lines = lineMaker(nextLine, 1);
+  let utterances = 0;
+  later(() => events.open());
+  const transcript = (id: string, line: HeardLine, upTo: number, final: boolean) => {
+    const words = wordsOf(line).slice(0, upTo);
+    return {
+      session_id: "636c70f6-92c1-4026-a8b6-0dfe3ecf826f",
+      created_at: "2026-11-07T09:00:00.000Z",
+      type: "transcript",
+      data: {
+        id,
+        is_final: final,
+        utterance: {
+          start: line.startMs / 1000,
+          end: (words.at(-1)?.endMs ?? line.endMs) / 1000,
+          confidence: 0.93,
+          channel: 0,
+          words: words.map((word) => ({
+            word: word.text,
+            start: word.startMs / 1000,
+            end: word.endMs / 1000,
+            confidence: 0.95,
+          })),
+          text: words.map((word) => word.text).join(" "),
+          language: "en",
+        },
+      },
+    };
+  };
+  return {
+    send(data) {
+      if (link.closed) return;
+      if (typeof data === "string") {
+        if ((JSON.parse(data) as { type?: string }).type === "stop_recording") link.close(1000);
+        return;
+      }
+      for (const line of lines.hear(samplesOf(data)).lines) {
+        const id = `00-${String(++utterances).padStart(8, "0")}`;
+        link.reply(transcript(id, line, 2, false));
+        link.reply(transcript(id, line, Number.POSITIVE_INFINITY, true));
+      }
+      if (options.dropAfterMs !== undefined && lines.sentMs >= options.dropAfterMs) {
+        link.close(1006);
+      }
+    },
+    close: () => link.close(1000),
+  };
+};
+
+/**
+ * Gladia's request for a live session: https://docs.gladia.io/api-reference/v2/live/init. A
+ * refused key is a 401; its answer for an account out of credit isn't published, so the 402
+ * here is a guess the owner's hand check confirms.
+ */
+export function fakeGladiaFetch(options: FakeLiveOptions): CloudServing["fetch"] {
+  let sessions = 0;
+  return async (input, init) => {
+    const url = String(input instanceof Request ? input.url : input);
+    if (url !== "https://api.gladia.io/v2/live" || init?.method !== "POST") {
+      throw new Error(`The pretend services don't answer ${url}.`);
+    }
+    const json = (status: number, body: object) =>
+      new Response(JSON.stringify(body), {
+        status,
+        headers: { "content-type": "application/json" },
+      });
+    if (options.refuse) {
+      return json(401, { statusCode: 401, message: "gladia key not found" });
+    }
+    if (options.noCredit) return json(402, { statusCode: 402, message: "Payment required" });
+    const id = `636c70f6-92c1-4026-a8b6-${String(++sessions).padStart(12, "0")}`;
+    return json(201, { id, url: `wss://api.gladia.io/v2/live?token=${id}` });
+  };
+}
