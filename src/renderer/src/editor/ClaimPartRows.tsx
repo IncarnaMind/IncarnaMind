@@ -13,6 +13,7 @@ import type {
 } from "../../../core/api";
 import {
   citationState,
+  citedSpeakers,
   type QuotedWordsOnPage,
   shownDocumentName,
 } from "../../../shared/citations";
@@ -70,7 +71,9 @@ function PartCitation({
   const location = citationLocation(citation);
   const property = location?.kind === "properties" ? location : null;
   const library = location?.kind === "library" ? location : null;
-  const where = location ? formatLocation(location, t) : null;
+  const where = location
+    ? formatLocation(location, t, { speakers: citedSpeakers(citation, documents) })
+    : null;
   const source = [shownDocumentName(citation, documents), where].filter(Boolean).join(" · ");
   const { records } = useContext(SignOffsContext);
   const personId = usePersonId();

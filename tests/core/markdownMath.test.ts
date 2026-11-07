@@ -1,7 +1,8 @@
 /**
- * Display mathematics in Markdown (#2422): a formula Block only when its
- * closer is there, and the same Markdown read the same way by an Answer and
- * by the Minds' Tools an outside agent writes through.
+ * Display mathematics in Markdown (#2422, #2435): a formula Block only when
+ * its closer is there before a blank line, and the same Markdown read the
+ * same way by an Answer and by the Minds' Tools an outside agent writes
+ * through.
  */
 import type { JSONContent } from "@tiptap/core";
 import type { MockLanguageModelV4 } from "ai/test";
@@ -26,11 +27,34 @@ const UNCLOSED_ZH = String.raw`\[note:1] 比下面一层架子更高。`;
 const SHOWN_EN = "[note:1] is higher than the shelf below.";
 const SHOWN_ZH = "[note:1] 比下面一层架子更高。";
 
+/** An unclosed `\[` in one paragraph and a `\]` in a paragraph after it. */
+const ACROSS_EN = String.raw`\[note:1] is higher.
+
+Neap tides are lower.
+
+more \] here.`;
+const ACROSS_ZH = String.raw`\[note:1] 比下面一层架子更高。
+
+潮汐更低。
+
+后面还有 \] 这里。`;
+const ACROSS_BLOCKS_EN = [
+  { type: "paragraph", content: [{ type: "text", text: "[note:1] is higher." }] },
+  { type: "paragraph", content: [{ type: "text", text: "Neap tides are lower." }] },
+  { type: "paragraph", content: [{ type: "text", text: "more ] here." }] },
+];
+const ACROSS_BLOCKS_ZH = [
+  { type: "paragraph", content: [{ type: "text", text: "[note:1] 比下面一层架子更高。" }] },
+  { type: "paragraph", content: [{ type: "text", text: "潮汐更低。" }] },
+  { type: "paragraph", content: [{ type: "text", text: "后面还有 ] 这里。" }] },
+];
+
 /** A Block's type and words, a formula's words as "$…$". */
 function textOf(node: JSONContent): string {
   if (node.type === "text") return node.text ?? "";
   if (node.type === "hardBreak") return "\n";
   if (node.type === "inlineMath") return `$${node.attrs?.latex ?? ""}$`;
+  if (node.type === "blockMath") return `$$${node.attrs?.latex ?? ""}$$`;
   return (node.content ?? []).map(textOf).join(node.type === "paragraph" ? "" : " / ");
 }
 
@@ -106,6 +130,70 @@ describe("display mathematics in Markdown", () => {
   test("an unclosed $$ runs to the end as a formula, as before", () => {
     expect(markdownToBlocks("$$\nx^2")).toEqual([{ type: "blockMath", attrs: { latex: "x^2" } }]);
   });
+
+  test("a \\] in a later paragraph does not close an earlier \\[, in English and Chinese", () => {
+    expect(markdownToBlocks(ACROSS_EN)).toEqual(ACROSS_BLOCKS_EN);
+    expect(markdownToBlocks(ACROSS_ZH)).toEqual(ACROSS_BLOCKS_ZH);
+  });
+
+  test("a real formula in a later paragraph still forms after an unclosed \\[", () => {
+    for (const [opener, shown] of [
+      [UNCLOSED_EN, SHOWN_EN],
+      [UNCLOSED_ZH, SHOWN_ZH],
+    ] as const) {
+      expect(markdownToBlocks(`${opener}\n\n\\[ x^2 \\]`)).toEqual([
+        { type: "paragraph", content: [{ type: "text", text: shown }] },
+        { type: "blockMath", attrs: { latex: "x^2" } },
+      ]);
+    }
+  });
+
+  test("a $$ is text when its closer is in a later paragraph, in English and Chinese", () => {
+    const started = [
+      { type: "text", text: "$$" },
+      { type: "hardBreak" },
+      { type: "text", text: "x^2" },
+    ];
+    expect(markdownToBlocks("$$\nx^2\n\nmore $$ here")).toEqual([
+      { type: "paragraph", content: started },
+      { type: "paragraph", content: [{ type: "text", text: "more $$ here" }] },
+    ]);
+    expect(markdownToBlocks("$$\nx^2\n\n后面还有 $$ 这里")).toEqual([
+      { type: "paragraph", content: started },
+      { type: "paragraph", content: [{ type: "text", text: "后面还有 $$ 这里" }] },
+    ]);
+  });
+
+  test("a $$ that is text leaves a real formula below it a formula", () => {
+    expect(markdownToBlocks("$$\nx\n\\[ y \\]\n\nmore")).toEqual([
+      {
+        type: "paragraph",
+        content: [{ type: "text", text: "$$" }, { type: "hardBreak" }, { type: "text", text: "x" }],
+      },
+      { type: "blockMath", attrs: { latex: "y" } },
+      { type: "paragraph", content: [{ type: "text", text: "more" }] },
+    ]);
+  });
+
+  test("a formula's body cannot hold a blank line: opener and closer stay text", () => {
+    expect(markdownToBlocks("\\[\nx^2\n\n\\]")).toEqual([
+      {
+        type: "paragraph",
+        content: [
+          { type: "text", text: "[" },
+          { type: "hardBreak" },
+          { type: "text", text: "x^2" },
+        ],
+      },
+      { type: "paragraph", content: [{ type: "text", text: "]" }] },
+    ]);
+  });
+
+  test("a multi-line $$ formula still closes and formats", () => {
+    expect(markdownToBlocks("$$\nx^2\n+ y^2\n$$")).toEqual([
+      { type: "blockMath", attrs: { latex: "x^2\n+ y^2" } },
+    ]);
+  });
 });
 
 describe("an Answer that starts with an unclosed \\[", { timeout: 30_000 }, () => {
@@ -126,6 +214,36 @@ describe("an Answer that starts with an unclosed \\[", { timeout: 30_000 }, () =
 
     const answer = answerIn(client, answerId).toJSON() as JSONContent;
     expect(blocksOf(answer.content ?? [])).toEqual([{ type: "paragraph", text: shown }]);
+  });
+});
+
+describe("an Answer whose \\] is in a later paragraph", { timeout: 30_000 }, () => {
+  test.each([
+    ["English", ACROSS_EN, ACROSS_BLOCKS_EN],
+    ["Chinese", ACROSS_ZH, ACROSS_BLOCKS_ZH],
+  ])("keeps every paragraph as text (%s)", async (_language, text, expected) => {
+    const model = scriptedModel((): ScriptedReply => ({ text }));
+    const { core, client, mind } = await setUpWithDocuments(model, []);
+
+    const { answerId } = await askAndFinish(core, client, mind.id, "Which shelf is higher?");
+
+    const answer = answerIn(client, answerId).toJSON() as JSONContent;
+    expect(blocksOf(answer.content ?? [])).toEqual(
+      expected.map((block) => ({ type: block.type, text: textOf(block) })),
+    );
+  });
+
+  test("the real formula in the paragraph after an unclosed \\[ still forms", async () => {
+    const model = scriptedModel((): ScriptedReply => ({ text: `${UNCLOSED_EN}\n\n\\[ x^2 \\]` }));
+    const { core, client, mind } = await setUpWithDocuments(model, []);
+
+    const { answerId } = await askAndFinish(core, client, mind.id, "Which shelf is higher?");
+
+    const answer = answerIn(client, answerId).toJSON() as JSONContent;
+    expect(blocksOf(answer.content ?? [])).toEqual([
+      { type: "paragraph", text: SHOWN_EN },
+      { type: "blockMath", text: "$$x^2$$" },
+    ]);
   });
 });
 

@@ -62,6 +62,7 @@ const doc = (id: string, name: string, status: DocumentStatus = "ready"): Docume
   ownFile: null,
   yourNote: null,
   meetingMindId: null,
+  speakers: null,
   notCited: false,
   found: null,
   importedAs: null,

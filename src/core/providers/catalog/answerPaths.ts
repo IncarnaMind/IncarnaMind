@@ -20,19 +20,15 @@ interface Admitted {
 }
 
 /**
- * Writes the Answer, then gives its records in one `cite` call in the same reply (#489). Claude
- * Sonnet 5.5 was measured and left out (2026-10-26): it still gave its records first, drafting
- * the Answer in its thinking, and came out slower (+1.2 s, 3.25 → 3.34 calls) with fewer
- * expected Passages cited on the gating set (62 → 59).
+ * Writes the Answer, then gives its records in one `cite` call in the same reply (#489). No model
+ * is listed. Claude Sonnet 5.5 was measured and left out (2026-10-26): it still gave its records
+ * first, drafting the Answer in its thinking, and came out slower (+1.2 s, 3.25 → 3.34 calls) with
+ * fewer expected Passages cited on the gating set (62 → 59). Claude Haiku 5.5, listed for
+ * Questions from 2026-10-26, came off on 2026-11-07 (#2720): on two gating runs, read by hand, a
+ * found Citation whose quote doesn't state its sentence was 33.9–40.4% writing first against
+ * 25.4–30.7% citing first, and a quote about a different claim 12–13% against 6%.
  */
-const WRITES_THEN_CITES: readonly Admitted[] = [
-  {
-    model: "anthropic/claude-haiku-5-5",
-    since: "2026-10-26",
-    flows: ["question"],
-    gate: "Against citing first, paired, within one item in 30: gating 65 on this code (load median 6), 2.89 → 2.20 calls, done −0.4 s, cited 61 → 61, judged right 61 → 59, every Citation found 63 → 62; on its earlier endings, gating 65 three times, cited 183 → 184, right 184 → 182, found 188 → 190; on earlier wordings, hard tier 225, cited 150 → 155, right 207 → 209, and everyday 39; no new duplicate, false Supported, unmade change or tool text.",
-  },
-];
+const WRITES_THEN_CITES: readonly Admitted[] = [];
 
 /**
  * Searches the Question before the first call and answers from those Passages, citing as

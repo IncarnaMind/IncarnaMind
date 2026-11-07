@@ -19,7 +19,7 @@
 
 import type * as Y from "yjs";
 import { chosenSeries } from "../../shared/charts";
-import { type LiveDocument, shownDocumentName } from "../../shared/citations";
+import { citedSpeakers, type LiveDocument, shownDocumentName } from "../../shared/citations";
 import { withFigureText } from "../../shared/figureMarkers";
 import { citationLocation, englishLocation } from "../../shared/locations";
 import { wordFileOf } from "../../shared/wordFiles";
@@ -58,14 +58,12 @@ const textOf = (value: unknown) => (typeof value === "string" ? value : null);
  * Document's name is not shown.
  */
 function citationSource(attributes: Record<string, unknown>, { documents, ids }: Naming): Footnote {
-  const name = shownDocumentName(
-    {
-      documentId: textOf(attributes.documentId),
-      contentHash: textOf(attributes.contentHash),
-      documentName: textOf(attributes.documentName),
-    },
-    documents,
-  );
+  const cited = {
+    documentId: textOf(attributes.documentId),
+    contentHash: textOf(attributes.contentHash),
+    documentName: textOf(attributes.documentName),
+  };
+  const name = shownDocumentName(cited, documents);
   if (!name) return { source: "", unverified: false };
   const from = attributes.pageFrom;
   const to = attributes.pageTo;
@@ -74,7 +72,8 @@ function citationSource(attributes: Record<string, unknown>, { documents, ids }:
     pageFrom: typeof from === "number" ? from : null,
     pageTo: typeof to === "number" ? to : null,
   });
-  const source = location ? `${name}, ${englishLocation(location)}` : name;
+  const speakers = citedSpeakers({ ...cited, location }, documents);
+  const source = location ? `${name}, ${englishLocation(location, { speakers })}` : name;
   const id = ids?.idOf(attributes);
   return { source: id ? `${source} · ${id}` : source, unverified: false };
 }

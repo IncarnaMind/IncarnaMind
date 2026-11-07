@@ -19,6 +19,7 @@ import type {
   QuotedWords,
   QuotedWordsCheck,
   RecheckResult,
+  TranscriptSpeakers,
 } from "../core/api";
 import type { Language } from "../core/language";
 import { formatDate, formatShortDate } from "./dates";
@@ -144,7 +145,7 @@ export function citedTextKept(
 
 /** What a Citation needs of a live Document: whether it is there, and the name to show for it. */
 export type LiveDocument = Pick<Document, "id" | "contentHash"> &
-  Partial<Pick<Document, "name" | "title">>;
+  Partial<Pick<Document, "name" | "title" | "speakers">>;
 
 /** A list of Documents by ID and by content: the first in the list with each. */
 interface DocumentIndex {
@@ -514,9 +515,27 @@ export function newVersionCitation(
 export function citedLocation(
   attributes: Partial<CitationAttributes>,
   t: Translate,
+  documents: readonly LiveDocument[] | null = null,
 ): string | null {
   const location = citationLocation(attributes);
-  return location ? formatLocation(location, t) : null;
+  return location
+    ? formatLocation(location, t, { speakers: citedSpeakers(attributes, documents) })
+    : null;
+}
+
+/**
+ * Who's who in the Transcript a Citation quotes (#138), so its Speaker shows as the User named
+ * them now: the Citation stores only its line's label, never a name. Null for any other Document.
+ */
+export function citedSpeakers(
+  attributes: Partial<Pick<CitationAttributes, "documentId" | "contentHash">> & {
+    location?: unknown;
+  },
+  documents: readonly LiveDocument[] | null,
+): TranscriptSpeakers | null {
+  // A Note keeps its Citations' Locations as JSON text, as the editor stores an attribute.
+  if (!documents || parseLocation(attributes.location)?.kind !== "time") return null;
+  return liveDocumentOf(attributes, documents)?.speakers ?? null;
 }
 
 /**
@@ -547,6 +566,7 @@ export function citationSource(
   attributes: Partial<CitationAttributes>,
   t: Translate,
   language?: Language,
+  documents: readonly LiveDocument[] | null = null,
 ): { name: string; where: string | null; text: string } {
   const name = language ? citedName(attributes, t, language) : (attributes.documentName ?? "");
   const location = citationLocation(attributes);
@@ -558,7 +578,7 @@ export function citationSource(
     location.kind === "rows" && location.sheet !== null && sameName(location.sheet)
       ? { ...location, sheet: null }
       : location;
-  const where = formatLocation(shown, t);
+  const where = formatLocation(shown, t, { speakers: citedSpeakers(attributes, documents) });
   return { name, where, text: t("citation.where", { document: name, location: where }) };
 }
 
@@ -629,7 +649,7 @@ function placeOf(
   if (location === null) {
     return { where: "document", params: { document: attributes.documentName ?? "" } };
   }
-  const params = { location: formatLocation(location, t, false) };
+  const params = { location: formatLocation(location, t, { speaker: false }) };
   // A Transcript's is labelled so, so its check isn't taken for a page's.
   if (isTranscriptLocation(location)) return { where: "transcript", params };
   return { where: readsIn(location) ? "in" : "on", params };

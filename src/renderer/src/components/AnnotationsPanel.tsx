@@ -7,6 +7,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import type { Annotation, Document } from "../../../core/api";
+import { citedSpeakers } from "../../../shared/citations";
 import { formatLocation } from "../../../shared/locations";
 import { deleteAnnotation, editAnnotation, exportAnnotations } from "../annotationActions";
 import { useAnnotationDrafts } from "../annotationDrafts";
@@ -15,6 +16,7 @@ import { CloseLineIcon, ExportLineIcon, PencilLineIcon } from "../components/lin
 import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
 import { TypingTextarea } from "../components/TypingTextarea";
 import { useT } from "../i18n";
+import { useAppStore } from "../store";
 
 function Row({ annotation, onGo }: { annotation: Annotation; onGo(annotation: Annotation): void }) {
   const t = useT();
@@ -24,7 +26,8 @@ function Row({ annotation, onGo }: { annotation: Annotation; onGo(annotation: An
   // A draft the note over the page holds is edited there: two fields on it would each save or end it.
   const editing = place === "row" && draft !== undefined;
   const [saving, setSaving] = useState(false);
-  const where = annotation.location ? formatLocation(annotation.location, t) : "";
+  const speakers = useAppStore((state) => citedSpeakers(annotation, state.documents));
+  const where = annotation.location ? formatLocation(annotation.location, t, { speakers }) : "";
   const beginEdit = () =>
     useAnnotationDrafts.getState().begin(annotation.id, annotation.note ?? "", "row");
   const endEdit = () => useAnnotationDrafts.getState().end(annotation.id);

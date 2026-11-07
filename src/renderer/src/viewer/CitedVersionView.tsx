@@ -245,6 +245,8 @@ function CitedVersionContent({
   openCurrent: () => void;
 }) {
   const t = useT();
+  // The Document itself, whose who's who is as the User left it now (#138).
+  const speakers = target.citation?.location?.kind === "time" ? document.speakers : null;
   const units = version.pages;
   const scroller = useRef<HTMLDivElement>(null);
   const column = useRef<HTMLDivElement>(null);
@@ -281,11 +283,11 @@ function CitedVersionContent({
   // One Unit: the Citation's own place names it more narrowly ("Revenue, rows 12–14", "§ History, ¶ 3").
   const place =
     units.length === 1 && target.citation?.location
-      ? formatLocation(target.citation.location, t)
+      ? formatLocation(target.citation.location, t, { speakers })
       : null;
   // A picture is of the whole place it was saved for, which the Citation's Location names.
   const picturePlace =
-    (target.citation?.location && formatLocation(target.citation.location, t)) ||
+    (target.citation?.location && formatLocation(target.citation.location, t, { speakers })) ||
     (units.length === 1 && shown[0]?.label ? shown[0].label : null);
 
   const highlighted = page !== null || shown.some((part) => part.ranges.length > 0);

@@ -9,6 +9,7 @@
  * figure that isn't expected, or an ambiguity that isn't, fails the case.
  */
 import { describe, expect, test } from "vitest";
+import { figuresInClaim, statedFigure } from "../../src/core/answers/checks/calculated";
 import {
   type AmbiguityKind,
   currencyOnItsFigure,
@@ -718,6 +719,8 @@ const GOLDEN: { name: string; context: FigureContext; cases: Case[] }[] = [
       ["41.2%", [f("41.2%", 0.412, { unit: "%" })]],
       ["一万二", [f("一万二", 12000)]],
       ["租金三千五百元", [f("三千五百元", 3500, { unit: "CNY" })]],
+      // A bare 138亿 cell: the header's stated scale keeps its digits an amount (#2215).
+      ["13800138000", [f("13800138000", 13800138000, { ambiguous: ["scale"] })]],
     ],
   },
   {
@@ -759,6 +762,45 @@ const GOLDEN: { name: string; context: FigureContext; cases: Case[] }[] = [
       ["第3条第2款", []],
       ["第三章", []],
       ["两室一厅", []],
+    ],
+  },
+  {
+    name: "a digit amount that goes on in Chinese numerals (#2215)",
+    context: ZH,
+    cases: [
+      ["2万三千元", [f("2万三千元", 23000, { unit: "CNY", scale: "万" })]],
+      ["2万3千元", [f("2万3千元", 23000, { unit: "CNY", scale: "万" })]],
+      ["两万三千元", [f("两万三千元", 23000, { unit: "CNY" })]],
+      ["2万，三千元", [f("2万", 20000, { scale: "万" }), f("三千元", 3000, { unit: "CNY" })]],
+    ],
+  },
+  {
+    name: "a mobile or ID number written bare is no amount (#2215)",
+    context: ZH,
+    cases: [
+      ["13800138000", []],
+      ["电话13800138000", []],
+      ["身份证号110101199003071234", []],
+      ["身份证号11010119900307123X", []],
+      // Not a mobile's pattern, and an 18-digit run with no birth date in it, stay figures.
+      ["23800138000", [f("23800138000", 23800138000)]],
+      ["123456789012345678", [f("123456789012345678", 123456789012345680)]],
+      ["13,800,138,000元", [f("13,800,138,000元", 13800138000, { unit: "CNY" })]],
+      ["人民币13800138000元", [f("人民币13800138000元", 13800138000, { unit: "CNY" })]],
+    ],
+  },
+  {
+    name: "半 after a numeral of more than one place (#2215)",
+    context: ZH,
+    cases: [
+      ["一万二千半", [f("一万二千半", 12500)]],
+      ["十二万半", [f("十二万半", 125000)]],
+      ["一百五十万半", [f("一百五十万半", 1505000)]],
+      ["一万亿半", [f("一万亿半", 1000050000000)]],
+      ["1万2千半", [f("1万2千半", 12500, { scale: "万" })]],
+      ["2万半", [f("2万半", 25000, { scale: "万" })]],
+      ["两万半", [f("两万半", 25000, { scale: "万" })]],
+      ["两千半导体", [f("两千", 2000)]],
     ],
   },
   {
@@ -909,6 +951,16 @@ const OWN_CONTEXT: [text: string, context: FigureContext, figures: Expected[]][]
   ],
   ["¥1,200", { language: "ja" }, [f("¥1,200", 1200, { unit: "JPY" })]],
   [
+    "13800138000",
+    { language: "zh-CN", header: "单位：元" },
+    [f("13800138000", 13800138000, { ambiguous: ["scale"] })],
+  ],
+  [
+    "13800138000",
+    { language: "zh-CN", header: "金额单位：人民币元" },
+    [f("13800138000", 13800138000, { ambiguous: ["scale"] })],
+  ],
+  [
     "¥1.2bn",
     { language: "en", yen: "CNY" },
     [f("¥1.2bn", 1200000000, { unit: "CNY", scale: "bn" })],
@@ -941,6 +993,60 @@ describe("the golden set", () => {
   describe("cases with a context of their own", () => {
     test.each(OWN_CONTEXT)("%s with %j", (text, context, figures) => {
       expect(readFigures(text, context).map(shape)).toEqual(figures);
+    });
+  });
+});
+
+describe("a period a Chinese sentence counts (#2215)", () => {
+  const year = { kind: "other", word: "year" };
+
+  test.each([
+    "在这一年里",
+    "那一年",
+    "每一年",
+    "当一年",
+    "这一个月里",
+    "那一天",
+    "每一季度",
+    "同一年",
+    "另一年",
+    "哪一年",
+  ])("%s states no count", (text) => {
+    expect(figuresInClaim(text, ZH)).toEqual([]);
+  });
+
+  test.each([
+    ["一年内", "一年", 1],
+    ["三年", "三年", 3],
+    ["连续两年", "两年", 2],
+    ["应当一年内完成", "一年", 1],
+    ["前后一年", "一年", 1],
+  ])("%s still counts", (text, chars, value) => {
+    expect(figuresInClaim(text, ZH)).toEqual([
+      {
+        start: text.indexOf(chars),
+        end: text.indexOf(chars) + chars.length,
+        chars,
+        value,
+        scale: 1,
+        scaleWord: null,
+        unit: year,
+        decimals: 0,
+        currency: null,
+        approximate: false,
+        rangeTo: null,
+        footnote: null,
+        ambiguous: [],
+      },
+    ]);
+  });
+
+  test("a stated calculation figure names no quantity for a period that says which one", () => {
+    expect(statedFigure("净负债在这一年里大幅下降", "一年", ZH)).toBeNull();
+    expect(statedFigure("应当在一年内完成", "一年", ZH)).toMatchObject({
+      chars: "一年",
+      value: 1,
+      unit: year,
     });
   });
 });

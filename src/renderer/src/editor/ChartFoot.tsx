@@ -39,7 +39,9 @@ export function ChartFoot({
     state.status.kind === "ready" ? state.documents : null,
   );
   const place = sources.places[0]?.citation;
-  const source = place ? citationSource(withShownName(place, documents), t, language) : null;
+  const source = place
+    ? citationSource(withShownName(place, documents), t, language, documents)
+    : null;
   const document = source?.name ?? "";
   const plural = (count: number) => (count === 1 ? "one" : "other");
 
