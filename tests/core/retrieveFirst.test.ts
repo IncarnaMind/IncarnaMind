@@ -125,7 +125,7 @@ describe("An Answer that retrieves first", { timeout: 30_000 }, () => {
     );
   });
 
-  test("on Claude Haiku 5.5, as the list names it, the Question is searched before the first call and answered in one", async () => {
+  test("on Claude Haiku 5.5, which the list no longer names, the model searches first itself", async () => {
     const model = answering();
     const { core, client, mind } = await setUpWithDocuments(model, [
       { name: "Tides.md", contents: TIDES_MD },
@@ -139,8 +139,8 @@ describe("An Answer that retrieves first", { timeout: 30_000 }, () => {
 
     const { answerId } = await askAndFinish(core, client, mind.id, "When are spring tides?");
 
-    expect(JSON.stringify(model.doStreamCalls[0]?.prompt)).toContain("question-search");
-    expect(model.doStreamCalls).toHaveLength(1);
+    expect(JSON.stringify(model.doStreamCalls[0]?.prompt)).not.toContain("question-search");
+    expect(model.doStreamCalls).toHaveLength(2);
     expect(citationsIn(client, answerId)).toMatchObject([{ quote: SPRING, check: "found" }]);
   });
 

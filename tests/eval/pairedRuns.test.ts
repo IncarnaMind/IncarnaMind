@@ -301,25 +301,24 @@ describe("the arms' Answer paths", () => {
   });
 
   test.each([
-    [
-      "Claude Sonnet 5.5, on no list",
-      "claude-sonnet-5-5",
-      { searchesFirst: false, writesFirst: false },
-    ],
-    [
-      "Claude Haiku 5.5, on both lists",
-      "claude-haiku-5-5",
-      { searchesFirst: true, writesFirst: true },
-    ],
+    ["A model on no list", false, { searchesFirst: false, writesFirst: false }],
+    ["A model on the write-then-cite list only", true, { searchesFirst: false, writesFirst: true }],
   ])(
     "%s: each arm decides the path it compares, the citation arms in the loop from its first call; today keeps the lists'",
-    (_, modelId, listed) => {
+    (_, onList, listed) => {
       const switcher = armSwitch();
-      const model = { catalogId: "anthropic", modelId };
+      const model = { catalogId: "anthropic", modelId: "claude-haiku-5-5" };
+      // The lists name no model since #2720, so a list naming this one stands in wherever an
+      // arm leaves the path to the lists.
+      const paths: AnswerPathsOverride = {
+        writesThenCites: (each) =>
+          switcher.answerPaths.writesThenCites?.(each) ?? (onList || undefined),
+        retrievesFirst: (each) => switcher.answerPaths.retrievesFirst?.(each),
+      };
       const seen = Object.fromEntries(
         ["cite-first", "write-then-cite", "loop", "retrieve-first", "today"].map((id) => {
           switcher.use(armNamed(id));
-          return [id, pathOf(model, switcher.answerPaths)];
+          return [id, pathOf(model, paths)];
         }),
       );
       expect(seen).toEqual({

@@ -1,6 +1,7 @@
 /**
- * The faster Answer paths beside the catalog (#489): a listed model writes the Answer, then
- * cites it. Every other model is sent what main sends it (./unlistedRequests.test.ts).
+ * The faster Answer paths beside the catalog (#489): a model told to write first writes the
+ * Answer, then cites it; no model is listed now (#2720). Every other model is sent what main sends
+ * it (./unlistedRequests.test.ts).
  */
 import { describe, expect, test } from "vitest";
 import { retrievesFirst, writesThenCites } from "../../src/core/providers/catalog/answerPaths";
@@ -30,35 +31,7 @@ async function systemFor(writes: boolean | undefined) {
 }
 
 describe("The Answer paths beside the catalog", { timeout: 30_000 }, () => {
-  test("Claude Haiku 5.5 writes then cites in a Question's Answer; Sonnet 5.5 and models not in the catalog don't", () => {
-    const haiku = { catalogId: "anthropic", modelId: "claude-haiku-5-5" };
-    expect(writesThenCites(haiku, "question")).toBe(true);
-    expect(
-      writesThenCites({ catalogId: "anthropic", modelId: "claude-haiku-5-5-20261001" }, "question"),
-    ).toBe(true);
-    expect(
-      writesThenCites({ catalogId: "anthropic", modelId: "claude-sonnet-5-5" }, "question"),
-    ).toBe(false);
-    expect(writesThenCites({ catalogId: null, modelId: "claude-haiku-5-5" }, "question")).toBe(
-      false,
-    );
-  });
-
-  test.each(["outside-agent", "task-answer", "check", "call-help"] as const)(
-    "Claude Haiku 5.5 cites first in the %s flow, which the gate didn't measure",
-    (flow) => {
-      expect(writesThenCites({ catalogId: "anthropic", modelId: "claude-haiku-5-5" }, flow)).toBe(
-        false,
-      );
-    },
-  );
-
-  test("Claude Haiku 5.5 retrieves first in a Question's Answer only; Sonnet 5.5 doesn't; an override decides", () => {
-    const haiku = { catalogId: "anthropic", modelId: "claude-haiku-5-5" };
-    expect(retrievesFirst(haiku, "question")).toBe(true);
-    for (const flow of ["outside-agent", "task-answer", "check", "call-help"] as const) {
-      expect(retrievesFirst(haiku, flow)).toBe(false);
-    }
+  test("no model writes then cites by the list, in any flow, Claude Haiku 5.5 included", () => {
     for (const flow of [
       "question",
       "outside-agent",
@@ -66,25 +39,41 @@ describe("The Answer paths beside the catalog", { timeout: 30_000 }, () => {
       "check",
       "call-help",
     ] as const) {
+      expect(writesThenCites({ catalogId: "anthropic", modelId: "claude-haiku-5-5" }, flow)).toBe(
+        false,
+      );
+      expect(writesThenCites({ catalogId: "anthropic", modelId: "claude-sonnet-5-5" }, flow)).toBe(
+        false,
+      );
+    }
+  });
+
+  test("no model retrieves first by the list, in any flow; an override still can", () => {
+    const haiku = { catalogId: "anthropic", modelId: "claude-haiku-5-5" };
+    for (const flow of [
+      "question",
+      "outside-agent",
+      "task-answer",
+      "check",
+      "call-help",
+    ] as const) {
+      expect(retrievesFirst(haiku, flow)).toBe(false);
       expect(retrievesFirst({ catalogId: "anthropic", modelId: "claude-sonnet-5-5" }, flow)).toBe(
         false,
       );
     }
-    expect(retrievesFirst({ catalogId: null, modelId: "claude-haiku-5-5" }, "question")).toBe(
-      false,
-    );
-    expect(retrievesFirst(haiku, "question", { retrievesFirst: () => false })).toBe(false);
+    expect(retrievesFirst(haiku, "question", { retrievesFirst: () => true })).toBe(true);
   });
 
   test("an override decides over the list, and one that says nothing leaves it to the list", () => {
     const haiku = { catalogId: "anthropic", modelId: "claude-haiku-5-5" };
     const other = { catalogId: null, modelId: "local-model" };
     expect(writesThenCites(haiku, "question", { writesThenCites: () => false })).toBe(false);
-    expect(writesThenCites(haiku, "question", { writesThenCites: () => undefined })).toBe(true);
+    expect(writesThenCites(haiku, "question", { writesThenCites: () => undefined })).toBe(false);
     expect(writesThenCites(other, "question", { writesThenCites: () => true })).toBe(true);
   });
 
-  test("Claude Haiku 5.5, as the list names it, writes the Answer and cites it in one reply", async () => {
+  test("a model told to write first writes the Answer and cites it in one reply", async () => {
     const model = scriptedModel((call: ModelCall): ScriptedReply => {
       const searched = call.results.find((result) => result.tool === "search_documents");
       if (!searched)
@@ -99,7 +88,7 @@ describe("The Answer paths beside the catalog", { timeout: 30_000 }, () => {
     const { core, client, mind } = await setUpWithDocuments(
       model,
       [{ name: "Tides.pdf", contents: TIDES }],
-      { answerPaths: { retrievesFirst: () => false } },
+      { answerPaths: { retrievesFirst: () => false, writesThenCites: () => true } },
     );
     const saved = await core.saveChatProvider({
       kind: "anthropic",

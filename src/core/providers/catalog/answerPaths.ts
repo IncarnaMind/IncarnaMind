@@ -38,10 +38,13 @@ const WRITES_THEN_CITES: readonly Admitted[] = [
  * Searches the Question before the first call, and again in each Document a word of it names when
  * that search reached none of them, then answers from those Passages, citing as WRITES_THEN_CITES
  * has the model, falling back to the Tool loop when it needs more (#1633, an amendment to
- * ADR-0007). Admitted on paired runs against eval/speed/gates/retrieve-first.md.
- * - Claude Haiku 5.5 came off on 2026-11-04: answered in one call from the Question's own
- *   search, judged right fell from 60 to 57 of 65 on the gating set, with 2 allowed. It is back
- *   since the second search, measured on the same gate with held-out Questions written first.
+ * ADR-0007). No model is listed (2026-11-07), on paired runs against
+ * eval/speed/gates/retrieve-first.md:
+ * - Claude Haiku 5.5 came off on 2026-11-04 (judged right fell from 60 to 57 of 65 on the gating
+ *   set, with 2 allowed) and stays off with the second search. Measured with false Supported, it
+ *   had one the loop didn't on the held-out set's second Question. Run whole, it was 1.1 s sooner
+ *   on the gating set, but judged right fell from 62 to 57: five of the Answers that went partly
+ *   came from the Question's own search alone, where the loop searched twice.
  * - DeepSeek V4.1 Flash 1017 (2026-11-07), with the second search, held the held-out set but not
  *   the gating set: expected Passages cited fell from 64 to 61 of 65, with 2 allowed, three of
  *   them on quoted words the quote check misreads (#2504).
@@ -49,14 +52,7 @@ const WRITES_THEN_CITES: readonly Admitted[] = [
  *   fell from 63 to 59 of 65, mostly on quoted words the quote check misreads on both paths
  *   (#2504). It is measured again once those are fixed.
  */
-const RETRIEVES_FIRST: readonly Admitted[] = [
-  {
-    model: "anthropic/claude-haiku-5-5",
-    since: "2026-11-07",
-    flows: ["question"],
-    gate: "With the second search, against the loop, paired, one run of each set, within one item in 30: gating 65, done −1.2 s, 2.88 → 1.83 calls, cited 63 → 64, judged right 60 → 60, every Citation found 63 → 63; held-out 30, cited 29 → 29, right 26 → 29, found 29 → 29; hard tier 224, done −0.5 s, cited 152 → 160, right 206 → 214, found 209 → 213; no duplicate or tool text; false Supported and unmade changes weren't measured on these sets.",
-  },
-];
+const RETRIEVES_FIRST: readonly Admitted[] = [];
 
 /** A model as an Answer runs it. */
 export interface ListedModel {
