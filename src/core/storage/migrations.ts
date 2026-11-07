@@ -2490,8 +2490,8 @@ export const migrations: readonly Migration[] = [
       "Arrivals, Linked folder links and turn-ons get their place in one order kept by the database, so a clock step doesn't decide what is new (#2370)",
     sql: `
       -- The places IncarnaMind has handed out in this database, so what arrived after a turn-on is
-      -- decided by the database's own order, not by the clock (#2370). One row: a local count,
-      -- never synced.
+      -- decided by the database's own order, not by the clock (#2370). One row, local to this
+      -- database and never synced, so its fixed id can't meet an id from another device.
       CREATE TABLE IF NOT EXISTS tagging_sequence (
         id TEXT PRIMARY KEY NOT NULL,
         value INTEGER NOT NULL,
@@ -2500,6 +2500,9 @@ export const migrations: readonly Migration[] = [
         deleted_at TEXT
       ) STRICT;
       -- Where in that order an arrival and a Linked folder link are. The times stay, for display.
+      -- Device-local, like the switch's times beside them: a row synced from another device gets
+      -- no place here (0), so it waits for the User rather than being sent by this device's
+      -- turn-on. A later sync must leave it 0 on the receiving device.
       ALTER TABLE document_arrivals ADD COLUMN arrived_seq INTEGER NOT NULL DEFAULT 0;
       ALTER TABLE linked_folders ADD COLUMN created_seq INTEGER NOT NULL DEFAULT 0;
       -- Their existing rows, in the order their times had them. A turn-on at the same
@@ -2545,17 +2548,21 @@ export const migrations: readonly Migration[] = [
         ) AS rank
         FROM events;
       UPDATE document_arrivals SET arrived_seq = (
-        SELECT r.rank FROM tagging_ranks r WHERE r.kind = 'arrival' AND r.ref = document_arrivals.id);
+        SELECT r.rank FROM tagging_ranks r WHERE r.kind = 'arrival' AND r.ref = document_arrivals.id)
+        WHERE deleted_at IS NULL;
       UPDATE linked_folders SET created_seq = (
-        SELECT r.rank FROM tagging_ranks r WHERE r.kind = 'folder' AND r.ref = linked_folders.id);
-      -- Each turn-on's place, kept next to the time it already had.
+        SELECT r.rank FROM tagging_ranks r WHERE r.kind = 'folder' AND r.ref = linked_folders.id)
+        WHERE deleted_at IS NULL;
+      -- Each turn-on's place, kept next to the time it already had. Only where a turn-on exists:
+      -- a switch saved off keeps its settings exactly as they were.
       UPDATE device_settings SET
         value = json_set(value, '$.automaticSinceSeq',
           (SELECT json_group_object(r.ref, r.rank) FROM tagging_ranks r WHERE r.kind = 'turnOn')),
         updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
         WHERE key = 'library' AND deleted_at IS NULL
           AND json_type(CASE WHEN json_valid(value) THEN value ELSE '{}' END,
-              '$.automaticSince') = 'object';
+              '$.automaticSince') = 'object'
+          AND EXISTS (SELECT 1 FROM tagging_ranks WHERE kind = 'turnOn');
       UPDATE device_settings SET
         value = json_set(value, '$.automaticSinceSeq',
           (SELECT json_group_object(r.ref, r.rank) FROM tagging_ranks r WHERE r.kind = 'turnOn')),
@@ -2563,7 +2570,8 @@ export const migrations: readonly Migration[] = [
         WHERE key = 'library' AND deleted_at IS NULL
           AND json_valid(value)
           AND json_type(CASE WHEN json_valid(value) THEN value ELSE '{}' END,
-              '$.automaticSince') IS NOT 'object';
+              '$.automaticSince') IS NOT 'object'
+          AND EXISTS (SELECT 1 FROM tagging_ranks WHERE kind = 'turnOn');
       -- The next place handed out is after every one filled in here.
       INSERT INTO tagging_sequence (id, value, created_at, updated_at)
         SELECT 'tagging', COALESCE(max(rank), 0),

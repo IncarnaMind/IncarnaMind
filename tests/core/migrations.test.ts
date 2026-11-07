@@ -469,6 +469,11 @@ describe("Migrations", () => {
       "INSERT INTO linked_folders (id, path, created_at, updated_at) VALUES (?, '/Users/a/Reports', ?, ?)",
       ["00000000-0000-4000-8000-000000000001", at("01"), at("01")],
     );
+    // An unlinked folder from before: deleted rows keep no place, and the migration still runs.
+    db.run(
+      "INSERT INTO linked_folders (id, path, created_at, updated_at, deleted_at) VALUES (?, '/Users/a/Old', ?, ?, ?)",
+      ["00000000-0000-4000-8000-000000000004", at("00"), at("00"), at("00")],
+    );
     arrival("00000000-0000-4000-8000-000000000002", "document-a", at("02"));
     // A turn-on and an arrival in the same millisecond: the arrival counted as new (#2308).
     db.run(
@@ -483,7 +488,10 @@ describe("Migrations", () => {
 
     migrate(db);
 
-    expect(db.get("SELECT created_seq FROM linked_folders")).toEqual({ created_seq: 1 });
+    expect(db.all("SELECT id, created_seq FROM linked_folders ORDER BY id")).toEqual([
+      { id: "00000000-0000-4000-8000-000000000001", created_seq: 1 },
+      { id: "00000000-0000-4000-8000-000000000004", created_seq: 0 },
+    ]);
     expect(db.all("SELECT arrived_seq FROM document_arrivals ORDER BY arrived_seq")).toEqual([
       { arrived_seq: 2 },
       { arrived_seq: 4 },
@@ -531,6 +539,29 @@ describe("Migrations", () => {
     expect(stored.automaticSinceSeq).toEqual({ "https://api.anthropic.com": 1 });
     expect(db.get("SELECT arrived_seq FROM document_arrivals")).toEqual({ arrived_seq: 2 });
     expect(db.get("SELECT value FROM tagging_sequence")).toEqual({ value: 2 });
+    db.close();
+  });
+
+  test("a switch saved off keeps its settings exactly, with no turn-on place (#2370)", async () => {
+    const db = openDatabase(join(await createTempDataFolder(), "test.db"));
+    migrate(
+      db,
+      migrations.filter((migration) => migration.version < 132),
+    );
+    const at = "2026-11-01T09:00:00.000Z";
+    const saved = JSON.stringify({ classifier: { kind: "automatic" }, automatic: false });
+    db.run(
+      "INSERT INTO device_settings (id, key, value, created_at, updated_at) VALUES ('d1', 'library', ?, ?, ?)",
+      [saved, at, at],
+    );
+
+    migrate(db);
+
+    expect(
+      db.get<{ value: string }>(
+        "SELECT value FROM device_settings WHERE key = 'library' AND deleted_at IS NULL",
+      )?.value,
+    ).toBe(saved);
     db.close();
   });
 });
