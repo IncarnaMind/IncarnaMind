@@ -98,6 +98,16 @@ test("the tab strip shows its one tab from the start, and the Library comes with
   await app.close();
 });
 
+test("the tab strip stays when a second tab is closed again", async () => {
+  const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+  await newMind(window);
+  await expect(window.getByTestId("tab-title")).toHaveCount(2);
+  await window.locator('[role="tab"][aria-selected="true"]').getByTestId("tab-close").click();
+  await expect(window.getByTestId("tab-title")).toHaveCount(1);
+  await expect(window.getByTestId("tab-list")).toBeVisible();
+  await app.close();
+});
+
 test("a file the first open can't take still says so in the footer, though its other news waits (#123)", async () => {
   await writeFile(join(sources, "Archive.zip"), "not a document");
   const { app, window } = await launchApp(dataDir, { examples: true });
