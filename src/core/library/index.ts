@@ -102,7 +102,6 @@ interface AssignmentRow {
   created_at: string;
   filed_at: string | null;
   source: "automatic" | "user";
-  suggested: number;
   status: ClassificationStatus;
   content_hash: string | null;
   request_id: string;
@@ -181,7 +180,6 @@ const assignmentFields = (row: AssignmentRow): Omit<DocumentGroupAssignment, "do
   groupId: row.group_id,
   filedAt: row.filed_at ?? row.created_at,
   source: row.source,
-  suggested: row.suggested === 1,
   status: row.status,
   error: row.error_kind ? errorOf(row) : null,
   model: row.classification_model
@@ -248,7 +246,6 @@ const assignmentKey = (item: Omit<DocumentGroupAssignment, "documentId">): strin
   JSON.stringify([
     item.groupId,
     item.source,
-    item.suggested,
     item.status,
     item.error,
     item.model,
@@ -272,7 +269,7 @@ function parseAssignmentFields(
 ): Omit<DocumentGroupAssignment, "documentId"> | null {
   if (input === null) return null;
   if (!isRecord(input)) throw invalid;
-  const { groupId, filedAt, source, suggested, status, error, model } = input;
+  const { groupId, filedAt, source, status, error, model } = input;
   if (groupId !== null && (typeof groupId !== "string" || groupId === "")) throw invalid;
   if (
     filedAt !== undefined &&
@@ -282,7 +279,6 @@ function parseAssignmentFields(
   )
     throw invalid;
   if (source !== "automatic" && source !== "user") throw invalid;
-  if (typeof suggested !== "boolean" || (suggested && source !== "automatic")) throw invalid;
   const known = CLASSIFICATION_STATUSES.find((each) => each === status);
   if (!known) throw invalid;
   if (
@@ -295,7 +291,6 @@ function parseAssignmentFields(
     groupId,
     ...(filedAt !== undefined && { filedAt }),
     source,
-    suggested,
     status: known,
     error: error as ProviderError | null,
     model: model as ClassificationModel | null,
@@ -767,15 +762,6 @@ export function createLibrary(options: {
       "SELECT 1 FROM document_groups WHERE document_id = ? AND content_hash IS ? AND deleted_at IS NOT NULL LIMIT 1",
       [doc.id, doc.content_hash],
     );
-  const rejected = (id: string) =>
-    new Set(
-      db
-        .all<{ group_id: string }>(
-          "SELECT group_id FROM document_group_rejections WHERE document_id = ? AND deleted_at IS NULL",
-          [id],
-        )
-        .map((row) => row.group_id),
-    );
   /**
    * Announces these Documents' assignments, as the snapshot lists them (those
    * of Documents still there), so a client changes only these.
@@ -902,19 +888,17 @@ export function createLibrary(options: {
     source: "automatic" | "user",
     status: ClassificationStatus,
     model: ClassificationModel | null = null,
-    suggested = false,
   ) => {
     const at = now();
     const existing = assignment(doc.id);
     if (existing) {
       db.run(
-        "UPDATE document_groups SET filed_at = CASE WHEN group_id IS ? THEN filed_at ELSE ? END, group_id = ?, source = ?, suggested = ?, status = ?, content_hash = ?, request_id = ?, error_kind = NULL, error_message = NULL, error_wording = NULL, updated_at = ?, classification_model = ? WHERE document_id = ? AND deleted_at IS NULL",
+        "UPDATE document_groups SET filed_at = CASE WHEN group_id IS ? THEN filed_at ELSE ? END, group_id = ?, source = ?, status = ?, content_hash = ?, request_id = ?, error_kind = NULL, error_message = NULL, error_wording = NULL, updated_at = ?, classification_model = ? WHERE document_id = ? AND deleted_at IS NULL",
         [
           groupId,
           at,
           groupId,
           source,
-          suggested ? 1 : 0,
           status,
           doc.content_hash,
           randomUUID(),
@@ -925,13 +909,12 @@ export function createLibrary(options: {
       );
     } else {
       db.run(
-        "INSERT INTO document_groups (id, document_id, group_id, source, suggested, status, content_hash, request_id, created_at, updated_at, filed_at, classification_model) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO document_groups (id, document_id, group_id, source, status, content_hash, request_id, created_at, updated_at, filed_at, classification_model) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         [
           randomUUID(),
           doc.id,
           groupId,
           source,
-          suggested ? 1 : 0,
           status,
           doc.content_hash,
           randomUUID(),
@@ -959,15 +942,7 @@ export function createLibrary(options: {
     }
     // The move cancelled its classification: it waits its turn again.
     const status = target.status === "classifying" ? "pending" : target.status;
-    write(doc, target.groupId, target.source, status, target.model, target.suggested);
-    // Taking back a rejection brings the Folder back among those Organize may offer again.
-    if (target.suggested && target.groupId) {
-      const at = now();
-      db.run(
-        "UPDATE document_group_rejections SET deleted_at = ?, updated_at = ? WHERE document_id = ? AND group_id = ? AND deleted_at IS NULL",
-        [at, at, doc.id, target.groupId],
-      );
-    }
+    write(doc, target.groupId, target.source, status, target.model);
     if (target.filedAt !== undefined)
       db.run(
         "UPDATE document_groups SET filed_at = ? WHERE document_id = ? AND deleted_at IS NULL",
@@ -996,38 +971,6 @@ export function createLibrary(options: {
         id,
       ],
     );
-  };
-
-  const review = (input: unknown, change: (row: AssignmentRow) => void): AssignmentChange[] => {
-    if (!Array.isArray(input) || !input.every((id) => typeof id === "string" && id !== ""))
-      throw new InvalidInputError("Choose valid Documents.");
-    const docs = [...new Set(input as string[])].map(document);
-    const changes = db.transaction(() =>
-      docs.flatMap((doc) => {
-        const before = assignment(doc.id);
-        if (!before?.suggested) return [];
-        const taggingBefore = taggingSnapshot(doc.id);
-        change(before);
-        const after = assignment(doc.id);
-        const taggingAfter = taggingSnapshot(doc.id);
-        const taggingMoved = taggingKey(taggingBefore) !== taggingKey(taggingAfter);
-        return [
-          {
-            documentId: doc.id,
-            before: {
-              assignment: assignmentFields(before),
-              tagging: taggingMoved ? taggingBefore : null,
-            },
-            after: {
-              assignment: after ? assignmentFields(after) : null,
-              tagging: taggingMoved ? taggingAfter : null,
-            },
-          },
-        ];
-      }),
-    );
-    announce(changes.map((each) => each.documentId));
-    return changes;
   };
 
   function enqueue(id: string): void {
@@ -1174,8 +1117,6 @@ export function createLibrary(options: {
         holdBack(id, initial);
         return;
       }
-      const declined = rejected(id);
-      const offered = definitions.filter((item) => !declined.has(item.id));
       const read = source(current);
       const signal = AbortSignal.any([lifetime.signal, call.signal]);
       const images = organizeReadsPages(classifier.pageImages, read)
@@ -1188,7 +1129,7 @@ export function createLibrary(options: {
         return;
       }
       const result = await classifier.organize(
-        offered,
+        definitions,
         tagDefinitions,
         organizeExcerpt(read),
         signal,
@@ -1208,7 +1149,7 @@ export function createLibrary(options: {
         return;
       }
       const { groupId } = result;
-      const choice = groupId === null ? null : offered.find((item) => item.id === groupId);
+      const choice = groupId === null ? null : definitions.find((item) => item.id === groupId);
       if (choice === undefined) throw new Error("The classifier returned an unknown group.");
       if (result.fallback) console.info(fallbackLine(id));
       const proposedFolder =
@@ -1330,8 +1271,6 @@ export function createLibrary(options: {
           existing?.group_id ?? null,
           existing?.source ?? "automatic",
           hasContent(doc) ? "pending" : "waiting",
-          null,
-          existing?.suggested === 1,
         );
         tagState(doc.id, hasContent(doc) ? "pending" : "waiting");
       }
@@ -1539,8 +1478,6 @@ export function createLibrary(options: {
             existing?.group_id ?? null,
             existing?.source ?? "automatic",
             "pending",
-            null,
-            existing?.suggested === 1,
           );
           tagState(id, "pending");
         }
@@ -1562,9 +1499,9 @@ export function createLibrary(options: {
       return [...new Set(tree(folderId).flatMap((id) => everyFiledDocumentIdsOf(id)))];
     },
     /**
-     * The live Documents in no live Folder now, the Library's "Not in a Folder": one with a
-     * suggested Folder waiting counts as in it, a Linked folder's Documents are in none
-     * until they are filed, and a Meeting's Transcript is where its Note is (#2528).
+     * The live Documents in no live Folder now, the Library's "Not in a Folder": a Linked
+     * folder's Documents are in none until they are filed, and a Meeting's Transcript is where
+     * its Note is (#2528).
      */
     unfiledDocumentIds(): string[] {
       return db
@@ -1775,13 +1712,12 @@ export function createLibrary(options: {
         folderId: string,
         kind: "document" | "mind" | "conversation",
         itemId: string,
-        suggested = 0,
       ) =>
         db.run(
           `INSERT INTO deleted_folder_items
-             (id, folder_id, item_kind, item_id, suggested, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          [randomUUID(), folderId, kind, itemId, suggested, written, written],
+             (id, folder_id, item_kind, item_id, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+          [randomUUID(), folderId, kind, itemId, written, written],
         );
       const assignments = db.transaction(() => {
         const rows = db.all<AssignmentRow & { live: number }>(
@@ -1796,8 +1732,7 @@ export function createLibrary(options: {
           [at, at, JSON.stringify(folders)],
         );
         for (const row of rows) {
-          if (row.group_id !== null)
-            record(row.group_id, "document", row.document_id, row.suggested);
+          if (row.group_id !== null) record(row.group_id, "document", row.document_id);
         }
         for (const [folderId, ids] of Object.entries(taken.minds ?? {})) {
           for (const mindId of ids) record(folderId, "mind", mindId);
@@ -1806,7 +1741,7 @@ export function createLibrary(options: {
           for (const conversationId of ids) record(folderId, "conversation", conversationId);
         }
         db.run(
-          "UPDATE document_groups SET group_id = NULL, suggested = 0, updated_at = ? WHERE group_id IN (SELECT value FROM json_each(?)) AND deleted_at IS NULL",
+          "UPDATE document_groups SET group_id = NULL, updated_at = ? WHERE group_id IN (SELECT value FROM json_each(?)) AND deleted_at IS NULL",
           [at, JSON.stringify(folders)],
         );
         return rows.filter((row) => row.live).map((row) => assignmentOf(row));
@@ -2245,54 +2180,6 @@ export function createLibrary(options: {
         },
       };
     },
-    // A new request id makes a run already under way for these Documents stale.
-    accept(input: unknown, checked?: unknown): AssignmentChange[] {
-      if (checked !== undefined) {
-        if (!isRecord(checked))
-          throw new InvalidInputError({ key: "error.library.checkedFolders" });
-        // Checked in the same turn as the accepting, with nothing awaited between: a suggestion
-        // that moved to another Folder since it was checked is never accepted unchecked.
-        const ids: readonly unknown[] = Array.isArray(input) ? input : [];
-        const moved = ids.some((id) => {
-          if (typeof id !== "string") return false;
-          const now = assignment(id);
-          return now?.suggested === 1 && now.group_id !== (checked[id] ?? null);
-        });
-        if (moved) throw new InvalidInputError({ key: "error.folder.suggestionMoved" });
-      }
-      return review(input, (row) =>
-        db.run(
-          "UPDATE document_groups SET source = 'user', suggested = 0, request_id = ?, updated_at = ? WHERE document_id = ? AND deleted_at IS NULL",
-          [randomUUID(), now(), row.document_id],
-        ),
-      );
-    },
-    reject(input: unknown): AssignmentChange[] {
-      const settled: string[] = [];
-      const changes = review(input, (row) => {
-        // Only the tagging Organize held is the Reject's to settle; a state the tagger set, for a
-        // retag the User asked for, stays the tagger's (#1955).
-        const organizing = isOrganizing(row.document_id);
-        const at = now();
-        // The User's decision settles the Document, so a run that failed before the rejection
-        // doesn't outlive it: it is finished, not one Organize couldn't sort (#1928).
-        db.run(
-          "UPDATE document_groups SET group_id = NULL, suggested = 0, status = 'classified', error_kind = NULL, error_message = NULL, error_wording = NULL, request_id = ?, updated_at = ? WHERE document_id = ? AND deleted_at IS NULL",
-          [randomUUID(), at, row.document_id],
-        );
-        if (organizing) {
-          tagState(row.document_id, "classified");
-          settled.push(row.document_id);
-        }
-        if (row.group_id && !rejected(row.document_id).has(row.group_id))
-          db.run(
-            "INSERT INTO document_group_rejections (id, document_id, group_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-            [randomUUID(), row.document_id, row.group_id, at, at],
-          );
-      });
-      if (settled.length > 0) options.tagged(settled);
-      return changes;
-    },
     target(input: unknown): string | null {
       if (input === undefined || input === null) return null;
       if (!isRecord(input)) throw new InvalidInputError("Choose where to add the Documents.");
@@ -2328,14 +2215,7 @@ export function createLibrary(options: {
           !taggingStoppedFor(id) &&
           (!existing || existing.content_hash !== doc.content_hash)
         ) {
-          write(
-            doc,
-            existing?.group_id ?? null,
-            existing?.source ?? "automatic",
-            "waiting",
-            null,
-            false,
-          );
+          write(doc, existing?.group_id ?? null, existing?.source ?? "automatic", "waiting");
           state(id, "waiting", waits);
         }
         return;
@@ -2349,14 +2229,7 @@ export function createLibrary(options: {
           stopped(id);
           return;
         }
-        write(
-          doc,
-          existing?.group_id ?? null,
-          existing?.source ?? "automatic",
-          "pending",
-          null,
-          existing?.suggested === 1,
-        );
+        write(doc, existing?.group_id ?? null, existing?.source ?? "automatic", "pending");
         announce([id]);
       }
       const status = assignment(id)?.status;

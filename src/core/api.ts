@@ -10423,16 +10423,8 @@ export interface WindowCommandRequest {
   /** The Run the call is part of: a change the window's Undo takes back goes with its other changes. */
   run: string;
   command: CommandId;
-  /**
-   * What it acts on. For a suggestion To review's Accept all takes, `into` is the Suggested Folder
-   * the core checked it against (null: none): it is accepted only while it waits for that one.
-   */
-  targets: { kind: CommandTarget; id: string; into?: string | null }[];
-  /**
-   * The Folder wall the core checked it behind (null: outside every wall): what it files is filed
-   * by the walls judged again when it is filed, never across this one (#2250).
-   */
-  wall: string | null;
+  /** What it acts on. */
+  targets: { kind: CommandTarget; id: string }[];
   /** The Note the Question was asked from, which a command with no `targets` acts on; null: none. */
   mindId: string | null;
   /** The window whose Question it is, which alone runs it. */
@@ -11814,40 +11806,16 @@ export interface CoreApi {
   assignDocumentGroup(documentId: string, groupId: string | null): Promise<AssignmentChange>;
   /**
    * Puts a Document's place and tagging back as `before` had them, with who chose it, so an
-   * automatic choice stays automatic and Organize may change it again, and a Suggested Folder is
-   * a suggestion again, which also takes back its rejection: Organize may offer that Folder for
-   * the Document again. Other rejections stay. Each row goes back only while it still equals what
-   * the change left there (`after`); a later move, run or re-tag wins and that row is left alone.
-   * Returns the change it made, its real rows before and after, or null when it moved neither row.
+   * automatic choice stays automatic and Organize may propose for it again. Each row goes back
+   * only while it still equals what the change left there (`after`); a later move, run or re-tag
+   * wins and that row is left alone. Returns the change it made, its real rows before and after,
+   * or null when it moved neither row.
    */
   restoreAssignment(
     documentId: string,
     before: AssignmentState,
     after: AssignmentState,
   ): Promise<AssignmentChange | null>;
-  /**
-   * Makes these Documents' Suggested Folders the User's choices, which
-   * Organize never changes. Documents with none waiting are left alone; an
-   * unknown Document throws and changes nothing. Returns what changed.
-   * `checked` gives the Suggested Folder each was checked against (null: none): when one waits
-   * for another Folder now, nothing is accepted and it throws InvalidInputError (#2243).
-   * `wall` is the Folder wall the assistant checked them behind, given with `checked` (null:
-   * outside every wall): the walls are judged again here, when they are filed, so one that gained
-   * a wall since takes nothing (#2250). Without it, as To review accepts for the User, the User
-   * files anywhere.
-   */
-  acceptAssignments(
-    documentIds: string[],
-    checked?: Record<string, string | null>,
-    wall?: string | null,
-  ): Promise<AssignmentChange[]>;
-  /**
-   * Turns down these Documents' Suggested Folders: each is left Not in a
-   * Folder, and Organize doesn't suggest that Folder for it again. Documents
-   * with none waiting are left alone; an unknown Document throws and changes
-   * nothing. Returns what changed.
-   */
-  rejectAssignments(documentIds: string[]): Promise<AssignmentChange[]>;
   /**
    * Moves Minds, Documents and conversations into a Folder, or out of every Folder
    * (null), all or none: an unknown Mind, Document, conversation or Folder changes
@@ -14099,8 +14067,7 @@ export interface CoreEvents {
   "library.changed": null;
   /**
    * Documents' Library assignments changed: Organize queued, started,
-   * finished or failed on them, or the User put one in a Folder, or accepted
-   * or rejected its Suggested Folder. Carries each
+   * finished or failed on them, or the User put one in a Folder. Carries each
    * one's assignment whole, as `getLibrary` lists it, so the snapshot needn't
    * be read again.
    */
@@ -14507,8 +14474,6 @@ const methods: Record<CoreApiMethod, true> = {
   dismissAutomaticOffNotice: true,
   dismissReviewMoved: true,
   assignDocumentGroup: true,
-  acceptAssignments: true,
-  rejectAssignments: true,
   moveToFolder: true,
   restoreAssignment: true,
   getOrganizeReview: true,

@@ -2780,6 +2780,27 @@ export const migrations: readonly Migration[] = [
         WHERE deleted_at IS NULL AND suggested = 1;
     `,
   },
+  {
+    version: 136,
+    description:
+      "A Folder the User turned down for a Document is declined in Suggestions, and Suggested Folders are gone (#1569)",
+    sql: `
+      -- Turned down before Suggestions, a Folder isn't proposed for that Document for 30 days
+      -- from the upgrade, as one the User unticks.
+      INSERT INTO organize_review_declines
+        (id, document_id, kind, target_id, name, until, created_at, updated_at)
+        SELECT ${UUID_V4_SQL}, r.document_id, 'folder', r.group_id, g.name,
+          strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+30 days'),
+          strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        FROM document_group_rejections r
+        JOIN library_groups g ON g.id = r.group_id
+        WHERE r.deleted_at IS NULL;
+      DROP TABLE document_group_rejections;
+      -- deleted_folder_items.suggested stays: a Folder deleted before Suggestions still restores
+      -- its suggestions into them.
+      ALTER TABLE document_groups DROP COLUMN suggested;
+    `,
+  },
 ];
 
 /**

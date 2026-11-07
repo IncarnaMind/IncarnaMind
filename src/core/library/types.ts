@@ -163,12 +163,6 @@ export interface DocumentGroupAssignment {
   /** When it joined this Folder (ISO 8601, UTC), kept by Undo; absent in older clients. */
   filedAt?: string;
   source: "automatic" | "user";
-  /**
-   * `groupId` is a Suggested Folder: Organize proposed it and it waits for the
-   * User. Meanwhile it counts as the Document's Folder, in listings and in
-   * that Folder's Search scope. Always with source "automatic".
-   */
-  suggested: boolean;
   status: ClassificationStatus;
   error: ProviderError | null;
   model: ClassificationModel | null;

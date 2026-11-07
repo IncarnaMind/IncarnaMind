@@ -23,12 +23,6 @@ import type {
 
 export type { OrganizeReviewProposal, OrganizeReviewRun, TagsProposal } from "./store";
 
-/**
- * Whether Confirm adds a left-out row's Tags. Left out has no tick to say no with, so its Tags
- * wait until the User files it (#1569).
- */
-const LEFT_OUT_TAGS_CONFIRMED = false;
-
 export { createOrganizeReviewStore, organizeReviewCount } from "./store";
 
 /** What a Confirm or its Undo changed in the Library, for the events each change sends once saved. */
@@ -183,8 +177,8 @@ export function createOrganizeReview(options: {
           into.add(groupId);
         }
         const decided = new Set(tags.owned(item.document_id));
-        const tagRows =
-          item.placement === "leftOut" && !LEFT_OUT_TAGS_CONFIRMED ? [] : store.tagRowsOf(item.id);
+        // Left out has no tick to say no with: its Tags wait until the User files it (#1569).
+        const tagRows = item.placement === "leftOut" ? [] : store.tagRowsOf(item.id);
         for (const row of tagRows) {
           const tag = tagFor(row);
           if (!tag) continue;

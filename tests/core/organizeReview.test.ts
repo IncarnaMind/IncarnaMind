@@ -514,7 +514,6 @@ describe("Confirm makes it the User's, in one step with one Undo", () => {
       expect(await assignmentOf(core, documentId)).toMatchObject({
         groupId,
         source: "user",
-        suggested: false,
       });
     }
     expect(await tagsOn(core, lease.id)).toEqual([{ name: "Property", source: "user" }]);

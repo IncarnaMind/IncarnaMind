@@ -78,7 +78,6 @@ export type CommandsCore = Pick<
   | "updateLibraryGroup"
   | "updateTag"
   | "classifyDocuments"
-  | "acceptAssignments"
   | "mergeTags"
   | "getTaggingRoute"
   | "listDataFlows"

@@ -83,7 +83,7 @@ async function startOrganizing() {
       return assignment;
     });
   };
-  return { core, clock, finance, research, suggest };
+  return { core, clock, fake, finance, research, suggest };
 }
 
 const documentOf = async (core: Core, id: string) =>
@@ -495,37 +495,37 @@ describe("Restoring what was deleted", { timeout: 30_000 }, () => {
 });
 
 describe("Moving back and untagging", { timeout: 30_000 }, () => {
-  test("a Document filed automatically and moved by hand goes back to its Folder, still automatic", async () => {
+  test("a Document Organize proposed a Folder for, moved by hand, goes back to no Folder, still Organize's to propose for", async () => {
     const { core, finance, research, suggest } = await startOrganizing();
     const invoice = await addText(core, "Invoice.txt", "Invoice for the harbour dues.");
-    const filed = await suggest(invoice.id, finance.id);
-    if (!filed) throw new Error("No assignment.");
-    expect(filed).toMatchObject({ source: "automatic", suggested: true });
+    const waiting = await suggest(invoice.id, finance.id);
+    if (!waiting) throw new Error("No assignment.");
+    expect(waiting).toMatchObject({ groupId: null, source: "automatic" });
     const previous = await core.assignDocumentGroup(invoice.id, research.id);
     // The assign moved the place alone: its tagging was already up to date, so nothing of it is carried.
-    expect(previous.before.assignment).toEqual(withoutDocument(filed));
+    expect(previous.before.assignment).toEqual(withoutDocument(waiting));
     expect(previous.before.tagging).toBeNull();
     expect(previous.after.assignment).toMatchObject({ groupId: research.id, source: "user" });
     expect(previous.after.tagging).toBeNull();
     const assigned = nextEvent(core, "library.assignments");
     await core.restoreAssignment(invoice.id, previous.before, previous.after);
-    expect(await assigned).toEqual([filed]);
-    expect(await assignmentOf(core, invoice.id)).toEqual(filed);
+    expect(await assigned).toEqual([waiting]);
+    expect(await assignmentOf(core, invoice.id)).toEqual(waiting);
 
     // The same through a move, as the sidebar's drag and "Move to…" make one.
     const move = await core.moveToFolder({ documentIds: [invoice.id], folderId: research.id });
     const moved = move.documents[0];
     if (!moved) throw new Error("Not moved.");
-    expect(moved.from).toBe(finance.id);
-    expect(moved.change.before.assignment).toEqual(withoutDocument(filed));
+    expect(moved.from).toBeNull();
+    expect(moved.change.before.assignment).toEqual(withoutDocument(waiting));
     expect(moved.change.before.tagging).toBeNull();
     expect(moved.change.after.assignment).toMatchObject({ groupId: research.id, source: "user" });
     expect(moved.change.after.tagging).toBeNull();
     expect(await assignmentOf(core, invoice.id)).toMatchObject({ source: "user" });
     await core.restoreAssignment(invoice.id, moved.change.before, moved.change.after);
-    expect(await assignmentOf(core, invoice.id)).toEqual(filed);
+    expect(await assignmentOf(core, invoice.id)).toEqual(waiting);
 
-    // Still automatic: Organize may file it elsewhere.
+    // Still automatic: Organize may propose another Folder for it.
     expect(await suggest(invoice.id, research.id)).toMatchObject({ source: "automatic" });
 
     // One that had no assignment has none again.
@@ -536,23 +536,38 @@ describe("Moving back and untagging", { timeout: 30_000 }, () => {
     expect(await assignmentOf(core, budget.id)).toBeUndefined();
   });
 
-  test("a suggestion moved by hand comes back a suggestion, which the User can still turn down", async () => {
-    const { core, finance, research, suggest } = await startOrganizing();
+  test("a Document moved by hand while it waits in Suggestions, and moved back, waits there still, and the User can still turn it down", async () => {
+    const { core, fake, finance, research, suggest } = await startOrganizing();
     const invoice = await addText(core, "Invoice.txt", "Invoice for the harbour dues.");
-    const suggested = await suggest(invoice.id, finance.id);
+    const waiting = await suggest(invoice.id, finance.id);
 
     const move = await core.moveToFolder({ documentIds: [invoice.id], folderId: research.id });
-    expect(await assignmentOf(core, invoice.id)).toMatchObject({ suggested: false });
+    expect(await assignmentOf(core, invoice.id)).toMatchObject({
+      groupId: research.id,
+      source: "user",
+    });
     const moved = move.documents[0];
     if (!moved) throw new Error("Not moved.");
     await core.restoreAssignment(invoice.id, moved.change.before, moved.change.after);
-    expect(await assignmentOf(core, invoice.id)).toEqual(suggested);
+    expect(await assignmentOf(core, invoice.id)).toEqual(waiting);
+    expect(await proposedFor(core, invoice.id)).toBe(finance.id);
 
-    expect(await core.rejectAssignments([invoice.id])).toHaveLength(1);
-    expect(await assignmentOf(core, invoice.id)).toMatchObject({
-      groupId: null,
-      suggested: false,
+    // Unticked and confirmed: it stays in no Folder, and the next run doesn't propose Finance.
+    const row = (await core.getOrganizeReview()).items.find(
+      (each) => each.documentId === invoice.id,
+    );
+    if (!row) throw new Error("Nothing waits for it.");
+    await core.editOrganizeReview({ kind: "tick", itemIds: [row.id], ticked: false });
+    await core.confirmOrganizeReview([row.id]);
+    expect(await assignmentOf(core, invoice.id)).toMatchObject({ groupId: null });
+    const asked = fake.calls.length;
+    fake.choose(finance.id);
+    await core.classifyDocuments([invoice.id]);
+    await vi.waitFor(async () => {
+      expect(fake.calls).toHaveLength(asked + 1);
+      expect(await assignmentOf(core, invoice.id)).toMatchObject({ status: "classified" });
     });
+    expect(await proposedFor(core, invoice.id)).toBeNull();
   });
 
   test("Tags put back as they were record no removal, so automatic tagging can still add them", async () => {
