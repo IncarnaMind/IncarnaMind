@@ -29,6 +29,7 @@ import {
   conversationTextGroup,
   documentTextGroup,
   findings,
+  meetingTextGroup,
   meetingTextItems,
   nameGroups,
   noteGroup,
@@ -62,6 +63,7 @@ const OWN_TITLES: Record<string, MessageKey> = {
   recent: "palette.group.recent",
   actions: "palette.group.actions",
   notes: "palette.group.notes",
+  meetingText: "palette.group.meetingText",
   documentText: "palette.group.documentText",
   conversationText: "palette.group.conversationText",
   ask: "palette.group.ask",
@@ -177,14 +179,8 @@ function Palette() {
     return [
       ...nameGroups(words, found),
       ...actionGroup(words, context, language, found.names),
-      ...(notes || passages
-        ? noteGroup(
-            notes?.items ?? [],
-            minds,
-            t,
-            passages ? meetingTextItems(passages.items, documents, minds, t) : [],
-          )
-        : []),
+      ...(notes ? noteGroup(notes.items, minds, t) : []),
+      ...(passages ? meetingTextGroup(meetingTextItems(passages.items, documents, minds, t)) : []),
       ...(passages ? documentTextGroup(passages.items, documents, t) : []),
       ...(said ? conversationTextGroup(said.items) : []),
     ];

@@ -285,6 +285,7 @@ export const zhCN = {
   "palette.group.foldersAndTags": "文件夹和标签",
   "palette.group.actions": "操作",
   "palette.group.notes": "你写的内容",
+  "palette.group.meetingText": "会议中说过的",
   "palette.group.documentText": "文档内容",
   "palette.group.conversationText": "对话内容",
   "palette.group.ask": "助手",
@@ -5874,6 +5875,7 @@ export const zhCN = {
   "meetings.joined": "“{meeting}”已随转写稿移到“{folder}”",
   "meetings.joined.transcript": "“{meeting}”的转写稿已移到“{folder}”，与笔记放在一起",
   "meetings.joined.undo": "撤销",
+  "meetings.joined.undone": "“{meeting}”和转写稿已回到原处",
   "meetings.leftApart.one": "1 场会议未与转写稿合并：笔记和转写稿所在的文件夹都只在本文件夹内工作",
   "meetings.leftApart.other":
     "{count} 场会议未与转写稿合并：笔记和转写稿所在的文件夹都只在本文件夹内工作",

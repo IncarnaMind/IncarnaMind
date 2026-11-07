@@ -828,8 +828,21 @@ function useStatuses(): Status[] {
   // gone once the User moves the Note, as Undo can no longer put it back.
   for (const join of joined) {
     const mind = minds.find((each) => each.id === join.mindId);
+    if (!mind) continue;
+    if (join.undone) {
+      // Undo says it worked on the same line, for its few seconds, with the meeting's name (#2579).
+      const text = t("meetings.joined.undone", { meeting: mindName(mind) || t("mind.untitled") });
+      statuses.push({
+        testId: `meeting-joined-undone-${join.id}`,
+        tone: "info",
+        short: text,
+        full: text,
+        wraps: true,
+      });
+      continue;
+    }
     const folder = library?.groups.find((each) => each.id === join.folderId);
-    if (!mind || !folder || mind.folderId !== join.folderId) continue;
+    if (!folder || mind.folderId !== join.folderId) continue;
     const text = t(join.noteMoved ? "meetings.joined" : "meetings.joined.transcript", {
       meeting: mindName(mind) || t("mind.untitled"),
       folder: folder.name,
