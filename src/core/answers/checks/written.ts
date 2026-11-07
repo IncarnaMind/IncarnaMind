@@ -1077,7 +1077,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         }),
       ),
     ]);
-    if (outcomeError !== null) throw outcomeError;
+    if (outcomeError !== null) throw outcomeError.error;
     done.stop = stop;
     done.cut = cuts.sort((a, b) => a.index - b.index).map(({ uncovered }) => uncovered);
     return done;

@@ -1210,7 +1210,7 @@ export function createComparisons(options: ComparisonsOptions) {
         onOutcome: (cell, outcome) => record(fill, tableId, cell, outcome),
       });
       // A cell whose result couldn't be written to the table fails the fill, not its own check.
-      if (outcomeError !== null) throw outcomeError;
+      if (outcomeError !== null) throw outcomeError.error;
       if (stop) {
         // A column added meanwhile isn't checked either: the same limit stands.
         const left = content.read(fill.mindId, (all) => {

@@ -96,7 +96,11 @@ export async function runItems<I, T>(
   items: readonly I[],
   each: (item: I) => Promise<T>,
   { concurrency = 1, onOutcome, signal, wait = sleep }: RunItemsOptions<I, T> = {},
-): Promise<{ outcomes: ItemOutcome<T>[]; stop: RunStop | null; outcomeError: unknown }> {
+): Promise<{
+  outcomes: ItemOutcome<T>[];
+  stop: RunStop | null;
+  outcomeError: { error: unknown } | null;
+}> {
   const outcomes: ItemOutcome<T>[] = new Array(items.length);
   const queue = items.map((_, index) => index);
   const tries = items.map(() => 0);
@@ -116,14 +120,14 @@ export async function runItems<I, T>(
   };
 
   /** The first error `onOutcome` threw: returned once every item has settled, never its item's. */
-  let outcomeError: unknown = null;
+  let outcomeError: { error: unknown } | null = null;
 
   const hear = (index: number) => {
     if (!onOutcome) return;
     try {
       onOutcome(items[index] as I, outcomes[index] as ItemOutcome<T>);
     } catch (error) {
-      outcomeError ??= error;
+      outcomeError ??= { error };
     }
   };
 

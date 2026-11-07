@@ -233,11 +233,12 @@ export async function runChecks(
     id: string,
     change: (check: ClaimCheckAttributes, blocks: Y.XmlFragment) => ClaimCheckAttributes,
   ) => {
-    if (signal.aborted) return;
+    if (signal.aborted) return false;
     const kept = options.content.edit(mindId, (blocks) =>
       updateCheck(blocks, id, (check) => change(check, blocks)),
     );
     if (kept) options.retainEvidence(mindId);
+    return kept;
   };
   const notChecked =
     (reason: ClaimCheckAttributes["reason"], detail: string | null = null) =>
@@ -278,9 +279,8 @@ export async function runChecks(
       onOutcome(claim, outcome) {
         if (outcome.status === "done") {
           const at = options.now().toISOString();
-          if (outcome.value.verdict !== "not-checked") checked++;
           recordJudged(options.recordAiUse, mindId, prepared, outcome.value, at);
-          write(claim.id, (each, blocks) =>
+          const landed = write(claim.id, (each, blocks) =>
             options.withResult(
               each,
               outcome.value,
@@ -291,6 +291,7 @@ export async function runChecks(
               claim.priorParts,
             ),
           );
+          if (landed && outcome.value.verdict !== "not-checked") checked++;
         } else if (outcome.status === "not-checked") {
           write(claim.id, notChecked(outcome.stop.reason));
         } else if (outcome.status === "failed") {
@@ -307,8 +308,8 @@ export async function runChecks(
     },
   );
   if (outcomeError !== null) {
-    console.error(`A mark for Note ${mindId} couldn't be written:`, outcomeError);
-    throw outcomeError;
+    console.error(`A mark for Note ${mindId} couldn't be written:`, outcomeError.error);
+    throw outcomeError.error;
   }
   return { checked, stop };
 }

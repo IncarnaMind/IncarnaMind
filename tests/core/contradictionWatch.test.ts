@@ -393,7 +393,7 @@ describe("A new version of a Document in the Folder", { timeout: 30_000 }, () =>
     expect(await shownChecks(core, other.client, elsewhere.id)).toEqual([]);
   });
 
-  // protects=a background watch on a Note a newer version wrote hears each cited sentence once: it still checks every claim, counts none whose mark is missing, and logs the first mark it couldn't write once with the Note's id instead of failing each claim's job into the queue (#2543); fails_when=the mark's throw ends its job, so the queue reports it once per claim with no Note named, or a sentence whose mark is missing is counted checked; no_claim=how the window shows a watch that couldn't record itself.
+  // protects=a background watch on a Note a newer version wrote hears each cited sentence once and logs the first mark it couldn't write once with the Note's id, instead of failing each claim's job into the queue (#2543); fails_when=the mark's throw ends its job, so the queue reports it once per claim with no Note named; no_claim=the watch record's counts, which this Note can't record, and how the window shows a watch that couldn't record itself.
   test("a Note a newer version writes mid-run has each cited sentence checked once, and says once when a mark can't be written", async () => {
     const calls: ModelCall[] = [];
     const logged: { event: string; fields: Parameters<Logger["error"]>[1] }[] = [];

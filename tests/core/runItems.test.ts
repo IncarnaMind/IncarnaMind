@@ -213,7 +213,17 @@ describe("Running a run's items", () => {
     // The listener heard each item once, with the outcome its check gave: never a second, failed "first".
     expect(heard).toEqual(["first:done", "second:done", "third:done"]);
     expect(ran).toEqual(["first", "second", "third"]);
-    expect(run.outcomeError).toBe(thrown);
+    expect(run.outcomeError?.error).toBe(thrown);
     expect(run.outcomes.map((each) => each.status)).toEqual(["done", "done", "done"]);
+  });
+
+  test("a listener that throws a falsy value still comes back as the error", async () => {
+    const run = await runItems(["only"], async () => 1, {
+      onOutcome() {
+        throw undefined;
+      },
+    });
+    expect(run.outcomeError).not.toBeNull();
+    expect(run.outcomeError?.error).toBeUndefined();
   });
 });

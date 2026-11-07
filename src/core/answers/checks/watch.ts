@@ -318,15 +318,19 @@ export function createContradictionWatch(options: WatchOptions) {
         onOutcome(claim, outcome) {
           if (outcome.status !== "done" || signal.aborted) return;
           const result = outcome.value;
-          if (result.verdict !== "not-checked") checked++;
-          if (result.verdict === "contradicted") contradicted++;
-          write(mindId, request, ready.folderId, claim, result, prepared);
+          if (write(mindId, request, ready.folderId, claim, result, prepared)) {
+            if (result.verdict !== "not-checked") checked++;
+            if (result.verdict === "contradicted") contradicted++;
+          }
         },
       },
     );
     if (outcomeError !== null) {
-      options.log.error("contradictions.markFailed", { mindId, error: nameOf(outcomeError) });
-      throw outcomeError;
+      options.log.error("contradictions.markFailed", {
+        mindId,
+        error: nameOf(outcomeError.error),
+      });
+      throw outcomeError.error;
     }
     return {
       claims: ready.claims.length,
