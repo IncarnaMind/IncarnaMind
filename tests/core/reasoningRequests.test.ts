@@ -212,6 +212,7 @@ describe("An Answer's request to a model that thinks", () => {
       { effort: "high" },
     ],
     ["claude-sonnet-5-5", "task", { type: "adaptive", display: "summarized" }, undefined],
+    ["claude-haiku-5-5", "notes", { type: "adaptive", display: "summarized" }, { effort: "low" }],
     ["claude-haiku-5-5", "task", { type: "adaptive", display: "summarized" }, { effort: "low" }],
     [
       "claude-haiku-5-5-20261001",
@@ -357,6 +358,7 @@ describe("Each provider's own effort control (#1631)", () => {
       { effort: "low" },
     ],
     ["openrouter", "google/gemini-3.8-flash", "task", (b: Json) => b.reasoning, undefined],
+    ["openrouter", "google/gemini-3.8-flash", "notes", (b: Json) => b.reasoning, undefined],
     ["openrouter", "z-ai/glm-5.3-flash", "answer", (b: Json) => b.reasoning, undefined],
     ["openrouter", "qwen/qwen3.7-plus", "task", (b: Json) => b.reasoning, { max_tokens: 512 }],
     ["openrouter", "qwen/qwen3.7-plus", "answer", (b: Json) => b.reasoning, undefined],
@@ -373,11 +375,12 @@ describe("Each provider's own effort control (#1631)", () => {
     expect(read(await sent(kind, modelId, thinking, completion))).toEqual(expected);
   });
 
-  // protects=Gemini 3.8 Flash's Answers think at level low, and its Tasks, a careful Answer or another Gemini model at Google's default; fails_when=Flash's Answer lacks thinkingLevel "low", or its Task, a careful Answer or Gemini 3.1 Pro's carries a thinking config; no_claim=the fake API doesn't check what Google accepts.
+  // protects=Gemini 3.8 Flash's Answers think at level low, and its Tasks, a careful Answer, a Meeting's notes or another Gemini model at Google's default; fails_when=Flash's Answer lacks thinkingLevel "low", or its Task, a careful Answer, its notes or Gemini 3.1 Pro's carries a thinking config; no_claim=the fake API doesn't check what Google accepts.
   test.each([
     ["gemini-3.8-flash", "answer", { thinkingLevel: "low" }],
     ["gemini-3.8-flash", "task", undefined],
     ["gemini-3.8-flash", "careful", undefined],
+    ["gemini-3.8-flash", "notes", undefined],
     ["gemini-3.1-pro-preview", "answer", undefined],
   ] as const)("Google's %s, %s: thinking config %j", async (modelId, thinking, expected) => {
     const body = await sent("google", modelId, thinking, geminiReply);

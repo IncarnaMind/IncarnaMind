@@ -94,6 +94,8 @@ const PROVIDERS = [
         kinds: {
           answer: { anthropic: { effort: "low" } },
           careful: { anthropic: { effort: "high" } },
+          // A Meeting's notes, as an Answer was asked when they were measured (#2306).
+          notes: { anthropic: { effort: "low" } },
         },
         // At low, Claude Haiku 5.5's comparison cells finished about 0.5 s sooner within the quality
         // gate; Sonnet 5.5's no sooner, so it and the models not measured keep the default (#1631).
