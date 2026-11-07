@@ -61,6 +61,7 @@ export function createBatches(options: {
     const value: DocumentBatch = {
       id: batch.id,
       groupId: batch.groupId,
+      linkedFolderId: batch.linkedFolderId,
       documentIds: rows.map((row) => row.id),
       adding: batch.adding,
       read: rows.filter((row) => READ.has(row.status) || row.has_text === 1).length,
@@ -99,8 +100,11 @@ export function createBatches(options: {
   const touch = (batch: Batch) => {
     if (closed || !batches.has(batch.id)) return;
     dirty.add(batch);
-    if (timer) return;
+    // A batch's first word is said at once, even while another batch's timer runs: a window
+    // starts holding its lists the moment a batch begins (#1329).
+    if (timer && batch.said !== null) return;
     flush();
+    if (timer) return;
     const later = () => {
       timer = undefined;
       if (closed || dirty.size === 0) return;
