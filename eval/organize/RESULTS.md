@@ -241,7 +241,7 @@ Both runs together cost about $0.17.
 
 Every mistake: a Document not filed, in a Folder mostly of another label, with a kind missing or not labelled, or with a Tag judged off-topic. "none": it fits none of the five starter Folders; (topic): a Tag that names no kind.
 
-<details><summary>English: 39 Documents</summary>
+<details><summary>English: 39 of 40 Documents with a mistake</summary>
 
 | Document | Labelled: Folder; kinds | Proposed: Folder; Tags | What is wrong |
 |---|---|---|---|
@@ -287,7 +287,7 @@ Every mistake: a Document not filed, in a Folder mostly of another label, with a
 
 </details>
 
-<details><summary>Simplified Chinese: 38 Documents</summary>
+<details><summary>Simplified Chinese: 38 of 40 Documents with a mistake</summary>
 
 | Document | Labelled: Folder; kinds | Proposed: Folder; Tags | What is wrong |
 |---|---|---|---|
