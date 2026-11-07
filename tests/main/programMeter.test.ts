@@ -509,6 +509,40 @@ describe("the meter's ticks (macOS)", () => {
     }
   });
 
+  test("a shared lsof killed at its deadline by one run's processes stops that run only: another's own read is judged on its own time and counted", async () => {
+    const c = clock();
+    const { folder, device } = await workingFolder();
+    const { command } = computer({
+      ps: () => "600 1 600 501 1024\n700 1 700 501 1024",
+      lsof: (pids) => {
+        if (pids.split(",").includes("600")) {
+          c.advance(2000);
+          return killedLsof();
+        }
+        c.advance(30);
+        return lsofOf(700, device, 7, 9 * MB);
+      },
+    });
+    const meters = createMeters({
+      command,
+      platform: "darwin",
+      interval: false,
+      now: c.now,
+      cpu: c.cpu,
+      folder: async () => 0,
+    });
+    const slow = watcher();
+    const healthy = watcher();
+    meters.meter().watch(600, folder, slow.use, slow.unmeasured);
+    meters.meter().watch(700, folder, healthy.use, healthy.unmeasured);
+    await run(meters, c, 80, 250);
+    // Unknown from 250 ms, where the shared lsof began: the first tick past 10,250 is the 24th, at
+    // 10,360, since each of the healthy run's own reads takes 30 ms.
+    expect(stoppedAt(slow)).toBe(24);
+    expect(healthy.peak().unknown).toBe(false);
+    expect(healthy.uses.at(-1)?.folder).toBe(9 * MB);
+  });
+
   test("a program no longer watched is measured no more", async () => {
     const { folder } = await workingFolder();
     const { command, calls } = computer({ ps: () => "600 1 600 501 1024" });
@@ -1465,7 +1499,7 @@ describe("a run's reads, paced by their cost", () => {
     expect(each.uses.at(-1)?.folder).toBe(5 * MB);
   });
 
-  test("a read that timed out paces the next as one that ended would: a killed lsof and the run's own, 1 s in all, are tried again 4 s after they began", async () => {
+  test("a read that timed out paces the next as one that ended would: the run's own lsof after the shared one, 500 ms, is tried again 2 s after it began", async () => {
     const c = clock();
     const { command, lsofPids } = computer({
       ps: () => "600 1 600 501 1024",
@@ -1484,9 +1518,10 @@ describe("a run's reads, paced by their cost", () => {
     });
     const each = watcher();
     meters.meter().watch(600, "/w", each.use, each.unmeasured);
-    // lsof's turns are the odd ticks: read at 250 ms, then none before 4,250, the 13th tick.
+    // lsof's turns are the odd ticks. The shared one from 250 ms, the run's own from 750: none
+    // before 2,750, the 7th tick, then the 13th and the 19th.
     await run(meters, c, 20, 250);
-    expect(lsofPids).toEqual(["600", "600", "600", "600"]);
+    expect(lsofPids).toEqual(Array(8).fill("600"));
     expect(each.peak().unknown).toBe(false);
   });
 

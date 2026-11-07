@@ -799,20 +799,25 @@ export function createMeters(options: MetersOptions = {}): Meters {
     );
   }
 
-  /** Paces the run's next read by this one's cost; false when that cost passed the deadline. */
-  function readEnded(each: Watched, startedAt: number): boolean {
+  function readBegins(each: Watched, at: number) {
+    each.readingSince = at;
+    each.readingCpu = cpu();
+  }
+
+  /** Paces the run's next read by this one's cost; `inTime` false if the cost passed the deadline. */
+  function readEnded(each: Watched): { startedAt: number; inTime: boolean } {
     const at = now();
+    const startedAt = each.readingSince ?? at;
     each.readingSince = null;
     const cost = Math.max(at - startedAt, cpu() - each.readingCpu);
     each.nextReadAt = startedAt + READ_PACE * Math.min(cost, DISK_DEADLINE_MS);
-    return cost <= DISK_DEADLINE_MS;
+    return { startedAt, inTime: cost <= DISK_DEADLINE_MS };
   }
 
   /** Records how a run's read of its open files ended; a failed one stops the run before it's told. */
   async function settleRead(
     each: Watched,
     pids: readonly number[],
-    startedAt: number,
     read: () => Promise<{ files: UnlinkedFile[]; partial: boolean }>,
   ) {
     let result: { files: UnlinkedFile[]; partial: boolean };
@@ -821,7 +826,7 @@ export function createMeters(options: MetersOptions = {}): Meters {
       device = await each.device;
       result = await read();
     } catch (error) {
-      readEnded(each, startedAt);
+      const { startedAt } = readEnded(each);
       if (!watched.has(each)) return;
       if (error instanceof DiskTimeout) {
         each.ended = { ok: false, startedAt };
@@ -832,7 +837,8 @@ export function createMeters(options: MetersOptions = {}): Meters {
       return;
     }
     // Past its deadline a read is slow though it ended: a run whose reads stay that heavy is stopped.
-    const good = readEnded(each, startedAt) && !result.partial;
+    const { startedAt, inTime } = readEnded(each);
+    const good = inTime && !result.partial;
     if (!watched.has(each)) return;
     const bytes = heldBytes(result.files, new Set(pids), device);
     each.unlinked = good ? bytes : Math.max(each.unlinked, bytes);
@@ -846,13 +852,17 @@ export function createMeters(options: MetersOptions = {}): Meters {
       shared = await macUnlinked(command, [...new Set(batch.flatMap(({ pids }) => pids))]);
     } catch (error) {
       failure = error;
+      // Killed at its deadline, it was each run's read: unknown from its start, as one in flight is.
+      if (error instanceof DiskTimeout) for (const { each } of batch) each.unknownSince ??= at;
     }
     await Promise.all(
       batch.map(async ({ each, pids }) => {
-        await settleRead(each, pids, at, async () => ({
-          files: shared ?? (await macUnlinked(command, pids)),
-          partial: false,
-        }));
+        await settleRead(each, pids, async () => {
+          if (shared !== undefined) return { files: shared, partial: false };
+          // Judged on its own read: a killed shared one has already used the whole deadline.
+          readBegins(each, now());
+          return { files: await macUnlinked(command, pids), partial: false };
+        });
         // A run whose own read failed reported that; the others hear why they read their own.
         if (shared === undefined && !each.failed && watched.has(each)) {
           each.unmeasured(
@@ -900,8 +910,7 @@ export function createMeters(options: MetersOptions = {}): Meters {
       if (each.folderUse === "unknown" || !watched.has(each)) continue;
       if (!each.walking) walk(each);
       if (listing && unlinkedTurn && each.readingSince === null && at >= each.nextReadAt) {
-        each.readingSince = at;
-        each.readingCpu = cpu();
+        readBegins(each, at);
         batch.push({ each, pids });
       }
     }
@@ -911,7 +920,7 @@ export function createMeters(options: MetersOptions = {}): Meters {
       return;
     }
     for (const { each, pids } of batch) {
-      schedule(settleRead(each, pids, at, () => procUnlinked(reader, pids, listing.listedAt)));
+      schedule(settleRead(each, pids, () => procUnlinked(reader, pids, listing.listedAt)));
     }
   }
 
