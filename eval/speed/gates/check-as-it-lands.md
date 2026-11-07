@@ -28,3 +28,7 @@ When the assistant writes into a Note and its text streams in, each finished par
 ## What decides
 
 The step ships if every cell holds every bar. If a cell fails one, the pull request names it with its numbers, and what ships is decided in a dated note below, not by reading these bars again.
+
+## Amended 2026-11-07, before any Claude cell ran
+
+The direct Anthropic route answers again, so the Claude cells run on it, not through OpenRouter: Claude Haiku 5.5 (`claude-haiku-5-5`) and Claude Sonnet 5.5 (`claude-sonnet-5-5`), English and Chinese, three runs per arm, alternating as above. Sonnet's cells also give #1635's own bar for this write: its first paragraph under 8 s and its end under 25 s, read from the step's runs (reported, not one of this gate's bars). The DeepSeek cells, already running, finish as written. The bars are unchanged.
