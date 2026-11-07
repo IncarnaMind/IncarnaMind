@@ -32,3 +32,14 @@ The step ships if every cell holds every bar. If a cell fails one, the pull requ
 ## Amended 2026-11-07, before any Claude cell ran
 
 The direct Anthropic route answers again, so the Claude cells run on it, not through OpenRouter: Claude Haiku 5.5 (`claude-haiku-5-5`) and Claude Sonnet 5.5 (`claude-sonnet-5-5`), English and Chinese, three runs per arm, alternating as above. Sonnet's cells also give #1635's own bar for this write: its first paragraph under 8 s and its end under 25 s, read from the step's runs (reported, not one of this gate's bars). The DeepSeek cells, already running, finish as written. The bars are unchanged.
+
+## Amended again 2026-11-07, before any counted run
+
+The independent pre-review found the first version could check more of a write's sentences at once than its check holds, and read a figure before the Note's later paragraphs were in. Six DeepSeek runs had been made on that version; they are not counted, and every cell runs fresh on the version below.
+
+- **The step now:** one run checks the write's sentences, pushed in as their paragraphs land, so one limit at once, one pause and one stop hold for all of them. The first 12 cited sentences in the write's order are the ones checked, as before. A sentence with a digit waits for the whole write, as a figure is read with the Note's language and number separators. A write taken back sends nothing more.
+- **Bar 4** is read from each run's kept data folder (`INCARNAMIND_EVAL_KEEP_DATA=1`): the write's tool call's `selfCheck` (`failed` and its reasons from the marks) and its written-check requests in `ai_timings`.
+- **Bar 5** now reads: a sentence with no digit sends what it sends on `main`, whenever it starts (the normalized equivalence tests and the streaming tests in `tests/core/writtenChecks.test.ts`); a sentence with a digit is checked only once the whole write is in (a test holds that it waits).
+- **Reported, not a bar:** written-check requests per write, each arm.
+
+The other bars are unchanged.
