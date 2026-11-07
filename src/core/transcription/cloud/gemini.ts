@@ -198,10 +198,13 @@ export function createGeminiStream(options: CloudStreamOptions): CloudStreamHand
         return;
       }
       if (content.turnComplete === true) {
-        endTurn();
         progress();
+        // Its final text can come after it (Google doesn't order them), so mid-stream a guess
+        // waits for that rather than becoming a second line with the same words.
+        if (!link.finishing && !leaving) return;
+        endTurn();
         if (link.finishing) return link.complete();
-        if (leaving) renew(link);
+        renew(link);
         return;
       }
       progress();

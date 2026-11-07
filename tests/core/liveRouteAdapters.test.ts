@@ -525,6 +525,19 @@ describe("Gemini's Live API, for what it hears, in the messages its reference sh
     expect(heard.losses).toEqual([]);
   });
 
+  test("a turnComplete before its final text leaves the guess open, so the line is written once", () => {
+    const { service, heard, stream } = connect();
+    service.open();
+    service.say({ setupComplete: {} });
+    feed((samples) => stream.push(samples), 3);
+    service.say(guess("Budget is", "0.300s", "1.000s"));
+    service.say({ serverContent: { turnComplete: true } });
+    service.say(said("Budget is two point six million.", "0.300s", "2.400s"));
+    expect(heard.finals().map((each) => [each.text, each.startMs, each.endMs])).toEqual([
+      ["Budget is two point six million.", 300, 2400],
+    ]);
+  });
+
   test("after the last audio it waits for text still to come, and with none for three seconds it is done", async () => {
     vi.useFakeTimers();
     try {
