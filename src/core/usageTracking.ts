@@ -39,6 +39,8 @@ export interface UsageLookups {
   skillIsBuiltIn(name: string): boolean;
   /** Milliseconds, for how long Answers take. */
   now(): number;
+  /** An Answer started: counted for the weekly model-spend event (#1993). */
+  questionAsked(): void;
 }
 
 const isBuiltInSkillName = (name: string): name is (typeof BUILT_IN_SKILL_NAMES)[number] =>
@@ -128,6 +130,7 @@ export function trackUsage(
   const stops = [
     events.on("answer.started", ({ answerId, model }) => {
       started.set(answerId, lookups.now());
+      lookups.questionAsked();
       const provider = lookups.chatProvider(model.providerId);
       if (provider) {
         record({

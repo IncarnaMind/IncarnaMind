@@ -4186,6 +4186,7 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     skillIsBuiltIn: (name) => skills.list().some((skill) => skill.name === name && skill.builtIn),
     now: () => (adapters.now?.() ?? new Date()).getTime(),
+    questionAsked: () => modelSpend.questionAsked(),
   });
   usageData.record({ event: "app_opened", fields: { language: settings.get().language } });
   modelSpend.start();

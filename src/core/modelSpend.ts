@@ -25,6 +25,8 @@ type ProviderKind = SpendFields["provider_kind"];
 type Route = SpendFields["route"];
 
 const REPORTED = "usageData.spendWeek";
+/** The Questions started this week: a Note keeps its Questions in its own Blocks, so they are counted as they start. */
+const QUESTIONS = "usageData.spendQuestions";
 const CHECK_EVERY_MS = 60 * 60 * 1000;
 
 /** The closed kind of a provider's service: a provider's own name, region or model is never sent. */
@@ -91,8 +93,28 @@ interface ProviderRow {
   catalog_id: string | null;
 }
 
+interface QuestionTally {
+  week: string;
+  questions: number;
+}
+
+/** The week's Questions, from its tally; 0 for a week the tally doesn't cover. */
+function questionsIn(settings: SettingsStore, week: string): number {
+  const stored = settings.readDeviceValue(QUESTIONS);
+  return typeof stored === "object" &&
+    stored !== null &&
+    "week" in stored &&
+    stored.week === week &&
+    "questions" in stored &&
+    typeof stored.questions === "number" &&
+    Number.isInteger(stored.questions) &&
+    stored.questions >= 0
+    ? stored.questions
+    : 0;
+}
+
 /** The week's fields, or null when no model was called in it. */
-function weekFields(db: Database, start: Date, end: Date): SpendFields | null {
+function weekFields(db: Database, start: Date, end: Date, questions: number): SpendFields | null {
   const from = start.toISOString();
   const to = end.toISOString();
   // The cost record's own rows, without cloud transcription's, which has no model call.
@@ -152,12 +174,6 @@ function weekFields(db: Database, start: Date, end: Date): SpendFields | null {
   );
   const providerKind = ranked[0]?.[0] ?? providerKindOf(timings[0]?.provider_kind ?? null, null);
   const route = routes.size > 1 ? "mixed" : (routes.values().next().value ?? "local");
-  const questions =
-    db.get<{ n: number }>(
-      `SELECT count(*) AS n FROM conversation_messages
-       WHERE kind = 'question' AND created_at >= ? AND created_at < ?`,
-      [from, to],
-    )?.n ?? 0;
   const checks =
     db.get<{ n: number }>(
       `SELECT count(*) AS n FROM ai_use
@@ -199,7 +215,12 @@ export function createModelSpend(options: {
       // model call in it, is not sent later.
       options.settings.writeDeviceValue(REPORTED, last);
       if (!options.sending()) return;
-      const fields = weekFields(options.db, lastWeek, thisWeek);
+      const fields = weekFields(
+        options.db,
+        lastWeek,
+        thisWeek,
+        questionsIn(options.settings, last),
+      );
       if (fields) options.record({ event: "model_spend_week", fields });
     } catch (error) {
       reportError(error);
@@ -212,6 +233,18 @@ export function createModelSpend(options: {
       check();
       timer = setInterval(check, CHECK_EVERY_MS);
       timer.unref?.();
+    },
+    /** An Answer to a Question started: counted for the week it starts in. */
+    questionAsked(): void {
+      try {
+        // A completed week is read before the tally moves on, even if the app stayed open.
+        check();
+        const week = weekStarts(options.now()).thisWeek.toISOString();
+        const tally: QuestionTally = { week, questions: questionsIn(options.settings, week) + 1 };
+        options.settings.writeDeviceValue(QUESTIONS, tally);
+      } catch (error) {
+        reportError(error);
+      }
     },
     close(): void {
       if (timer !== undefined) clearInterval(timer);

@@ -491,15 +491,20 @@ describe("Usage data: what the core derives from its events", () => {
     const events = createEventHub();
     const recorded: UsageEvent[] = [];
     let time = 1_000;
+    let questions = 0;
     trackUsage(events, (event) => recorded.push(event), {
       chatProvider: (id) => (id === "cloud" ? { kind: "anthropic", local: false } : null),
       connectorIsRemote: (id) => (id === "gone" ? null : id === "remote"),
       skillIsBuiltIn: (name) => name === "summarise-document",
       now: () => time,
+      questionAsked: () => {
+        questions++;
+      },
     });
     return {
       events,
       recorded,
+      questions: () => questions,
       advance: (ms: number) => {
         time += ms;
       },
@@ -518,7 +523,7 @@ describe("Usage data: what the core derives from its events", () => {
   });
 
   test("an Answer: its model's kind, how long it took, and each Connector and Skill once, never by the User's names", () => {
-    const { events, recorded, advance } = track();
+    const { events, recorded, questions, advance } = track();
     const ids = { mindId: "m", answerId: "a" };
     events.emit("answer.started", { ...ids, questionId: "q", model });
     for (const remote of ["remote", "remote", "local", "gone"]) {
@@ -586,6 +591,7 @@ describe("Usage data: what the core derives from its events", () => {
       },
     ]);
     expect(JSON.stringify(recorded)).not.toMatch(/Acme|my-client-letters|claude/);
+    expect(questions()).toBe(1);
   });
 
   test("errors, by kind only: a failed Answer, a Document that fails now, a Connector that goes wrong", () => {
