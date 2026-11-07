@@ -6,7 +6,7 @@
  * name is.
  */
 import { passagesIn, recordFor, withSurroundingWords } from "./passages";
-import { lastUserText, type Prompt, type Reply, toolResults } from "./prompt";
+import { lastUserText, type Prompt, type Reply, type StreamPart, toolResults } from "./prompt";
 
 const HELP = /pressed a button for help/;
 
@@ -88,4 +88,27 @@ export function helpReply(prompt: Prompt, tools: readonly string[]): Reply | nul
   if (shape === "lines") return { text: LINES[language](quote ? " [^1]" : "") };
   const first = quote ? OPTIONS[language].cited(quote) : OPTIONS[language].first;
   return { text: `${first}\n\n${OPTIONS[language].second}` };
+}
+
+/**
+ * For a model id ending "-notes-first": a help reply's records come after a paragraph of the
+ * model's own notes in the same step, as Claude Sonnet 5.5 writes them (#2526); the core takes
+ * the notes back once the records come. Other steps are as they were.
+ */
+export function withNotesFirst(prompt: Prompt, parts: StreamPart[]): StreamPart[] {
+  if (!HELP.test(block(lastUserText(prompt), "help"))) return parts;
+  const at = parts.findIndex((part) => part.type === "tool-call" && part.toolName === "cite");
+  if (at === -1) return parts;
+  const notes = /\p{Script=Han}/u.test(lastUserText(prompt))
+    ? "最新的几句在问企业版的价格，价目表里有这一条，先记下引用。"
+    : "The newest lines ask about the Enterprise price, and the price sheet has it, so the record comes first.";
+  return [
+    ...parts.slice(0, at),
+    { type: "text-start", id: "notes" },
+    ...notes
+      .split(/(?<=\s)|(?<=\p{Script=Han})/u)
+      .map((delta): StreamPart => ({ type: "text-delta", id: "notes", delta })),
+    { type: "text-end", id: "notes" },
+    ...parts.slice(at),
+  ];
 }

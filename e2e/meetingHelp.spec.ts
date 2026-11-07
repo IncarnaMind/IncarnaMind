@@ -537,6 +537,49 @@ test("help during the call: Answer their question cites the price sheet, checked
   await removeDataFolder(sources);
 });
 
+// protects=the notes a model writes before its records, which the core takes back, never show in the panel: its outline holds until the first option, then the options stand; fails_when=the notes are drawn and then vanish; no_claim=what a real model writes (#2526).
+test("help during the call: a model's notes before its records never show, the outline holding until its first option", async () => {
+  const sources = await createDataFolder();
+  const { app, window } = await launchApp(dataDir, {
+    fakeChat: true,
+    transcriber: { theirLines: BUYER },
+  });
+  await setWindowSize(app, window, 1440, 900);
+  await dismissChatSetup(window);
+  await useLocalChatModel(window, "fake-model-notes-first");
+  const sheet = join(sources, "Price sheet.txt");
+  await writeFile(sheet, `Price sheet 2026\n\nTeam plan: $25 per seat a month.\n${PRICE}\n`);
+  await (await core(window)).evaluate((bridge, path) => bridge.addDocuments([path]), sheet);
+  await expect
+    .poll(async () =>
+      (await core(window)).evaluate(async (bridge) =>
+        (await bridge.listDocuments()).map((document) => document.status),
+      ),
+    )
+    .toEqual(["ready"]);
+  await recordingMeeting(window);
+  const panel = await panelOf(app);
+
+  await pointAndClick(
+    panel,
+    panel.getByTestId("help-button").filter({ hasText: "Answer their question" }),
+  );
+  const suggestion = panel.getByTestId("help-suggestion").last();
+  await expect(suggestion).toHaveAttribute("data-status", "streaming", { timeout: 20_000 });
+  const seen: string[] = [];
+  while ((await suggestion.getAttribute("data-status")) === "streaming") {
+    seen.push(await suggestion.innerText());
+    if (seen.length === 1) await expect(suggestion.getByTestId("help-outline")).toHaveCount(2);
+    if (seen.length === 12) await shot(panel, "help-panel-notes-streaming");
+  }
+  expect(seen.some((text) => /newest lines ask/.test(text))).toBe(false);
+  await expect(suggestion).toHaveAttribute("data-status", "done");
+  await expect(suggestion.getByTestId("help-option-say").first()).toContainText("$45 per seat");
+  await expect(suggestion).not.toContainText("newest lines ask");
+  await shot(panel, "help-panel-notes-done");
+  await removeDataFolder(sources);
+});
+
 test("help during the call with the live text behind and no line yet: the panel says so in one line, not options, in English and Chinese (#1366)", async () => {
   test.setTimeout(120_000);
   const { app, window } = await launchApp(dataDir, {
