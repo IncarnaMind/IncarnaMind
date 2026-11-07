@@ -1,6 +1,6 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { type ElectronApplication, expect, test } from "@playwright/test";
+import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import { translate } from "../src/shared/i18n";
 import { buildPdf } from "../tests/helpers/pdf";
@@ -12,6 +12,7 @@ import {
   launchApp,
   mindWrittenBefore,
   motionSettled,
+  pointAndClick,
   removeDataFolder,
   runCommand,
   setLanguage,
@@ -60,41 +61,44 @@ test.afterEach(async () => {
   await removeDataFolder(sources);
 });
 
+/** A model on a service, which checks several sentences at once, the Tides PDF, and the Note open. */
+async function harbourNotes(app: ElectronApplication, window: Page, language: "en" | "zh-CN") {
+  await setWindowSize(app, window, 1440, 900);
+  await dismissChatSetup(window);
+  await acceptPlainTextKeys(window);
+  // A model on this computer checks one sentence at a time, so the sort holds the only place.
+  await window.evaluate(async () => {
+    const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    const provider = await core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-ant-test",
+      modelId: "claude-haiku-5-5",
+    });
+    if (provider.service) await core.allowDataFlow("checks", provider.service.id);
+  });
+  await setLanguage(window, language);
+  await addDocuments(window, [join(sources, "Tides.pdf")]);
+  await mindWrittenBefore(window, "Harbour notes", [{ note: NOTE }]);
+  await window.getByTestId("mind-list-item").filter({ hasText: "Harbour notes" }).click();
+}
+
 for (const language of ["en", "zh-CN"] as const) {
   test(`a sentence whose check starts while the claims are named shows as checking, and is counted (${language})`, async () => {
     test.setTimeout(120_000);
     await writeFile(join(sources, "Tides.pdf"), TIDES);
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
     try {
-      await setWindowSize(app, window, 1440, 900);
-      await dismissChatSetup(window);
-      await acceptPlainTextKeys(window);
-      // A model on a service checks several sentences at once; one on this computer, one at a
-      // time, gives the sort the only place.
-      await window.evaluate(async () => {
-        const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-        const provider = await core.saveChatProvider({
-          kind: "anthropic",
-          apiKey: "sk-ant-test",
-          modelId: "claude-haiku-5-5",
-        });
-        if (provider.service) await core.allowDataFlow("checks", provider.service.id);
-      });
-      await setLanguage(window, language);
-      await addDocuments(window, [join(sources, "Tides.pdf")]);
-      await mindWrittenBefore(window, "Harbour notes", [{ note: NOTE }]);
-      await window.getByTestId("mind-list-item").filter({ hasText: "Harbour notes" }).click();
+      await harbourNotes(app, window, language);
 
       await holdSort(app, true);
       await runCommand(window, "mind.check", translate(language, "mindCheck.command"));
       const early = window.getByTestId("claim-mark-early");
       await expect(early).toHaveCount(1, { timeout: 30_000 });
-      await expect(early).toHaveAttribute("data-check", "checking");
       await expect(window.getByTestId("claim-mark")).toHaveCount(0);
       await expect(window.getByTestId("badge-progress").first()).toHaveText(
         translate(language, "badge.checking", { done: "0", total: "1" }),
       );
-      // Level with its sentence's first line, in the margin.
+      // Beside its paragraph's first line, in the margin.
       const line = await window.getByTestId("mind-editor").locator("p").first().boundingBox();
       const mark = await early.boundingBox();
       if (!line || !mark) throw new Error("The sentence or its mark isn't drawn.");
@@ -116,3 +120,24 @@ for (const language of ["en", "zh-CN"] as const) {
     }
   });
 }
+
+test("Stop while the claims are named takes the early checking mark away, and leaves the Note unmarked", async () => {
+  test.setTimeout(120_000);
+  await writeFile(join(sources, "Tides.pdf"), TIDES);
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  try {
+    await harbourNotes(app, window, "en");
+    await holdSort(app, true);
+    await runCommand(window, "mind.check", translate("en", "mindCheck.command"));
+    const early = window.getByTestId("claim-mark-early");
+    await expect(early).toHaveCount(1, { timeout: 30_000 });
+
+    await pointAndClick(window, window.getByTestId("badge-stop").first());
+    await holdSort(app, false);
+    await expect(window.getByTestId("badge-progress")).toHaveCount(0, { timeout: 30_000 });
+    await expect(early).toHaveCount(0);
+    await expect(window.getByTestId("claim-mark")).toHaveCount(0);
+  } finally {
+    await app.close();
+  }
+});

@@ -194,10 +194,6 @@ function watchNote(
   return {
     landed,
     firstMarkMs: () => firstMarkMs,
-    /** A mark the window draws before the Note has it: a sentence checked early (#1624). */
-    marked: () => {
-      firstMarkMs ??= since();
-    },
     stop: () => doc.off("update", read),
   };
 }
@@ -225,8 +221,9 @@ async function noteFlow(
   await client.settled();
   recorder.begin(sentences);
   const watch = watchNote(client.doc, sentences, recorder.since, await versionsOf(core));
+  let earlyMs: number | null = null;
   const stopEarly = core.on("mindCheck.early", (event) => {
-    if (event.mindId === mindId && event.sentences.length > 0) watch.marked();
+    if (event.mindId === mindId && event.sentences.length > 0) earlyMs ??= recorder.since();
   });
   let doneMs = 0;
   // Its end is taken when the check ends, not after a search asked during it.
@@ -253,6 +250,7 @@ async function noteFlow(
   stopEarly();
   return {
     checkStartMs: watch.firstMarkMs() ?? doneMs,
+    firstSignMs: earlyMs ?? watch.firstMarkMs() ?? doneMs,
     doneMs,
     landed: watch.landed,
     ...(searchedDuring && { searchedDuring }),
@@ -512,7 +510,10 @@ timedChecks("where a check's time goes, on each model and language", async () =>
             current = { flow, items: CITED(language) };
             const startedAt = new Date().toISOString();
             repeats.begin();
-            const times: Pick<FlowTimes, "checkStartMs" | "doneMs" | "landed" | "searchedDuring"> =
+            const times: Pick<
+              FlowTimes,
+              "checkStartMs" | "firstSignMs" | "doneMs" | "landed" | "searchedDuring"
+            > =
               flow === "note"
                 ? await noteFlow(core, choice, language, recorder, run)
                 : flow === "write"
@@ -537,6 +538,7 @@ timedChecks("where a check's time goes, on each model and language", async () =>
               load,
               load15,
               checkStartMs: times.checkStartMs,
+              ...(times.firstSignMs !== undefined && { firstSignMs: times.firstSignMs }),
               firstMarkMs: landed[0]?.ms ?? null,
               firstVerdictMs: firstVerdictMs(landed),
               doneMs: times.doneMs,

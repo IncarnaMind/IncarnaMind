@@ -121,7 +121,7 @@ function EarlyMark({ style }: { style: CSSProperties }) {
       data-testid="claim-mark-early"
       data-check="checking"
       className="margin-check claim-mark"
-      style={{ ...style, cursor: "default" }}
+      style={{ ...style, pointerEvents: "none" }}
       role="img"
       aria-label={label}
       title={label}
