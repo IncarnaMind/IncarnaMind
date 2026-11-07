@@ -277,9 +277,7 @@ function callStepOf(call: AnswerToolCall): CallStep | null {
   if (call.tool !== "read_web_page") return null;
   if (!call.webPage) {
     const url = call.input.url;
-    return call.status === "running" && typeof url === "string" && url !== ""
-      ? { kind: "unread", address: url }
-      : null;
+    return typeof url === "string" && url !== "" ? { kind: "unread", address: url } : null;
   }
   return "documentId" in call.webPage
     ? { kind: "read", name: call.webPage.name }
@@ -370,7 +368,7 @@ export function createResearch(options: ResearchOptions) {
     }
     const call = callStepFrom(step?.result);
     if (!call) return key;
-    // A call's row shows from its start, in the words the assistant's steps use while it runs (#1624).
+    // A call's row shows from its start, in words the app already uses while such a call runs (#1624).
     const running = step?.status === "started";
     switch (call.kind) {
       case "web-search":
@@ -458,24 +456,33 @@ export function createResearch(options: ResearchOptions) {
     const attempt = task.step(key)?.attempts ?? 1;
     const read = new Set<string>();
     let calls = 0;
-    const rows = new Map<string, { key: string; shown: CallStep }>();
-    const onCall = (call: AnswerToolCall) => {
-      if (call.webPage && "documentId" in call.webPage) read.add(call.webPage.documentId);
-      let row = rows.get(call.id);
-      const shown = callStepOf(call) ?? row?.shown;
-      if (!shown) return;
-      if (!row) {
-        calls += 1;
-        row = { key: `call:${index}:${attempt}:${calls}`, shown };
-        rows.set(call.id, row);
-        task.started(row.key, shown);
-      }
-      if (call.status === "running") return;
-      task.settled(
-        row.key,
-        call.status === "done" && shown.kind !== "unread" ? "completed" : "failed",
-        shown,
-      );
+    /**
+     * Each call's row, by call, for one try of the step: a try after a give-way may use a call's
+     * id again. A call the try's stop cut short is skipped, not failed: a Pause or an Answer
+     * going first ended it, not the call.
+     */
+    const rowsOf = (signal: AbortSignal) => {
+      const rows = new Map<string, { key: string; shown: CallStep }>();
+      return (call: AnswerToolCall) => {
+        if (call.webPage && "documentId" in call.webPage) read.add(call.webPage.documentId);
+        let row = rows.get(call.id);
+        const shown = callStepOf(call) ?? row?.shown;
+        if (!shown) return;
+        if (!row) {
+          calls += 1;
+          row = { key: `call:${index}:${attempt}:${calls}`, shown };
+          rows.set(call.id, row);
+          task.started(row.key, shown);
+        }
+        if (call.status === "running") return;
+        const status =
+          call.status === "done" && shown.kind !== "unread"
+            ? "completed"
+            : call.status === "failed" && signal.aborted
+              ? "skipped"
+              : "failed";
+        task.settled(row.key, status, shown);
+      };
     };
     const result = await answering(
       task,
@@ -488,7 +495,7 @@ export function createResearch(options: ResearchOptions) {
         web: input.sources.web,
         model,
         signal,
-        onCall,
+        onCall: rowsOf(signal),
       }),
     );
     if (!("answer" in result)) {
@@ -510,7 +517,7 @@ export function createResearch(options: ResearchOptions) {
     // No call runs yet: a call's row still running was cut short by a quit, and ended there.
     for (const step of options.tasks.steps(task.id)) {
       if (step.status === "started" && step.key.startsWith("call:")) {
-        task.settled(step.key, "failed", step.result);
+        task.settled(step.key, "skipped", step.result);
       }
     }
     const ready = await readyModel({ providerId: input.providerId, modelId: input.modelId });

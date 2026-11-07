@@ -88,7 +88,7 @@ export interface TaskRun {
   /** Records a step without an Effect as started, with what its row shows while it runs. */
   started(key: string, result?: unknown): void;
   /** Records how a step without an Effect ended. */
-  settled(key: string, status: "completed" | "failed", result?: unknown): void;
+  settled(key: string, status: "completed" | "failed" | "skipped", result?: unknown): void;
   /** A step as the journal has it. */
   step(key: string): StepRecord | null;
   /**
