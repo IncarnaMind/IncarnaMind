@@ -1417,6 +1417,9 @@ export function readHeader(text: string, context: FigureContext = {}): HeaderRea
 }
 
 const CN_UNIT_WORDS = `${HAN_CURRENCIES}|元`;
+const CN_MEASURE_WORDS =
+  "平方公里|平方米|立方米|公里|公顷|千瓦时|兆瓦时|千瓦|兆瓦|桶|盎司|千克|公斤|标准箱|吨";
+const CN_PER_TIME = "(?:[/／][日天月年])";
 const CN_STATED_SCALES = "十亿|亿|千万|百万|万|千|仟";
 // Outside a heading, "十亿元" is a figure: 十 is a numeral.
 const CN_SCALES_AFTER_WORDS = "亿|千万|百万|万|千|仟";
@@ -1435,9 +1438,20 @@ const WORD_CURRENCIES =
 // A scale heads a measure or a currency: "million tonnes", "million US dollars".
 const STATED_UNIT_WORDS =
   "(?:tonnes?|tons?|barrels?|boe|ounces?|oz|shares?|units?|(?:square|cubic)[ \\u00a0](?:metres?|meters?|feet|foot)|sq\\.?[ \\u00a0]?(?:m|ft)|litres?|liters?|gallons?|dollars?|US[ \\u00a0]dollars?|U\\.S\\.[ \\u00a0]dollars?|Hong[ \\u00a0]Kong[ \\u00a0]dollars?|HK[ \\u00a0]dollars?|euros?|pounds?(?:[ \\u00a0]sterling)?|sterling|yuan|[Rr]enminbi|yen)";
+const PER_TIME = "(?:[ \\u00a0]per[ \\u00a0][A-Za-z]+|[ \\u00a0]?/[ \\u00a0]?[A-Za-z]+)";
+// What "in thousands of …" counts when it names no currency: "tonnes", "barrels of oil equivalent".
+const COUNTED_WORDS = `[A-Za-z][A-Za-z²³-]*(?:[ \\u00a0][A-Za-z][A-Za-z²³-]*){0,5}${PER_TIME}?`;
 const STATEMENTS: readonly RegExp[] = [
   new RegExp(
     `(?:金额|货币|数量)?单位[:：]?(?<before>${HAN_CURRENCIES})?(?<scale>万亿|千亿|百亿|十亿|亿|千万|百万|十万|万|千|仟|百)?(?<unit>${CN_UNIT_WORDS}|吨|股|人次|人|户|家|个|%|辆|台|套)?`,
+    "dg",
+  ),
+  // "单位：万平方米", "单位：万桶/日": a scale of any measure the line above doesn't name, so it is
+  // read as that measure's and never as a plain scale an amount could take (#2365). A PDF joins
+  // a CJK line to the next ("单位：万平方米收入"), so the common measures are known by name, and any
+  // other only where its word ends.
+  new RegExp(
+    `(?:金额|货币|数量)?单位[:：](?<scale>万亿|千亿|百亿|十亿|亿|千万|百万|十万|万|千|仟|百)(?<unit>(?!${CN_UNIT_WORDS})(?:(?:${CN_MEASURE_WORDS})${CN_PER_TIME}?|[\\u4e00-\\u9fff]{1,4}${CN_PER_TIME}?(?![\\u4e00-\\u9fff])))`,
     "dg",
   ),
   new RegExp(`币种[:：]?(?<before>${HAN_CURRENCIES})`, "dg"),
@@ -1478,7 +1492,12 @@ const STATEMENTS: readonly RegExp[] = [
     `(?<![${BEFORE_CN_SCALE}])(?<before>${HAN_CURRENCIES})(?<scale>${CN_SCALES_AFTER_WORDS})(?=$|[\\s)）|,，;；。:：]|计|列)`,
     "dg",
   ),
-  /(?<![A-Za-z])in (?<scale>thousands|millions|billions)(?: of (?<cur>U\.?S\.? dollars|US dollars|Hong Kong dollars|HK dollars|dollars|euros|[Rr]enminbi|RMB|yuan|pounds sterling|pounds|yen))?(?![A-Za-z])/dgi,
+  // "in thousands of US dollars" states a currency; any other "of" a measure ("in thousands of
+  // tonnes", "In millions of barrels"), which is never a plain scale an amount could take (#2365).
+  new RegExp(
+    `(?<![A-Za-z])in (?<scale>thousands|millions|billions)(?: of (?:(?<cur>U\\.?S\\.? dollars|US dollars|Hong Kong dollars|HK dollars|dollars|euros|[Rr]enminbi|RMB|yuan|pounds sterling|pounds|yen)(?![A-Za-z])|(?<unit>${COUNTED_WORDS})${ENDS_STATEMENT}))?(?![A-Za-z])`,
+    "dgi",
+  ),
   new RegExp(
     `(?<![\\dA-Za-z.,])(?<cur>${STATED_CURRENCY})[ \\u00a0]?(?:in )?(?<scale>'?000(?:'?s)?|thousands?|millions?|billions?|lakhs?|crores?|Mio\\.?|Mrd\\.?|Tsd\\.?)(?![A-Za-z0-9])(?![ \\u00a0]?[\\d(-])(?![.,]\\d)`,
     "dg",
@@ -1522,7 +1541,7 @@ const STATEMENTS: readonly RegExp[] = [
   // A heading's "Unit: million tonnes", "(thousand tonnes)" or a row's "thousand tonnes" cell; in a
   // sentence, "78 million tonnes" is a figure and "a million people" states nothing.
   new RegExp(
-    `(?<=(?:^|[\\n\\t(（|]|\\bunits?[ \\u00a0]?[:：])[ \\u00a0]*)(?<scale>thousands?|millions?|billions?)(?:[ \\u00a0]of)?[ \\u00a0](?<unit>${STATED_UNIT_WORDS})(?=[ \\u00a0]*(?:$|[\\n\\t)）|]))`,
+    `(?<=(?:^|[\\n\\t(（|]|\\bunits?[ \\u00a0]?[:：])[ \\u00a0]*)(?<scale>thousands?|millions?|billions?)(?:[ \\u00a0]of)?[ \\u00a0](?<unit>${STATED_UNIT_WORDS}${PER_TIME}?)(?=[ \\u00a0]*(?:$|[\\n\\t)）|]))`,
     "dgi",
   ),
   // A scale word alone states one only in a bracket, a cell or after "Unit:": a line of its own may

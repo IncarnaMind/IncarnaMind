@@ -140,6 +140,7 @@ async function record(c: Case) {
     scale: answer.figures[0]?.inputs[0]?.unitStatement?.scale ?? null,
     currency: answer.figures[0]?.inputs[0]?.unitStatement?.currency ?? null,
     statement: answer.figures[0]?.inputs[0]?.unitStatement?.citation.quote ?? null,
+    unit: answer.figures[0]?.inputs[0]?.number.unit ?? null,
     asked: told(model, "calculate"),
   };
 }
@@ -632,6 +633,90 @@ describe("The scale cases #2365 still misses (#2365)", { timeout: 120_000 }, () 
     },
   );
 
+  // protects=#2365; fails_when=a per-share row whose head writes a minor unit ("(US cents)", "(pence)", "(p)", "（港仙）", "（美分）") takes the exception line's whole currency, so 10 cents is recorded as $10.00; or a row in whole units loses its own currency.
+  test.each([
+    {
+      language: "English, US cents",
+      head: "(in US$ millions, except per share data)",
+      lines: ["Basic EPS (US cents) 24.7", "Diluted EPS (US cents) 14.7"],
+      cites: ["Basic EPS (US cents) 24.7", "Diluted EPS (US cents) 14.7"] as [string, string],
+      currency: null,
+    },
+    {
+      language: "English, US cents, the number alone",
+      head: "(in US$ millions, except per share data)",
+      lines: ["Basic EPS (US cents) 24.7", "Diluted EPS (US cents) 14.7"],
+      cites: ["24.7", "14.7"] as [string, string],
+      currency: null,
+    },
+    {
+      language: "English, pence",
+      head: "(in £ millions, except per share data)",
+      lines: ["Basic EPS (pence) 24.7", "Diluted EPS (pence) 14.7"],
+      cites: ["Basic EPS (pence) 24.7", "Diluted EPS (pence) 14.7"] as [string, string],
+      currency: null,
+    },
+    {
+      language: "English, p",
+      head: "(in £ millions, except per share data)",
+      lines: ["Basic EPS (p) 24.7", "Diluted EPS (p) 14.7"],
+      cites: ["Basic EPS (p) 24.7", "Diluted EPS (p) 14.7"] as [string, string],
+      currency: null,
+    },
+    {
+      language: "English, whole pounds",
+      head: "(in £ millions, except per share data)",
+      lines: ["Basic EPS (£) 24.7", "Diluted EPS (£) 14.7"],
+      cites: ["Basic EPS (£) 24.7", "Diluted EPS (£) 14.7"] as [string, string],
+      currency: "GBP",
+    },
+    {
+      language: "Chinese, 港仙",
+      head: "（除每股数据外，单位：百万港元）",
+      lines: ["基本每股收益（港仙） 24.7", "稀释每股收益（港仙） 14.7"],
+      cites: ["基本每股收益（港仙） 24.7", "稀释每股收益（港仙） 14.7"] as [string, string],
+      currency: null,
+    },
+    {
+      language: "Chinese, 港仙, the number alone",
+      head: "（除每股数据外，单位：百万港元）",
+      lines: ["基本每股收益（港仙） 24.7", "稀释每股收益（港仙） 14.7"],
+      cites: ["24.7", "14.7"] as [string, string],
+      currency: null,
+    },
+    {
+      language: "Chinese, 美分",
+      head: "（除每股数据外，单位：百万美元）",
+      lines: ["基本每股收益（美分） 24.7", "稀释每股收益（美分） 14.7"],
+      cites: ["基本每股收益（美分） 24.7", "稀释每股收益（美分） 14.7"] as [string, string],
+      currency: null,
+    },
+    {
+      language: "Chinese, whole 港元",
+      head: "（除每股数据外，单位：百万港元）",
+      lines: ["基本每股收益（港元） 24.7", "稀释每股收益（港元） 14.7"],
+      cites: ["基本每股收益（港元） 24.7", "稀释每股收益（港元） 14.7"] as [string, string],
+      currency: "HKD",
+    },
+  ])(
+    "an excepted per-share row in a minor unit never takes the line's whole currency: $language",
+    async (each) => {
+      const chinese = each.language.startsWith("Chinese");
+      const recorded = await record({
+        file: chinese
+          ? pdfZh("每股盈利", [each.head, ...each.lines])
+          : pdf("EPS minor units", [each.head, ...each.lines]),
+        cites: each.cites,
+        numbers: ["24.7", "14.7"],
+        unitQuote: each.head,
+        query: chinese ? "每股盈利" : "EPS minor units",
+      });
+
+      expect(recorded.value).toBeCloseTo(10, 9);
+      expect(recorded.currency).toBe(each.currency);
+    },
+  );
+
   // protects=#2365; fails_when=the conflicting-scales refusal is removed and a currency-only row takes one of two scales ("Volumes in millions; amounts in thousands").
   test("a currency-only row with two scale statements refuses", async () => {
     const dollarRows: readonly [string, string] = ["Revenue (US$) 1,234.5", "Costs (US$) 334.5"];
@@ -740,6 +825,106 @@ describe("The scale cases #2365 still misses (#2365)", { timeout: 120_000 }, () 
 
     expect(recorded.value).toBeNull();
     expect(recorded.asked).toContain("states a unit of measure");
+  });
+
+  // protects=#2365; fails_when=the reader reads a line that names a measure or a rate ("(in thousands of tonnes)", "In millions of barrels", "(thousand barrels per day)", "单位：万平方米", "单位：万桶/日") as a plain scale, so it scales an amount whose row head states a currency, whether that line or the row head is quoted.
+  test.each(
+    [
+      { language: "English", line: "(in thousands of tonnes)" },
+      { language: "English", line: "(in millions of shares)" },
+      { language: "English", line: "In millions of barrels" },
+      { language: "English", line: "(thousand barrels per day)" },
+      { language: "English", line: "Unit: million barrels/day" },
+      { language: "Chinese", line: "单位：万平方米" },
+      { language: "Chinese", line: "单位：万桶/日" },
+      { language: "Chinese", line: "单位：千立方米/年" },
+    ].flatMap((each) => [
+      { ...each, quoted: "the line" },
+      { ...each, quoted: "the row heads" },
+    ]),
+  )("a line that names a measure never scales an amount: $line, quoting $quoted", async (each) => {
+    const chinese = each.language === "Chinese";
+    const lines = chinese
+      ? (["收入（元） 1,200", "成本（元） 300"] as const)
+      : (["Revenue (US$) 1,234.5", "Costs (USD) 334.5"] as const);
+    const heads = chinese ? (["收入（元）", "成本（元）"] as const) : (["(US$)", "(USD)"] as const);
+    const recorded = await record({
+      file: chinese ? pdfZh("计量", [each.line, ...lines]) : pdf("Measures", [each.line, ...lines]),
+      cites: lines,
+      numbers: (chinese ? ["1,200", "300"] : ["1,234.5", "334.5"]) as [string, string],
+      ...(each.quoted === "the line" ? { unitQuote: each.line } : { unitQuotes: heads }),
+      query: chinese ? "计量 收入 成本" : "measures revenue costs",
+    });
+
+    expect([null, 900]).toContain(recorded.value);
+  });
+
+  // protects=#2365; fails_when=a quote of the number alone from a line that writes its currency ("Revenue $1,234.5") takes a measure's scale from "In millions of barrels".
+  test("a measure's line never scales a number whose own line writes its currency", async () => {
+    const recorded = await record({
+      file: pdf("Barrels", ["In millions of barrels", "Revenue $1,234.5", "Costs $334.5"]),
+      cites: ["1,234.5", "334.5"],
+      numbers: ["1,234.5", "334.5"],
+      unitQuote: "In millions of barrels",
+      query: "barrels revenue costs",
+    });
+
+    expect(recorded.value).toBeNull();
+    expect(recorded.asked).toContain("states a unit of measure");
+  });
+
+  // protects=#2365; fails_when=a line that names a measure or a rate no longer states its scale and unit for the measure's own rows, or a line that names a currency after "of" stops stating that currency.
+  test.each([
+    {
+      line: "(in thousands of tonnes)",
+      rows: ["Output 1,234.5", "Shipments 334.5"] as [string, string],
+      numbers: ["1,234.5", "334.5"] as [string, string],
+      value: 900_000,
+      unit: { kind: "other", word: "tonnes" },
+    },
+    {
+      line: "(thousand barrels per day)",
+      rows: ["Production 1,234.5", "Sales 334.5"] as [string, string],
+      numbers: ["1,234.5", "334.5"] as [string, string],
+      value: 900_000,
+      unit: { kind: "other", word: "barrels per day" },
+    },
+    {
+      line: "(in thousands of US dollars)",
+      rows: ["Revenue 1,234.5", "Costs 334.5"] as [string, string],
+      numbers: ["1,234.5", "334.5"] as [string, string],
+      value: 900_000,
+      unit: { kind: "currency", code: "USD" },
+    },
+    {
+      line: "单位：万平方米",
+      rows: ["建筑面积 1,200", "出租面积 300"] as [string, string],
+      numbers: ["1,200", "300"] as [string, string],
+      value: 9_000_000,
+      unit: { kind: "other", word: "平方米" },
+    },
+    {
+      line: "单位：万桶/日",
+      rows: ["产量 1,200", "销量 300"] as [string, string],
+      numbers: ["1,200", "300"] as [string, string],
+      value: 9_000_000,
+      unit: { kind: "other", word: "桶/日" },
+    },
+  ])("a line that names a measure scales its own rows: $line", async (each) => {
+    const chinese = /\p{Script=Han}/u.test(each.line);
+    const recorded = await record({
+      file: chinese
+        ? pdfZh("计量", [each.line, ...each.rows])
+        : pdf("Measures", [each.line, ...each.rows]),
+      cites: each.rows,
+      numbers: each.numbers,
+      unitQuote: each.line,
+      query: chinese ? "计量 产量" : "measures rows",
+    });
+
+    expect(recorded.value).toBe(each.value);
+    expect(recorded.unit).toEqual(each.unit);
+    expect(recorded.statement).toBe(each.line);
   });
 
   // protects=#2365; fails_when=the measure guard refuses a measure's own rows, which the line's scale states.
