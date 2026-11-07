@@ -4,6 +4,9 @@ import { fitStrip } from "../../tabStripFit";
 // The tab list's end padding in styles.css: room for the last tab's foot, and the gap before the "+".
 const END_GAP = 10;
 
+// The tab list's start padding in styles.css: room for the first tab's foot.
+const START_GAP = 10;
+
 // The width of the fade at a side of `.tab-list` that hides tabs, in styles.css.
 const FADE_PX = 32;
 
@@ -120,8 +123,9 @@ export function useTabStripFit(
           if (alone.squeezed && alone.first === shown && alone.last === shown) {
             // Narrowed to its least width (`data-squeezed` in styles.css), it makes the room. The
             // room is taken before, free of the cut and the narrowing, so the width holds wherever
-            // the strip rests.
-            element.style.setProperty("--tab-room", `${room - END_GAP}px`);
+            // the strip rests. The first tab has the start padding before it as well.
+            const lead = shown === 0 ? START_GAP : 0;
+            element.style.setProperty("--tab-room", `${room - END_GAP - lead}px`);
             element.dataset.squeezed = "";
           }
         }

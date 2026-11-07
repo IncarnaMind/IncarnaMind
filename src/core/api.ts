@@ -9675,6 +9675,9 @@ export type ConnectorErrorKind =
   /** Anything else, e.g. it doesn't speak MCP. */
   | "failed";
 
+/** Where a remote Connector failed, for the log (see `ConnectorError.step`). */
+export type ConnectorFailureStep = "headers" | "sign-in" | "connect" | "tools" | "call";
+
 export interface ConnectorError {
   kind: ConnectorErrorKind;
   /** "missing-command": the command that wasn't found, e.g. "npx". Null otherwise. */
@@ -9685,6 +9688,12 @@ export interface ConnectorError {
   message: string;
   /** IncarnaMind will start it again by itself shortly, waiting longer after each failure. */
   retrying: boolean;
+  /** Remote: where it failed: reading its stored headers, signing in, connecting, or listing Tools. */
+  step?: ConnectorFailureStep;
+  /** Remote: the HTTP status the server answered, when one did. */
+  status?: number;
+  /** Remote: the failure's own first line, with every header value and key-like token redacted. */
+  detail?: string;
 }
 
 /** A Tool a Connector offers. */
@@ -9862,6 +9871,8 @@ export interface ConnectorImportEntry {
   url?: string;
   connection?: "http" | "sse";
   headers?: string[];
+  /** Headers that read a value from the User's environment in the imported file: no value is stored. */
+  placeholders?: { header: string; variable: string }[];
   action: "add" | "exists" | "remote" | "invalid";
 }
 

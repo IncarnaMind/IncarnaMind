@@ -370,14 +370,13 @@ export function actionGroup(
 }
 
 /**
- * "In your text": the Minds the core found the words in, with the Block that holds them, then the
- * meetings whose Transcripts hold them (`meetingTextItems`), as a meeting is a Note (#2528).
+ * "In your text": the Minds the core found the words in, with the Block that holds them. Words
+ * said in a meeting are their own group (`meetingTextGroup`), as they are its Note's (#2579).
  */
 export function noteGroup(
   found: readonly MindTextMatch[],
   minds: readonly Mind[],
   t: Translate,
-  meetings: readonly PaletteItem[] = [],
 ): PaletteGroup[] {
   const byId = new Map(minds.map((mind) => [mind.id, mind]));
   const items = found.flatMap((match): PaletteItem[] => {
@@ -396,8 +395,12 @@ export function noteGroup(
       },
     ];
   });
-  const all = [...items, ...meetings];
-  return all.length > 0 ? [{ id: "notes", items: all.slice(0, SHOWN.words) }] : [];
+  return items.length > 0 ? [{ id: "notes", items: items.slice(0, SHOWN.words) }] : [];
+}
+
+/** "Said in meetings": the meetings whose Transcripts hold the words, as their Notes' hits (#2579). */
+export function meetingTextGroup(meetings: readonly PaletteItem[]): PaletteGroup[] {
+  return meetings.length > 0 ? [{ id: "meetingText", items: meetings.slice(0, SHOWN.words) }] : [];
 }
 
 /** A Document as the palette reads it. */

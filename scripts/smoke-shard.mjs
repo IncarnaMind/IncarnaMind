@@ -6,12 +6,13 @@
 //   SMOKE_SPECS="e2e/a.spec.ts …" node scripts/smoke-shard.mjs <current> <total>
 //     prints the specs of one shard
 //
-// A pull request runs the specs it adds or changes, and every spec when it changes what they all
-// run on; the nightly run and a release run every spec. Shards are balanced by how long each spec
-// takes (e2e/durations.json, seconds per spec file, from CI's logs): Playwright's own --shard cuts
-// the list into runs of neighbouring files with equal numbers of tests, which left one shard with
-// the slowest files and the run waiting for it. A spec the table doesn't know yet counts as 5
-// seconds a test; refresh the table now and then from a green run's log.
+// A pull request runs the specs it adds or changes and nothing else, even when it changes what
+// every spec runs on (a helper, the config, the dependencies): the nightly run and a release run
+// every spec. Shards are balanced by how long each spec takes (e2e/durations.json, seconds per
+// spec file, from CI's logs): Playwright's own --shard cuts the list into runs of neighbouring
+// files with equal numbers of tests, which left one shard with the slowest files and the run
+// waiting for it. A spec the table doesn't know yet counts as 5 seconds a test; refresh the table
+// now and then from a green run's log.
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -22,17 +23,6 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SECONDS_A_SHARD = 1200;
 const MOST_SHARDS = 10;
 
-// The helpers, fixtures and settings every spec runs on. e2e/packaged and e2e/audit have
-// configs of their own, the timing table only balances the shards, and notes run nothing.
-const SHARED = new RegExp(
-  [
-    String.raw`^e2e/(?!packaged/|audit/|durations\.json$|[^/]+\.spec\.ts$|.*\.md$)`,
-    String.raw`^playwright\.config\.ts$`,
-    String.raw`^package(-lock)?\.json$`,
-    String.raw`^\.github/workflows/ci\.yml$`,
-    String.raw`^scripts/smoke-shard\.mjs$`,
-  ].join("|"),
-);
 const SPEC = /^e2e\/[^/]+\.spec\.ts$/;
 
 export function allSpecs() {
@@ -56,12 +46,11 @@ function durations() {
 
 /** The specs to run for these changed files (all of them with `all`), and how many shards. */
 export function plan(changed, { all = false } = {}) {
-  const specs =
-    all || changed.some((file) => SHARED.test(file))
-      ? allSpecs()
-      : [...new Set(changed)]
-          .filter((file) => SPEC.test(file) && existsSync(join(root, file)))
-          .sort();
+  const specs = all
+    ? allSpecs()
+    : [...new Set(changed)]
+        .filter((file) => SPEC.test(file) && existsSync(join(root, file)))
+        .sort();
   const known = durations();
   const seconds = specs.reduce((sum, spec) => sum + secondsOf(spec, known), 0);
   const count =

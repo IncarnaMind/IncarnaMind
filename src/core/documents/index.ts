@@ -155,7 +155,7 @@ const MAX_SEARCH_LIMIT = 200;
 /** A Document's language is told from the start of its first few Passages: a few thousand characters. */
 const LANGUAGE_SAMPLE_PASSAGES = 4;
 const LANGUAGE_SAMPLE_CHARACTERS = 1000;
-const MAX_NAME_LENGTH = 500;
+export const MAX_NAME_LENGTH = 500;
 const SEARCH_MODES: readonly SearchMode[] = ["hybrid", "keyword", "vector"];
 
 /**

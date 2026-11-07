@@ -9,6 +9,7 @@ import { createTempDataFolder } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { classifierModel } from "../helpers/library";
 import { connectToMind } from "../helpers/mindClient";
+import { note, writeMind } from "../helpers/minds";
 import { scriptedModels } from "../helpers/models";
 import { taggingModel, tagNamesOf, waitForTagging } from "../helpers/tags";
 import {
@@ -118,6 +119,59 @@ for (const language of ["en", "zh-CN"] as const) {
 }
 
 describe("A meeting's Transcript is never filed alone", { timeout: 60_000 }, () => {
+  test("renaming its Note renames its joined Transcript (#2579)", async () => {
+    const { core, dataDir, meeting } = await recordedMeeting("en");
+    const { document } = await stoppedMeeting(core, dataDir, meeting.id);
+    expect(document.meetingMindId).toBe(meeting.mindId);
+    const title = (await core.listMinds()).find((mind) => mind.id === meeting.mindId)?.title;
+    expect(document.name).toBe(`Transcript · ${title}`);
+    await core.renameMind(meeting.mindId, "Renamed call");
+    const after = (await core.listDocuments()).find((each) => each.id === document.id);
+    expect(after?.name).toBe("Transcript · Renamed call");
+
+    // While the Note has no title, its first line names the Transcript, and a later first line
+    // renames it still.
+    const client = await connectToMind(core, meeting.mindId);
+    writeMind(client, [note("Tidal timings")]);
+    await client.settled();
+    expect((await core.listDocuments()).find((each) => each.id === document.id)?.name).toBe(
+      "Transcript · Renamed call",
+    );
+    await core.renameMind(meeting.mindId, "");
+    expect((await core.listDocuments()).find((each) => each.id === document.id)?.name).toBe(
+      "Transcript · Tidal timings",
+    );
+    writeMind(client, [note("Harbour timings")]);
+    await client.settled();
+    expect((await core.listDocuments()).find((each) => each.id === document.id)?.name).toBe(
+      "Transcript · Harbour timings",
+    );
+
+    // A Note title past a Document's length: the Note keeps it, its Transcript's name is cut to fit.
+    const long = "T".repeat(600);
+    await core.renameMind(meeting.mindId, long);
+    expect((await core.listMinds()).find((mind) => mind.id === meeting.mindId)?.title).toBe(long);
+    expect((await core.listDocuments()).find((each) => each.id === document.id)?.name).toBe(
+      `Transcript · ${long}`.slice(0, 500),
+    );
+  });
+
+  // The cut falls inside a wave's surrogate pair in both: 13 + 487 and 6 + 1 + 493 units.
+  test.each([
+    ["en", "👋".repeat(260), `Transcript · ${"👋".repeat(243)}`],
+    ["zh-CN", `会${"👋".repeat(260)}`, `转写稿 · 会${"👋".repeat(246)}`],
+  ] as const)(
+    "in %s, a Note title past a Document's length cuts its Transcript's name between characters (#2579)",
+    async (language, title, expected) => {
+      const { core, dataDir, meeting } = await recordedMeeting(language);
+      const { document } = await stoppedMeeting(core, dataDir, meeting.id);
+      await core.renameMind(meeting.mindId, title);
+      const name = (await core.listDocuments()).find((each) => each.id === document.id)?.name;
+      expect(name).toBe(expected);
+      expect(name).not.toContain("\uFFFD");
+    },
+  );
+
   test("a move, a drag's filing, Tags and Organize leave it with its Note; another Document files as before", async () => {
     const fake = classifierModel();
     const { core, dataDir, meeting } = await recordedMeeting("en", {}, () => fake.model);
@@ -296,6 +350,14 @@ describe("A database from before (#2528)", { timeout: 60_000 }, () => {
     const apart = (await again.listDocuments()).find((each) => each.id === document.id);
     expect(apart?.meetingMindId).toBeNull();
     expect(apart?.tags.map((each) => each.tagId)).toEqual([tag.id]);
+    // Left apart, its Tags are its own: the refusal is only for a joined Transcript (#2579 pin).
+    const later = await again.createTag({ name: "Later filing" });
+    await again.addDocumentTag(document.id, later.id);
+    expect(
+      (await again.listDocuments())
+        .find((each) => each.id === document.id)
+        ?.tags.map((each) => each.tagId),
+    ).toEqual(expect.arrayContaining([tag.id, later.id]));
     expect((await filedTranscripts(again, document.id)).map((each) => each.groupId)).toEqual([
       vault.id,
     ]);

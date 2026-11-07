@@ -358,13 +358,14 @@ test("one divider runs the full height through the strips and the pages; it resi
   expect(leftBody.x + leftBody.width).toBeCloseTo(line.x, 0);
   expect(rightStrip.x).toBeCloseTo(line.x + 1, 0);
   expect(rightBody.x).toBeCloseTo(line.x + 1, 0);
-  // A later group's tabs start 10px in from it, so its shown first tab keeps its left foot.
+  // Every group's tabs start 10px in, so each shown first tab has its left foot, the first group's too.
   const tab = await boxOf(groupAt(window, 1).getByRole("tab"));
   expect(tab.x - (line.x + 1)).toBeCloseTo(10, 0);
-  await expect(
-    groupAt(window, 1).getByRole("tab").locator('.tab-foot[data-side="left"]'),
-  ).toBeVisible();
-  // The window's first group's tabs start at the card's edge.
+  for (const index of [0, 1]) {
+    await expect(
+      groupAt(window, index).getByRole("tab").locator('.tab-foot[data-side="left"]'),
+    ).toBeVisible();
+  }
   await expectFirstTabAtCardStart(window, groupAt(window, 0).getByRole("tab"));
 
   // Dragged 100px, the left group grows by 100px and the right one gives them.
