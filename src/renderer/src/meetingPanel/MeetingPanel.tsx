@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Meeting, MeetingHelp, MeetingHelpKind, MeetingHelpTemplate } from "../../../core/api";
+import type { MessageKey } from "../../../shared/i18n";
 import { GENERAL_HELP, MEETING_TEMPLATES, templateLabel } from "../../../shared/meetingHelp";
 import {
   type HeldKeys,
@@ -143,52 +144,38 @@ export function MeetingPanel() {
   );
 }
 
-function RecordingState({ meeting, brand = false }: { meeting: Meeting; brand?: boolean }) {
+function stateKey(meeting: Meeting): MessageKey {
+  if (isWaitingForPermission(meeting)) return "meetings.bar.waiting";
+  return meeting.status === "recording" ? "meetings.bar.recording" : "meetings.bar.paused";
+}
+
+function RecordingDot({ meeting }: { meeting: Meeting }) {
+  return (
+    <span
+      aria-hidden="true"
+      data-status={isWaitingForPermission(meeting) ? "waiting" : meeting.status}
+      className="recording-dot"
+    />
+  );
+}
+
+function RecordingState({ meeting }: { meeting: Meeting }) {
   const t = useT();
   const time = clockTime(useMeetingTime(meeting));
-  const recording = meeting.status === "recording";
-  const waiting = isWaitingForPermission(meeting);
   return (
     <span className="panel-state">
-      <span
-        aria-hidden="true"
-        data-status={waiting ? "waiting" : meeting.status}
-        className="recording-dot"
-      />
-      {brand && <b>IncarnaMind</b>}
-      {brand ? (
-        <span>
-          {t(
-            waiting
-              ? "meetings.bar.waiting"
-              : recording
-                ? "meetings.bar.recording"
-                : "meetings.bar.paused",
-          )}
-          {!waiting && ` ${time}`}
+      <RecordingDot meeting={meeting} />
+      <b>{t(stateKey(meeting))}</b>
+      {!isWaitingForPermission(meeting) && (
+        <span role="timer" data-testid="panel-time" className="panel-time">
+          {time}
         </span>
-      ) : (
-        <>
-          <b>
-            {t(
-              waiting
-                ? "meetings.bar.waiting"
-                : recording
-                  ? "meetings.bar.recording"
-                  : "meetings.bar.paused",
-            )}
-          </b>
-          {!waiting && (
-            <span role="timer" data-testid="panel-time" className="panel-time">
-              {time}
-            </span>
-          )}
-        </>
       )}
     </span>
   );
 }
 
+/** The pill shows the dot and the time; the rest is in its tooltip and accessible name (#2713). */
 function Pill({
   meeting,
   keys,
@@ -199,17 +186,27 @@ function Pill({
   onExpand(): void;
 }) {
   const t = useT();
+  const time = clockTime(useMeetingTime(meeting));
+  const waiting = isWaitingForPermission(meeting);
+  const state = t(stateKey(meeting));
+  const label = [
+    t("meetings.callHelp"),
+    waiting ? state : `${state} ${time}`,
+    ...(keys ? [t("meetings.panel.keysForHelp", { keys })] : []),
+  ].join(" · ");
   return (
-    <section aria-label={t("meetings.help.label")} data-testid="panel-pill" className="panel-pill">
-      <span className="panel-drag panel-pill-grip">
-        <RecordingState meeting={meeting} brand />
+    <section aria-label={label} title={label} data-testid="panel-pill" className="panel-pill">
+      <span className="panel-drag panel-pill-grip panel-state">
+        <RecordingDot meeting={meeting} />
+        {meeting.status === "recording" && !waiting ? (
+          <span role="timer" data-testid="panel-time" className="panel-time">
+            {time}
+          </span>
+        ) : (
+          <span>{state}</span>
+        )}
       </span>
       <LevelBars meeting={meeting} onStop={() => void useMeetings.getState().stop(meeting.id)} />
-      {keys && (
-        <kbd data-testid="panel-keys" className="panel-keys">
-          {keys}
-        </kbd>
-      )}
       <button
         type="button"
         data-testid="panel-expand"

@@ -6,8 +6,11 @@
 import { useSyncExternalStore } from "react";
 import type { FollowedSteps } from "./editor/editorUndo";
 
+/** Steps of the fill an editor follows, which may say whether ⇧⌘Z puts them back next. */
+type FillSteps = FollowedSteps & { redoesNext?(): boolean };
+
 interface Hold {
-  steps: FollowedSteps;
+  steps: FillSteps;
   /** Takes the steps out of the editor's history, and stops holding them. */
   letGo?: () => void;
 }
@@ -25,7 +28,7 @@ const changed = () => {
 export function holdFillSteps(
   meetingId: string,
   editor: object,
-  steps: FollowedSteps,
+  steps: FillSteps,
   letGo?: () => void,
 ): () => void {
   const holders = held.get(meetingId) ?? new Map<object, Hold>();
@@ -97,4 +100,22 @@ export async function undoFillInEditor(
   if (!steps?.onTop()) return false;
   await steps.undo();
   return true;
+}
+
+/** Whether `editor`'s next Undo, or Redo, is a meeting fill's own step. */
+export function fillNextIn(editor: object, step: "undo" | "redo"): boolean {
+  for (const holders of held.values()) {
+    const steps = holders.get(editor)?.steps;
+    if (steps && (step === "undo" ? steps.onTop() : steps.redoesNext?.() === true)) return true;
+  }
+  return false;
+}
+
+/** Where `editor`'s meeting fill stands in its history: in the Note, taken back, or neither. */
+export function fillStateIn(editor: object): "done" | "undone" | null {
+  for (const holders of held.values()) {
+    const state = holders.get(editor)?.steps.state();
+    if (state === "done" || state === "undone") return state;
+  }
+  return null;
 }

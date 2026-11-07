@@ -3,6 +3,7 @@ import type { Meeting } from "../../src/core/api";
 import {
   hasMeetingViews,
   meetingNoteViewFor,
+  meetingViewsOf,
   showMeetingNoteView,
   showNotesOf,
   stepMeetingNoteView,
@@ -45,16 +46,31 @@ test("choosing the current view changes no state and Notes clears only that tab"
 });
 
 test("⌥⌘← and ⌥⌘→ step through the views, stay at the ends, and take the User to the view", () => {
-  stepMeetingNoteView("tab", "note", -1);
+  const live = { mindId: "note", status: "recording", kind: "meeting" } as Meeting;
+  stepMeetingNoteView("tab", live, -1);
   expect(meetingNoteViewFor("tab", "note")).toBe("notes");
-  stepMeetingNoteView("tab", "note", 1);
+  stepMeetingNoteView("tab", live, 1);
   expect(meetingNoteViewFor("tab", "note")).toBe("transcript");
   expect(useMeetingNoteViews.getState().focus).toMatchObject({ tabId: "tab", view: "transcript" });
-  stepMeetingNoteView("tab", "note", 1);
+  stepMeetingNoteView("tab", live, 1);
   expect(meetingNoteViewFor("tab", "note")).toBe("transcript");
-  stepMeetingNoteView("tab", "note", -1);
+  stepMeetingNoteView("tab", live, -1);
   expect(meetingNoteViewFor("tab", "note")).toBe("notes");
   expect(useMeetingNoteViews.getState().focus).toMatchObject({ tabId: "tab", view: "notes" });
+});
+
+test("after the call My notes sits between Notes and the Transcript; during it there is none", () => {
+  const call = (status: Meeting["status"]) =>
+    ({ mindId: "note", status, kind: "meeting" }) as Meeting;
+  expect(meetingViewsOf(call("recording"))).toEqual(["notes", "transcript"]);
+  expect(meetingViewsOf(call("paused"))).toEqual(["notes", "transcript"]);
+  expect(meetingViewsOf(call("stopped"))).toEqual(["notes", "mine", "transcript"]);
+  stepMeetingNoteView("tab", call("stopped"), 1);
+  expect(meetingNoteViewFor("tab", "note")).toBe("mine");
+  stepMeetingNoteView("tab", call("stopped"), 1);
+  expect(meetingNoteViewFor("tab", "note")).toBe("transcript");
+  stepMeetingNoteView("tab", call("stopped"), -1);
+  expect(meetingNoteViewFor("tab", "note")).toBe("mine");
 });
 
 test("a switch made with the switcher's own arrows leaves the focus where it is", () => {

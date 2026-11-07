@@ -130,6 +130,10 @@ async function playCall({
         dropped.push({ stream, atMs: callTime() });
         engine.transcriber.drop(stream);
       },
+      dropCloud(streams) {
+        for (const stream of streams) dropped.push({ stream, atMs: callTime() });
+        return engine.transcriber.dropCloud(streams);
+      },
     },
     transcriptionModelSource: NO_TRANSCRIPTION_FILES,
     transcriptionKeyFetch: async () => new Response(null, { status: 200 }),
