@@ -11,7 +11,13 @@ import { checkReply, isCheckRun, type Plan } from "../helpers/checks";
 import { setUpWithDocuments, shownPassages } from "../helpers/citations";
 import { connectToMind } from "../helpers/mindClient";
 import { note, resolveChanges, writeMind } from "../helpers/minds";
-import { type ModelCall, type ScriptedReply, scriptedModel } from "../helpers/models";
+import {
+  claimCheckReply,
+  type GenerateCall,
+  type ModelCall,
+  type ScriptedReply,
+  scriptedModel,
+} from "../helpers/models";
 
 /**
  * A write that does all the User asked ends the Answer with what it wrote, and no reply after it
@@ -25,6 +31,8 @@ const MOON = "Spring tides come at new and full moon";
 const UNBACKED = "Neap tides are twice as strong";
 const FAILING = "The harbour floods at every spring tide";
 const NEAP = "Neap tides come between them";
+// Letters, not numbers: a number would make each sentence a figure to check.
+const tide = (index: number) => `Tide ${String.fromCharCode(65 + index)} comes at full moon`;
 const TIDES = [{ name: "Tides.md", contents: `# Tides\n\n${MOON}.\n` }];
 /** A check's plan by its sentence as the check reads it, each Citation taken out. */
 const PLANS: Record<string, Plan> = Object.fromEntries(
@@ -36,6 +44,12 @@ const PLANS: Record<string, Plan> = Object.fromEntries(
       says: MOON,
     },
     [`${NEAP} ${INLINE_NODE}.`]: { verdict: "supported", quote: MOON, says: MOON },
+    ...Object.fromEntries(
+      Array.from({ length: 14 }, (_, index) => [
+        `${tide(index)} ${INLINE_NODE}.`,
+        { verdict: "supported", quote: MOON, says: MOON },
+      ]),
+    ),
     [`${UNBACKED} ${INLINE_NODE}.`]: {
       reply: { text: "Verdict: unsupported\nNo Passage compares the strength of the tides." },
     },
@@ -173,26 +187,101 @@ describe("A write that does all the User asked ends the Answer (#1635)", {
     expect(answer.text).toContain(REPLY.slice(0, -1));
   });
 
-  // protects=what the check flagged, couldn't check, or didn't, only the reply tells: a sentence its Citations don't support, one whose check failed, and sentences past the most one write checks keep the reply; fails_when=any of them ends the Answer on a line that says nothing of it; no_claim=none beyond protects.
+  // protects=a sentence its Citations don't support is marked only in the Note, so the reply tells it; fails_when=the Answer ends on a line that says nothing of it; no_claim=none beyond protects.
+  test("a sentence its Citations don't support: the model is told and replies", async () => {
+    const { model, answerCalls } = writing(() => [
+      add({ content: `${MOON} [^1]. ${UNBACKED} [^1].`, done: true }),
+    ]);
+    const { core, mindId } = await notes(model);
+
+    const answer = await ask(core, mindId);
+
+    expect(changesIn(answer)[0]?.selfCheck).toMatchObject({ checked: 2 });
+    expect(answerCalls).toHaveLength(4);
+    expect(answer.text).toBe(REPLY);
+  });
+
+  // protects=a sentence whose check failed, and sentences past the most one write checks, are on the lines under the Answer (its selfCheck), so a done write still ends; fails_when=either keeps a reply that only repeats the line, or the line's counts are lost; no_claim=the line's words (tests/renderer/selfChecks).
   test.each([
-    ["a sentence its Citations don't support", `${MOON} [^1]. ${UNBACKED} [^1].`, { checked: 2 }],
     ["a sentence its check couldn't check", `${FAILING} [^1].`, { failed: 1 }],
     [
       "sentences past the most a write checks",
-      Array.from(
-        { length: 14 },
-        (_, index) => `Spring tide ${index + 1} comes at full moon [^1].`,
-      ).join("\n\n"),
+      Array.from({ length: 14 }, (_, index) => `${tide(index)} [^1].`).join("\n\n"),
       { cited: 14, sent: 12 },
     ],
-  ])("%s: the model is told and replies", async (_, content, check) => {
+  ])("%s: the lines under the Answer say it, and it ends", async (_, content, check) => {
     const { model, answerCalls } = writing(() => [add({ content, done: true })]);
     const { core, mindId } = await notes(model);
 
     const answer = await ask(core, mindId);
 
     expect(changesIn(answer)[0]?.selfCheck).toMatchObject(check);
+    expect(answerCalls).toHaveLength(3);
+    expect(answer.text).toBe("");
+  });
+
+  // protects=what the model wrote beside a done write, in its step, isn't thrown away: the turn goes on to a reply that can say it; fails_when=the Answer ends blank, losing the answer it wrote beside the write; no_claim=how often a real model writes text beside a write.
+  test("text beside a done write keeps the reply", async () => {
+    const { model, answerCalls } = writing(() => [
+      {
+        text: "They come at new and full moon [^1].",
+        calls: [{ tool: "add_to_mind", input: { content: `${MOON} [^1].`, done: true } }],
+      },
+    ]);
+    const { core, mindId } = await notes(model);
+
+    const answer = await ask(core, mindId);
+
     expect(answerCalls).toHaveLength(4);
+    expect(answer.text).not.toBe("");
+  });
+
+  // protects=an earlier call of the same Answer that was refused keeps the reply though a later write says all: only the reply tells the User; fails_when=a clean done write after a refusal ends the Answer blank; no_claim=none beyond protects.
+  test("a write refused earlier in the Answer keeps the reply after a clean done write", async () => {
+    const { model, answerCalls } = writing(() => [
+      add({ content: `${MOON} [^1].`, after: "Nowhere" }),
+      add({ content: `${MOON} [^1].`, done: true }),
+    ]);
+    const { core, mindId } = await notes(model);
+
+    const answer = await ask(core, mindId);
+
+    expect(mindCalls(answer).map((call) => call.status)).toEqual(["failed", "done"]);
+    expect(answerCalls).toHaveLength(5);
+    expect(answer.text).not.toBe("");
+  });
+
+  // protects=a run the change-claim check asked to write its reply again doesn't end at a done write: the reply it was asked for comes; fails_when=the asked-again run ends blank, so neither the first reply nor a new one shows; no_claim=how often a real model claims a change before making it.
+  test("a run asked to write its reply again doesn't end at a done write", async () => {
+    const answerCalls: ModelCall[] = [];
+    const model = scriptedModel(
+      (call): ScriptedReply => {
+        if (isCheckRun(call)) return checkReply(call, PLANS);
+        answerCalls.push(call);
+        if (!called(call, "search_documents")) {
+          return { calls: [{ tool: "search_documents", input: { query: "spring tides" } }] };
+        }
+        if (!called(call, "cite")) return { calls: [citeMoon(call)] };
+        if (askedIn(call).includes("Write your reply again") && !called(call, "add_to_mind")) {
+          return add({ content: `${MOON} [^1].`, done: true });
+        }
+        return { text: REPLY };
+      },
+      {
+        generate: (call: GenerateCall) =>
+          call.system.includes(CLAIM_CHECK_INSTRUCTIONS)
+            ? claimCheckReply(
+                call,
+                call.prompt.includes('"applied": true') ? [] : [{ sentence: REPLY, kind: "added" }],
+              )
+            : { text: "" },
+      },
+    );
+    const { core, mindId } = await notes(model);
+
+    const answer = await ask(core, mindId);
+
+    expect(mindCalls(answer).map((call) => call.tool)).toEqual(["add_to_mind"]);
     expect(answer.text).toBe(REPLY);
   });
 
@@ -310,11 +399,11 @@ describe("A write that does all the User asked ends the Answer (#1635)", {
     expect(answer.text).toBe(text);
   });
 
-  // protects=a write that cites in the same step ends once the records hold, and text the model wrote beside a cite of its own before the write isn't brought back as the Answer; fails_when=it waits for a reply, or the preamble shows as the Answer; no_claim=none beyond protects.
+  // protects=a write that cites in the same step ends once the records hold; text the model wrote beside a cite of its own before the write, which may be its answer, keeps the reply rather than being dropped; fails_when=the first waits for a reply, or the second ends blank; no_claim=none beyond protects.
   test.each([
     ["beside its cite", "beside"],
-    ["after a cite with a preamble", "preamble"],
-  ] as const)("a done write made %s ends with a blank Answer", async (_, how) => {
+    ["after a cite with text beside it", "preamble"],
+  ] as const)("a done write made %s", async (_, how) => {
     const answerCalls: ModelCall[] = [];
     const model = scriptedModel((call): ScriptedReply => {
       if (isCheckRun(call)) return checkReply(call, PLANS);
@@ -336,8 +425,8 @@ describe("A write that does all the User asked ends the Answer (#1635)", {
 
     const answer = await ask(core, mindId);
 
-    expect(answer.text).toBe("");
-    expect(answerCalls).toHaveLength(how === "beside" ? 2 : 3);
+    expect(answer.text).toBe(how === "beside" ? "" : REPLY);
+    expect(answerCalls).toHaveLength(how === "beside" ? 2 : 4);
     expect(changesIn(answer)[0]).toMatchObject({ mindId, cited: 1 });
   });
 
@@ -353,6 +442,7 @@ describe("A write that does all the User asked ends the Answer (#1635)", {
         await client.settled();
         const doc = client.blocks.doc;
         return {
+          text: answer.text,
           shown: shownOf(answer),
           checkpoints: (await core.listCheckpoints(mindId)).checkpoints.map((each) => each.reason),
           asked: doc && change ? askedFor(doc, change.request) : null,
@@ -360,7 +450,10 @@ describe("A write that does all the User asked ends the Answer (#1635)", {
       }),
     );
 
-    expect(runs[0]).toEqual(runs[1]);
-    expect(runs[0]?.asked).toBe(true);
+    expect(runs[0]?.text).toBe("");
+    expect(runs[1]?.text).toBe(REPLY);
+    const [ended, replied] = runs.map(({ text: _text, ...shown }) => shown);
+    expect(ended).toEqual(replied);
+    expect(ended?.asked).toBe(true);
   });
 });

@@ -224,6 +224,13 @@ export function pairedSection(
     const done = rows.map(run).filter((each) => each.status === "done");
     return `${done.filter((each) => each.endedAtWrite).length} of ${done.length}`;
   };
+  const doneReplied = (run: (row: PairedRow) => ArmRun) => {
+    const marked = rows.map(run).filter((each) => each.markedDone);
+    return `${marked.filter((each) => !each.endedAtWrite).length} of ${marked.length}`;
+  };
+  // Every run, finished or not: one ended with no reply where the item asked for one counts.
+  const noReply = (run: (row: PairedRow) => ArmRun) =>
+    `${rows.map(run).filter((each) => each.failures.includes("no-reply")).length} of ${rows.length}`;
   const holds = (each: Guard) =>
     `${each.holds ? "yes" : "**no**"}${each.allowed > 0 ? ` (${each.allowed} fewer allowed)` : ""}`;
   const rule = (each: Guard) =>
@@ -244,6 +251,8 @@ export function pairedSection(
     ...(rows.some((row) => row.candidate.endedAtWrite !== undefined)
       ? [
           `| Ended at the write | ${atWrite((row) => row.baseline)} | ${atWrite((row) => row.candidate)} | |`,
+          `| Marked done, still replied | ${doneReplied((row) => row.baseline)} | ${doneReplied((row) => row.candidate)} | |`,
+          `| No reply where one was asked for | ${noReply((row) => row.baseline)} | ${noReply((row) => row.candidate)} | |`,
           `| Written-check calls (mean) | ${mean(rows.map((row) => row.baseline.checkCalls ?? 0))} | ${mean(rows.map((row) => row.candidate.checkCalls ?? 0))} | |`,
           `| Change-claim checks (mean) | ${mean(rows.map((row) => row.baseline.claimChecks ?? 0))} | ${mean(rows.map((row) => row.candidate.claimChecks ?? 0))} | |`,
         ]

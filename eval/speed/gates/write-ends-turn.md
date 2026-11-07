@@ -37,3 +37,16 @@ Reported, not bars: the share of writes that ended at the write, written-check a
 ## What decides
 
 The step ships switched on only if every quality bar holds on every model and the speed bars hold. If a bar fails, the pull request names it with its numbers, and what ships is decided in a dated note below, not by reading these bars again.
+
+## Amended 2026-11-07, before any counted run
+
+A first paired run on Claude Haiku 5.5 (12 pairs of `writes`, $0.52) was stopped when the independent pre-review found the turn could end where the User still needed a reply. It is not counted. The step changed, and these runs gate the changed step:
+
+- **Still replies:** text the model wrote beside the done write in its step; text it wrote beside an earlier `cite` with no marker (it may be the answer); a run the change-claim check asked to write its reply again; an Answer in which an earlier call of a Minds Tool was refused or had something to say; a write with Citations whose check didn't run at all; a sentence its Citations don't support or contradict, or that the check cut.
+- **No longer keeps the reply:** sentences that couldn't be checked, and sentences past the most a write checks. The lines under the Answer already say both ("1 sentence couldn't be checked", "Checked 12 sentences · 2 claims not checked yet"), so a reply would only repeat them.
+- **The instructions' turn rule** says to reply after a write or an edit "unless you marked it done", so it no longer contradicts the Tool's `done`.
+- **The commands' `done`** ends their turn exactly as before; the new rules are for the Minds' writes only.
+
+The runs change in two places. Sonnet's held-out flows run paired, both arms, once per language, since the flows runner keeps no reply to read. Bar 1 is read from the report's "No reply where one was asked for" row, over every run. The report also gives "Marked done, still replied". Sonnet's `main` runs used `main`'s code with this step's eight-paragraph flow added to `eval/speed/flows.ts`, and no other change.
+
+The bars are unchanged.

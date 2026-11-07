@@ -1310,8 +1310,11 @@ export function mindTools(options: MindToolsOptions): {
     ...tool,
     async call(input, context) {
       try {
-        return await tool.call(input, context);
+        const result = await tool.call(input, context);
+        if (tool.name !== MIND_TOOLS.read && !sayingAll.has(result)) saidSomething = true;
+        return result;
       } catch (error) {
+        saidSomething = true;
         if (error instanceof Refusal) options.failed(context.toolCallId, error.problem);
         throw error;
       }
@@ -2091,6 +2094,11 @@ export function mindTools(options: MindToolsOptions): {
    * the turn ends on such a call (#1635).
    */
   const sayingAll = new Set<string>();
+  /** A call of this Answer was refused, or its result had something to say: the reply says it. */
+  let saidSomething = false;
+  // Sentences that couldn't be checked, or past the most a write checks, are on the lines under
+  // the Answer; a sentence flagged or cut is only in the Note, and a write with Citations that
+  // wasn't checked at all is nowhere.
   const saysAll = (
     mind: ChangeableMind,
     written: Written & { change: MindChange },
@@ -2105,12 +2113,9 @@ export function mindTools(options: MindToolsOptions): {
       !change.unlinkedSources &&
       !change.droppedSources &&
       !change.extraCells &&
-      (checked === null ||
-        (checked.cut.length === 0 &&
-          checked.unsupported === 0 &&
-          checked.contradicted === 0 &&
-          checked.failed === 0 &&
-          checked.sent >= checked.cited))
+      (checked === null
+        ? !change.cited
+        : checked.cut.length === 0 && checked.unsupported === 0 && checked.contradicted === 0)
     );
   };
   const endable = (result: string, all: boolean): string => {
@@ -2118,7 +2123,7 @@ export function mindTools(options: MindToolsOptions): {
     return result;
   };
   const endsTurn = (result: string, input: Record<string, unknown>) =>
-    input.done === true && sayingAll.has(result);
+    input.done === true && !saidSomething && sayingAll.has(result);
 
   const doneProperty = {
     done: {

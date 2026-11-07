@@ -1937,8 +1937,10 @@ async function* toolLoop(
   const askedForFixes = new Map<string, boolean>();
   const writesMinds = request.tools.some((each) => each.provider.kind === "minds");
   const endedTurn = new Set<string>();
-  /** The Run ended after a step its calls ended: what they did is the reply (`Tool.endsTurn`). */
-  let endedByCalls = false;
+  /** The Run ended after a write that said all (#1635): what it did is the reply. */
+  let endedByWrite = false;
+  /** An earlier step wrote text beside records alone, with no marker: it may yet be the Answer. */
+  let textAside = false;
   // A text whose figures the reader gave up on ends the Run before the model hears of it: the
   // check says where they couldn't be read. Told as a failed call, the model took it for no evidence.
   const unreadable = new AbortController();
@@ -2188,19 +2190,28 @@ async function* toolLoop(
       }
       if (signal.aborted) return true;
       const ended = (call: { id: string }) => endedTurn.has(call.id);
-      // Records beside a call that ends the turn, all taken, leave nothing for a reply (#1635).
-      const recordsBeside =
-        step.calls.some(ended) &&
+      const wrote = step.calls.some(
+        (call) => ended(call) && offered.get(call.tool)?.provider.kind === "minds",
+      );
+      // A write that says all ends the turn, its records beside it all taken, unless something
+      // would then go unsaid: text beside it or set aside before it, or the reply this run was
+      // asked to write again (#1635).
+      endedByWrite =
+        wrote &&
+        step.text.trim() === "" &&
+        !textAside &&
+        standing === null &&
         step.calls.every(
           (call) =>
             ended(call) ||
             (recording(offered.get(call.tool)) && askedForFixes.get(call.id) === false),
         ) &&
         (!request.writeThenCite || owesNothing(besideRecords));
-      endedByCalls = (step.calls.length > 0 && step.calls.every(ended)) || recordsBeside;
-      if (endedByCalls) return true;
+      if (endedByWrite) return true;
+      if (!wrote && step.calls.length > 0 && step.calls.every(ended)) return true;
       const recordsOnly =
         step.calls.length > 0 && step.calls.every((call) => recording(offered.get(call.tool)));
+      if (recordsOnly && step.text.trim() !== "" && !MARKER.test(step.text)) textAside = true;
       const reply = (text: string) => MARKER.test(text) && (request.isReply?.(text) ?? true);
       if (!request.writeThenCite) {
         return (
@@ -2394,8 +2405,9 @@ async function* toolLoop(
         yield { type: "failed", error: event.error };
         return;
       case "finished": {
-        // Ended by its calls, the Answer is what they did: text set aside before them was a preamble.
-        if (!endedByCalls && keptText.trim() === "" && (setAside.at(-1)?.text ?? "").trim() !== "")
+        // Ended by a write that said all, the Answer is what it did: the model's working set aside
+        // beside its records is never the Answer.
+        if (!endedByWrite && keptText.trim() === "" && (setAside.at(-1)?.text ?? "").trim() !== "")
           keptText = setAside.pop()?.text ?? "";
         const taken = takeToolText(keptText, toolTextTags);
         // Asked again, the model wrote nothing: the reply before stands, as when the ask fails.

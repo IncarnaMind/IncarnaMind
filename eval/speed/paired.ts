@@ -107,6 +107,8 @@ export interface ArmRun {
   claimChecks?: number;
   /** The Answer ended at its write, with no reply (#1635); absent: the item asks for no write. */
   endedAtWrite?: boolean;
+  /** The model marked a write of it done (#1635). */
+  markedDone?: boolean;
 }
 
 /**
@@ -583,6 +585,9 @@ export function writesSet(): PairedGroup[] {
                 status: done ? "done" : "failed",
                 error: done ? null : `${answer.errorKind ?? answer.status}`,
                 endedAtWrite,
+                markedDone: answer.toolCalls.some(
+                  (call) => call.mindChange !== undefined && call.input.done === true,
+                ),
                 failures: [
                   ...(toolTextIn(answer.text).length > 0 ? ["tool-text"] : []),
                   ...(SAYS_AFTER.has(id) && answer.text.trim() === "" ? ["no-reply"] : []),
