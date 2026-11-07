@@ -420,6 +420,34 @@ describe("Numbering schemes in Word", () => {
     expect(levelsOf(numbering, rent ?? "")).toEqual(WORD_LEVELS.clauses);
   });
 
+  // protects=an item's later paragraph goes into a Word file as a list paragraph, without a number and where the item's text is, as a new .docx writes it (#2334); fails_when=Word numbers it as the next item; no_claim=a later paragraph of the file's own whose text the User didn't edit, which stays as it is.
+  test("an item's later paragraph added to a Word file is a list paragraph, not the next item", async () => {
+    const { core, dataDir } = await newMind();
+    const { mindId, client } = await importWordBytes(
+      core,
+      dataDir,
+      wordFile({ body: wordParagraph(run("Terms of the lease.")) }),
+      { origin: "own" },
+    );
+    editMind(client, (blocks) => [
+      ...blocks,
+      ordered({}, item("One"), {
+        type: "listItem",
+        content: [paragraph("Two"), paragraph("Then.")],
+      }),
+    ]);
+    await client.settled();
+
+    const files = unzip((await core.exportMind(mindId, { format: "docx" })).data);
+    const document = part(files, "word/document.xml");
+    expect(numberedParagraphs(document).map(({ text }) => text)).toEqual(["One", "Two"]);
+    const then =
+      /<w:p>(?:(?!<\/w:p>)[\s\S])*Then\.(?:(?!<\/w:p>)[\s\S])*<\/w:p>/.exec(document)?.[0] ?? "";
+    expect(then).not.toContain("<w:numPr");
+    expect(then).toContain('<w:pStyle w:val="ListParagraph"/>');
+    expect(then).toContain('<w:ind w:left="720"/>');
+  });
+
   // protects=a list that continues the one before starts in Word where the editor draws it, in a new file and in a Word file it is added to; fails_when=the file it is added to restarts it at its own start; no_claim=Continue numbering across an Answer or a quote.
   test.each(["new", "added"] as const)(
     "a continued list goes on from the list before, in a %s file",
@@ -453,7 +481,7 @@ describe("Numbering schemes in Word", () => {
     },
   );
 
-  // protects=a nested list keeps its own start, and a second nested list in an item starts again, as the editor draws them, in a new file and in a Word file it is added to; fails_when=Word goes on with the outer list's numbering ("a. b." for a list from c., "a. b. c." for one that starts again); no_claim=a nested list that continues the one before, or how a Word file it is added to numbers an item's second paragraph.
+  // protects=a nested list keeps its own start, and a second nested list in an item starts again, as the editor draws them, in a new file and in a Word file it is added to; fails_when=Word goes on with the outer list's numbering ("a. b." for a list from c., "a. b. c." for one that starts again); no_claim=a nested list that continues the one before.
   test.each(["new", "added"] as const)(
     "a nested list starts where the editor draws it, in a %s file",
     async (file) => {
@@ -486,9 +514,7 @@ describe("Numbering schemes in Word", () => {
 
       const files = unzip((await core.exportMind(mindId, { format: "docx" })).data);
       const numbering = part(files, "word/numbering.xml");
-      const paragraphs = numberedParagraphs(part(files, "word/document.xml")).filter(
-        ({ text }) => text !== "Then.",
-      );
+      const paragraphs = numberedParagraphs(part(files, "word/document.xml"));
       expect(paragraphs.map(({ level, text }) => [level, text])).toEqual([
         [0, "One"],
         [1, "C"],

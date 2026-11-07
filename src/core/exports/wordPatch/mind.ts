@@ -256,6 +256,8 @@ export interface Counterpart {
   /** The place of its XML ("w:p#12"); null for content the document didn't have. */
   key: string | null;
   list: ListPlace | null;
+  /** An item's later paragraph: it stands at the item's text, not as an item of its own (#2334). */
+  inListText: boolean;
   /** What changes still waiting do to it as a whole, or to what holds it (#107). */
   pending: Pendings;
   /** It is in an Answer from before AI text was marked, which is the AI's as a whole. */
@@ -299,6 +301,7 @@ function collect(
   list: ListPlace | null,
   into: Counterpart[],
   within: Within,
+  inListText = false,
 ): Counterpart[] {
   for (const node of blocks) {
     const inner: Within = {
@@ -329,18 +332,36 @@ function collect(
         startLevel: list ? list.startLevel : Number.isInteger(named) ? startLevel : null,
       };
       for (const item of node.content ?? []) {
-        collect(item.content ?? [], keyOf, place, into, {
+        const itemWithin: Within = {
           ...inner,
           pending: { ...inner.pending, ...nodePendings(item, within.review) },
-        });
+        };
+        for (const [at, child] of (item.content ?? []).entries()) {
+          collect([child], keyOf, place, into, itemWithin, at > 0);
+        }
       }
     } else if (node.type === ANSWER_BLOCK) {
       const older = within.review !== undefined && node.attrs?.generatedMarks !== true;
-      collect(node.content ?? [], keyOf, list, into, { ...inner, wholeAi: inner.wholeAi || older });
+      collect(
+        node.content ?? [],
+        keyOf,
+        list,
+        into,
+        { ...inner, wholeAi: inner.wholeAi || older },
+        inListText,
+      );
     } else if (node.type === WORD_BLOCK_NODE) {
       if (isFurniture(node)) continue;
       const source = readWordAtom(node.attrs ?? {}).source;
-      into.push({ node, kind: "kept", key: source, list, pending: inner.pending, wholeAi: false });
+      into.push({
+        node,
+        kind: "kept",
+        key: source,
+        list,
+        inListText,
+        pending: inner.pending,
+        wholeAi: false,
+      });
     } else {
       const key = keyOf(node);
       const kind: CounterpartKind = PARAGRAPHS.has(node.type)
@@ -353,6 +374,7 @@ function collect(
         kind,
         key: kind === "other" ? null : key,
         list,
+        inListText: inListText && node.type === "paragraph",
         pending: inner.pending,
         wholeAi: inner.wholeAi,
       });
