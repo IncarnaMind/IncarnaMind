@@ -13,10 +13,13 @@ import {
   type CoreEvents,
   MIND_CONTENT_FIELD,
 } from "../../src/core";
+import type { MockLanguageModelV4 } from "ai/test";
 import { plainText } from "../../src/core/mindText";
 import { type ShownPassage, setUpWithDocuments, shownPassages } from "./citations";
-import type { MindClient } from "./mindClient";
-import { type ModelCall, type ScriptedReply, scriptedModel } from "./models";
+import { createTempDataFolder, startCore } from "./core";
+import { addAndProcess, createSourceFolder, writeSourceFile } from "./documents";
+import { connectToMind, type MindClient } from "./mindClient";
+import { type ModelCall, type ScriptedReply, scriptedModel, scriptedModels } from "./models";
 
 /** What a cell's request asks: its Question, and the Document its row is. */
 export function cellAsked(call: ModelCall): { question: string; document: string } {
@@ -263,4 +266,38 @@ export async function compareCedar(model: ReturnType<typeof rescalingModel>) {
     questions: ["Net debt at Q3 2026, in GBP millions"],
   });
   return { ...setup, tableId };
+}
+
+/**
+ * One comparison table of one cell, an agreement's termination notice, filled by `model` as the
+ * Claude model `modelId` saved as the User saves it, its service allowed: the row's cells.
+ */
+export async function oneCellOn(model: MockLanguageModelV4, modelId: string) {
+  const core = startCore(await createTempDataFolder(), {
+    createChatModel: scriptedModels(model).createChatModel,
+  });
+  try {
+    core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
+    const saved = await core.saveChatProvider({ kind: "anthropic", apiKey: "sk-test", modelId });
+    if (saved.service) await core.allowDataFlow("chat", saved.service.id);
+    const sources = await createSourceFolder();
+    const [agreement] = await addAndProcess(core, [
+      await writeSourceFile(
+        sources,
+        "Corvane.txt",
+        "Corvane Agreement.\nTermination notice: 90 days.",
+      ),
+    ]);
+    if (!agreement) throw new Error("The Document wasn't added.");
+    const mind = await core.createMind({ title: "Shortlist" });
+    const client = await connectToMind(core, mind.id);
+    await compare(core, client, {
+      mindId: mind.id,
+      documentIds: [agreement.id],
+      questions: ["Termination notice"],
+    });
+    return comparisonRowsIn(client).flatMap((row) => row.cells);
+  } finally {
+    core.close();
+  }
 }

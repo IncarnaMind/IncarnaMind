@@ -753,6 +753,10 @@ describe("Research", { timeout: 30_000 }, () => {
     const done = await waitForTask(core, task.id, (each) => each.finishedAt !== null);
     const draft = seen.at(-1);
     expect(draft && requestText(draft)).toContain("- Keep it to one paragraph");
+    // A draft is written through a comparison cell's Run but isn't a cell: on Claude Haiku 5.5,
+    // listed to write a cell first, it still cites first (#1624).
+    expect(draft && requestText(draft)).toContain("- Before writing the Answer, call cite once");
+    expect(draft && requestText(draft)).not.toContain("right after the Answer's text, call cite");
     expect(done.queued).toEqual([]);
 
     expect(asked).toEqual([

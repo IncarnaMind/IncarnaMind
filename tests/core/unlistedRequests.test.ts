@@ -3,10 +3,10 @@
  * to, is sent what main sends it, word for word (#489): every request of a Question, a follow-up
  * that keeps a Citation, an assistant turn, an assistant follow-up, and a Question and a check
  * whose record is fixed before the model writes on; Claude Sonnet 5.5's in a comparison table's
- * cell; and Claude Haiku 5.5's in a Meeting's notes. Each with its system prompt, messages, Tool definitions and
- * Tool results, against the requests recorded on main: so its Runs also end where main's do. A
- * change meant for every model, a prompt's or a Tool description's, records them again in the
- * same pull request: `npx vitest run tests/core/unlistedRequests.test.ts -u`.
+ * cell; and Claude Haiku 5.5's in a Meeting's notes. Each with its system prompt, messages, Tool
+ * definitions and Tool results, against the requests recorded on main: so its Runs also end where
+ * main's do. A change meant for every model, a prompt's or a Tool description's, records them
+ * again in the same pull request: `npx vitest run tests/core/unlistedRequests.test.ts -u`.
  */
 import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test, vi } from "vitest";
@@ -21,9 +21,8 @@ import {
   shownPassages,
   transcriptCitations,
 } from "../helpers/citations";
-import { cellModel, compare } from "../helpers/comparisons";
-import { createTempDataFolder, startCore } from "../helpers/core";
-import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
+import { cellModel, oneCellOn } from "../helpers/comparisons";
+import { createTempDataFolder } from "../helpers/core";
 import { connectToMind } from "../helpers/mindClient";
 import { heading, note, question, readMind, writeMind } from "../helpers/minds";
 import {
@@ -31,7 +30,6 @@ import {
   type ModelCall,
   type ScriptedReply,
   scriptedModel,
-  scriptedModels,
 } from "../helpers/models";
 import { transcribingCore } from "../helpers/transcription";
 
@@ -87,37 +85,21 @@ const fixingModel = (first: string, then: string) =>
     { judgesItsAnswers: true },
   );
 
-/** A Claude model, Claude Haiku 5.5 unless named, saved as the User saves it, its service allowed. */
-async function withClaude(core: Core, modelId = "claude-haiku-5-5") {
+/** Claude Haiku 5.5, saved as the User saves it, its service allowed. */
+async function withHaiku(core: Core) {
   core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
-  const saved = await core.saveChatProvider({ kind: "anthropic", apiKey: "sk-test", modelId });
+  const saved = await core.saveChatProvider({
+    kind: "anthropic",
+    apiKey: "sk-test",
+    modelId: "claude-haiku-5-5",
+  });
   if (saved.service) await core.allowDataFlow("chat", saved.service.id);
 }
 
 /** One cell of a comparison table, filled by Claude Sonnet 5.5, which no list admits there: every request it made. */
 async function cellFilled() {
   const model = cellModel();
-  const core = startCore(await createTempDataFolder(), {
-    createChatModel: scriptedModels(model).createChatModel,
-  });
-  await withClaude(core, "claude-sonnet-5-5");
-  const sources = await createSourceFolder();
-  const [corvane] = await addAndProcess(core, [
-    await writeSourceFile(
-      sources,
-      "Corvane.txt",
-      "Corvane Agreement.\nTermination notice: 90 days.",
-    ),
-  ]);
-  if (!corvane) throw new Error("The Document wasn't added.");
-  const mind = await core.createMind({ title: "Shortlist" });
-  const client = await connectToMind(core, mind.id);
-  await compare(core, client, {
-    mindId: mind.id,
-    documentIds: [corvane.id],
-    questions: ["Termination notice"],
-  });
-  core.close();
+  await oneCellOn(model, "claude-sonnet-5-5");
   return requests(model);
 }
 
@@ -160,7 +142,7 @@ async function notesFilled() {
       theirLines: ["The budget is approved for this year"],
     },
   });
-  await withClaude(core);
+  await withHaiku(core);
   const meeting = await core.createMeeting();
   const client = await connectToMind(core, meeting.mindId);
   writeMind(client, [heading(2, "Pricing"), note("price")]);

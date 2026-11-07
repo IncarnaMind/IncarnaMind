@@ -12,18 +12,9 @@ import {
   setUpWithDocuments,
   shownPassages,
 } from "../helpers/citations";
-import { cellModel, compare, comparisonRowsIn } from "../helpers/comparisons";
-import { createTempDataFolder, startCore } from "../helpers/core";
-import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
-import { connectToMind } from "../helpers/mindClient";
+import { cellModel, oneCellOn } from "../helpers/comparisons";
 import { answerText } from "../helpers/minds";
-import {
-  type ModelCall,
-  promptOf,
-  type ScriptedReply,
-  scriptedModel,
-  scriptedModels,
-} from "../helpers/models";
+import { type ModelCall, promptOf, type ScriptedReply, scriptedModel } from "../helpers/models";
 import { buildPdf } from "../helpers/pdf";
 
 const SPRING = "Spring tides happen at new moon and at full moon.";
@@ -146,52 +137,47 @@ describe("The Answer paths beside the catalog", { timeout: 30_000 }, () => {
   });
 
   test("a comparison cell on a model listed for cells is told to write then cite, and still fills when the model cites first", async () => {
-    const haiku = await cellFilledBy("claude-haiku-5-5");
-    const sonnet = await cellFilledBy("claude-sonnet-5-5");
+    const haiku = cellModel();
+    const sonnet = cellModel();
+    const haikuCells = await oneCellOn(haiku, "claude-haiku-5-5");
+    await oneCellOn(sonnet, "claude-sonnet-5-5");
 
-    expect(haiku.system).toContain(
-      "- Then, in the same reply, right after the Answer's text, call cite",
-    );
-    expect(haiku.system).not.toContain("- Before writing the Answer, call cite once");
-    expect(haiku.cells).toEqual([{ status: "done", text: expect.stringContaining("90 days") }]);
-    expect(sonnet.system).toContain("- Before writing the Answer, call cite once");
-    expect(sonnet.system).not.toContain("right after the Answer's text, call cite");
+    const told = promptOf(haiku)[0]?.text ?? "";
+    expect(told).toContain("- Then, in the same reply, right after the Answer's text, call cite");
+    expect(told).not.toContain("- Before writing the Answer, call cite once");
+    expect(haikuCells).toMatchObject([{ status: "done", text: "90 days" }]);
+    const untold = promptOf(sonnet)[0]?.text ?? "";
+    expect(untold).toContain("- Before writing the Answer, call cite once");
+    expect(untold).not.toContain("right after the Answer's text, call cite");
+  });
+
+  test("a cell written then cited in one reply ends a call sooner, once, with its Citation found", async () => {
+    const model = scriptedModel((call): ScriptedReply => {
+      const searched = call.results.find((result) => result.tool === "search_documents");
+      if (!searched) {
+        return { calls: [{ tool: "search_documents", input: { query: "Termination notice" } }] };
+      }
+      const passage = shownPassages(searched.text).find((each) =>
+        each.text.includes("Termination notice"),
+      );
+      return {
+        text: "90 days[^1].",
+        calls: [
+          {
+            tool: "cite",
+            input: {
+              citations: [
+                { marker: 1, passage: passage?.id, quote: "Termination notice: 90 days." },
+              ],
+            },
+          },
+        ],
+      };
+    });
+
+    const cells = await oneCellOn(model, "claude-haiku-5-5");
+
+    expect(model.doStreamCalls).toHaveLength(2);
+    expect(cells).toMatchObject([{ status: "done", text: "90 days." }]);
   });
 });
-
-/** One comparison cell filled on a Claude model by a model that searches, cites, then writes: its first instructions and the row's cells. */
-async function cellFilledBy(modelId: string) {
-  const model = cellModel();
-  const core = startCore(await createTempDataFolder(), {
-    createChatModel: scriptedModels(model).createChatModel,
-  });
-  try {
-    core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
-    const saved = await core.saveChatProvider({ kind: "anthropic", apiKey: "sk-test", modelId });
-    if (saved.service) await core.allowDataFlow("chat", saved.service.id);
-    const sources = await createSourceFolder();
-    const [agreement] = await addAndProcess(core, [
-      await writeSourceFile(
-        sources,
-        "Corvane.txt",
-        "Corvane Agreement.\nTermination notice: 90 days.",
-      ),
-    ]);
-    if (!agreement) throw new Error("The Document wasn't added.");
-    const mind = await core.createMind({ title: "Shortlist" });
-    const client = await connectToMind(core, mind.id);
-    await compare(core, client, {
-      mindId: mind.id,
-      documentIds: [agreement.id],
-      questions: ["Termination notice"],
-    });
-    return {
-      system: promptOf(model)[0]?.text ?? "",
-      cells: comparisonRowsIn(client).flatMap((row) =>
-        row.cells.map((cell) => ({ status: cell.status, text: cell.text })),
-      ),
-    };
-  } finally {
-    core.close();
-  }
-}

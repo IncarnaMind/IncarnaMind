@@ -8,9 +8,9 @@
 import { withoutDateSuffix } from ".";
 
 /**
- * The flows an Answer runs in, as its timing records name them: "question" is one asked in a Mind
- * or the assistant; "check" a check Run, a Meeting's notes among them. A comparison table's cell
- * is a check Run too, but the lists know it apart, as "comparison-cell".
+ * The flows an Answer runs in, as the lists know them: "question" is one asked in a Mind or the
+ * assistant; "check" a check Run, a Meeting's notes among them. A comparison table's cell is a
+ * check Run too, and its timing records say so, but the lists know it apart as "comparison-cell".
  */
 export type AnswerFlow =
   | "question"
@@ -36,7 +36,8 @@ interface Admitted {
  * expected Passages cited on the gating set (62 → 59). A Meeting's notes were measured and left
  * out (2026-11-07, eval/speed/gates/write-then-cite-tasks.md): on Claude Haiku 5.5 their first
  * case gave 10 sentences a found Citation that didn't state them, against 1 citing first; on
- * DeepSeek Flash two of four replies ran out of output and the fourth gave a new false Supported.
+ * DeepSeek Flash the first reply cited none of the lines its case rests on, the next two ran out
+ * of output, and the fourth gave a new false Supported.
  */
 const WRITES_THEN_CITES: readonly Admitted[] = [
   {

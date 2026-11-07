@@ -1270,8 +1270,8 @@ export function createAnswers(options: AnswersOptions) {
     checkScales?: boolean;
     /**
      * The flow the lists beside the catalog know it by, where its kind's is shared: a comparison
-     * table's cell is a check Run, as a Meeting's notes and a check's own Run are, but was
-     * admitted to writing first on its own gate.
+     * table's cell is a check Run, as a Meeting's notes and a check's own Run are, so a list can
+     * admit it apart from them.
      */
     listedAs?: AnswerFlow;
     /**
