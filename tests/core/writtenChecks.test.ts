@@ -168,6 +168,8 @@ interface Writing {
   generated?: (call: GenerateCall) => void;
   /** It writes before it cites: `cite` comes beside the write, after it, or in the step after. */
   citesAfter?: "beside" | "next-step";
+  /** Its closing reply fails, so the Answer does. */
+  replyFails?: boolean;
 }
 
 const RECORD_FILE: NonNullable<Writing["record"]> = {
@@ -196,6 +198,7 @@ function writingModel(
     record,
     generated,
     citesAfter,
+    replyFails = false,
   }: Writing,
   calls: ModelCall[],
   coreOf: () => Core | null,
@@ -241,6 +244,7 @@ function writingModel(
         const input = into ? { content } : { title: "Tide notes", content };
         return { calls: [{ tool, input }] };
       }
+      if (replyFails) return { error: { status: 500, message: "The service broke." } };
       return { text: "Wrote it from your Documents." };
     },
     record || generated
@@ -1130,7 +1134,7 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
     expect(change?.selfCheck).toBeUndefined();
   });
 
-  // protects=Stop while a write made before cite is checked after its Run ends the Answer stopped, keeps the text with its Citations and the mark that landed, and lands no more (#1635); fails_when=the Answer waits on the check, a mark lands after Stop, or the Citations go; no_claim=what the Answer says once stopped.
+  // protects=Stop while a write made before cite is checked after its Run ends the Answer stopped, keeps the text with its Citations and the mark that landed, and lands no more (#1635); fails_when=a mark lands after Stop, or the Citations go; no_claim=what the Answer says once stopped.
   test("Stop while a write made before cite is checked after its Run keeps what landed", async () => {
     const calls: ModelCall[] = [];
     let started: Core | null = null;
@@ -1189,7 +1193,7 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
       ["Spring tides come at new and full moon .", "supported"],
     ]);
     const [change] = changesIn(stopped);
-    expect(change).toMatchObject({ proposals: 1, cited: 2 });
+    expect(change).toMatchObject({ proposals: 1, cited: 2, checking: 2 });
     expect(change?.selfCheck).toBeUndefined();
   });
 
@@ -1624,7 +1628,6 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
     });
   });
 
-  // protects=a sentence with no Citation isn't checked as it lands (#1909: it is left to the one count and the one Check), as its Citations are what the written check reads; fails_when=a check Run is made for it, or it lands marked; no_claim=none beyond protects.
   // protects=text written before `cite` recorded its markers is checked once its Citations go in after the Run: each cited sentence lands marked and the card counts it (#1635); fails_when=it lands with found Citations and no mark, which reads as checked, or the card has no check; no_claim=how often a real model writes before it cites.
   test.each(["beside", "next-step"] as const)(
     "a write made before cite recorded its markers is checked once they go in (%s)",
@@ -1651,6 +1654,28 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
     },
   );
 
+  // protects=a write made before cite, in a Run that then fails, lands its cited sentences not checked and sends no check to the provider that failed (#1635); fails_when=they land unmarked, which reads as checked, or a check is sent; no_claim=the words of the failure.
+  test("a write made before cite in a Run that fails lands not checked, sending nothing", async () => {
+    const { core, calls, change, client } = await write({
+      content: "## Tides\n\nSpring tides come at new and full moon [^1].",
+      citesAfter: "next-step",
+      replyFails: true,
+      ends: "failed",
+    });
+
+    expect(shownWithChanges(client)).toEqual([
+      "+ Tides",
+      "+ Spring tides come at new and full moon ⟨found⟩.",
+    ]);
+    const marks = await marksIn(core, client);
+    expect(marks.map(({ check }) => [check.state, check.reason])).toEqual([
+      ["not-checked", "failed"],
+    ]);
+    expect(change?.selfCheck).toMatchObject({ cited: 1, sent: 1, checked: 0, failed: 1 });
+    expect(calls.some(isCheckRun)).toBe(false);
+  });
+
+  // protects=a sentence with no Citation isn't checked as it lands (#1909: it is left to the one count and the one Check), as its Citations are what the written check reads; fails_when=a check Run is made for it, or it lands marked; no_claim=none beyond protects.
   test("a sentence with no Citation isn't checked as it lands", async () => {
     const { calls, client } = await write({
       content: "## Tides\n\nThe harbour is quiet in winter.",

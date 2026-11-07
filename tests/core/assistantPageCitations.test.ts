@@ -101,7 +101,7 @@ describe("Text written into a Mind keeps its Citations", { timeout: 30_000 }, ()
     expect(answerRequests(model)).toHaveLength(3);
   });
 
-  // protects=a revision with new text, written in the same step as its cite, keeps its Citation whichever comes first; fails_when=the revised page loses its marker; no_claim=how a real provider orders the calls.
+  // protects=a revision with new text, written in the same step as its cite, keeps its Citation and is checked whichever comes first; fails_when=the revised page loses its marker, or the revision goes unchecked; no_claim=how a real provider orders the calls.
   test.each(["cite-first", "write-first"] as const)("a revision, %s", async (order) => {
     const LONGER =
       "## Tides\n\nSpring tides come at new and full moon [^1].\n\nNeap tides come between them.";
@@ -146,6 +146,63 @@ describe("Text written into a Mind keeps its Citations", { timeout: 30_000 }, ()
     const [revised] = changesIn(second);
     expect(revised).toMatchObject({ revised: true, cited: 1 });
     expect(revised?.unrecorded).toBeUndefined();
+    expect(revised?.selfCheck).toMatchObject({ cited: 1, sent: 1 });
+    const page = await connectToMind(core, revised?.mindId ?? "");
+    expect(shownWithChanges(page)).toEqual([
+      "+ Tides",
+      "+ Spring tides come at new and full moon ⟨found⟩.",
+      "+ Neap tides come between them.",
+    ]);
+  });
+  // protects=a revision written before its cite, which comes in the step after it, keeps its Citation and is checked once the Citation goes in after the Run (#1635); fails_when=it lands with a found Citation and no check; no_claim=how often a real model cites after it revises.
+  test("a revision written before its cite, in the step after, is checked once its Citation goes in", async () => {
+    const LONGER =
+      "## Tides\n\nSpring tides come at new and full moon [^1].\n\nNeap tides come between them.";
+    const model = scriptedModel((call: ModelCall): ScriptedReply => {
+      if (isCheckRun(call)) return checkReply(call, {});
+      const { results, prompt } = call;
+      const second = prompt.includes("make it longer");
+      const search = results.find((result) => result.tool === "search_documents");
+      if (!search)
+        return { calls: [{ tool: "search_documents", input: { query: "spring tides" } }] };
+      const [passage] = shownPassages(search.text);
+      const record = { marker: 1, passage: passage?.id, pageFrom: 1, pageTo: 1, quote: SPRING };
+      const cite = { tool: "cite", input: { citations: [record] } };
+      const cited = results.some((result) => result.tool === "cite");
+      if (!second) {
+        if (!cited) return { calls: [cite] };
+        if (!results.some((result) => result.tool === "create_mind"))
+          return {
+            calls: [{ tool: "create_mind", input: { title: "Tide notes", content: CONTENT } }],
+          };
+        return { text: REPORT };
+      }
+      if (!results.some((result) => result.tool === "edit_mind"))
+        return {
+          calls: [
+            { tool: "edit_mind", input: { mind: "Tide notes", part: "Tides", content: LONGER } },
+          ],
+        };
+      if (!cited) return { calls: [cite] };
+      return { text: "It says more now." };
+    });
+    const { core, mind, scope } = await setUp(model);
+    const first = await askAssistant(core, {
+      text: "Summarise these Documents into a new note",
+      mindId: mind.id,
+      scope,
+    });
+
+    const second = await askAssistant(core, {
+      text: "make it longer",
+      mindId: mind.id,
+      scope,
+      conversationId: first.conversationId,
+    });
+
+    const [revised] = changesIn(second);
+    expect(revised).toMatchObject({ revised: true, cited: 1 });
+    expect(revised?.selfCheck).toMatchObject({ cited: 1, sent: 1 });
     const page = await connectToMind(core, revised?.mindId ?? "");
     expect(shownWithChanges(page)).toEqual([
       "+ Tides",

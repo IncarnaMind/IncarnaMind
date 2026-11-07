@@ -1973,6 +1973,7 @@ export function mindTools(options: MindToolsOptions): {
     toolCallId: string,
     written: Pick<Written, "blocks"> & { change: MindChange },
     signal: AbortSignal,
+    answerFailed = false,
   ): Promise<WrittenCheck | null> => {
     const { mindId, ids, blocks } = written.blocks;
     if (ids.length !== blocks.length) return null;
@@ -1985,6 +1986,7 @@ export function mindTools(options: MindToolsOptions): {
         ids,
         prepared: options.prepared,
         signal,
+        ...(answerFailed && { answerFailed }),
         checking: (count) => {
           reported = true;
           options.changed(toolCallId, { ...written.change, checking: count });
@@ -2049,15 +2051,38 @@ export function mindTools(options: MindToolsOptions): {
 
   const settle = async (failed = false): Promise<void> => {
     if (failed) takeBackUnmade();
-    const checks: Promise<WrittenCheck | null>[] = [];
-    for (const [toolCallId, each] of unsettled) {
+    // Taken before any of it runs: settled again after a throw, nothing is checked twice.
+    const entries = [...unsettled];
+    unsettled.clear();
+    // Its Citations weren't in as it landed, so it wasn't checked then (#1635): unchecked, its
+    // sentences would show found Citations and no mark, which reads as checked. One write's
+    // check at a time, as each holds as many requests at once as a write's check does.
+    const checks: (() => Promise<unknown>)[] = [];
+    const check = (toolCallId: string, written: Pick<Written, "blocks"> & { change: MindChange }) =>
+      checks.push(() => checkBlocks(toolCallId, written, options.signal, failed));
+    for (const [toolCallId, each] of entries) {
       const { blocks, cited, unrecorded, ...notes } = options.blocksOf(each.markdown);
       if (blocks.length !== each.ids.length) {
         console.warn(
           `Citations recorded after a Mind was written couldn't go in: the text reads as ${blocks.length} Blocks, ${each.ids.length} were written (Mind ${each.mindId}, call ${toolCallId}).`,
         );
         // Its chart would draw figures whose Citations never went in.
-        if (each.chart) options.changed(toolCallId, { ...each.sent, chartNotDrawn: "uncited" });
+        const change: MindChange = each.chart
+          ? { ...each.sent, chartNotDrawn: "uncited" }
+          : each.sent;
+        if (each.chart) options.changed(toolCallId, change);
+        // The Citations it had as it was written are still there, as yet unchecked.
+        const standing = minds.read(each.mindId, (note) => {
+          const found: { ids: string[]; blocks: NodeJSON[] } = { ids: [], blocks: [] };
+          for (const element of topLevelBlocks(note)) {
+            const id = idOf(element);
+            if (!each.ids.includes(id)) continue;
+            found.ids.push(id);
+            found.blocks.push(nodeOf(element));
+          }
+          return found;
+        });
+        check(toolCallId, { blocks: { mindId: each.mindId, ...standing }, change });
         continue;
       }
       const synced = minds.edit(each.mindId, (note) => {
@@ -2095,13 +2120,9 @@ export function mindTools(options: MindToolsOptions): {
         ...(drawn?.problem && { chartNotDrawn: drawn.problem }),
       };
       options.changed(toolCallId, change);
-      // Its Citations weren't in as it landed, so it wasn't checked then (#1635): unchecked, its
-      // sentences would show found Citations and no mark, which reads as checked.
-      const written = { blocks: { mindId: each.mindId, ...synced }, change };
-      checks.push(checkBlocks(toolCallId, written, options.signal));
+      check(toolCallId, { blocks: { mindId: each.mindId, ...synced }, change });
     }
-    unsettled.clear();
-    await Promise.all(checks);
+    for (const next of checks) await next();
   };
 
   /** What the model reads of Blocks it added: how many, and what of their Citations didn't hold. */
@@ -2674,13 +2695,14 @@ export function mindTools(options: MindToolsOptions): {
       if (remake === mind.id && typeof given === "string") {
         streams.delete(toolCallId);
         ended.add(toolCallId);
-        const said = remade(
+        const said = await remade(
           toolCallId,
           mind,
           given,
           canCallAgain?.() ?? true,
           "call add_to_mind again",
           asked,
+          signal,
         );
         if (said !== null) return said;
       }
@@ -2720,14 +2742,15 @@ export function mindTools(options: MindToolsOptions): {
   };
 
   let remake = options.remake ?? null;
-  const remade = (
+  const remade = async (
     toolCallId: string,
     mind: ChangeableMind,
     markdown: string,
     retry: boolean,
     again: string,
     chart: ChartAsked | null,
-  ): string | null => {
+    signal: AbortSignal,
+  ): Promise<string | null> => {
     const { anchor } = options.origin.from;
     if (anchor.kind !== "message") return null;
     // Its title heading stays unless the new text brings one of its own.
@@ -2760,18 +2783,22 @@ export function mindTools(options: MindToolsOptions): {
         drawChart(target, settled, chart, markdown, written.analysisTables);
     }
     if (drawn) {
-      options.changed(toolCallId, {
+      written.change = {
         ...written.change,
         ...changeIn(mind.id, written.change.request, false),
         ...(drawn.problem && { chartNotDrawn: drawn.problem }),
-      });
+      };
+      options.changed(toolCallId, written.change);
     }
+    // Text from every Document is new text too: it lands checked, as a first write does.
+    const checked = await checkWritten(toolCallId, written, signal);
     return [
       `Wrote the new text in place of the text you wrote for this request before, in “${mind.name}”.`,
       ...(drawn ? [drawn.said] : []),
       outcomeOf(mind, written.change.request),
       ...tableNotes(written.change),
       ...writtenNotes(written),
+      ...checkedNotes(checked),
     ].join(" ");
   };
 
@@ -2820,13 +2847,14 @@ export function mindTools(options: MindToolsOptions): {
       if (again && typeof given === "string") {
         streams.delete(toolCallId);
         ended.add(toolCallId);
-        const said = remade(
+        const said = await remade(
           toolCallId,
           again,
           given,
           canCallAgain?.() ?? true,
           "call create_mind again",
           chartAsked(input.chart),
+          signal,
         );
         if (said !== null) return said;
       }
