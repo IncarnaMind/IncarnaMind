@@ -5,13 +5,13 @@
  * copy of the Note takes it as its own step.
  *
  * The step leaves the editor's history once the fill moves on without it: another copy or window
- * changes the fill's Blocks (⌘Z here would delete their words with it), the core takes it back,
- * or fills anew. Its Undo is then the core's (`undoMeetingFill`), which keeps the Blocks the User
+ * changes the words in the fill's Blocks (⌘Z here would delete them with it), the core takes it
+ * back, or fills anew. Its Undo is then the core's (`undoMeetingFill`), which keeps the Blocks the User
  * typed in.
  */
 import type { Editor } from "@tiptap/core";
 import * as Y from "yjs";
-import type { MeetingFill } from "../../../core/api";
+import { type MeetingFill, MIND_CONTENT_FIELD } from "../../../core/api";
 import { isPartialMeetingFill, meetingFillCause } from "../../../shared/meetingFill";
 import { holdFillSteps } from "../meetingFillSteps";
 import { useMeetings } from "../meetings";
@@ -86,16 +86,14 @@ export function takeFillInEditor(editor: Editor, meetingId: string): () => void 
     };
   });
 
-  const touched = (transaction: Y.Transaction) => {
-    if (
-      held &&
-      transaction.origin === FROM_CORE &&
-      changesWithin(transaction, held.steps.inNote())
-    ) {
+  const note = doc.getXmlFragment(MIND_CONTENT_FIELD);
+  // What the core sets on the fill's words afterwards, as a check's result, leaves it here.
+  const touched = (events: Y.YEvent<Y.AbstractType<unknown>>[], transaction: Y.Transaction) => {
+    if (held && transaction.origin === FROM_CORE && wordsChangedIn(events, held.steps.inNote())) {
       letGo();
     }
   };
-  doc.on("afterTransaction", touched);
+  note.observeDeep(touched);
 
   const stopWatching = useMeetings.subscribe((state, before) => {
     const fill = fillOf(state.meetings, meetingId);
@@ -112,7 +110,7 @@ export function takeFillInEditor(editor: Editor, meetingId: string): () => void 
 
   return () => {
     stopTaking();
-    doc.off("afterTransaction", touched);
+    note.unobserveDeep(touched);
     stopWatching();
     letGo();
   };
@@ -123,8 +121,14 @@ const fillOf = (
   meetingId: string,
 ): MeetingFill | null => meetings.find((each) => each.id === meetingId)?.fill ?? null;
 
-/** Whether the transaction changed what the steps inserted, or anything inside it. */
-function changesWithin(transaction: Y.Transaction, steps: readonly UndoStep[]): boolean {
+/**
+ * Whether the events added or took out words or Blocks in what the steps inserted: not an
+ * attribute or a mark, as a check's result sets.
+ */
+function wordsChangedIn(
+  events: readonly Y.YEvent<Y.AbstractType<unknown>>[],
+  steps: readonly UndoStep[],
+): boolean {
   if (steps.length === 0) return false;
   const inserted = (item: Y.Item | null): boolean => {
     for (let at = item; at; at = at.parent instanceof Y.AbstractType ? at.parent._item : null) {
@@ -133,10 +137,15 @@ function changesWithin(transaction: Y.Transaction, steps: readonly UndoStep[]): 
     }
     return false;
   };
-  for (const type of transaction.changed.keys()) if (inserted(type._item)) return true;
-  let deleted = false;
-  Y.iterateDeletedStructs(transaction, transaction.deleteSet, (struct) => {
-    if (!deleted && struct instanceof Y.Item && inserted(struct)) deleted = true;
+  return events.some((event) => {
+    // A text's own changes come as its delta: a mark is a retain with attributes.
+    if (event.target instanceof Y.Text) {
+      return (
+        inserted(event.target._item) &&
+        event.delta.some((op) => op.insert !== undefined || op.delete !== undefined)
+      );
+    }
+    const { added, deleted } = event.changes;
+    return [...added, ...deleted].some(inserted);
   });
-  return deleted;
 }

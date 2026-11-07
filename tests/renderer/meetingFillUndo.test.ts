@@ -152,29 +152,45 @@ function element(name: string, children: (Y.XmlElement | Y.XmlText)[], id?: stri
   return node;
 }
 
-/** The core writes the fill: a heading and a bullet after the User's line, one edit with its cause. */
-function fillFromCore(words: (typeof WORDS)[keyof typeof WORDS]): void {
+/** The core changes the Note, as one update it sends every copy, with `cause` for an edit asked for. */
+function fromCore(change: (note: Y.XmlFragment) => void, cause?: EditCause): void {
   let update: Uint8Array | null = null;
   const take = (each: Uint8Array) => {
     update = each;
   };
   server.on("update", take);
-  server.transact(() => {
-    server
-      .getXmlFragment(MIND_CONTENT_FIELD)
-      .push([
-        element("heading", [new Y.XmlText(words.heading)], "fill-heading"),
-        element(
-          "bulletList",
-          [element("listItem", [element("paragraph", [new Y.XmlText(words.bullet)])])],
-          "fill-list",
-        ),
-      ]);
-  });
+  server.transact(() => change(server.getXmlFragment(MIND_CONTENT_FIELD)));
   server.off("update", take);
-  if (!update) throw new Error("The fill changed nothing.");
-  fill.send(MIND, update, meetingFillCause(MEETING));
+  if (!update) throw new Error("The core changed nothing.");
+  fill.send(MIND, update, cause);
+}
+
+/**
+ * The core writes the fill: a heading and a bullet after the User's line, one edit with its cause.
+ * With `cited`, the bullet ends in a Citation, found.
+ */
+function fillFromCore(words: (typeof WORDS)[keyof typeof WORDS], cited = false): void {
+  const citation = new Y.XmlElement("citation");
+  citation.setAttribute("check", "found");
+  const bullet = [new Y.XmlText(words.bullet), ...(cited ? [citation] : [])];
+  fromCore(
+    (note) =>
+      note.push([
+        element("heading", [new Y.XmlText(words.heading)], "fill-heading"),
+        element("bulletList", [element("listItem", [element("paragraph", bullet)])], "fill-list"),
+      ]),
+    meetingFillCause(MEETING),
+  );
   setFill("filled");
+}
+
+/** The fill's first Citation, as the core holds it. */
+function citationIn(note: Y.XmlFragment): Y.XmlElement {
+  const found = note
+    .createTreeWalker((each) => each instanceof Y.XmlElement && each.nodeName === "citation")
+    .next();
+  if (found.done || !(found.value instanceof Y.XmlElement)) throw new Error("No Citation.");
+  return found.value;
 }
 
 /** A copy of the Note, open in an editor that takes the fill as its own step. */
@@ -285,6 +301,37 @@ describe.each(["en", "zh-CN"] as const)("the fill in two copies of one Note (%s)
       [MEETING, false],
     ]);
   });
+
+  // protects=a check's result the core writes into the fill afterwards, a Citation marked found or not found, or a mark on its words, leaves the fill on the copy's Undo: ⌘Z still takes it back (#2527); fails_when=the core's mark makes the copy let the fill go, so ⌘Z stops taking the fill back right after it lands; no_claim=which checks run after a fill.
+  test.each(["found", "not-found"] as const)(
+    "a Citation the core marks %s after the fill, and a mark on its words, leave ⌘Z taking the fill back",
+    async (check) => {
+      ownLine(words);
+      const editor = await openEditor();
+      setFill("filling");
+      fillFromCore(words, true);
+      await settled(editor, filledText);
+
+      fromCore((note) => {
+        citationIn(note).setAttribute("check", check === "found" ? "not-found" : "found");
+        citationIn(note).setAttribute("check", check);
+        const text = citationIn(note).prevSibling;
+        if (text instanceof Y.XmlText) text.format(0, words.bullet.length, { highlight: {} });
+      });
+      await vi.waitFor(() => {
+        let marked = "";
+        editor.state.doc.descendants((node) => {
+          if (node.type.name === "citation") marked = String(node.attrs.check);
+        });
+        expect(marked).toBe(check);
+      });
+      expect(fillStepIn(MEETING, editor)).toBe("top");
+
+      editor.commands.undo();
+      await settled(editor, words.own);
+      expect(bridge.follows).toEqual([[MEETING, true]]);
+    },
+  );
 
   // protects=after ⌘Z and Try again, ⇧⌘Z can't bring the first fill back while the new one is written, so the Note never gets both; a fill the core takes back from elsewhere is let go too (#2527); fails_when=⇧⌘Z puts the old fill back during "filling", or a copy keeps offering Undo of a fill the core took back; no_claim=the core's own fill.
   test("a fill the core moves on from, filling anew or taken back elsewhere, leaves the copy's history", async () => {
