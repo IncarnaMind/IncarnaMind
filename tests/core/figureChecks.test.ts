@@ -1057,7 +1057,7 @@ test("a calculate that ran before the cite beside it recorded its quote is worke
   expect(result.figures?.[0]?.result.verdict).toBe("supported");
 });
 
-test("two calculates that raced their cite are both worked out again, and the reply's source binds", async () => {
+test("two calculates that raced their cite are both worked out again, and the calculation binds", async () => {
   const calculation = (marker: number) => ({
     marker,
     label: "Revenue",
