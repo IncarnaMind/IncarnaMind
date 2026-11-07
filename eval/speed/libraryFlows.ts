@@ -52,11 +52,11 @@ async function sorting<T>(core: Core, work: () => Promise<T>): Promise<T> {
   if (!automatic) throw new Error("No model can tag or organize with this provider.");
   const { settings } = await core.getLibrary();
   await core.saveLibrarySettings({ ...settings, organizeWith: automatic.classifier });
-  for (const flow of ["tagging", "classification"] as const) {
-    const route = await core.getTaggingRoute(flow);
-    if (route.where === "cloud") await core.allowDataFlow(flow, route.service.id);
-  }
   try {
+    for (const flow of ["tagging", "classification"] as const) {
+      const route = await core.getTaggingRoute(flow);
+      if (route.where === "cloud") await core.allowDataFlow(flow, route.service.id);
+    }
     return await work();
   } finally {
     await core.saveLibrarySettings(settings);
