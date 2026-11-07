@@ -105,6 +105,68 @@ for (const language of ["en", "zh-CN"] as const) {
       }
     }
 
+    // The scroll a link back from a Note makes to its Answer stops above the fade, which the
+    // frame keeps clear, not under it (#2622). At 1,440px, where the Answer fits above the fade;
+    // at 900 the thread is shorter than an Answer, so the browser aligns its top instead and
+    // there is no room below it to clear the fade. The Answer just before the last: a newer one
+    // lies below it, so the fade is drawn over it and the thread can scroll clear of it.
+    await setWindowSize(app, window, 1440, 640);
+    const sought = await thread.evaluate((element) => {
+      const answers = [
+        ...element.querySelectorAll<HTMLElement>('[data-testid="assistant-answer"]'),
+      ];
+      const answer = answers.at(-2) ?? answers.at(-1);
+      if (!answer) throw new Error("The thread holds no Answer.");
+      const lineHeight = Number.parseFloat(getComputedStyle(element).lineHeight);
+      element.scrollTop = 0;
+      answer.scrollIntoView({ block: "nearest" });
+      return {
+        bottom: answer.getBoundingClientRect().bottom,
+        foot: element.getBoundingClientRect().bottom,
+        fade: 1.5 * lineHeight,
+      };
+    });
+    if (SCREENSHOTS) {
+      await thread.screenshot({ path: join(SCREENSHOTS, `thread-${language}-1440-sought.png`) });
+    }
+    expect(sought.fade, `sought, ${language}`).toBeGreaterThan(0);
+    expect(sought.bottom, `sought, ${language}`).toBeLessThanOrEqual(
+      sought.foot - sought.fade + 0.5,
+    );
+
+    // The room the thread keeps under its newest Question is blank, not content: the log's
+    // padding below its text is not a line, so with the text ending just above the foot the
+    // thread draws no fade over the room (#2622). Its own padding changes the thread's height,
+    // so it runs after the checks above, at each width.
+    for (const width of [1440, 900]) {
+      await setWindowSize(app, window, width, 640);
+      const room = await thread.evaluate((element, pad) => {
+        const log = element.lastElementChild;
+        if (!(log instanceof HTMLElement)) throw new Error("The thread holds no log.");
+        log.style.setProperty("padding-bottom", `${pad}px`, "important");
+        const frame = Number.parseFloat(getComputedStyle(element).paddingBottom) || 0;
+        // The text ends 6px above the foot, the padding filling the room below it. The mark is
+        // read in this same turn, as the hook reads it on a scroll.
+        element.scrollTop = element.scrollHeight - element.clientHeight - pad - frame + 6;
+        element.dispatchEvent(new Event("scroll"));
+        const edge = getComputedStyle(element, "::after");
+        const foot = element.getBoundingClientRect().bottom;
+        const bottom = log.getBoundingClientRect().bottom;
+        return {
+          textAboveFoot: foot - (bottom - pad),
+          roomUnderText: bottom - foot,
+          marked: element.hasAttribute("data-more-after"),
+          fade: edge.display === "none" ? 0 : Number.parseFloat(edge.height),
+        };
+      }, 200);
+      const at = `${language}, ${width}px`;
+      expect(room.textAboveFoot, at).toBeGreaterThanOrEqual(0);
+      expect(room.textAboveFoot, at).toBeLessThanOrEqual(8);
+      expect(room.roomUnderText, at).toBeGreaterThan(0);
+      expect(room.marked, `blank room, ${at}`).toBe(false);
+      expect(room.fade, at).toBe(0);
+    }
+
     // Its height is the frame's line height, not a number: lines of 40px give a fade of 60px.
     const sized = await thread.evaluate((el) => {
       el.style.lineHeight = "40px";
