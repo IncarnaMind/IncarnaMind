@@ -44,9 +44,16 @@ function helping(quote: string, calls: ModelCall[]) {
  * A judge that grades every reply `grade` and lists `unstated` as the numbers it doesn't back;
  * `prose`: its first reply is words with no JSON, as a judge's can be.
  */
-function judging(grade: string, unstated: number[], prompts: string[], prose = false) {
+function judging(
+  grade: string,
+  unstated: number[],
+  prompts: string[],
+  first?: "prose" | "empty",
+  roles: string[][] = [],
+) {
   return new MockLanguageModelV4({
     doGenerate: async ({ prompt }) => {
+      roles.push(prompt.map((message) => message.role));
       prompts.push(
         prompt
           .flatMap((message) =>
@@ -57,8 +64,10 @@ function judging(grade: string, unstated: number[], prompts: string[], prose = f
           .join("\n"),
       );
       const text =
-        prose && prompts.length === 1
-          ? "The reply gets the price right and cites the sheet."
+        first && prompts.length === 1
+          ? first === "prose"
+            ? "The reply gets the price right and cites the sheet."
+            : ""
           : JSON.stringify({ grade, unstated });
       return {
         content: [{ type: "text", text }],
@@ -77,7 +86,7 @@ function judging(grade: string, unstated: number[], prompts: string[], prose = f
 async function pressed(
   id: string,
   quote: string,
-  judge: { grade: string; unstated: number[]; prose?: boolean },
+  judge: { grade: string; unstated: number[]; first?: "prose" | "empty" },
 ) {
   const group = callHelpSet().find((each) => each.name === `call-help-${id}`);
   const item = group?.items[0];
@@ -108,6 +117,7 @@ async function pressed(
     const recorder = library.timings;
     if (!recorder || !opened.meeting) throw new Error("The case opened without its Meeting.");
     const judged: string[] = [];
+    const roles: string[][] = [];
     const run = await runOnArm(item, {
       library,
       meeting: opened.meeting,
@@ -116,9 +126,9 @@ async function pressed(
       model: "ollama/local-model",
       arm: "today",
       grade: async () => "unread",
-      claimsJudge: judging(judge.grade, judge.unstated, judged, judge.prose),
+      claimsJudge: judging(judge.grade, judge.unstated, judged, judge.first, roles),
     });
-    return { run, calls, judged };
+    return { run, calls, judged, roles };
   } finally {
     await opened.close();
   }
@@ -220,12 +230,26 @@ describe("A press during the call", { timeout: 120_000 }, () => {
     const { run, judged } = await pressed("en-answer-sso", ENTERPRISE, {
       grade: "partly",
       unstated: [],
-      prose: true,
+      first: "prose",
     });
 
     expect(judged).toHaveLength(2);
     expect(judged[1]).toContain("The reply gets the price right and cites the sheet.");
     expect(run.grade).toBe("partly");
+  });
+
+  // protects=a judge whose first reply holds no text is asked again as at first, never with its empty reply sent back, which Anthropic refuses once the prompt cache marks it; fails_when=the empty reply is replayed and the press fails; no_claim=what a real judge writes (#2701).
+  test("a judge that writes nothing at first is asked again without its empty reply, and the JSON it gives then counts", async () => {
+    const { run, judged, roles } = await pressed("en-answer-sso", ENTERPRISE, {
+      grade: "right",
+      unstated: [],
+      first: "empty",
+    });
+
+    expect(judged).toHaveLength(2);
+    expect(roles[1]).toEqual(["system", "user"]);
+    expect(run.status).toBe("done");
+    expect(run.grade).toBe("right");
   });
 
   test("a number the judge names that no found Citation shows with is no false Supported", async () => {
