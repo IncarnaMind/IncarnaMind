@@ -236,9 +236,9 @@ export const USAGE_EVENTS = {
   /**
    * A completed week with a model call in it, sent while usage data is on:
    * about what the week's models cost (a range of the cost record's own
-   * estimate, not a provider's bill), the kind of route that paid, and the
-   * week's Questions and checks (#1993). Never a model's name, a Question or
-   * a Document.
+   * estimate, not a provider's bill), the kind of route that paid, and how
+   * many Answers were started and how many checks there were (#1993). Never a
+   * model's name, a Question or a Document.
    */
   model_spend_week: {
     spend_range: oneOf(SPEND_RANGES),
