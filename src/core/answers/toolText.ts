@@ -37,12 +37,13 @@ const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&
 const alternatives = (names: readonly string[]) => names.map(escapeRegExp).join("|");
 
 /**
- * Where a block starts: a Tool's tag (group 1), its name and an opening bracket (group 2), or,
- * at the start of a line, its name and a colon ("cite: [...]", group 3).
+ * Where a block starts: a Tool's tag (group 1), its name and an opening bracket (group 2),
+ * at the start of a line its name and a colon ("cite: [...]", group 3), or a tag whose
+ * attribute holds the JSON (`<cite citations='[...]'>`, group 4, its quote group 5).
  */
 const openerPattern = (names: readonly string[], json: string) =>
   new RegExp(
-    `(?:${OPEN}(${alternatives(names)})${ATTRIBUTES}${CLOSE}|(?<![\\w-])(${alternatives(names)})\\(|(?<![^\\n])[ \\t]*(${alternatives(names)})[ \\t]*:)\\s*(?=${json})`,
+    `(?:${OPEN}(${alternatives(names)})${ATTRIBUTES}${CLOSE}|(?<![\\w-])(${alternatives(names)})\\(|(?<![^\\n])[ \\t]*(${alternatives(names)})[ \\t]*:|${OPEN}(${alternatives(names)})[ \\t]+[\\w:-]+[ \\t]*=[ \\t]*(['"]))\\s*(?=${json})`,
     "gi",
   );
 
@@ -67,11 +68,15 @@ function blocksIn(text: string, names: readonly string[]): Block[] {
   const apart: Block[] = [];
   for (const each of text.matchAll(openerPattern(names, JSON_START))) {
     if (each.index < (apart.at(-1)?.to ?? 0)) continue;
-    const call = each[1] === undefined;
-    const tag = (each[1] ?? each[2] ?? each[3] ?? "").toLowerCase();
     const start = each.index + each[0].length;
     const json = jsonEnd(text, start);
     const paragraph = text.indexOf("\n\n", start);
+    if (each[4] !== undefined) {
+      apart.push(...attributeBlocks(text, each, start, json, paragraph));
+      continue;
+    }
+    const call = each[1] === undefined;
+    const tag = (each[1] ?? each[2] ?? each[3] ?? "").toLowerCase();
     // A tag's block runs to its closing tag; a call's to the bracket right after its JSON, and
     // a name with a colon's to the end of its JSON.
     const closer =
@@ -97,6 +102,50 @@ function blocksIn(text: string, names: readonly string[]): Block[] {
     apart.map((each) => ({ start: each.from, end: each.to })),
   );
   return apart.filter((_, index) => shown[index]);
+}
+
+/**
+ * A tag whose attribute holds the JSON: it runs to the tag's own end on its line, and takes its
+ * closing tag, right after it or later in its paragraph, with it. Its records are read only when
+ * the JSON closes right before the attribute's quote; a tag that never ends is the rest of its
+ * paragraph, as a cut-off block is.
+ */
+function attributeBlocks(
+  text: string,
+  opener: RegExpExecArray,
+  start: number,
+  json: number | undefined,
+  paragraph: number,
+): Block[] {
+  const tag = (opener[4] ?? "").toLowerCase();
+  const closing = new RegExp(`${OPEN}/${escapeRegExp(tag)}\\s*${CLOSE}`, "i");
+  const tagEnd = (pattern: string, from: number) =>
+    new RegExp(`^${pattern}[^<>\\n]*?${CLOSE}`, "i").exec(text.slice(from));
+  const wellFormed = json === undefined ? null : tagEnd(`\\s*${opener[5]}`, json);
+  const ended = wellFormed ? null : tagEnd("", start);
+  const paragraphEnd = paragraph === -1 ? text.length : paragraph;
+  const to =
+    json !== undefined && wellFormed
+      ? json + wellFormed[0].length
+      : ended
+        ? start + ended[0].length
+        : paragraphEnd;
+  const content = wellFormed || !ended ? text.slice(start, json ?? to) : "";
+  const block: Block = {
+    from: opener.index,
+    to,
+    tag,
+    content,
+    escaped: opener[0].startsWith("&") || content.includes("&quot;"),
+  };
+  if (to >= paragraphEnd || /\/\s*(?:>|&gt;)$/.test(text.slice(block.from, to))) return [block];
+  const nextOpener = new RegExp(`${OPEN}${escapeRegExp(tag)}(?![\\w-])`, "i").exec(text.slice(to));
+  const until = Math.min(paragraphEnd, nextOpener ? to + nextOpener.index : paragraphEnd);
+  const after = closing.exec(text.slice(to, until));
+  if (!after) return [block];
+  const at = to + after.index;
+  if (text.slice(to, at).trim() === "") return [{ ...block, to: at + after[0].length }];
+  return [block, { from: at, to: at + after[0].length, tag, content: "", escaped: false }];
 }
 
 const decoded = (text: string) =>
@@ -159,7 +208,11 @@ export function takeToolText(
   let at = 0;
   for (const block of blocks) {
     if (block.tag === CITE) records.push(...recordsIn(block));
-    const before = text.slice(at, block.from).replace(/[ \t]+$/, "");
+    // The space before a block stays only where a word follows it, so words never join.
+    const word = /^[\p{L}\p{N}]/u.test(text.slice(block.to));
+    const before = word
+      ? text.slice(at, block.from)
+      : text.slice(at, block.from).replace(/[ \t]+$/, "");
     const startsLine = out + before === "" || (out + before).endsWith("\n");
     const alone = startsLine && /^[ \t]*(?:\n|$)/.test(text.slice(block.to));
     out += before;
@@ -183,11 +236,13 @@ export function heldBackFrom(text: string, names: readonly string[] = TOOL_TEXT_
     ...text.matchAll(openerPattern(names, '$|\\[\\s*(?:[{\\]]|$)|\\{\\s*(?:"|&quot;|\\}|$)')),
   ].find((each) => !inFence(each.index))?.index;
   const typing = /(?:<|&(?:l(?:t;?)?)?|(?<![\w-]))([a-z_]*)$/i.exec(text);
+  const tagOpen = new RegExp(`${OPEN}(?:${alternatives(names)})[ \\t][^<>\\n]*$`, "i").exec(text);
   const partial =
     typing &&
     names.some((name) => name.startsWith((typing[1] ?? "").toLowerCase())) &&
     !inFence(typing.index)
       ? typing.index
       : undefined;
-  return Math.min(opened ?? text.length, partial ?? text.length);
+  const attributes = tagOpen && !inFence(tagOpen.index) ? tagOpen.index : undefined;
+  return Math.min(opened ?? text.length, partial ?? text.length, attributes ?? text.length);
 }

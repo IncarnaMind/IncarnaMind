@@ -121,3 +121,55 @@ test("the log learns why each item was left out, and the missing overview, never
   expect(ledger.omittedReasons(true)).toEqual({ citationNotFound: 2, overview: 1 });
   expect(ledger.omittedReasons(false)).toEqual({ citationNotFound: 2 });
 });
+
+test("a fact may replace one written after it in the same reply", () => {
+  const ledger = createFactLedger();
+  const decision = fact("P1_F1", "最终定一位摄影师全天跟拍，九千八百元。", ["P1_F2"]);
+  const proposal = fact("P1_F2", "对方先推荐两位摄影师的方案，一万五千八百元。");
+  ledger.accept(reply([decision, proposal]));
+  expect(ledger.facts).toEqual([decision]);
+  expect(ledger.omitted(false)).toBe(0);
+  ledger.accept(reply([proposal]));
+  expect(ledger.facts).toEqual([decision]);
+});
+
+test("a fact replacing one left out for its Citation is kept", () => {
+  const ledger = createFactLedger();
+  const decision = fact("P1_F1", "The final price is 13 dollars a box.", ["P1_F2"]);
+  ledger.accept(reply([decision], ["P1_F2"]));
+  expect(ledger.facts).toEqual([decision]);
+  expect(ledger.omitted(false)).toBe(0);
+});
+
+test("a fact naming an id no reply has given is still left out", () => {
+  const ledger = createFactLedger();
+  const decision = fact("P1_F1", "The final price is 13 dollars a box.", ["P1_F9"]);
+  const other = fact("P1_F2", "Dev photographs the boxes by 9 March.");
+  ledger.accept(reply([decision, other]));
+  expect(ledger.facts).toEqual([other]);
+  expect(ledger.omittedReasons(false)).toEqual({ supersedes: 1 });
+});
+
+test("two facts that replace each other are both left out, and counted", () => {
+  const ledger = createFactLedger();
+  const first = fact("P1_F1", "The launch is 19 March.", ["P1_F2"]);
+  const second = fact("P1_F2", "The launch is 12 March.", ["P1_F1"]);
+  const other = fact("P1_F3", "Dev photographs the boxes by 9 March.");
+  ledger.accept(reply([first, second, other]));
+  expect(ledger.facts).toEqual([other]);
+  expect(ledger.omittedReasons(false)).toEqual({ supersedes: 2 });
+  const chain = fact("P2_F1", "C", ["P2_F2"]);
+  const middle = fact("P2_F2", "B", ["P2_F3"]);
+  const last = fact("P2_F3", "A");
+  ledger.accept(reply([chain, middle, last]));
+  expect(ledger.facts).toEqual([other, chain]);
+});
+
+test("a fact replaced while it was left out doesn't come back later", () => {
+  const ledger = createFactLedger();
+  const decision = fact("P1_F1", "The final price is 13 dollars a box.", ["P1_F2"]);
+  ledger.accept(reply([decision], ["P1_F2"]));
+  ledger.accept(reply([fact("P1_F2", "The price is 16 dollars a box.")]));
+  expect(ledger.facts).toEqual([decision]);
+  expect(ledger.omitted(false)).toBe(0);
+});
