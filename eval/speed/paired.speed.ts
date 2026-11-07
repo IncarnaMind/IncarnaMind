@@ -13,6 +13,7 @@ import { test } from "vitest";
 import type { SaveChatProviderInput } from "../../src/core";
 import { costOf } from "../../src/core/cost/price";
 import { catalogFacts } from "../../src/core/providers/catalog";
+import { CNY_PER_USD } from "../../src/core/providers/catalog/billing";
 import { createAiSdkChatModel } from "../../src/core/providers/models";
 import { commitOf } from "../lib/commit";
 import { readConfig } from "../lib/config";
@@ -76,17 +77,20 @@ function judgeOf(models: readonly SaveChatProviderInput[]) {
       const result = await doGenerate();
       if (price) {
         const { inputTokens, outputTokens } = result.usage;
-        spent += costOf(
-          {
-            inputTokens: inputTokens.total ?? 0,
-            cachedInputTokens: inputTokens.cacheRead ?? 0,
-            cacheWriteTokens: inputTokens.cacheWrite ?? 0,
-            outputTokens: outputTokens.total ?? 0,
-          },
-          price,
-          new Date(),
-          { cacheWrites: named.kind === "anthropic" },
-        );
+        // A price in yuan (DeepSeek's) is counted in dollars, as the cores' own spend is.
+        const perDollar = price.currency === "CNY" ? CNY_PER_USD : 1;
+        spent +=
+          costOf(
+            {
+              inputTokens: inputTokens.total ?? 0,
+              cachedInputTokens: inputTokens.cacheRead ?? 0,
+              cacheWriteTokens: inputTokens.cacheWrite ?? 0,
+              outputTokens: outputTokens.total ?? 0,
+            },
+            price,
+            new Date(),
+            { cacheWrites: named.kind === "anthropic" },
+          ) / perDollar;
       }
       return result;
     },
