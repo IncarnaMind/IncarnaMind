@@ -81,6 +81,12 @@ What the table shows:
 - **Finished lines:** the same lines, word for word, before and after.
 - **Before's updates:** few, since a stretch gets a partial only after 1.5 s and then every 2.5 s, and a busy computer delays them.
 
+**Finished lines on the meeting set (#85).** The first 4 minutes of each of its 10 cases (`npm run eval:meetings`, with and without `INCARNAMIND_EVAL_LIVE=off`) gave the same 383 lines, word for word:
+
+- English: WER 25.7% online and 36.0% in a room;
+- Chinese: CER 14.4% online and 38.5% in a room;
+- mixed: 25.5%.
+
 ## Considered options
 
 - **One streaming model for everything, with no second pass.** The finished lines would be the streaming model's.

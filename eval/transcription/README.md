@@ -101,5 +101,5 @@ The times are where the transcription process reports the words. The window then
   - The streaming model writes nothing for the first words of some English sentences.
   - Fed alone, the same clips start their words at times that depend on how much audio comes before the speech, by up to 1 s either way. It is the model's English, not the pipeline.
   - Every Chinese clip had words within 0.8 s.
-- **Finished lines:** the same, word for word.
+- **Finished lines:** the same, word for word, here and on the first 4 minutes of each case of the meeting set (`npm run eval:meetings` with and without `INCARNAMIND_EVAL_LIVE=off`: 383 lines, WER 25.7% and 36.0%, CER 14.4% and 38.5%, MER 25.5%).
 - **Memory:** the process had 1.11 GB before and 1.49 GB after once loaded, and at most 2.27 GB before and 2.65 GB after.
