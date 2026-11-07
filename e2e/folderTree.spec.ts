@@ -231,7 +231,7 @@ test("a Mind moves by its menu, by the keyboard and by dragging, each with Undo;
       /^Use as a source$/,
       /^Export…$/,
       /^Export AI use statement$/,
-      /^Export check record…$/,
+      /^Export check record$/,
       /^History$/,
       /^Check$/,
       /^Tie out figures$/,

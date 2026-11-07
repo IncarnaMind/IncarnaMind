@@ -49,14 +49,20 @@ export type {
  * the renderer import it.
  */
 import type {
+  AnalysisColumnCheck,
   AnalysisEnd,
+  AnalysisFigureRows,
   AnalysisLanguage,
   AnalysisOutput,
   AnalysisRecalculation,
+  AnalysisTable,
+  AnalysisTableCheck,
+  AnalysisTableKey,
   AnalysisUnavailableReason,
   AnalysisValue,
   AnalysisVersions,
 } from "../shared/analysis";
+import type { AnalysisTableColumn } from "../shared/analysisTables";
 import type { CitationForm, CitationStyleId, StyleCatalogue } from "../shared/citationStyles";
 import type { DrawnPage } from "../shared/citedPage";
 import type { ClaimCheckShown } from "../shared/claimChecks";
@@ -334,8 +340,32 @@ export interface CreateMindInput {
  *   write the parts again without them and name the newest model for every
  *   part, so it opens these Notes read-only. Older content is version 51
  *   content as it is: a part with none was judged by its mark's model.
+ * - 52: an Analysis's table is one calculated object (#2378): the table Block
+ *   carries its binding to the run (`analysisTable`), its caption ends with an
+ *   `analysisTable` marker node, and the Note's Analysis records keep the
+ *   run's tables and what IncarnaMind made of each column. An older editor
+ *   would drop the node and the attribute, so it opens these Notes read-only.
+ *   Older content is version 51 content as it is: a table written before is a
+ *   typed table, checked as one. A figure check of an Analysis's figure also
+ *   records whether the claim judge read its sentence as naming it (`named`);
+ *   one without it shows Not checked until the next Check.
+ * - 53: a Citation's `quotedWords` may instead record the page the Answer's
+ *   quoted words were found running on to past the one it cites
+ *   (`{ runsOnTo }`, #2504), as a Location, so its card says where the quote
+ *   continues. An older app would mishandle it: its figure reader refuses a
+ *   `quotedWords` it can't parse, so a figure's Citation would be lost, and
+ *   its Replace, re-check and figure paths would carry the old page onto a
+ *   new quote. So it opens these Notes read-only. Older content is version 52
+ *   content as it is: a Citation without it says nothing of a next page.
+ * - 54: a Citation's `quotedWords` may instead record that words its Answer put
+ *   in quotation marks are a cited Document's name, or a part of it
+ *   (`{ name }`, #2504), so its card says they aren't a quote from its pages.
+ *   An older app's figure reader refuses a `quotedWords` it can't parse, and
+ *   its Replace, re-check and figure paths would carry the name onto another
+ *   quote, so it opens these Notes read-only. Older content is version 53
+ *   content as it is: a Citation without it says nothing of a name.
  */
-export const CONTENT_SCHEMA_VERSION = 51;
+export const CONTENT_SCHEMA_VERSION = 54;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -664,6 +694,8 @@ export type ProposalRequest =
       instruction?: string;
       /** Why the model changed the text, in its few words (#202); absent when it didn't say. */
       reason?: string;
+      /** The assistant said the User asked only for text to go: a change that does more waits for them (#2356). */
+      removesOnly?: true;
     })
   | (ProposalMaker & { source: "answer"; answerId: string })
   | (ProposalMaker & {
@@ -671,6 +703,8 @@ export type ProposalRequest =
       requested?: RequestedChange;
       action?: EditAction;
       instruction?: string;
+      /** It revises a change the assistant said was asked only to take text out, and is held to it (#2356). */
+      removesOnly?: true;
     })
   | (ProposalMaker & { source: "comparison-table"; tableId: string })
   | (ProposalMaker & { source: "research"; taskId: string })
@@ -1449,6 +1483,29 @@ export interface EditAsk {
 export type ChartProblem = "noTable" | "noNumbers" | "needsTwo" | "uncited";
 
 /**
+ * What an edit does to the User's sentences in the paragraphs it touches (#2356): each kept word
+ * for word, taken out whole, shortened by words taken out, or rewritten (joined to another or
+ * reworded); and how many it writes that aren't one of theirs with words taken out.
+ */
+export interface SentenceChanges {
+  kept: number;
+  takenOut: number;
+  shortened: number;
+  rewritten: number;
+  written: number;
+  /** The first few of the User's sentences taken out whole and rewritten, as they read. */
+  named: { takenOut: string[]; rewritten: string[] };
+}
+
+/** Whole paragraphs a change removes and nothing else (`paragraphsRemoved`): how many, their sentences, and how the first is named. */
+export interface RemovedParagraphs {
+  paragraphs: number;
+  sentences: number;
+  /** The first one's label ("Parking"), or its first words, "…" when cut. */
+  start: string;
+}
+
+/**
  * What a call of a Minds' Tool did (#202): the changes it proposed in one
  * Mind, which wait there for the User to accept or reject them.
  */
@@ -1464,6 +1521,12 @@ export interface MindChange {
   proposals: number;
   /** How many paragraphs they change, add or remove, each once (`changedParagraphs`). Absent: none. */
   changed?: number;
+  /** Every paragraph and table it changes it adds whole, changing none of the User's (`addsOnly`). */
+  added?: true;
+  /** What it does to the User's sentences, read from the text before and after it (`sentenceChanges`). Absent: it touches none. */
+  sentences?: SentenceChanges;
+  /** It only removes whole paragraphs, none of the User's other text changed (`onlyRemoves`). */
+  removed?: RemovedParagraphs;
   /** How many paragraphs the whole Blocks it wrote hold (a heading or a table holds none). Absent: none. */
   paragraphs?: number;
   /** How many tables it added. Absent: none. */
@@ -1508,7 +1571,8 @@ export interface MindChange {
    * stopped it, if anything did. Those it couldn't check, or didn't, are marked
    * not checked, under `request`; `blocked` says how many of them the User's own
    * choice kept from being sent (the flow turned off, or Local mode), which
-   * checking again can't change. Absent: none was checked.
+   * checking again can't change, or how many wait for the User to allow what
+   * checks send now ("consent-widened"). Absent: none was checked.
    */
   selfCheck?: {
     request: string;
@@ -1521,7 +1585,7 @@ export interface MindChange {
     checked: number;
     failed: number;
     stop?: RunStop;
-    blocked?: { reason: "consent-revoked" | "local-mode"; count: number };
+    blocked?: { reason: "consent-revoked" | "local-mode" | "consent-widened"; count: number };
   };
 }
 
@@ -1565,6 +1629,22 @@ export interface SkillScriptRun {
 export const CITATION_NODE = "citation";
 
 export const CALCULATED_FIGURE_NODE = "calculatedFigure";
+
+/**
+ * A table an Analysis gave is one calculated object (#2378): its table Block holds
+ * `ANALYSIS_TABLE_ATTRIBUTE`, the run and which of its tables it is, and its cells stay text. The
+ * caption line above it ends with `ANALYSIS_TABLE_NODE`, an inline marker that holds the same
+ * binding and takes the next number in the one series with Citations, figures and footnotes.
+ */
+export const ANALYSIS_TABLE_NODE = "analysisTable";
+export const ANALYSIS_TABLE_ATTRIBUTE = "analysisTable";
+
+/** Which Analysis run a table Block, or its caption's marker, is, as the Note's `figureRuns` keep it. */
+export interface AnalysisTableBinding {
+  /** The run's id in the Note's `MIND_FIGURE_RUNS_FIELD`. */
+  id: string;
+  table: AnalysisTableKey;
+}
 
 /**
  * The node type of a footnote the User writes: an inline node at its marker,
@@ -2222,6 +2302,12 @@ export interface CitationToRecheck {
    * (`changed`).
    */
   contentHash?: string | null;
+  /**
+   * The words the Answer put in quotation marks that the Citation's check didn't find (#483):
+   * looked for with the quote, so a Citation not found for them stays not found until its cited
+   * Units have them (#2612).
+   */
+  quotedWords?: QuotedWordsCheck | null;
 }
 
 /** Where a Question is asked: its Note, else its conversation; null for none. */
@@ -2504,7 +2590,40 @@ export type CitationLocation =
    * file itself. `value` is the property as the file gives it: an ISO 8601 date, the author, a
    * count, the size in bytes, or the name.
    */
-  | ({ kind: "properties"; property: FilePropertyName; value: string } & MaybeArea);
+  | ({ kind: "properties"; property: FilePropertyName; value: string } & MaybeArea)
+  /**
+   * The Library's own facts, not a Document's text (#2525): a check's evidence for a sentence
+   * about the Library itself, as the check's scope saw it, Folder walls applied.
+   */
+  | ({ kind: "library"; source: LibrarySource; fact: LibraryFact } & MaybeArea);
+
+/**
+ * Where a check's Library facts come from, in the scope chip's words (#2525): the whole Library,
+ * every Document but the walled Folders a Note outside them leaves out, or a Search scope by the
+ * name its first Folder, Tag or Document has and how many more it names.
+ */
+export type LibrarySource =
+  | { kind: "library" }
+  | { kind: "left-out"; folders: number }
+  | { kind: "scope"; name: string; more: number };
+
+/**
+ * One fact of the Library a check can cite (#2525). Every count is of the Documents, Folders,
+ * Tags or notes the check's scope sees; "notes" leaves out the note being checked; "shared" is how
+ * many names more than one Document shares.
+ */
+export type LibraryFact =
+  | { kind: "documents"; count: number }
+  | { kind: "shared"; count: number }
+  | { kind: "folder"; name: string; count: number }
+  | { kind: "unfiled"; count: number }
+  | { kind: "format"; format: DocumentKind; count: number }
+  | { kind: "name"; name: string; count: number }
+  | { kind: "folders"; count: number }
+  | { kind: "tags"; count: number }
+  | { kind: "tag"; name: string; count: number }
+  | { kind: "notes"; count: number }
+  | { kind: "note"; name: string };
 
 /** A stretch of words, and whether the Document has it where the Answer's quoted words were looked for. */
 export interface QuotedPiece {
@@ -2523,6 +2642,23 @@ export interface QuotedWords {
   /** The Document's words nearest them, the matching stretch `found: true`; null when none is near. */
   closest: QuotedPiece[] | null;
 }
+
+/** The Answer's quoted words, found where they run on past the page the Citation cites (#2504). */
+export interface QuotedWordsRunOn {
+  /** The page they run on to, as the Document prints it, for the card to name. */
+  runsOnTo: CitationLocation;
+}
+
+/** Words in quotation marks that are a cited Document's name, or a part of it: a name, not a quote (#2504). */
+export interface QuotedName {
+  name: string;
+}
+
+/**
+ * What the check of the Answer's quoted words found, stored as one value, so whatever drops or
+ * checks the words again drops the run-on page or the name with them.
+ */
+export type QuotedWordsCheck = QuotedWords | QuotedWordsRunOn | QuotedName;
 
 /**
  * A Citation's attributes, as stored on its node in the Mind's Yjs document.
@@ -2576,8 +2712,11 @@ export interface CitationAttributes {
   pageChecked?: boolean | null;
   /** One line on what the evidence says, when a claim check has one ("The agreement says 31 October 2026, p. 7"). */
   verdict?: string | null;
-  /** The Answer's quoted words the check didn't find, when that is why `check` is "not-found" (#483). */
-  quotedWords?: QuotedWords | null;
+  /**
+   * The Answer's quoted words the check didn't find, when that is why `check` is "not-found"
+   * (#483), or the page they were found running on to (#2504).
+   */
+  quotedWords?: QuotedWordsCheck | null;
   /**
    * The Document's version the User chose to keep citing the old one over (Keep citing the old
    * version, #99): while it is the current one, the Citation doesn't ask to be checked again.
@@ -2606,7 +2745,14 @@ export interface Citation {
   checkReason: CitationCheckReason | null;
   /** The unsure words of a scanned page the quote covers (#535). */
   unsure?: string[];
-  quotedWords?: QuotedWords;
+  quotedWords?: QuotedWordsCheck;
+  /**
+   * The words of the Answer's quotation marks that this Citation's Units were found to state
+   * (#2602), so a figure in them is stated by this Citation. None when the quoted-words check
+   * didn't look for them: a Document's name, a Citation that couldn't be checked, or words the
+   * check didn't find (its card says Quote not found instead).
+   */
+  quotedWordsFound?: string[];
   /** "unsupported" and "contradicted": what the Documents say of its sentence, in one plain sentence. */
   verdict?: string | null;
 }
@@ -2841,6 +2987,8 @@ export interface AnswerAnalysis {
   };
   /** What IncarnaMind made of each `figure()` figure, by its result's name (ADR-0025). */
   recalculations?: { result: string; check: AnalysisRecalculation }[];
+  /** What IncarnaMind made of each column of numbers of each table it gave (#2378). */
+  tableChecks?: AnalysisTableCheck[];
   /** `run_code` only (ADR-0025): the Documents it copied into ../inputs, by the names the code read them by. */
   files?: AnalysisFile[];
   /** `run_code` only: what the code left in out/, within its limits; `left` past them. */
@@ -2882,6 +3030,17 @@ export interface RetainedFigureAnalysis
   > {
   id: string;
   values: RetainedFigureValue[];
+  /** Its tables a Note holds, each one calculated object (#2378); absent when it holds none. */
+  tables?: RetainedAnalysisTable[];
+}
+
+/** A table a Note kept from its Analysis: what the run gave, and what IncarnaMind made of its columns. */
+export interface RetainedAnalysisTable {
+  key: AnalysisTableKey;
+  /** What the Analysis called it: its caption's first words. */
+  label: string;
+  table: AnalysisTable;
+  columns: AnalysisColumnCheck[];
 }
 
 /** A number a calculated figure is worked out from: one read from a Citation's quote. */
@@ -2963,7 +3122,10 @@ export interface EditCause {
   requestId: string;
   /** Its Proposals' `ProposalRef.request`. */
   request: string;
-  /** Drawn as applied while it streams in; false until its new text maps onto the selection. */
+  /**
+   * Drawn as applied while it streams in: its new text maps onto the selection, and what it has
+   * written so far would not wait for the User.
+   */
   apply: boolean;
 }
 
@@ -3158,11 +3320,20 @@ export interface DeviceSettings {
 }
 
 /**
- * Where a Meeting's audio is turned into text: on this computer, or by a cloud service with the
- * User's own key (#141): OpenAI and Qwen (Alibaba Cloud Model Studio, for mainland China) with
- * the key of their provider in Settings › Models, Soniox with a key of its own.
+ * Where a Meeting's audio is turned into text: on this computer, or live by a cloud service with
+ * the User's own key (#141, #866): OpenAI, Qwen (Alibaba Cloud Model Studio, for mainland China)
+ * and Gemini with the key of their provider in Settings › Models; Soniox, Deepgram (also at
+ * Cloudflare Workers AI or a server of the User's own) and AssemblyAI with a key of their own.
  */
-export const TRANSCRIPTION_ROUTES = ["local", "openai", "soniox", "qwen"] as const;
+export const TRANSCRIPTION_ROUTES = [
+  "local",
+  "openai",
+  "soniox",
+  "qwen",
+  "deepgram",
+  "assemblyai",
+  "gemini",
+] as const;
 export type TranscriptionRoute = (typeof TRANSCRIPTION_ROUTES)[number];
 export type CloudTranscriptionRoute = Exclude<TranscriptionRoute, "local">;
 
@@ -3182,9 +3353,28 @@ export interface TranscriptionServiceStatus {
   hasKey: boolean;
   liveSpeakers: boolean;
   keyUrl: string | null;
+  /** Where credit is added to the account the key is for; null where none is known. */
+  billingUrl: string | null;
+  /**
+   * The server the audio goes to, where the User can give one (Deepgram's: Deepgram, Cloudflare
+   * Workers AI or their own); null for every other service, whose address is its own.
+   */
+  server: string | null;
+  /** Its key may be left out: a server of the User's own. */
+  keyOptional: boolean;
+  /**
+   * Saving its key first sends it to the service to check it, except in Local mode; a Deepgram
+   * key is checked only when the server saved is Deepgram's own.
+   */
+  keyChecked: boolean;
+  /** What it transcribes, as ISO 639 codes. */
+  languages: string[];
+  /** The languages the User speaks (the interface's and the computer's) that it doesn't transcribe. */
+  missingLanguages: string[];
   /**
    * It was chosen, and set back to this computer when its key began to send the audio somewhere
-   * the User hadn't chosen (a Qwen key for another region): choosing it again sends it there.
+   * the User hadn't chosen (a Qwen key for another region, another Deepgram server): choosing it
+   * again sends it there.
    */
   chooseAgain: boolean;
 }
@@ -3203,6 +3393,8 @@ export interface TranscriptionServices {
 export interface SetTranscriptionKeyInput {
   route: CloudTranscriptionRoute;
   apiKey: string;
+  /** Deepgram's server, where it isn't Deepgram's own: Cloudflare Workers AI's, or the User's. */
+  server?: string;
 }
 
 /**
@@ -3839,6 +4031,13 @@ export interface Document {
    */
   yourNote: DocumentYourNote | null;
   /**
+   * Set when the Document is a Meeting's Transcript (#2528): the Note it belongs to. It goes
+   * where the Note goes, into its Folder, behind its wall and to Recently deleted, and has no
+   * Folder, Tags or row of its own: it is reached through its Note. Null for every other
+   * Document, a .vtt the User added among them.
+   */
+  meetingMindId: string | null;
+  /**
    * The Mind this file was last imported as, still there (#720): the User's working copy of
    * it, which is never cited. Null for a file never imported.
    */
@@ -4053,9 +4252,9 @@ export type WebPageLookFailure =
  * - "not-a-page": the address is a file (a PDF, an image), not a web page.
  * - "video": the page is a video, with little text to read.
  * - "not-text": the page has too little text to read, such as an app.
- * - "not-public": web search's fetcher refused it: the address is on this
- *   computer or a local network, or redirects there (#128).
- * - "too-many-redirects": it redirected more than web search's fetcher follows.
+ * - "not-public": the fetcher that reaches only the public internet refused
+ *   it: the address is on this computer or a local network, or redirects there.
+ * - "too-many-redirects": it redirected more than that fetcher follows.
  * - "not-from-search": web search fetches only the pages its search returned
  *   in the same Answer, and this wasn't one.
  * - "local-mode": "Keep everything on this computer" is on, so nothing was
@@ -5540,9 +5739,11 @@ export type RunStop = { reason: "cost-cap" } | { reason: "plan-limit"; resetsAt:
 /**
  * Why a full watch of a Mind ended before it finished: a stop a Run gives way
  * to, or the User stopping it. A cancelled watch is never a complete one: the
- * next Check sweeps every cited sentence again (#1941).
+ * next Check sweeps every cited sentence again (#1941). "consent-widened": it
+ * waits, unsent, for the User to allow what the checks flow sends now, which
+ * they allowed before it sent more (#2525).
  */
-export type WatchStop = RunStop | { reason: "cancelled" };
+export type WatchStop = RunStop | { reason: "cancelled" } | { reason: "consent-widened" };
 
 /** What Compare Documents makes a comparison table of (#98). */
 export interface CompareDocumentsInput {
@@ -6371,6 +6572,8 @@ export type EditWithAiResult =
       stopped?: "changed";
       /** What its new text left out of the selection, kept; absent when nothing. */
       leftOut?: LeftOutPart[];
+      /** The paragraphs of the selection a reply by names didn't name, as they were (#2356). Absent: none. */
+      unnamed?: LeftOutPart[];
       /**
        * The Mind's Yjs state vector once the Proposals were written. This reply can reach a
        * window before the last `"mind.update"` that wrote them, so a window waits until its
@@ -6470,6 +6673,8 @@ export type ClaimVerdict = "supported" | "unsupported" | "contradicted";
  * - "too-many": the assistant wrote more sentences with Citations than one write has checked (#1111).
  * - "consent-revoked": the User turned off sending checks to the model's service while it ran.
  * - "local-mode": "Keep everything on this computer" came on while it ran.
+ * - "consent-widened": the User allowed checks to the model's service before checks sent more, so
+ *   what the assistant wrote waited, unsent, for them to allow the more (#2525).
  * - "kept-inside": the existing Citation is outside this wall, so it was not read again.
  * - "absence-unconfirmed": a whole read said what the sentence calls absent is there, but a look
  *   at its quote found it doesn't state that (#1554, #1443).
@@ -6488,6 +6693,8 @@ export type ClaimVerdict = "supported" | "unsupported" | "contradicted";
  * - "figures-not-read": the figures in a text of a Document the check read couldn't be read; its
  *   detail is where, as `src/shared/unreadFigures.ts` writes it, or null when that isn't known.
  * - "sentence-figures-not-read": the figures in the sentence itself couldn't be read.
+ * - "library-unsettled": a sentence about the Library that its facts can't settle, such as a
+ *   reading of its Documents' names (#2525). No check can change that.
  */
 export type ClaimCheckFailure =
   | "refused"
@@ -6504,6 +6711,7 @@ export type ClaimCheckFailure =
   | "too-many"
   | "consent-revoked"
   | "local-mode"
+  | "consent-widened"
   | "absence-read-limit"
   | "absence-unconfirmed"
   | "absence-other-document"
@@ -6521,11 +6729,22 @@ export type ClaimCheckFailure =
   | "figures-not-read"
   | "sentence-figures-not-read"
   /** A figure's equal number that the quoted table gives in another row's or column's cell. */
-  | "other-cell";
+  | "other-cell"
+  | "library-unsettled"
+  /** An Analysis's figure that IncarnaMind didn't work out again: its code's, from the saved run (#2378). */
+  | "analysis"
+  /** An Analysis's figure whose run the Note no longer keeps, as when its Analysis was deleted (#2378). */
+  | "analysis-gone"
+  /**
+   * An Analysis's figure the claim judge didn't read as named by its sentence, or whose own clause
+   * also names another group, a negation or a comparison; its detail is the figure's label (#2378).
+   */
+  | "analysis-unnamed";
 
 /** Why a sentence was found unsupported, as the check gave it. */
 export interface UnsupportedReason {
-  kind?: "forecast-certainty" | "unbacked-cause";
+  /** "analysis-name": the sentence doesn't name an Analysis's figure as its label does (#2378). */
+  kind?: "forecast-certainty" | "unbacked-cause" | "analysis-name";
   /** One plain sentence on what no Passage states; null when the reply gave none. */
   reason: string | null;
   /** A short phrase for what the Passages do state of the sentence ("the speed comparison"); null when none. */
@@ -6612,6 +6831,11 @@ export interface ClaimPartSpan {
 export interface ClaimPartPlan {
   span: ClaimPartSpan;
   kind: "fact" | "opinion";
+  /**
+   * An "opinion" part that is about the note or Answer it is in, not the Documents ("listed
+   * below", #2525): set aside as an opinion is, and never called one.
+   */
+  itself?: true;
 }
 
 export interface ClaimPartCoverageMember {
@@ -6800,9 +7024,35 @@ export interface CheckFigure {
   calculated: CalculatedFigureAttributes | null;
   context?: string;
   label?: string;
+  /**
+   * An Analysis's figure, as the Note keeps its run (#2378): whether IncarnaMind worked it out
+   * again to the same number, and what the Analysis read. A check decides it from this alone.
+   */
+  analysisRecord?: {
+    recalculated: boolean;
+    citations: Citation[];
+    /** What the Analysis called it, and the rows of the input it was worked out from. */
+    label?: string;
+    of?: AnalysisFigureRows | null;
+    /** The Analysis's own words for its input, its columns and the figure's unit. */
+    vocabulary?: string[];
+    /** The run's code, cut to a few thousand characters: the claim judge's evidence of its rule. */
+    code?: string;
+    /** The figure's own unit as the Analysis gave it; null for a plain number. */
+    unit?: string | null;
+    /** The heading above the sentence, which may state a scale or unit for its numbers. */
+    heading?: string;
+    /**
+     * The lines above the sentence in its section and every heading it is under, nearest first,
+     * that state a scale, currency or percent, which a reader takes for its numbers too (#2544).
+     */
+    above?: string;
+  };
 }
 
 export interface FigureFinding extends CheckFigure {
+  /** An Analysis's figure the claim judge read its sentence as naming, as its label and rule say (#2378). */
+  named?: true;
   sourceInput: FigureInput | null;
   source?: Citation | null;
   roundedFrom: number | null;
@@ -6827,10 +7077,16 @@ export type FigureScheduleReason =
   | "not-found"
   | "quote-not-found"
   | "needs-recheck"
-  | "doesnt-add-up";
+  | "doesnt-add-up"
+  | "differs-from-analysis";
 
 export interface FigureScheduleRow extends FigureFinding {
   number: number;
+  /**
+   * An Analysis's own table (#2378), one row however many cells it has: its caption and each column
+   * of numbers, which open under the row. Its `reading` is its caption's, which holds no figure.
+   */
+  analysisTable?: { title: string; columns: AnalysisTableColumn[] };
   sentence: TextStretch | null;
   shown: ClaimCheckShown;
   reason: FigureScheduleReason | null;
@@ -7930,6 +8186,12 @@ export interface AskInConversationInput {
   quotes?: AskedQuote[] | null;
   /** Its Search scope; none or null: every Document. */
   scope?: SearchScope | null;
+  /**
+   * The Folder the Library is open on, when the Question comes from the Library with no Note:
+   * what "this folder" means there (#2529). Checked against the walls as a Note's Folder is,
+   * and not kept with the Question.
+   */
+  folderInFrontId?: string | null;
   /** The model to answer with; none or null: the default. */
   model?: ChatModelChoice | null;
   /** A Skill to load up front, by name. */
@@ -7956,6 +8218,11 @@ export interface ConversationAnswerInput {
   clearScope?: boolean;
   /** Regenerating: the Documents open on screen now, as `AskInConversationInput.onScreen`. */
   onScreen?: string[] | null;
+  /**
+   * Regenerating: the Folder the Library is open on, as `AskInConversationInput.folderInFrontId`,
+   * so Try again means the same Folder as the first Answer did (#2529).
+   */
+  folderInFrontId?: string | null;
   /**
    * Regenerating: write it with this model, and keep the Question on it, as when the model it was
    * asked with failed and the User chose another (#1848). Absent: the Question's own.
@@ -8109,6 +8376,11 @@ export interface DocumentTextMatch {
   pageTo: number | null;
   excerpt: string;
   highlights: TextRange[];
+  /**
+   * In a Transcript, when the words found were said: the start of the line they are in, in ms
+   * from its start (#2528). Null for every other Document, and where the line isn't found.
+   */
+  atMs: number | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -8642,6 +8914,15 @@ export const dataKinds = [
   "other-minds",
   "live-transcript",
   "pictures",
+  "skill-files",
+  "analysis-results",
+  "source-quotes",
+  "note-catalogue",
+  "library-counts",
+  "library-names",
+  "file-properties",
+  "absence-documents",
+  "watched-sentences",
 ] as const;
 
 export type DataKind = (typeof dataKinds)[number];
@@ -10561,6 +10842,28 @@ export type MeetingSourceState =
   | "ended";
 
 /**
+ * A meeting this version joined with its Transcript on the walled side of the one wall between
+ * them (#2528): its Note moved into its Transcript's Folder, or its Transcript into its Note's.
+ */
+export interface JoinedMeeting {
+  id: string;
+  mindId: string;
+  /** The Folder the meeting is in now. */
+  folderId: string;
+  /** Its Note went in to its Transcript's Folder; false: its Transcript went in to its Note's. */
+  noteMoved: boolean;
+}
+
+/**
+ * A meeting left apart from its Transcript when pairs filed apart were joined (#2528): two walls
+ * lay between them, so each stayed exactly where it was, the Transcript a Document of its own.
+ */
+export interface MeetingLeftApart {
+  id: string;
+  mindId: string;
+}
+
+/**
  * A stretch the User didn't choose not to record: IncarnaMind wasn't running
  * (it closed or crashed while recording), or the computer slept.
  */
@@ -10831,14 +11134,15 @@ export interface MeetingTranscript {
   /**
    * This computer took over from the cloud service the User chose, during this stretch of
    * recording: where, in the Meeting's time, and why. "dropped": the connection was lost;
-   * "refused": the service didn't accept the key; "cap": the month reached the cap;
-   * "local-mode": “Keep everything on this computer” is on; "moved": the key now sends the
-   * audio somewhere the User hasn't chosen (`TranscriptionServiceStatus.chooseAgain`). Null otherwise.
+   * "refused": the service didn't accept the key; "credit": the account has no credit left;
+   * "cap": the month reached the cap; "local-mode": “Keep everything on this computer” is on;
+   * "moved": the key now sends the audio somewhere the User hasn't chosen
+   * (`TranscriptionServiceStatus.chooseAgain`). Null otherwise.
    */
   fellBack: {
     route: CloudTranscriptionRoute;
     atMs: number;
-    reason: "dropped" | "refused" | "cap" | "local-mode" | "moved";
+    reason: "dropped" | "refused" | "credit" | "cap" | "local-mode" | "moved";
   } | null;
   /** Its own file in the data folder, once saved: kept for the Library, never shown as a path (#763). */
   savedPath: string | null;
@@ -11263,8 +11567,9 @@ export interface CoreApi {
   /**
    * Undoes a Restore: each item goes back to Recently deleted as it was before it came back, with
    * the rows its Restore brought back, deleted at the time it was deleted then, so the Folder it
-   * was in and its `RECENTLY_DELETED_DAYS` are as they were. A time outside those days, or in the
-   * future, is taken as now, so it never lands expired. Sends the events a delete sends.
+   * was in and its `RECENTLY_DELETED_DAYS` are as they were. A time outside those days, within a
+   * day of their end, or in the future, is taken as now, so it never lands expired and the Redo
+   * that follows can't be refused. Sends the events a delete sends.
    */
   deleteAgain(refs: DeletedAgainRef[]): Promise<void>;
   /**
@@ -11873,8 +12178,9 @@ export interface CoreApi {
    * only one that differs; an arXiv number on arXiv. Calling it is the
    * consent to the "reference-check" flow (ADR-0022); in local mode every
    * entry is "not-checked". One check of a Mind at a time. Answers are kept:
-   * a found record for good, a miss for seven days; `again` asks about every
-   * miss again.
+   * a found record for good, and a miss or a failure too, so an ordinary
+   * check sends nothing more; `again` asks about every kept miss and failure
+   * again.
    */
   checkReferences(mindId: string, options?: { again?: boolean }): Promise<CheckReferencesResult>;
   /** Stops a Mind's `checkReferences`: it gives "cancelled". Stopping none does nothing. */
@@ -12482,6 +12788,11 @@ export interface CoreApi {
   saveFigureScheduleExport(mindId: string): Promise<SavedExport>;
   /** The Mind's checks that Documents added since could change, with those Documents (#993). Sends nothing. */
   documentsAddedSinceChecks(mindId: string): Promise<DocumentsAddedSince[]>;
+  /**
+   * The Library's facts the Mind's checks rest on (#2525), as the Library gives them now, by each
+   * fact's version id: what the window compares a check's versions with. Sends nothing.
+   */
+  libraryFactsNow(mindId: string): Promise<Record<string, string>>;
 
   getSecretStorage(): Promise<SecretStorageStatus>;
   /** The User accepts storing keys without keyring protection on this device. */
@@ -13084,6 +13395,25 @@ export interface CoreApi {
   /** Every Meeting, newest first. */
   listMeetings(): Promise<Meeting[]>;
   /**
+   * The meetings this version joined across a wall's edge (#2528), not said yet, each still where
+   * the join put it: the sidebar says each once, with Undo.
+   */
+  listJoinedMeetings(): Promise<JoinedMeeting[]>;
+  /** Records that the sidebar said these (`listJoinedMeetings`), so it never says them again. */
+  joinedMeetingsSaid(ids: string[]): Promise<void>;
+  /**
+   * Puts a joined meeting back exactly as it was: its Transcript a Document of its own in its own
+   * Folder, its Note in its own. Refused once the User has moved the Note since.
+   */
+  undoMeetingJoin(id: string): Promise<void>;
+  /**
+   * The meetings this version left apart from their Transcripts, two walls lying between them,
+   * when it joined each pair filed apart (#2528), not said yet: the sidebar says so once.
+   */
+  listMeetingsLeftApart(): Promise<MeetingLeftApart[]>;
+  /** Records that the sidebar said these (`listMeetingsLeftApart`), so it never says them again. */
+  meetingsLeftApartSaid(ids: string[]): Promise<void>;
+  /**
    * A Meeting ready to record, in a new Mind named for the day or in an empty
    * Mind given: its Mind shows the start block. Needs a Mind with no Meeting,
    * and a copy that can record audio.
@@ -13113,8 +13443,9 @@ export interface CoreApi {
   /** The cloud services that can transcribe meeting audio (#141), and whether each has a key. */
   listTranscriptionServices(): Promise<TranscriptionServices>;
   /**
-   * Keeps a transcription service's own key (Soniox), in the keychain, once the service accepts
-   * it. Throws `InvalidInputError` when it refuses the key.
+   * Keeps a transcription service's own key (Soniox, Deepgram, AssemblyAI), in the keychain, once
+   * the service accepts it, with Deepgram's server where it is another. Throws
+   * `InvalidInputError` when it refuses the key or the server's address isn't one.
    */
   setTranscriptionKey(input: SetTranscriptionKeyInput): Promise<TranscriptionServices>;
   /** Forgets a transcription service's own key; meeting audio is then transcribed on this computer. */
@@ -13655,6 +13986,7 @@ const methods: Record<CoreApiMethod, true> = {
   getFigureScheduleChange: true,
   saveFigureScheduleExport: true,
   documentsAddedSinceChecks: true,
+  libraryFactsNow: true,
   getSecretStorage: true,
   acceptPlainTextSecretStorage: true,
   detectOllama: true,
@@ -13814,6 +14146,11 @@ const methods: Record<CoreApiMethod, true> = {
   listFileWriteRequests: true,
   respondToFileWrite: true,
   listMeetings: true,
+  listJoinedMeetings: true,
+  joinedMeetingsSaid: true,
+  undoMeetingJoin: true,
+  listMeetingsLeftApart: true,
+  meetingsLeftApartSaid: true,
   createMeeting: true,
   discardMeeting: true,
   startMeeting: true,

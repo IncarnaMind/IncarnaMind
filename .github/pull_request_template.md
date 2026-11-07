@@ -13,25 +13,11 @@
 
 ## If this changes UI
 
-Delete this section if the change has no UI. Otherwise check each line against [the interaction rules](https://github.com/IncarnaMind/IncarnaMind/blob/main/docs/agents/interaction.md):
+Delete this section if the change has no UI. It follows [the interaction rules](https://github.com/IncarnaMind/IncarnaMind/blob/main/docs/agents/interaction.md); name any it breaks, and why.
 
-- [ ] Each gesture follows a named app's convention (Claude, ChatGPT, Cursor, VS Code, Finder, Notion, Granola, or a Chinese app), or this says why none fits
-- [ ] Names shown rename in place (double-click or F2; Enter saves, Esc cancels; safe with a Chinese input method); Enter on a focused item opens it
-- [ ] Every drag has a menu and a keyboard way to do the same thing; targets highlight only while they accept
-- [ ] Nothing replaces the Note the User is in; no "Back to…" label
-- [ ] Reversible actions offer Undo (⌘Z and the undo line) instead of a confirmation; deleting goes to Recently deleted
-- [ ] Objects have the shared right-click and ⋯ menu, in the shared order
-- [ ] Selection works as everywhere: click opens, ⌘/Ctrl-click and Shift-click select, ⌘A, Esc
-- [ ] Every action works by keyboard and is in ⌘K; focus is visible; Esc closes the innermost thing
-- [ ] Responds within 100 ms; anything over a second shows progress where it happens
-- [ ] One primary action and one visible way to do it; no new setting without a reason given here
-- [ ] Problems show in place as one line with one action; words from `CONTEXT.md`, in English and Chinese
-- [ ] Layout holds at a narrow and a wide window, with and without the viewer; text never breaks by letter
-- [ ] Uses the shared building blocks where they exist, and no one-off where they don't
-- [ ] Adds nothing to first run or onboarding; a tip, if any, appears once at the moment it helps and goes away for good
 - [ ] Tested like a person in the built app, with the mouse and the keyboard
 - [ ] Before and after screenshots attached (narrow and wide)
-- [ ] A short recording of the flow in the built app beside the same flow in the prototype, with the mouse and the keyboard, with every difference in behaviour or looks listed and explained
+- [ ] When behaviour changed: a short recording of the built flow, and where it differs from the prototype, why
 
 ## Sign-off
 

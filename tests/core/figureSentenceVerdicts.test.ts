@@ -1051,7 +1051,8 @@ test.each<Shape>([
     sentence: "The salary is 61,500 per year, as agreed.",
     state: "not-checked",
     reason: "malformed",
-    figures: ["supported"],
+    // A reply that can't be read backs none of its figures either (#2378).
+    figures: ["not-checked"],
     asks: 0,
     evidence: 0,
   },
@@ -1059,12 +1060,12 @@ test.each<Shape>([
     sentence: "乙方月工资为人民币一万八千元，已约定。",
     state: "not-checked",
     reason: "malformed",
-    figures: ["supported"],
+    figures: ["not-checked"],
     asks: 0,
     evidence: 0,
   },
 ])(
-  "a sentence is never Supported on a reply that refuses after an ask or gives no verdict, and its figures keep their own results: $sentence (#2184)",
+  "a sentence is never Supported on a reply that refuses after an ask or gives no verdict; a refusal keeps its figures' own results, a reply that can't be read backs none: $sentence (#2184)",
   async ({ sentence, state, reason, figures, asks, evidence }) => {
     const checked = await checkSentence(sentence);
     expect(checked.check).toMatchObject({ state, reason });

@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { DataFromNewerVersionError } from "../../src/core/errors";
+import { wasIn } from "../../src/core/recentlyDeleted";
 import { type Database, migrate, openDatabase } from "../../src/core/storage";
 import { migrations } from "../../src/core/storage/migrations";
 import { createTempDataFolder } from "../helpers/core";
@@ -288,6 +289,37 @@ describe("Migrations", () => {
     db.close();
   });
 
+  test("the item index on deleted_folder_items is added to an existing database, and its lookup uses it", async () => {
+    const db = openDatabase(join(await createTempDataFolder(), "test.db"));
+    migrate(
+      db,
+      migrations.filter((migration) => migration.version < 131),
+    );
+    const at = "2026-10-01T00:00:00.000Z";
+    db.run(
+      `INSERT INTO deleted_folder_items
+         (id, folder_id, item_kind, item_id, suggested, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 0, ?, ?)`,
+      ["00000000-0000-4000-8000-000000000001", "folder-a", "document", "document-a", at, at],
+    );
+
+    migrate(db);
+
+    expect(userVersion(db)).toBe(migrations.at(-1)?.version);
+    expect(db.all("SELECT id FROM deleted_folder_items")).toEqual([
+      { id: "00000000-0000-4000-8000-000000000001" },
+    ]);
+    // The listing's own subquery, in the context its Documents query gives it.
+    const plan = db
+      .all<{ detail: string }>(
+        `EXPLAIN QUERY PLAN SELECT ${wasIn("document", "d")} AS folder_id FROM documents d`,
+      )
+      .map((row) => row.detail)
+      .join("\n");
+    expect(plan).toContain("deleted_folder_items_by_item");
+    db.close();
+  });
+
   test("all pending migrations share one transaction", async () => {
     const db = openDatabase(join(await createTempDataFolder(), "test.db"));
     const one = { version: 1, description: "one", sql: "CREATE TABLE one (id TEXT) STRICT;" };
@@ -419,6 +451,119 @@ describe("Migrations", () => {
     ]);
     db.close();
   });
+
+  test("arrivals, Linked folder links and turn-ons get their places in time order (#2370)", async () => {
+    const db = openDatabase(join(await createTempDataFolder(), "test.db"));
+    migrate(
+      db,
+      migrations.filter((migration) => migration.version < 132),
+    );
+    const at = (minute: string) => `2026-11-01T09:${minute}:00.000Z`;
+    const arrival = (id: string, documentId: string, time: string) =>
+      db.run(
+        `INSERT INTO document_arrivals (id, document_id, arrived_at, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?)`,
+        [id, documentId, time, time, time],
+      );
+    db.run(
+      "INSERT INTO linked_folders (id, path, created_at, updated_at) VALUES (?, '/Users/a/Reports', ?, ?)",
+      ["00000000-0000-4000-8000-000000000001", at("01"), at("01")],
+    );
+    // An unlinked folder from before: deleted rows keep no place, and the migration still runs.
+    db.run(
+      "INSERT INTO linked_folders (id, path, created_at, updated_at, deleted_at) VALUES (?, '/Users/a/Old', ?, ?, ?)",
+      ["00000000-0000-4000-8000-000000000004", at("00"), at("00"), at("00")],
+    );
+    arrival("00000000-0000-4000-8000-000000000002", "document-a", at("02"));
+    // A turn-on and an arrival in the same millisecond: the arrival counted as new (#2308).
+    db.run(
+      "INSERT INTO device_settings (id, key, value, created_at, updated_at) VALUES ('d1', 'library', ?, ?, ?)",
+      [
+        JSON.stringify({ automaticSince: { "https://api.anthropic.com": at("03") } }),
+        at("03"),
+        at("03"),
+      ],
+    );
+    arrival("00000000-0000-4000-8000-000000000003", "document-b", at("03"));
+
+    migrate(db);
+
+    expect(db.all("SELECT id, created_seq FROM linked_folders ORDER BY id")).toEqual([
+      { id: "00000000-0000-4000-8000-000000000001", created_seq: 1 },
+      { id: "00000000-0000-4000-8000-000000000004", created_seq: 0 },
+    ]);
+    expect(db.all("SELECT arrived_seq FROM document_arrivals ORDER BY arrived_seq")).toEqual([
+      { arrived_seq: 2 },
+      { arrived_seq: 4 },
+    ]);
+    const stored = JSON.parse(
+      db.get<{ value: string }>(
+        "SELECT value FROM device_settings WHERE key = 'library' AND deleted_at IS NULL",
+      )?.value ?? "null",
+    );
+    expect(stored.automaticSinceSeq).toEqual({ "https://api.anthropic.com": 3 });
+    expect(db.get("SELECT value FROM tagging_sequence")).toEqual({ value: 4 });
+    db.close();
+  });
+
+  test("a turn-on kept before sequences existed gets its place from the consent it had (#2370)", async () => {
+    const db = openDatabase(join(await createTempDataFolder(), "test.db"));
+    migrate(
+      db,
+      migrations.filter((migration) => migration.version < 132),
+    );
+    const at = (minute: string) => `2026-11-01T09:${minute}:00.000Z`;
+    db.run(
+      `INSERT INTO data_flow_consents
+         (id, flow, service_id, service_name, decision, data_kinds, created_at, updated_at)
+       VALUES (?, 'tagging', 'https://api.anthropic.com', 'Anthropic', 'accepted', ?, ?, ?)`,
+      ["00000000-0000-4000-8000-000000000001", '["document-excerpts"]', at("05"), at("05")],
+    );
+    db.run(
+      "INSERT INTO device_settings (id, key, value, created_at, updated_at) VALUES ('d1', 'library', ?, ?, ?)",
+      [JSON.stringify({ automatic: true }), at("06"), at("06")],
+    );
+    db.run(
+      `INSERT INTO document_arrivals (id, document_id, arrived_at, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?)`,
+      ["00000000-0000-4000-8000-000000000002", "document-a", at("07"), at("07"), at("07")],
+    );
+
+    migrate(db);
+
+    const stored = JSON.parse(
+      db.get<{ value: string }>(
+        "SELECT value FROM device_settings WHERE key = 'library' AND deleted_at IS NULL",
+      )?.value ?? "null",
+    );
+    expect(stored.automaticSinceSeq).toEqual({ "https://api.anthropic.com": 1 });
+    expect(db.get("SELECT arrived_seq FROM document_arrivals")).toEqual({ arrived_seq: 2 });
+    expect(db.get("SELECT value FROM tagging_sequence")).toEqual({ value: 2 });
+    db.close();
+  });
+
+  test("a switch saved off keeps its settings exactly, with no turn-on place (#2370)", async () => {
+    const db = openDatabase(join(await createTempDataFolder(), "test.db"));
+    migrate(
+      db,
+      migrations.filter((migration) => migration.version < 132),
+    );
+    const at = "2026-11-01T09:00:00.000Z";
+    const saved = JSON.stringify({ classifier: { kind: "automatic" }, automatic: false });
+    db.run(
+      "INSERT INTO device_settings (id, key, value, created_at, updated_at) VALUES ('d1', 'library', ?, ?, ?)",
+      [saved, at, at],
+    );
+
+    migrate(db);
+
+    expect(
+      db.get<{ value: string }>(
+        "SELECT value FROM device_settings WHERE key = 'library' AND deleted_at IS NULL",
+      )?.value,
+    ).toBe(saved);
+    db.close();
+  });
 });
 
 describe("Folders inside Folders (#246)", () => {
@@ -453,6 +598,135 @@ describe("Folders inside Folders (#246)", () => {
       { id: "folder-a", parent_id: null },
       { id: "folder-b", parent_id: "folder-a" },
     ]);
+    db.close();
+  });
+});
+
+describe("DeepSeek model ids (#2567)", () => {
+  test("a saved old id moves to deepseek-flash, and another provider's choice stays", async () => {
+    const db = openDatabase(join(await createTempDataFolder(), "test.db"));
+    const deepseekMigration = migrations.find((migration) =>
+      migration.description.includes("DeepSeek"),
+    );
+    if (!deepseekMigration) throw new Error("The DeepSeek migration isn't in the list.");
+    migrate(
+      db,
+      migrations.filter((migration) => migration.version < deepseekMigration.version),
+    );
+    const at = "2026-11-05T09:00:00.000Z";
+    const deepseek = "00000000-0000-4000-8000-0000000000d5";
+    const openai = "00000000-0000-4000-8000-0000000000a1";
+    db.run(
+      "INSERT INTO chat_providers (id, kind, base_url, catalog_id, endpoint, created_at, updated_at) VALUES (?, 'deepseek', NULL, 'deepseek', NULL, ?, ?)",
+      [deepseek, at, at],
+    );
+    db.run(
+      "INSERT INTO chat_providers (id, kind, base_url, catalog_id, endpoint, created_at, updated_at) VALUES (?, 'openai', NULL, 'openai', NULL, ?, ?)",
+      [openai, at, at],
+    );
+    const setting = (id: string, key: string, providerId: string, modelId: string) =>
+      db.run(
+        "INSERT INTO user_settings (id, key, value, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+        [id, key, JSON.stringify({ providerId, modelId }), at, at],
+      );
+    setting("s1", "chatModel", deepseek, "deepseek-v4-flash");
+    setting("s2", "quickTasksModel", deepseek, "deepseek-v4-flash-vision-exp");
+    setting("s3", "imageModel", openai, "deepseek-v4-flash");
+    db.run(
+      "INSERT INTO device_settings (id, key, value, created_at, updated_at) VALUES (?, 'lastChatModel', ?, ?, ?)",
+      ["d1", JSON.stringify({ providerId: deepseek, modelId: "deepseek-v4-flash" }), at, at],
+    );
+
+    migrate(db);
+
+    const value = (table: "user_settings" | "device_settings", key: string) =>
+      JSON.parse(
+        db.get<{ value: string }>(`SELECT value FROM ${table} WHERE key = ?`, [key])?.value ??
+          "null",
+      );
+    expect(value("user_settings", "chatModel")).toEqual({
+      providerId: deepseek,
+      modelId: "deepseek-flash",
+    });
+    expect(value("user_settings", "quickTasksModel")).toEqual({
+      providerId: deepseek,
+      modelId: "deepseek-flash",
+    });
+    expect(value("user_settings", "imageModel")).toEqual({
+      providerId: openai,
+      modelId: "deepseek-v4-flash",
+    });
+    expect(value("device_settings", "lastChatModel")).toEqual({
+      providerId: deepseek,
+      modelId: "deepseek-flash",
+    });
+    db.close();
+  });
+
+  test("a saved DeepSeek image choice moves to deepseek-flash too", async () => {
+    const db = openDatabase(join(await createTempDataFolder(), "test.db"));
+    const deepseekMigration = migrations.find((migration) =>
+      migration.description.includes("DeepSeek"),
+    );
+    if (!deepseekMigration) throw new Error("The DeepSeek migration isn't in the list.");
+    migrate(
+      db,
+      migrations.filter((migration) => migration.version < deepseekMigration.version),
+    );
+    const at = "2026-11-05T09:00:00.000Z";
+    const deepseek = "00000000-0000-4000-8000-0000000000d5";
+    db.run(
+      "INSERT INTO chat_providers (id, kind, base_url, catalog_id, endpoint, created_at, updated_at) VALUES (?, 'deepseek', NULL, 'deepseek', NULL, ?, ?)",
+      [deepseek, at, at],
+    );
+    db.run(
+      "INSERT INTO user_settings (id, key, value, created_at, updated_at) VALUES ('s1', 'imageModel', ?, ?, ?)",
+      [JSON.stringify({ providerId: deepseek, modelId: "deepseek-v4-flash" }), at, at],
+    );
+
+    migrate(db);
+
+    expect(
+      JSON.parse(
+        db.get<{ value: string }>("SELECT value FROM user_settings WHERE key = 'imageModel'")
+          ?.value ?? "null",
+      ),
+    ).toEqual({ providerId: deepseek, modelId: "deepseek-flash" });
+    db.close();
+  });
+
+  test("malformed saved preferences don't stop the migration and stay for the settings fallback", async () => {
+    const db = openDatabase(join(await createTempDataFolder(), "test.db"));
+    const deepseekMigration = migrations.find((migration) =>
+      migration.description.includes("DeepSeek"),
+    );
+    if (!deepseekMigration) throw new Error("The DeepSeek migration isn't in the list.");
+    migrate(
+      db,
+      migrations.filter((migration) => migration.version < deepseekMigration.version),
+    );
+    const at = "2026-11-05T09:00:00.000Z";
+    db.run(
+      "INSERT INTO chat_providers (id, kind, base_url, catalog_id, endpoint, created_at, updated_at) VALUES (?, 'deepseek', NULL, 'deepseek', NULL, ?, ?)",
+      ["00000000-0000-4000-8000-0000000000d5", at, at],
+    );
+    db.run(
+      "INSERT INTO user_settings (id, key, value, created_at, updated_at) VALUES ('s1', 'chatModel', '{', ?, ?)",
+      [at, at],
+    );
+    db.run(
+      "INSERT INTO device_settings (id, key, value, created_at, updated_at) VALUES ('d1', 'lastChatModel', '{', ?, ?)",
+      [at, at],
+    );
+
+    expect(() => migrate(db)).not.toThrow();
+    expect(
+      db.get<{ value: string }>("SELECT value FROM user_settings WHERE key = 'chatModel'")?.value,
+    ).toBe("{");
+    expect(
+      db.get<{ value: string }>("SELECT value FROM device_settings WHERE key = 'lastChatModel'")
+        ?.value,
+    ).toBe("{");
     db.close();
   });
 });

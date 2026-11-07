@@ -9,6 +9,12 @@ import type {
   FigureScheduleRow,
 } from "../core/api";
 import type { Language } from "../core/language";
+import {
+  type AnalysisTableColumn,
+  columnLine,
+  type DifferingCell,
+  differingLine,
+} from "./analysisTables";
 import { formatDateTime } from "./dates";
 import type { Figure, FigureUnit, Reading } from "./figures";
 import { formulaText } from "./formula";
@@ -25,6 +31,9 @@ export interface ScheduleLine {
   component?: FigureScheduleRow;
   omitted?: boolean;
   axis?: "row" | "column";
+  /** A column of numbers of an Analysis's table (#2378), and a cell of it that differs. */
+  column?: AnalysisTableColumn;
+  cell?: DifferingCell;
 }
 
 export const lineRef = (mindId: string, line: ScheduleLine) => ({
@@ -58,6 +67,8 @@ export function reasonKey(row: FigureScheduleRow): MessageKey | null {
       return "claim.why.quoteNotFound";
     case "doesnt-add-up":
       return "claim.why.doesntAddUp";
+    case "differs-from-analysis":
+      return "claim.why.differsFromAnalysis";
     default:
       return `claim.why.${row.reason}`;
   }
@@ -89,6 +100,12 @@ export function childrenOf(
   { rows, analyses }: Pick<FigureSchedule, "rows" | "analyses">,
 ): ScheduleLine[] {
   const children: ScheduleLine[] = [];
+  for (const column of row.analysisTable?.columns ?? []) {
+    const id = `${row.id}:column:${column.column}`;
+    children.push({ id, parent: row, column });
+    for (const [index, cell] of column.differs.entries())
+      children.push({ id: `${id}:cell:${index}`, parent: row, column, cell });
+  }
   for (const [index, input] of inputsOf(row, analyses).entries())
     children.push({ id: `${row.id}:input:${index}`, parent: row, ...input });
   for (const footing of row.footing) {
@@ -454,6 +471,24 @@ export function workbookFormulaText(figure: CalculatedFigure, language: Language
 
 export function lineShows(line: ScheduleLine, language: Language): LineShows {
   const { parent } = line;
+  if (line.cell)
+    return {
+      name: differingLine(line.cell, language),
+      value: null,
+      citation: null,
+      formula: null,
+      difference: null,
+      status: { glyph: "look", word: "figures.filter.look", why: "claim.why.differsFromAnalysis" },
+    };
+  if (line.column)
+    return {
+      name: columnLine(line.column, language),
+      value: null,
+      citation: null,
+      formula: null,
+      difference: null,
+      status: null,
+    };
   const change = parent.calculated?.figure.workbook?.change;
   if (line.input && change?.input === line.input.name) {
     // A what-if's changed input: the value it was given, never the cell's as if it were found.
@@ -589,4 +624,17 @@ export function figurePlaceText(row: FigureScheduleRow, language: Language): str
         })
       : translate(language, "figures.paragraph", { number: paragraph });
   return heading ? translate(language, "figures.place", { heading, place }) : place;
+}
+
+/**
+ * What opening a Figure schedule row does: an Analysis's table opens to its columns whatever it
+ * shows, as it is never checked as text (#2378); a figure no check reached says so; a calculated
+ * figure opens to its inputs; any other opens its source.
+ */
+export function rowOpens(
+  row: Pick<FigureScheduleRow, "analysisTable" | "shown" | "calculated">,
+): "columns" | "notice" | "inputs" | "source" {
+  if (row.analysisTable) return "columns";
+  if (row.shown.state === "not-checked") return "notice";
+  return row.calculated ? "inputs" : "source";
 }

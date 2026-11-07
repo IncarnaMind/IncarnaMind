@@ -11,16 +11,11 @@
  * taken to be the oldest turn without one.
  */
 
+import type { CloudLoss } from "../../adapters";
 import { createLeveler, toFloat, type VoiceDetector } from "../speech";
 import { cleanSpeech } from "../speechText";
-import {
-  type CloudStreamHandle,
-  type CloudStreamOptions,
-  CONNECT_TIMEOUT_MS,
-  FINISH_TIMEOUT_MS,
-  msOf,
-  samplesOf,
-} from "./stream";
+import { base64Pcm, createLiveStream, type LiveLink } from "./live";
+import { type CloudStreamHandle, type CloudStreamOptions, msOf, samplesOf } from "./stream";
 
 export const OPENAI_TRANSCRIPTION_URL = "wss://api.openai.com/v1/realtime?intent=transcription";
 
@@ -32,9 +27,13 @@ const KEPT_MS = 2000;
 /** The service refuses a commit of less audio than this. */
 const MIN_TURN_MS = 100;
 const LANGUAGES = ["en", "zh"];
-/** Errors that end the stream: the key refused, or the service won't take more for now. */
-const REFUSALS = new Set(["invalid_api_key", "account_deactivated"]);
-const STOPS = new Set([...REFUSALS, "insufficient_quota", "rate_limit_exceeded"]);
+/** Errors that end the stream: the key refused, no credit left, or no more for now. */
+const STOPS: Readonly<Record<string, CloudLoss>> = {
+  invalid_api_key: "refused",
+  account_deactivated: "refused",
+  insufficient_quota: "credit",
+  rate_limit_exceeded: "dropped",
+};
 
 interface Turn {
   id: number;
@@ -75,9 +74,6 @@ const toPcm = (samples: Float32Array) =>
     Math.max(-32768, Math.min(32767, Math.round(sample * 32768))),
   );
 
-const base64 = (samples: Int16Array) =>
-  Buffer.from(samples.buffer, samples.byteOffset, samples.byteLength).toString("base64");
-
 type ServerEvent = {
   type?: unknown;
   item_id?: unknown;
@@ -105,59 +101,6 @@ export function createOpenAiStream(
   /** Completed text that came before its turn was known. */
   const early = new Map<string, string>();
   let nextId = 1;
-  let ready = false;
-  const waiting: string[] = [];
-  let ended = false;
-  let refused = false;
-  let finishing: { resolve(): void } | null = null;
-  let finishTimer: ReturnType<typeof setTimeout> | null = null;
-
-  const send = (message: object) => {
-    const text = JSON.stringify(message);
-    if (ready) socket.send(text);
-    else waiting.push(text);
-  };
-
-  const socket = options.connect(OPENAI_TRANSCRIPTION_URL, options.apiKey, {
-    open() {
-      if (ended) return;
-      socket.send(
-        JSON.stringify({
-          type: "session.update",
-          session: {
-            type: "transcription",
-            audio: {
-              input: {
-                format: { type: "audio/pcm", rate: SERVICE_RATE },
-                transcription: { model: options.model, languages: LANGUAGES },
-                turn_detection: null,
-              },
-            },
-          },
-        }),
-      );
-    },
-    message: heard,
-    closed() {
-      if (ended) return;
-      end();
-      report.lost(refused ? "refused" : "dropped");
-    },
-  });
-  const connectTimer = setTimeout(() => {
-    if (ready || ended) return;
-    socket.close();
-  }, CONNECT_TIMEOUT_MS);
-
-  function end(): void {
-    ended = true;
-    // What waited for the connection is never sent once the stream has ended.
-    waiting.length = 0;
-    clearTimeout(connectTimer);
-    if (finishTimer) clearTimeout(finishTimer);
-    finishing?.resolve();
-    finishing = null;
-  }
 
   /** Everything before the oldest turn without its final text, or the turn being said, is done. */
   function doneMs(): number {
@@ -171,12 +114,9 @@ export function createOpenAiStream(
     return turn.item ? (texts.get(turn.item) ?? "") : "";
   }
 
-  function settle(): void {
+  function settle(link: LiveLink): void {
     report.progress(doneMs());
-    if (finishing && !open && turns.every((turn) => turn.final)) {
-      end();
-      socket.close();
-    }
+    if (link.finishing && !open && turns.every((turn) => turn.final)) link.complete();
   }
 
   function finalize(turn: Turn, transcript: string): void {
@@ -205,23 +145,11 @@ export function createOpenAiStream(
     return free;
   }
 
-  function heard(text: string): void {
-    if (ended) return;
-    let event: ServerEvent;
-    try {
-      event = JSON.parse(text) as ServerEvent;
-    } catch {
-      return;
-    }
+  function heard(event: ServerEvent, link: LiveLink): void {
     switch (event.type) {
-      case "session.updated": {
-        if (ready) return;
-        ready = true;
-        clearTimeout(connectTimer);
-        for (const message of waiting.splice(0)) socket.send(message);
-        report.opened();
+      case "session.updated":
+        link.ready();
         return;
-      }
       case "input_audio_buffer.committed": {
         if (typeof event.item_id !== "string") return;
         const turn = committedOrder[acknowledged++];
@@ -236,7 +164,7 @@ export function createOpenAiStream(
         if (done !== undefined) {
           early.delete(event.item_id);
           finalize(turn, done);
-          settle();
+          settle(link);
         }
         return;
       }
@@ -267,17 +195,14 @@ export function createOpenAiStream(
           return;
         }
         finalize(turn, transcript);
-        settle();
+        settle(link);
         return;
       }
       case "error": {
         const code = event.error?.code;
-        if (typeof code !== "string" || !STOPS.has(code)) return;
+        const loss = typeof code === "string" ? STOPS[code] : undefined;
         // The service may keep the socket open after it, transcribing nothing.
-        refused = REFUSALS.has(code);
-        end();
-        socket.close();
-        report.lost(refused ? "refused" : "dropped");
+        if (loss) link.lose(loss);
         return;
       }
     }
@@ -297,15 +222,17 @@ export function createOpenAiStream(
     return kept.subarray(Math.max(0, from - keptFrom));
   }
 
-  function append(): void {
+  function append(link: LiveLink): void {
     if (!open) return;
     const samples = since(Math.max(sent, open.start));
     sent = received;
     const out = open.upsample(samples);
-    if (out.length > 0) send({ type: "input_audio_buffer.append", audio: base64(out) });
+    if (out.length > 0) {
+      link.send(JSON.stringify({ type: "input_audio_buffer.append", audio: base64Pcm(out) }));
+    }
   }
 
-  function begin(start: number): void {
+  function begin(start: number, link: LiveLink): void {
     open = {
       id: nextId++,
       // Never audio a turn before had: a turn cut short at the detector's longest goes straight on.
@@ -316,66 +243,76 @@ export function createOpenAiStream(
       final: false,
       upsample: createUpsampler(),
     };
-    append();
+    append(link);
   }
 
-  function commit(end: number): void {
+  function commit(end: number, link: LiveLink): void {
     const turn = open;
     if (!turn) return;
     open = null;
     const { upsample: _upsample, ...rest } = turn;
     const committed: Turn = { ...rest, end, committedAt: Date.now() };
     if (msOf(sent - turn.start) < MIN_TURN_MS) {
-      send({ type: "input_audio_buffer.clear" });
+      link.send(JSON.stringify({ type: "input_audio_buffer.clear" }));
       return;
     }
-    send({ type: "input_audio_buffer.commit" });
+    link.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
     turns.push(committed);
     committedOrder.push(committed);
   }
 
-  function look(): void {
+  function look(link: LiveLink): void {
     for (let found = detector.next(); found; found = detector.next()) {
-      if (!open) begin(found.start - samplesOf(LEAD_IN_MS));
-      commit(Math.min(received, found.start + found.samples.length));
+      if (!open) begin(found.start - samplesOf(LEAD_IN_MS), link);
+      commit(Math.min(received, found.start + found.samples.length), link);
     }
-    if (!open && detector.speaking()) begin(received - samplesOf(LEAD_IN_MS));
+    if (!open && detector.speaking()) begin(received - samplesOf(LEAD_IN_MS), link);
   }
 
-  return {
-    push(samples) {
-      if (ended || finishing || samples.length === 0) return;
+  return createLiveStream(options, {
+    url: OPENAI_TRANSCRIPTION_URL,
+    opened(link) {
+      link.setup(
+        JSON.stringify({
+          type: "session.update",
+          session: {
+            type: "transcription",
+            audio: {
+              input: {
+                format: { type: "audio/pcm", rate: SERVICE_RATE },
+                transcription: { model: options.model, languages: LANGUAGES },
+                turn_detection: null,
+              },
+            },
+          },
+        }),
+      );
+    },
+    heard: (message, link) => heard(message as ServerEvent, link),
+    audio(samples, link) {
       // The service is sent what the detector hears: a quiet voice raised, as on this computer.
       const leveled = level(toFloat(samples));
       keep(toPcm(leveled));
       received += samples.length;
-      append();
+      append(link);
       detector.accept(leveled);
-      look();
-      settle();
+      look(link);
+      settle(link);
     },
-
-    finish() {
-      if (ended) return Promise.resolve();
-      return new Promise<void>((resolve) => {
-        finishing = { resolve };
-        detector.flush();
-        look();
-        commit(received);
-        finishTimer = setTimeout(() => {
-          for (const turn of [...turns]) finalize(turn, textOf(turn));
-          report.progress(msOf(received));
-          end();
-          socket.close();
-        }, FINISH_TIMEOUT_MS);
-        settle();
-      });
+    finish(link) {
+      detector.flush();
+      look(link);
+      commit(received, link);
+      settle(link);
     },
-
-    drop() {
-      if (ended) return;
-      end();
-      socket.close();
+    late(link) {
+      for (const turn of [...turns]) finalize(turn, textOf(turn));
+      report.progress(msOf(received));
+      link.complete();
     },
-  };
+    // The key is refused only in words of the service's own (`error`).
+    closed(_code, _reason, link) {
+      link.lose("dropped");
+    },
+  });
 }

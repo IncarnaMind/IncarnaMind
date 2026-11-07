@@ -37,7 +37,7 @@ Single-context: `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/
    - Take the next free number after the highest on `main`, and check it again after merging `main`.
    - Never edit a migration that has shipped.
    - Keep tables ready to sync: random UUID ids, ISO 8601 UTC timestamps, and soft deletes with `deleted_at`.
-8. **Add few dependencies.** A new one must be open source under a permissive licence, maintained and small, and the pull request says why it's needed. The named exceptions, each shipped unmodified with its licence texts: Pyodide (MPL-2.0), for Python analysis in the app (ADR-0023); python-build-standalone (MPL-2.0), the CPython `run_code` downloads on first use (less the Linux `_dbm` module ADR-0025 names), and, inside it, the GCC runtime libraries (libgfortran, libgcc_s and libgomp, GPL-3.0-or-later with the GCC Runtime Library Exception 3.1) and libquadmath (LGPL-2.1-or-later) as numpy's, scipy's and scikit-learn's wheels bundle them, each its own dynamically linked library with a link to GCC's source (ADR-0025). No LangChain (ADR-0005). The lockfile changes only through `npm install`.
+8. **Add few dependencies.** A new one must be open source under a permissive licence, maintained and small, and the pull request says why it's needed. The named exceptions, each shipped unmodified with its licence texts: Pyodide (MPL-2.0, ADR-0023), and python-build-standalone (MPL-2.0) with the libraries its wheels bundle, as ADR-0025 lists them. No LangChain (ADR-0005). The lockfile changes only through `npm install`.
 9. **Keep secrets and the User's data safe.**
    - No keys or tokens in code, logs, tests, issues or pull requests. Store secrets only through `src/core/secrets.ts`.
    - Nothing leaves the computer without the User's consent, which they give where they choose the service (ADR-0022, `src/core/consent.ts`); background work never asks. Usage data follows ADR-0014.
@@ -54,20 +54,19 @@ Single-context: `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/
 
 ## Tests and CI
 
-Read [`docs/agents/testing.md`](docs/agents/testing.md). Work is done when the checks that matter for it pass on a clean machine (CI on the pull request, or your own run of the same commands), not when one test passes on your computer.
+Read [`docs/agents/testing.md`](docs/agents/testing.md). Work is done when its pull request's CI is green, not when one test passes on your computer.
 
-- On your computer, run the light checks: `npm run typecheck`, `npm run lint`, and the unit tests of the files you changed. CI runs the whole unit suite and every smoke spec on the pull request. Run a smoke spec locally only when you need to see the UI you changed or record it.
+- On your computer, run `npm run typecheck`, `npm run lint` and the unit tests of the files you changed. CI runs the unit tests your changes reach and the smoke specs your pull request adds or changes; every test runs nightly and before a release. To check specs your change doesn't touch, run them on GitHub with `node scripts/run-specs.mjs`, not on your computer.
 - Try the edge cases in `docs/agents/testing.md` that apply (empty and huge input, Chinese, broken files, offline, failing models, quitting halfway, twice and Undo), and say which in the pull request.
 - Update or remove the tests for UI you changed.
 - A feature with a real engine (transcription, OCR, embeddings, the reranker, Python analysis) also needs a test that loads the real module the way the built app does. The fake engines are for everything else.
-- Watch `gh pr checks <number> --watch` and fix any red check before reporting.
 - Tests must pass on any machine:
   - launch through `e2e/app.ts` and set the window size;
   - assert relations rather than exact pixels;
   - wait for states rather than times;
   - keep wall-clock limits out of unit tests.
 - Test through the core's public interface, as the UI uses it, and assert what a User would see. Tests need no API keys and no network.
-- Automated tests use the scripted chat model. Before calling an AI feature done, use it by hand with a real model: Claude Haiku 5.5 on an Anthropic API key (Sonnet 5.5 for a hard feature), plus a small local Ollama model whenever the feature runs in Local mode. The pull request says which models you used. Every provider is tried before a release (`docs/agents/testing.md`).
+- Automated tests use the scripted chat model. A change to AI behaviour (a prompt, a tool description, a model choice) is proven on a real model, Claude Haiku 5.5 (Sonnet 5.5 for a hard feature), and its pull request gives the numbers and the models.
 
 ## UI
 
@@ -84,11 +83,16 @@ Read [`docs/agents/testing.md`](docs/agents/testing.md). Work is done when the c
   - motion only from the shared module (`src/renderer/src/motion.ts`), as `DESIGN.md` › Motion says, with no hand-written transitions;
   - layouts that hold at every width, in English and Chinese.
   - teach features where they live, not in onboarding, which only gets the User to a first checked Answer.
-- Build to the interactive prototype's behaviour, not to a still design board: a board fixes the looks only.
-- A UI pull request ticks the template's interaction checklist, shows before and after screenshots, and records the flow in the built app beside the same flow in the prototype, explaining every difference.
+- Build to the interactive prototype's behaviour, not to a still design board: a board fixes the looks only. Where the built screen behaves differently, fix it or say why in the pull request.
+- A UI pull request shows before and after screenshots, and a short recording of the built flow when its behaviour changed. One set covers every issue in a UI theme.
 
 ## Commits and pull requests
 
 - Sign off every commit (`git commit -s`); see [`CONTRIBUTING.md`](CONTRIBUTING.md).
-- One feature or theme per pull request, built whole: a feature is never split into small pull requests, and there is no line limit. A theme is one screen or one flow the User sees, not only one file; split only when a part is another screen or flow, or another priority tier. A pull request builds every part of its issue, or several issues of one theme; list each issue's acceptance criteria with ticks, use "Closes #123" only for an issue whose criteria are all met, and "Part of #123" with a line "What is left" for any other. Never mix a P0 or P1 issue with a P2 or P3 one, and a change to AI behaviour (a prompt, a tool description, a model choice) keeps its real-model numbers in the pull request. A P0 or P1 issue never waits for a batch to fill. File one issue per theme, not one per finding: related findings of the same theme, priority tier, difficulty and risk class go into one issue as a checklist, each part with its own criteria, and a new finding that fits an open issue of its theme is added there (`docs/agents/issue-tracker.md` › Filing an issue). Say what the User gets and why. One set of before and after screenshots and one recording of the built flow covers every issue in a UI theme.
-- A pull request merges once its sign-off check passes and its CI checks are green (about 25 minutes), or each red one is a known flaky spec named with its issue. Open it as a draft while you work (a draft skips the heavy jobs) and push as few times as you can. The whole suite also runs on `main` every night; a red night is fixed before new work. A change to checks, privacy or the User's data is reviewed by someone else first. Merge `main` into your branch to resolve a conflict or to pick up something you need.
+- One feature or theme per pull request, built whole, with no line limit. A theme is one screen or one flow the User sees; split only when a part is another screen or flow, or another priority tier. Never mix a P0 or P1 issue with a P2 or P3 one, and a P0 or P1 never waits for a batch to fill.
+- Say what the User gets and why. List each issue's acceptance criteria with ticks: "Closes #123" only when all are met, otherwise "Part of #123" with a line "What is left".
+- File issues one per theme, as [`docs/agents/issue-tracker.md`](docs/agents/issue-tracker.md) › Filing an issue says.
+- Push when the work is done and open the pull request ready, so CI starts at once; push as few times as you can. Merge `main` into your branch to resolve a conflict or to pick up something you need.
+- Watch CI with `gh pr checks <number> --watch --interval 300`. A pull request merges when its sign-off check and CI are green (about 10 minutes, 20 when it runs every smoke spec), or each red check is a known flaky spec named with its issue, and you have read your own diff (rule 13).
+- There is no separate review round, except for a change to the User's data, privacy or consent, a check's verdict or a Citation, AI behaviour, the sandbox, CI's checks, a migration or a dependency: someone else reads that first.
+- The whole suite runs on `main` every night; a red night is fixed before new work.

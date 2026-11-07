@@ -577,8 +577,9 @@ export function createTags(db: Database, now: () => string) {
     },
 
     /**
-     * Brings back a deleted Tag (the caller checks it may) and the links deleted with it.
-     * Returns the Documents that carry it again.
+     * Brings back a deleted Tag (the caller checks it may) and the links deleted with it, but on a
+     * meeting's Transcript, which has no Tags of its own (#2528). Returns the Documents that carry
+     * it again.
      */
     restore(tagId: string, deletedAt: string): string[] {
       return db.transaction(() => {
@@ -591,6 +592,9 @@ export function createTags(db: Database, now: () => string) {
                AND NOT EXISTS (SELECT 1 FROM document_tags live
                                WHERE live.document_id = document_tags.document_id
                                  AND live.tag_id = document_tags.tag_id AND live.deleted_at IS NULL)
+               AND NOT EXISTS (SELECT 1 FROM documents d
+                               WHERE d.id = document_tags.document_id
+                                 AND d.meeting_mind_id IS NOT NULL)
              RETURNING document_id`,
             [at, tagId, deletedAt],
           )

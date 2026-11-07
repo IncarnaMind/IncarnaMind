@@ -34,6 +34,7 @@ import {
   noteStateParts,
   noteStateShowsUnread,
   noteStateUnreadWords,
+  nothingLeft,
 } from "../noteState";
 import { chooseOutputLocation, savedFolderLabel, showOutputLocationSetting } from "../outputFiles";
 import { useAppStore } from "../store";
@@ -427,14 +428,7 @@ function SavedSentence({ result, withFile }: { result: SavedResult; withFile: Sa
     markAiText: result.markAiText,
   });
   const unread = state === null ? null : noteStateUnreadWords(state, t, language);
-  const standing =
-    state === null ||
-    (state.kind === "checked" &&
-      state.unread === 0 &&
-      state.cantCheck === 0 &&
-      state.needsCheck === 0)
-      ? []
-      : noteStateParts(state, t, language);
+  const standing = state === null || nothingLeft(state) ? [] : noteStateParts(state, t, language);
   // The unread count has words of its own at the line's end, in green and in amber for a narrow check; the line keeps its other parts.
   const beforeUnread =
     state !== null && noteStateShowsUnread(state) && unread !== null

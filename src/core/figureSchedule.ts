@@ -1,10 +1,17 @@
 import * as Y from "yjs";
+import {
+  type AnalysisTableShown,
+  analysisTableShown,
+  boundTableFor,
+  keptAnalysisTables,
+} from "../shared/analysisTables";
 import type { NodeJSON } from "../shared/blockJson";
 import { MAX_INPUTS_PER_FIGURE } from "../shared/calculatedFigures";
 import { gridOfTable, readChart, type SourceGrid, valueCitations } from "../shared/charts";
 import {
   analysisFigureShown,
   type ClaimCheckNow,
+  type ClaimCheckShown,
   claimCheckShown,
   figureCheckShown,
   keepRecordCites,
@@ -13,7 +20,13 @@ import {
 import { resultFromParts } from "../shared/claimParts";
 import { aggregateFigureResults, figureProblem, readFigureFinding } from "../shared/figureChecks";
 import { type FootingEntry, figureFooting } from "../shared/figureFooting";
-import { calculatedFiguresIn, figureRunsFor } from "../shared/figureRuns";
+import {
+  calculatedFiguresIn,
+  figureRunsFor,
+  keptBinding,
+  readTableBinding,
+  sameBinding,
+} from "../shared/figureRuns";
 import { type Figure, readFigures } from "../shared/figures";
 import { englishLocation } from "../shared/locations";
 import { perBlock } from "../shared/memo";
@@ -37,6 +50,7 @@ import { type FigureOccurrence, figuresInMind } from "./answers/checks/figureOcc
 import { checkedSentences } from "./answers/checks/sentences";
 import { type AnswerDocuments, createCitationSession } from "./answers/citations";
 import type {
+  AnalysisTableBinding,
   ClaimCheckResult,
   FigureCheckAttributes,
   FigureCheckResult,
@@ -47,8 +61,14 @@ import type {
   FigureSourceFooting,
   RetainedFigureAnalysis,
 } from "./api";
-import { CALCULATED_FIGURE_NODE, CITATION_NODE } from "./api";
+import {
+  ANALYSIS_TABLE_ATTRIBUTE,
+  ANALYSIS_TABLE_NODE,
+  CALCULATED_FIGURE_NODE,
+  CITATION_NODE,
+} from "./api";
 import { type Cell, headerRow } from "./documents/formats/grid";
+import type { Language } from "./language";
 import { plainText } from "./mindText";
 import { layout as partsOf } from "./proposals/write";
 
@@ -69,6 +89,10 @@ export interface FigureScheduleInput extends Omit<ClaimCheckNow, "text"> {
   blocks: Y.XmlFragment;
   /** The User, whose own check marks are theirs (#1933); null before they make one. */
   personId?: string | null;
+  /** The interface's language, which an Analysis table's numbers are written in. */
+  language?: Language;
+  /** The walled Folder that keeps a Document inside it, seen from this Note; null when it may read it. */
+  keptInside?: (documentId: string) => string | null;
 }
 
 /** A result worked out again from its parts or figures, with the sentence's record cites (#1709). */
@@ -480,8 +504,8 @@ function ownerOf(occurrence: FigureOccurrence, owners: readonly Owner[]): Owner 
       .filter(
         (owner) =>
           owner.element.getAttribute("id") === from.blockId &&
-          owner.from < to.offset &&
-          owner.to > from.offset,
+          owner.sentences.from < to.offset &&
+          owner.sentences.to > from.offset,
       )
       .sort((a, b) => b.check.checkedAt.localeCompare(a.check.checkedAt))[0] ?? null
   );
@@ -662,6 +686,133 @@ function progressOf(
   };
 }
 
+/** How an Analysis table's state shows among a schedule's figures (#2378). */
+function tableStateShown(shown: AnalysisTableShown): {
+  shown: ClaimCheckShown;
+  reason: FigureScheduleRow["reason"];
+} {
+  const { state } = shown;
+  switch (state.kind) {
+    case "recalculated":
+      return { shown: { state: "supported" }, reason: null };
+    case "differs":
+      return { shown: { state: "unsupported" }, reason: "differs-from-analysis" };
+    case "needs-recheck":
+      return { shown: { state: "needs-recheck", why: state.why }, reason: "needs-recheck" };
+    case "calculated":
+      return { shown: { state: "not-checked", reason: "analysis" }, reason: null };
+    case "kept-inside":
+      return { shown: { state: "not-checked", reason: "kept-inside" }, reason: null };
+    case "unavailable":
+      return { shown: { state: "not-checked", reason: "analysis-gone" }, reason: null };
+  }
+}
+
+/**
+ * A table's caption line, the top-level line whose marker is bound as the table is, wherever it
+ * stands, and the marker's offset in it.
+ */
+function captionOf(
+  blocks: Y.XmlFragment,
+  binding: AnalysisTableBinding,
+): { element: Y.XmlElement; at: number } | null {
+  for (const line of blocks.toArray()) {
+    if (!(line instanceof Y.XmlElement) || line.nodeName === "table") continue;
+    const marker = partsOf(line).find(({ node }) => {
+      const bound =
+        node instanceof Y.XmlElement && node.nodeName === ANALYSIS_TABLE_NODE
+          ? readTableBinding(node.getAttribute(ANALYSIS_TABLE_ATTRIBUTE))
+          : null;
+      return bound !== null && sameBinding(bound, binding);
+    });
+    if (marker) return { element: line, at: marker.start };
+  }
+  return null;
+}
+
+/**
+ * Each table that is an Analysis's own, one row however many cells it has (#2378): its state is
+ * worked out from the run the Note keeps, never its cells' text against the Documents.
+ */
+function analysisTableRows(
+  blocks: Y.XmlFragment,
+  input: FigureScheduleInput,
+  places: ReturnType<typeof placesIn>["places"],
+): { row: Omit<FigureScheduleRow, "number">; analyses: RetainedFigureAnalysis[] }[] {
+  const doc = blocks.doc;
+  if (!doc) return [];
+  return blocks.toArray().flatMap((table) => {
+    if (!(table instanceof Y.XmlElement) || table.nodeName !== "table") return [];
+    const binding = keptBinding(doc, table.getAttribute(ANALYSIS_TABLE_ATTRIBUTE));
+    const tableId = table.getAttribute("id");
+    if (!binding || typeof tableId !== "string") return [];
+    const node = nodeOf(table);
+    let analyses: RetainedFigureAnalysis[] = [];
+    try {
+      analyses = figureRunsFor(doc, [node]);
+    } catch (error) {
+      console.error(`Mind ${input.mindId}: reading Analysis table ${tableId}'s run failed`, error);
+    }
+    const kept = boundTableFor(node, keptAnalysisTables(analyses));
+    const caption = captionOf(blocks, binding);
+    const shown = analysisTableShown(
+      node,
+      kept,
+      input.language ?? "en",
+      input.versions,
+      input.keptInside ?? null,
+      caption ? plainText(caption.element) : null,
+    );
+    const captionId = caption?.element.getAttribute("id");
+    const title = caption ? plainText(caption.element).trim() : (kept?.label ?? "");
+    const at =
+      caption && typeof captionId === "string"
+        ? { blockId: captionId, offset: caption.at }
+        : { blockId: tableId, offset: 0 };
+    const place = places.get(at.blockId);
+    const reading: Figure = {
+      value: 0,
+      scale: 1,
+      scaleWord: null,
+      unit: { kind: "plain" },
+      decimals: 0,
+      start: 0,
+      end: title.length,
+      chars: title,
+      currency: null,
+      approximate: false,
+      rangeTo: null,
+      footnote: null,
+      ambiguous: [],
+    };
+    return [
+      {
+        analyses,
+        row: {
+          id: JSON.stringify(["analysis-table", tableId]),
+          locator: { kind: "text", from: at, to: { ...at, offset: at.offset + 1 } },
+          reading,
+          calculated: null,
+          sourceInput: null,
+          roundedFrom: null,
+          difference: null,
+          footing: [],
+          analysisTable: { title, columns: shown.columns },
+          sentence: null,
+          ...tableStateShown(shown),
+          sourceValue: null,
+          sourceShown: null,
+          checkedAt: null,
+          model: null,
+          cited: true,
+          signOff: null,
+          place: { heading: place?.heading ?? null, paragraph: place?.paragraph ?? 0 },
+        },
+      },
+    ];
+  });
+}
+
 export function figureSchedule(input: FigureScheduleInput): FigureSchedule {
   const { blocks } = input;
   const occurrences = figuresInMind(blocks);
@@ -672,37 +823,41 @@ export function figureSchedule(input: FigureScheduleInput): FigureSchedule {
     occurrences.map((occurrence) => [occurrence.id, occurrence.context]),
   );
   const findings = new Map<string, FigureFinding>();
-  const states = new Map<
-    string,
-    {
-      owner: Owner | null;
-      child: FigureCheckAttributes | null;
-      now: ClaimCheckNow;
-      current: boolean;
-    }
-  >();
+  // By occurrence, not id: a figure pasted with another's id reads its own sentence's check (#2378).
+  const states: {
+    owner: Owner | null;
+    child: FigureCheckAttributes | null;
+    now: ClaimCheckNow;
+    current: boolean;
+    finding: FigureFinding;
+  }[] = [];
+  const repeated = new Set(
+    occurrences.map((occurrence) => occurrence.id).filter((id, at, ids) => ids.indexOf(id) !== at),
+  );
   for (const occurrence of occurrences) {
     const owner = ownerOf(occurrence, owners);
     const child = childOf(occurrence, owner);
-    const now = { ...input, text: owner?.sentence ?? "", figureContexts };
+    // A figure whose id another one shares reads its own words, never the other's.
+    const contexts = repeated.has(occurrence.id)
+      ? new Map([...figureContexts, [occurrence.id, occurrence.context]])
+      : figureContexts;
+    const now = { ...input, text: owner?.sentence ?? "", figureContexts: contexts };
     const current =
       child !== null &&
       sameOccurrence(occurrence, child) &&
       figureCheckShown(child, now).state !== "needs-recheck";
-    findings.set(
-      occurrence.id,
-      child
-        ? {
-            ...(readFigureFinding(child) ?? emptyFinding(occurrence)),
-            locator: occurrence.locator,
-            calculated: occurrence.calculated,
-            context: occurrence.context,
-            label: occurrence.label,
-            reading: current ? child.reading : occurrence.reading,
-          }
-        : emptyFinding(occurrence),
-    );
-    states.set(occurrence.id, { owner, child, now, current });
+    const finding = child
+      ? {
+          ...(readFigureFinding(child) ?? emptyFinding(occurrence)),
+          locator: occurrence.locator,
+          calculated: occurrence.calculated,
+          context: occurrence.context,
+          label: occurrence.label,
+          reading: current ? child.reading : occurrence.reading,
+        }
+      : emptyFinding(occurrence);
+    findings.set(occurrence.id, finding);
+    states.push({ owner, child, now, current, finding });
   }
   const footings = tableFooting(occurrences, findings, layout);
   const signOffs = figureSignOffs(
@@ -711,8 +866,8 @@ export function figureSchedule(input: FigureScheduleInput): FigureSchedule {
     input.personId ?? null,
   );
   const rows = occurrences.map((occurrence, index): FigureScheduleRow => {
-    const state = states.get(occurrence.id);
-    const existing = findings.get(occurrence.id) ?? emptyFinding(occurrence);
+    const state = states[index];
+    const existing = state?.finding ?? emptyFinding(occurrence);
     const footing = footings.get(occurrence.id) ?? [];
     const finding = {
       ...existing,
@@ -729,15 +884,12 @@ export function figureSchedule(input: FigureScheduleInput): FigureSchedule {
     let shown: FigureScheduleRow["shown"] = { state: "not-checked", reason: "unread" };
     // A claim check covers the figure through its own child, through a Keep of the sentence, or
     // through a whole-sentence check's re-check or run — never through its verdict alone (#2378).
-    let claimShown = false;
     if (state?.owner?.check.kept) {
       shown = claimCheckShown(state.owner.check, state.now);
-      claimShown = true;
     } else if (state?.child) {
       shown = !sameIdentity(occurrence, state.child)
         ? { state: "needs-recheck", why: "edited" }
         : figureCheckShown({ ...state.child, ...finding, context: state.child.context }, state.now);
-      claimShown = true;
     } else if (state?.owner) {
       const parent = state.owner.check;
       const legacy = claimCheckShown(
@@ -748,18 +900,17 @@ export function figureSchedule(input: FigureScheduleInput): FigureSchedule {
         legacy.state === "needs-recheck" ||
         legacy.state === "kept" ||
         legacy.state === "checking"
-      ) {
+      )
         shown = legacy;
-        claimShown = true;
-      }
     }
     shown = analysisFigureShown(shown, {
-      checked: claimShown,
       run:
         retained.analyses.find((analysis) => analysis.id === occurrence.calculated?.analysisId) ??
         null,
       result: occurrence.calculated?.figure.analysis?.result ?? null,
       versions: input.versions,
+      keptInside: input.keptInside ?? null,
+      check: state?.child ?? null,
     });
     if (
       shown.state !== "needs-recheck" &&
@@ -854,6 +1005,17 @@ export function figureSchedule(input: FigureScheduleInput): FigureSchedule {
           }),
       },
     };
+  });
+  const tables = analysisTableRows(blocks, input, layout.places);
+  for (const { row, analyses } of tables) {
+    const at = rows.findIndex((each) => each.place.paragraph > row.place.paragraph);
+    rows.splice(at < 0 ? rows.length : at, 0, { ...row, number: 0 });
+    for (const analysis of analyses)
+      if (!retained.analyses.some((each) => each.id === analysis.id))
+        retained.analyses.push(analysis);
+  }
+  rows.forEach((row, index) => {
+    row.number = index + 1;
   });
   const latest = rows
     .filter((row) => row.checkedAt)

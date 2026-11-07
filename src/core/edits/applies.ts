@@ -7,16 +7,16 @@ export function mapsOnto(found: number, total: number): boolean {
   return total === 0 || found / total >= MOST_OF_IT;
 }
 
-/** What was meant can't be told when new text maps onto none of the selection and removes most of it: it waits. */
+/**
+ * What was meant can't be told when an edit takes out most of the selection, so it waits, even
+ * when its new text is all found there: a reply that keeps one sentence of five (#2356).
+ */
 export function waitsForUser(edit: {
   action: EditAction;
-  mapped: boolean;
   removed: number;
   added: number;
   selected: number;
 }): boolean {
-  if (edit.mapped || edit.action === "translate" || edit.selected === 0) {
-    return false;
-  }
+  if (edit.action === "translate" || edit.selected === 0) return false;
   return (edit.removed - edit.added) / edit.selected > MOST_OF_IT;
 }

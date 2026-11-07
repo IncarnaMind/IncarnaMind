@@ -195,6 +195,7 @@ describe("search", () => {
       pageTo: 2,
       excerpt: "…the Rotterdam lease was signed…",
       highlights: [{ start: 5, end: 14 }],
+      atMs: null,
     };
     const other = doc({ name: "Invoice 4471" });
     const named = doc({ name: "Rotterdam lease" });

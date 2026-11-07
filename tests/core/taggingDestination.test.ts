@@ -119,6 +119,14 @@ async function turnOn(core: Core, classifier?: LibraryClassifier) {
 const taggingOf = async (core: Core, id: string) =>
   (await core.listDocuments()).find((each) => each.id === id)?.tagging;
 
+/** Resolves once each Document's tagging has a final state, whatever it is. */
+const settledTagging = (core: Core, ids: readonly string[]) =>
+  waitForTagging(
+    core,
+    ids,
+    (each) => !["pending", "tagging", "waiting-for-provider"].includes(each.tagging),
+  );
+
 async function add(core: Core, name: string) {
   const [document] = await addAndProcess(core, [
     await writeSourceFile(await createSourceFolder(), name, `${name}: a quarterly report.`),
@@ -912,6 +920,51 @@ describe("A Linked folder linked in the same millisecond as the turn-on", () => 
     clock.advance(1_000);
     const added = await add(core, "Added after.txt");
     await waitForTagging(core, [added.id]);
+    expect(providers.sent("anthropic")).toBe(1);
+  });
+});
+
+describe("A clock step doesn't decide what arrived after the turn-on (#2370)", () => {
+  test("stepped back an hour after the turn-on: the Document added then goes at once, the one already there sends nothing", async () => {
+    const clock = manualClock();
+    const providers = perProvider();
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: providers.createChatModel,
+      now: clock.now,
+    });
+    const anthropic = await core.saveChatProvider(ANTHROPIC);
+    const before = await add(core, "Before.txt");
+    await waitForTagging(core, [before.id], (each) => each.tagging === "off");
+    await turnOn(core, chatModel(anthropic.id, ANTHROPIC.modelId));
+
+    clock.advance(-3_600_000);
+    const after = await add(core, "After.txt");
+    await settledTagging(core, [after.id]);
+
+    expect(await taggingOf(core, before.id)).toBe("off");
+    expect(await taggingOf(core, after.id)).toBe("tagged");
+    expect(providers.sent("anthropic")).toBe(1);
+  });
+
+  test("set a year ahead and corrected: the Document added after the turn-on goes at once, the one already there sends nothing", async () => {
+    const clock = manualClock();
+    const providers = perProvider();
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: providers.createChatModel,
+      now: clock.now,
+    });
+    const anthropic = await core.saveChatProvider(ANTHROPIC);
+    clock.advance(365 * 24 * 3_600_000);
+    const before = await add(core, "Before.txt");
+    await waitForTagging(core, [before.id], (each) => each.tagging === "off");
+    clock.advance(-365 * 24 * 3_600_000);
+    await turnOn(core, chatModel(anthropic.id, ANTHROPIC.modelId));
+
+    const after = await add(core, "After.txt");
+    await settledTagging(core, [after.id]);
+
+    expect(await taggingOf(core, before.id)).toBe("off");
+    expect(await taggingOf(core, after.id)).toBe("tagged");
     expect(providers.sent("anthropic")).toBe(1);
   });
 });

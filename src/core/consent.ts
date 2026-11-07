@@ -7,8 +7,9 @@
  * chat model's provider in setup or Settings, a search service, a Connector)
  * allows its flows at once: `choose`. A flow the User hasn't allowed asks
  * once: `ensure` raises a "consent.requested" event and waits for the UI to
- * answer with `respondToConsent`, except on a background flow, which never
- * asks and throws `ConsentNeededError`, so its work waits. Decisions are kept
+ * answer with `respondToConsent`, except on a background flow or for a call
+ * made as background work, which never asks and throws `ConsentNeededError`,
+ * so its work waits. Decisions are kept
  * per flow and service. A flow that starts sending a new kind of data asks
  * again; a declined flow stays unused until the User revokes the decision or
  * allows it in Settings (the Privacy page lists every registered flow).
@@ -294,6 +295,17 @@ export function createConsent(
     return result;
   };
 
+  /**
+   * Whether the User's acceptance of the flow to the service covers `kinds`: work on the flow
+   * that sends only those goes on after the flow grew to send more (#2525).
+   */
+  const covers = (flowId: DataFlowId, service: ExternalService, kinds: readonly DataKind[]) => {
+    const row = find(flowId, service.id);
+    if (row?.decision !== "accepted") return false;
+    const accepted = acceptedKinds(row);
+    return kinds.every((kind) => accepted.includes(kind));
+  };
+
   return {
     registry,
 
@@ -324,20 +336,32 @@ export function createConsent(
       return find(flowId, service.id)?.decision === "accepted";
     },
 
+    covers,
+
     /**
      * Resolves once the User has accepted everything the flow sends to the
-     * service, asking them first if needed. Throws `ConsentDeclinedError` if
-     * they declined, and, on a background flow, which never asks,
-     * `ConsentNeededError` if they haven't allowed it: the caller must not
-     * send anything.
+     * service, or, with `sends`, those kinds of it, asking them first if
+     * needed. Throws `ConsentDeclinedError` if they declined, and, on a
+     * background flow, which never asks, `ConsentNeededError` if they haven't
+     * allowed it: the caller must not send anything. `background`: this one
+     * call is background work, even on a flow used by hand too (a search's
+     * embedding, say), so it never asks.
      */
-    async ensure(flowId: DataFlowId, service: ExternalService): Promise<void> {
+    async ensure(
+      flowId: DataFlowId,
+      service: ExternalService,
+      sends?: readonly DataKind[],
+      options: { background?: boolean } = {},
+    ): Promise<void> {
       for (;;) {
         const flow = flowFor(flowId, service);
         const { consent, missing } = statusOf(flow);
         if (consent === "accepted") return;
+        if (sends && covers(flowId, service, sends)) return;
         if (consent === "declined") throw new ConsentDeclinedError(flow);
-        if (definitions.get(flowId)?.background) throw new ConsentNeededError(flow);
+        if (options.background === true || definitions.get(flowId)?.background) {
+          throw new ConsentNeededError(flow);
+        }
         // The decision is recorded before the request settles, so the loop re-checks it.
         await ask(flow, missing).promise;
       }
@@ -365,12 +389,13 @@ export function createConsent(
       }
     },
 
-    respond(requestId: unknown, accept: unknown): void {
+    respond(requestId: unknown, accept: unknown): ConsentRequest | null {
       if (typeof requestId !== "string") throw new InvalidInputError("requestId must be text.");
       if (typeof accept !== "boolean") throw new InvalidInputError("accept must be true or false.");
       const entry = pending.get(requestId);
-      if (!entry) return; // Already answered, e.g. in another window.
+      if (!entry) return null; // Already answered, e.g. in another window.
       answer(entry, accept);
+      return entry.request;
     },
 
     /**

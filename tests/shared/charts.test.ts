@@ -13,12 +13,14 @@ import {
   chartSources,
   chosenSeries,
   drawnSeries,
+  footCitations,
   gridOfTable,
   isNumericSeries,
   listedRows,
   MAX_CHART_VALUES,
   readChart,
   readChartData,
+  redrawnData,
   type SourceCell,
   type SourceGrid,
   seriesName,
@@ -274,6 +276,46 @@ describe("what a chart draws", () => {
       [22, 4],
       [23, 3],
     ]);
+  });
+
+  test("a value an Analysis worked out is the Analysis's, never one with no Citation", () => {
+    const analysed: ChartAttributes = {
+      ...chart,
+      data: {
+        ...chart.data,
+        rows: chart.data.rows.map((row) => ({
+          ...row,
+          values: row.values.map((value) =>
+            !value || value.citation || value.citations || value.inputs
+              ? value
+              : { ...value, fromAnalysis: true as const },
+          ),
+        })),
+      },
+    };
+    const sources = chartSources(analysed);
+    expect([sources.values, sources.uncited, sources.analysis]).toEqual([8, 0, 1]);
+    expect(sources.uncitedCells).toEqual([]);
+  });
+
+  test("the foot's check mark weighs quoted values' Citations, never an Analysis's values'", () => {
+    const quoted = footCitations(chart);
+    expect(quoted).toHaveLength(7);
+    const fromAnalysis: ChartAttributes = {
+      ...chart,
+      data: {
+        ...chart.data,
+        rows: chart.data.rows.map((row, index) => ({
+          ...row,
+          values: row.values.map((value) =>
+            value && index === 0 ? { ...value, fromAnalysis: true as const } : value,
+          ),
+        })),
+      },
+    };
+    const cited = chart.data.rows[0]?.values.filter((value) => value?.citation).length ?? 0;
+    expect(cited).toBeGreaterThan(0);
+    expect(footCitations(fromAnalysis)).toHaveLength(quoted.length - cited);
   });
 
   test("its sources count every chosen cell for bars, lines and scatter, and a pie's one column", () => {
@@ -1214,7 +1256,16 @@ describe("an Analysis's own values in a chart (#2378)", () => {
     citations: Citation[],
     value: (row: number, column: number) => number | null,
     grid: string[][] = [],
-  ): AnalysisTableMatch => ({ grids: [grid], numeric: [], citations, value });
+  ): AnalysisTableMatch => ({
+    binding: { id: "run", table: { result: "totals" } },
+    label: "",
+    table: { columns: [], rows: [], rowCount: 0, columnCount: 0 },
+    columns: [],
+    grids: [grid],
+    numeric: [],
+    citations,
+    value,
+  });
 
   const table = (rows: string[][]): NodeJSON => ({
     type: "table",
@@ -1233,6 +1284,38 @@ describe("an Analysis's own values in a chart (#2378)", () => {
       title: "Amounts",
       language: "en",
     }) as ChartAttributes | null;
+
+  test("drawn again from its table, as the core does once a write is checked, keeps the Analysis's values and inputs (#2378)", () => {
+    const shown = table([
+      ["Region", "Amount"],
+      ["Central", "8,325"],
+      ["North", "9,450"],
+    ]);
+    const chart = chartOf(
+      withAnalysisValues(
+        gridOfTable(shown),
+        match([orders], (row, column) => (column === 1 ? ([8325.4, 9450][row] ?? null) : null)),
+      ),
+    );
+    if (!chart) throw new Error("The table drew no chart.");
+    // Its table as it is: nothing to draw again, so the values and their inputs stay.
+    expect(redrawnData(gridOfTable(shown), chart, "en")).toBeNull();
+    // A row renamed is drawn again from its words; the other keeps the Analysis's value and inputs.
+    const renamed = redrawnData(
+      gridOfTable(
+        table([
+          ["Region", "Amount"],
+          ["Central", "8,325"],
+          ["Nord", "9,450"],
+        ]),
+      ),
+      chart,
+      "en",
+    );
+    expect(renamed?.rows.map((row) => row.values[0]?.value)).toEqual([8325.4, 9450]);
+    expect(renamed?.rows[0]?.values[0]?.inputs).toEqual([orders]);
+    expect(renamed?.rows[1]?.values[0]?.inputs).toBeUndefined();
+  });
 
   test("draws the Analysis's own value, never the number its rounded display reads as", () => {
     const grid = withAnalysisValues(
@@ -1296,6 +1379,19 @@ describe("an Analysis's own values in a chart (#2378)", () => {
     if (!value) throw new Error("The chart has no value.");
     expect(valueCitations(value)).toEqual([orders, regions]);
     expect(chartSources(chart)).toMatchObject({ uncited: 0, documents: 2 });
+  });
+
+  // protects=a chart value read from a line keeps what the check of its Citation's quoted words found, the next page they ran on to included (#2504), as the Citation has it; fails_when=the copy drops it; no_claim=how the chart shows it.
+  test("a line's Citation whose quoted words ran on keeps that page in the chart's copy", () => {
+    const cited = { ...orders, quotedWords: { runsOnTo: { kind: "page", from: 2, to: 2 } } };
+    const line = sourceLineOf({
+      type: "paragraph",
+      content: [
+        { type: "text", text: "289.4" },
+        { type: "citation", attrs: cited },
+      ],
+    });
+    expect(line.citation).toEqual(cited);
   });
 
   test("reads every Citation a cell holds, not only its first, from its own text", () => {

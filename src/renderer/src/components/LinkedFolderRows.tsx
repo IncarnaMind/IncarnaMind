@@ -5,6 +5,7 @@ import { buildFolderTree } from "../folders";
 import { useLanguage, useT } from "../i18n";
 import { sourceRequest } from "../libraryPage";
 import { indexingShare, linkedFolderRowState, rowStateLabel } from "../linkedFolders";
+import { isListedDocument } from "../meetingTranscript";
 import { showOutputLocationSetting, useLinkedFolderWriting } from "../outputFiles";
 import { useRequests } from "../requests";
 import { sorted } from "../sort";
@@ -43,7 +44,10 @@ export function LinkedFolderRows({ hideExamples = false }: { hideExamples?: bool
       .flatMap((each) => (each.linkedFolderId ? [each.linkedFolderId] : []))
       .join(" "),
   );
-  const filled = useMemo(() => new Set(documents.map((each) => each.linkedFolderId)), [documents]);
+  const filled = useMemo(
+    () => new Set(documents.filter(isListedDocument).map((each) => each.linkedFolderId)),
+    [documents],
+  );
   const examples = useMemo(
     () => new Set(hideExamples ? exampleIds.split(" ").filter(Boolean) : []),
     [hideExamples, exampleIds],

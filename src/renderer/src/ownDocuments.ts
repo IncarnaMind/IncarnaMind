@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import type { Document } from "../../core/api";
 import { useFirstOpen } from "./firstOpen";
+import { isListedDocument } from "./meetingTranscript";
 import { type AppState, allExamples, exampleMindIds, isOwnDocument, useAppStore } from "./store";
 
 /** How many of the User's own loose Documents there may be before a Folder is offered (#1942). */
@@ -24,8 +25,14 @@ export function useOwnDocuments(): readonly Document[] {
  */
 export function useLibraryDocuments(): readonly Document[] {
   const own = useOwnDocuments();
-  const all = useAppStore((state) => state.documents);
+  const all = useListedDocuments();
   return own.length > 0 ? own : all;
+}
+
+/** Every Document with a row of its own: a Meeting's Transcript is its Note's (#2528). */
+export function useListedDocuments(): readonly Document[] {
+  const documents = useAppStore((state) => state.documents);
+  return useMemo(() => documents.filter(isListedDocument), [documents]);
 }
 
 /**

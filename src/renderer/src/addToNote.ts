@@ -47,6 +47,7 @@ import {
   textLength,
   withoutIds,
 } from "../../shared/noteBlocks";
+import { answerAddedLine } from "./answerAddedLine";
 import { readMindHandle } from "./commands/handles";
 import { questionOf } from "./conversations";
 import { core } from "./core";
@@ -56,7 +57,7 @@ import { notePlace } from "./editor/notePlace";
 import type { Words } from "./lineNames";
 import { exampleMindIds, useAppStore } from "./store";
 import { answerUndoPlace, useUndo } from "./undo";
-import { copiedOutOf, scopeOutsideWalls } from "./walls";
+import { copiedOutOf, scopeOutsideWalls, wallsOf } from "./walls";
 
 /** Where Add to note puts an Answer: a Mind, by id, or a new Mind made from it. */
 export type AddTarget = { kind: "mind"; mindId: string } | { kind: "new" };
@@ -75,19 +76,14 @@ const undoKept = (kept: number): Words | null =>
     ? null
     : (t) => t(kept === 1 ? "answer.undoKept.one" : "answer.undoKept", { count: kept });
 
-/**
- * What Add to note says it did: where the Answer went, and, when its Citations come from a walled
- * Folder the Note is outside, that it was copied out of it (#1934).
- */
-const addedLine =
-  (mind: string, blocks: readonly NodeJSON[], folderId: string | null): Words =>
-  (t) => {
-    const name = mind || t("mind.untitled");
-    const outOf = copiedOutOf(useAppStore.getState().library, blocks, folderId);
-    return outOf === null
-      ? t("answer.added", { mind: name })
-      : t("answer.added.outOfWall", { mind: name, folder: outOf });
-  };
+/** What Add to note says it did: `made` for a Note the Answer made (#1940), and a walled Folder it was copied out of (#1934). */
+const addedLine = (
+  made: boolean,
+  mind: string,
+  blocks: readonly NodeJSON[],
+  folderId: string | null,
+): Words =>
+  answerAddedLine(made, mind, copiedOutOf(wallsOf(useAppStore.getState()), blocks, folderId));
 
 /** The Mind's name, which an unnamed Mind is about to take from the first line of what goes in (the core names it a moment after the Note is in). */
 const nameOfMind = (mindId: string, blocks: readonly NodeJSON[]) => {
@@ -170,7 +166,7 @@ async function addToReadMind(added: AddedAnswer, mindId: string): Promise<boolea
         carryAnswerScope(
           doc,
           scopeOutsideWalls(
-            useAppStore.getState().library,
+            wallsOf(useAppStore.getState()),
             questionOf(added.answer)?.scope ?? null,
             folderId ?? null,
           ),
@@ -200,7 +196,7 @@ async function addToReadMind(added: AddedAnswer, mindId: string): Promise<boolea
   const mind = nameOfMind(mindId, added.blocks);
   offerEditorUndo(
     editor,
-    addedLine(mind, added.blocks, folderId ?? null),
+    addedLine(false, mind, added.blocks, folderId ?? null),
     answerUndoPlace(added.answer.id),
   );
   return true;
@@ -219,7 +215,7 @@ async function addToOtherMind(added: AddedAnswer, mindId: string, openIt: boolea
   const folderId = useAppStore.getState().minds.find((each) => each.id === mindId)?.folderId;
   let kept = 0;
   useUndo.getState().push({
-    said: addedLine(mind, added.blocks, folderId ?? null),
+    said: addedLine(false, mind, added.blocks, folderId ?? null),
     undo: async () => {
       kept = (await core.undoAddToNote({ mindId, blockIds })).kept;
     },
@@ -277,7 +273,7 @@ async function addToNewMind(added: AddedAnswer): Promise<void> {
   const name = nameOfMind(mind.id, added.blocks);
   let kept = 0;
   useUndo.getState().push({
-    said: addedLine(name, added.blocks, mind.folderId),
+    said: addedLine(true, name, added.blocks, mind.folderId),
     undo: async () => {
       kept = (await core.undoAddToNote({ mindId: mind.id, blockIds })).kept;
     },

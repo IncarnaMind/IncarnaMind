@@ -1,0 +1,724 @@
+[
+  {
+    "id": "A01",
+    "shape": "plain",
+    "lang": "en",
+    "body": "The security deposit is ninety-five thousand dollars ($95,000.00), payable on signing.",
+    "amount": "$95,000",
+    "number": "$95,000.00",
+    "truth": "pos",
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "supported",
+      "minus": "contradicted"
+    }
+  },
+  {
+    "id": "A02",
+    "shape": "plain",
+    "lang": "en",
+    "body": "Revenue for the year was $2.6 million ($2,600,000).",
+    "amount": "$2,600,000",
+    "number": "$2,600,000",
+    "truth": "pos",
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "supported",
+      "minus": "contradicted"
+    }
+  },
+  {
+    "id": "A03",
+    "shape": "plain",
+    "lang": "en",
+    "body": "Operating profit rose to $2.6 million ($2,600,000) in the year.",
+    "amount": "$2,600,000",
+    "number": "$2,600,000",
+    "truth": "pos",
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "supported",
+      "minus": "contradicted"
+    }
+  },
+  {
+    "id": "A04",
+    "shape": "plain",
+    "lang": "en",
+    "body": "The Tenant shall keep the premises clean and in good repair throughout the term of this lease. The Landlord shall insure the building against fire and storm at its own cost and expense. Any notice under this lease shall be given in writing to the address stated in the schedule. The Tenant may not assign or sublet the premises without the prior written consent of the Landlord. This lease is governed by the laws of the place in which the premises are located. The annual rent is ninety-five thousand dollars ($95,000.00).",
+    "quote": "The annual rent is ninety-five thousand dollars ($95,000.00).",
+    "amount": "$95,000",
+    "number": "$95,000.00",
+    "truth": "pos",
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "contradicted",
+      "minus": "supported"
+    }
+  },
+  {
+    "id": "A05",
+    "shape": "plain",
+    "lang": "zh-CN",
+    "body": "租赁保证金为人民币九万五千元（¥95,000），于签约时支付。",
+    "amount": "¥95,000",
+    "number": "95,000",
+    "truth": "pos",
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "supported",
+      "minus": "contradicted"
+    }
+  },
+  {
+    "id": "A06",
+    "shape": "plain",
+    "lang": "zh-CN",
+    "body": "本年营业收入为人民币260万元（¥2,600,000）。",
+    "amount": "¥2,600,000",
+    "number": "2,600,000",
+    "truth": "pos",
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "supported",
+      "minus": "contradicted"
+    }
+  },
+  {
+    "id": "A07",
+    "shape": "plain",
+    "lang": "zh-CN",
+    "body": "第一条 承租方应在租赁期内保持房屋清洁并妥善维护。第二条 出租方应自行承担房屋的火灾及风暴保险费用。第三条 本合同项下的通知应以书面形式送达附件所列地址。第四条 未经出租方书面同意，承租方不得转租或转让房屋。第五条 本合同适用房屋所在地的法律，双方应友好协商解决争议。第六条 承租方应按时缴纳水电费用，并配合出租方的年度检查。第七条 房屋内的设施清单见附件二，交接时双方应共同签字确认。第八条 租赁期满后，承租方应在十日内搬离并交还全部钥匙。第九条 承租方装修房屋前应提交方案，经出租方书面确认后方可施工。第十条 出租方应保证房屋结构安全，并按约定时间交付房屋。第十一条 双方确认的联系人如有变更，应在三日内书面通知对方。第十二条 本合同附件与正文具有同等效力，附件未尽事宜以正文为准。第十三条 承租方不得在房屋内存放易燃易爆物品。第十四条 房屋钥匙共三套，交付时由双方当面清点。第十五条 本合同一式两份，双方各执一份，自签字之日起生效。第十六条 双方应对本合同内容保密，未经同意不得向第三方披露。月租金为人民币九万五千元（¥95,000）。",
+    "quote": "月租金为人民币九万五千元（¥95,000）。",
+    "amount": "¥95,000",
+    "number": "95,000",
+    "truth": "pos",
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "contradicted",
+      "minus": "supported"
+    }
+  },
+  {
+    "id": "B01",
+    "shape": "farUnrelatedBefore",
+    "lang": "en",
+    "body": "The Landlord is not liable for any loss of business caused by repairs. The Tenant shall keep the premises clean and in good repair throughout the term of this lease. The Landlord shall insure the building against fire and storm at its own cost and expense. Any notice under this lease shall be given in writing to the address stated in the schedule. The Tenant may not assign or sublet the premises without the prior written consent of the Landlord. This lease is governed by the laws of the place in which the premises are located. The annual rent is ninety-five thousand dollars ($95,000.00).",
+    "quote": "The annual rent is ninety-five thousand dollars ($95,000.00).",
+    "amount": "$95,000",
+    "number": "$95,000.00",
+    "truth": "pos",
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "contradicted",
+      "minus": "supported"
+    }
+  },
+  {
+    "id": "B02",
+    "shape": "farUnrelatedBefore",
+    "lang": "en",
+    "body": "The parties shall avoid negative publicity about each other. The Tenant shall keep the premises clean and in good repair throughout the term of this lease. The Landlord shall insure the building against fire and storm at its own cost and expense. Any notice under this lease shall be given in writing to the address stated in the schedule. The Tenant may not assign or sublet the premises without the prior written consent of the Landlord. This lease is governed by the laws of the place in which the premises are located. The security deposit is ninety-five thousand dollars ($95,000.00).",
+    "quote": "The security deposit is ninety-five thousand dollars ($95,000.00).",
+    "amount": "$95,000",
+    "number": "$95,000.00",
+    "truth": "pos",
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "contradicted",
+      "minus": "supported"
+    }
+  },
+  {
+    "id": "B03",
+    "shape": "farUnrelatedBefore",
+    "lang": "en",
+    "body": "Party A bears any deficit in its own budget. The Tenant shall keep the premises clean and in good repair throughout the term of this lease. The Landlord shall insure the building against fire and storm at its own cost and expense. Any notice under this lease shall be given in writing to the address stated in the schedule. The Tenant may not assign or sublet the premises without the prior written consent of the Landlord. This lease is governed by the laws of the place in which the premises are located. Operating profit rose to $2.6 million ($2,600,000).",
+    "quote": "Operating profit rose to $2.6 million ($2,600,000).",
+    "amount": "$2,600,000",
+    "number": "$2,600,000",
+    "truth": "pos",
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "contradicted",
+      "minus": "supported"
+    }
+  },
+  {
+    "id": "B04",
+    "shape": "farUnrelatedBefore",
+    "lang": "en",
+    "body": "Fees are payable without set-off or deduction. The Tenant shall keep the premises clean and in good repair throughout the term of this lease. The Landlord shall insure the building against fire and storm at its own cost and expense. Any notice under this lease shall be given in writing to the address stated in the schedule. The Tenant may not assign or sublet the premises without the prior written consent of the Landlord. This lease is governed by the laws of the place in which the premises are located. The service fee is ninety-five thousand dollars ($95,000.00).",
+    "quote": "The service fee is ninety-five thousand dollars ($95,000.00).",
+    "amount": "$95,000",
+    "number": "$95,000.00",
+    "truth": "pos",
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "contradicted",
+      "minus": "supported"
+    }
+  },
+  {
+    "id": "B05",
+    "shape": "farUnrelatedBefore",
+    "lang": "zh-CN",
+    "body": "出租方对承租方因维修造成的营业损失不承担责任。第一条 承租方应在租赁期内保持房屋清洁并妥善维护。第二条 出租方应自行承担房屋的火灾及风暴保险费用。第三条 本合同项下的通知应以书面形式送达附件所列地址。第四条 未经出租方书面同意，承租方不得转租或转让房屋。第五条 本合同适用房屋所在地的法律，双方应友好协商解决争议。第六条 承租方应按时缴纳水电费用，并配合出租方的年度检查。第七条 房屋内的设施清单见附件二，交接时双方应共同签字确认。第八条 租赁期满后，承租方应在十日内搬离并交还全部钥匙。第九条 承租方装修房屋前应提交方案，经出租方书面确认后方可施工。第十条 出租方应保证房屋结构安全，并按约定时间交付房屋。第十一条 双方确认的联系人如有变更，应在三日内书面通知对方。第十二条 本合同附件与正文具有同等效力，附件未尽事宜以正文为准。第十三条 承租方不得在房屋内存放易燃易爆物品。第十四条 房屋钥匙共三套，交付时由双方当面清点。第十五条 本合同一式两份，双方各执一份，自签字之日起生效。第十六条 双方应对本合同内容保密，未经同意不得向第三方披露。月租金为人民币九万五千元（¥95,000）。",
+    "quote": "月租金为人民币九万五千元（¥95,000）。",
+    "amount": "¥95,000",
+    "number": "95,000",
+    "truth": "pos",
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "contradicted",
+      "minus": "supported"
+    }
+  },
+  {
+    "id": "B06",
+    "shape": "farUnrelatedBefore",
+    "lang": "zh-CN",
+    "body": "承租方自行承担经营亏损。第一条 承租方应在租赁期内保持房屋清洁并妥善维护。第二条 出租方应自行承担房屋的火灾及风暴保险费用。第三条 本合同项下的通知应以书面形式送达附件所列地址。第四条 未经出租方书面同意，承租方不得转租或转让房屋。第五条 本合同适用房屋所在地的法律，双方应友好协商解决争议。第六条 承租方应按时缴纳水电费用，并配合出租方的年度检查。第七条 房屋内的设施清单见附件二，交接时双方应共同签字确认。第八条 租赁期满后，承租方应在十日内搬离并交还全部钥匙。第九条 承租方装修房屋前应提交方案，经出租方书面确认后方可施工。第十条 出租方应保证房屋结构安全，并按约定时间交付房屋。第十一条 双方确认的联系人如有变更，应在三日内书面通知对方。第十二条 本合同附件与正文具有同等效力，附件未尽事宜以正文为准。第十三条 承租方不得在房屋内存放易燃易爆物品。第十四条 房屋钥匙共三套，交付时由双方当面清点。第十五条 本合同一式两份，双方各执一份，自签字之日起生效。第十六条 双方应对本合同内容保密，未经同意不得向第三方披露。租赁保证金为人民币九万五千元（¥95,000）。",
+    "quote": "租赁保证金为人民币九万五千元（¥95,000）。",
+    "amount": "¥95,000",
+    "number": "95,000",
+    "truth": "pos",
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "contradicted",
+      "minus": "supported"
+    }
+  },
+  {
+    "id": "B07",
+    "shape": "farUnrelatedBefore",
+    "lang": "zh-CN",
+    "body": "甲方不得以任何理由减免租金。第一条 承租方应在租赁期内保持房屋清洁并妥善维护。第二条 出租方应自行承担房屋的火灾及风暴保险费用。第三条 本合同项下的通知应以书面形式送达附件所列地址。第四条 未经出租方书面同意，承租方不得转租或转让房屋。第五条 本合同适用房屋所在地的法律，双方应友好协商解决争议。第六条 承租方应按时缴纳水电费用，并配合出租方的年度检查。第七条 房屋内的设施清单见附件二，交接时双方应共同签字确认。第八条 租赁期满后，承租方应在十日内搬离并交还全部钥匙。第九条 承租方装修房屋前应提交方案，经出租方书面确认后方可施工。第十条 出租方应保证房屋结构安全，并按约定时间交付房屋。第十一条 双方确认的联系人如有变更，应在三日内书面通知对方。第十二条 本合同附件与正文具有同等效力，附件未尽事宜以正文为准。第十三条 承租方不得在房屋内存放易燃易爆物品。第十四条 房屋钥匙共三套，交付时由双方当面清点。第十五条 本合同一式两份，双方各执一份，自签字之日起生效。第十六条 双方应对本合同内容保密，未经同意不得向第三方披露。本年营业收入为人民币260万元（¥2,600,000）。",
+    "quote": "本年营业收入为人民币260万元（¥2,600,000）。",
+    "amount": "¥2,600,000",
+    "number": "2,600,000",
+    "truth": "pos",
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "contradicted",
+      "minus": "supported"
+    }
+  },
+  {
+    "id": "C01",
+    "shape": "farUnrelatedAfter",
+    "lang": "en",
+    "body": "The annual rent is ninety-five thousand dollars ($95,000.00). The Tenant shall keep the premises clean and in good repair throughout the term of this lease. The Landlord shall insure the building against fire and storm at its own cost and expense. Any notice under this lease shall be given in writing to the address stated in the schedule. The Tenant may not assign or sublet the premises without the prior written consent of the Landlord. This lease is governed by the laws of the place in which the premises are located. The Landlord is not liable for any loss of business.",
+    "quote": "The annual rent is ninety-five thousand dollars ($95,000.00).",
+    "amount": "$95,000",
+    "number": "$95,000.00",
+    "truth": "pos",
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "supported",
+      "minus": "contradicted"
+    }
+  },
+  {
+    "id": "C02",
+    "shape": "farUnrelatedAfter",
+    "lang": "en",
+    "body": "Revenue for the year was $2.6 million ($2,600,000). The Tenant shall keep the premises clean and in good repair throughout the term of this lease. The Landlord shall insure the building against fire and storm at its own cost and expense. Any notice under this lease shall be given in writing to the address stated in the schedule. The Tenant may not assign or sublet the premises without the prior written consent of the Landlord. This lease is governed by the laws of the place in which the premises are located. Party B reported a deficit in a later year.",
+    "quote": "Revenue for the year was $2.6 million ($2,600,000).",
+    "amount": "$2,600,000",
+    "number": "$2,600,000",
+    "truth": "pos",
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "supported",
+      "minus": "contradicted"
+    }
+  },
+  {
+    "id": "C03",
+    "shape": "farUnrelatedAfter",
+    "lang": "zh-CN",
+    "body": "月租金为人民币九万五千元（¥95,000）。第一条 承租方应在租赁期内保持房屋清洁并妥善维护。第二条 出租方应自行承担房屋的火灾及风暴保险费用。第三条 本合同项下的通知应以书面形式送达附件所列地址。第四条 未经出租方书面同意，承租方不得转租或转让房屋。第五条 本合同适用房屋所在地的法律，双方应友好协商解决争议。第六条 承租方应按时缴纳水电费用，并配合出租方的年度检查。第七条 房屋内的设施清单见附件二，交接时双方应共同签字确认。第八条 租赁期满后，承租方应在十日内搬离并交还全部钥匙。第九条 承租方装修房屋前应提交方案，经出租方书面确认后方可施工。第十条 出租方应保证房屋结构安全，并按约定时间交付房屋。第十一条 双方确认的联系人如有变更，应在三日内书面通知对方。第十二条 本合同附件与正文具有同等效力，附件未尽事宜以正文为准。第十三条 承租方不得在房屋内存放易燃易爆物品。第十四条 房屋钥匙共三套，交付时由双方当面清点。第十五条 本合同一式两份，双方各执一份，自签字之日起生效。第十六条 双方应对本合同内容保密，未经同意不得向第三方披露。出租方对营业损失不承担责任。",
+    "quote": "月租金为人民币九万五千元（¥95,000）。",
+    "amount": "¥95,000",
+    "number": "95,000",
+    "truth": "pos",
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "supported",
+      "minus": "contradicted"
+    }
+  },
+  {
+    "id": "C04",
+    "shape": "farUnrelatedAfter",
+    "lang": "zh-CN",
+    "body": "本年营业收入为人民币260万元（¥2,600,000）。第一条 承租方应在租赁期内保持房屋清洁并妥善维护。第二条 出租方应自行承担房屋的火灾及风暴保险费用。第三条 本合同项下的通知应以书面形式送达附件所列地址。第四条 未经出租方书面同意，承租方不得转租或转让房屋。第五条 本合同适用房屋所在地的法律，双方应友好协商解决争议。第六条 承租方应按时缴纳水电费用，并配合出租方的年度检查。第七条 房屋内的设施清单见附件二，交接时双方应共同签字确认。第八条 租赁期满后，承租方应在十日内搬离并交还全部钥匙。第九条 承租方装修房屋前应提交方案，经出租方书面确认后方可施工。第十条 出租方应保证房屋结构安全，并按约定时间交付房屋。第十一条 双方确认的联系人如有变更，应在三日内书面通知对方。第十二条 本合同附件与正文具有同等效力，附件未尽事宜以正文为准。第十三条 承租方不得在房屋内存放易燃易爆物品。第十四条 房屋钥匙共三套，交付时由双方当面清点。第十五条 本合同一式两份，双方各执一份，自签字之日起生效。第十六条 双方应对本合同内容保密，未经同意不得向第三方披露。以往年度曾出现亏损。",
+    "quote": "本年营业收入为人民币260万元（¥2,600,000）。",
+    "amount": "¥2,600,000",
+    "number": "2,600,000",
+    "truth": "pos",
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "supported",
+      "minus": "contradicted"
+    }
+  },
+  {
+    "id": "D01",
+    "shape": "farRealBefore",
+    "lang": "en",
+    "body": "After the write-down the reserve is negative. The Tenant shall keep the premises clean and in good repair throughout the term of this lease. The Landlord shall insure the building against fire and storm at its own cost and expense. Any notice under this lease shall be given in writing to the address stated in the schedule. The Tenant may not assign or sublet the premises without the prior written consent of the Landlord. This lease is governed by the laws of the place in which the premises are located. The reserve now stands at ninety-five thousand dollars ($95,000.00).",
+    "quote": "The reserve now stands at ninety-five thousand dollars ($95,000.00).",
+    "amount": "$95,000",
+    "number": "$95,000.00",
+    "truth": "neg",
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "contradicted",
+      "minus": "supported"
+    }
+  },
+  {
+    "id": "D02",
+    "shape": "farRealBefore",
+    "lang": "en",
+    "body": "Party A made a loss this year. The Tenant shall keep the premises clean and in good repair throughout the term of this lease. The Landlord shall insure the building against fire and storm at its own cost and expense. Any notice under this lease shall be given in writing to the address stated in the schedule. The Tenant may not assign or sublet the premises without the prior written consent of the Landlord. This lease is governed by the laws of the place in which the premises are located. Its result for the year was $2.6 million ($2,600,000).",
+    "quote": "Its result for the year was $2.6 million ($2,600,000).",
+    "amount": "$2,600,000",
+    "number": "$2,600,000",
+    "truth": "neg",
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "contradicted",
+      "minus": "supported"
+    }
+  },
+  {
+    "id": "D03",
+    "shape": "farRealBefore",
+    "lang": "zh-CN",
+    "body": "经减值后，该项准备金为负数。第一条 承租方应在租赁期内保持房屋清洁并妥善维护。第二条 出租方应自行承担房屋的火灾及风暴保险费用。第三条 本合同项下的通知应以书面形式送达附件所列地址。第四条 未经出租方书面同意，承租方不得转租或转让房屋。第五条 本合同适用房屋所在地的法律，双方应友好协商解决争议。第六条 承租方应按时缴纳水电费用，并配合出租方的年度检查。第七条 房屋内的设施清单见附件二，交接时双方应共同签字确认。第八条 租赁期满后，承租方应在十日内搬离并交还全部钥匙。第九条 承租方装修房屋前应提交方案，经出租方书面确认后方可施工。第十条 出租方应保证房屋结构安全，并按约定时间交付房屋。第十一条 双方确认的联系人如有变更，应在三日内书面通知对方。第十二条 本合同附件与正文具有同等效力，附件未尽事宜以正文为准。第十三条 承租方不得在房屋内存放易燃易爆物品。第十四条 房屋钥匙共三套，交付时由双方当面清点。第十五条 本合同一式两份，双方各执一份，自签字之日起生效。第十六条 双方应对本合同内容保密，未经同意不得向第三方披露。该项准备金现为人民币九万五千元（¥95,000）。",
+    "quote": "该项准备金现为人民币九万五千元（¥95,000）。",
+    "amount": "¥95,000",
+    "number": "95,000",
+    "truth": "neg",
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "contradicted",
+      "minus": "supported"
+    }
+  },
+  {
+    "id": "D04",
+    "shape": "farRealBefore",
+    "lang": "zh-CN",
+    "body": "甲方本年发生亏损。第一条 承租方应在租赁期内保持房屋清洁并妥善维护。第二条 出租方应自行承担房屋的火灾及风暴保险费用。第三条 本合同项下的通知应以书面形式送达附件所列地址。第四条 未经出租方书面同意，承租方不得转租或转让房屋。第五条 本合同适用房屋所在地的法律，双方应友好协商解决争议。第六条 承租方应按时缴纳水电费用，并配合出租方的年度检查。第七条 房屋内的设施清单见附件二，交接时双方应共同签字确认。第八条 租赁期满后，承租方应在十日内搬离并交还全部钥匙。第九条 承租方装修房屋前应提交方案，经出租方书面确认后方可施工。第十条 出租方应保证房屋结构安全，并按约定时间交付房屋。第十一条 双方确认的联系人如有变更，应在三日内书面通知对方。第十二条 本合同附件与正文具有同等效力，附件未尽事宜以正文为准。第十三条 承租方不得在房屋内存放易燃易爆物品。第十四条 房屋钥匙共三套，交付时由双方当面清点。第十五条 本合同一式两份，双方各执一份，自签字之日起生效。第十六条 双方应对本合同内容保密，未经同意不得向第三方披露。其本年经营成果为人民币260万元（¥2,600,000）。",
+    "quote": "其本年经营成果为人民币260万元（¥2,600,000）。",
+    "amount": "¥2,600,000",
+    "number": "2,600,000",
+    "truth": "neg",
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "contradicted",
+      "minus": "supported"
+    }
+  },
+  {
+    "id": "E01",
+    "shape": "nearReal",
+    "lang": "en",
+    "body": "The reserve is negative. It now stands at ninety-five thousand dollars ($95,000.00).",
+    "amount": "$95,000",
+    "number": "$95,000.00",
+    "truth": "neg",
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "contradicted",
+      "minus": "supported"
+    }
+  },
+  {
+    "id": "E02",
+    "shape": "nearReal",
+    "lang": "en",
+    "body": "Party A made a loss. Its result for the year was $2.6 million ($2,600,000).",
+    "amount": "$2,600,000",
+    "number": "$2,600,000",
+    "truth": "neg",
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "contradicted",
+      "minus": "supported"
+    }
+  },
+  {
+    "id": "E03",
+    "shape": "nearReal",
+    "lang": "en",
+    "body": "The reserve turned negative in May. At year end it stood at ninety-five thousand dollars ($95,000.00).",
+    "quote": "At year end it stood at ninety-five thousand dollars ($95,000.00).",
+    "amount": "$95,000",
+    "number": "$95,000.00",
+    "truth": "neg",
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "contradicted",
+      "minus": "supported"
+    }
+  },
+  {
+    "id": "E04",
+    "shape": "nearReal",
+    "lang": "zh-CN",
+    "body": "该项准备金为负数，现为人民币九万五千元（¥95,000）。",
+    "amount": "¥95,000",
+    "number": "95,000",
+    "truth": "neg",
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "contradicted",
+      "minus": "supported"
+    }
+  },
+  {
+    "id": "E05",
+    "shape": "nearReal",
+    "lang": "zh-CN",
+    "body": "甲方本年发生亏损。其本年经营成果为人民币260万元（¥2,600,000）。",
+    "quote": "其本年经营成果为人民币260万元（¥2,600,000）。",
+    "amount": "¥2,600,000",
+    "number": "2,600,000",
+    "truth": "neg",
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "contradicted",
+      "minus": "supported"
+    }
+  },
+  {
+    "id": "F01",
+    "shape": "nearUnrelated",
+    "lang": "en",
+    "body": "The Landlord is not liable for any loss of business. The annual rent is ninety-five thousand dollars ($95,000.00).",
+    "amount": "$95,000",
+    "number": "$95,000.00",
+    "truth": "pos",
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "contradicted",
+      "minus": "supported"
+    }
+  },
+  {
+    "id": "F02",
+    "shape": "nearUnrelated",
+    "lang": "en",
+    "body": "Fees are payable without deduction. The service fee is ninety-five thousand dollars ($95,000.00).",
+    "quote": "The service fee is ninety-five thousand dollars ($95,000.00).",
+    "amount": "$95,000",
+    "number": "$95,000.00",
+    "truth": "pos",
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "contradicted",
+      "minus": "supported"
+    }
+  },
+  {
+    "id": "F03",
+    "shape": "nearUnrelated",
+    "lang": "zh-CN",
+    "body": "出租方对营业损失不承担责任。月租金为人民币九万五千元（¥95,000）。",
+    "amount": "¥95,000",
+    "number": "95,000",
+    "truth": "pos",
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "contradicted",
+      "minus": "supported"
+    }
+  },
+  {
+    "id": "F04",
+    "shape": "nearUnrelated",
+    "lang": "zh-CN",
+    "body": "承租方自行承担经营亏损。租赁保证金为人民币九万五千元（¥95,000）。",
+    "quote": "租赁保证金为人民币九万五千元（¥95,000）。",
+    "amount": "¥95,000",
+    "number": "95,000",
+    "truth": "pos",
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "contradicted",
+      "minus": "supported"
+    }
+  },
+  {
+    "id": "G01",
+    "shape": "periodHeader",
+    "lang": "en",
+    "body": "Income statement\n 2025 2024\nRevenue $2.6 million ($2,600,000)",
+    "quote": "Revenue $2.6 million ($2,600,000)",
+    "amount": "$2,600,000",
+    "number": "$2,600,000",
+    "truth": "neg",
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "contradicted",
+      "minus": "supported"
+    }
+  },
+  {
+    "id": "G02",
+    "shape": "periodHeader",
+    "lang": "en",
+    "body": "Balance sheet\nItem Current year Prior year\nCash $2.6 million ($2,600,000)",
+    "amount": "$2,600,000",
+    "number": "$2,600,000",
+    "truth": "neg",
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "contradicted",
+      "minus": "supported"
+    }
+  },
+  {
+    "id": "G03",
+    "shape": "periodHeader",
+    "lang": "zh-CN",
+    "body": "利润表\n项目 本期 上期\n营业收入 260万元 （2,600,000元）",
+    "quote": "营业收入 260万元 （2,600,000元）",
+    "amount": "¥2,600,000",
+    "number": "2,600,000",
+    "truth": "neg",
+    "main": {
+      "amount": "supported",
+      "minus": "contradicted"
+    },
+    "expected": {
+      "amount": "supported",
+      "minus": "contradicted"
+    }
+  },
+  {
+    "id": "G04",
+    "shape": "periodHeader",
+    "lang": "zh-CN",
+    "body": "资产负债表\n项目 期末 期初\n货币资金 260万元 （2,600,000元）",
+    "amount": "¥2,600,000",
+    "number": "2,600,000",
+    "truth": "neg",
+    "main": {
+      "amount": "supported",
+      "minus": "contradicted"
+    },
+    "expected": {
+      "amount": "supported",
+      "minus": "contradicted"
+    }
+  },
+  {
+    "id": "H01",
+    "shape": "lessLine",
+    "lang": "en",
+    "body": "Rent for the year ninety-five thousand dollars ($95,000.00)\nLess:\nDeposit paid ninety-five thousand dollars ($95,000.00)",
+    "quote": "Deposit paid ninety-five thousand dollars ($95,000.00)",
+    "amount": "$95,000",
+    "number": "$95,000.00",
+    "truth": "neg",
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "contradicted",
+      "minus": "supported"
+    }
+  },
+  {
+    "id": "H02",
+    "shape": "lessLine",
+    "lang": "zh-CN",
+    "body": "年租金人民币九万五千元（¥95,000）\n减\n已付定金人民币九万五千元（¥95,000）",
+    "quote": "已付定金人民币九万五千元（¥95,000）",
+    "amount": "¥95,000",
+    "number": "95,000",
+    "truth": "neg",
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "contradicted",
+      "minus": "supported"
+    }
+  },
+  {
+    "id": "I01",
+    "shape": "gainNotLoss",
+    "lang": "en",
+    "body": "Profit for the year was $2.6 million ($2,600,000), up from the year before.",
+    "amount": "$2,600,000",
+    "number": "$2,600,000",
+    "truth": "pos",
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "supported",
+      "minus": "contradicted"
+    }
+  },
+  {
+    "id": "I02",
+    "shape": "gainNotLoss",
+    "lang": "zh-CN",
+    "body": "本年净利润为人民币260万元（¥2,600,000），较上年增长。",
+    "amount": "¥2,600,000",
+    "number": "2,600,000",
+    "truth": "pos",
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "supported",
+      "minus": "contradicted"
+    }
+  },
+  {
+    "id": "I03",
+    "shape": "lossNotGain",
+    "lang": "en",
+    "body": "The fund's balance was negative at $2.6 million ($2,600,000).",
+    "amount": "$2,600,000",
+    "number": "$2,600,000",
+    "truth": "neg",
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "contradicted",
+      "minus": "supported"
+    }
+  },
+  {
+    "id": "I04",
+    "shape": "lossNotGain",
+    "lang": "zh-CN",
+    "body": "该基金余额为负，为人民币260万元（¥2,600,000）。",
+    "amount": "¥2,600,000",
+    "number": "2,600,000",
+    "truth": "neg",
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "contradicted",
+      "minus": "supported"
+    }
+  }
+]

@@ -44,6 +44,8 @@ export async function setUp(adapters: Partial<CoreAdapters> = {}) {
   const core = startCore(dataDir, {
     sourceProviders: services.providers,
     paceTimers: timers,
+    // A found work's open-access copy is fetched from the stand-in, as the site's page.
+    webPages: { fetch },
     ...adapters,
   });
   return { core, services, dataDir, waits };

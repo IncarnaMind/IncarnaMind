@@ -1007,3 +1007,90 @@ describe("A scan's page confirmation (#535)", () => {
     ).toMatchObject({ check: "found", pageChecked: null, unsure: null, contentHash: "v2" });
   });
 });
+
+// protects=Update the sentence… writes over the next page the Answer's quoted words ran on to (#2504), which was the old quote's, whether its words changed or it moved; fails_when=the updated Citation keeps it; no_claim=words not found, the tests below.
+describe("Update the sentence…, on a Citation whose quoted words were checked", () => {
+  const cited = {
+    pageFrom: 3,
+    pageTo: 3,
+    location: { kind: "page", from: 3, to: 3 } as const,
+    quote: "No fee is charged when goods are",
+  };
+  const found: CitationRecheck = {
+    check: "found",
+    checkReason: null,
+    contentHash: "v2",
+    passageId: "passage",
+    pageFrom: 3,
+    pageTo: 3,
+    location: { kind: "page", from: 3, to: 3 },
+  };
+  const changedTo = (quote: string): CitationRecheck => ({
+    ...found,
+    check: "not-found",
+    checkReason: "quote-not-on-pages",
+    changed: {
+      parts: [{ kind: "same", text: "No fee is charged" }],
+      now: { ...found, quote },
+    },
+  });
+  const changed = changedTo("No fee is charged");
+  const moved: CitationRecheck = {
+    ...found,
+    pageFrom: 5,
+    pageTo: 5,
+    location: { kind: "page", from: 5, to: 5 },
+  };
+  const runOn = { runsOnTo: { kind: "page", from: 4, to: 4 } } as const;
+  const notFound = {
+    answer: [{ text: "no fee at all", found: false }],
+    closest: [{ text: "No fee is charged", found: true }],
+  };
+  test.each([
+    ["its words changed", changed],
+    ["it moved", moved],
+  ] as const)(
+    "%s, and its quoted words ran on to the next page: the updated Citation says nothing of them",
+    (_, recheck) => {
+      const update = newVersionCitation({ ...cited, quotedWords: runOn }, recheck);
+      expect(update).not.toBeNull();
+      expect({ ...cited, quotedWords: runOn, ...update }).toMatchObject({
+        contentHash: "v2",
+        check: "found",
+        quotedWords: null,
+      });
+    },
+  );
+
+  // protects=a Citation not found for its Answer's quoted words stays not found when Update the sentence… cites its quote's changed words or new place: the sentence keeps the words it quoted, and a rewrite to the changed words can fail or be refused (#2612); fails_when=the update reads it found, or keeps the old version's closest words; no_claim=a page of the new version that has the words beyond the quote: it reads not found, failing closed.
+  test.each([
+    ["its words changed", changed],
+    ["it moved", moved],
+  ] as const)(
+    "%s, and its quoted words weren't on the page: still not found, with those words",
+    (_, recheck) => {
+      expect(newVersionCitation({ ...cited, quotedWords: notFound }, recheck)).toMatchObject({
+        contentHash: "v2",
+        check: "not-found",
+        checkReason: "quoted-words-not-on-pages",
+        quotedWords: { answer: notFound.answer, closest: null },
+      });
+    },
+  );
+
+  // protects=the words not found are checked in the quote the Citation now cites, so words its Document changed to read found (#2612); fails_when=every update of a Citation with words not found reads not found; no_claim=none beyond protects.
+  test("its words changed to the words the Answer quoted: found", () => {
+    expect(
+      newVersionCitation(
+        { ...cited, quotedWords: notFound },
+        changedTo("No fee at all is charged"),
+      ),
+    ).toMatchObject({
+      contentHash: "v2",
+      quote: "No fee at all is charged",
+      check: "found",
+      checkReason: null,
+      quotedWords: null,
+    });
+  });
+});

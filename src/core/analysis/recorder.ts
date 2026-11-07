@@ -17,6 +17,7 @@ import {
 import type { AnswerAnalysis, CalculatedFigure } from "../api";
 import type { Language } from "../language";
 import { recalculate } from "./figureRows";
+import { checkTableColumns } from "./tableRules";
 
 /** The most Analyses one Answer runs: a seventh is refused, so the model answers. */
 export const MAX_ANALYSES_PER_ANSWER = 6;
@@ -58,7 +59,8 @@ export function createAnalysisRecorder(options: AnalysisRecorderOptions) {
       literals: [],
       scales: [],
     };
-    // A count a model gives (its observations, a cluster's size) is whole: "29", not "29.00".
+    // A count a model gives (its observations, a cluster's size) is whole: "29", not "29.00", and
+    // a whole total is written out, "9,450", never rounded to a scale word (#2378).
     const whole = unit.kind === "plain" && Number.isInteger(result.value);
     const show = { language: options.language, as: null, decimals: whole ? 0 : null, scale: null };
     const shown = showResult(worked, show);
@@ -73,7 +75,7 @@ export function createAnalysisRecorder(options: AnalysisRecorderOptions) {
         ? String(result.value)
         : unit.kind === "plain" && result.value !== 0 && Math.abs(result.value) < TINY
           ? String(Number(result.value.toPrecision(2)))
-          : shown.ok
+          : shown.ok && !whole
             ? shown.shown
             : figureText(options.language, result.value),
       show,
@@ -98,7 +100,7 @@ export function createAnalysisRecorder(options: AnalysisRecorderOptions) {
       number: number,
       output: AnalysisOutput,
       inputs: readonly AnalysisInput[],
-    ): Pick<AnswerAnalysis, "markers" | "recalculations"> {
+    ): Pick<AnswerAnalysis, "markers" | "recalculations" | "tableChecks"> {
       const markers: AnswerAnalysis["markers"] = {
         figures: [],
         tables: [],
@@ -106,9 +108,14 @@ export function createAnalysisRecorder(options: AnalysisRecorderOptions) {
         pictures: [],
       };
       const recalculations: NonNullable<AnswerAnalysis["recalculations"]> = [];
+      const tableChecks: NonNullable<AnswerAnalysis["tableChecks"]> = [];
       for (const result of output.results) {
         if (result.kind === "table") {
           markers.tables.push({ result: result.name, marker: ++tables });
+          tableChecks.push({
+            table: { result: result.name },
+            columns: checkTableColumns(result.table, inputs),
+          });
           continue;
         }
         if (result.of?.how) {
@@ -118,9 +125,19 @@ export function createAnalysisRecorder(options: AnalysisRecorderOptions) {
         }
         markers.figures.push({ result: result.name, marker: shownFigure(result, number) });
       }
-      for (const _chart of output.charts) markers.charts.push(++charts);
+      output.charts.forEach((chart, index) => {
+        markers.charts.push(++charts);
+        tableChecks.push({
+          table: { chart: index },
+          columns: checkTableColumns(chart.table, inputs),
+        });
+      });
       for (const _picture of output.pictures ?? []) markers.pictures?.push(++pictures);
-      return { markers, ...(recalculations.length > 0 && { recalculations }) };
+      return {
+        markers,
+        ...(recalculations.length > 0 && { recalculations }),
+        ...(tableChecks.length > 0 && { tableChecks }),
+      };
     },
   };
 }

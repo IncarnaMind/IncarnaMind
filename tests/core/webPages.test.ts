@@ -5,7 +5,7 @@
  * they can't be fetched or are mostly not text.
  */
 import { existsSync, readFileSync } from "node:fs";
-import { createServer, type ServerResponse } from "node:http";
+import { createServer, type IncomingHttpHeaders, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { describe, expect, onTestFinished, test } from "vitest";
@@ -37,13 +37,18 @@ const REWRITTEN = Buffer.from(
 
 /** The test server's pages; `/changing` serves whatever `live.page` holds. */
 async function startSite() {
-  const live = { page: ARTICLE, requests: 0 };
+  const live = {
+    page: ARTICLE,
+    requests: 0,
+    headers: [] as { url: string | undefined; headers: IncomingHttpHeaders }[],
+  };
   const html = (response: ServerResponse, body: Buffer, type = "text/html; charset=utf-8") => {
     response.writeHead(200, { "Content-Type": type, "Content-Length": body.byteLength });
     response.end(body);
   };
   const server = createServer((request, response) => {
     live.requests++;
+    live.headers.push({ url: request.url, headers: request.headers });
     switch (request.url) {
       case "/tea":
         return html(response, ARTICLE);
@@ -88,8 +93,11 @@ async function startSite() {
   return { live, url: (path: string) => `http://127.0.0.1:${port}${path}` };
 }
 
-/** Fetches within a second and 100 KB in tests, so nothing waits on the real limits. */
-const LIMITS = { webPages: { limits: { timeoutMs: 1_000, maxBytes: 100_000 } } };
+/**
+ * Fetches within a second and 100 KB in tests, so nothing waits on the real
+ * limits, from the local server standing in for the web.
+ */
+const LIMITS = { webPages: { fetch, limits: { timeoutMs: 1_000, maxBytes: 100_000 } } };
 
 async function saved(core: Core, input: Parameters<Core["saveWebPage"]>[0]) {
   const result = await core.saveWebPage(input);
@@ -203,6 +211,22 @@ describe("Saving a web page", { timeout: 30_000 }, () => {
       name: "Tea - The Open Encyclopedia",
       web: { address: "https://reader.example/tea" },
     });
+  });
+
+  test("the fetch names the interface language", async () => {
+    const site = await startSite();
+    const core = startCore(await createTempDataFolder(), LIMITS);
+
+    await saved(core, { address: site.url("/tea") });
+    expect(site.live.headers.find((each) => each.url === "/tea")?.headers["accept-language"]).toBe(
+      "en,*;q=0.5",
+    );
+
+    await core.updateSettings({ user: { language: "zh-CN" } });
+    await saved(core, { address: site.url("/cha") });
+    expect(site.live.headers.find((each) => each.url === "/cha")?.headers["accept-language"]).toBe(
+      "zh-CN,zh;q=0.9,en;q=0.8",
+    );
   });
 
   test("filed in a Folder, it is in that Folder", async () => {

@@ -546,6 +546,105 @@ describe("A new version of a Document in the Folder", { timeout: 30_000 }, () =>
   });
 });
 
+describe("A User who allowed checks before they sent more", { timeout: 30_000 }, () => {
+  const MORE = [
+    "library-counts",
+    "library-names",
+    "file-properties",
+    "absence-documents",
+    "watched-sentences",
+  ];
+
+  /** A cloud model whose checks flow the User allowed before it sent `more`, and a note citing Tides in the Folder. */
+  async function allowedBefore(more: readonly string[]) {
+    const calls: ModelCall[] = [];
+    const model = checkingModel(PLANS, calls);
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: () => model,
+      contradictionWatch: { delayMs: 0 },
+    });
+    const asked: string[][] = [];
+    const provider = await core.saveChatProvider({
+      kind: "anthropic",
+      modelId: "claude-haiku-5-5",
+      apiKey: "sk-ant-test",
+    });
+    const checks = core.dataFlows.get("checks");
+    if (!provider.service || !checks) throw new Error("The checks flow to Anthropic isn't set up.");
+    await core.revokeConsent("checks", provider.service.id);
+    core.dataFlows.register({
+      ...checks,
+      sends: checks.sends.filter((kind) => !more.includes(kind)),
+    });
+    await core.allowDataFlow("checks", provider.service.id);
+    core.dataFlows.register(checks);
+    core.on("consent.requested", (request) => {
+      asked.push([...request.newKinds]);
+      void core.respondToConsent(request.requestId, true);
+    });
+    const sources = await createTempDataFolder();
+    const [tides, office] = (await addAndProcess(core, [
+      await writeSourceFile(sources, TIDES.name, TIDES.contents),
+      await writeSourceFile(sources, OFFICE.name, QUIET_OFFICE),
+    ])) as [Document, Document];
+    const folder = await core.createLibraryGroup({ name: "Harbours", description: "" });
+    await core.moveToFolder({ documentIds: [tides.id, office.id], folderId: folder.id });
+    const { mind, client } = await mindCiting(core, tides, folder.id);
+    const newVersion = async () => {
+      await writeFile(office.path, OFFICE.contents);
+      await core.reconcileDocuments();
+      await waitForProcessing(core, [office.id]);
+    };
+    return { core, calls, asked, folder, mind, client, newVersion };
+  }
+
+  // protects=the watch never stops without a word: allowed before the checks flow named its sentences, a new version records that it waits, sends nothing and asks nothing; Review…'s check asks once, for what is new, then checks (#2525); fails_when=it sends on the earlier consent, asks in the background, or records nothing.
+  test("a new version records that the watch waits for their OK, and the check that asks runs it", async () => {
+    const { core, calls, asked, folder, mind, client, newVersion } = await allowedBefore(MORE);
+    await newVersion();
+
+    await vi.waitFor(() =>
+      expect(contradictionWatchOf(client.doc)).toMatchObject({
+        documentName: "Harbour office",
+        claims: 2,
+        checked: 0,
+        stop: { reason: "consent-widened" },
+      }),
+    );
+    expect(asked).toEqual([]);
+    expect(calls).toEqual([]);
+
+    await core.checkContradictions({ requestId: "review", mindId: mind.id });
+    expect(asked).toEqual([MORE]);
+    expect(calls.length).toBeGreaterThan(0);
+    expect((await shownChecks(core, client, folder.id)).map((each) => each.shown)).toEqual([
+      { state: "contradicted" },
+    ]);
+  });
+
+  // protects=the watch waits only on what it sends: allowed before checks sent the Library's counts and names, which the watch never sends, it runs on a new version without asking; fails_when=it waits, or asks in the background, for kinds it doesn't send.
+  test("the watch waits only on what it sends: the Library's facts missing, it still runs", async () => {
+    const { core, calls, asked, folder, client, newVersion } = await allowedBefore([
+      "library-counts",
+      "library-names",
+    ]);
+    await newVersion();
+
+    await vi.waitFor(
+      async () =>
+        expect((await shownChecks(core, client, folder.id)).map((each) => each.shown)).toEqual([
+          { state: "contradicted" },
+        ]),
+      { timeout: 10_000 },
+    );
+    await vi.waitFor(() =>
+      expect(contradictionWatchOf(client.doc)).toMatchObject({ checked: 2, stop: null }),
+    );
+    expect(asked).toEqual([]);
+    expect(calls.length).toBeGreaterThan(0);
+  });
+});
+
 describe("A Folder's contents changed", { timeout: 30_000 }, () => {
   test("a Note that joins the Folder is watched, and its record names no Document", async () => {
     const { core, tides, folder } = await setUp();

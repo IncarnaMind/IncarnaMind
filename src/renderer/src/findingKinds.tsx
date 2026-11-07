@@ -15,6 +15,7 @@ import { nameWithPlace, placesOf } from "./documentPlaces";
 import { KIND_LABELS } from "./fileInfo";
 import { type FoundObject, findable } from "./finding";
 import { folderCounts } from "./libraryPage";
+import { isListedDocument } from "./meetingTranscript";
 import type { ObjectRef, Translate } from "./objects";
 import { useAppStore } from "./store";
 
@@ -105,7 +106,7 @@ findable.register({
     const folders = folderNames(library);
     const folderOf = new Map(library?.assignments.map((each) => [each.documentId, each.groupId]));
     const places = placesOf(documents, linkedFolders);
-    return documents.map((document): FoundObject => {
+    return documents.filter(isListedDocument).map((document): FoundObject => {
       const groupId = folderOf.get(document.id);
       return {
         ref: { kind: "document", id: document.id },

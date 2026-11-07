@@ -14,7 +14,7 @@ import {
 } from "../core/api";
 import { isRecord } from "../core/errors";
 import type { NodeJSON } from "./blockJson";
-import { citationAttributesOf, parseQuotedWords } from "./citations";
+import { citationAttributesOf, parseQuotedWordsCheck } from "./citations";
 import { FORMULA_MAX_LENGTH, type ResultUnit, type ShowAs } from "./formula";
 import { parseLocation } from "./locations";
 import { parseCellRef } from "./units";
@@ -56,8 +56,10 @@ function locationOf(value: unknown): CitationLocation | null | undefined {
     }
   }
   const location = parseLocation(raw);
-  // A figure's input is read from a Document's text, never from its file's properties (#2458).
-  if (!location || !isRecord(raw) || location.kind === "properties") return undefined;
+  // A figure's input is read from a Document's text, never from its file's properties (#2458) or
+  // the Library's facts (#2525).
+  if (!location || !isRecord(raw) || location.kind === "properties" || location.kind === "library")
+    return undefined;
   if (location.kind === "section") {
     if (optionalText(raw.heading) === undefined) return undefined;
     if (raw.paragraphs != null && !location.paragraphs) return undefined;
@@ -95,7 +97,7 @@ export function readFigureCitation(value: unknown): Citation | null {
     reason === undefined
   )
     return null;
-  const words = value.quotedWords == null ? null : parseQuotedWords(value.quotedWords);
+  const words = value.quotedWords == null ? null : parseQuotedWordsCheck(value.quotedWords);
   if (value.quotedWords != null && !words) return null;
   return {
     passageId: read.passageId,
@@ -109,10 +111,13 @@ export function readFigureCitation(value: unknown): Citation | null {
     check: read.check,
     checkReason: reason,
     ...(words && {
-      quotedWords: {
-        answer: words.answer.map(({ text, found }) => ({ text, found })),
-        closest: words.closest?.map(({ text, found }) => ({ text, found })) ?? null,
-      },
+      quotedWords:
+        "answer" in words
+          ? {
+              answer: words.answer.map(({ text, found }) => ({ text, found })),
+              closest: words.closest?.map(({ text, found }) => ({ text, found })) ?? null,
+            }
+          : words,
     }),
   };
 }

@@ -15,9 +15,11 @@ import { TranscriptionRouteSelect } from "../meetings/TranscriptionRouteSelect";
 import { TranscriptionRouteConsent } from "../meetings/TranscriptionSettings";
 import { ReadProblem } from "../ReadProblem";
 import { buttonStyle, fieldClass, hintClass, ruledListClass, sectionTitleClass } from "../ui";
+import { JevSortingSetUp } from "./JevSortingSetUp";
 import { ModelHealthLine } from "./ModelHealthLine";
 import { providerName } from "./ProviderPage";
-import { SortingLine, type SortingOption, SortingSelect, useSorting } from "./SortingChoice";
+import { SortingLine, SortingSelect, useSorting } from "./SortingChoice";
+import type { SortingOption } from "./sortingOptions";
 
 export type Role = "chatModel" | "quickTasksModel" | "imageModel";
 
@@ -139,7 +141,12 @@ function TranscriptionRow({ id, services }: { id: string; services: ServicesView
 
 function SortingRow({ id }: { id: string }) {
   const t = useT();
-  const { options, current, choose, read, library } = useSorting();
+  const { options, current, choose, read, library, jevSetUp, jevSettings, reread } = useSorting();
+  const [settingUpJev, setSettingUpJev] = useState(false);
+  const closeJev = () => {
+    setSettingUpJev(false);
+    document.getElementById(id)?.focus();
+  };
   return (
     <div
       data-testid="model-default-row-sorting"
@@ -162,11 +169,36 @@ function SortingRow({ id }: { id: string }) {
             className={rowSelectClass}
             options={options}
             current={current}
-            onChange={(option) => void choose(option)}
+            setUp={{
+              offered: jevSetUp,
+              open: settingUpJev,
+              onChoose: () => setSettingUpJev(true),
+            }}
+            onChange={(option) => {
+              setSettingUpJev(false);
+              void choose(option);
+            }}
           />
-          <SortingLine option={current} reading={read.state === "loading"} choosing={false} />
-          {library && !library.settings.automatic && current && !current.unresolved && (
-            <TurnOnTagging option={current} />
+          {settingUpJev && jevSettings ? (
+            // Choosing here never turns tagging on: Turn on… does, once Jev is chosen (#2308).
+            <JevSortingSetUp
+              jev={jevSettings}
+              choosing={false}
+              choose={async () => {
+                const chosen = await choose({ classifier: { kind: "jev" } });
+                reread();
+                return chosen;
+              }}
+              onChosen={closeJev}
+              onCancel={closeJev}
+            />
+          ) : (
+            <>
+              <SortingLine option={current} reading={read.state === "loading"} choosing={false} />
+              {library && !library.settings.automatic && current && !current.unresolved && (
+                <TurnOnTagging option={current} />
+              )}
+            </>
           )}
         </>
       )}

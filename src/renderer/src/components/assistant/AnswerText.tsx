@@ -6,6 +6,7 @@ import type { RetainedFigureAnalysis } from "../../../../core/api";
 import type { NodeJSON } from "../../../../shared/blockJson";
 import { installFigureRuns, readFigureRunClosure } from "../../../../shared/figureRuns";
 import { lendAnswerEditor } from "../../answerEditors";
+import { AnalysisTableView } from "../../editor/AnalysisTableView";
 import { AnswerTableSlots } from "../../editor/answerTables";
 import { CalculatedFigureView } from "../../editor/CalculatedFigureView";
 import { CitationView } from "../../editor/CitationView";
@@ -99,6 +100,10 @@ export function AnswerText({
           checklistLabel,
           calculatedFigureView: ReactNodeViewRenderer(
             (props) => <CalculatedFigureView {...props} doc={runs} />,
+            { as: "span" },
+          ),
+          analysisTableView: ReactNodeViewRenderer(
+            (props) => <AnalysisTableView {...props} doc={runs} />,
             { as: "span" },
           ),
         }),
