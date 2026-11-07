@@ -45,6 +45,7 @@ export function createFactLedger() {
       // read whole, before any fact is kept.
       const known = (id: string) =>
         accepted.has(id) ||
+        retired.has(id) ||
         omitted.has(id) ||
         fresh.some((fact) => fact.id === id) ||
         reply.omittedIds.includes(id);

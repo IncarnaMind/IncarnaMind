@@ -349,6 +349,7 @@ describe("Which text is tool-call text", () => {
   // protects=a tag holding its records in an attribute ends at its own end, so the words after it stay, whether it is escaped, wraps words, has broken JSON or never ends; fails_when=visible words are taken with the tag, or a stray quote or closing tag shows; no_claim=none beyond protects.
   test("a tag holding its records in an attribute takes only itself", () => {
     const records = [{ marker: 1, passage: "P1", quote: "收入增长了百分之十二。" }];
+    const second = [{ marker: 2, passage: "P1", quote: "利润持平。" }];
     const json = JSON.stringify(records);
     const escaped = `&lt;cite citations='${json.replace(/"/g, "&quot;")}'&gt;&lt;/cite&gt; Revenue grew &gt; 10% here.`;
     const taken = takeToolText(escaped);
@@ -367,6 +368,19 @@ describe("Which text is tool-call text", () => {
       text: "A [^1].",
       records,
     });
+    expect(
+      takeToolText(
+        `One [^1]. <cite citations='${json}' /> Two [^2]. <cite citations='${JSON.stringify(second)}'></cite> End.`,
+      ),
+    ).toEqual({ text: "One [^1]. Two [^2]. End.", records: [...records, ...second] });
+    expect(
+      takeToolText(`<cite citations='${json}' /> The <cite>Odyssey</cite> is old.`).text.trim(),
+    ).toBe("The <cite>Odyssey</cite> is old.");
+    expect(
+      takeToolText(
+        `<cite citations='${json}'>One.</cite> <cite citations='${JSON.stringify(second)}'>Two.</cite> End.`,
+      ).text,
+    ).toBe("One. Two. End.");
   });
 
   // protects=two blocks side by side on a line leave the line and paragraph breaks after them; fails_when=the next line is joined to the sentence; no_claim=none beyond protects.

@@ -138,8 +138,10 @@ function attributeBlocks(
     content,
     escaped: opener[0].startsWith("&") || content.includes("&quot;"),
   };
-  if (to >= paragraphEnd) return [block];
-  const after = closing.exec(text.slice(to, paragraphEnd));
+  if (to >= paragraphEnd || /\/\s*(?:>|&gt;)$/.test(text.slice(block.from, to))) return [block];
+  const nextOpener = new RegExp(`${OPEN}${escapeRegExp(tag)}(?![\\w-])`, "i").exec(text.slice(to));
+  const until = Math.min(paragraphEnd, nextOpener ? to + nextOpener.index : paragraphEnd);
+  const after = closing.exec(text.slice(to, until));
   if (!after) return [block];
   const at = to + after.index;
   if (text.slice(to, at).trim() === "") return [{ ...block, to: at + after[0].length }];
@@ -206,7 +208,11 @@ export function takeToolText(
   let at = 0;
   for (const block of blocks) {
     if (block.tag === CITE) records.push(...recordsIn(block));
-    const before = text.slice(at, block.from).replace(/[ \t]+$/, "");
+    // The space before a block stays only where a word follows it, so words never join.
+    const word = /^[\p{L}\p{N}]/u.test(text.slice(block.to));
+    const before = word
+      ? text.slice(at, block.from)
+      : text.slice(at, block.from).replace(/[ \t]+$/, "");
     const startsLine = out + before === "" || (out + before).endsWith("\n");
     const alone = startsLine && /^[ \t]*(?:\n|$)/.test(text.slice(block.to));
     out += before;
