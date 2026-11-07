@@ -217,17 +217,17 @@ for (const [language, width, height] of [
       await expect(card(window, "Home")).toBeVisible();
       await expect(row(window, "Race 4")).toHaveAttribute("data-ticked", "false");
 
-      // Not Now keeps it, and the Library's top and the sidebar count what waits.
+      // Not Now keeps it, and the Library's top and the sidebar count what Confirm would file.
       await pointAndClick(window, window.getByTestId("organize-review-not-now"));
       await expect(page).toHaveCount(0);
       await expect(window.getByTestId("organize-waiting")).toContainText(
-        say("organizeReview.waiting", { count: "8" }),
+        say("organizeReview.waiting", { count: "7" }),
       );
       await expect(window.getByTestId("library-row-count")).toHaveAttribute("data-waiting", "true");
       await screenshot(window, `not-now-${language}-${width}`);
       await pointAndClick(window, window.getByTestId("organize-waiting-review"));
       await expect(page).toBeVisible();
-      expect(await core(window).waiting()).toBe(8);
+      expect(await core(window).waiting()).toBe(7);
     } finally {
       await app?.close();
     }
@@ -284,6 +284,70 @@ test("Organize This Folder proposes subfolders inside it, and moves nothing out 
     await expect(card(window, "Lease")).toContainText("Contracts ›");
     await screenshot(window, "organize-this-folder-en");
     expect(await core(window).folders()).toEqual(["Contracts"]);
+  } finally {
+    await app?.close();
+  }
+});
+
+test("Move to, Try Again and Discard change the Suggestions, each taken back by one Undo", async () => {
+  test.setTimeout(150_000);
+  const language: Language = "en";
+  const say = t(language);
+  let app: ElectronApplication | undefined;
+  try {
+    const started = await start(language, 1440, 900);
+    app = started.app;
+    const { window } = started;
+    await addDocuments(window, await files());
+    await runCommand(window, "library.open", say("library.open"));
+    await pointAndClick(window, window.getByTestId("library-sort-into-folders"));
+    const page = window.getByTestId("organize-review");
+    await expect(page).toBeVisible({ timeout: 30_000 });
+    const rows = (name: string) => card(window, name).getByTestId("organize-review-row");
+
+    // Move to… another card in the Review, from the row's ⋯; ⌘Z puts it back.
+    await row(window, "Race 4").hover();
+    await pointAndClick(window, row(window, "Race 4").getByTestId("organize-review-row-menu"));
+    await pointAndClick(
+      window,
+      window
+        .getByTestId("organize-review-move-to")
+        .getByTestId("organize-review-move-to-card")
+        .filter({ hasText: "Kitchen" }),
+    );
+    await expect(rows("Kitchen")).toHaveCount(5);
+    await expect(rows("Race")).toHaveCount(3);
+    await window.keyboard.press("ControlOrMeta+z");
+    await expect(rows("Kitchen")).toHaveCount(4);
+    await expect(rows("Race")).toHaveCount(4);
+
+    // Fewer Folders can't go under three; Try Again plans again and keeps what the User changed.
+    await pointAndClick(window, row(window, "Race 4").getByTestId("organize-review-tick"));
+    await expect(row(window, "Race 4")).toHaveAttribute("data-ticked", "false");
+    await pointAndClick(window, window.getByTestId("organize-review-menu"));
+    await expect(window.getByTestId("organize-review-fewer")).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    await pointAndClick(window, window.getByTestId("organize-review-again"));
+    await expect(page).toBeVisible({ timeout: 30_000 });
+    await expect(rows("Kitchen")).toHaveCount(4);
+    await expect(row(window, "Race 4")).toHaveAttribute("data-ticked", "false");
+    expect(await core(window).folders()).toEqual([]);
+
+    // Discard sets them all aside; its Undo brings them, and the Review, back.
+    await pointAndClick(window, window.getByTestId("organize-review-menu"));
+    await pointAndClick(window, window.getByTestId("organize-review-discard"));
+    await expect(page).toHaveCount(0);
+    await expect(window.getByTestId("undo-line-here").getByTestId("undo-message")).toHaveText(
+      say("organizeReview.discarded"),
+    );
+    await expect.poll(() => core(window).waiting()).toBe(0);
+    await expect(window.getByTestId("organize-waiting")).toHaveCount(0);
+    await window.getByTestId("undo-line-here").getByTestId("undo-action").click();
+    await expect(page).toBeVisible();
+    await expect.poll(() => core(window).waiting()).toBe(7);
+    await expect(row(window, "Race 4")).toHaveAttribute("data-ticked", "false");
   } finally {
     await app?.close();
   }

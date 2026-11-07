@@ -193,12 +193,15 @@ const VISIBLE = `i.state = 'open' AND i.deleted_at IS NULL
 const TAG_SHOWN = `t.deleted_at IS NULL AND (t.tag_id IS NULL OR t.made = 1
   OR EXISTS (SELECT 1 FROM tags x WHERE x.id = t.tag_id AND x.deleted_at IS NULL))`;
 
-/** How many Documents wait with a Folder or a Tag to confirm (`LibrarySnapshot.reviewCount`). */
+/**
+ * How many ticked Documents wait with a Folder or a Tag to confirm, as Confirm would count them
+ * (`LibrarySnapshot.reviewCount`).
+ */
 export function organizeReviewCount(db: Database): number {
   return (
     db.get<{ count: number }>(
       `SELECT count(*) AS count FROM organize_review_items i
-       WHERE ${VISIBLE} AND (i.placement IN ('folder', 'newFolder') OR EXISTS (
+       WHERE ${VISIBLE} AND i.ticked <> 0 AND (i.placement IN ('folder', 'newFolder') OR EXISTS (
          SELECT 1 FROM organize_review_tags t WHERE t.item_id = i.id AND ${TAG_SHOWN}))`,
     )?.count ?? 0
   );
