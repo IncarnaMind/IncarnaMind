@@ -34,6 +34,7 @@ export const documentOf = (id: string, over: Partial<Document> = {}): Document =
   ownFile: null,
   yourNote: null,
   meetingMindId: null,
+  speakers: null,
   notCited: false,
   found: null,
   importedAs: null,

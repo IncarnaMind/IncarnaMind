@@ -1,5 +1,6 @@
 import type { AnswerToolCall, AskedFrom } from "../../core/api";
 import type { FoldedLine, ReadDocument } from "./answerSteps";
+import { problemText } from "./changeProblems";
 import type { Translate } from "./objects";
 
 /** The check's step line for this many Citations. */
@@ -177,4 +178,40 @@ export function foldedWords(t: Translate, line: FoldedLine, words: FoldedWords):
     case "answered":
       return t("steps.answered", { model: words.modelOf(line.model) });
   }
+}
+
+/** What a call of a Minds' Tool is doing, or did, in its row's words. */
+export function mindCallText(t: Translate, call: AnswerToolCall, mind: string): string {
+  const change = call.mindChange;
+  if (call.status === "running") {
+    if (call.tool === "read_mind") return t("mindCall.reading", { mind });
+    const checking = change?.checking ?? 0;
+    if (checking > 0) {
+      return checking === 1
+        ? t("mindCall.checking.one", { mind })
+        : t("mindCall.checking", { mind, count: checking });
+    }
+    if (call.tool === "create_mind") {
+      return mind ? t("mindCall.creating", { mind }) : t("mindCall.creating.new");
+    }
+    return t(call.tool === "add_to_mind" ? "mindCall.adding" : "mindCall.editing", { mind });
+  }
+  if (call.status === "failed") {
+    const why = call.mindProblem && problemText(t, call.mindProblem, mind);
+    if (why) return why;
+    if (call.tool === "read_mind") return t("mindCall.readFailed", { mind });
+    return t(call.tool === "create_mind" ? "mindCall.createFailed" : "mindCall.failed", { mind });
+  }
+  if (call.tool === "read_mind") return t("mindCall.read", { mind });
+  const count = change?.proposals ?? 0;
+  if (change?.created) {
+    if (count === 0) return t("mindCall.created", { mind });
+    return t(count === 1 ? "mindCall.created.one" : "mindCall.created.changes", { mind, count });
+  }
+  if (!change) return t("mindCall.unchanged", { mind });
+  if (change.revised) {
+    if (count === 0) return t("mindCall.revised.none", { mind });
+    return t(count === 1 ? "mindCall.revised.one" : "mindCall.revised", { mind, count });
+  }
+  return t(count === 1 ? "mindCall.edited.one" : "mindCall.edited", { mind, count });
 }

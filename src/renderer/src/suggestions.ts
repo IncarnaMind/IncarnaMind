@@ -8,7 +8,7 @@
 import type * as Y from "yjs";
 import { create } from "zustand";
 import { MIND_SETTINGS_FIELD, type Suggestion } from "../../core/api";
-import { withShownName } from "../../shared/citations";
+import { citedSpeakers, withShownName } from "../../shared/citations";
 import { type MessageKey, type MessageParams, translate } from "../../shared/i18n";
 import { citationLocation, formatLocation } from "../../shared/locations";
 import { composerScope, useComposer } from "./composer";
@@ -40,17 +40,17 @@ const t = (key: MessageKey, params?: MessageParams) =>
 
 /** The words a suggestion shows: its label for screen readers, its marker's tooltip, its key. */
 export function describeSuggestion(suggestion: Suggestion) {
-  const { documentName, quote } = withShownName(
-    suggestion.citation,
-    useAppStore.getState().documents,
-  );
+  const { documents } = useAppStore.getState();
+  const { documentName, quote } = withShownName(suggestion.citation, documents);
   const location = citationLocation(suggestion.citation);
   return {
     label: t("suggestion.label", { text: suggestion.text }),
     citation: location
       ? t("suggestion.citation", {
           document: documentName,
-          location: formatLocation(location, t),
+          location: formatLocation(location, t, {
+            speakers: citedSpeakers(suggestion.citation, documents),
+          }),
           quote,
         })
       : t("suggestion.citationNoLocation", { document: documentName, quote }),

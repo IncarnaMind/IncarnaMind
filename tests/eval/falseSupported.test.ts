@@ -8,7 +8,7 @@ import { getSchema } from "@tiptap/core";
 import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
 import { measuredAnswer, measuredCell } from "../../eval/speed/paired";
-import { type CitedSentence, falseSupportedIn } from "../../eval/speed/unstated";
+import { type CitedSentence, falseSupportedIn, unstatedSentences } from "../../eval/speed/unstated";
 import { COMPARISON_CELL_NODE } from "../../src/core";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 
@@ -79,14 +79,6 @@ describe("False Supported in an Answer or a cell", () => {
     ).toBe(2);
   });
 
-  test("each sentence the judge lists is heard with its quotes, for reading by hand", async () => {
-    const heard: { sentence: string; quotes: readonly string[] }[] = [];
-    await falseSupportedIn(judging().model, [UNSTATED, STATED], (sentences) =>
-      heard.push(...sentences),
-    );
-    expect(heard).toEqual([{ sentence: UNSTATED.sentence, quotes: [UNSTATED.quote] }]);
-  });
-
   test("a Citation that wasn't found is never read, so it can't count", async () => {
     const { model, prompts } = judging();
 
@@ -134,6 +126,12 @@ describe("False Supported in an Answer or a cell", () => {
     expect(prompts[0]?.match(/Sentence:/g)).toHaveLength(2);
   });
 
+  test("names each sentence it counts, with the quotes the judge read it against", async () => {
+    expect(await unstatedSentences(judging().model, [STATED, UNSTATED])).toEqual([
+      { sentence: "120 days", quotes: ["Termination notice"] },
+    ]);
+  });
+
   test("numbers written as strings are read; anything else in the list is an unread reply", async () => {
     const asStrings = judging((unstated) => JSON.stringify({ unstated: unstated.map(String) }));
     expect(await falseSupportedIn(asStrings.model, [STATED, UNSTATED])).toBe(1);
@@ -171,7 +169,9 @@ describe("The Questions and cells sets read false Supported through the measure"
     };
     const expected = { question: "What is the notice?", quotes: ["Termination notice"] };
 
-    expect((await measuredAnswer(answer, expected, grade, judging().model)).falseSupported).toBe(1);
+    const read = await measuredAnswer(answer, expected, grade, judging().model);
+    expect(read.falseSupported).toBe(1);
+    expect(read.text).toContain("[unstated] The notice is 120 days. ‖ “Termination notice”");
     const stated = {
       ...answer,
       citations: [citation("The notice is 90 days.", "Notice: 90 days.")],
@@ -230,5 +230,72 @@ describe("The Questions and cells sets read false Supported through the measure"
       judging().model,
     );
     expect(stated.falseSupported).toBe(0);
+  });
+
+  test("each sentence reaches the judge from its own place, in an Answer and in a cell", async () => {
+    const citation = (sentence: string, quote: string, sentenceIndex: number) => ({
+      sentence,
+      sentenceIndex,
+      quote,
+      documentName: "Corvane Agreement",
+      pageFrom: 1,
+      pageTo: 1,
+      check: "found" as const,
+      checkReason: null,
+      outcome: "found" as const,
+      passagePages: [1, 1] as [number, number],
+      quoteOn: [1, 1] as [number, number],
+    });
+    const answer = {
+      status: "done" as const,
+      error: null,
+      searches: ["notice"],
+      text: "The notice is 120 days[^1]. The fee is 90 dollars[^2].",
+      expected: null,
+      timing: null,
+      citations: [
+        citation("The notice is 120 days.", "Termination notice", 0),
+        citation("The fee is 90 dollars.", "Fee: 90 dollars.", 1),
+      ],
+    };
+    const expected = { question: "What are the terms?", quotes: ["Termination notice"] };
+    const { model, prompts } = judging();
+
+    expect((await measuredAnswer(answer, expected, grade, model)).falseSupported).toBe(1);
+    expect(prompts[0]?.match(/Sentence:/g)).toHaveLength(2);
+
+    const schema = getSchema(noteExtensions());
+    const cited = (text: string, quote: string) => [
+      { type: "text", text: `${text} ` },
+      {
+        type: "citation",
+        attrs: {
+          passageId: "p1",
+          documentId: "d1",
+          documentName: "Corvane Agreement",
+          contentHash: null,
+          pageFrom: 1,
+          pageTo: 1,
+          location: null,
+          quote,
+          check: "found",
+          checkReason: null,
+        },
+      },
+    ];
+    const cell = schema.nodeFromJSON({
+      type: COMPARISON_CELL_NODE,
+      attrs: { questionId: "q1", status: "done" },
+      content: [
+        { type: "paragraph", content: cited("120 days notice", "Termination notice") },
+        { type: "paragraph", content: cited("90 dollars a year", "Fee: 90 dollars a year.") },
+      ],
+    });
+    const needed = [{ document: "corvane", pages: [1, 1] as [number, number], quote: "Notice" }];
+    const lines = judging();
+
+    const read = await measuredCell(cell, "Corvane Agreement", "Terms", needed, grade, lines.model);
+    expect(read.falseSupported).toBe(1);
+    expect(lines.prompts[0]?.match(/Sentence:/g)).toHaveLength(2);
   });
 });

@@ -110,7 +110,7 @@ export function locatorOf(
       label: "custom",
     };
   }
-  return { locator: formatLocation(location, t, false), label: "custom" };
+  return { locator: formatLocation(location, t, { speaker: false }), label: "custom" };
 }
 
 /**

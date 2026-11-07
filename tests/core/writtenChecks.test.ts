@@ -1377,6 +1377,19 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
     ]);
   });
 
+  // protects=a cited table cell with a figure is checked even when the sort names no fact for it: Claude Haiku 5.5 named a bare cell an opinion or no claim, and the write landed no check on it at all (#2719); fails_when=an empty or opinion-only sort skips the figure's check and the cell lands unmarked; no_claim=the verdict the check gives.
+  test("a cited figure in a table cell is checked even when the sort names no fact", async () => {
+    const { core, change, client } = await write({
+      content: "| Item | 2024 |\n| --- | --- |\n| Revenue | 100 [^1] |",
+      generated: () => undefined,
+    });
+    expect(change?.selfCheck).toMatchObject({ cited: 1, sent: 1, checked: 1, failed: 0 });
+    const marks = await marksIn(core, client);
+    expect(marks.map(({ sentence, shown }) => [sentence, shown.state])).toEqual([
+      ["100", "unsupported"],
+    ]);
+  });
+
   // protects=a table's heading cell with a Citation is a heading, not a claim (#2378); fails_when=the heading is sent to a check and lands unsupported; no_claim=whether a real check would misread a heading.
   test("a table's heading cell with a Citation is a heading, not a claim to check", async () => {
     const { core, change, client } = await write({

@@ -883,7 +883,7 @@ const messageOf = (error: unknown) => (error instanceof Error ? error.message : 
  * ids (null: every Document).
  */
 export interface DocumentsForAnswers
-  extends Pick<AnswerDocuments, "citationSource" | "pageTexts" | "documentDate"> {
+  extends Pick<AnswerDocuments, "citationSource" | "pageTexts" | "documentDate" | "speakers"> {
   searchableCount(documentIds: readonly string[] | null): number;
   /** The Library's count as its page shows it: the examples' until the User has one, then theirs. */
   libraryCount(): number;
@@ -967,6 +967,7 @@ function inScope(
     pageTexts: (documentId, contentHash, from, to) =>
       documents.pageTexts(documentId, contentHash, from, to),
     documentDate: (documentId) => documents.documentDate(documentId),
+    speakers: (documentId) => documents.speakers?.(documentId) ?? null,
     passage: (passageId) => documents.passage(passageId),
     passagesBetween: (documentId, from, to) => documents.passagesBetween(documentId, from, to),
     passagesCovering: (documentId, from, to, overlapping) =>
@@ -1299,7 +1300,7 @@ export function createAnswers(options: AnswersOptions) {
     web?: boolean;
     /** "Analyse data…" was chosen (#447): `run_analysis` is offered whatever the Search scope holds. */
     analyse?: boolean;
-    /** Hears each Tool call as it ends. */
+    /** Hears each Tool call as it starts and as it ends, a call the Answer's end cut short too. */
     onCall?(call: AnswerToolCall): void;
     /**
      * An Answer in the assistant (#202): the Mind it was asked from and the
@@ -1879,7 +1880,8 @@ export function createAnswers(options: AnswersOptions) {
       // A Tool call still running when the Answer stopped didn't finish; one still waiting for
       // the User never ran (aborting above withdrew its request).
       for (const call of toolCalls) {
-        if (call.status === "running") call.status = "failed";
+        const cut = call.status === "running";
+        if (cut) call.status = "failed";
         if (call.approval === "waiting") call.approval = "denied";
         // What a call was given is kept with the conversation, where no id may be stored (#1800).
         call.input = Object.fromEntries(
@@ -1888,6 +1890,7 @@ export function createAnswers(options: AnswersOptions) {
             typeof value === "string" ? withoutWrittenIds(value, ids) : value,
           ]),
         );
+        if (cut) input.onCall?.({ ...call });
       }
       settle();
       const judging = judgesItsSentences() && outcome.status !== "failed";
@@ -1979,6 +1982,7 @@ export function createAnswers(options: AnswersOptions) {
       }
       toolCalls.push(call);
       announce("answer.toolCallStarted", { ...place, answerId, call: { ...call } });
+      input.onCall?.({ ...call });
       writeSoon();
     };
     const callFinished = (
@@ -2454,12 +2458,17 @@ export function createAnswers(options: AnswersOptions) {
             : options.readsImages?.(model) !== false && pickedPicture(quote) !== null
               ? "sent"
               : "withheld";
+        // A quote from a Transcript is placed by its Speaker's name as the User gave it (#138).
+        const speakersOfQuote = (quote: AskedQuote) =>
+          quote.location?.kind === "time"
+            ? (options.documents.speakers?.(quote.documentId) ?? null)
+            : null;
         messages = withBeforeQuestion(
           messages,
           selectedTextBlock([
             ...quoted.map(({ quote, passages }) => ({
               ...quote,
-              place: englishPlace(quote.location),
+              place: englishPlace(quote.location, speakersOfQuote(quote)),
               shown: session.show(passages),
               ...(pictureState(quote) && { pictureState: pictureState(quote) }),
             })),
@@ -2467,7 +2476,7 @@ export function createAnswers(options: AnswersOptions) {
               .filter((quote) => !seen.has(quoteKey(quote)))
               .map((quote) => ({
                 ...quote,
-                place: englishPlace(quote.location),
+                place: englishPlace(quote.location, speakersOfQuote(quote)),
                 shown: "",
                 ...(pictureState(quote) && { pictureState: pictureState(quote) }),
               })),
@@ -4975,7 +4984,7 @@ export function createAnswers(options: AnswersOptions) {
      * and, with `web`, the web, whatever the step's words; a page it reads is
      * saved into the Folder of `mindId`. It uses no Connector and no Skill
      * script, so nothing it does waits for the User. The model is ready and
-     * allowed already. `onCall` hears each Tool call as it ends.
+     * allowed already. `onCall` hears each Tool call as it starts and as it ends.
      */
     answerResearch(input: {
       mindId: string;

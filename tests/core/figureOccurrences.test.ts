@@ -183,6 +183,78 @@ test("merged table headers project exact row/column labels and preserve unit amb
   ).toBe(true);
 });
 
+test("a first column that numbers its rows or is headed by a period is no row label", () => {
+  const numbered = figuresInMind(
+    stored({
+      type: "table",
+      attrs: { id: "t1" },
+      content: [
+        row(cell("h1", "序号", true), cell("h2", "项目", true), cell("h3", "2025年", true)),
+        row(cell("a", "1"), cell("b", "收入"), cell("c", "120")),
+      ],
+    }),
+  );
+  const revenue = numbered.find((each) => each.reading.value === 120);
+  expect(revenue?.table).toMatchObject({ rowLabel: "收入", columnLabel: "2025年" });
+  expect(revenue?.label).toBe("收入 · 2025年");
+
+  const periods = figuresInMind(
+    stored({
+      type: "table",
+      attrs: { id: "t2" },
+      content: [
+        row(cell("h4", "2024年", true), cell("h5", "2025年", true)),
+        row(cell("d", "999"), cell("e", "120")),
+      ],
+    }),
+  );
+  expect(periods.map((each) => each.label)).toEqual(["2024年", "2025年"]);
+});
+
+test("a row whose only cells are a number and a figure takes no name from a value", () => {
+  const numbered = figuresInMind(
+    stored({
+      type: "table",
+      attrs: { id: "t1" },
+      content: [
+        row(cell("h1", "序号", true), cell("h2", "金额", true)),
+        row(cell("a", "1"), cell("b", "100")),
+      ],
+    }),
+  );
+  const amount = numbered.find((each) => each.reading.value === 100);
+  expect(amount?.table).toMatchObject({ rowLabel: "" });
+  expect(amount?.label).toBe("金额");
+
+  const periods = figuresInMind(
+    stored({
+      type: "table",
+      attrs: { id: "t2" },
+      content: [
+        row(cell("h3", "#", true), cell("h4", "2024", true), cell("h5", "2025", true)),
+        row(cell("c", "1"), cell("d", "999"), cell("e", "120")),
+      ],
+    }),
+  );
+  expect(periods.map((each) => each.label)).toEqual(["#", "2024", "2025"]);
+});
+
+test("a genuine first-column label under a period heading keeps its words", () => {
+  const figures = figuresInMind(
+    stored({
+      type: "table",
+      attrs: { id: "t1" },
+      content: [
+        row(cell("h1", "2024年", true), cell("h2", "2025年", true)),
+        row(cell("a", "收入"), cell("b", "100")),
+      ],
+    }),
+  );
+  const value = figures.find((each) => each.reading.value === 100);
+  expect(value?.table).toMatchObject({ rowLabel: "收入", columnLabel: "2025年" });
+  expect(value?.label).toBe("收入 · 2025年");
+});
+
 test("a row unit cell reaches its numeric cell through the existing reader", () => {
   const figures = figuresInMind(
     stored({
@@ -196,6 +268,27 @@ test("a row unit cell reaches its numeric cell through the existing reader", () 
   );
   expect(figures).toHaveLength(1);
   expect(figures[0]?.table).toMatchObject({ row: 1, column: 1, rowLabel: "收入" });
+  expect(
+    figures[0]?.reading.ambiguous.some(
+      (each) => each.kind === "scale" && each.readings.some((reading) => reading.scale === 10_000),
+    ),
+  ).toBe(true);
+});
+
+// protects=a bare cell whose digits look like a mobile number stays an amount under the header's stated unit (#2215); fails_when=the mobile/ID rule drops a 138亿 cell of a table headed 金额（万元）.
+test("a mobile-shaped cell under a stated unit header stays an amount", () => {
+  const figures = figuresInMind(
+    stored({
+      type: "table",
+      attrs: { id: "t1" },
+      content: [
+        row(cell("h1", "项目", true), cell("h2", "金额（万元）", true)),
+        row(cell("a", "收入"), cell("b", "13800138000")),
+      ],
+    }),
+  );
+  expect(figures).toHaveLength(1);
+  expect(figures[0]?.reading.value).toBe(13800138000);
   expect(
     figures[0]?.reading.ambiguous.some(
       (each) => each.kind === "scale" && each.readings.some((reading) => reading.scale === 10_000),

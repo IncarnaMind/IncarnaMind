@@ -19,10 +19,11 @@ import { FILL_PART_TOKENS, transcriptParts } from "../../src/core/meetings/fill"
 import type { FillSection } from "../../src/core/meetings/fillPrompt";
 import { createFakeChatModel } from "../../src/main/fakeChat";
 import { citationAttributesOf } from "../../src/shared/citations";
+import { clockTime } from "../../src/shared/clock";
 import { setMindModel } from "../../src/shared/mindModel";
 import { pendingProposals } from "../../src/shared/proposals";
 import { checkReply, isCheckRun, type Plan } from "../helpers/checks";
-import { shownPassages, transcriptCitations } from "../helpers/citations";
+import { mindCitations, shownPassages, transcriptCitations } from "../helpers/citations";
 import { createTempDataFolder, saveProviderUnasked } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
@@ -36,7 +37,7 @@ import {
   writeMind,
 } from "../helpers/minds";
 import { type ModelCall, scriptedModel } from "../helpers/models";
-import { fakeSeparator, transcribingCore, until } from "../helpers/transcription";
+import { fakeSeparator, savedCues, transcribingCore, until } from "../helpers/transcription";
 
 const SECOND = 1000;
 const MY_LINES = [
@@ -285,6 +286,54 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     expect(await settledFill(core, meeting)).toMatchObject({ state: "filled" });
     const transcript = await until(core, meeting.id, (each) => !each.separating);
     expect(transcript.problem?.kind).toBe("speakers");
+    core.close();
+  });
+
+  // protects=a fill after the User named a Speaker reads the name in its marks, brackets made spaces, and the Citations it writes back with that name, a digit first, brackets or Chinese punctuation, are kept and store the line's own label; fails_when=the fill drops the cited item or stores a name; no_claim=a real model's wording, which tests/live/speakerNames.live.test.ts covers.
+  test("names the User gave reach the fill's Citations, a digit, brackets or Chinese punctuation in them", async () => {
+    const said = THEIR_LINES[0] as string;
+    let speaker = "";
+    const model = scriptedModel((call) => {
+      if (isCheckRun(call)) return checkReply(call, {});
+      if (!isFill(call)) return { text: "OK" };
+      if (!call.results.some((result) => result.tool === "cite")) {
+        const passage = shownPassages(block(call.prompt, "live-transcript") ?? "").find((each) =>
+          each.text.includes(said),
+        );
+        const mark = passage?.text
+          .match(/\[(\d{1,2}:\d{2}) ([^\]]+)\] /g)
+          ?.find((each) => passage.text.includes(`${each}${said}`));
+        speaker = mark?.slice(1, -2) ?? "";
+        const citations = [{ marker: 1, passage: passage?.id, location: speaker, quote: said }];
+        return { calls: [{ tool: "cite", input: { citations } }] };
+      }
+      return {
+        text: fact("P1_budget", "budget", "The budget is approved [^1].", {
+          sections: ["summary"],
+        }),
+      };
+    });
+    const { core, meeting, client } = await recorded(model, null);
+    expect(await settledFill(core, meeting)).toMatchObject({ state: "filled" });
+    const documentId = (await core.listMeetings()).find((each) => each.id === meeting.id)
+      ?.transcript?.documentId as string;
+    const line = (await savedCues(core, meeting.id)).find((cue) => cue.text === said);
+    const label = line?.speaker as string;
+    for (const name of ["3M rep", "(Client) Dana", "Dana [CFO]", "王总（客户）"]) {
+      await core.setTranscriptSpeakers({
+        documentId,
+        speakers: { labels: { [label]: name }, lines: {} },
+      });
+      await core.undoMeetingFill(meeting.id);
+      await core.fillMeetingNotes(meeting.id);
+      await vi.waitFor(async () => expect((await fillOf(core, meeting.id))?.state).toBe("filled"));
+      expect(speaker).toBe(
+        `${clockTime(line?.startMs ?? 0)} ${name.replace(/[[\]]/g, " ").replace(/\s+/g, " ").trim()}`,
+      );
+      const cited = mindCitations(client).filter((each) => each.quote === said);
+      expect(cited).toHaveLength(1);
+      expect(cited[0]?.location).toMatchObject({ kind: "time", speaker: label });
+    }
     core.close();
   });
 

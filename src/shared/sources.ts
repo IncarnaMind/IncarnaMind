@@ -13,7 +13,7 @@ import type { Translate } from "./locations";
 
 /** What a source needs of a live Document: whether a Citation still has one, its name and its web page. */
 export type SourceDocument = Pick<Document, "id" | "contentHash"> &
-  Partial<Pick<Document, "name" | "title" | "web">>;
+  Partial<Pick<Document, "name" | "title" | "web" | "speakers">>;
 
 export interface SourceContext {
   language: Language;
@@ -96,7 +96,10 @@ export function sourceParts(
   context: SourceContext,
 ): { name: string; location: string | null } {
   const t = translator(context.language);
-  return { name: nameOf(attributes, context, t), location: citedLocation(attributes, t) };
+  return {
+    name: nameOf(attributes, context, t),
+    location: citedLocation(attributes, t, context.documents),
+  };
 }
 
 /**
@@ -163,7 +166,7 @@ export function sourcesOf(
       };
       found.set(key, source);
     }
-    const location = citedLocation(attributes, t);
+    const location = citedLocation(attributes, t, context.documents);
     if (location && !source.locations.includes(location)) source.locations.push(location);
     const fetchedAt = webOf(attributes, context)?.fetchedAt;
     if (fetchedAt) source.fetched.add(fetchedAt);

@@ -44,17 +44,21 @@ function readUnstated(text: string): number[] | null {
   }
 }
 
+/** A sentence the judge listed, with the found quotes it read it against. */
+export interface UnstatedSentence {
+  sentence: string;
+  quotes: readonly string[];
+}
+
 /**
- * How many sentences shown with a found Citation their quotes don't state, each sentence judged
- * once against all its found quotes; null when the judge's reply couldn't be read twice, which
- * the item reports as a failure rather than as none.
+ * The sentences shown with a found Citation their quotes don't state, each sentence judged once
+ * against all its found quotes; null when the judge's reply couldn't be read twice, which the
+ * item reports as a failure rather than as none.
  */
-export async function falseSupportedIn(
+export async function unstatedSentences(
   judge: LanguageModel,
   cited: readonly CitedSentence[],
-  /** Hears each sentence the judge listed, with its quotes, for reading by hand. */
-  flagged?: (sentences: readonly { sentence: string; quotes: readonly string[] }[]) => void,
-): Promise<number | null> {
+): Promise<UnstatedSentence[] | null> {
   // By place, not by words: two sentences that read the same are each judged on their own quotes.
   const bySentence = new Map<number, { sentence: string; quotes: string[] }>();
   for (const each of cited) {
@@ -65,7 +69,7 @@ export async function falseSupportedIn(
   const sentences = [...bySentence.values()].map(
     ({ sentence, quotes }) => [sentence, quotes] as const,
   );
-  if (sentences.length === 0) return 0;
+  if (sentences.length === 0) return [];
   const prompt = sentences
     .map(
       ([sentence, quotes], index) =>
@@ -102,14 +106,18 @@ export async function falseSupportedIn(
     );
     return null;
   }
-  const listed = [...new Set(read.filter((n) => n >= 1 && n <= sentences.length))];
-  flagged?.(
-    listed.flatMap((n) => {
-      const [sentence, quotes] = sentences[n - 1] ?? [];
-      return sentence === undefined || quotes === undefined ? [] : [{ sentence, quotes }];
-    }),
-  );
-  return listed.length;
+  return [...new Set(read)].flatMap((n) => {
+    const [sentence, quotes] = sentences[n - 1] ?? [];
+    return sentence === undefined || quotes === undefined ? [] : [{ sentence, quotes }];
+  });
+}
+
+/** How many sentences `unstatedSentences` lists; null when the judge's reply couldn't be read. */
+export async function falseSupportedIn(
+  judge: LanguageModel,
+  cited: readonly CitedSentence[],
+): Promise<number | null> {
+  return (await unstatedSentences(judge, cited))?.length ?? null;
 }
 
 /** The text as the page shows it, each Citation by its number, and the Citations in that order. */

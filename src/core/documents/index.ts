@@ -27,6 +27,7 @@ import { basename, dirname, isAbsolute, join } from "node:path";
 import type { LiveDocument } from "../../shared/citations";
 import { joinUnits, locationOf, quoteInUnits } from "../../shared/locations";
 import { readableQuote } from "../../shared/readableQuote";
+import { looksLikeLabel, parseTranscriptSpeakers, readStoredSpeakers } from "../../shared/speakers";
 import {
   type Anchor,
   anchorsOf,
@@ -62,6 +63,7 @@ import type {
   SearchMode,
   SkippedFile,
   TaggingState,
+  TranscriptSpeakers,
 } from "../api";
 import { ownFileKinds } from "../api";
 import { EmbeddingUnavailableError, type SearchEmbedder } from "../embedding/active";
@@ -202,6 +204,7 @@ interface DocumentRow {
   file_mtime_ms: number | null;
   file_created_ns: string | null;
   file_properties: string | null;
+  speakers: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -258,7 +261,7 @@ const COLUMNS = `id, content_hash, name, kind, size, page_count, status,
   tagging_error_message, tagging_error_resets_at, embedding_model, path, linked_folder_id, file_status,
   source_kind, creation_date, title, own_file, converted_from, your_note_mind_id, your_note_at,
   meeting_mind_id, counted_as_evidence, not_cited, processing_version, keywords_version, file_mtime_ms,
-  file_created_ns, file_properties, created_at,
+  file_created_ns, file_properties, speakers, created_at,
   updated_at`;
 
 /** What IncarnaMind wrote the file as (#80), from its stored kind; a kind a newer version wrote counts as an export. */
@@ -633,12 +636,18 @@ export function createDocuments(options: DocumentsOptions) {
   // A damaged `unread_parts` is said once for each Document: a list reads every Document again
   // and again, and the log would fill with the same line.
   const loggedUnreadParts = new Set<string>();
+  const loggedSpeakers = new Set<string>();
   const toDocument = (row: DocumentRow): Document => {
     const unreadParts = parseUnreadParts(row.unread_parts);
     const unreadPartsUnknown = row.unread_parts !== null && unreadParts === null;
     if (unreadPartsUnknown && !loggedUnreadParts.has(row.id)) {
       loggedUnreadParts.add(row.id);
       log.warn("documents.unreadPartsUnreadable", { documentId: row.id });
+    }
+    const speakers = readStoredSpeakers(row.speakers);
+    if (speakers.dropped > 0 && !loggedSpeakers.has(row.id)) {
+      loggedSpeakers.add(row.id);
+      log.warn("documents.speakersUnreadable", { documentId: row.id, dropped: speakers.dropped });
     }
     const tagging = taggingOf(row.status, row.tagging_status, headOf(row) !== null);
     const status = statusOf(row);
@@ -697,6 +706,7 @@ export function createDocuments(options: DocumentsOptions) {
           ? null
           : { mindId: row.your_note_mind_id, snapshotAt: row.your_note_at ?? row.created_at },
       meetingMindId: row.meeting_mind_id,
+      speakers: speakers.speakers,
       notCited: row.not_cited === 1,
       found: foundSourceOf(db, row.id),
       importedAs: importedMindOf(row.id),
@@ -2271,11 +2281,26 @@ export function createDocuments(options: DocumentsOptions) {
       .map(toDocument);
   };
 
-  /** Every live Document's id, version and names, in `list`'s order: what a Citation needs to show its Document's current name. */
+  /** Who's who in a live Transcript (#138); null for none, and for any other Document. */
+  const speakersOf = (documentId: string): TranscriptSpeakers | null =>
+    readStoredSpeakers(
+      db.get<{ speakers: string | null }>(
+        "SELECT speakers FROM documents WHERE id = ? AND deleted_at IS NULL",
+        [documentId],
+      )?.speakers ?? null,
+    ).speakers;
+
+  /** Every live Document's id, version and names, in `list`'s order: what a Citation needs to show its Document's current name and Speakers. */
   const names = (): LiveDocument[] =>
     db
-      .all<{ id: string; content_hash: string; name: string; title: string | null }>(
-        `SELECT id, content_hash, name, title FROM documents
+      .all<{
+        id: string;
+        content_hash: string;
+        name: string;
+        title: string | null;
+        speakers: string | null;
+      }>(
+        `SELECT id, content_hash, name, title, speakers FROM documents
          WHERE deleted_at IS NULL ORDER BY created_at DESC, rowid DESC`,
       )
       .map((row) => ({
@@ -2283,6 +2308,7 @@ export function createDocuments(options: DocumentsOptions) {
         contentHash: row.content_hash,
         name: row.name,
         title: row.title,
+        speakers: readStoredSpeakers(row.speakers).speakers,
       }));
 
   /**
@@ -3174,6 +3200,7 @@ export function createDocuments(options: DocumentsOptions) {
 
     list,
     names,
+    speakersOf,
     ids,
     hasDocumentOutside,
     upgradeKeywordIndex,
@@ -3245,6 +3272,42 @@ export function createDocuments(options: DocumentsOptions) {
       const row = find(id);
       if (!row) throw new NotFoundError({ key: "error.document.notFound" });
       return toDocument(row);
+    },
+
+    /**
+     * Sets who's who in a Transcript (#138), whole, as `TranscriptSpeakers` says. Its file and
+     * versions aren't touched, so nothing is indexed or checked again.
+     */
+    setSpeakers(idInput: unknown, speakersInput: unknown): Document {
+      const id = parseId(idInput);
+      const given =
+        isRecord(speakersInput) && isRecord(speakersInput.labels)
+          ? Object.values(speakersInput.labels)
+          : [];
+      const label = given.find((name) => typeof name === "string" && looksLikeLabel(name));
+      if (typeof label === "string") {
+        throw new InvalidInputError({
+          key: "error.transcript.speakerNameIsLabel",
+          values: { name: label },
+        });
+      }
+      const { speakers, dropped } = parseTranscriptSpeakers(speakersInput);
+      if (dropped > 0) {
+        throw new InvalidInputError({ key: "error.transcript.speakersUnheld" });
+      }
+      const row = find(id);
+      if (!row) throw new NotFoundError({ key: "error.document.notFound" });
+      if (row.kind !== "transcript") {
+        throw new InvalidInputError({ key: "error.transcript.speakersOfTranscript" });
+      }
+      db.run("UPDATE documents SET speakers = ?, updated_at = ? WHERE id = ?", [
+        speakers === null ? null : JSON.stringify(speakers),
+        now(),
+        id,
+      ]);
+      const updated = find(id);
+      if (!updated) throw new NotFoundError({ key: "error.document.notFound" });
+      return toDocument(updated);
     },
 
     /**

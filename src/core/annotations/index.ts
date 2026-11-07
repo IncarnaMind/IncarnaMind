@@ -14,6 +14,7 @@ import { randomUUID } from "node:crypto";
 import type { MessageKey, MessageParams } from "../../shared/i18n";
 import { translate } from "../../shared/i18n";
 import { formatLocation, parseCitedArea, parseLocation } from "../../shared/locations";
+import { readStoredSpeakers } from "../../shared/speakers";
 import type {
   Annotation,
   AnnotationAnchor,
@@ -579,14 +580,19 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
 
     /** A Document's annotations as Markdown: each quote, its note and its Location (#327), in `language`. */
     markdown(documentId: string, language: Language): { name: string; text: string } {
-      const name =
-        db.get<{ name: string }>("SELECT name FROM documents WHERE id = ?", [documentId])?.name ??
-        "";
+      const row = db.get<{ name: string; speakers: string | null }>(
+        "SELECT name, speakers FROM documents WHERE id = ?",
+        [documentId],
+      );
+      const name = row?.name ?? "";
+      const speakers = readStoredSpeakers(row?.speakers ?? null).speakers;
       const annotations = list(documentId);
       const t = (key: MessageKey, params?: MessageParams) => translate(language, key, params);
       const lines = [`# ${name}: ${t("annotations.export.title")}`, ""];
       for (const annotation of annotations) {
-        const where = annotation.location ? formatLocation(annotation.location, t) : "";
+        const where = annotation.location
+          ? formatLocation(annotation.location, t, { speakers })
+          : "";
         lines.push(`## ${where}`);
         for (const line of annotation.quote.split("\n")) lines.push(`> ${line}`);
         lines.push("");
