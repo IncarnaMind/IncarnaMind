@@ -13,7 +13,12 @@ import type { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js
 import type { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { FetchLike } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { Browser } from "../adapters";
-import type { ConnectorError, ConnectorSignInError, ExternalService } from "../api";
+import type {
+  ConnectorError,
+  ConnectorFailureStep,
+  ConnectorSignInError,
+  ExternalService,
+} from "../api";
 import { SecretStorageError } from "../errors";
 import {
   OAuthFlowError,
@@ -21,6 +26,7 @@ import {
   openLoopbackRedirect,
   type SignInRedirect,
 } from "../oauth";
+import { redactMessage } from "../redact";
 import {
   ClientIdRequiredError,
   type ConnectorAuth,
@@ -30,6 +36,7 @@ import {
   RefreshFailedError,
   SignInRequiredError,
 } from "./auth";
+import { hideHeaders } from "./headers";
 
 /** The loopback redirect's path: http://127.0.0.1:<port>/callback. */
 const CALLBACK_PATH = "/callback";
@@ -93,6 +100,12 @@ export class OpeningRejectedError extends Error {
 
 export class KeyRefusedError extends Error {
   override name = "KeyRefusedError";
+  constructor(
+    message: string,
+    readonly status?: number,
+  ) {
+    super(message);
+  }
 }
 
 export function connectionFetch(options: {
@@ -102,7 +115,7 @@ export function connectionFetch(options: {
   fetch: FetchLike;
   check(): void;
   opening: boolean;
-  onKeyRefused?(): void;
+  onKeyRefused?(status: number): void;
   onUnreachable?(): void;
 }): FetchLike {
   const origin = new URL(options.url).origin;
@@ -140,9 +153,9 @@ export function connectionFetch(options: {
       (response.status === 401 || response.status === 403)
     ) {
       refused = true;
-      options.onKeyRefused?.();
+      options.onKeyRefused?.(response.status);
       await response.body?.cancel();
-      throw new KeyRefusedError("The server refused this key.");
+      throw new KeyRefusedError("The server refused this key.", response.status);
     }
     if (isOpening && (response.status === 404 || response.status === 405)) {
       await response.body?.cancel();
@@ -180,37 +193,57 @@ function unreachable(error: unknown): boolean {
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 /** Why connecting to a remote server failed, in terms the User can act on. */
-export function remoteError(error: unknown): ConnectorError {
+export function remoteError(
+  error: unknown,
+  options: { step?: ConnectorFailureStep; secrets?: readonly string[]; status?: number } = {},
+): ConnectorError {
   const base = { command: null, install: null, retrying: false };
+  const status =
+    (sdk && (error instanceof sdk.StreamableHTTPError || error instanceof sdk.SseError)
+      ? error.code
+      : typeof (error as { status?: unknown }).status === "number"
+        ? (error as { status: number }).status
+        : undefined) ?? options.status;
+  const detail = redactMessage(hideHeaders(options.secrets ?? [])(messageOf(error)));
+  const cause = (failure: ConnectorError): ConnectorError => ({
+    ...failure,
+    ...(options.step !== undefined && { step: options.step }),
+    ...(status !== undefined && { status }),
+    detail,
+  });
   if (causedBy(error, KeyRefusedError)) {
-    return { ...base, kind: "key-refused", message: "The server refused this key." };
+    return cause({ ...base, kind: "key-refused", message: "The server refused this key." });
   }
   const issuer = causedBy(error, IssuerMismatchError);
-  if (issuer) return { ...base, kind: "failed", message: issuer.message };
+  if (issuer) return cause({ ...base, kind: "failed", message: issuer.message });
   const refresh = causedBy(error, RefreshFailedError);
-  if (refresh) return { ...base, kind: "failed", message: "The sign-in could not be renewed." };
+  if (refresh)
+    return cause({ ...base, kind: "failed", message: "The sign-in could not be renewed." });
   if (unreachable(error)) {
-    return {
+    return cause({
       ...base,
       kind: "unreachable",
       message: "The server could not be reached.",
-    };
+    });
   }
   const message = messageOf(error);
   // The SDK's errors come from a connection, which loaded it.
   if (sdk && error instanceof sdk.StreamableHTTPError) {
-    return { ...base, kind: "failed", message: `The server answered ${error.code}.` };
+    return cause({ ...base, kind: "failed", message: `The server answered ${error.code}.` });
   }
-  return {
+  return cause({
     ...base,
     kind: /timed out|timeout/i.test(message) ? "timed-out" : "failed",
     message: "The connection failed.",
-  };
+  });
 }
 
-/** Why a sign-in didn't work, for the User. */
-export function signInError(error: unknown): ConnectorSignInError {
-  const message = messageOf(error);
+/** Why a sign-in didn't work, for the User; `secrets` are the values no message may keep. */
+export function signInError(
+  error: unknown,
+  options: { secrets?: readonly string[] } = {},
+): ConnectorSignInError {
+  const message = redactMessage(hideHeaders(options.secrets ?? [])(messageOf(error)));
   const flow = causedBy(error, OAuthFlowError);
   if (flow) return { kind: flow.reason, message: flow.message };
   if (causedBy(error, HeldBackError)) return { kind: "held-back", message };

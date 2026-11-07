@@ -155,6 +155,104 @@ describe("Remote Connector keys and older connections", () => {
     },
   );
 
+  test("a failed connect logs its cause, with the header value and token redacted (#2025)", async () => {
+    // Short, and with a slash: the forms a plain message redactor used to keep.
+    const secret = "k7/q";
+    const header = `Bearer ${secret}`;
+    const logged: { event: string; fields?: Record<string, unknown> }[] = [];
+    const record = (event: string, fields?: Record<string, unknown>) =>
+      logged.push({ event, fields });
+    const dataDir = await createTempDataFolder();
+    const core = startCore(dataDir, {
+      log: { info: record, warn: record, error: record },
+      connectorFetch: async (input) => {
+        const url =
+          input instanceof URL
+            ? input.href
+            : typeof input === "string"
+              ? input
+              : (input as Request).url;
+        if (url.includes("answers-500"))
+          return new Response(`Authorization: ${header} token ${secret}`, { status: 500 });
+        throw new Error(`TLS handshake failed for Authorization: ${header} (token ${secret})`);
+      },
+    });
+
+    const transport = await core.addConnector({
+      name: "Tides",
+      url: "https://tides.example.test/mcp",
+      headers: { Authorization: header },
+    });
+    const transportFailed = await waitForState(core, transport.id, "error");
+    const server = await core.addConnector({
+      name: "Answers",
+      url: "https://answers-500.example.test/mcp",
+      headers: { Authorization: header },
+    });
+    const serverFailed = await waitForState(core, server.id, "error");
+
+    const lines = logged.filter((each) => each.event === "connector.failed");
+    expect(lines.length).toBeGreaterThanOrEqual(2);
+    const forms = [secret, JSON.stringify(secret).slice(1, -1), encodeURIComponent(secret)];
+    const text = JSON.stringify(lines);
+    for (const form of forms) expect(text.includes(form)).toBe(false);
+    const transportLine = lines.find((each) => each.fields?.connectorId === transport.id);
+    const serverLine = lines.find((each) => each.fields?.connectorId === server.id);
+    expect(String(serverLine?.fields?.detail)).toContain("[redacted]");
+    expect(String(transportLine?.fields?.detail)).toContain("fetch failed");
+    expect(transportLine?.fields).toMatchObject({
+      transport: "http",
+      errorKind: "unreachable",
+      step: "connect",
+    });
+    expect(serverLine?.fields).toMatchObject({
+      transport: "http",
+      errorKind: "failed",
+      step: "connect",
+      status: 500,
+    });
+    expect(transportFailed.error).toMatchObject({ kind: "unreachable", step: "connect" });
+    expect(serverFailed.error).toMatchObject({ kind: "failed", step: "connect", status: 500 });
+  });
+
+  test("an imported ${env:NAME} header is flagged, and no placeholder is stored (#2025)", async () => {
+    const { core, server, dataDir, keychain } = await setup();
+    const json = JSON.stringify({
+      mcpServers: {
+        Tides: {
+          url: server.url,
+          headers: { Authorization: "Bearer ${env:TIDES_KEY}" },
+        },
+      },
+    });
+
+    const preview = await core.previewConnectorImport(json);
+    expect(preview).toMatchObject([
+      {
+        name: "Tides",
+        action: "add",
+        headers: ["Authorization"],
+        placeholders: [{ header: "Authorization", variable: "TIDES_KEY" }],
+      },
+    ]);
+    expect(JSON.stringify(preview)).not.toContain("${env:");
+
+    const { added } = await core.importConnectors(json);
+    const connector = added[0];
+    if (!connector) throw new Error("No Connector was imported.");
+    await waitForState(core, connector.id, "error");
+    expect(connector).toMatchObject({ transport: "http", headers: ["Authorization"] });
+    const stored = JSON.stringify([
+      ...keychain.secrets.values(),
+      queryDatabase(dataDir, "SELECT * FROM connectors"),
+    ]);
+    expect(stored).not.toContain("${env:");
+    expect(stored).not.toContain("TIDES_KEY");
+
+    await core.setConnectorHeaders(connector.id, { Authorization: "Bearer synthetic-key" });
+    await waitForState(core, connector.id, "ready");
+  });
+
   test.each([404, 405] as const)(
     "only the opening %s falls back to SSE and closes when disabled",
     async (status) => {
@@ -231,7 +329,7 @@ describe("Remote Connector keys and older connections", () => {
         connection,
       });
       const failed = await waitForState(core, added.id, "error");
-      expect(failed.error).toMatchObject({ kind: "key-refused", retrying: false });
+      expect(failed.error).toMatchObject({ kind: "key-refused", retrying: false, status });
       expect(server.requests.map(({ method, path }) => [method, path])).toEqual([
         [connection === "http" ? "POST" : "GET", "/mcp"],
       ]);
