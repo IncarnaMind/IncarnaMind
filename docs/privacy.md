@@ -178,6 +178,8 @@ And PostHog's library adds the same values to every event: `$process_person_prof
 
 ### For maintainers
 
+The weekly `model_spend_week` event is built in [`src/core/modelSpend.ts`](../src/core/modelSpend.ts): `spend_range` and `route` from the cost record's rows and their billing, `provider_kind` from the provider catalog's group, `questions` from a per-device count kept as an Answer starts, and `checks` from the AI use record's `sentence-checked` rows. It is sent once for a completed week (Monday to the next Monday, in this computer's time zone), at the next start or within the hour.
+
 A build sends usage data only when it's built with both of these set (electron-vite reads them from the environment or a `.env.local` file, never from the code):
 
 - `MAIN_VITE_POSTHOG_KEY`: the PostHog project's API key (`phc_…`), which can only send events.
