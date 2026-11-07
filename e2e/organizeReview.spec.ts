@@ -346,3 +346,38 @@ test("Move to, Try Again and Discard change the Suggestions, each taken back by 
     await app?.close();
   }
 });
+
+test("a plan that reaches no model says so in the app's words, with Try again and the provider's under Details", async () => {
+  test.setTimeout(120_000);
+  const language: Language = "en";
+  const say = t(language);
+  let app: ElectronApplication | undefined;
+  try {
+    const started = await start(language, 1440, 900);
+    app = started.app;
+    const { window } = started;
+    const paths = await files();
+    const cut = join(sources, "Kitchen 5.txt");
+    await writeFile(cut, "Kitchen renovation: this one stays unreachable.");
+    await addDocuments(window, [...paths, cut]);
+    await runCommand(window, "library.open", say("library.open"));
+    await pointAndClick(window, window.getByTestId("library-sort-into-folders"));
+
+    const line = window.getByTestId("organize-failed");
+    await expect(line).toContainText(say("organizeReview.failed.model"), { timeout: 30_000 });
+    await expect(window.getByTestId("organize-review")).toHaveCount(0);
+    await expect(window.getByTestId("organize-running")).toHaveCount(0);
+    expect(await core(window).waiting()).toBe(0);
+    // The provider's own sentence is there only once Details is opened.
+    await pointAndClick(window, window.getByTestId("organize-failed-details"));
+    await expect(window.getByTestId("organize-failed-details")).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    await expect(line.getByTestId("organize-failed-retry")).toBeVisible();
+    await pointAndClick(window, window.getByTestId("organize-failed-dismiss"));
+    await expect(line).toHaveCount(0);
+  } finally {
+    await app?.close();
+  }
+});

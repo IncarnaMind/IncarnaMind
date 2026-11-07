@@ -10,6 +10,7 @@ import type {
 } from "../../core/api";
 import type { MessageKey } from "../../shared/i18n";
 import { core } from "./core";
+import { describeError } from "./errors";
 import { isShown } from "./layoutSlice";
 import { useNotices } from "./notices";
 import { reviewLayout } from "./organizeReviewView";
@@ -43,6 +44,11 @@ interface ReviewState {
   run: OrganizeRun | null;
   /** Stop ended the last run, after this many: "Stopped after reading 12. Nothing has moved." */
   stopped: number | null;
+  /**
+   * The last run couldn't reach its model, so nothing was planned: its line names the service and
+   * offers Try again, with the provider's own sentence under Details, until dismissed.
+   */
+  failed: { input: OrganizeLibraryInput; details: string } | null;
   /** A run over $1 that sent nothing yet: its cost shows first. */
   estimate: { estimate: RunEstimate; input: OrganizeLibraryInput; count: number } | null;
   /** The cards showing every row ("Show all"), by Folder id. */
@@ -55,6 +61,7 @@ export const useOrganizeReview = create<ReviewState>()(() => ({
   open: false,
   run: null,
   stopped: null,
+  failed: null,
   estimate: null,
   shownAll: new Set(),
 }));
@@ -144,11 +151,21 @@ export async function organize(input: OrganizeLibraryInput): Promise<OrganizeLib
   useOrganizeReview.setState({
     run: { input, runId: null, waiting: 0, done: 0, total: 0 },
     stopped: null,
+    failed: null,
     estimate: null,
     open: false,
   });
   try {
-    const result = await core.organizeLibrary(input);
+    let result: OrganizeLibraryResult;
+    try {
+      result = await core.organizeLibrary(input);
+    } catch (error) {
+      // The app's own sentence (no model, no consent) is a notice; a provider's is this line's.
+      const { wording, message } = describeError(error);
+      if (wording) throw error;
+      useOrganizeReview.setState({ failed: { input, details: message } });
+      return null;
+    }
     const { run } = useOrganizeReview.getState();
     if (result.status === "estimate") {
       useOrganizeReview.setState({
@@ -199,6 +216,7 @@ export async function organizeEach(
       each: true,
     },
     stopped: null,
+    failed: null,
     estimate: null,
     open: false,
   });
@@ -230,6 +248,16 @@ export async function organizeEach(
   } finally {
     useOrganizeReview.setState({ run: null });
   }
+}
+
+/** Try again, from the line that says the last run couldn't reach its model. */
+export function retryFailed(): void {
+  const { failed } = useOrganizeReview.getState();
+  if (failed) void organize(failed.input).catch(report);
+}
+
+export function dismissFailed(): void {
+  useOrganizeReview.setState({ failed: null });
 }
 
 /** Stop: the plan under way goes, and nothing it planned is kept. */

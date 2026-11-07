@@ -98,6 +98,7 @@ export const en = {
   "organizeReview.leftOut.unreachable": "Couldn’t reach {service}",
   "organizeReview.leftOut.walled": "“{folder}” keeps its work inside it",
   "organizeReview.running": "Organizing {done} of {total}…",
+  "organizeReview.failed.model": "Couldn’t reach the AI model",
   "organizeReview.stop": "Stop",
   "organizeReview.stopped": "Stopped after reading {count}. Nothing has moved.",
   "organizeReview.estimate": "Organizing {count} Documents: {cost}",

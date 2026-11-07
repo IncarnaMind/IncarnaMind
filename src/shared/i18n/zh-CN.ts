@@ -96,6 +96,7 @@ export const zhCN = {
   "organizeReview.leftOut.unreachable": "无法连接 {service}",
   "organizeReview.leftOut.walled": "“{folder}”只在本文件夹内工作",
   "organizeReview.running": "正在整理 {done}/{total}…",
+  "organizeReview.failed.model": "无法连接 AI 模型",
   "organizeReview.stop": "停止",
   "organizeReview.stopped": "读了 {count} 个后已停止，还没有移动任何文档。",
   "organizeReview.estimate": "整理 {count} 个文档：{cost}",

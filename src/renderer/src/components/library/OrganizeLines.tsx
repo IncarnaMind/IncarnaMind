@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { type ReactNode, useId, useState } from "react";
 import { core } from "../../core";
 import { estimateText } from "../../cost";
 import { useLanguage, useT } from "../../i18n";
@@ -6,14 +6,17 @@ import { formatCount } from "../../linkedFolders";
 import {
   acceptEstimate,
   dismissEstimate,
+  dismissFailed,
   LIBRARY_UNDO_PLACE,
   openReview,
+  retryFailed,
   stopOrganizing,
   useOrganizeReview,
 } from "../../organizeReview";
 import { useAppStore } from "../../store";
 import { ProblemLine } from "../ProblemLine";
 import { UndoLineAt } from "../UndoLine";
+import { useTaggingService } from "../useTaggingService";
 import { quietButtonClass } from "./LibrarySection";
 
 function Action({ label, testId, onClick }: { label: string; testId: string; onClick(): void }) {
@@ -143,6 +146,7 @@ export function OrganizeLines() {
           )}
         </>
       )}
+      {!run && <FailedLine />}
       {moved > 0 && <ReviewMovedLine count={moved} />}
     </>
   );
@@ -179,6 +183,61 @@ function ReviewMovedLine({ count }: { count: number }) {
       {t(count === 1 ? "organizeReview.moved.one" : "organizeReview.moved", {
         count: formatCount(count, language),
       })}
+    </ProblemLine>
+  );
+}
+
+/**
+ * The last run reached no model, so there was nothing to review (#1569): the app's own words
+ * name the service, with Try again, the provider's sentence under Details, until dismissed.
+ */
+function FailedLine() {
+  const t = useT();
+  const failed = useOrganizeReview((state) => state.failed);
+  const [open, setOpen] = useState(false);
+  const panel = useId();
+  const service = useTaggingService("classification", failed !== null);
+  if (!failed) return null;
+  const said =
+    service.route.where === "cloud"
+      ? t("organizeReview.leftOut.unreachable", { service: service.route.service.name })
+      : t("organizeReview.failed.model");
+  return (
+    <ProblemLine
+      role="alert"
+      testId="organize-failed"
+      className="mt-2"
+      action={{
+        label: t("answer.error.retry"),
+        testId: "organize-failed-retry",
+        onClick: retryFailed,
+      }}
+      also={{
+        label: t("organizeReview.moved.dismiss"),
+        testId: "organize-failed-dismiss",
+        onClick: dismissFailed,
+      }}
+      disclosure={{
+        toggle: (
+          <button
+            type="button"
+            data-testid="organize-failed-details"
+            aria-expanded={open}
+            aria-controls={panel}
+            onClick={() => setOpen(!open)}
+            className="rounded-sm font-semibold text-accent underline-offset-2 hover:underline"
+          >
+            {t("error.details")}
+          </button>
+        ),
+        panel: open ? (
+          <p id={panel} className="mt-1 break-words text-ink-secondary">
+            {failed.details}
+          </p>
+        ) : null,
+      }}
+    >
+      {said}
     </ProblemLine>
   );
 }
