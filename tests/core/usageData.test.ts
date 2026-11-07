@@ -1,8 +1,10 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { generateText } from "ai";
 import { describe, expect, test } from "vitest";
 import {
   COMMON_FIELDS,
+  createAiSdkChatModel,
   InvalidInputError,
   USAGE_EVENTS,
   type UsageDataSender,
@@ -21,14 +23,17 @@ import {
 } from "../../src/core/usageEvents";
 import { trackUsage } from "../../src/core/usageTracking";
 import { settingsPages } from "../../src/renderer/src/settingsPages";
+import { createFakeBrowser, startFakeOpenAI } from "../helpers/chatgpt";
 import {
+  answerEnded,
   askAndFinish,
   citingModel,
   type ShownPassage,
   setUpWithDocuments,
 } from "../helpers/citations";
-import { createTempDataFolder, nextEvent, startCore } from "../helpers/core";
+import { createTempDataFolder, manualClock, nextEvent, startCore } from "../helpers/core";
 import { linkAndProcess, writeSourceFile } from "../helpers/documents";
+import { scriptedModel } from "../helpers/models";
 import { buildPdf } from "../helpers/pdf";
 
 const root = join(__dirname, "../..");
@@ -433,7 +438,7 @@ describe("Usage data: the events", () => {
         expect(name, `${event}.${name}`).toMatch(/^[a-z_]+$/);
         if (field.kind === "one-of") {
           expect(field.values.length).toBeGreaterThan(0);
-          for (const value of field.values) expect(value).toMatch(/^[a-z0-9-]+$|^zh-CN$/);
+          for (const value of field.values) expect(value).toMatch(/^[a-z0-9_-]+$|^zh-CN$/);
         }
       }
     }
@@ -618,5 +623,164 @@ describe("Usage data: what the core derives from its events", () => {
       { event: "error_occurred", fields: { area: "document", kind: "password-protected" } },
       { event: "error_occurred", fields: { area: "connector", kind: "timed-out" } },
     ]);
+  });
+});
+
+describe("Usage data: a week's model spend (#1993)", { timeout: 30_000 }, () => {
+  const HAIKU = "claude-haiku-5-5";
+  const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+  /** Tuesday, so a week added later lands in the next calendar week on any time zone. */
+  const TUESDAY = "2026-10-13T12:00:00.000Z";
+  const okModel = () =>
+    scriptedModel(() => ({ text: "OK" }), {
+      generate: () => ({ text: "OK" }),
+      judgesItsAnswers: true,
+    });
+
+  test("an own key and a subscription sign-in: its range, route, provider kind and counts", async () => {
+    const clock = manualClock(TUESDAY);
+    const fake = await startFakeOpenAI({ now: () => clock.now().getTime() });
+    const dataDir = await createTempDataFolder();
+    const { sender } = fakeSender();
+    const core = startCore(dataDir, {
+      browser: createFakeBrowser(fake),
+      now: clock.now,
+      createChatModel: (spec) => (spec.kind === "chatgpt" ? createAiSdkChatModel(spec) : okModel()),
+      chatGptPlan: fake.endpoints,
+      usageData: sender,
+    });
+    core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
+    await core.updatePrivacySettings({ usageData: true });
+    expect((await core.signInToChatGpt()).ok).toBe(true);
+    const plan = await core.saveChatProvider({ kind: "chatgpt", modelId: "gpt-6-luna" });
+    const own = await core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-test",
+      modelId: HAIKU,
+    });
+    if (own.service) await core.allowDataFlow("chat", own.service.id);
+
+    for (const provider of [plan, own]) {
+      const { model } = await core.prepareChatModel({
+        providerId: provider.id,
+        modelId: provider.kind === "chatgpt" ? "gpt-6-luna" : HAIKU,
+      });
+      await generateText({ model, prompt: "What is attention?", maxRetries: 0 });
+    }
+    // The own key's Question (its Answer is sent to its default model) and two sentences checked.
+    const mind = await core.createMind({ title: "Tide notes" });
+    const asked = await core.askInConversation({
+      text: "When are spring tides?",
+      mindId: mind.id,
+    });
+    if (!asked.asked) throw new Error("The Question wasn't asked.");
+    await answerEnded(core, asked.answerId);
+    await core.recordAiUse([
+      { mindId: mind.id, kind: "sentence-checked", characters: 0 },
+      { mindId: mind.id, kind: "sentence-checked", characters: 0 },
+    ]);
+    core.close();
+
+    clock.advance(WEEK_MS);
+    const again = fakeSender();
+    startCore(dataDir, {
+      browser: createFakeBrowser(fake),
+      now: clock.now,
+      createChatModel: () => okModel(),
+      chatGptPlan: fake.endpoints,
+      usageData: again.sender,
+    });
+
+    const [week] = fieldsOf(again.sent, "model_spend_week");
+    expect(week).toEqual(
+      expect.objectContaining({
+        spend_range: "under_1",
+        route: "mixed",
+        provider_kind: "anthropic",
+        questions: 1,
+        checks: 2,
+      }),
+    );
+    // Its declared fields and the common ones, and nothing else.
+    expect(Object.keys(week ?? {}).sort()).toEqual(
+      [...Object.keys(USAGE_EVENTS.model_spend_week), ...Object.keys(COMMON_FIELDS)].sort(),
+    );
+  });
+
+  test("a model on this computer: the range is 0, the route local and the provider kind ollama", async () => {
+    const clock = manualClock(TUESDAY);
+    const dataDir = await createTempDataFolder();
+    const { sender } = fakeSender();
+    const core = startCore(dataDir, {
+      now: clock.now,
+      createChatModel: () => okModel(),
+      usageData: sender,
+    });
+    await core.updatePrivacySettings({ usageData: true });
+    const provider = await core.saveChatProvider({ kind: "ollama", modelId: "qwen3.5:4b" });
+    const { model } = await core.prepareChatModel({
+      providerId: provider.id,
+      modelId: "qwen3.5:4b",
+    });
+    await generateText({ model, prompt: "Hello", maxRetries: 0 });
+    core.close();
+
+    clock.advance(WEEK_MS);
+    const again = fakeSender();
+    startCore(dataDir, {
+      now: clock.now,
+      createChatModel: () => okModel(),
+      usageData: again.sender,
+    });
+
+    expect(fieldsOf(again.sent, "model_spend_week")).toEqual([
+      expect.objectContaining({
+        spend_range: "0",
+        route: "local",
+        provider_kind: "ollama",
+        questions: 0,
+        checks: 0,
+      }),
+    ]);
+  });
+
+  test("a week with no model call, or with usage data off, or in Local mode, sends nothing", async () => {
+    /** A fresh data folder, optionally with one local model call, started again a week later. */
+    const week = async (call: boolean, consent: "on" | "off", localMode: boolean) => {
+      const clock = manualClock(TUESDAY);
+      const dataDir = await createTempDataFolder();
+      const { sender } = fakeSender();
+      const core = startCore(dataDir, {
+        now: clock.now,
+        createChatModel: () => okModel(),
+        usageData: sender,
+      });
+      if (consent === "on") await core.updatePrivacySettings({ usageData: true });
+      if (localMode) await core.setLocalOnly(true);
+      if (call) {
+        const provider = await core.saveChatProvider({ kind: "ollama", modelId: "qwen3.5:4b" });
+        const { model } = await core.prepareChatModel({
+          providerId: provider.id,
+          modelId: "qwen3.5:4b",
+        });
+        await generateText({ model, prompt: "Hello", maxRetries: 0 });
+      }
+      core.close();
+
+      clock.advance(WEEK_MS);
+      const again = fakeSender();
+      startCore(dataDir, {
+        now: clock.now,
+        createChatModel: () => okModel(),
+        usageData: again.sender,
+      });
+      return again;
+    };
+
+    // No model call at all.
+    expect(fieldsOf((await week(false, "on", false)).sent, "model_spend_week")).toEqual([]);
+    // A model call, but the week is sent only while the User agrees.
+    expect(fieldsOf((await week(true, "off", false)).sent, "model_spend_week")).toEqual([]);
+    expect(fieldsOf((await week(true, "on", true)).sent, "model_spend_week")).toEqual([]);
   });
 });

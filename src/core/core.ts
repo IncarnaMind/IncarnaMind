@@ -275,6 +275,7 @@ import {
 } from "./minds";
 import { firstLineOf, readBlocks, textStart, theirChangesReading } from "./mindText";
 import { createModelRuntimeFolderNotice } from "./modelRuntimeFolder";
+import { createModelSpend } from "./modelSpend";
 import { newestReads, readNewest } from "./newest";
 import { createNoteAdding, insertBlocks } from "./noteAdding";
 import { createNoteConversations } from "./noteConversations";
@@ -894,6 +895,13 @@ export function createCore(adapters: CoreAdapters): Core {
     settings,
     sender: adapters.usageData,
     localOnly: () => embedding.localOnly(),
+  });
+  const modelSpend = createModelSpend({
+    db,
+    settings,
+    now: () => adapters.now?.() ?? new Date(),
+    sending: () => usageData.status().enabled,
+    record: (event) => usageData.record(event),
   });
   const privacy = createPrivacy({ settings, crashReporter: adapters.crashReporter, usageData });
   const privacyChanged = () => events.emit("privacy.changed", privacy.status());
@@ -4160,6 +4168,7 @@ export function createCore(adapters: CoreAdapters): Core {
     now: () => (adapters.now?.() ?? new Date()).getTime(),
   });
   usageData.record({ event: "app_opened", fields: { language: settings.get().language } });
+  modelSpend.start();
   const dataFlowsRead = newestReads();
   /** After the User allows or revokes a flow: the flows as they are now, and what that changes. */
   const dataFlowsChanged = async () => {
@@ -6804,6 +6813,7 @@ export function createCore(adapters: CoreAdapters): Core {
       library.close();
       batches.close();
       skills.close();
+      modelSpend.close();
       stopTrackingUsage();
       consent.close();
       outputs.close();
