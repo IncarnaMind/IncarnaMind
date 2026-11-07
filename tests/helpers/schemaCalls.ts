@@ -22,7 +22,7 @@ export const SCHEMA_CALLS = {
   "answers/figureRetry.ts": ["calculations"],
   "answers/quoteRetry.ts": ["quotes"],
   "answers/unmarkedQuotes.ts": ["citations"],
-  "answers/workingText.ts": ["part"],
+  "answers/workingText.ts": ["parts"],
   "library/classifier.ts": ["document_group", "folder_proposals"],
   "suggestions/index.ts": ["suggestion"],
   "tags/classify.ts": ["document_tags"],
@@ -118,8 +118,8 @@ export async function callEverySchema(model: ChatLanguageModel): Promise<AnswerE
     undefined,
     signal,
     "When are spring tides?",
-    "Spring tides come at new and full moon [^1].",
-    "Citations need to be recorded now.",
+    "Spring tides come at new and full moon.",
+    ["Citations need to be recorded now."],
   );
 
   const window = WINDOW;

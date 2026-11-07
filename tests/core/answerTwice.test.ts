@@ -16,19 +16,20 @@ import {
 } from "../helpers/models";
 
 const SPRING = "Spring tides happen at new moon and at full moon.";
+const NEAP = "Neap tides happen at the quarter moons.";
 const WRONG = "Spring tides happen only at the new moon.";
 const ANSWER = "Spring tides come at new and full moon[^1].";
 
-const TIDES_MD = ["# Tides", "", SPRING, "", "Neap tides happen at the quarter moons."].join("\n");
+const TIDES_MD = ["# Tides", "", SPRING, "", NEAP].join("\n");
 
 /** A model the list beside the catalog names as writing first (#489). */
 const WRITES_THEN_CITES = { answerPaths: { writesThenCites: () => true } };
 
-/** The one small call that decides whether trailing text is the Answer's or the model's working (#2371). */
+/** The one small call that decides whether each part is the Answer's or the model's working (#2371). */
 const judging =
-  (part: "answer" | "working") =>
+  (...parts: ("answer" | "working")[]) =>
   (call: GenerateCall): GeneratedReply =>
-    call.system === WORKING_TEXT_INSTRUCTIONS ? { text: JSON.stringify({ part }) } : { text: "" };
+    call.system === WORKING_TEXT_INSTRUCTIONS ? { text: JSON.stringify({ parts }) } : { text: "" };
 
 /** A model that searches, then writes its Answer and calls `cite` in one turn, as Claude Haiku 5.5 does. */
 function writesBesideCite(quotes: string[]) {
@@ -211,7 +212,7 @@ describe("An Answer written in the turn that calls cite", { timeout: 30_000 }, (
           calls: [{ tool: "cite", input: { citations: [{ marker: 1, passage, quote: SPRING }] } }],
         };
       },
-      { generate: judging("working") },
+      { generate: judging("answer", "working") },
     );
     const { core, client, mind } = await setUpWithDocuments(
       model,
@@ -253,6 +254,157 @@ describe("An Answer written in the turn that calls cite", { timeout: 30_000 }, (
 
     expect(shown(client, answerId)).toBe(
       "Spring tides come at new and full moon[c].\nThe tide table doesn't say how high the water rises.",
+    );
+  });
+
+  // protects=a working remark between two cited paragraphs is judged where it sits and taken back, while both cited paragraphs stay; fails_when=the remark shows, or a marked paragraph is dropped; no_claim=none beyond protects.
+  test("a remark between two cited paragraphs isn't shown; both paragraphs are", async () => {
+    const model = scriptedModel(
+      (call: ModelCall): ScriptedReply => {
+        const searched = call.results.find((result) => result.tool === "search_documents");
+        if (!searched) {
+          return { calls: [{ tool: "search_documents", input: { query: "spring tides" } }] };
+        }
+        const passage = shownPassages(searched.text)[0]?.id ?? "P1";
+        return {
+          text: `${ANSWER}\n\nCitations need to be recorded now.\n\nNeap tides happen at the quarter moons [^2].`,
+          calls: [
+            {
+              tool: "cite",
+              input: {
+                citations: [
+                  { marker: 1, passage, quote: SPRING },
+                  { marker: 2, passage, quote: NEAP },
+                ],
+              },
+            },
+          ],
+        };
+      },
+      { generate: judging("working", "answer") },
+    );
+    const { core, client, mind } = await setUpWithDocuments(
+      model,
+      [{ name: "Tides.md", contents: TIDES_MD }],
+      WRITES_THEN_CITES,
+    );
+
+    const { answerId } = await askAndFinish(core, client, mind.id, "When are spring tides?");
+
+    expect(shown(client, answerId)).toBe(
+      "Spring tides come at new and full moon[c].\nNeap tides happen at the quarter moons [c].",
+    );
+  });
+
+  // protects=a working remark on the Answer's last line, after a single newline, is taken back and the Answer's line stays; fails_when=the remark shows or the Answer's line goes; no_claim=none beyond protects.
+  test("a remark on a new line of the Answer's last paragraph isn't shown", async () => {
+    const model = scriptedModel(
+      (call: ModelCall): ScriptedReply => {
+        const searched = call.results.find((result) => result.tool === "search_documents");
+        if (!searched) {
+          return { calls: [{ tool: "search_documents", input: { query: "spring tides" } }] };
+        }
+        const passage = shownPassages(searched.text)[0]?.id ?? "P1";
+        return {
+          text: `${ANSWER}\nCitations need to be recorded now.`,
+          calls: [{ tool: "cite", input: { citations: [{ marker: 1, passage, quote: SPRING }] } }],
+        };
+      },
+      { generate: judging("working") },
+    );
+    const { core, client, mind } = await setUpWithDocuments(
+      model,
+      [{ name: "Tides.md", contents: TIDES_MD }],
+      WRITES_THEN_CITES,
+    );
+
+    const { answerId } = await askAndFinish(core, client, mind.id, "When are spring tides?");
+
+    expect(shown(client, answerId)).toBe("Spring tides come at new and full moon[c].");
+  });
+
+  // protects=a working remark that carries a marker of its own is judged too, not kept because of the marker; fails_when=the remark stays; no_claim=none beyond protects.
+  test("a remark carrying a marker, written after the Answer, isn't shown", async () => {
+    const model = scriptedModel(
+      (call: ModelCall): ScriptedReply => {
+        const searched = call.results.find((result) => result.tool === "search_documents");
+        if (!searched) {
+          return { calls: [{ tool: "search_documents", input: { query: "spring tides" } }] };
+        }
+        const passage = shownPassages(searched.text)[0]?.id ?? "P1";
+        return {
+          text: `${ANSWER}\n\nCitations need to be recorded now [^2].`,
+          calls: [{ tool: "cite", input: { citations: [{ marker: 1, passage, quote: SPRING }] } }],
+        };
+      },
+      { generate: judging("working") },
+    );
+    const { core, client, mind } = await setUpWithDocuments(
+      model,
+      [{ name: "Tides.md", contents: TIDES_MD }],
+      WRITES_THEN_CITES,
+    );
+
+    const { answerId } = await askAndFinish(core, client, mind.id, "When are spring tides?");
+
+    expect(shown(client, answerId)).toBe("Spring tides come at new and full moon[c].");
+  });
+
+  // protects=a remedy holding both a working remark and a caveat is judged part by part: the remark goes, the caveat stays; fails_when=the remark shows or the caveat is dropped; no_claim=none beyond protects.
+  test("a remark and a caveat in one trailing span are decided apart", async () => {
+    const model = scriptedModel(
+      (call: ModelCall): ScriptedReply => {
+        const searched = call.results.find((result) => result.tool === "search_documents");
+        if (!searched) {
+          return { calls: [{ tool: "search_documents", input: { query: "spring tides" } }] };
+        }
+        const passage = shownPassages(searched.text)[0]?.id ?? "P1";
+        return {
+          text: `${ANSWER}\n\nCitations need to be recorded now.\n\nThe tide table doesn't say how high the water rises.`,
+          calls: [{ tool: "cite", input: { citations: [{ marker: 1, passage, quote: SPRING }] } }],
+        };
+      },
+      { generate: judging("working", "answer") },
+    );
+    const { core, client, mind } = await setUpWithDocuments(
+      model,
+      [{ name: "Tides.md", contents: TIDES_MD }],
+      WRITES_THEN_CITES,
+    );
+
+    const { answerId } = await askAndFinish(core, client, mind.id, "When are spring tides?");
+
+    expect(shown(client, answerId)).toBe(
+      "Spring tides come at new and full moon[c].\nThe tide table doesn't say how high the water rises.",
+    );
+  });
+
+  // protects=a judgement that fails keeps every part, so no Answer text is lost; fails_when=any text is dropped on a failure; no_claim=none beyond protects.
+  test("a judgement that fails keeps the text", async () => {
+    const model = scriptedModel(
+      (call: ModelCall): ScriptedReply => {
+        const searched = call.results.find((result) => result.tool === "search_documents");
+        if (!searched) {
+          return { calls: [{ tool: "search_documents", input: { query: "spring tides" } }] };
+        }
+        const passage = shownPassages(searched.text)[0]?.id ?? "P1";
+        return {
+          text: `${ANSWER}\n\nCitations need to be recorded now.`,
+          calls: [{ tool: "cite", input: { citations: [{ marker: 1, passage, quote: SPRING }] } }],
+        };
+      },
+      { generate: () => ({ text: "not a verdict" }) },
+    );
+    const { core, client, mind } = await setUpWithDocuments(
+      model,
+      [{ name: "Tides.md", contents: TIDES_MD }],
+      WRITES_THEN_CITES,
+    );
+
+    const { answerId } = await askAndFinish(core, client, mind.id, "When are spring tides?");
+
+    expect(shown(client, answerId)).toBe(
+      "Spring tides come at new and full moon[c].\nCitations need to be recorded now.",
     );
   });
 });

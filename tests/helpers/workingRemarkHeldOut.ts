@@ -1,9 +1,8 @@
 /**
  * Held-out Questions for #2371, written before the run they measure: Answers to document and
  * workbook Questions in English and Chinese, each of which must cite what it says. Nothing here
- * was tuned on: the engine's fix is structural (text after an Answer's last cited paragraph,
- * written beside `cite`, is the model's working), and none of these Questions or Documents is an
- * example in a prompt or a Tool's description.
+ * was tuned on: which text beside `cite` is the model's working is decided by a judgement, and none
+ * of these Questions or Documents is an example in a prompt or a Tool's description.
  */
 export const WORKING_REMARK_DOCUMENTS = [
   {
