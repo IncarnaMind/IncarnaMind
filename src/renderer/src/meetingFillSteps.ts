@@ -6,8 +6,14 @@
 import { useSyncExternalStore } from "react";
 import type { FollowedSteps } from "./editor/editorUndo";
 
+interface Hold {
+  steps: FollowedSteps;
+  /** Takes the steps out of the editor's history, and stops holding them. */
+  letGo?: () => void;
+}
+
 /** Each editor's steps of a Meeting's fill, by Meeting. */
-const held = new Map<string, Map<object, FollowedSteps>>();
+const held = new Map<string, Map<object, Hold>>();
 const listeners = new Set<() => void>();
 let version = 0;
 const changed = () => {
@@ -16,31 +22,42 @@ const changed = () => {
 };
 
 /** `editor` holds this Meeting's fill as these steps, until the returned function lets go. */
-export function holdFillSteps(meetingId: string, editor: object, steps: FollowedSteps): () => void {
-  const holders = held.get(meetingId) ?? new Map<object, FollowedSteps>();
-  holders.set(editor, steps);
+export function holdFillSteps(
+  meetingId: string,
+  editor: object,
+  steps: FollowedSteps,
+  letGo?: () => void,
+): () => void {
+  const holders = held.get(meetingId) ?? new Map<object, Hold>();
+  const hold = { steps, letGo };
+  holders.set(editor, hold);
   held.set(meetingId, holders);
   const stop = steps.observe(changed);
   changed();
   return () => {
     stop();
-    if (holders.get(editor) !== steps) return;
+    if (holders.get(editor) !== hold) return;
     holders.delete(editor);
     if (holders.size === 0 && held.get(meetingId) === holders) held.delete(meetingId);
     changed();
   };
 }
 
-const holdersOf = (meetingId: string): FollowedSteps[] => [
-  ...(held.get(meetingId)?.values() ?? []),
-];
-
 /** Whether an editor holds this Meeting's fill: its Undo is that editor's, not the core's. */
-export const fillHeldInEditor = (meetingId: string): boolean => holdersOf(meetingId).length > 0;
+export const fillHeldInEditor = (meetingId: string): boolean =>
+  (held.get(meetingId)?.size ?? 0) > 0;
 
-/** Whether an editor holds this Meeting's fill taken back with ⌘Z. */
-export const fillUndoneInEditor = (meetingId: string): boolean =>
-  holdersOf(meetingId).some((steps) => steps.state() === "undone");
+/**
+ * Each editor holding this Meeting's fill taken back with ⌘Z lets it go, so its ⇧⌘Z can't put
+ * it back beside a new fill: true when one did.
+ */
+export function letGoOfUndoneFill(meetingId: string): boolean {
+  const undone = [...(held.get(meetingId)?.values() ?? [])].filter(
+    (hold) => hold.steps.state() === "undone",
+  );
+  for (const hold of undone) hold.letGo?.();
+  return undone.length > 0;
+}
 
 /**
  * Where the fill stands in `editor`: "top" while nothing was done in the Note since (its line
@@ -51,7 +68,7 @@ export function fillStepIn(
   meetingId: string,
   editor: object | undefined,
 ): "top" | "done" | "undone" | null {
-  const steps = editor && held.get(meetingId)?.get(editor);
+  const steps = editor && held.get(meetingId)?.get(editor)?.steps;
   const state = steps?.state();
   if (!steps || !state || state === "gone") return null;
   return state === "undone" ? "undone" : steps.onTop() ? "top" : "done";
@@ -76,7 +93,7 @@ export async function undoFillInEditor(
   meetingId: string,
   editor: object | undefined,
 ): Promise<boolean> {
-  const steps = editor && held.get(meetingId)?.get(editor);
+  const steps = editor && held.get(meetingId)?.get(editor)?.steps;
   if (!steps?.onTop()) return false;
   await steps.undo();
   return true;

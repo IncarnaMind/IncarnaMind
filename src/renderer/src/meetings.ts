@@ -8,7 +8,7 @@ import { core, files } from "./core";
 import { errorMessage } from "./errors";
 import { translateNow } from "./i18n";
 import { currentMindIdOf } from "./layoutSlice";
-import { fillHeldInEditor, fillUndoneInEditor, undoFillInEditor } from "./meetingFillSteps";
+import { fillHeldInEditor, letGoOfUndoneFill, undoFillInEditor } from "./meetingFillSteps";
 import { useAppStore } from "./store";
 import { useUndo } from "./undo";
 
@@ -271,8 +271,9 @@ export const useMeetings = create<MeetingsState>()((set, get) => {
     retryTranscript: (meetingId) => attempt(meetingId, () => core.retryTranscript(meetingId)),
     fillNotes: (meetingId) =>
       attempt(meetingId, async () => {
-        // Fills anew only after an Undo the core knows of, which a failed follow left it without.
-        if (fillUndoneInEditor(meetingId)) {
+        // At once, before the core says it fills: ⇧⌘Z can't put the old fill back beside the new.
+        // The core fills anew only after an Undo it knows of, which a failed follow left it without.
+        if (letGoOfUndoneFill(meetingId)) {
           await core.followMeetingFillUndo({ meetingId, undone: true });
         }
         await core.fillMeetingNotes(meetingId);

@@ -624,14 +624,12 @@ for (const language of ["en", "zh-CN"] as const) {
         await expect.poll(() => noteJson(editor)).toBe(typed);
         await expect.poll(() => fillStateOf(window, mindId)).toBe("undone");
         await pointAndClick(window, line.getByTestId("meeting-fill-again"));
-        await pointAndClick(window, editor.locator("h2").first());
         await window.keyboard.press("ControlOrMeta+Shift+z");
         await expect(line).toHaveText(`${words.filled} · ${words.undo}`, {
           timeout: 30_000,
           useInnerText: false,
         });
         await expect.poll(() => fillStateOf(window, mindId)).toBe("filled");
-        await window.keyboard.press("ControlOrMeta+Shift+z");
         await expect(editor.locator("p").filter({ hasText: words.overview })).toHaveCount(1);
       }
     }

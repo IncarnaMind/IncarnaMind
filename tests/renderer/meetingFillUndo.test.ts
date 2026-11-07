@@ -56,7 +56,9 @@ vi.mock("../../src/renderer/src/meetings", async () => {
 
 const { openMindCopy, flushMindUpdates } = await import("../../src/renderer/src/mindCopies");
 const { takeFillInEditor } = await import("../../src/renderer/src/editor/meetingFillUndo");
-const { fillStepIn, undoFillInEditor } = await import("../../src/renderer/src/meetingFillSteps");
+const { fillStepIn, letGoOfUndoneFill, undoFillInEditor } = await import(
+  "../../src/renderer/src/meetingFillSteps"
+);
 const { noteExtensions } = await import("../../src/renderer/src/editor/noteSchema");
 
 const WORDS = {
@@ -292,6 +294,19 @@ describe.each(["en", "zh-CN"] as const)("the fill in two copies of one Note (%s)
     fillFromCore(words);
     await settled(editor, filledText);
 
+    // Fill in again lets go at once, before the core says it fills.
+    editor.commands.undo();
+    await settled(editor, words.own);
+    setFill("undone");
+    expect(letGoOfUndoneFill(MEETING)).toBe(true);
+    editor.commands.redo();
+    await settled(editor, words.own);
+    expect(fillStepIn(MEETING, editor)).toBeNull();
+    setFill("filling");
+    fillFromCore(words);
+    await settled(editor, filledText);
+
+    // Filling anew from elsewhere, as another window's Fill in again.
     editor.commands.undo();
     await settled(editor, words.own);
     setFill("undone");

@@ -51,7 +51,7 @@ export function takeFillInEditor(editor: Editor, meetingId: string): () => void 
     if (!step || step === before) return;
     const steps = followSteps(editor, [step]);
     if (!steps) return;
-    const unhold = holdFillSteps(meetingId, editor, steps);
+    const unhold = holdFillSteps(meetingId, editor, steps, letGo);
     // The core keeps the fill's state, for Try again and for when the Note opens again.
     let undone = false;
     const stopFollowing = steps.observe(() => {
