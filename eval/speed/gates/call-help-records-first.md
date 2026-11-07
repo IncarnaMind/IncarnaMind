@@ -61,3 +61,16 @@ Both missed lines were traced to the reply's shape, and the step changes only th
 - **The form's marks.** Inside the JSON, Sonnet 5.5 wrote "★" and "→" itself, as the characters, as `★` and `→`, and twice as their bytes read in another encoding ("β˜…", "β†’"), which no option was laid out from. Now the reply after the records is fields, `lead` and `items` of `line`, `moment` and `leadsTo`, and IncarnaMind writes "★", "→" and "- " as `<help>` shows (`helpReplyText` in `src/core/answers/meetingHelp.ts`). `<help>` itself is unchanged, so a model that answers in the loop gets the form as before.
 - **en-want's records.** Read from the stored records: each not found was `pages-outside-passage`, the location unresolved in the transcript Passage that holds the line, which was the one named; the raw records gave locations such as `[5:56–6:05]`. In the loop, `cite` asks the model to fix such a record; one structured reply can't be asked, and `main`'s structured output (a small local model's) has the same gap. The records-first rules now say a Transcript line's location is the time on that line's own mark, such as "6:00". The matcher is unchanged.
 - **No text.** A reply whose records came with no item now answers in the loop, as one that isn't JSON does.
+
+## The second run, 2026-11-07: English passes; Chinese unfinished
+
+At 6e7ad6279 on the direct Anthropic key, fixed call rig, judge Claude Opus 5.5, load 4.8–12.5; $2.59 spent when the key ran out of credit, after English's 15 cases (three runs each) and 4 of Chinese's 15. Today → the step, on the pairs both arms finished:
+
+| Sonnet 5.5 | First whole option | Done | False Supported | Cited | Judged right | Every Citation found |
+|---|---|---|---|---|---|---|
+| en (44 pairs) | 4.34 → 2.58 s | 4.34 → 2.99 s | 2–6 → 2–4 | 13–15 → 14–15 | 14–15 → 14–15 | 13–15 → 14–15 |
+| zh-CN (4 cases, 10 pairs) | 4.35 → 2.42 s | 4.35 → 2.87 s | 0–1 → 0–1 | 3–4 → 3–4 | 3–4 → 3–4 | 3–4 → 3–4 |
+
+English holds every line: done sooner in 43 of 44 pairs, every step press one request, no reply that showed nothing. The one failed press, on today's path, was the evaluation's judge (#2701). Chinese's other 10 cases wait for a funded direct key, on this same route, before any model is listed.
+
+Not through OpenRouter: there Sonnet 5.5 doesn't think between Tools, today's path ended at 2.9 s and 3.7 s on two presses against 3.5 s and 3.9 s for the step, so the step is listed, if at all, for the direct route only. On Claude Haiku 5.5 (through OpenRouter) and DeepSeek V4.1 Flash 1017, four presses each: done 0.4–1.0 s sooner, but the first whole option 0.5–1.0 s later, as those models already write the reply in their first request; not run as a gate.
