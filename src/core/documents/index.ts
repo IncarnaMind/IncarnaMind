@@ -27,7 +27,7 @@ import { basename, dirname, isAbsolute, join } from "node:path";
 import type { LiveDocument } from "../../shared/citations";
 import { joinUnits, locationOf, quoteInUnits } from "../../shared/locations";
 import { readableQuote } from "../../shared/readableQuote";
-import { parseTranscriptSpeakers, readStoredSpeakers } from "../../shared/speakers";
+import { looksLikeLabel, parseTranscriptSpeakers, readStoredSpeakers } from "../../shared/speakers";
 import {
   type Anchor,
   anchorsOf,
@@ -3250,6 +3250,17 @@ export function createDocuments(options: DocumentsOptions) {
      */
     setSpeakers(idInput: unknown, speakersInput: unknown): Document {
       const id = parseId(idInput);
+      const given =
+        isRecord(speakersInput) && isRecord(speakersInput.labels)
+          ? Object.values(speakersInput.labels)
+          : [];
+      const label = given.find((name) => typeof name === "string" && looksLikeLabel(name));
+      if (typeof label === "string") {
+        throw new InvalidInputError({
+          key: "error.transcript.speakerNameIsLabel",
+          values: { name: label },
+        });
+      }
       const { speakers, dropped } = parseTranscriptSpeakers(speakersInput);
       if (dropped > 0) {
         throw new InvalidInputError({ key: "error.transcript.speakersUnheld" });

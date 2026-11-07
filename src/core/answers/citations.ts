@@ -53,7 +53,7 @@ import {
   type TextRange,
 } from "../../shared/quoteMatch";
 import { readableQuote, readableQuoteText } from "../../shared/readableQuote";
-import { speakerMark, speakerOf } from "../../shared/speakers";
+import { markWords, speakerMark, speakerOf } from "../../shared/speakers";
 import { CJK, foldRadicals } from "../../shared/text";
 import { parseCueTarget, sameRun } from "../../shared/units";
 import {
@@ -335,10 +335,11 @@ function quoteInCues(
 ): TextRange[] | null {
   // Cue marks round down, so a named second includes cues that start within it.
   const until = time.to + 1000;
+  const asked = markWords(time.speaker ?? "");
   const saidBy = (startMs: number, label: string | null) =>
     label !== null &&
-    (time.speaker === speakerMark(speakers, startMs, label) ||
-      time.speaker === speakerOf(speakers, startMs, label));
+    (asked === markWords(speakerMark(speakers, startMs, label)) ||
+      asked === markWords(speakerOf(speakers, startMs, label)));
   return quoteInCueWindow(
     units,
     quote,

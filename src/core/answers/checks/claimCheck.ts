@@ -163,7 +163,7 @@ export interface ClaimCheckDependencies {
   walledFolderName(documentId: string): string | null;
   engine: AnswerEngine;
   evidence: Pick<Evidence, "search">;
-  documents: Pick<AnswerDocuments, "citationSource" | "pageTexts" | "documentDate"> & {
+  documents: Pick<AnswerDocuments, "citationSource" | "pageTexts" | "documentDate" | "speakers"> & {
     searchableCount(documentIds: readonly string[] | null): number;
     passagesBetween(
       documentId: string,
@@ -559,7 +559,10 @@ function withDollarClause(
   const units = deps.documents.pageTexts(source.documentId, source.contentHash, null, null);
   const location = lineLocation(units, found.line, matchingOf(units));
   const where = location
-    ? formatLocation(location, (key, params) => translate(deps.language(), key, params))
+    ? formatLocation(location, (key, params) => translate(deps.language(), key, params), {
+        speakers:
+          location.kind === "time" ? (deps.documents.speakers?.(source.documentId) ?? null) : null,
+      })
     : null;
   const place = [source.documentName, where].filter(Boolean).join(" · ");
   return {

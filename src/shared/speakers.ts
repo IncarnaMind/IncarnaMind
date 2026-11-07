@@ -167,23 +167,49 @@ export function withSpeakerChosen(
   return after;
 }
 
-/** The longest name or label kept: a person's name, not a paragraph. */
-const MAX_SPEAKER_TEXT = 200;
+/**
+ * The longest name the User gives: what a model's mark of a line carries whole, so a quote copied
+ * with its mark loses the mark (`LOCATION_MARK` in ../core/answers/citations).
+ */
+export const MAX_SPEAKER_NAME = 60;
+/** The longest label kept: a file's own, which IncarnaMind doesn't choose. */
+const MAX_SPEAKER_LABEL = 200;
 /** More entries than a Transcript has lines, by far. */
 const MAX_SPEAKER_ENTRIES = 50_000;
 const LINE_KEY = /^\d{1,12} (.+)$/su;
 
-const speakerText = (value: unknown) =>
+// No control characters, and no format ones (a bidirectional override, a zero-width space), which
+// would let a name read as another.
+const speakerText = (value: unknown, max: number): value is string =>
   typeof value === "string" &&
   value.trim() === value &&
   value !== "" &&
-  value.length <= MAX_SPEAKER_TEXT &&
-  !/[\p{Cc}]/u.test(value);
+  value.length <= max &&
+  !/[\p{Cc}\p{Cf}]/u.test(value);
+
+const LABEL_WORDS =
+  /^(?:me|them|speaker \?|(?:speaker|them) \d+|我|对方|发言人 ?\?|发言人 ?\d+)$/iu;
+
+/**
+ * Whether words are how the interface or a model names a Speaker by label, in English or
+ * Chinese ("Me", "我", "Speaker 2", "发言人 2"): never a person's name, or a model would read
+ * another Speaker's line as the User's.
+ */
+export const looksLikeLabel = (words: string) =>
+  LABEL_WORDS.test(words.normalize("NFKC").replace(/\s+/gu, " ").trim());
+
+/** A Speaker as a mark names them inside its brackets: brackets and line breaks are spaces. */
+export const markWords = (speaker: string) =>
+  speaker
+    .replace(/[[\]\r\n]+/gu, " ")
+    .replace(/\s+/gu, " ")
+    .trim();
 
 /**
  * Who's who as it was stored or sent, keeping only the entries that hold, and how many didn't:
- * a name or label of 1 to 200 characters with no spaces around it and no control characters, a
- * line known as `lineKey` makes it, and no name for "Me", who is the User. Null when none holds.
+ * a name of 1 to `MAX_SPEAKER_NAME` characters that isn't a label's words, a label of 1 to 200,
+ * neither with spaces around it or control or format characters, a line known as `lineKey` makes
+ * it, and no name for "Me", who is the User. Null when none holds.
  */
 export function parseTranscriptSpeakers(value: unknown): {
   speakers: TranscriptSpeakers | null;
@@ -195,10 +221,16 @@ export function parseTranscriptSpeakers(value: unknown): {
   const labels = record((given as { labels?: unknown }).labels);
   const lines = record((given as { lines?: unknown }).lines);
   const keptLabels = labels.filter(
-    ([label, name]) => label !== SPEAKER_ME && speakerText(label) && speakerText(name),
+    ([label, name]) =>
+      label !== SPEAKER_ME &&
+      speakerText(label, MAX_SPEAKER_LABEL) &&
+      speakerText(name, MAX_SPEAKER_NAME) &&
+      !looksLikeLabel(name),
   );
   const keptLines = lines.filter(
-    ([key, label]) => speakerText(LINE_KEY.exec(key)?.[1]) && speakerText(label),
+    ([key, label]) =>
+      speakerText(LINE_KEY.exec(key)?.[1], MAX_SPEAKER_LABEL) &&
+      speakerText(label, MAX_SPEAKER_LABEL),
   );
   const shape =
     typeof value === "object" &&

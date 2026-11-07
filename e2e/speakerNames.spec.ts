@@ -59,6 +59,7 @@ const WORDS = {
     newSpeaker: "New speaker…",
     all: "Apply to all",
     name: "Dana Whitfield",
+    label: "Speaker 9",
     allSet: "Dana Whitfield speaks every line by this speaker",
     set: "Dana Whitfield speaks this line",
     change: "Change who speaks",
@@ -72,6 +73,7 @@ const WORDS = {
     newSpeaker: "新建发言人…",
     all: "全部应用",
     name: "王丽",
+    label: "发言人 9",
     allSet: "这位发言人的每一行都已改为 王丽 说的",
     set: "已改为 王丽 说的",
     change: "更改发言人",
@@ -168,6 +170,12 @@ for (const language of ["en", "zh-CN"] as const) {
       await pointAndClick(window, menu.getByTestId("speaker-new"));
       const field = menu.getByTestId("speaker-name");
       await expect(field).toBeFocused();
+      // A label's words aren't a name: the field says so, and the menu stays.
+      await window.keyboard.insertText(words.label);
+      await window.keyboard.press("Enter");
+      await expect(menu.getByTestId("speaker-name-refused")).toContainText(words.label);
+      await field.fill("");
+      await expect(menu.getByTestId("speaker-name-refused")).toHaveCount(0);
       await window.keyboard.insertText(words.name);
       await window.keyboard.press("Enter");
       await expect(menu).toHaveCount(0);

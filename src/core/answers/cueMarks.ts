@@ -1,5 +1,5 @@
 import { clockTime } from "../../shared/clock";
-import { speakerMark } from "../../shared/speakers";
+import { markWords, speakerMark } from "../../shared/speakers";
 import { parseCueTarget } from "../../shared/units";
 import type { TranscriptSpeakers } from "../api";
 import type { PageText } from "../documents/passages";
@@ -38,9 +38,7 @@ export function withCueMarks(
       }
       if (at < 0) continue;
       const label = unit.label?.speakers?.[index];
-      const speaker = label
-        ? speakerMark(speakers, cue.startMs, label).replace(/[\]\n]+/g, " ")
-        : undefined;
+      const speaker = label ? markWords(speakerMark(speakers, cue.startMs, label)) : undefined;
       marked += `${text.slice(from, at)}[${clockTime(cue.startMs)}${speaker ? ` ${speaker}` : ""}] `;
       from = at;
       const next = text.indexOf("\n", at);

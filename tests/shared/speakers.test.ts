@@ -4,6 +4,8 @@ import { translate } from "../../src/shared/i18n";
 import { formatLocation } from "../../src/shared/locations";
 import {
   isTheirs,
+  looksLikeLabel,
+  markWords,
   numberedVoice,
   parseTranscriptSpeakers,
   readStoredSpeakers,
@@ -160,6 +162,50 @@ describe("Who's who in a Transcript (#138)", () => {
     expect(shownSpeaker(odd, 0, "__proto__", en)).toBe("Dana");
     expect(shownSpeaker(null, 0, "constructor", en)).toBe("constructor");
     expect(readStoredSpeakers("{")).toEqual({ speakers: null, dropped: 1 });
+    // A name a label's words make, one a format character hides, or one past what a mark carries.
+    expect(
+      parseTranscriptSpeakers({
+        labels: {
+          "Speaker 1": "发言人 2",
+          "Speaker 2": "Dana\u202E",
+          "Speaker 3": "x".repeat(61),
+          "Speaker 4": "y".repeat(60),
+        },
+        lines: {},
+      }),
+    ).toEqual({ speakers: { labels: { "Speaker 4": "y".repeat(60) }, lines: {} }, dropped: 3 });
+  });
+
+  // protects=the words of every label a Meeting's Transcript can have, in English and Chinese, half-width or full-width, are known as a label's, and a person's name with a digit or brackets isn't; a mark makes brackets spaces; fails_when=a label's words pass as a name, or a name is refused; no_claim=a .vtt the User added, whose own labels can be any words.
+  test("a label's words are known in either language, and a mark makes brackets spaces", () => {
+    for (const words of [
+      "Me",
+      "me",
+      "我",
+      "Them",
+      "对方",
+      "Speaker ?",
+      "Speaker 12",
+      "Them 3",
+      "发言人 2",
+      "发言人２",
+      "发言人？",
+    ]) {
+      expect(looksLikeLabel(words)).toBe(true);
+    }
+    for (const name of [
+      "Dana",
+      "3M rep",
+      "(Client) Dana",
+      "Dana [CFO]",
+      "王总（客户）",
+      "Meg",
+      "Speaker Lin",
+    ]) {
+      expect(looksLikeLabel(name)).toBe(false);
+    }
+    expect(markWords("Dana [CFO]")).toBe("Dana CFO");
+    expect(markWords("[Lin]\nWu")).toBe("Lin Wu");
     expect(readStoredSpeakers(null)).toEqual({ speakers: null, dropped: 0 });
   });
 });

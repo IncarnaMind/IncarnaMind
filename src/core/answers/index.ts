@@ -2449,12 +2449,17 @@ export function createAnswers(options: AnswersOptions) {
             : options.readsImages?.(model) !== false && pickedPicture(quote) !== null
               ? "sent"
               : "withheld";
+        // A quote from a Transcript is placed by its Speaker's name as the User gave it (#138).
+        const speakersOfQuote = (quote: AskedQuote) =>
+          quote.location?.kind === "time"
+            ? (options.documents.speakers?.(quote.documentId) ?? null)
+            : null;
         messages = withBeforeQuestion(
           messages,
           selectedTextBlock([
             ...quoted.map(({ quote, passages }) => ({
               ...quote,
-              place: englishPlace(quote.location),
+              place: englishPlace(quote.location, speakersOfQuote(quote)),
               shown: session.show(passages),
               ...(pictureState(quote) && { pictureState: pictureState(quote) }),
             })),
@@ -2462,7 +2467,7 @@ export function createAnswers(options: AnswersOptions) {
               .filter((quote) => !seen.has(quoteKey(quote)))
               .map((quote) => ({
                 ...quote,
-                place: englishPlace(quote.location),
+                place: englishPlace(quote.location, speakersOfQuote(quote)),
                 shown: "",
                 ...(pictureState(quote) && { pictureState: pictureState(quote) }),
               })),

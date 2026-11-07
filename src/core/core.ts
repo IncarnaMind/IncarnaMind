@@ -2667,6 +2667,7 @@ export function createCore(adapters: CoreAdapters): Core {
     scopeDocuments,
     searchedScope,
     searchableCount: (documentIds) => documents.searchableCount(documentIds ?? undefined),
+    speakersOf: (documentId) => documents.speakersOf(documentId),
     localOnly: () => embedding.localOnly(),
     events,
     readValue: (key) => settings.readDeviceValue(key),
@@ -3064,6 +3065,7 @@ export function createCore(adapters: CoreAdapters): Core {
         documents.pageTexts(documentId, contentHash, from, to),
       unitCounts: (documentIds) => documents.unitCounts(documentIds),
       documentDate: (documentId) => documents.documentDate(documentId),
+      speakers: (documentId) => documents.speakersOf(documentId),
       othersHoldTerms: (text, except, documentIds, leftOut) =>
         documents.othersHoldTerms(text, except, documentIds, leftOut),
     },
@@ -6869,6 +6871,7 @@ export function createCore(adapters: CoreAdapters): Core {
       const providers = await chat.list();
       const book = figureScheduleBook(schedule, {
         language: settings.get().language,
+        documents: documents.names(),
         modelName: (model) =>
           describeModel(providers, model.providerId, model.modelId)?.name ?? model.modelId,
       });

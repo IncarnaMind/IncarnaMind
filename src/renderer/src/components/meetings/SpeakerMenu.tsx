@@ -1,6 +1,9 @@
-import { type KeyboardEvent, useEffect, useRef, useState } from "react";
+import { type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
 import type { Document } from "../../../../core/api";
+import { translate } from "../../../../shared/i18n";
 import {
+  looksLikeLabel,
+  MAX_SPEAKER_NAME,
   nameOf,
   type SpeakerChoice,
   speakerName,
@@ -21,6 +24,20 @@ import {
   tallMenuItemClass,
 } from "../ui";
 import { usePopoverMenu } from "../usePopoverMenu";
+
+const sameWords = (a: string, b: string) =>
+  a.normalize("NFKC").replace(/\s+/gu, " ").trim().toLocaleLowerCase() ===
+  b.normalize("NFKC").replace(/\s+/gu, " ").trim().toLocaleLowerCase();
+
+/** A Speaker there is, typed as the interface words them in English or Chinese ("Me", "我"). */
+const typedSpeaker = (typed: string, labels: readonly string[]) =>
+  labels.find((label) =>
+    [
+      label,
+      speakerName(label, (key, params) => translate("en", key, params)),
+      speakerName(label, (key, params) => translate("zh-CN", key, params)),
+    ].some((words) => sameWords(typed, words)),
+  ) ?? null;
 
 function initialsOf(name: string): string {
   const words = name.split(/\s+/u).filter(Boolean);
@@ -51,6 +68,8 @@ export function SpeakerMenu({
   const [all, setAll] = useState(false);
   const [naming, setNaming] = useState(false);
   const [name, setName] = useState("");
+  const [refused, setRefused] = useState<string | null>(null);
+  const refusedId = useId();
   const field = useRef<HTMLInputElement>(null);
   const { speakers } = document;
   const now = speakerOf(speakers, line.startMs, line.label);
@@ -61,6 +80,7 @@ export function SpeakerMenu({
     setAll(false);
     setNaming(false);
     setName("");
+    setRefused(null);
   }, [menu.open]);
   useEffect(() => {
     if (naming) field.current?.focus();
@@ -83,7 +103,12 @@ export function SpeakerMenu({
     if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
     event.preventDefault();
     const typed = name.trim();
-    if (typed !== "") choose({ name: typed });
+    if (typed === "") return;
+    // A label's words pick that Speaker, "我" the User; a label nobody has isn't a name.
+    const label = typedSpeaker(typed, speakersIn(speakers, lines));
+    if (label) choose({ label });
+    else if (looksLikeLabel(typed)) setRefused(typed);
+    else choose({ name: typed });
   };
 
   return (
@@ -140,12 +165,27 @@ export function SpeakerMenu({
                   aria-label={t("transcript.speaker.new")}
                   placeholder={t("transcript.speaker.name")}
                   spellCheck={false}
-                  maxLength={200}
+                  maxLength={MAX_SPEAKER_NAME}
                   value={name}
-                  onChange={(event) => setName(event.target.value)}
+                  aria-invalid={refused !== null || undefined}
+                  aria-describedby={refused === null ? undefined : refusedId}
+                  onChange={(event) => {
+                    setName(event.target.value);
+                    setRefused(null);
+                  }}
                   onKeyDown={onNameKey}
                   className="h-7 w-full rounded-md border border-rule bg-sheet px-2 text-ui text-ink outline-none placeholder:text-ink-placeholder focus-visible:border-accent"
                 />
+                {refused !== null && (
+                  <p
+                    id={refusedId}
+                    role="alert"
+                    data-testid="speaker-name-refused"
+                    className="m-0 pt-1 text-[12px] leading-[18px] text-danger"
+                  >
+                    {t("error.transcript.speakerNameIsLabel", { name: refused })}
+                  </p>
+                )}
               </div>
             ) : (
               <button

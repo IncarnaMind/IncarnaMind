@@ -8,6 +8,7 @@ import { readFileSync } from "node:fs";
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
 import type { Core, Document, TranscriptSpeakers } from "../../src/core";
+import { cleanQuote } from "../../src/core/answers/citations";
 import type { Cue } from "../../src/core/documents/formats/vtt";
 import { clockTime } from "../../src/shared/clock";
 import {
@@ -231,6 +232,60 @@ describe("Who's who in a Transcript (#138)", { timeout: 60_000 }, () => {
     cite = { location: `${clockTime(second.startMs)} Priya`, quote: second.text };
     const wrong = await askAndFinish(core, client, mind.id, "And what did Priya say then?");
     expect(onlyCitation(client, wrong.answerId).check).not.toBe("found");
+
+    // A name with a digit first, brackets or Chinese punctuation is read and cited as any other:
+    // the model reads it in its mark, brackets made spaces, and writes it back so.
+    for (const name of ["3M rep", "(Client) Dana", "Dana [CFO]", "王总（客户）"]) {
+      await choose(core, transcript.id, cues, second, { name }, true);
+      const mark = name.replace(/[[\]]/g, " ").replace(/\s+/g, " ").trim();
+      cite = { location: `${clockTime(second.startMs)} ${mark}`, quote: second.text };
+      const named = await askAndFinish(core, client, mind.id, `What did ${name} say?`);
+      expect(shown.map((passage) => passage.text).join("\n")).toContain(
+        `[${clockTime(second.startMs)} ${mark}] ${second.text}`,
+      );
+      expect(onlyCitation(client, named.answerId)).toMatchObject({
+        location: { kind: "time", from: second.startMs, speaker: "Speaker 2" },
+        check: "found",
+      });
+    }
+    core.close();
+  });
+
+  // protects=a quote the model copies with the longest mark a name can make loses the whole mark; fails_when=the mark's end stays in the quote, so the quote isn't found; no_claim=marks of other Units.
+  test("a quote copied with the longest name's mark loses the mark", () => {
+    const longest = "Dana Whitfield of the Northwind Retail credit and treasury g";
+    expect(longest).toHaveLength(60);
+    expect(cleanQuote(`[0:09 ${longest}] The budget is approved for this year.`)).toBe(
+      "The budget is approved for this year.",
+    );
+  });
+
+  // protects=the words of a label ("Me", "我", "Them", "Speaker 2", "发言人 3") are never another Speaker's name, so a model never reads someone else's line as the User's; a name with a format character can't pass as another; fails_when=the core keeps such a name; no_claim=the menu, where typing a label's words picks that Speaker (the window spec).
+  test("a label's words, or a hidden character, are refused as a name, with the reason", async () => {
+    const { core, meeting } = await recordedCall(await createTempDataFolder(), {
+      speakerSeparator: fakeSeparator().separator,
+    });
+    await savedCues(core, meeting.id);
+    const transcript = await transcriptOf(core, meeting.id);
+    for (const name of ["Me", "我", "Them", "对方", "Speaker 3", "发言人 3", "发言人？"]) {
+      await expect(
+        core.setTranscriptSpeakers({
+          documentId: transcript.id,
+          speakers: { labels: { "Speaker 2": name }, lines: {} },
+        }),
+      ).rejects.toMatchObject({
+        wording: { key: "error.transcript.speakerNameIsLabel", values: { name } },
+      });
+    }
+    for (const name of ["Dana\u202Eevil", "Da\u200Bna", "x".repeat(61)]) {
+      await expect(
+        core.setTranscriptSpeakers({
+          documentId: transcript.id,
+          speakers: { labels: { "Speaker 2": name }, lines: {} },
+        }),
+      ).rejects.toMatchObject({ wording: { key: "error.transcript.speakersUnheld" } });
+    }
+    expect((await transcriptOf(core, meeting.id)).speakers).toBeNull();
     core.close();
   });
 
