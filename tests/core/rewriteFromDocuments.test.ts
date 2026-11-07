@@ -1283,6 +1283,91 @@ describe("rewriteFromDocuments", () => {
     },
   );
 
+  test.each([
+    [
+      "Total spending by Marketing was $1.2 million.",
+      "Total spending by Engineering was $8.1 million.",
+      "1.2",
+      "8.1",
+      "kept",
+    ],
+    [
+      "Total spending by Sales was $1.2 million.",
+      "Total spending by Sales was $8.1 million.",
+      "1.2",
+      "8.1",
+      "rewritten",
+    ],
+    [
+      "Sales by Beijing rose to 500 units.",
+      "Sales by Nanjing rose to 600 units.",
+      "500",
+      "600",
+      "kept",
+    ],
+    ["Revenue earned by Consulting was $500.", "Revenue earned was $600.", "500", "600", "kept"],
+    ["Costs covered by financing were 500.", "Costs covered were 600.", "500", "600", "kept"],
+    ["Funds raised by giving circles were 500.", "Funds raised were 600.", "500", "600", "kept"],
+    ["The rent paid by the Tenant is $500.", "The rent paid is $600.", "500", "600", "kept"],
+    [
+      "The rent paid by the Tenant is $500.",
+      "The rent paid by the Tenant is $600.",
+      "500",
+      "600",
+      "rewritten",
+    ],
+    [
+      "Either party may end it with 30 days' notice.",
+      "Either party may end it by giving 45 days' notice.",
+      "30",
+      "45",
+      "rewritten",
+    ],
+    ["由市场部承担的费用为120万元。", "由工程部承担的费用为810万元。", "120", "810", "kept"],
+    ["由市场部承担的费用为120万元。", "由市场部承担的费用为810万元。", "120", "810", "rewritten"],
+  ])(
+    "reads the word after by in %s as whose figure it is, from %s",
+    async (sentence, line, from, to, kind) => {
+      const { core, mindId } = await noteWithCheck(
+        () => ({ text: `Change 1: ${from}\nTo 1: ${to}` }),
+        { text: sentence },
+        sentence,
+        false,
+        line,
+      );
+      expect(await core.rewriteFromDocuments({ mindId, checkId: "check-rent" })).toMatchObject({
+        kind,
+      });
+    },
+  );
+
+  test.each([
+    ["注册资本增加1000万元。", "注册资本增加为2000万元。", "1000", "2000", "kept"],
+    ["租金上调500元。", "租金上调为3000元。", "500", "3000", "kept"],
+    ["租金提高500元。", "租金提高为3000元。", "500", "3000", "kept"],
+    ["租金上涨500元。", "租金上涨为3000元。", "500", "3000", "kept"],
+    ["营收减少2亿元。", "营收减少为5亿元。", "2", "5", "kept"],
+    ["注册资本增加1000万元。", "注册资本增加至2000万元。", "1000", "2000", "kept"],
+    ["注册资本增加至1000万元。", "注册资本增加至2000万元。", "1000", "2000", "rewritten"],
+    ["注册资本增加为1000万元。", "注册资本增加为2000万元。", "1000", "2000", "rewritten"],
+    ["Rent rose 500 dollars.", "Rent rose to 3000 dollars.", "500", "3000", "kept"],
+    ["Rent rose to 2500 dollars.", "Rent rose to 3000 dollars.", "2500", "3000", "rewritten"],
+  ])(
+    "reads 为 after a change verb in %s as a level, as 至 is, from %s",
+    async (sentence, line, from, to, kind) => {
+      const { core, mindId } = await noteWithCheck(
+        () => ({ text: `Change 1: ${from}\nTo 1: ${to}` }),
+        { text: sentence },
+        sentence,
+        false,
+        line,
+      );
+      expect(await core.rewriteFromDocuments({ mindId, checkId: "check-rent" })).toMatchObject({
+        kind,
+      });
+    },
+  );
+
   test("keeps the sentence when the model's words aren't the Passage's", async () => {
     const { core, mindId, calls } = await noteWithCheck(() => ({
       text: "Change 1: 1100\nTo 1: 1300",
