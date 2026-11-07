@@ -48,9 +48,12 @@ const { createChatModel, spent, tokens } = billedModels(MODEL, "deepseek");
 type Verdict = "supported" | "unsupported" | "contradicted";
 type Entry = (typeof ENTRY_POINTS)[number];
 
-/** A sentence's words as the Answer and the Note both compare them: no marker, no space before one. */
-const wordsOf = (text: string) =>
-  comparableSentence(text.replace(new RegExp(`\\s+(?=${INLINE_NODE})`, "gu"), ""));
+/**
+ * A sentence's words, to set the Answer's beside the Note's: with no space at all, since a mark keeps
+ * the space a Citation stood after ("10 weeks ."), and the Answer's reading drops it (#2313's first
+ * live run counted that sentence as missed and as Supported unjudged).
+ */
+const wordsOf = (text: string) => comparableSentence(text).replace(/\s+/gu, "");
 
 /**
  * What the Answer's own Citations say of each cited sentence: contradicted or unsupported when one
