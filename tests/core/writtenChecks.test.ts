@@ -166,6 +166,8 @@ interface Writing {
   record?: { name: string; contents: string | Uint8Array; quote: string; query: string };
   /** Hears each request that isn't streamed, answered as `PLANS` says. */
   generated?: (call: GenerateCall) => void;
+  /** It writes before it cites: `cite` comes beside the write, after it, or in the step after. */
+  citesAfter?: "beside" | "next-step";
 }
 
 const RECORD_FILE: NonNullable<Writing["record"]> = {
@@ -193,6 +195,7 @@ function writingModel(
     cut = "Spring tides come at new and full moon [1].",
     record,
     generated,
+    citesAfter,
   }: Writing,
   calls: ModelCall[],
   coreOf: () => Core | null,
@@ -219,13 +222,19 @@ function writingModel(
         return {
           calls: [{ tool: "search_documents", input: { query: record?.query ?? "spring tides" } }],
         };
-      if (!results.some((result) => result.tool === "cite")) {
+      const cited = results.some((result) => result.tool === "cite");
+      const writes = results.filter((result) => result.tool === tool);
+      if (!cited) {
         const [passage] = shownPassages(search.text);
         const citation = { marker: 1, passage: passage?.id, quote: record?.quote ?? MOON };
         const citations = record ? [citation, { ...citation, marker: 2 }] : [citation];
-        return { calls: [{ tool: "cite", input: { citations } }] };
+        const cite = { tool: "cite", input: { citations } };
+        if (citesAfter && writes.length === 0) {
+          const input = into ? { content } : { title: "Tide notes", content };
+          return { calls: [{ tool, input }, ...(citesAfter === "beside" ? [cite] : [])] };
+        }
+        return { calls: [cite] };
       }
-      const writes = results.filter((result) => result.tool === tool);
       // Told its text has no Citation (#1415), it writes it again as it was: it says nothing the Documents say.
       const refused = writes.length === 1 && writes[0]?.text.includes("content has no Citation");
       if (writes.length === 0 || refused) {
@@ -1121,6 +1130,69 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
     expect(change?.selfCheck).toBeUndefined();
   });
 
+  // protects=Stop while a write made before cite is checked after its Run ends the Answer stopped, keeps the text with its Citations and the mark that landed, and lands no more (#1635); fails_when=the Answer waits on the check, a mark lands after Stop, or the Citations go; no_claim=what the Answer says once stopped.
+  test("Stop while a write made before cite is checked after its Run keeps what landed", async () => {
+    const calls: ModelCall[] = [];
+    let started: Core | null = null;
+    let page: MindClient | null = null;
+    let answer: { conversationId: string; answerId: string } | null = null;
+    const moonMarked = () =>
+      page !== null &&
+      claimSpans(readMind(page)).some((span) => span.sentence.text.startsWith("Spring tides"));
+    const model = writingModel(
+      {
+        content: `Spring tides come at new and full moon [^1]. ${UNBACKED} [^1].`,
+        into: true,
+        citesAfter: "next-step",
+        check: (call, core) => {
+          if (sentenceOf(call) !== `${UNBACKED} .` || call.results.length > 0) return null;
+          const stopped = vi
+            .waitFor(() => expect(moonMarked()).toBe(true), { timeout: 20_000, interval: 5 })
+            .then(() => (answer ? core.stopConversationAnswer(answer) : undefined));
+          return { ...checkReply(call, PLANS), pause: { after: 0, until: stopped } };
+        },
+      },
+      calls,
+      () => started,
+    );
+    const { core, folderId, mindId, client } = await harbour(
+      model,
+      { kind: "anthropic", modelId: "claude-haiku-5-5" },
+      undefined,
+    );
+    started = core;
+    page = client;
+
+    const asked = await core.askInConversation({
+      text: "Add a short note on tides to this Mind",
+      mindId,
+      scope: { folderIds: [folderId], tagIds: [], documentIds: [] },
+    });
+    if (!asked.asked) throw new Error("Not asked.");
+    answer = { conversationId: asked.conversation.id, answerId: asked.answerId };
+    const stopped = await vi.waitFor(
+      async () => {
+        const { messages } = await core.getConversation(asked.conversation.id);
+        const found = messages.find((each) => each.id === asked.answerId);
+        if (found?.kind !== "answer" || found.status !== "stopped") throw new Error("Not stopped.");
+        return found;
+      },
+      { timeout: 20_000, interval: 20 },
+    );
+
+    await client.settled();
+    expect(shownWithChanges(client).at(-1)).toBe(
+      "+ Spring tides come at new and full moon ⟨found⟩. Neap tides are twice as strong ⟨found⟩.",
+    );
+    const marks = await marksIn(core, client);
+    expect(marks.map(({ sentence, check }) => [sentence, check.state])).toEqual([
+      ["Spring tides come at new and full moon .", "supported"],
+    ]);
+    const [change] = changesIn(stopped);
+    expect(change).toMatchObject({ proposals: 1, cited: 2 });
+    expect(change?.selfCheck).toBeUndefined();
+  });
+
   // protects=once the Note refuses an edit, no further mark is tried, even after an earlier edit failed for another reason (#2532); fails_when=the first failure kept for the report hides the refusal and a later mark is tried again; no_claim=what makes an edit fail.
   test("a refused edit after another failure still stops every later mark", async () => {
     let page: MindClient | null = null;
@@ -1553,6 +1625,32 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
   });
 
   // protects=a sentence with no Citation isn't checked as it lands (#1909: it is left to the one count and the one Check), as its Citations are what the written check reads; fails_when=a check Run is made for it, or it lands marked; no_claim=none beyond protects.
+  // protects=text written before `cite` recorded its markers is checked once its Citations go in after the Run: each cited sentence lands marked and the card counts it (#1635); fails_when=it lands with found Citations and no mark, which reads as checked, or the card has no check; no_claim=how often a real model writes before it cites.
+  test.each(["beside", "next-step"] as const)(
+    "a write made before cite recorded its markers is checked once they go in (%s)",
+    async (citesAfter) => {
+      const { core, calls, change, client } = await write({
+        content: `## Tides\n\nSpring tides come at new and full moon [^1].\n\n${UNBACKED} [^1].`,
+        citesAfter,
+      });
+
+      expect(shownWithChanges(client)).toEqual([
+        "+ Tides",
+        "+ Spring tides come at new and full moon ⟨found⟩.",
+        "+ Neap tides are twice as strong ⟨found⟩.",
+      ]);
+      const marks = await marksIn(core, client);
+      expect(marks.map(({ sentence, shown }) => [sentence, shown.state])).toEqual([
+        ["Spring tides come at new and full moon .", "supported"],
+        ["Neap tides are twice as strong .", "unsupported"],
+      ]);
+      expect(change).toMatchObject({ created: true, proposals: 3, cited: 2 });
+      expect(change).not.toHaveProperty("checking");
+      expect(change?.selfCheck).toMatchObject({ cited: 2, sent: 2, checked: 2, failed: 0 });
+      expect(calls.filter((call) => isCheckRun(call) && call.results.length === 0)).toHaveLength(2);
+    },
+  );
+
   test("a sentence with no Citation isn't checked as it lands", async () => {
     const { calls, client } = await write({
       content: "## Tides\n\nThe harbour is quiet in winter.",

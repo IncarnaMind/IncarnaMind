@@ -1109,13 +1109,14 @@ function writtenBy(
 /**
  * The Minds' Tools for one Answer in the assistant (see the module's
  * comment), and `settle`, to call once its Run is done: what they wrote
- * before `cite` gave their markers' records gets its Citations then. `failed`:
+ * before `cite` gave their markers' records gets its Citations then, and is
+ * checked as a write is; it resolves once those checks are over. `failed`:
  * the Run failed, and what a call wrote as its content came in, a call that
  * never ran, is taken back first, with a Note it made for it (#2275).
  */
 export function mindTools(options: MindToolsOptions): {
   tools: Tool[];
-  settle(failed?: boolean): void;
+  settle(failed?: boolean): Promise<void>;
 } {
   const { minds, focused } = options;
   const ownRequests = new Set<string>();
@@ -1959,14 +1960,22 @@ export function mindTools(options: MindToolsOptions): {
       }
     });
 
-  // Not while markers `cite` hadn't recorded are still to get their Citations: `settle` writes the Blocks again.
-  const checkWritten = async (
+  // Not while markers `cite` hadn't recorded are still to get their Citations: `settle` writes the
+  // Blocks again, and checks them then.
+  const checkWritten = (
     toolCallId: string,
     written: Written & { change: MindChange },
     signal: AbortSignal,
+  ): Promise<WrittenCheck | null> =>
+    written.unrecorded > 0 ? Promise.resolve(null) : checkBlocks(toolCallId, written, signal);
+
+  const checkBlocks = async (
+    toolCallId: string,
+    written: Pick<Written, "blocks"> & { change: MindChange },
+    signal: AbortSignal,
   ): Promise<WrittenCheck | null> => {
     const { mindId, ids, blocks } = written.blocks;
-    if (written.unrecorded > 0 || ids.length !== blocks.length) return null;
+    if (ids.length !== blocks.length) return null;
     let reported = false;
     let checked: WrittenCheck | null = null;
     try {
@@ -2038,8 +2047,9 @@ export function mindTools(options: MindToolsOptions): {
     streams.clear();
   };
 
-  const settle = (failed = false): void => {
+  const settle = async (failed = false): Promise<void> => {
     if (failed) takeBackUnmade();
+    const checks: Promise<WrittenCheck | null>[] = [];
     for (const [toolCallId, each] of unsettled) {
       const { blocks, cited, unrecorded, ...notes } = options.blocksOf(each.markdown);
       if (blocks.length !== each.ids.length) {
@@ -2050,17 +2060,20 @@ export function mindTools(options: MindToolsOptions): {
         if (each.chart) options.changed(toolCallId, { ...each.sent, chartNotDrawn: "uncited" });
         continue;
       }
-      const there = minds.edit(each.mindId, (note) => {
-        let found = 0;
+      const synced = minds.edit(each.mindId, (note) => {
+        const found: { ids: string[]; blocks: NodeJSON[] } = { ids: [], blocks: [] };
         for (const element of topLevelBlocks(note)) {
-          const at = each.ids.indexOf(idOf(element));
+          const id = idOf(element);
+          const at = each.ids.indexOf(id);
           const block = blocks[at];
           if (at < 0 || !block) continue;
           syncContent(element, block.content ?? []);
-          found++;
+          found.ids.push(id);
+          found.blocks.push(block);
         }
         return found;
       });
+      const there = synced.ids.length;
       const drawn = each.chart?.(blocks) ?? null;
       const charted = drawn !== null && !drawn.problem;
       // A later call revised some of what this one wrote: counted now, it would read as having
@@ -2075,14 +2088,20 @@ export function mindTools(options: MindToolsOptions): {
               }),
             }
           : each.change();
-      options.changed(toolCallId, {
+      const change: MindChange = {
         ...counts,
         ...citedIn({ cited, unrecorded }),
         ...someTableNotes(notes),
         ...(drawn?.problem && { chartNotDrawn: drawn.problem }),
-      });
+      };
+      options.changed(toolCallId, change);
+      // Its Citations weren't in as it landed, so it wasn't checked then (#1635): unchecked, its
+      // sentences would show found Citations and no mark, which reads as checked.
+      const written = { blocks: { mindId: each.mindId, ...synced }, change };
+      checks.push(checkBlocks(toolCallId, written, options.signal));
     }
     unsettled.clear();
+    await Promise.all(checks);
   };
 
   /** What the model reads of Blocks it added: how many, and what of their Citations didn't hold. */
