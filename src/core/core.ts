@@ -4186,7 +4186,7 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     skillIsBuiltIn: (name) => skills.list().some((skill) => skill.name === name && skill.builtIn),
     now: () => (adapters.now?.() ?? new Date()).getTime(),
-    questionAsked: () => modelSpend.questionAsked(),
+    answerStarted: () => modelSpend.answerStarted(),
   });
   usageData.record({ event: "app_opened", fields: { language: settings.get().language } });
   modelSpend.start();
@@ -5964,8 +5964,9 @@ export function createCore(adapters: CoreAdapters): Core {
       const before = privacy.status();
       const { changed, settings: updated } = privacy.update(patch);
       if (changed) privacyChanged();
-      // Turning usage data on never sends a completed week from before the User agreed.
-      if (!before.usageData.enabled && updated.usageData.enabled) modelSpend.skipLastWeek();
+      // Turning usage data on never sends a completed week from before the User agreed, and
+      // the week it happens in counts only from then.
+      if (!before.usageData.enabled && updated.usageData.enabled) modelSpend.consentStarted();
       return updated;
     },
     recordUsage: async (event) => usageData.recordFromUi(event),

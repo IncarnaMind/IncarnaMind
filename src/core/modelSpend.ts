@@ -2,14 +2,15 @@
  * The weekly model-spend usage event (#1993): once a completed week with a
  * model call in it, and only while the User agrees to usage data (./usageData),
  * how much that week's models cost as a range, the kind of route that paid,
- * and how many Questions and checks there were. Every value is a closed list's
- * value or a count: never a model's name, a Question, a Document or anything
- * the User wrote.
+ * how many Answers were started and how many checks there were. Every value is
+ * a closed list's value or a count: never a model's name, a Question, a
+ * Document or anything the User wrote.
  *
  * The range is what the cost record's own estimate says the week cost (the
  * same per-request estimate the monthly cap sums, ./cost/meter), not a
- * provider's bill. A week with no model call sends nothing, and a week the
- * User had usage data off for is not sent later.
+ * provider's bill. A week with no model call sends nothing; one the User had
+ * usage data off for is not sent later; and the week usage data was turned on
+ * in counts only from that moment.
  */
 import type { Currency } from "./api";
 import { inCurrency } from "./cost/price";
@@ -25,8 +26,10 @@ type ProviderKind = SpendFields["provider_kind"];
 type Route = SpendFields["route"];
 
 const REPORTED = "usageData.spendWeek";
-/** The Questions started this week: a Note keeps its Questions in its own Blocks, so they are counted as they start. */
-const QUESTIONS = "usageData.spendQuestions";
+/** The Answers started this week: a Note keeps its Questions in its own Blocks, so they are counted as they start. */
+const ANSWERS = "usageData.spendAnswers";
+/** When the User last turned usage data on: the first week counts from here. */
+const SINCE = "usageData.spendSince";
 const CHECK_EVERY_MS = 60 * 60 * 1000;
 
 /** The closed kind of a provider's service: a provider's own name, region or model is never sent. */
@@ -52,7 +55,8 @@ function providerKindOf(kind: string | null, catalogId: string | null): Provider
 const currencyOf = (value: string | null): Currency | null =>
   value === "USD" || value === "CNY" ? value : null;
 
-function spendRange(usd: number): SpendFields["spend_range"] {
+/** The range a week's spend in US dollars falls in, from the amounts the privacy page names. */
+export function spendRange(usd: number): SpendFields["spend_range"] {
   if (usd <= 0) return "0";
   if (usd < 1) return "under_1";
   if (usd < 5) return "1_5";
@@ -93,29 +97,46 @@ interface ProviderRow {
   catalog_id: string | null;
 }
 
-interface QuestionTally {
+interface AnswerTally {
   week: string;
-  questions: number;
+  answers: number;
 }
 
-/** The week's Questions, from its tally; 0 for a week the tally doesn't cover. */
-function questionsIn(settings: SettingsStore, week: string): number {
-  const stored = settings.readDeviceValue(QUESTIONS);
+/** The week's Answers, from its tally; 0 for a week the tally doesn't cover. */
+function answersIn(settings: SettingsStore, week: string): number {
+  const stored = settings.readDeviceValue(ANSWERS);
   return typeof stored === "object" &&
     stored !== null &&
     "week" in stored &&
     stored.week === week &&
-    "questions" in stored &&
-    typeof stored.questions === "number" &&
-    Number.isInteger(stored.questions) &&
-    stored.questions >= 0
-    ? stored.questions
+    "answers" in stored &&
+    typeof stored.answers === "number" &&
+    Number.isInteger(stored.answers) &&
+    stored.answers >= 0
+    ? stored.answers
     : 0;
 }
 
-/** The week's fields, or null when no model was called in it. */
-function weekFields(db: Database, start: Date, end: Date, questions: number): SpendFields | null {
-  const from = start.toISOString();
+/** When usage data was last turned on, or null when it was on from before this version. */
+function sinceOf(settings: SettingsStore): Date | null {
+  const stored = settings.readDeviceValue(SINCE);
+  if (typeof stored !== "string") return null;
+  const at = new Date(stored);
+  return Number.isNaN(at.getTime()) ? null : at;
+}
+
+/** The week's fields, or null when no model was called in it after usage data was turned on. */
+function weekFields(
+  db: Database,
+  start: Date,
+  end: Date,
+  answers: number,
+  since: Date | null,
+): SpendFields | null {
+  // The first week after the User agreed counts only from that moment.
+  const from = since !== null && since > start ? since : start;
+  if (from >= end) return null;
+  const at = from.toISOString();
   const to = end.toISOString();
   // The cost record's own rows, without cloud transcription's, which has no model call.
   const requests = db.all<RequestRow>(
@@ -124,14 +145,14 @@ function weekFields(db: Database, start: Date, end: Date, questions: number): Sp
      FROM model_requests
      WHERE flow <> 'transcription' AND created_at >= ? AND created_at < ?
      GROUP BY provider_id, billing, currency`,
-    [from, to],
+    [at, to],
   );
   const metered = requests.reduce((sum, row) => sum + row.requests, 0);
   const timings = db.all<TimingRow>(
     `SELECT provider_kind, count(*) AS requests FROM ai_timings
      WHERE kind = 'model' AND started_at >= ? AND started_at < ?
      GROUP BY provider_kind ORDER BY requests DESC`,
-    [from, to],
+    [at, to],
   );
   const timed = timings.reduce((sum, row) => sum + row.requests, 0);
   if (metered === 0 && timed === 0) return null;
@@ -177,15 +198,16 @@ function weekFields(db: Database, start: Date, end: Date, questions: number): Sp
   const checks =
     db.get<{ n: number }>(
       `SELECT count(*) AS n FROM ai_use
-       WHERE kind = 'sentence-checked' AND occurred_at >= ? AND occurred_at < ?`,
-      [from, to],
+       WHERE kind = 'sentence-checked' AND deleted_at IS NULL
+         AND occurred_at >= ? AND occurred_at < ?`,
+      [at, to],
     )?.n ?? 0;
 
   return {
     spend_range: spendRange(spentUsd),
     route,
     provider_kind: providerKind,
-    questions,
+    questions: answers,
     checks,
   };
 }
@@ -219,7 +241,8 @@ export function createModelSpend(options: {
         options.db,
         lastWeek,
         thisWeek,
-        questionsIn(options.settings, last),
+        answersIn(options.settings, last),
+        sinceOf(options.settings),
       );
       if (fields) options.record({ event: "model_spend_week", fields });
     } catch (error) {
@@ -234,23 +257,25 @@ export function createModelSpend(options: {
       timer = setInterval(check, CHECK_EVERY_MS);
       timer.unref?.();
     },
-    /** An Answer to a Question started: counted for the week it starts in, while usage data is on. */
-    questionAsked(): void {
+    /** An Answer started, whatever asked it: counted for the week it starts in, while usage data is on. */
+    answerStarted(): void {
       try {
         // A completed week is read before the tally moves on, even if the app stayed open.
         check();
         if (!options.sending()) return;
         const week = weekStarts(options.now()).thisWeek.toISOString();
-        const tally: QuestionTally = { week, questions: questionsIn(options.settings, week) + 1 };
-        options.settings.writeDeviceValue(QUESTIONS, tally);
+        const tally: AnswerTally = { week, answers: answersIn(options.settings, week) + 1 };
+        options.settings.writeDeviceValue(ANSWERS, tally);
       } catch (error) {
         reportError(error);
       }
     },
-    /** The User just turned usage data on: the completed week before that is not sent. */
-    skipLastWeek(): void {
+    /** The User just turned usage data on: the completed week before that is not sent, and the current one counts from now. */
+    consentStarted(): void {
       try {
-        const last = weekStarts(options.now()).lastWeek.toISOString();
+        const at = options.now();
+        options.settings.writeDeviceValue(SINCE, at.toISOString());
+        const last = weekStarts(at).lastWeek.toISOString();
         const reported = options.settings.readDeviceValue(REPORTED);
         if (typeof reported !== "string" || reported < last) {
           options.settings.writeDeviceValue(REPORTED, last);

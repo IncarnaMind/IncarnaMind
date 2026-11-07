@@ -3388,7 +3388,8 @@ export const zhCN = {
     "技能脚本在这台电脑上运行，可发送它读取的内容。每个脚本运行前都会询问，除非你设为“始终允许”。",
   "privacy.aiUse.title": "AI 使用记录",
   "privacy.aiUse.body": "记录 AI 写了什么、核对了什么。",
-  "privacy.aiUse.private": "不含任何文字，绝不发送。",
+  "privacy.aiUse.private":
+    "留在这台电脑上：不会发送任何一条记录。开启使用数据后，每周发送核对次数。",
   "privacy.aiUse.entries": "共 {count} 条",
   "privacy.aiUse.clear": "清除记录",
   "privacy.aiUse.cleared": "已清除 AI 使用记录。",

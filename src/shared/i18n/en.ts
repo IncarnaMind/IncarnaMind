@@ -3560,7 +3560,8 @@ export const en = {
     "Skill scripts run here and can send what they read. Each asks before it runs, unless you set it to Always allow.",
   "privacy.aiUse.title": "AI use record",
   "privacy.aiUse.body": "Records what AI wrote and checked.",
-  "privacy.aiUse.private": "No text, and never sent.",
+  "privacy.aiUse.private":
+    "Stays on this computer: no entry is sent. With usage data on, a weekly count of checks is sent.",
   "privacy.aiUse.entries": "Entries: {count}",
   "privacy.aiUse.clear": "Clear record",
   "privacy.aiUse.cleared": "Cleared the AI use record.",

@@ -11,7 +11,9 @@ import {
   type UsageEventFields,
   type UsageEventMessage,
 } from "../../src/core";
+import { CLAIM_CHECK_INSTRUCTIONS } from "../../src/core/answers/claimedChanges";
 import { createEventHub } from "../../src/core/events";
+import { spendRange } from "../../src/core/modelSpend";
 import {
   BUILT_IN_SKILL_NAMES,
   InvalidUsageEventError,
@@ -497,7 +499,7 @@ describe("Usage data: what the core derives from its events", () => {
       connectorIsRemote: (id) => (id === "gone" ? null : id === "remote"),
       skillIsBuiltIn: (name) => name === "summarise-document",
       now: () => time,
-      questionAsked: () => {
+      answerStarted: () => {
         questions++;
       },
     });
@@ -639,7 +641,9 @@ describe("Usage data: a week's model spend (#1993)", { timeout: 30_000 }, () => 
   const TUESDAY = "2026-10-13T12:00:00.000Z";
   const okModel = () =>
     scriptedModel(() => ({ text: "OK" }), {
-      generate: () => ({ text: "OK" }),
+      // The Answer's change-claim check reads a JSON verdict; "OK" would be logged as unreadable.
+      generate: (call) =>
+        call.system.includes(CLAIM_CHECK_INSTRUCTIONS) ? { text: '{"claims":[]}' } : { text: "OK" },
       judgesItsAnswers: true,
     });
 
@@ -821,5 +825,126 @@ describe("Usage data: a week's model spend (#1993)", { timeout: 30_000 }, () => 
     // Usage data is flowing in the new week, so the empty week above is not an unwired test.
     expect(sent.map((message) => message.event)).toContain("question_asked");
     expect(fieldsOf(sent, "model_spend_week")).toEqual([]);
+  });
+
+  test("the week usage data is turned on in counts only from that moment", async () => {
+    const clock = manualClock("2026-10-13T11:00:00.000Z");
+    const dataDir = await createTempDataFolder();
+    const { sender } = fakeSender();
+    const core = startCore(dataDir, {
+      now: clock.now,
+      createChatModel: () => okModel(),
+      usageData: sender,
+    });
+    const mind = await core.createMind({ title: "Tide notes" });
+
+    // Two checks before the User agrees.
+    await core.recordAiUse([
+      { mindId: mind.id, kind: "sentence-checked", characters: 0 },
+      { mindId: mind.id, kind: "sentence-checked", characters: 0 },
+    ]);
+    clock.advance(60 * 60 * 1000);
+    await core.updatePrivacySettings({ usageData: true });
+
+    // One check and one model call after it.
+    await core.recordAiUse([{ mindId: mind.id, kind: "sentence-checked", characters: 0 }]);
+    const provider = await core.saveChatProvider({ kind: "ollama", modelId: "qwen3.5:4b" });
+    const { model } = await core.prepareChatModel({
+      providerId: provider.id,
+      modelId: "qwen3.5:4b",
+    });
+    await generateText({ model, prompt: "Hello", maxRetries: 0 });
+    core.close();
+
+    clock.advance(WEEK_MS);
+    const again = fakeSender();
+    startCore(dataDir, {
+      now: clock.now,
+      createChatModel: () => okModel(),
+      usageData: again.sender,
+    });
+
+    expect(fieldsOf(again.sent, "model_spend_week")).toEqual([
+      expect.objectContaining({ route: "local", checks: 1, questions: 0 }),
+    ]);
+  });
+
+  test("a cleared AI use record leaves no checks in the week's event", async () => {
+    const clock = manualClock(TUESDAY);
+    const dataDir = await createTempDataFolder();
+    const { sender } = fakeSender();
+    const core = startCore(dataDir, {
+      now: clock.now,
+      createChatModel: () => okModel(),
+      usageData: sender,
+    });
+    await core.updatePrivacySettings({ usageData: true });
+    const mind = await core.createMind({ title: "Tide notes" });
+    await core.recordAiUse([{ mindId: mind.id, kind: "sentence-checked", characters: 0 }]);
+    await core.clearAiUse();
+    const provider = await core.saveChatProvider({ kind: "ollama", modelId: "qwen3.5:4b" });
+    const { model } = await core.prepareChatModel({
+      providerId: provider.id,
+      modelId: "qwen3.5:4b",
+    });
+    await generateText({ model, prompt: "Hello", maxRetries: 0 });
+    core.close();
+
+    clock.advance(WEEK_MS);
+    const again = fakeSender();
+    startCore(dataDir, {
+      now: clock.now,
+      createChatModel: () => okModel(),
+      usageData: again.sender,
+    });
+
+    expect(fieldsOf(again.sent, "model_spend_week")).toEqual([
+      expect.objectContaining({ route: "local", checks: 0, questions: 0 }),
+    ]);
+  });
+
+  test("a week missed while the app was closed is not sent", async () => {
+    const clock = manualClock(TUESDAY);
+    const dataDir = await createTempDataFolder();
+    const { sender } = fakeSender();
+    const core = startCore(dataDir, {
+      now: clock.now,
+      createChatModel: () => okModel(),
+      usageData: sender,
+    });
+    await core.updatePrivacySettings({ usageData: true });
+    const provider = await core.saveChatProvider({ kind: "ollama", modelId: "qwen3.5:4b" });
+    const { model } = await core.prepareChatModel({
+      providerId: provider.id,
+      modelId: "qwen3.5:4b",
+    });
+    await generateText({ model, prompt: "Hello", maxRetries: 0 });
+    core.close();
+
+    // Closed for three weeks: only the last completed week is considered, and it had no call.
+    clock.advance(3 * WEEK_MS);
+    const again = fakeSender();
+    startCore(dataDir, {
+      now: clock.now,
+      createChatModel: () => okModel(),
+      usageData: again.sender,
+    });
+
+    expect(again.sent.map((message) => message.event)).toContain("app_opened");
+    expect(fieldsOf(again.sent, "model_spend_week")).toEqual([]);
+  });
+
+  test("the spend range's edges: exactly $1, $5, $20 and $50, and just under each", () => {
+    expect(spendRange(0)).toBe("0");
+    expect(spendRange(0.01)).toBe("under_1");
+    expect(spendRange(0.999999)).toBe("under_1");
+    expect(spendRange(1)).toBe("1_5");
+    expect(spendRange(4.999999)).toBe("1_5");
+    expect(spendRange(5)).toBe("5_20");
+    expect(spendRange(19.999999)).toBe("5_20");
+    expect(spendRange(20)).toBe("20_50");
+    expect(spendRange(49.999999)).toBe("20_50");
+    expect(spendRange(50)).toBe("over_50");
+    expect(spendRange(500)).toBe("over_50");
   });
 });
