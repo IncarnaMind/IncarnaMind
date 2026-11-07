@@ -1,5 +1,5 @@
 /**
- * The seven sample Documents in `data/`, page by page: what
+ * The seven sample Documents in `eval/data/`, page by page: what
  * `npm run samples:generate` writes, and what the test that reads them back
  * checks (tests/core/sampleDocuments.test.ts).
  */
@@ -15,7 +15,7 @@ const GREEK: readonly PdfSymbol[] = [
 ];
 
 export interface SampleDocument {
-  /** Its name in `data/`: the Documents keep the names every test and eval uses. */
+  /** Its name in `eval/data/`: the Documents keep the names every test and eval uses. */
   file: string;
   /** The pages it must have, as the file it stands in for had. */
   pageCount: number;
@@ -112,7 +112,7 @@ export const SAMPLE_DOCUMENTS: readonly SampleDocument[] = [
 export const pagesOf = (document: SampleDocument) =>
   document.pages.map((page, index) => layOut(page, index + 1));
 
-/** The bytes `data/` holds for it. */
+/** The bytes `eval/data/` holds for it. */
 export function bytesOf(document: SampleDocument): Uint8Array {
   const pages = pagesOf(document);
   if (pages.length !== document.pageCount) {

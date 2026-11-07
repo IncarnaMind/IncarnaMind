@@ -54,7 +54,8 @@ import {
   type FlowTimes,
   firstVerdictMs,
   type Landed,
-  shownState,
+  repeatCounter,
+  shownMark,
 } from "./checkTimes";
 import { env, list, modelsAsked, spentUsd } from "./settings";
 import { HELD_OUT_DOCUMENTS, HELD_OUT_ITEMS } from "./writtenHeldOut";
@@ -62,13 +63,17 @@ import { HELD_OUT_DOCUMENTS, HELD_OUT_ITEMS } from "./writtenHeldOut";
 const ROOT = resolve(__dirname, "../..");
 type Language = "en" | "zh-CN";
 
-const sentencesOf = (...ids: string[]) =>
-  ids.flatMap((id) => SETS.find((set) => set.id === id)?.sentences.map((each) => each.text) ?? []);
+const noteOf = (...ids: string[]) =>
+  ids.flatMap((id) => SETS.find((set) => set.id === id)?.sentences ?? []).slice(0, 10);
 
 /** Ten sentences of a Note: what the agreement states, contradicts, partly states and doesn't. */
+const NOTE_SENTENCES = {
+  en: noteOf("en", "en-paraphrases"),
+  "zh-CN": noteOf("zh", "zh-paraphrases"),
+};
 const NOTE: Record<Language, string[]> = {
-  en: sentencesOf("en", "en-paraphrases").slice(0, 10),
-  "zh-CN": sentencesOf("zh", "zh-paraphrases").slice(0, 10),
+  en: NOTE_SENTENCES.en.map((each) => each.text),
+  "zh-CN": NOTE_SENTENCES["zh-CN"].map((each) => each.text),
 };
 
 /** Thirty sentences over the membership rules, each with the quote it cites. */
@@ -173,8 +178,8 @@ function watchNote(
     for (const span of claimSpans(readMind({ blocks: doc.getXmlFragment(MIND_CONTENT_FIELD) }))) {
       if (!span.check?.state) continue;
       firstMarkMs ??= since();
-      const state = shownState(span.check, span.sentence.text, versions);
-      if (state === "checking") continue;
+      const shown = shownMark(span.check, span.sentence.text, versions);
+      if (shown.verdict === "checking") continue;
       const text = (span.check?.text ?? span.sentence.text).trim();
       const exact = sentences.indexOf(text);
       const index =
@@ -182,7 +187,7 @@ function watchNote(
           ? exact
           : sentences.findIndex((sentence) => text.includes(sentence) || sentence.includes(text));
       if (index >= 0 && !landed.some((each) => each.sentence === index))
-        landed.push({ sentence: index, ms: since(), verdict: state });
+        landed.push({ sentence: index, ms: since(), ...shown });
     }
   };
   doc.on("update", read);
@@ -216,15 +221,72 @@ async function noteFlow(
   await client.settled();
   recorder.begin(sentences);
   const watch = watchNote(client.doc, sentences, recorder.since, await versionsOf(core));
-  await core.checkMind({
-    requestId: `note-${run}-${Date.now()}`,
+  let doneMs = 0;
+  // Its end is taken when the check ends, not after a search asked during it.
+  const checking = core
+    .checkMind({
+      requestId: `note-${run}-${Date.now()}`,
+      mindId,
+      mode: "all",
+      model: choice,
+    })
+    .then(() => {
+      doneMs = recorder.since();
+    });
+  const searchedDuring = await searchDuring(
+    core,
     mindId,
-    mode: "all",
-    model: choice,
-  });
-  const doneMs = recorder.since();
+    sentences[0] ?? "",
+    watch,
+    recorder,
+    checking,
+  );
+  await checking;
   watch.stop();
-  return { checkStartMs: watch.firstMarkMs() ?? doneMs, doneMs, landed: watch.landed };
+  return {
+    checkStartMs: watch.firstMarkMs() ?? doneMs,
+    doneMs,
+    landed: watch.landed,
+    ...(searchedDuring && { searchedDuring }),
+  };
+}
+
+/**
+ * A search the User asks for while the Note is checked, when INCARNAMIND_EVAL_SPEED_SEARCH_DURING
+ * says how many milliseconds after the claims are named: Cite…'s, which reranks as a model's
+ * Answer without Tools does (an Answer's Tool searches don't rerank). Its time, asked to answered.
+ */
+async function searchDuring(
+  core: Core,
+  mindId: string,
+  text: string,
+  watch: ReturnType<typeof watchNote>,
+  recorder: ReturnType<typeof checkRecorder>,
+  checking: Promise<unknown>,
+): Promise<{ atMs: number; ms: number } | null> {
+  const after = env("SEARCH_DURING");
+  if (after === null) return null;
+  // A check that ends first, with no claim named or before the delay, has no search during it.
+  let ended = false;
+  checking.then(
+    () => {
+      ended = true;
+    },
+    () => {
+      ended = true;
+    },
+  );
+  await vi.waitFor(
+    () => {
+      if (!ended && watch.firstMarkMs() === null) throw new Error("The claims aren't named yet.");
+    },
+    { timeout: 60_000, interval: 20 },
+  );
+  if (!ended) await new Promise((resolve) => setTimeout(resolve, Number(after)));
+  if (ended) return null;
+  const atMs = recorder.since();
+  await core.findPassages({ text, mindId, scope: null });
+  return { atMs, ms: recorder.since() - atMs };
 }
 
 async function writeFlow(
@@ -389,11 +451,12 @@ timedChecks("where a check's time goes, on each model and language", async () =>
       await writeFile(path, buildPdf(document.pages));
       documents.push({ key: document.file, path });
     }
+    const repeats = repeatCounter(createWorkerCrossEncoder(config.rerankOnCpu));
     const library: Library = await openLibrary({
       name: "check-times",
       embedder: createWorkerEmbedder(),
       modelCache: join(config.cacheDir, "models"),
-      reranker: createWorkerCrossEncoder(config.rerankOnCpu),
+      reranker: repeats.crossEncoder,
       documents,
       embeddings: false,
       keep: config.keepData,
@@ -434,10 +497,14 @@ timedChecks("where a check's time goes, on each model and language", async () =>
               break matrix;
             }
             const load = loadavg()[0] ?? 0;
-            log(`${name} · ${flow} · ${language} · ${run}/${runs} · load ${load.toFixed(1)}`);
+            const load15 = loadavg()[2] ?? 0;
+            log(
+              `${name} · ${flow} · ${language} · ${run}/${runs} · load ${load.toFixed(1)}, ${load15.toFixed(1)} over 15 minutes`,
+            );
             current = { flow, items: CITED(language) };
             const startedAt = new Date().toISOString();
-            const times =
+            repeats.begin();
+            const times: Pick<FlowTimes, "checkStartMs" | "doneMs" | "landed" | "searchedDuring"> =
               flow === "note"
                 ? await noteFlow(core, choice, language, recorder, run)
                 : flow === "write"
@@ -460,6 +527,7 @@ timedChecks("where a check's time goes, on each model and language", async () =>
               language,
               run,
               load,
+              load15,
               checkStartMs: times.checkStartMs,
               firstMarkMs: landed[0]?.ms ?? null,
               firstVerdictMs: firstVerdictMs(landed),
@@ -467,8 +535,17 @@ timedChecks("where a check's time goes, on each model and language", async () =>
               landed,
               requests: recorder.end(),
               reranks,
+              rerankRepeats: repeats.end(),
+              ...(times.searchedDuring && { searchedDuring: times.searchedDuring }),
+              ...(flow === "note" && {
+                stated: NOTE_SENTENCES[language].map((each) => each.expected === "supported"),
+              }),
               spentUsd: after - spent,
             });
+            if (times.searchedDuring)
+              log(
+                `  a search asked at ${seconds(times.searchedDuring.atMs)} took ${seconds(times.searchedDuring.ms)}`,
+              );
             log(
               `  first mark ${seconds(landed[0]?.ms ?? null)}, first verdict ${seconds(firstVerdictMs(landed))}, done ${(times.doneMs / 1000).toFixed(1)} s, ${landed.length} landed, $${(after - spent).toFixed(4)}`,
             );

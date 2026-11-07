@@ -23,10 +23,10 @@ const SECONDS_A_SHARD = 1200;
 const MOST_SHARDS = 10;
 
 // The helpers, fixtures and settings every spec runs on. e2e/packaged and e2e/audit have
-// configs of their own, and the timing table only balances the shards.
+// configs of their own, the timing table only balances the shards, and notes run nothing.
 const SHARED = new RegExp(
   [
-    String.raw`^e2e/(?!packaged/|audit/|durations\.json$|[^/]+\.spec\.ts$)`,
+    String.raw`^e2e/(?!packaged/|audit/|durations\.json$|[^/]+\.spec\.ts$|.*\.md$)`,
     String.raw`^playwright\.config\.ts$`,
     String.raw`^package(-lock)?\.json$`,
     String.raw`^\.github/workflows/ci\.yml$`,

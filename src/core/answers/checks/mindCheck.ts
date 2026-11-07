@@ -32,6 +32,7 @@ import { readMindCheck, sentenceKey, writeMindCheck } from "../../../shared/mind
 import { mindModelOf } from "../../../shared/mindModel";
 import { mindScopeIn } from "../../../shared/mindScope";
 import { readOpinionSentences, resolveOpinions } from "../../../shared/opinions";
+import { readRecordCiteChoices } from "../../../shared/recordCiteChoices";
 import { oneFolderOf } from "../../../shared/searchScope";
 import { isClaim } from "../../../shared/sentences";
 import { judgesUnreliably } from "../../../shared/smallModel";
@@ -45,6 +46,7 @@ import type {
   DocumentsAddedSince,
   FindMindClaimsResult,
   MindCheckPlan,
+  RunStop,
 } from "../../api";
 import { CHART_NODE } from "../../api";
 import { parseModel } from "../../edits";
@@ -53,11 +55,20 @@ import type { MindContent } from "../../mindContent";
 import { parseMindId } from "../../minds";
 import type { PreparedChatModel } from "../../providers/chat";
 import { recordCiteSpans } from "../../recordCites/parser";
+import { type Slots, slots } from "../../runs/stop";
 import type { CheckedCitation } from "./claimCheck";
 import { cellHeadings, inTableCell, inValueCell } from "./figureOccurrences";
 import { type ClaimsFound, claimsAmong } from "./findClaims";
 import { recordOpinions, type SortedSentence } from "./opinions";
-import { pendingParts, type QueuedClaim, type RunChecksOptions, runChecks } from "./runChecks";
+import {
+  type ChecksRun,
+  claimsAtOnce,
+  earlyChecks,
+  pendingParts,
+  type QueuedClaim,
+  type RunChecksOptions,
+  runChecks,
+} from "./runChecks";
 import {
   checkedSentences,
   checkText,
@@ -69,6 +80,7 @@ import {
   noteTextOf,
   noteTextOfMarked,
   recordCiteNote,
+  recordCiteParagraphs,
   type SelectedSentence,
 } from "./sentences";
 import type { MindCheckScope, VerifyOptions } from "./verify";
@@ -103,6 +115,8 @@ export interface MindCheckOptions extends RunChecksOptions {
   isRunning(requestId: string): boolean;
   /** Throws unless the Mind exists and this version may write to it. */
   requireMind(mindId: string): void;
+  /** What a check reads of the Library as it runs, as text that differs whenever that does. */
+  libraryState(): string;
 }
 
 const MODES: readonly CheckMindMode[] = ["all", "changed", "added"];
@@ -195,6 +209,11 @@ export function createMindCheck(options: MindCheckOptions) {
     fresh: readonly SelectedSentence[],
     prepared: PreparedChatModel,
     signal: AbortSignal,
+    along?: {
+      slots: Slots;
+      /** Hears a sentence's parts as the sort names them, before it ends. */
+      named(sentence: SelectedSentence, parts: readonly ClaimPartPlan[]): void;
+    },
   ): Promise<
     | {
         kind: "found";
@@ -211,8 +230,17 @@ export function createMindCheck(options: MindCheckOptions) {
         known.set(sentence.text, [{ kind: "fact", span: { start: 0, end: sentence.text.length } }]);
     }
     const unsorted = fresh.filter((sentence) => !known.has(sentence.text));
+    const partsOf = (sentence: SelectedSentence, said: readonly ClaimPartPlan[]) => {
+      const { claim, projection } = checkText(sentence);
+      // A sort that names nothing in a value cell would leave its figure out unchecked, so the
+      // cell is checked whole (#2447).
+      return said.length === 0 && inValueCell(sentence.figures)
+        ? [{ kind: "fact" as const, span: { start: 0, end: claim.length } }]
+        : withFigureFacts(claim, said, sentence.figures ?? [], projection);
+    };
     if (unsorted.length > 0) {
       const grids = new Map<Y.XmlElement, SourceGrid>();
+      const heard = new Set<number>();
       const found = await claimsAmong(
         prepared,
         unsorted.map((sentence) => ({
@@ -222,19 +250,24 @@ export function createMindCheck(options: MindCheckOptions) {
         "own",
         signal,
         true,
+        along && {
+          slots: along.slots,
+          named: (index, said) => {
+            const sentence = unsorted[index];
+            // Sentences of the same words share one inventory, which only the whole reply settles.
+            if (!sentence || heard.has(index)) return;
+            heard.add(index);
+            if (unsorted.filter((each) => each.text === sentence.text).length > 1) return;
+            along.named(sentence, partsOf(sentence, said));
+          },
+        },
       );
       if (found.kind !== "found") return found;
       for (const [index, sentence] of unsorted.entries()) {
         if (found.undecided.has(index)) continue;
         const said = found.parts.get(index);
         if (said === undefined) continue;
-        const { claim, projection } = checkText(sentence);
-        // A sort that names nothing in a value cell would leave its figure out unchecked, so the
-        // cell is checked whole (#2447).
-        const parts =
-          said.length === 0 && inValueCell(sentence.figures)
-            ? [{ kind: "fact" as const, span: { start: 0, end: claim.length } }]
-            : withFigureFacts(claim, said, sentence.figures ?? [], projection);
+        const parts = partsOf(sentence, said);
         const earlier = known.get(sentence.text);
         if (
           parts.some((part) => part.kind === "fact") ||
@@ -592,124 +625,207 @@ export function createMindCheck(options: MindCheckOptions) {
     if (!ready.ok) return ready.result;
     if (signal.aborted) return { kind: "cancelled" };
 
-    let claims = again;
-    const unexamined = new Set(content.readSettings(mindId, readMindCheck)?.unexamined ?? []);
-    if (fresh.length > 0) {
-      const found = await sort(mindId, fresh, ready.prepared, signal);
-      if (found.kind !== "found") return found;
-      for (const sentence of found.left) skipped.add(sentenceKey(sentence.text));
-      for (const sentence of [...found.claims, ...found.left]) {
-        unexamined.delete(sentenceKey(sentence.text));
-      }
-      for (const sentence of found.undecided) unexamined.add(sentenceKey(sentence.text));
-      claims = [...found.claims, ...again];
-    }
-
-    const startedAt = options.now().toISOString();
-    const unread = options.unread(scope.wanted);
-    // The User may have written on while the model named the claims: each is found again by its words.
-    const queued = content.edit(mindId, (blocks) => {
-      const current = everySentence(blocks);
-      const now =
-        input.figureIds === null
-          ? current
-          : sentencesForFigures(current, markedSentences(blocks), input.figureIds);
-      const marked = claims.flatMap((claim): QueuedClaim[] => {
-        const sentence = now.find(
-          (each) =>
-            each.blockId === claim.blockId &&
-            each.text === claim.text &&
-            each.occurrence === claim.occurrence,
-        );
-        if (!sentence) return [];
-        const owners = markedSentences(blocks).filter(
-          (each) =>
-            each.element === sentence.element && each.from < sentence.to && each.to > sentence.from,
-        );
-        const previousParts = owners.find((each) => each.check.text === sentence.text)?.check.parts;
-        const priorParts = owners.length === 1 ? owners[0]?.check.parts : undefined;
-        const parts = sorted.get(mindId)?.get(sentence.text) ?? previousParts?.map(planOf);
-        const within = scopeFor(claim);
-        const mark: ClaimCheckAttributes = {
-          id: randomUUID(),
-          request: requestId,
-          action: "check-against-documents",
-          state: "checking",
-          reason: null,
-          detail: null,
-          providerId: ready.prepared.provider.id,
-          modelId: ready.prepared.modelId,
-          text: sentence.text,
-          evidence: null,
-          says: null,
-          unsupported: null,
-          calculation: null,
-          citedCaseUnchecked: false,
-          citedCaseFound: false,
-          scope: within.marked,
-          versions: [],
-          excluded: [],
-          checkedAt: startedAt,
-          ...(parts && { parts: pendingParts(parts, previousParts) }),
-        };
-        const selected = input.figureIds === null ? null : new Set(input.figureIds);
-        const rowClaim = sentence.figures?.some(
-          (figure) =>
-            figure.locator.kind === "text" && figure.locator.from.blockId !== sentence.blockId,
-        )
-          ? tableClaim(sentence)
-          : null;
-        const row = rowClaim !== null && rowClaim !== "not-a-claim" ? rowClaim : null;
-        const previous = owners[0]?.check ?? null;
-        const pending = sentence.figures?.length
-          ? beginFigureCheck(
-              previous,
-              mark,
-              sentence.figures,
-              selected,
-              row ? undefined : sentence.projection,
-            )
-          : mark;
-        markSentence(sentence.element, sentence.from, sentence.to, pending);
-        return [
-          {
-            id: mark.id,
-            ...(row ? { ...row, figures: sentence.figures } : checkText(sentence)),
-            cited: options.citedNow(sentence.cited),
-            recordClaim: noteTextOf(sentence),
-            place: { blockId: sentence.blockId, from: sentence.from },
-            scope: within.scope,
-            searched: within.wanted,
-            ...(row
-              ? { parts: [{ kind: "fact" as const, span: { start: 0, end: row.claim.length } }] }
-              : parts && { parts }),
-            ...(input.figureIds !== null && { figureIds: input.figureIds }),
-            ...(previousParts && {
-              previous: row
-                ? previousParts.length === 1 &&
-                  previousParts[0]?.kind === "fact" &&
-                  previousParts[0].span.start === 0 &&
-                  previousParts[0].span.end === sentence.text.length
-                  ? [{ ...previousParts[0], span: { start: 0, end: row.claim.length } }]
-                  : undefined
-                : previousParts,
-            }),
-            ...(priorParts && { priorParts }),
-          },
-        ];
-      });
-      if (marked.length > 0) options.recordUnread(blocks, requestId, unread);
-      return marked;
-    });
-
-    const { checked, stop } = await runChecks(options, {
+    const run: ChecksRun = {
       mindId,
-      queued,
       scope: scope.scope,
       searched: scope.wanted,
       prepared: ready.prepared,
       signal,
-    });
+    };
+    const limit = slots(claimsAtOnce(ready.prepared));
+    const early = earlyChecks(options.claimCheck, run, limit);
+    const nowOf = (blocks: Y.XmlFragment) => {
+      const current = everySentence(blocks);
+      return input.figureIds === null
+        ? current
+        : sentencesForFigures(current, markedSentences(blocks), input.figureIds);
+    };
+
+    /**
+     * The mark a claim gets and what its check sends, from the sentence as the Note has it now,
+     * found again by its words (the User may have written on while the model named the claims);
+     * null once it is gone. `named` is its parts as the sort named them, when the sort hasn't
+     * ended yet.
+     */
+    const placed = (
+      blocks: Y.XmlFragment,
+      now: readonly SelectedSentence[],
+      claim: SelectedSentence,
+      checkedAt: string,
+      named?: readonly ClaimPartPlan[],
+    ): { sentence: SelectedSentence; mark: ClaimCheckAttributes; queued: QueuedClaim } | null => {
+      const sentence = now.find(
+        (each) =>
+          each.blockId === claim.blockId &&
+          each.text === claim.text &&
+          each.occurrence === claim.occurrence,
+      );
+      if (!sentence) return null;
+      const owners = markedSentences(blocks).filter(
+        (each) =>
+          each.element === sentence.element && each.from < sentence.to && each.to > sentence.from,
+      );
+      const previousParts = owners.find((each) => each.check.text === sentence.text)?.check.parts;
+      const priorParts = owners.length === 1 ? owners[0]?.check.parts : undefined;
+      const parts = named ?? sorted.get(mindId)?.get(sentence.text) ?? previousParts?.map(planOf);
+      const within = scopeFor(claim);
+      const mark: ClaimCheckAttributes = {
+        id: randomUUID(),
+        request: requestId,
+        action: "check-against-documents",
+        state: "checking",
+        reason: null,
+        detail: null,
+        providerId: ready.prepared.provider.id,
+        modelId: ready.prepared.modelId,
+        text: sentence.text,
+        evidence: null,
+        says: null,
+        unsupported: null,
+        calculation: null,
+        citedCaseUnchecked: false,
+        citedCaseFound: false,
+        scope: within.marked,
+        versions: [],
+        excluded: [],
+        checkedAt,
+        ...(parts && { parts: pendingParts(parts, previousParts) }),
+      };
+      const selected = input.figureIds === null ? null : new Set(input.figureIds);
+      const rowClaim = sentence.figures?.some(
+        (figure) =>
+          figure.locator.kind === "text" && figure.locator.from.blockId !== sentence.blockId,
+      )
+        ? tableClaim(sentence)
+        : null;
+      const row = rowClaim !== null && rowClaim !== "not-a-claim" ? rowClaim : null;
+      const previous = owners[0]?.check ?? null;
+      const pending = sentence.figures?.length
+        ? beginFigureCheck(
+            previous,
+            mark,
+            sentence.figures,
+            selected,
+            row ? undefined : sentence.projection,
+          )
+        : mark;
+      return {
+        sentence,
+        mark: pending,
+        queued: {
+          id: mark.id,
+          ...(row ? { ...row, figures: sentence.figures } : checkText(sentence)),
+          cited: options.citedNow(sentence.cited),
+          recordClaim: noteTextOf(sentence),
+          place: { blockId: sentence.blockId, from: sentence.from },
+          scope: within.scope,
+          searched: within.wanted,
+          ...(row
+            ? { parts: [{ kind: "fact" as const, span: { start: 0, end: row.claim.length } }] }
+            : parts && { parts }),
+          ...(input.figureIds !== null && { figureIds: input.figureIds }),
+          ...(previousParts && {
+            previous: row
+              ? previousParts.length === 1 &&
+                previousParts[0]?.kind === "fact" &&
+                previousParts[0].span.start === 0 &&
+                previousParts[0].span.end === sentence.text.length
+                ? [{ ...previousParts[0], span: { start: 0, end: row.claim.length } }]
+                : undefined
+              : previousParts,
+          }),
+          ...(priorParts && { priorParts }),
+        },
+      };
+    };
+    /**
+     * What a claim's check reads besides its request: the Library, and for a record cite the
+     * Note's source choices and the paragraphs an `Id.` or `supra` refers back to.
+     */
+    let libraryNow: string | null = null;
+    // Read once for all the checks it is asked for at the same moment.
+    const library = () => {
+      if (libraryNow === null) {
+        libraryNow = options.libraryState();
+        queueMicrotask(() => {
+          libraryNow = null;
+        });
+      }
+      return libraryNow;
+    };
+    const readsNow = (claim: SelectedSentence) => {
+      const cites = recordCiteSpans(noteTextOf(claim)).length > 0;
+      return () =>
+        cites
+          ? JSON.stringify([
+              library(),
+              content.readSettings(mindId, readRecordCiteChoices),
+              content.read(mindId, recordCiteParagraphs),
+            ])
+          : library();
+    };
+    /** Starts a claim's check before the run's marks are written (`earlyChecks`). */
+    const startEarly = (claim: SelectedSentence, named?: readonly ClaimPartPlan[]) => {
+      try {
+        const found = content.read(mindId, (blocks) =>
+          placed(blocks, nowOf(blocks), claim, options.now().toISOString(), named),
+        );
+        if (found) early.start(found.queued, readsNow(claim));
+      } catch (error) {
+        // The run still checks it, once the claims are named.
+        console.error(`A sentence of Note ${mindId} couldn't be checked early:`, error);
+      }
+    };
+
+    let claims = again;
+    const unexamined = new Set(content.readSettings(mindId, readMindCheck)?.unexamined ?? []);
+    let ran: { checked: number; stop: RunStop | null; sentences: number };
+    try {
+      // The sort takes its places first, so the checks started early don't hold it back.
+      const sorting =
+        fresh.length > 0
+          ? sort(mindId, fresh, ready.prepared, signal, {
+              slots: limit,
+              named: (sentence, parts) => {
+                if (parts.some((part) => part.kind === "fact")) startEarly(sentence, parts);
+              },
+            })
+          : null;
+      for (const sentence of again) startEarly(sentence);
+      if (sorting) {
+        const found = await sorting;
+        if (found.kind !== "found") return found;
+        for (const sentence of found.left) skipped.add(sentenceKey(sentence.text));
+        for (const sentence of [...found.claims, ...found.left]) {
+          unexamined.delete(sentenceKey(sentence.text));
+        }
+        for (const sentence of found.undecided) unexamined.add(sentenceKey(sentence.text));
+        claims = [...found.claims, ...again];
+      }
+
+      const startedAt = options.now().toISOString();
+      const unread = options.unread(scope.wanted);
+      const queued = content.edit(mindId, (blocks) => {
+        const now = nowOf(blocks);
+        const marked = claims.flatMap((claim): QueuedClaim[] => {
+          const found = placed(blocks, now, claim, startedAt);
+          if (!found) return [];
+          markSentence(found.sentence.element, found.sentence.from, found.sentence.to, found.mark);
+          return [found.queued];
+        });
+        if (marked.length > 0) options.recordUnread(blocks, requestId, unread);
+        return marked;
+      });
+      early.keep(queued);
+
+      const result = await runChecks(
+        { ...options, claimCheck: early.claimCheck },
+        { ...run, queued, slots: limit },
+      );
+      ran = { ...result, sentences: queued.length };
+    } finally {
+      early.drop();
+    }
     if (signal.aborted) {
       options.settleStopped(mindId, requestId);
       return { kind: "cancelled" };
@@ -720,17 +836,17 @@ export function createMindCheck(options: MindCheckOptions) {
         writeMindCheck(settings, {
           at: options.now().toISOString(),
           sentences,
-          stop,
+          stop: ran.stop,
           skipped: [...skipped].filter((key) => keys.has(key)),
           unexamined: [...unexamined].filter((key) => keys.has(key)),
         }),
       );
     return {
       kind: "checked",
-      sentences: queued.length,
-      checked,
+      sentences: ran.sentences,
+      checked: ran.checked,
       smallModel: judgesUnreliably(ready.prepared),
-      stop,
+      stop: ran.stop,
     };
   }
 

@@ -288,11 +288,16 @@ export function createExamples(options: ExamplesOptions) {
       quote,
       document: documents.find((each) => each.name === quote.document),
     }));
-    // A Document that's gone is said first, so it never waits behind another still being read.
+    // What can't be answered is said first, a Document gone or read without text, so it never
+    // waits behind another still being read.
     const gone = cited.find((each) => !each.document);
     if (gone) return { kind: "gone", document: gone.quote.document };
+    const unread = cited.find(
+      ({ document }) => document?.status === "failed" || document?.status === "no-text",
+    );
+    if (unread) return { kind: "unreadable", document: unread.quote.document };
     const reading = cited.find(
-      (each) => each.document?.status === "queued" || each.document?.status === "extracting",
+      ({ document }) => document?.status === "queued" || document?.status === "extracting",
     );
     if (reading) return { kind: "reading", document: reading.quote.document };
     const citations: MarkedCitation[] = [];

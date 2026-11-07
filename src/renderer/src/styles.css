@@ -7511,6 +7511,14 @@
   .scroll-fade[data-more-after]::after {
     display: block;
   }
+  /*
+   * What a scroll into view brings to the foot (the Answer a link back seeks, the keyboard moving
+   * focus) stops above the fade rather than under it (#2622): the frame keeps the fade's height
+   * clear at its bottom.
+   */
+  .scroll-fade {
+    scroll-padding-bottom: 1.5lh;
+  }
   .assistant-empty {
     margin: 0;
     font-size: var(--text-ui);

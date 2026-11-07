@@ -45,12 +45,13 @@ describe("the smoke specs a pull request runs", () => {
     });
   });
 
-  test("a change to app code alone, the timing table or the packaged tests runs no spec", () => {
+  test("a change to app code alone, the timing table, the packaged tests or a note runs no spec", () => {
     expect(planFor(["src/core/core.ts", "src/renderer/src/styles.css"])).toEqual({
       specs: [],
       count: 0,
     });
     expect(planFor(["e2e/durations.json", "e2e/packaged/app.ts"])).toEqual({ specs: [], count: 0 });
+    expect(planFor(["e2e/demo/README.md", "e2e/audit/README.md"])).toEqual({ specs: [], count: 0 });
   });
 
   test("a deleted spec runs nothing", () => {
