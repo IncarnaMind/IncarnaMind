@@ -2,7 +2,7 @@ import { deflateSync } from "node:zlib";
 
 /**
  * Builds tiny, valid PDFs for tests, so fixtures stay readable and small
- * instead of being committed as binaries. The sample PDFs in `data/` are built
+ * instead of being committed as binaries. The sample PDFs in `eval/data/` are built
  * with it too (`scripts/sampleDocuments`), so what the app reads is the same
  * kind of file the tests do.
  */

@@ -24,6 +24,7 @@ import {
   type ExportFormat,
   type SaveChatProviderInput,
 } from "../src/core/api";
+import { openDatabase } from "../src/core/storage";
 import type { FakeTranscriberOptions } from "../src/core/transcription/fake";
 import { LOG_FILE } from "../src/main/log";
 import { EVENT_CHANNEL } from "../src/shared/bridge";
@@ -211,6 +212,8 @@ export interface LaunchOptions {
    * of the app as the User runs it.
    */
   realEngines?: boolean;
+  /** A stand-in for TypeSafe's hosted Jev, at this base URL. */
+  jev?: string;
   /**
    * More of the app's environment, by name: a made-up credential, or a switch such as
    * ELECTRON_DISABLE_SANDBOX. Nothing else comes from the test's own (`launchEnvironment`), and
@@ -288,6 +291,7 @@ export async function launchApp(
     sandboxed = false,
     sandboxNotice,
     realEngines = false,
+    jev,
     extraEnv,
     trace = false,
     switches = [],
@@ -325,6 +329,7 @@ export async function launchApp(
     INCARNAMIND_TEST_CLAUDE: claude,
     INCARNAMIND_TEST_CLAUDE_SIGN_IN_MS: claudeSignInMs ? String(claudeSignInMs) : undefined,
     INCARNAMIND_TEST_COPILOT: copilot,
+    INCARNAMIND_TEST_JEV: jev,
     INCARNAMIND_TEST_SCANS: scans,
     INCARNAMIND_TEST_SCANS_AT_ONCE: scansAtOnce ? String(scansAtOnce) : undefined,
     INCARNAMIND_TEST_MODEL_DOWNLOADS: modelDownloads && JSON.stringify(modelDownloads),
@@ -1939,6 +1944,63 @@ export async function setSilentWaitMs(window: Page, ms: number): Promise<void> {
   );
 }
 
+/** How the latest Answer's wait showed as it ran: joined on its step's row, or alone on the second. */
+export type AnswerWaitForm = {
+  at: number;
+  form: "joined" | "row";
+  text: string;
+  step: string;
+};
+
+/** Watches the wait of the latest Answer as it runs, with when each form first showed, for a test that must not miss a brief one. */
+export async function watchAnswerWaits(window: Page): Promise<() => Promise<AnswerWaitForm[]>> {
+  await window.evaluate(() => {
+    const seen: AnswerWaitForm[] = [];
+    (globalThis as unknown as { seenAnswerWaits: AnswerWaitForm[] }).seenAnswerWaits = seen;
+    let last: string | null = null;
+    const record = () => {
+      const assistant = document.querySelector('[data-testid="assistant"]');
+      const answer = [
+        ...(assistant?.querySelectorAll('[data-testid="assistant-answer"]') ?? []),
+      ].at(-1);
+      const row = answer?.querySelector('[data-testid="answer-steps-wait-row"]');
+      const joined = answer?.querySelector(
+        '.answer-steps-live-row:not(.answer-steps-live-row--second) [data-testid="answer-steps-wait"]',
+      );
+      const form: AnswerWaitForm["form"] | null = row ? "row" : joined ? "joined" : null;
+      const text = (row ?? joined)?.textContent ?? "";
+      const step =
+        answer?.querySelector('[data-testid="answer-steps-live"]')?.getAttribute("data-step") ?? "";
+      const key = form === null ? null : `${form}\u0000${text}\u0000${step}`;
+      if (key === last) return;
+      last = key;
+      if (form !== null) seen.push({ at: Date.now(), form, text, step });
+    };
+    new MutationObserver(record).observe(document.body, {
+      subtree: true,
+      childList: true,
+      characterData: true,
+    });
+  });
+  return () =>
+    window.evaluate(
+      () => (globalThis as unknown as { seenAnswerWaits: AnswerWaitForm[] }).seenAnswerWaits,
+    );
+}
+
+/** Records the Answers already in `dataDir` as taking `ms` to their first word, so the line knows a usual wait. */
+export async function answersTookAboutAMinute(dataDir: string, ms = 62_000): Promise<void> {
+  const db = openDatabase(join(dataDir, "incarnamind.db"));
+  try {
+    db.run(
+      "UPDATE conversation_messages SET steps = json_set(steps, '$.firstWordMs', ?) WHERE kind = 'answer'",
+      [ms],
+    );
+  } finally {
+    db.close();
+  }
+}
+
 /** Plays every animation at `speed` (0.2: five times slower), so a test can look, or act, during one. */
 export async function setMotionSpeed(window: Page, speed: number): Promise<void> {
   await window.evaluate(
@@ -2799,6 +2861,92 @@ export const stopSamples = (window: Page) =>
     holder.sampling = false;
     return holder.samples;
   });
+
+/** What the foot of a `.scroll-fade` frame shows (#2616); the numbers are px, and `fade` is 0 when none is drawn. */
+export interface FootFade {
+  /** The frame says content lies below its foot (`data-more-after`). */
+  marked: boolean;
+  fade: number;
+  foot: number;
+  /** The fade's `position`, and where it ends: the foot when it is drawn as it should be. */
+  position: string;
+  fadeBottom: number | null;
+  scrollHeight: number;
+  /** The text line the foot cuts in two, with the line height its element sets. */
+  cut: { top: number; bottom: number; lineHeight: number } | null;
+  last: number;
+}
+
+/**
+ * Scrolls a `.scroll-fade` frame until its foot barely cuts a line of `text`, with only a tenth of
+ * it below: the next line down, or at the frame's end the last one above. A line cut that little
+ * is the one a short fade leaves sharp.
+ */
+export const cutALineAtFoot = (frame: Locator, text: string) =>
+  frame.evaluate((element, selector) => {
+    const foot = element.getBoundingClientRect().bottom;
+    const edges: number[] = [];
+    for (const holder of element.querySelectorAll(selector)) {
+      const words = document.createTreeWalker(holder, NodeFilter.SHOW_TEXT);
+      for (let node = words.nextNode(); node; node = words.nextNode()) {
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        for (const rect of range.getClientRects()) {
+          if (rect.width > 0 && rect.height > 0) edges.push(rect.top + rect.height * 0.9);
+        }
+      }
+    }
+    const below = edges.filter((edge) => edge > foot);
+    const nearest = below.length > 0 ? Math.min(...below) : Math.max(...edges);
+    if (!Number.isFinite(nearest)) throw new Error("The frame holds no line of text.");
+    element.scrollTop += nearest - foot;
+  }, text);
+
+/** What the foot of a `.scroll-fade` frame shows now, for the lines of `text` in it. */
+export const footFadeOf = (frame: Locator, text: string): Promise<FootFade> =>
+  frame.evaluate((element, selector) => {
+    const foot = element.getBoundingClientRect().bottom;
+    const edge = getComputedStyle(element, "::after");
+    let cut: FootFade["cut"] = null;
+    let last = Number.NEGATIVE_INFINITY;
+    for (const holder of element.querySelectorAll(selector)) {
+      const words = document.createTreeWalker(holder, NodeFilter.SHOW_TEXT);
+      for (let node = words.nextNode(); node; node = words.nextNode()) {
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        for (const rect of range.getClientRects()) {
+          if (rect.width === 0 || rect.height === 0) continue;
+          last = Math.max(last, rect.bottom);
+          if (rect.top < foot - 0.5 && rect.bottom > foot + 0.5 && node.parentElement) {
+            cut = {
+              top: rect.top,
+              bottom: rect.bottom,
+              lineHeight: Number.parseFloat(getComputedStyle(node.parentElement).lineHeight),
+            };
+          }
+        }
+      }
+    }
+    // A pseudo-element has no box to measure: a real element with its positioning stands in.
+    let fadeBottom: number | null = null;
+    if (edge.display !== "none") {
+      const stand = document.createElement("div");
+      stand.style.cssText = `position: ${edge.position}; bottom: ${edge.bottom}; display: block; height: ${edge.height}; margin-top: ${edge.marginTop};`;
+      element.append(stand);
+      fadeBottom = stand.getBoundingClientRect().bottom;
+      stand.remove();
+    }
+    return {
+      marked: element.hasAttribute("data-more-after"),
+      fade: edge.display === "none" ? 0 : Number.parseFloat(edge.height),
+      foot,
+      position: edge.position,
+      fadeBottom,
+      scrollHeight: element.scrollHeight,
+      cut,
+      last,
+    };
+  }, text);
 
 /** The assistant's Answers (#201), in the conversation it shows. */
 export const assistantAnswers = (window: Page) =>

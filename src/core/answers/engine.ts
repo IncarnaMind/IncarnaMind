@@ -429,6 +429,8 @@ export interface AnswerRequest {
    * read the Minds, and the search rewrite's notebook.
    */
   mindsLine?: { line: string; asked: string };
+  /** The scope lines the Answer added just before the Question, kept out of the search rewrite's context (#2529). */
+  scopeLine?: string;
   /** The model to answer with, from `Core.prepareChatModel`. */
   model: ChatLanguageModel;
   /**
@@ -906,7 +908,10 @@ async function searchQuery(
   small: () => Promise<SmallCallModel>,
 ): Promise<SmallCallResult<string>> {
   const { question, signal } = request;
-  const earlier = earlierContext(request.messages, question);
+  const earlier = earlierContext(request.messages, question, undefined, [
+    request.scopeLine ?? "",
+    request.mindsLine?.line ?? "",
+  ]);
   if (!earlier) return { value: question, usage: null };
   try {
     const { model, temperature } = await small();

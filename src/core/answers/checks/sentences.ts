@@ -711,12 +711,18 @@ type CheckedSentence = MarkedSentence & {
   cited: CitedQuote[];
   noteText?: string;
   place?: RecordCitePlace;
+  /**
+   * Where the whole sentences its mark is in are in the Block. A mark covers only their text, so
+   * a figure that ends its line ("- North: total amount 9,450") is inside these but past the mark.
+   */
+  sentences: { from: number; to: number };
 };
 
 const checkedOfBlock = perBlock((block): readonly CheckedSentence[] =>
   marksOfBlock(block).map((marked) => {
     const { element, from, to } = marked;
-    if (element.nodeName === CHART_NODE) return { ...marked, sentence: textOf(element), cited: [] };
+    if (element.nodeName === CHART_NODE)
+      return { ...marked, sentence: textOf(element), cited: [], sentences: { from: 0, to: 1 } };
     const { text, spans } = claimFrame(element);
     const touched = spans.filter((span) => span.from < to && span.to > from);
     const blockId = element.getAttribute(BLOCK_ID_ATTRIBUTE);
@@ -727,6 +733,10 @@ const checkedOfBlock = perBlock((block): readonly CheckedSentence[] =>
       cited: touched.flatMap((span) => span.cited),
       noteText: textOf(element).slice(start, touched.at(-1)?.to ?? 0),
       ...(typeof blockId === "string" && { place: { blockId, from: start } }),
+      sentences: {
+        from: Math.min(touched[0]?.from ?? from, from),
+        to: Math.max(touched.at(-1)?.to ?? to, to),
+      },
     };
   }),
 );

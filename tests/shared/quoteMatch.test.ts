@@ -101,6 +101,16 @@ describe("finding a quote", () => {
     expect(covered(text, "inter-national")).toBe("inter-\nnational");
     expect(findQuote(text, "inter national")).toBeNull();
   });
+
+  test("a quotation mark matches its own kind only, as in code the kind carries the meaning (#2504)", () => {
+    const sql = "ALTER TABLE “users” DROP COLUMN “email”;";
+    expect(covered(sql, 'alter table "users" drop column "email"')).toBe(sql.slice(0, -1));
+    expect(findQuote(sql, "alter table ‘users’ drop column ‘email’")).toBeNull();
+    expect(covered("他的「软权重」特性", "他的“软权重”特性")).toBe("他的「软权重」特性");
+    expect(findQuote("他的“软权重”特性", "他的‘软权重’特性")).toBeNull();
+    expect(covered("The ‘Drop table’ item", "the 'drop table' item")).toBe("The ‘Drop table’ item");
+    expect(findQuote("The “Drop table” item", "the ‘drop table’ item")).toBeNull();
+  });
 });
 
 describe("a table's row, with or without the pipes between its cells (#76)", () => {

@@ -20,9 +20,10 @@ export interface ArrivingInMind {
   open: boolean;
 }
 
+/** What this window still has on its way in one Note, or, for null, in any. */
 export function arrivingInMind(
   messages: readonly ConversationMessage[],
-  mindId: string,
+  mindId: string | null,
   arrivingAnswers: ReadonlySet<string>,
 ): ArrivingInMind {
   const requests = new Set<string>();
@@ -30,7 +31,7 @@ export function arrivingInMind(
   for (const message of messages) {
     if (message.kind !== "answer") continue;
     for (const row of changedMinds(message)) {
-      if (row.mindId !== mindId) continue;
+      if (mindId !== null && row.mindId !== mindId) continue;
       for (const request of row.requests) {
         known.add(request);
         if (arrivingAnswers.has(message.id)) requests.add(request);

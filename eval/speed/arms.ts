@@ -13,6 +13,7 @@ import type {
   CheckPathsOverride,
   Core,
 } from "../../src/core";
+import { estimateTokens } from "../../src/core/answers/context";
 import type { ChatModelSpec } from "../../src/core/providers/models";
 
 export interface Arm {
@@ -26,9 +27,31 @@ export interface Arm {
   /** Each model request while the arm runs, as it is sent. */
   request?(params: LanguageModelV4CallOptions): LanguageModelV4CallOptions;
   /** Answer paths every model takes or doesn't while the arm runs; unset: the lists'. */
-  paths?: { writesThenCites?: boolean; retrievesFirst?: boolean };
+  paths?: {
+    writesThenCites?: boolean;
+    retrievesFirst?: boolean;
+  };
   /** Whether the quick model looks first at every written sentence (#1667); unset: the list's. */
   checks?: { quickFirstLook?: boolean };
+}
+
+/** The most of the live transcript `newest-stretch` keeps: some three minutes of talk. */
+const STRETCH_TOKENS = 400;
+
+/** A request's live transcript cut to its newest Passages within `STRETCH_TOKENS`, the newest at least. */
+export function newestStretch(text: string): string {
+  return text.replace(/<live-transcript>\n([\s\S]*?)\n<\/live-transcript>/, (_, shown: string) => {
+    const passages = shown.match(/<passage [^>]*>\n[\s\S]*?\n<\/passage>/g) ?? [];
+    const kept: string[] = [];
+    let left = STRETCH_TOKENS;
+    for (const passage of [...passages].reverse()) {
+      const cost = estimateTokens(passage);
+      if (kept.length > 0 && cost > left) break;
+      kept.unshift(passage);
+      left -= cost;
+    }
+    return `<live-transcript>\n${kept.join("\n\n")}\n</live-transcript>`;
+  });
 }
 
 // An arm that compares one Answer path keeps every other as the Tool loop has it from its first
@@ -69,6 +92,23 @@ export const ARMS: readonly Arm[] = [
       spec.thinking === undefined || spec.thinking === "off"
         ? spec
         : { ...spec, thinking: "summary" },
+  },
+  {
+    id: "newest-stretch",
+    label: `call help reads only the newest ${STRETCH_TOKENS} tokens of the live transcript, the newest Passage at least (#2526)`,
+    request: (params) => ({
+      ...params,
+      prompt: params.prompt.map((message) =>
+        message.role === "user"
+          ? {
+              ...message,
+              content: message.content.map((part) =>
+                part.type === "text" ? { ...part, text: newestStretch(part.text) } : part,
+              ),
+            }
+          : message,
+      ),
+    }),
   },
   {
     id: "retrieve-first",

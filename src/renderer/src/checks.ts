@@ -15,6 +15,7 @@ import {
   type CitationAttributes,
   CLAIM_CHECK_MARK,
   type ClaimCheckAction,
+  type ClaimCheckAttributes,
   type ClaimCheckPart,
   type ClaimPartSpan,
   type DocumentCheckPlan,
@@ -23,7 +24,7 @@ import {
   type SearchScope,
 } from "../../core/api";
 import { overlapsCitation } from "../../shared/citationOverlap";
-import { quotedWordsFoundIn } from "../../shared/citations";
+import { parseQuotedWords, quotedWordsFoundIn } from "../../shared/citations";
 import { core } from "./core";
 import { citationDecision, partDecisions } from "./editor/alreadyCited";
 import type { NumberedCitation } from "./editor/citationNumbers";
@@ -31,7 +32,7 @@ import { claimSpans, placeInSentence, type ShownClaim } from "./editor/claimChec
 import { asOneStep } from "./editor/editorUndo";
 import { selectionForEdit } from "./editor/editSelection";
 import { type BlockPlace, pendingIn, placeOnAccept, positionOf } from "./editor/proposalReview";
-import { resolveProposalsIn } from "./editWithAi";
+import { resolveProposalsIn, useEdits } from "./editWithAi";
 import { modelInUseOf } from "./modelInUse";
 
 /** Why a check gave no marks, or what it left out, for the check badge's card. */
@@ -377,6 +378,36 @@ export function acceptAndCheck(
   });
 }
 
+/** Whether no edit or check is running in the Mind, so one of its fixes can change it. */
+export const fixesFree = (mindId: string): boolean =>
+  !useEdits.getState().pending[mindId] && !useChecks.getState().running[mindId];
+
+/**
+ * Puts back the check a fix took the sentence's mark from, once Undo has brought its words back:
+ * every check over the sentence goes, as the re-check's may run past where the earlier one ended.
+ */
+export function restoreCheck(
+  editor: Editor,
+  claim: ShownClaim,
+  earlier: ClaimCheckAttributes,
+): void {
+  if (editor.isDestroyed) return;
+  const type = editor.state.schema.marks[CLAIM_CHECK_MARK];
+  if (!type) return;
+  const from = Math.max(0, Math.min(claim.from, claim.sentence.from));
+  const to = Math.min(editor.state.doc.content.size, Math.max(claim.to, claim.sentence.to));
+  if (from >= to) return;
+  const tr = editor.state.tr;
+  editor.state.doc.nodesBetween(from, to, (node, pos) => {
+    if (!node.isText) return true;
+    if (node.marks.some((mark) => mark.type === type))
+      tr.removeMark(Math.max(from, pos), Math.min(to, pos + node.nodeSize), type);
+    return true;
+  });
+  tr.addMark(from, to, type.create({ ...earlier })).setMeta("addToHistory", false);
+  editor.view.dispatch(tr);
+}
+
 /** Stops the Mind's check: the sentences not checked yet say "stopped". */
 export function stopCheck(mindId: string): void {
   const running = useChecks.getState().running[mindId];
@@ -572,6 +603,7 @@ export function replaceCitation(
     check: "found",
     checkReason: null,
     verdict: evidence.verdict ?? null,
-    quotedWords: evidence.quotedWords ?? citation.attributes.quotedWords ?? null,
+    // The words not found stay for the core's re-check; a next page they ran on to was the old quote's.
+    quotedWords: evidence.quotedWords ?? parseQuotedWords(citation.attributes.quotedWords),
   });
 }

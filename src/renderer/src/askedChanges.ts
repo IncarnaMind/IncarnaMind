@@ -19,6 +19,7 @@ import type {
   AskedChangeApplication,
   AskedChangeTransition,
   ConversationAnswer,
+  ConversationMessage,
   TabItem,
 } from "../../core/api";
 import { askedFor } from "../../shared/askedChanges";
@@ -33,6 +34,7 @@ import {
   shareCoreUndo,
   undoCoreChange,
 } from "./appliedEdits";
+import { arrivingInMind, arrivingNow } from "./arrivingChanges";
 import { forgetMindsMadeBy } from "./assistantMinds";
 import { type ChangedMind, changedMinds } from "./changedMinds";
 import { changeFact } from "./changeFacts";
@@ -106,10 +108,24 @@ const catchingUp = new Map<string, () => void>();
 const deferring = new Set<string>();
 const headlessChanges = new Map<string, HeadlessChange>();
 
-/** Whether this window has a Question in flight whose request, as the Mind's record has it, asks for these changes. */
-export function askedInThisWindow(state: EditorState, request: string): boolean {
+/**
+ * Whether a request's changes apply as they arrive in this window, by the measure the Answer's
+ * card counts them with, so the Note never draws as applied what the card says waits: one an
+ * Answer still on its way asked for, or one no Answer in `messages` names yet. A Note that opens
+ * while an Answer runs also holds the asked-for changes of Answers that ended (#1358).
+ */
+export function askedInThisWindow(
+  state: EditorState,
+  request: string,
+  messages: readonly ConversationMessage[],
+): boolean {
   const doc = ySyncPluginKey.getState(state)?.binding?.doc;
-  return askedHere.size > 0 && doc !== undefined && askedFor(doc, request);
+  if (doc === undefined || askedHere.size === 0) return false;
+  return arrivingNow(
+    doc,
+    request,
+    arrivingInMind(messages, null, useAskedChanges.getState().arriving),
+  );
 }
 
 const keyOf = (answerId: string, mindId: string) => `${answerId} ${mindId}`;

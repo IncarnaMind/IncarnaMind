@@ -36,9 +36,36 @@ import { verdictOf } from "../repeats/score";
 import { SIGNS } from "./flows";
 import type { Expectation, Grade } from "./judge";
 
-export const SET_IDS = ["gating", "hard", "everyday", "checks", "cells", "written"] as const;
+export const SET_IDS = [
+  "gating",
+  "hard",
+  "everyday",
+  "checks",
+  "cells",
+  "written",
+  "call-help",
+] as const;
 export type SetId = (typeof SET_IDS)[number];
 export type Language = "en" | "zh-CN";
+
+/** A model request or a step on this computer an item made, from the core's timing records. */
+export interface RequestTiming {
+  kind: "model" | "local";
+  /** What it was for (src/core/timing): null for an Answer's own request. */
+  step: string | null;
+  model: string;
+  reasoning: string | null;
+  /** From the User's action. */
+  startMs: number;
+  /** From its own start. */
+  firstByteMs: number | null;
+  firstReasoningMs: number | null;
+  firstTextMs: number | null;
+  firstToolMs: number | null;
+  endMs: number;
+  inputTokens: number | null;
+  outputTokens: number | null;
+}
 
 /** What one arm did on one item. */
 export interface ArmRun {
@@ -46,6 +73,8 @@ export interface ArmRun {
   error: string | null;
   firstSignMs: number | null;
   firstWordsMs: number | null;
+  /** The first whole option, reading or line a help reply shows; absent: not a help reply. */
+  firstOptionMs?: number | null;
   doneMs: number | null;
   modelCalls: number;
   /** Of them, the Answer's own: not its search rewrite, translation or checks. */
@@ -68,9 +97,14 @@ export interface ArmRun {
   failures: string[];
   /** The Answer or reply, to read a difference by hand. */
   text: string;
+  /** Each request and local step, for an item that reads them (a help reply). */
+  requests?: RequestTiming[];
 }
 
-/** What an item measures itself; the times and calls come from the run around it. */
+/**
+ * What an item measures itself; the times and calls come from the run around it, but for the
+ * first words of an item that tells them itself (`words: "item"`).
+ */
 export type Measured = Omit<
   ArmRun,
   | "firstSignMs"
@@ -80,7 +114,7 @@ export type Measured = Omit<
   | "answerCalls"
   | "inputTokens"
   | "outputTokens"
->;
+> & { firstWordsMs?: number | null };
 
 export interface ItemContext {
   /** The library, whose `timings.begin()` marks the User's action. */
@@ -94,6 +128,8 @@ export interface ItemContext {
   claimsJudge: Parameters<typeof runCase>[2];
   /** For an item with no Answer whose end the core announces: its end, before what it reads afterwards (a grade). */
   ended?(): void;
+  /** The recording Meeting its group heard, for an item asked during a call. */
+  meeting?: { id: string };
 }
 
 export interface PairedItem {
@@ -102,8 +138,11 @@ export interface PairedItem {
   /** What a short run spreads over (INCARNAMIND_EVAL_SPEED_EACH): a difficulty, a group, a set. */
   kind: string;
   language: Language;
-  /** Where the first words are: the Answer's own text, or the first words the core sends anywhere. */
-  words: "answer" | "events";
+  /**
+   * Where the first words are: the Answer's own text, the first words the core sends anywhere, or
+   * those the item tells (the words a help panel shows).
+   */
+  words: "answer" | "events" | "item";
   run(context: ItemContext): Promise<Measured>;
 }
 
@@ -111,6 +150,8 @@ export interface OpenedGroup {
   library: Library;
   /** Items it can't ask: a hard-tier Question whose quotes the stored text doesn't hold. */
   leftOut?: ReadonlySet<string>;
+  /** The Meeting it recorded, for items asked during a call. */
+  meeting?: { id: string };
   close(): Promise<void>;
 }
 
@@ -647,7 +688,11 @@ export async function runOnArm(
     answerCalls: own.length,
     firstSignMs: sign,
     firstWordsMs:
-      item.words === "answer" ? recording && firstKeptText(recording.textEvents) : words,
+      item.words === "item"
+        ? (measured.firstWordsMs ?? null)
+        : item.words === "answer"
+          ? recording && firstKeptText(recording.textEvents)
+          : words,
     doneMs,
     modelCalls: calls.length,
     inputTokens: calls.reduce((sum, call) => sum + (call.inputTokens ?? 0), 0),

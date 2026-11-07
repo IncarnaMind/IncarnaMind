@@ -168,7 +168,12 @@ export type WordsShape =
   /** The Answer writes the figure in a line of its own; the User types the sentence's words around it in the Note. */
   | { kind: "retyped" }
   /** A typed table's cell under `caption`, in the row `label`, holding the figure alone. */
-  | { kind: "cell"; caption: string; headings: readonly [string, string]; label: string };
+  | { kind: "cell"; caption: string; headings: readonly [string, string]; label: string }
+  /**
+   * A list (#2584), the sentence its Markdown: in the Note the Answer writes, or, `added`, in an
+   * Answer in the assistant that the User adds to a Note of their own.
+   */
+  | { kind: "list"; form: "bullet" | "numbered" | "nested" | "several"; added?: boolean };
 
 export interface WordsCase {
   name: string;
@@ -176,6 +181,8 @@ export interface WordsCase {
   kind: string;
   right: boolean;
   figure: WordsFigure;
+  /** The figures [=2], [=3]… stand for, in a sentence that holds more than one. */
+  also?: readonly WordsFigure[];
   shape: WordsShape;
   /** Its words, the figure's marker [=1] where the number goes; a cell holds [=1] alone. */
   sentence: string;
@@ -199,12 +206,13 @@ export function wordsLabel(language: WordsCase["language"], figure: WordsFigure)
 
 type Row = [right: boolean, kind: string, figure: WordsFigure, shape: WordsShape, sentence: string];
 
-const f = (dataset: WordsDatasetId, group: string, column: string, how: WordsHow = "sum") => ({
-  dataset,
-  group,
-  column,
-  how,
-});
+export const wordsFigure = (
+  dataset: WordsDatasetId,
+  group: string,
+  column: string,
+  how: WordsHow = "sum",
+): WordsFigure => ({ dataset, group, column, how });
+const f = wordsFigure;
 const answer: WordsShape = { kind: "answer" };
 const retyped: WordsShape = { kind: "retyped" };
 const before = (words: string): WordsShape => ({ kind: "answer", before: words });
