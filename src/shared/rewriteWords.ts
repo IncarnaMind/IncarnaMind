@@ -142,6 +142,9 @@ const FUNCTION_WORDS = new Set(
   "a an the of is are was were be been with for as and or its this that".split(" "),
 );
 const FUNCTION_CHARACTERS = new Set([..."的为是与和"]);
+/** The change verbs after which 为 says "to", as 至 does: 增加为 gives a level, 增加 a change. */
+const CHANGE_VERB =
+  /(?:[增减升降涨跌]|增加|增长|提高|调高|降低|调低|上调|下调|上浮|下浮|调整|减少|下滑|扩大|缩小)$/u;
 /** Words either side may say where the other doesn't, without changing what a figure is of. */
 const ADDABLE = new Set([..."shall must each every any all".split(" "), ..."应当须本每位"]);
 
@@ -188,25 +191,26 @@ export const ratesIn = (text: string): Set<Rate> =>
   );
 
 /**
+ * "By" and a verb of giving notice just before a figure, which say what "with" says: "by giving 90
+ * days' notice" is "with 90 days' notice". Only these verbs, as a word after "by" is as often
+ * whose figure it is ("by Marketing", "by financing").
+ */
+const BY_GIVING_NOTICE = /\b[Bb]y\s+(?:giving|sending|serving)\s*$/u;
+
+/**
  * The words before a figure that say what it is of, in their order, each as often as it is said
  * (the Tenant again is not the Landlord again): Latin words by their stems, a lone capital too
  * (Party A is not Party B), and Chinese characters one by one.
- * Left out are the words either side may add, "by" with a verb right after it ("by giving 90
- * days"), and a rate word ("annual") whose period both sides name.
+ * Left out are the words either side may add, "by" with a verb of giving notice just before the
+ * figure (`BY_GIVING_NOTICE`), and a rate word ("annual") whose period both sides name.
  */
 function figureWords(text: string, periods: ReadonlySet<Rate>): string[] {
   const words: string[] = [];
-  let previous = "";
-  for (const token of tokensOf(text)) {
+  for (const token of tokensOf(text.replace(BY_GIVING_NOTICE, ""))) {
     const word = /^\p{Lu}$/u.test(token) ? token : token.toLowerCase();
-    const afterBy = previous === "by";
-    previous = word;
     if (/^\p{Script=Han}$/u.test(token)) {
-      if (!FUNCTION_CHARACTERS.has(token) && !ADDABLE.has(token)) words.push(token);
-      continue;
-    }
-    if (afterBy && word.endsWith("ing")) {
-      words.pop();
+      const tie = token === "为" && CHANGE_VERB.test(words.slice(-2).join(""));
+      if (tie || (!FUNCTION_CHARACTERS.has(token) && !ADDABLE.has(token))) words.push(token);
       continue;
     }
     const rate = RATE_WORDS[word];
