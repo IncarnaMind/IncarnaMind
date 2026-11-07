@@ -1,5 +1,5 @@
 /**
- * The pretend Deepgram, AssemblyAI, Gemini Live, xAI, Speechmatics, ElevenLabs, Gladia and Mistral
+ * The pretend Deepgram, AssemblyAI, Gemini Live, xAI, Speechmatics, ElevenLabs and Gladia
  * services (#866), for the tests and the smoke tests, beside ./fakeCloud's other three. Each
  * speaks its service's messages as its published
  * protocol shows them, never the network: a line for every two seconds of sound, with its words'
@@ -644,65 +644,3 @@ export function fakeGladiaFetch(options: FakeLiveOptions): CloudServing["fetch"]
     return json(201, { id, url: `wss://api.gladia.io/v2/live?token=${id}` });
   };
 }
-
-/**
- * Mistral: https://docs.mistral.ai/studio/audio/speech-to-text/transcribe-in-realtime and its
- * turn detection. A refused key and an account out of credit are its API's 401 and 402 at the
- * handshake; how its socket says them isn't published, so the owner's hand check confirms it.
- */
-export const fakeMistral: Make = (options, nextLine, events) => {
-  const link = connection(events);
-  const lines = lineMaker(nextLine, 1);
-  later(() => {
-    if (options.refuse) return link.close(HANDSHAKE_REFUSED);
-    if (options.noCredit) return link.close(HANDSHAKE_NO_CREDIT);
-    events.open();
-    link.reply({
-      type: "session.created",
-      session: {
-        request_id: "fake-request",
-        model: "voxtral-mini-transcribe-realtime-3",
-        audio_format: { encoding: "pcm_s16le", sample_rate: 16000 },
-        target_streaming_delay_ms: 480,
-      },
-    });
-  });
-  return {
-    send(data) {
-      if (link.closed || typeof data !== "string") return;
-      const message = JSON.parse(data) as { type?: string; session?: object; audio?: string };
-      if (message.type === "session.update") {
-        link.reply({ type: "session.updated", session: message.session });
-        return;
-      }
-      if (message.type === "input_audio.end") {
-        link.reply({
-          type: "transcription.done",
-          text: "",
-          segments: [],
-          language: "en",
-          model: "voxtral-mini-transcribe-realtime-3",
-        });
-        return;
-      }
-      if (message.type !== "input_audio.append" || !message.audio) return;
-      for (const line of lines.hear(samplesOf(Buffer.from(message.audio, "base64"))).lines) {
-        const words = line.text.split(" ");
-        const half = Math.ceil(words.length / 2);
-        link.reply({ type: "turn.start", time_s: line.startMs / 1000 });
-        words.slice(0, half).forEach((word, index) => {
-          link.reply({ type: "transcription.text.delta", text: index === 0 ? word : ` ${word}` });
-        });
-        // Its last words come just after the turn ends.
-        link.reply({ type: "turn.end", time_s: line.endMs / 1000, end_reason: "threshold" });
-        for (const word of words.slice(half)) {
-          link.reply({ type: "transcription.text.delta", text: ` ${word}` });
-        }
-      }
-      if (options.dropAfterMs !== undefined && lines.sentMs >= options.dropAfterMs) {
-        link.close(1011);
-      }
-    },
-    close: () => link.close(1000),
-  };
-};

@@ -36,7 +36,6 @@ const PROVIDERS = {
   openai: { kind: "openai", apiKey: "sk-test", modelId: "gpt-6-luna" },
   qwen: { kind: "qwen", apiKey: "sk-qwen-test", modelId: "qwen3.7-plus" },
   gemini: { kind: "google", apiKey: "AIza-test-key", modelId: "gemini-3.8-flash" },
-  mistral: { kind: "mistral", apiKey: "mistral-test-key", modelId: "mistral-small-2603" },
   xai: { kind: "xai", apiKey: "xai-test-key", modelId: "grok-4.3" },
 } as const;
 
@@ -85,7 +84,6 @@ describe("Live routes on the User's own key", { timeout: 60_000 }, () => {
     ["elevenlabs", ["Me", "Them"]],
     ["speechmatics", ["Me", "Speaker 1", "Speaker 2"]],
     ["gladia", ["Me", "Them"]],
-    ["mistral", ["Me", "Them"]],
     ["xai", ["Me", "Speaker 1", "Speaker 2"]],
   ] as const) {
     test(`${route}: a Meeting is transcribed live, with the voices it tells apart`, async () => {
@@ -117,7 +115,6 @@ describe("Live routes on the User's own key", { timeout: 60_000 }, () => {
     "elevenlabs",
     "speechmatics",
     "gladia",
-    "mistral",
     "xai",
   ] as const) {
     test(`${route}: an account out of credit says so, apart from a refused key, and the Meeting goes on on this computer`, async () => {
@@ -384,6 +381,22 @@ describe("Choosing a live route", () => {
     );
   });
 
+  test("xAI's line says what to do before choosing it: turn zero data retention on, as its terms ask with a meeting's audio", async () => {
+    const dataDir = await createTempDataFolder();
+    const { core } = await transcribingCore(dataDir);
+    const { services } = await core.listTranscriptionServices();
+    expect(services.find((each) => each.route === "xai")?.dataUse).toEqual({
+      summary: {
+        en: "xAI keeps the audio for 30 days for abuse checks, and its terms ask for zero data retention when audio holds personal data, as a meeting’s does: turn zero data retention on for your xAI team before you choose it.",
+        zh: "xAI 会将音频保留 30 天用于滥用审查；其条款要求含有个人数据（会议音频就是）时开启零数据保留：请先为你的 xAI 团队开启零数据保留，再选择它。",
+      },
+      url: {
+        en: "https://x.ai/legal/terms-of-service-enterprise",
+        zh: "https://x.ai/legal/terms-of-service-enterprise",
+      },
+    });
+  });
+
   test("each route says which of the User's languages it doesn't transcribe", async () => {
     const dataDir = await createTempDataFolder();
     const { core } = await transcribingCore(dataDir, { systemLanguages: ["th-TH", "en-GB"] });
@@ -400,12 +413,10 @@ describe("Choosing a live route", () => {
       elevenlabs: [],
       speechmatics: ["th"],
       gladia: [],
-      mistral: ["zh", "th"],
       xai: [],
     });
-    // Chinese and English, the interface's and the computer's, are covered everywhere but on
-    // Mistral, whose list for its real-time model has no Chinese.
-    for (const service of services.filter((each) => each.route !== "mistral")) {
+    // Chinese and English, the interface's and the computer's, are covered everywhere.
+    for (const service of services) {
       expect(service.languages).toEqual(expect.arrayContaining(["zh", "en"]));
     }
   });

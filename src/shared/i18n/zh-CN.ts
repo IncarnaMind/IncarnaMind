@@ -3461,7 +3461,6 @@ export const zhCN = {
   "meetings.route.elevenlabs": "ElevenLabs",
   "meetings.route.speechmatics": "Speechmatics",
   "meetings.route.gladia": "Gladia",
-  "meetings.route.mistral": "Mistral",
   "meetings.route.xai": "xAI",
   "meetings.route.here": "在这台电脑上转写",
   "meetings.route.hereLine": "私密、免费",

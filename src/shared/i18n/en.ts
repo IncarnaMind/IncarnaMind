@@ -3640,7 +3640,6 @@ export const en = {
   "meetings.route.elevenlabs": "ElevenLabs",
   "meetings.route.speechmatics": "Speechmatics",
   "meetings.route.gladia": "Gladia",
-  "meetings.route.mistral": "Mistral",
   "meetings.route.xai": "xAI",
   "meetings.route.here": "Transcribe on this computer",
   "meetings.route.hereLine": "Private and free",

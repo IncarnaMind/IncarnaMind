@@ -13,7 +13,6 @@ import {
   ELEVENLABS_MODEL,
   GEMINI_LIVE_MODEL,
   GLADIA_MODEL,
-  MISTRAL_REALTIME_MODEL,
   QWEN_REALTIME_PATH,
   SPEECHMATICS_MODEL,
   XAI_STT_MODEL,
@@ -513,48 +512,6 @@ const GLADIA_LANGUAGES = [
   "yo",
 ];
 
-/**
- * The 35 languages Mistral names for Voxtral Realtime 3, in its FLEURS chart at
- * https://mistral.ai/news/voxtral-3/. It says 45 but lists no others, and Chinese isn't among these.
- */
-const MISTRAL_LANGUAGES = [
-  "ar",
-  "bn",
-  "bg",
-  "ca",
-  "cs",
-  "nl",
-  "en",
-  "et",
-  "fi",
-  "fr",
-  "de",
-  "el",
-  "gu",
-  "hi",
-  "id",
-  "it",
-  "ja",
-  "kn",
-  "ko",
-  "lv",
-  "mk",
-  "ms",
-  "ml",
-  "mr",
-  "no",
-  "fa",
-  "pl",
-  "pt",
-  "ro",
-  "ru",
-  "sk",
-  "es",
-  "tl",
-  "te",
-  "tr",
-];
-
 /** grok-voice-transcribe-2.0's table at https://docs.x.ai/developers/model-capabilities/audio/speech-to-text. */
 const XAI_LANGUAGES = [
   "ar",
@@ -802,28 +759,7 @@ export const TRANSCRIPTION_SERVICES: Readonly<
     languages: GLADIA_LANGUAGES,
     checked: "2026-11-07",
   },
-  mistral: {
-    route: "mistral",
-    name: "Mistral",
-    model: MISTRAL_REALTIME_MODEL,
-    perHour: { currency: "USD", amount: 0.48 },
-    service: { id: "https://api.mistral.ai", name: "Mistral" },
-    recipient: { en: "Mistral", zh: "Mistral" },
-    dataUse: {
-      summary: {
-        en: "Its real-time model is a preview: Mistral may train on the meeting audio and its text, even if you opted out or have zero data retention.",
-        zh: "它的实时模型仍是预览版：即使你已选择退出或开启了零数据保留，Mistral 仍可能用会议音频和转写文字训练模型。",
-      },
-      url: {
-        en: "https://legal.mistral.ai/terms/commercial-terms-of-service",
-        zh: "https://legal.mistral.ai/terms/commercial-terms-of-service",
-      },
-    },
-    key: "provider",
-    liveSpeakers: false,
-    languages: MISTRAL_LANGUAGES,
-    checked: "2026-11-07",
-  },
+
   xai: {
     route: "xai",
     name: "xAI",
@@ -833,8 +769,8 @@ export const TRANSCRIPTION_SERVICES: Readonly<
     recipient: { en: "xAI", zh: "xAI" },
     dataUse: {
       summary: {
-        en: "xAI doesn’t train on the audio without your permission, and keeps it 30 days for abuse checks, then deletes it, unless your team turned on zero data retention, which its terms ask for with personal data.",
-        zh: "未经你许可，xAI 不会用音频训练模型；音频会保留 30 天用于滥用审查，之后删除，除非你的团队开启了零数据保留（它的条款要求含个人数据时开启）。",
+        en: "xAI keeps the audio for 30 days for abuse checks, and its terms ask for zero data retention when audio holds personal data, as a meeting’s does: turn zero data retention on for your xAI team before you choose it.",
+        zh: "xAI 会将音频保留 30 天用于滥用审查；其条款要求含有个人数据（会议音频就是）时开启零数据保留：请先为你的 xAI 团队开启零数据保留，再选择它。",
       },
       url: {
         en: "https://x.ai/legal/terms-of-service-enterprise",

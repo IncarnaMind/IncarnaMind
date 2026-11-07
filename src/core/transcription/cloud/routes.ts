@@ -1,8 +1,8 @@
 /**
  * Where meeting audio is transcribed (#141, #866), as the core decides it: on this computer by
  * default, or live by the cloud service the User chose in Settings › Meetings or on the
- * first-recording sheet, with their own key. OpenAI's, Qwen's, Gemini's, Mistral's and xAI's is
- * the key of their provider in Settings › Models; Soniox, Deepgram, AssemblyAI, ElevenLabs,
+ * first-recording sheet, with their own key. OpenAI's, Qwen's, Gemini's and xAI's is the key of
+ * their provider in Settings › Models; Soniox, Deepgram, AssemblyAI, ElevenLabs,
  * Speechmatics and Gladia ask for their own, kept in the keychain. Deepgram's server can be
  * Cloudflare Workers AI's or the User's own.
  *

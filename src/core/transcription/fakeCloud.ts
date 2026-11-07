@@ -18,7 +18,6 @@ import {
   fakeGemini,
   fakeGladia,
   fakeGladiaFetch,
-  fakeMistral,
   fakeSpeechmatics,
   fakeXai,
 } from "./fakeLive";
@@ -73,7 +72,6 @@ export function createFakeCloud(options: FakeCloudOptions = {}): CloudConnect {
     }
     if (hostname === "api.elevenlabs.io") return fakeElevenLabs(options, nextLine, events);
     if (hostname === "api.gladia.io") return fakeGladia(options, nextLine, events);
-    if (hostname === "api.mistral.ai") return fakeMistral(options, nextLine, events);
     const openai = url === OPENAI_TRANSCRIPTION_URL;
     const qwen = new URL(url).pathname === QWEN_REALTIME_PATH;
     let closed = false;

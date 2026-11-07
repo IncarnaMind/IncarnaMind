@@ -36,7 +36,6 @@ const ROUTES = [
   "elevenlabs",
   "speechmatics",
   "gladia",
-  "mistral",
   "xai",
 ] as const;
 type Route = (typeof ROUTES)[number];
@@ -50,7 +49,6 @@ const SERVICES: Record<Route, string> = {
   elevenlabs: "https://api.elevenlabs.io",
   speechmatics: "https://global.rt.speechmatics.com",
   gladia: "https://api.gladia.io",
-  mistral: "https://api.mistral.ai",
   xai: "https://api.x.ai",
 };
 /** The routes with a key of their own, kept in Settings › Meetings. */
@@ -67,22 +65,16 @@ const PROVIDER_KEYS = {
   openai: { kind: "openai", apiKey: "sk-test", modelId: "gpt-6-luna" },
   qwen: { kind: "qwen", apiKey: "sk-qwen-test", modelId: "qwen3.7-plus" },
   gemini: { kind: "google", apiKey: "AIza-test", modelId: "gemini-3.8-flash" },
-  mistral: { kind: "mistral", apiKey: "mistral-test-key", modelId: "mistral-small-2603" },
   xai: { kind: "xai", apiKey: "xai-test-key", modelId: "grok-4.3" },
 } as const;
 
-/** Audio in a JSON message, as base64 PCM at 16 kHz (Gemini's, ElevenLabs', Mistral's), in ms. */
+/** Audio in a JSON message, as base64 PCM at 16 kHz (Gemini's, ElevenLabs'), in ms. */
 function jsonAudioMs(data: string): number {
   const message = JSON.parse(data) as {
-    type?: string;
-    audio?: string;
     audio_base_64?: string;
     realtimeInput?: { audio?: { data: string } };
   };
-  const audio =
-    message.realtimeInput?.audio?.data ??
-    message.audio_base_64 ??
-    (message.type === "input_audio.append" ? message.audio : undefined);
+  const audio = message.realtimeInput?.audio?.data ?? message.audio_base_64;
   return audio ? (Buffer.from(audio, "base64").byteLength / 2 / 16_000) * 1000 : 0;
 }
 
@@ -572,15 +564,7 @@ describe("Nothing more goes to the cloud once the User says no", { timeout: 60_0
     expect(service.opened()).toEqual([]);
   });
 
-  for (const route of [
-    "soniox",
-    "qwen",
-    "elevenlabs",
-    "speechmatics",
-    "gladia",
-    "mistral",
-    "xai",
-  ] as const) {
+  for (const route of ["soniox", "qwen", "elevenlabs", "speechmatics", "gladia", "xai"] as const) {
     test(`${route}: a key the service refuses says so, and the next Meeting goes to this computer until the key changes`, async () => {
       const service = counting({ refuse: true });
       const { core, record, meeting } = await meetingOn(route, service);

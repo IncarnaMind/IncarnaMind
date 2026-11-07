@@ -99,7 +99,6 @@ export const ROUTE_LABELS: Record<TranscriptionRoute, MessageKey> = {
   elevenlabs: "meetings.route.elevenlabs",
   speechmatics: "meetings.route.speechmatics",
   gladia: "meetings.route.gladia",
-  mistral: "meetings.route.mistral",
   xai: "meetings.route.xai",
 };
 

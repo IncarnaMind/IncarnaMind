@@ -3329,7 +3329,7 @@ export interface DeviceSettings {
 /**
  * Where a Meeting's audio is turned into text: on this computer, or live by a cloud service with
  * the User's own key (#141, #866): OpenAI, Qwen (Alibaba Cloud Model Studio, for mainland China),
- * Gemini, Mistral and xAI with the key of their provider in Settings › Models; Soniox, Deepgram
+ * Gemini and xAI with the key of their provider in Settings › Models; Soniox, Deepgram
  * (also at Cloudflare Workers AI or a server of the User's own), AssemblyAI, ElevenLabs,
  * Speechmatics and Gladia with a key of their own.
  */
@@ -3344,7 +3344,6 @@ export const TRANSCRIPTION_ROUTES = [
   "elevenlabs",
   "speechmatics",
   "gladia",
-  "mistral",
   "xai",
 ] as const;
 export type TranscriptionRoute = (typeof TRANSCRIPTION_ROUTES)[number];

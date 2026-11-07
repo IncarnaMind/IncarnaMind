@@ -30,7 +30,6 @@ import { createDeepgramStream } from "./cloud/deepgram";
 import { createElevenLabsStream } from "./cloud/elevenlabs";
 import { createGeminiStream } from "./cloud/gemini";
 import { createGladiaStream } from "./cloud/gladia";
-import { createMistralStream } from "./cloud/mistral";
 import { createOpenAiStream } from "./cloud/openai";
 import { createQwenStream } from "./cloud/qwen";
 import type { CloudConnect } from "./cloud/socket";
@@ -298,8 +297,6 @@ export function serveTranscriber(
         return createSpeechmaticsStream(options);
       case "gladia":
         return createGladiaStream({ ...options, languages: config.languages, fetch: cloud.fetch });
-      case "mistral":
-        return createMistralStream(options);
       case "xai":
         return createXaiStream(options);
     }

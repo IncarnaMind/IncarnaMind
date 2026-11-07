@@ -11,5 +11,4 @@ export const GEMINI_LIVE_MODEL = "gemini-3.5-transcribe-live";
 export const ELEVENLABS_MODEL = "scribe_v2_realtime";
 export const SPEECHMATICS_MODEL = "enhanced";
 export const GLADIA_MODEL = "solaria-1";
-export const MISTRAL_REALTIME_MODEL = "voxtral-mini-transcribe-realtime-3";
 export const XAI_STT_MODEL = "grok-voice-transcribe-2.0";

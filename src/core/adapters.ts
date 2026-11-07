@@ -765,7 +765,6 @@ export type CloudStream =
   | { service: "elevenlabs"; model: string; apiKey: string }
   | { service: "speechmatics"; model: string; apiKey: string }
   | { service: "gladia"; model: string; apiKey: string; languages: string[] }
-  | { service: "mistral"; model: string; apiKey: string }
   | { service: "xai"; model: string; apiKey: string };
 
 /**

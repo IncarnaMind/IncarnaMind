@@ -3,8 +3,8 @@
  * connection, the audio held until the service is ready for it, the end of the audio and the
  * wait for its last text, a new connection when the service ends its sessions by design, and
  * how the stream ended. Each service's adapter (./openai, ./soniox, ./qwen, ./deepgram,
- * ./assemblyai, ./gemini, ./elevenlabs, ./speechmatics, ./gladia, ./mistral, ./xai) speaks its own
- * messages over it.
+ * ./assemblyai, ./gemini, ./elevenlabs, ./speechmatics, ./gladia, ./xai) speaks its own messages
+ * over it.
  */
 import { isRecord } from "../../../shared/record";
 import type { CloudLoss } from "../../adapters";
