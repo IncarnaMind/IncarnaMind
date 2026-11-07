@@ -4,7 +4,7 @@ import { core } from "../core";
 import { requestCite } from "../editor/citeRequest";
 import { inNoteText, openDocumentPicker } from "../editor/documentPicker";
 import { mindEditor } from "../editor/openEditors";
-import { tidyNote } from "../editor/tidyNote";
+import { hasChineseText, tidyNote } from "../editor/tidyNote";
 import { insertTableOfContents } from "../editor/tocCommands";
 import { showWorking } from "../undo";
 import type { Command, CommandContext } from "./registry";
@@ -109,7 +109,11 @@ export const noteBasicsCommands: readonly Command[] = [
     appliesTo: ["mind", "tab", "block"],
     // The note's own undo (⌘Z) takes it back, and its line offers Undo.
     reversible: true,
-    when: (ctx) => onlyOne(ctx) && openNote(ctx) !== null,
+    // Nothing to tidy in a Note with no Chinese text, so it isn't listed there.
+    when(ctx) {
+      const editor = onlyOne(ctx) ? openNote(ctx) : null;
+      return editor !== null && hasChineseText(editor);
+    },
     async run(ctx) {
       const editor = openNote(ctx);
       if (!editor) return;

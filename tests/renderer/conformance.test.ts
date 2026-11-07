@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, test } from "vitest";
 import {
   buildMenu,
+  isMenuItem,
   type MenuEntry,
   type MenuItem,
   menuIds,
@@ -126,15 +127,15 @@ function orderProblems(kind: string, entries: readonly MenuEntry[]): string[] {
       afterRule = true;
       continue;
     }
-    const group = COMMAND_GROUPS.indexOf(entry.command.group);
+    const named = isMenuItem(entry) ? entry.command.id : "More";
+    const group = COMMAND_GROUPS.indexOf(isMenuItem(entry) ? entry.command.group : "main");
     const newSection = entry.section !== lastSection;
-    if (!newSection && group < lastGroup)
-      problems.push(`${kind}: ${entry.command.id} is out of order`);
+    if (!newSection && group < lastGroup) problems.push(`${kind}: ${named} is out of order`);
     // A rule comes exactly where the group or the section changes.
     const needsRule = (newSection || group !== lastGroup) && lastGroup >= 0;
     if (afterRule !== needsRule) {
       problems.push(
-        `${kind}: ${entry.command.id} ${needsRule ? "needs a rule before it" : "has a rule it doesn't need"}`,
+        `${kind}: ${named} ${needsRule ? "needs a rule before it" : "has a rule it doesn't need"}`,
       );
     }
     lastSection = entry.section;

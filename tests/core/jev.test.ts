@@ -325,6 +325,17 @@ describe("Tagging with Jev", { timeout: 30_000 }, () => {
     expect(jev.requests).toHaveLength(3);
   });
 
+  test("removing Jev while sorting names it gives sorting back to Automatic (#1907)", async () => {
+    const { core, jev } = await startWithJev();
+    await useLocalJev(core, jev);
+    const { settings } = await core.getLibrary();
+    await core.saveLibrarySettings({ ...settings, classifier: { kind: "jev" } });
+    expect((await core.getLibrary()).settings.classifier).toEqual({ kind: "jev" });
+
+    await core.removeJevSettings();
+    expect((await core.getLibrary()).settings.classifier).toEqual({ kind: "automatic" });
+  });
+
   test("removing Jev goes back to the chat model", async () => {
     const { core, jev, tagging } = await startWithJev({}, ["Notes"]);
     jev.answer({ Paper: 0.9 });

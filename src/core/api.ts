@@ -1615,6 +1615,8 @@ export interface SkillScriptRun {
   exitCode: number | null;
   /** It ran longer than the timeout, so it was stopped with every process it started. */
   timedOut: boolean;
+  /** It was stopped because its disk use couldn't be measured, so a folder limit couldn't hold. */
+  diskUnmeasured?: boolean;
   stdout: string;
   stderr: string;
   /** It wrote more to its standard output than is kept. */
@@ -5912,13 +5914,19 @@ export type RunStop = { reason: "cost-cap" } | { reason: "plan-limit"; resetsAt:
  */
 export type WatchStop = RunStop | { reason: "cancelled" } | { reason: "consent-widened" };
 
+/** A column Compare Documents makes, with the label a table's columns already had (#1839). */
+export interface ComparisonQuestionDraft {
+  text: string;
+  label?: string;
+}
+
 /** What Compare Documents makes a comparison table of (#98). */
 export interface CompareDocumentsInput {
   mindId: string;
   /** The rows, in order: Documents IncarnaMind wrote that checks leave out are dropped (#80). */
   documentIds: string[];
-  /** The columns, in order. */
-  questions: string[];
+  /** The columns, in order, each its Question or also the heading a table's columns came with. */
+  questions: (string | ComparisonQuestionDraft)[];
   /** What else the table should show, for every cell. */
   instruction?: string | null;
   /** The model its cells are written with; the default model when left out. */
@@ -5934,6 +5942,12 @@ export interface CompareDocumentsInput {
 export interface ComparisonTableRef {
   mindId: string;
   tableId: string;
+}
+
+/** A comparison table saved as CSV, with the rows the User sees when a filter hides some. */
+export interface ComparisonCsvRequest extends ComparisonTableRef {
+  /** The Documents whose rows the file keeps, in the table's order; absent: every row. */
+  documentIds?: readonly string[];
 }
 
 /** What to stop of a table's fill: all of it, or one refill pass alone, as its Undo asks. */
@@ -11354,11 +11368,11 @@ export interface MeetingTranscript {
   /** How many lines it has. */
   lines: number;
   /**
-   * The speech being transcribed now, while live: where it starts, in the Meeting's time, its
-   * words so far, and whose they are ("Me", "Them" or "Speaker ?", see src/shared/speakers.ts;
-   * null in a voice memo).
+   * The speech being transcribed now, while live, one for each side speaking, oldest first: where
+   * it starts, in the Meeting's time, its words so far, and whose they are ("Me", "Them" or
+   * "Speaker ?", see src/shared/speakers.ts; null in a voice memo).
    */
-  partial: { startMs: number; text: string; speaker: string | null } | null;
+  partials: { startMs: number; text: string; speaker: string | null }[];
   /** The speech-to-text model, while it is downloading or failed to. */
   model: TranscriptionModelStatus | null;
   /** The cloud service transcribing the live audio now (#141); null: this computer. */
@@ -13628,6 +13642,13 @@ export interface CoreApi {
   saveComparisonExport(input: ComparisonTableRef): Promise<SavedComparisonExport>;
 
   /**
+   * Saves a comparison table as CSV (#1839) into the Output location, beside Export to Excel:
+   * the table as shown, a Sources column with each row's Citations, UTF-8 with a byte order
+   * mark so Excel opens Chinese, and only the rows `documentIds` names when a filter hides some.
+   */
+  saveComparisonCsvExport(input: ComparisonCsvRequest): Promise<SavedComparisonExport>;
+
+  /**
    * Formats Citations and their Bibliography in a citation style (#289), from the cited
    * Documents' reference records as they are now. The work is done off the main thread, and a
    * request like the last ones is answered from memory.
@@ -13763,6 +13784,11 @@ export interface CoreApi {
   fillMeetingNotes(meetingId: string): Promise<Meeting>;
   /** Takes back what filling in added, leaving the notes as the User left them (#142). */
   undoMeetingFill(meetingId: string): Promise<Meeting>;
+  /**
+   * The editor showing the Note took the fill back with its own Undo (`undone`), or put it back
+   * with its Redo: the fill's state follows, and nothing in the Note is changed (#2527).
+   */
+  followMeetingFillUndo(input: { meetingId: string; undone: boolean }): Promise<Meeting>;
   /** Opens the system's settings where the User allows IncarnaMind to record this source. */
   openAudioSettings(source: AudioSource): Promise<void>;
   /**
@@ -14439,6 +14465,7 @@ const methods: Record<CoreApiMethod, true> = {
   setCheckComments: true,
   saveCheckRecord: true,
   saveComparisonExport: true,
+  saveComparisonCsvExport: true,
   formatCitations: true,
   getMindCitationStyle: true,
   setMindCitationStyle: true,
@@ -14474,6 +14501,7 @@ const methods: Record<CoreApiMethod, true> = {
   retryTranscript: true,
   fillMeetingNotes: true,
   undoMeetingFill: true,
+  followMeetingFillUndo: true,
   openAudioSettings: true,
   askMeetingHelp: true,
   setMeetingTemplate: true,

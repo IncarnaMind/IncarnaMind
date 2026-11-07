@@ -115,7 +115,7 @@ async function expectNoCallParts(bar: Locator): Promise<void> {
     "meeting-mic",
     "meeting-mark",
     "meeting-call-help",
-    "meeting-transcript-toggle",
+    "meeting-views",
     "meeting-more",
   ]) {
     await expect(bar.getByTestId(testId), testId).toHaveCount(0);

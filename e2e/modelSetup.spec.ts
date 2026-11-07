@@ -17,6 +17,7 @@ import {
   controlReads,
   createDataFolder,
   dismissChatSetup,
+  firstTranscriptLine,
   interceptOpenExternal,
   launchApp,
   newMind,
@@ -2365,7 +2366,8 @@ test("call help with no model offers the key field where the help was asked, and
     await acceptPlainTextKeys(window);
     await setLanguage(window, "en");
     const bar = await startRecording(window, await recordMeeting(window), { notice: true });
-    await expect(bar.getByTestId("meeting-transcript-toggle")).toBeEnabled({ timeout: 20_000 });
+    await expect(bar).toBeVisible();
+    await firstTranscriptLine(window);
     await window.getByTestId("mind-editor").click();
     const needs = window.getByTestId("meeting-needs-model");
     await expect(needs).toBeVisible();

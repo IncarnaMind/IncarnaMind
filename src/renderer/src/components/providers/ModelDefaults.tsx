@@ -5,8 +5,9 @@ import type {
   ChatProvider,
   ModelRoles,
 } from "../../../../core/api";
+import { catalogProvider } from "../../../../core/providers/catalog/providers";
 import { core } from "../../core";
-import { useLanguage, useT } from "../../i18n";
+import { useGap, useLanguage, useT } from "../../i18n";
 import { useModelNames } from "../../modelNames";
 import { useSettingsTarget } from "../../settingsTarget";
 import { useAppStore } from "../../store";
@@ -20,7 +21,7 @@ import { JevSortingSetUp } from "./JevSortingSetUp";
 import { ModelHealthLine } from "./ModelHealthLine";
 import { providerName } from "./ProviderPage";
 import { SortingLine, SortingSelect, useSorting } from "./SortingChoice";
-import type { SetUpOffer, SortingOption } from "./sortingOptions";
+import { keyProviderOf, type SetUpOffer, type SortingOption } from "./sortingOptions";
 
 export type Role = "chatModel" | "quickTasksModel" | "imageModel";
 
@@ -159,6 +160,7 @@ function SortingRow({ id }: { id: string }) {
     document.getElementById(id)?.focus();
   };
   const host = decisionHosts?.find((each) => each.host === settingUp);
+  const keyProvider = keyProviderOf(current, decisionHosts);
   return (
     <div
       data-testid="model-default-row-sorting"
@@ -216,6 +218,7 @@ function SortingRow({ id }: { id: string }) {
             />
           ) : (
             <>
+              {keyProvider && !current?.unresolved && <UsesKeyLine catalogId={keyProvider} />}
               <SortingLine option={current} reading={read.state === "loading"} choosing={false} />
               {library && !library.settings.automatic && current && !current.unresolved && (
                 <TurnOnTagging option={current} />
@@ -225,6 +228,22 @@ function SortingRow({ id }: { id: string }) {
         </>
       )}
     </div>
+  );
+}
+
+/** The chat provider's key the chosen decision model uses, which Your providers lists as that provider (#1907). */
+function UsesKeyLine({ catalogId }: { catalogId: string }) {
+  const t = useT();
+  const language = useLanguage();
+  const spaced = useGap();
+  const named = catalogProvider(catalogId)?.name[language === "zh-CN" ? "zh" : "en"] ?? catalogId;
+  // The Chinese line has no spaces of its own: a Latin name gets them, a Chinese one none.
+  const provider =
+    language === "zh-CN" ? `${spaced("汉", named)}${named}${spaced(named, "汉")}` : named;
+  return (
+    <p data-testid="models-sorting-key" className="text-[12px] leading-5 text-ink-meta">
+      {t("decisions.usesKey", { provider })}
+    </p>
   );
 }
 

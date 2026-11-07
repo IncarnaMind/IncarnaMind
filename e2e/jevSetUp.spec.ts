@@ -284,23 +284,17 @@ for (const [language, width, height] of [
 }
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`Settings › Models sets a host up in place: a refused key, then a valid one makes its best model what sorts (${language}) (#1907)`, async () => {
+  test(`Settings › Models sets a host up in place: a refused key, then a valid one makes its best model what sorts and joins Your providers, and Remove key gives sorting back to Automatic (${language}) (#1907)`, async () => {
     const { app, window } = await launch("en", 900, 800);
     try {
       await setLocalChatModel(window);
       const settings = await openSettings(window, "models");
       await setLanguage(window, language);
-      const hosts = settings.getByTestId("decision-hosts");
-      for (const host of [
-        "openrouter",
-        "perplexity",
-        "liquid",
-        "cloudflare",
-        "openai",
-        "alibaba",
-      ]) {
-        await expect(hosts.getByTestId(`decision-host-${host}`)).toBeVisible();
-      }
+      // No list of hosts: the sorting row chooses, and Your providers holds the keys.
+      const providers = settings.getByTestId("your-providers");
+      await expect(providers.getByTestId("provider-row")).toHaveCount(1);
+      await expect(providers.getByTestId("sorting-key-row")).toHaveCount(0);
+      await expect(settings.getByTestId("decision-hosts")).toHaveCount(0);
       const row = settings.getByTestId("model-default-row-sorting");
       const picker = row.getByTestId("models-sorting");
       const liquid = translate(language, "decisions.setUp.row", {
@@ -344,15 +338,129 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(picker.locator("option", { hasText: liquid })).toHaveCount(0);
       // As for Jev, choosing here never turns tagging on: Turn on… does, with its line.
       await expect(row.getByTestId("models-tagging-off")).toBeVisible();
-      await expect(hosts.getByTestId("decision-host-liquid")).toContainText(
-        translate(language, "meetings.key.saved"),
-      );
+      const liquidKey = providers.locator('[data-testid="sorting-key-row"][data-host="liquid"]');
+      await expect(liquidKey).toContainText("Liquid AI");
+      await expect(liquidKey).toContainText(translate(language, "models.providers.forSorting"));
       expect((await library(window)).classifier).toEqual({
         kind: "decision",
         host: "liquid",
         modelId: "d1-ultra",
       });
       expect(typeSafe.requests).toEqual(["Bearer a-wrong-key", `Bearer ${JEV_KEY}`]);
+
+      // Change key opens its form in place; Esc puts it away.
+      await pointAndClick(window, liquidKey.getByTestId("sorting-key-change"));
+      const keyField = liquidKey.getByTestId("decision-key-input");
+      await expect(keyField).toBeFocused();
+      await keyField.press("Escape");
+      await expect(liquidKey.getByTestId("decision-key-form-liquid")).toHaveCount(0);
+
+      // Remove key: sorting goes back to Automatic's pick, and the host is offered again.
+      await pointAndClick(window, liquidKey.getByTestId("sorting-key-remove"));
+      await expect(liquidKey).toHaveCount(0);
+      await expect(picker.locator("option:checked")).toHaveText(chosen ?? "");
+      await expect(picker.locator("optgroup option", { hasText: liquid })).toHaveCount(1);
+      expect((await library(window)).classifier).toEqual({ kind: "automatic" });
+      expect(typeSafe.requests).toHaveLength(2);
+    } finally {
+      await app.close();
+    }
+  });
+}
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`Settings › Models: Decider through OpenRouter names the OpenRouter key it uses, and Your providers adds no row for it (${language}) (#1907)`, async () => {
+    const { app, window } = await launch("en", 900, 800);
+    try {
+      await window.evaluate(async () => {
+        const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        await core.saveChatProvider({
+          kind: "openrouter",
+          apiKey: "sk-or-smoke-key",
+          modelId: "anthropic/claude-sonnet-5.5",
+        });
+      });
+      const settings = await openSettings(window, "models");
+      await setLanguage(window, language);
+      const row = settings.getByTestId("model-default-row-sorting");
+      await expect(row.getByTestId("models-sorting-key")).toHaveCount(0);
+      await row.getByTestId("models-sorting").selectOption({ label: "Decider v1.2 · OpenRouter" });
+
+      const line = row.getByTestId("models-sorting-key");
+      await expect(line).toContainText("OpenRouter");
+      const words = (text: string | null) => (text ?? "").replace(/\s/g, "");
+      expect(words(await line.textContent())).toBe(
+        words(translate(language, "decisions.usesKey", { provider: "OpenRouter" })),
+      );
+      const providers = settings.getByTestId("your-providers");
+      await expect(providers.getByTestId("provider-row")).toHaveCount(1);
+      await expect(providers.getByTestId("sorting-key-row")).toHaveCount(0);
+      // Choosing sorts nothing: the one read is OpenRouter's public list of decision models.
+      expect(typeSafe.requests.filter((each) => each !== "")).toEqual([]);
+    } finally {
+      await app.close();
+    }
+  });
+}
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`Settings › Models: Alibaba's workspace sits on its own Qwen row; Change workspace… edits it in place, and Remove gives sorting back to Automatic (${language}) (#1907)`, async () => {
+    const { app, window } = await launch("en", 900, 800);
+    try {
+      const modelId = await window.evaluate(async (key) => {
+        const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        await core.saveChatProvider({
+          kind: "qwen",
+          endpoint: "cn",
+          apiKey: key,
+          modelId: "qwen3.7-plus",
+        });
+        const hosts = await core.setDecisionKey({ host: "alibaba", account: "llm-test" });
+        const alibaba = hosts.find((each) => each.host === "alibaba");
+        const chosen = alibaba?.models[0]?.id ?? "";
+        await core.saveLibrarySettings({
+          ...(await core.getLibrary()).settings,
+          classifier: { kind: "decision", host: "alibaba", modelId: chosen },
+        });
+        return chosen;
+      }, JEV_KEY);
+      const settings = await openSettings(window, "models");
+      await setLanguage(window, language);
+      const providers = settings.getByTestId("your-providers");
+      const qwen = providers.locator('[data-testid="sorting-key-row"][data-host="alibaba"]');
+      await expect(qwen).toContainText(
+        language === "zh-CN" ? "通义千问（阿里云百炼）" : "Qwen (Alibaba Cloud Model Studio)",
+      );
+      await expect(qwen.getByTestId("sorting-key-status")).toHaveText(
+        translate(language, "models.providers.forSorting.workspace", { id: "llm-test" }),
+      );
+      // Set up, it isn't offered again in the picker's fold.
+      const picker = settings
+        .getByTestId("model-default-row-sorting")
+        .getByTestId("models-sorting");
+      await expect(picker.locator("optgroup option")).toHaveText(setUpRows(language));
+
+      await pointAndClick(window, qwen.getByTestId("sorting-key-change"));
+      const field = qwen.getByTestId("decision-account-input");
+      await expect(field).toBeFocused();
+      await expect(field).toHaveValue("llm-test");
+      await field.fill("llm-two");
+      await pointAndClick(window, qwen.getByTestId("decision-key-save"));
+      await expect(qwen.getByTestId("sorting-key-status")).toHaveText(
+        translate(language, "models.providers.forSorting.workspace", { id: "llm-two" }),
+      );
+      expect((await library(window)).classifier).toEqual({
+        kind: "decision",
+        host: "alibaba",
+        modelId,
+      });
+
+      await pointAndClick(window, qwen.getByTestId("sorting-key-remove"));
+      await expect(qwen).toHaveCount(0);
+      expect((await library(window)).classifier).toEqual({ kind: "automatic" });
+      // The Qwen key stays for chat, and the fold offers Alibaba's workspace again.
+      await expect(providers.getByTestId("provider-row")).toHaveCount(1);
+      await expect(picker.locator("optgroup option")).toHaveCount(setUpRows(language).length + 1);
     } finally {
       await app.close();
     }

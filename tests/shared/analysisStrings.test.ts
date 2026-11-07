@@ -40,6 +40,25 @@ describe("why an Analysis can't run", () => {
     expect(translate("en", CRASHED_LINE)).toBe("The analysis stopped unexpectedly. Run it again.");
     expect(translate("zh-CN", CRASHED_LINE)).toBe("数据分析意外停止。请重新运行。");
   });
+
+  test("an Analysis stopped because its disk use couldn't be measured says so, in English and Chinese", () => {
+    expect(translate("en", "analysis.call.diskUnmeasured")).toBe(
+      "The analysis was stopped because its disk use couldn’t be measured",
+    );
+    expect(translate("zh-CN", "analysis.call.diskUnmeasured")).toBe(
+      "无法测量数据分析的磁盘用量，已停止",
+    );
+  });
+
+  test("so does a Skill script stopped the same way, naming the script and Skill", () => {
+    const params = { script: "report.py", skill: "Finance" };
+    expect(translate("en", "scripts.call.diskUnmeasured", params)).toBe(
+      "report.py (Finance) was stopped because its disk use couldn’t be measured",
+    );
+    expect(translate("zh-CN", "scripts.call.diskUnmeasured", params)).toBe(
+      "无法测量 report.py（Finance）的磁盘用量，已停止",
+    );
+  });
 });
 
 describe("the rows an Analysis figure was worked out from (#2346)", () => {

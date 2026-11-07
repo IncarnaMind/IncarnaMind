@@ -10,9 +10,10 @@ import {
   addToNote,
   askInAssistant,
   blocksUpdate,
+  capture,
   createDataFolder,
   dismissChatSetup,
-  exportFromMenu,
+  film,
   launchApp,
   type MindChild,
   mindNode,
@@ -20,9 +21,11 @@ import {
   newMind,
   openOptions,
   openSavedPage,
+  openShareSheet,
   pointAndClick,
   removeDataFolder,
   requestsMade,
+  runFromPalette,
   savedPath,
   setLanguage,
   useLocalChatModel,
@@ -130,33 +133,53 @@ test("a web page to share: the sheet offers it, and the file loads nothing and o
   await expect(window.getByTestId("mind-editor").getByTestId("citation")).toHaveCount(3);
   await useOutputLocation(window, out);
 
-  // No citation style: the page numbers each Citation.
+  // Export options no longer lists the web page as a format: it has its own Share sheet (#1258).
   await openOptions(window, "Export options");
-  const sheet = window.getByTestId("export-dialog");
-  const format = sheet.getByTestId("export-format");
-  await expect(format.locator("option")).toContainText(["HTML", "Web page to share (.html)"]);
-  await format.selectOption("share-page");
+  const options = window.getByTestId("export-dialog");
+  await expect(options.getByTestId("export-format").locator("option")).toHaveText([
+    "Word (.docx)",
+    "PDF",
+    "Source pack (PDF)",
+    "HTML",
+    "Markdown (.md)",
+  ]);
+  await window.keyboard.press("Escape");
+  await expect(options).toBeHidden();
+
+  // "Share as a web page…" is in Export › More formats and opens its own sheet.
+  await openShareSheet(window);
+  const sheet = window.getByTestId("share-dialog");
+  await expect(sheet.getByRole("heading")).toHaveText("Share as a web page");
   const cards = sheet.getByTestId("export-citation-cards");
-  const line = sheet.getByTestId("export-checked-line");
+  await expect(sheet.getByRole("switch")).toHaveCount(1);
   await expect(cards).toBeChecked();
-  await expect(line).not.toBeChecked();
-  await expect(sheet.getByTestId("export-citation-style")).toHaveCount(0);
+  const contents = sheet.getByTestId("share-contents");
+  await expect(contents.locator("p").first()).toHaveText(
+    "In the file: 3 quotes from 1 Document. Anyone you send it to can read them. The Documents aren’t included.",
+  );
+  await expect(contents.getByTestId("share-document")).toHaveCount(1);
+  await expect(contents.getByTestId("share-document")).toContainText("3 quotes");
+  await expect(sheet.getByText("Saves one file. Nothing is uploaded.")).toBeVisible();
+
+  // Off, the file is the HTML export, so the Documents and their pictures aren't listed.
   await pointAndClick(window, cards);
   await expect(cards).not.toBeChecked();
-  await expect(line).toHaveCount(0);
-  await expect(sheet.getByTestId("export-citation-style")).toBeVisible();
+  await expect(contents).toHaveCount(0);
   await pointAndClick(window, cards);
-  await pointAndClick(window, line);
-  await expect(line).toBeChecked();
-  await pointAndClick(window, sheet.getByTestId("export-save"));
-  await expect(sheet).toBeHidden();
-  await expect(window.getByTestId("export-mind")).toHaveAttribute("data-format", "share-page");
+  await expect(contents).toBeVisible();
 
-  await exportFromMenu(window);
+  // Esc closes the sheet without a file; ⌘K opens it too, and Save writes the file and leaves the Saved line.
+  await window.keyboard.press("Escape");
+  await expect(sheet).toBeHidden();
+  await runFromPalette(window, "Share as a web page");
+  await expect(sheet).toBeVisible();
+  await pointAndClick(window, sheet.getByTestId("share-save"));
+  await expect(sheet).toBeHidden();
+  await expect(window.getByTestId("export-mind")).toHaveAttribute("data-format", "docx");
   const page = await openSavedPage(app, await savedPath(window, "Tides.html"));
 
   // Nothing but the file was asked for, and the page's policy refuses a request it tries.
-  await expect(page.locator(".shared-foot a")).toHaveText("Citations checked with IncarnaMind");
+  await expect(page.locator(".shared-foot p").first()).toContainText("Made with IncarnaMind");
   expect(
     await page.evaluate(() =>
       fetch("https://example.com/").then(
@@ -252,12 +275,10 @@ test("a web page to share: the sheet offers it, and the file loads nothing and o
   await page.close();
 
   await setLanguage(window, "zh-CN");
-  await openOptions(window, "导出选项");
-  await expect(sheet.getByTestId("export-format").locator("option:checked")).toHaveText(
-    "可分享的网页（.html）",
-  );
+  await openShareSheet(window);
+  await expect(sheet.getByRole("heading")).toHaveText("可分享的网页");
   await expect(sheet.getByText("读者可以打开每条引用")).toBeVisible();
-  await expect(sheet.getByText("在页脚注明“引用已由 IncarnaMind 核对”")).toBeVisible();
+  await expect(sheet.getByText("只保存一个文件，不会上传任何内容。")).toBeVisible();
   await app.close();
 });
 
@@ -324,29 +345,42 @@ test("page pictures: the sheet says what goes in the file and updates as a Docum
     .toEqual(expect.arrayContaining(["Quarterly Research Update", "Tide Gauges"]));
   await useOutputLocation(window, out);
 
-  await openOptions(window, "Export options");
-  const sheet = window.getByTestId("export-dialog");
-  await sheet.getByTestId("export-format").selectOption("share-page");
+  const sheet = window.getByTestId("share-dialog");
   const contents = sheet.getByTestId("share-contents");
-  await expect(contents.locator("p").first()).toHaveText(
-    "In the file: 5 quotes and 2 page pictures from 5 Documents. Anyone with the file can read these; Documents aren’t included.",
-  );
-  await expect(contents.getByTestId("share-document")).toHaveCount(5);
-  await expect(contents.getByTestId("share-size")).toHaveText(/^The file will be about \d/);
   const gauges = contents.getByTestId("share-document").filter({ hasText: "Tide Gauges" });
-  await expect(gauges).toContainText("1 quote · 1 picture");
-  await pointAndClick(window, gauges.getByRole("checkbox"));
-  await expect(gauges).toContainText("1 quote · as text only");
-  await expect(contents.locator("p").first()).toContainText(
-    "5 quotes and 1 page picture from 5 Documents.",
-  );
-  await pointAndClick(window, gauges.getByRole("checkbox"));
-  await expect(gauges.getByRole("checkbox")).toBeChecked();
-  await pointAndClick(window, sheet.getByTestId("export-save"));
-  await expect(sheet).toBeHidden();
+  // The built flow, for the pull request: the menu, the sheet, a Document left out, Save and its line.
+  const saved = await film(window, async () => {
+    await pointAndClick(window, window.getByTestId("export-mind"));
+    await pointAndClick(window, window.getByTestId("export-more"));
+    await capture(window, "share-menu-en");
+    await pointAndClick(window, window.getByTestId("export-share-web-page"));
+    await expect(sheet).toBeVisible();
+    await expect(contents.locator("p").first()).toHaveText(
+      "In the file: 5 quotes and 2 pictures from 5 Documents. Anyone you send it to can read them. The Documents aren’t included.",
+    );
+    await expect(contents.getByTestId("share-document")).toHaveCount(5);
+    await expect(contents.getByTestId("share-size")).toHaveText(/^The file will be about \d/);
+    await capture(window, "share-sheet-en");
+    await expect(gauges).toContainText("1 quote · 1 picture");
+    // The picture checkbox is reachable and works from the keyboard too.
+    await gauges.getByRole("checkbox").focus();
+    await window.keyboard.press(" ");
+    await expect(gauges.getByRole("checkbox")).not.toBeChecked();
+    await expect(gauges).toContainText("1 quote · text only");
+    await expect(contents.locator("p").first()).toContainText(
+      "5 quotes and 1 picture from 5 Documents.",
+    );
+    await capture(window, "share-sheet-text-only-en");
+    await pointAndClick(window, gauges.getByRole("checkbox"));
+    await expect(gauges.getByRole("checkbox")).toBeChecked();
+    await pointAndClick(window, sheet.getByTestId("share-save"));
+    await expect(sheet).toBeHidden();
+    const path = await savedPath(window, "Gauges.html");
+    await capture(window, "share-saved-en");
+    return path;
+  });
 
-  await exportFromMenu(window);
-  const page = await openSavedPage(app, await savedPath(window, "Gauges.html"));
+  const page = await openSavedPage(app, saved);
   const pictureOf = (name: string) =>
     page
       .locator("section.card", { has: page.locator(".card-source", { hasText: name }) })
@@ -389,14 +423,15 @@ test("page pictures: the sheet says what goes in the file and updates as a Docum
   await page.close();
 
   await setLanguage(window, "zh-CN");
-  await openOptions(window, "导出选项");
+  await openShareSheet(window);
   await expect(sheet.getByTestId("share-contents").locator("p").first()).toHaveText(
-    "文件中包含：来自 5 个文档的 5 处引文和 2 张页面截图。收到文件的人都能看到这些，文档本身不包含在内。",
+    "文件中包含：来自 5 个文档的 5 处引文和 2 张截图。收到文件的人都能看到这些内容，文档本身不会包含在内。",
   );
+  await capture(window, "share-sheet-zh");
   await app.close();
 });
 
-test("export options keeps its title, ×, Cancel and Save options in view at 1,100 px while the body scrolls, in English and Chinese", async () => {
+test("the share sheet keeps its title, ×, switch, its line and Cancel and Save in view at 1,100 px, in English and Chinese", async () => {
   test.setTimeout(240_000);
   const { app, window } = await launchApp(dataDir, { home });
   await dismissChatSetup(window);
@@ -404,7 +439,23 @@ test("export options keeps its title, ×, Cancel and Save options in view at 1,1
   await nameMind(window, "Tides");
   const mindId = await window.getByTestId("mind-pane").getAttribute("data-mind-id");
   if (!mindId) throw new Error("No Mind is open.");
-  const names = ["Tides", "Currents", "Swells", "Winds", "Moon"];
+  const names = [
+    "Tides",
+    "Currents",
+    "Swells",
+    "Winds",
+    "Moon",
+    "Reefs",
+    "Shoals",
+    "Bays",
+    "Sounds",
+    "Straits",
+    "Channels",
+    "Estuaries",
+    "Inlets",
+    "Coves",
+    "Harbours",
+  ];
   const paths = names.map((name) => join(sources, `${name}.txt`));
   for (const [index, path] of paths.entries()) {
     await writeFile(path, `${names[index]} rise and fall twice a day.\n`);
@@ -425,11 +476,11 @@ test("export options keeps its title, ×, Cancel and Save options in view at 1,1
       }),
     ),
   );
-  await expect(window.getByTestId("mind-editor").getByTestId("citation")).toHaveCount(5);
+  await expect(window.getByTestId("mind-editor").getByTestId("citation")).toHaveCount(names.length);
   await useOutputLocation(window, out);
 
-  const sheet = window.getByTestId("export-dialog");
-  const body = sheet.getByTestId("export-options-body");
+  const sheet = window.getByTestId("share-dialog");
+  const body = sheet.getByTestId("share-dialog-body");
   const viewport = () => window.evaluate(() => ({ width: innerWidth, height: innerHeight }));
   const inside = (
     box: { x: number; y: number; width: number; height: number },
@@ -464,36 +515,37 @@ test("export options keeps its title, ×, Cancel and Save options in view at 1,1
       await expect(window.getByTestId("export-mind")).toHaveText(
         language === "en" ? "Export" : "导出",
       );
-      const title = language === "en" ? "Export options" : "导出选项";
-      await openOptions(window, title);
-      await sheet.getByTestId("export-format").selectOption("share-page");
-      await expect(sheet.getByTestId("share-document")).toHaveCount(5);
+      await openShareSheet(window);
+      await expect(sheet.getByRole("heading")).toHaveText(
+        language === "en" ? "Share as a web page" : "可分享的网页",
+      );
+      await expect(sheet.getByTestId("share-document")).toHaveCount(names.length);
+      await capture(window, `share-sheet-${language}-${width}x${height}`);
 
-      // #1017: the sheet opens with its × focused.
-      await sheet.getByTestId("export-options-close").focus();
+      // The sheet opens with its × focused; Tab reaches the switch, then Cancel and Save.
+      await sheet.getByTestId("share-close").focus();
       const order: string[] = [];
-      for (let step = 0; step < 12; step++) {
+      for (let step = 0; step < 6; step++) {
         const now = await focused();
         if (!now) throw new Error("Nothing has the focus.");
         order.push(now.id);
         expect(now.inside).toBe(true);
-        if (now.id === "export-save") break;
+        if (now.id === "share-save") break;
         await window.keyboard.press("Tab");
       }
-      expect(order.slice(0, 6)).toEqual([
-        "export-options-close",
-        "export-format",
+      expect(order).toEqual([
+        "share-close",
         "export-citation-cards",
-        "export-checked-line",
-        "export-include-questions",
-        "export-save-to-change",
+        language === "en" ? "Cancel" : "取消",
+        "share-save",
       ]);
-      expect(order.slice(6)).toEqual([language === "en" ? "Cancel" : "取消", "export-save"]);
-      expect(await body.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
 
-      const line = sheet.getByTestId("export-checked-line");
-      await pointAndClick(window, line);
-      await expect(line).toBeChecked();
+      // The switch works from the keyboard: off leaves the Documents out of the sheet.
+      await sheet.getByTestId("export-citation-cards").focus();
+      await window.keyboard.press(" ");
+      await expect(sheet.getByTestId("share-contents")).toHaveCount(0);
+      await window.keyboard.press(" ");
+      await expect(sheet.getByTestId("share-contents")).toBeVisible();
 
       const size = await viewport();
       const frame = await sheet.boundingBox();
@@ -502,10 +554,17 @@ test("export options keeps its title, ×, Cancel and Save options in view at 1,1
       expect(Math.abs(frame.x - (size.width - 520) / 2)).toBeLessThanOrEqual(1);
       expect(frame.y + frame.height).toBeLessThanOrEqual(size.height - 23.5);
       for (const control of [
-        sheet.locator("#export-title"),
-        sheet.getByTestId("export-options-close"),
+        sheet.locator("#share-title"),
+        sheet.getByTestId("share-close"),
+        sheet.getByTestId("export-citation-cards"),
+        sheet.getByTestId("share-contents").locator("p").first(),
+        sheet.getByText(
+          language === "en"
+            ? "Saves one file. Nothing is uploaded."
+            : "只保存一个文件，不会上传任何内容。",
+        ),
         sheet.getByRole("button", { name: language === "en" ? "Cancel" : "取消" }),
-        sheet.getByTestId("export-save"),
+        sheet.getByTestId("share-save"),
       ]) {
         const box = await control.boundingBox();
         if (!box) throw new Error("A control of the sheet isn't shown.");
@@ -519,16 +578,16 @@ test("export options keeps its title, ×, Cancel and Save options in view at 1,1
 
       const bodyBox = await body.boundingBox();
       if (!bodyBox) throw new Error("The body isn't shown.");
-      const saveBox = await sheet.getByTestId("export-save").boundingBox();
-      const titleBox = await sheet.locator("#export-title").boundingBox();
+      const saveBox = await sheet.getByTestId("share-save").boundingBox();
+      const titleBox = await sheet.locator("#share-title").boundingBox();
       await window.mouse.move(bodyBox.x + bodyBox.width / 2, bodyBox.y + bodyBox.height / 2);
       await window.mouse.wheel(0, -400);
       await expect.poll(() => body.evaluate((element) => element.scrollTop)).toBe(0);
       await window.mouse.wheel(0, 400);
       await expect.poll(() => body.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
       if (!saveBox || !titleBox) throw new Error("A control of the sheet isn't shown.");
-      expect(await sheet.getByTestId("export-save").boundingBox()).toEqual(saveBox);
-      expect(await sheet.locator("#export-title").boundingBox()).toEqual(titleBox);
+      expect(await sheet.getByTestId("share-save").boundingBox()).toEqual(saveBox);
+      expect(await sheet.locator("#share-title").boundingBox()).toEqual(titleBox);
       await window.keyboard.press("Escape");
       await expect(sheet).toBeHidden();
       await expect(window.getByRole("dialog")).toHaveCount(0);
@@ -538,19 +597,21 @@ test("export options keeps its title, ×, Cancel and Save options in view at 1,1
   await resize(app, window, 1440, 900);
   await setLanguage(window, "en");
   await expect(window.getByTestId("export-mind")).toHaveText("Export");
-  await openOptions(window, "Export options");
-  await sheet.getByTestId("export-format").selectOption("share-page");
-  await expect(sheet.getByTestId("share-document")).toHaveCount(5);
+  await openShareSheet(window);
+  await expect(sheet.getByTestId("share-document")).toHaveCount(names.length);
+  await capture(window, "share-sheet-en-1440");
   const wideSize = await viewport();
   const wide = await sheet.boundingBox();
   if (!wide) throw new Error("The sheet isn't shown.");
   expect(Math.abs(wide.width - 520)).toBeLessThanOrEqual(1);
   expect(Math.abs(wide.y - 44)).toBeLessThanOrEqual(1);
   for (const control of [
-    sheet.locator("#export-title"),
-    sheet.getByTestId("export-options-close"),
+    sheet.locator("#share-title"),
+    sheet.getByTestId("share-close"),
+    sheet.getByTestId("export-citation-cards"),
+    sheet.getByText("Saves one file. Nothing is uploaded."),
     sheet.getByRole("button", { name: "Cancel" }),
-    sheet.getByTestId("export-save"),
+    sheet.getByTestId("share-save"),
   ]) {
     const box = await control.boundingBox();
     if (!box) throw new Error("A control of the sheet isn't shown.");
@@ -592,12 +653,10 @@ test("the shared page's Notes list is compact and each line links back to its Ci
   );
   await expect(window.getByTestId("mind-editor").getByTestId("citation")).toHaveCount(2);
   await useOutputLocation(window, out);
-  await openOptions(window, "Export options");
-  const sheet = window.getByTestId("export-dialog");
-  await sheet.getByTestId("export-format").selectOption("share-page");
-  await pointAndClick(window, sheet.getByTestId("export-save"));
+  await openShareSheet(window);
+  const sheet = window.getByTestId("share-dialog");
+  await pointAndClick(window, sheet.getByTestId("share-save"));
   await expect(sheet).toBeHidden();
-  await exportFromMenu(window);
   const page = await openSavedPage(app, await savedPath(window, "Tides.html"));
 
   const look = (target: Page) =>
@@ -638,13 +697,9 @@ test("the shared page's Notes list is compact and each line links back to its Ci
 
   await setLanguage(window, "zh-CN");
   await expect(window.getByTestId("export-mind")).toHaveText("导出");
-  await openOptions(window, "导出选项");
-  await expect(sheet.getByTestId("export-format").locator("option:checked")).toHaveText(
-    "可分享的网页（.html）",
-  );
-  await pointAndClick(window, sheet.getByTestId("export-save"));
+  await openShareSheet(window);
+  await pointAndClick(window, sheet.getByTestId("share-save"));
   await expect(sheet).toBeHidden();
-  await exportFromMenu(window);
   const done = window.getByTestId("export-result").getByTestId("export-done");
   await expect(done).toContainText("已保存“Tides 2.html”到");
   const zh = await openSavedPage(app, (await done.getAttribute("title")) ?? "");

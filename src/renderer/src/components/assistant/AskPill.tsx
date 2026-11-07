@@ -1,9 +1,13 @@
 import { focusComposer } from "../../commands/assistant";
 import { shortcutLabel } from "../../commands/keymap";
+import { useComparisons } from "../../comparisons";
 import { useT } from "../../i18n";
 
 export function AskPill() {
   const t = useT();
+  // The Compare Documents sheet's Make button sits where the pill floats (#1839).
+  const comparing = useComparisons((state) => Object.keys(state.sheets).length > 0);
+  if (comparing) return null;
   return (
     <button
       type="button"

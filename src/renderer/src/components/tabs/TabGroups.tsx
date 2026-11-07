@@ -3,6 +3,7 @@ import type { LayoutGroup } from "../../../../core/api";
 import { useExportDialog } from "../../exportDialog";
 import { useT } from "../../i18n";
 import { activeTabOf, focusedGroupOf, GROUP_MIN_WIDTH } from "../../layoutSlice";
+import { useShareDialog } from "../../shareDialog";
 import { useAppStore } from "../../store";
 import { forgetTabCloseFocus, resumeTabCloseFocus } from "../../tabFocus";
 import { useGroupsMerged } from "../../useWindowWidth";
@@ -11,6 +12,7 @@ import { FigureScheduleTab } from "../figures/FigureScheduleTab";
 import { HomePane } from "../home/HomePane";
 import { LibraryPane } from "../LibraryPane";
 import { ResizeRod } from "../ResizeRod";
+import { ShareDialog } from "../ShareDialog";
 import { DocumentTab } from "./DocumentTab";
 import { MindTab, NoTabOpen } from "./MindTab";
 import { TabStrip } from "./TabStrip";
@@ -40,6 +42,9 @@ export function TabGroups() {
   /** The Mind whose Export options sheet is open (⋯, ⌘K, or its References block's Export…). */
   const exporting = useExportDialog((state) => state.mindId);
   const exportMind = useAppStore((state) => state.minds.find((mind) => mind.id === exporting));
+  /** The Mind whose Share sheet is open (Export › More formats, ⌘K). */
+  const sharing = useShareDialog((state) => state.mindId);
+  const shareMind = useAppStore((state) => state.minds.find((mind) => mind.id === sharing));
 
   // A double-click on a divider makes the groups equal, as in VS Code.
   useEffect(() => {
@@ -100,6 +105,7 @@ export function TabGroups() {
       </div>
       <DragFeedback dragged={drag.draggedTabId !== null} target={drag.target} />
       <ExportDialog mind={exportMind ?? null} onClose={() => useExportDialog.getState().close()} />
+      <ShareDialog mind={shareMind ?? null} onClose={() => useShareDialog.getState().close()} />
     </>
   );
 }

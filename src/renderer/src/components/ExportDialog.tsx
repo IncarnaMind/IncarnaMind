@@ -1,15 +1,12 @@
-import { type FormEvent, type ReactNode, useEffect, useId, useState } from "react";
-import {
-  EXPORT_FORMATS,
-  type ExportFormat,
-  type ExportPreferences,
-  type Mind,
-  type MindCitationStyle,
-  type OutputSettings,
-  type SharePagePreferences,
-  type SharePagePreview,
-  type TheirChangesShown,
-  type WordExportPreferences,
+import { type FormEvent, useEffect, useId, useState } from "react";
+import type {
+  ExportFormat,
+  ExportPreferences,
+  Mind,
+  MindCitationStyle,
+  OutputSettings,
+  TheirChangesShown,
+  WordExportPreferences,
 } from "../../../core/api";
 import { hasCitationPlace, hasQuestionsOption } from "../../../shared/exportOptions";
 import type { MessageKey } from "../../../shared/i18n";
@@ -18,7 +15,7 @@ import { shortcutLabel } from "../commands/keymap";
 import { core } from "../core";
 import { errorMessage } from "../errors";
 import { commentsHint } from "../exportChecks";
-import { exportPreferences, FORMAT_LABELS } from "../exports";
+import { EXPORT_OPTIONS_FORMATS, exportPreferences, FORMAT_LABELS } from "../exports";
 import { useT } from "../i18n";
 import { chooseOutputLocation, outputFolderLabel } from "../outputFiles";
 import { useAppStore } from "../store";
@@ -26,15 +23,15 @@ import { CitationPlaceRow } from "./CitationPlace";
 import { ChevronDownLineIcon, CloseLineIcon } from "./lineIcons";
 import { MarkAiTextRow } from "./MarkAiText";
 import { ProblemLine } from "./ProblemLine";
-import { SharePageContents } from "./SharePageContents";
+import { SwitchRow } from "./SwitchRow";
 import {
   buttonClass,
   dialogActionsClass,
-  dialogFrameClass,
   dialogTitleClass,
   hintClass,
   primaryButtonClass,
   ruledListClass,
+  tabSheetClass,
 } from "./ui";
 import { useModal } from "./useModal";
 
@@ -50,48 +47,6 @@ const FORMAT_NOTES: Readonly<Record<ExportFormat, MessageKey>> = {
 
 /** A ruled row of the sheet: its words on the left, its control on the right. */
 const rowClass = "flex min-h-11 flex-wrap items-center justify-between gap-x-4 gap-y-1 py-2";
-
-/** A switch in a row of the sheet, with what it does under its label. */
-function SwitchRow({
-  label,
-  hint,
-  checked,
-  onChange,
-  testId,
-}: {
-  label: string;
-  hint?: ReactNode;
-  checked: boolean;
-  onChange(checked: boolean): void;
-  testId: string;
-}) {
-  const id = useId();
-  return (
-    <div className="flex items-center justify-between gap-4 py-2">
-      <div className="flex min-w-0 flex-col">
-        <label htmlFor={id} className="text-ui text-ink">
-          {label}
-        </label>
-        {hint && (
-          <span id={`${id}-hint`} className={hintClass}>
-            {hint}
-          </span>
-        )}
-      </div>
-      <input
-        id={id}
-        type="checkbox"
-        role="switch"
-        data-testid={testId}
-        checked={checked}
-        aria-checked={checked}
-        aria-describedby={hint ? `${id}-hint` : undefined}
-        onChange={(event) => onChange(event.target.checked)}
-        className="switch shrink-0"
-      />
-    </div>
-  );
-}
 
 /** The hint of the tracked-changes switch, with the name a link to where it is changed. */
 function TrackedAsHint({ name }: { name: string }) {
@@ -186,43 +141,6 @@ function WordReviewRows({
           checked={includeMine}
           onChange={onIncludeMine}
           testId="export-include-my-comments"
-        />
-      )}
-    </>
-  );
-}
-
-function SharePageRows({
-  draft,
-  onChange,
-  contents,
-}: {
-  draft: SharePagePreferences;
-  onChange(next: SharePagePreferences): void;
-  contents: {
-    preview: SharePagePreview;
-    textOnly: ReadonlySet<string>;
-    onChange(textOnly: Set<string>): void;
-  } | null;
-}) {
-  const t = useT();
-  return (
-    <>
-      <SwitchRow
-        label={t("export.share.cards")}
-        hint={t("export.share.cards.hint")}
-        checked={draft.citationCards}
-        onChange={(citationCards) => onChange({ ...draft, citationCards })}
-        testId="export-citation-cards"
-      />
-      {draft.citationCards && contents && <SharePageContents {...contents} />}
-      {draft.citationCards && (
-        <SwitchRow
-          label={t("export.share.checkedLine")}
-          hint={t("export.share.checkedLine.hint")}
-          checked={draft.checkedLine}
-          onChange={(checkedLine) => onChange({ ...draft, checkedLine })}
-          testId="export-checked-line"
         />
       )}
     </>
@@ -414,8 +332,7 @@ export function ExportDialog({ mind, onClose }: { mind: Mind | null; onClose(): 
       onClose={onClose}
       data-testid="export-dialog"
       aria-labelledby="export-title"
-      // A sheet hanging from the tab strip, as the design has it, rather than a dialog in the middle.
-      className={`${dialogFrameClass} mt-11 mb-auto max-h-[calc(100vh-68px)] w-[min(520px,calc(100vw-48px))] overflow-hidden rounded-t-none open:flex open:flex-col`}
+      className={tabSheetClass}
     >
       {/* Mounted only while open, so each opening starts from the options last saved. */}
       {mind && <ExportOptionsForm mind={mind} onDone={onClose} />}
@@ -446,36 +363,7 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const { format } = draft;
-  const [shared, setShared] = useState<SharePagePreview | null>(null);
-  const [textOnly, setTextOnly] = useState<Set<string> | null>(null);
-  const wantsShared = format === "share-page";
-
-  const { includeQuestions, checkedLine } = draft["share-page"];
-  const theirChanges = draft.theirChanges ?? "shown";
   const citationStyle = useMindCitationStyle(mind.id);
-
-  useEffect(() => {
-    if (!wantsShared) return;
-    let current = true;
-    const options = { format: "share-page", includeQuestions, checkedLine, theirChanges } as const;
-    core.previewSharePage(mind.id, options).then(
-      (preview) => {
-        if (!current) return;
-        setShared(preview);
-        setTextOnly(
-          (kept) =>
-            kept ??
-            new Set(
-              preview.documents.filter((each) => each.textOnly).map((each) => each.documentId),
-            ),
-        );
-      },
-      (error: unknown) => useAppStore.getState().reportError(error),
-    );
-    return () => {
-      current = false;
-    };
-  }, [mind.id, wantsShared, includeQuestions, checkedLine, theirChanges]);
 
   // How many Questions the Mind has, which a deliverable leaves out unless asked: said under its
   // switch; and how many Citations a source pack would hold, since with none it says so.
@@ -512,16 +400,6 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
       useAppStore.setState({ settings });
       if (othersComments !== null && othersComments !== counts?.othersComments) {
         await core.setCheckComments(mind.id, othersComments);
-      }
-      const before = shared?.documents
-        .filter((each) => each.textOnly)
-        .map((each) => each.documentId);
-      if (
-        textOnly &&
-        before &&
-        (before.length !== textOnly.size || before.some((id) => !textOnly.has(id)))
-      ) {
-        await core.setSharePageTextOnly(mind.id, [...textOnly]);
       }
       onDone();
     } catch (failure) {
@@ -571,7 +449,7 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
               }
               className="h-8 w-52 max-w-full appearance-none rounded-sm border border-rule-strong bg-sheet pr-8 pl-2.5 text-ui text-ink focus:border-accent"
             >
-              {EXPORT_FORMATS.map((each) => (
+              {EXPORT_OPTIONS_FORMATS.map((each) => (
                 <option key={each} value={each}>
                   {t(FORMAT_LABELS[each])}
                 </option>
@@ -598,16 +476,6 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
               ? t("export.hiddenColumns.one")
               : t("export.hiddenColumns.other", { count: counts?.hiddenColumns ?? 0 })}
           </p>
-        )}
-
-        {format === "share-page" && (
-          <SharePageRows
-            draft={draft["share-page"]}
-            onChange={(sharePage) => setDraft({ ...draft, "share-page": sharePage })}
-            contents={
-              shared && textOnly ? { preview: shared, textOnly, onChange: setTextOnly } : null
-            }
-          />
         )}
 
         {hasQuestionsOption(format) && (
@@ -642,10 +510,7 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
           </div>
         )}
 
-        {(format === "pdf" ||
-          format === "html" ||
-          format === "share-page" ||
-          format === "markdown") &&
+        {(format === "pdf" || format === "html" || format === "markdown") &&
           (counts?.theirChanges ?? 0) > 0 && (
             <TheirChangesRow
               count={counts?.theirChanges ?? 0}
@@ -685,9 +550,7 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
           />
         )}
 
-        {(format !== "share-page" || !draft["share-page"].citationCards) && (
-          <CitationStyleRow mindId={mind.id} />
-        )}
+        <CitationStyleRow mindId={mind.id} />
         <SaveToRow />
       </div>
 

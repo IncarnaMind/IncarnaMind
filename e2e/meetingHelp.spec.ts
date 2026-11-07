@@ -7,6 +7,7 @@ import {
   createDataFolder,
   dismissChatSetup,
   expectBarOneRow,
+  firstTranscriptLine,
   heldGlobalKeys as held,
   launchApp,
   openSettings,
@@ -64,7 +65,7 @@ const core = (window: Page) =>
 /** A meeting recording from both sides, its first lines in. */
 async function recordingMeeting(window: Page) {
   const bar = await startRecording(window, await recordMeeting(window), { notice: true });
-  await expect(bar.getByTestId("meeting-transcript-toggle")).toBeEnabled({ timeout: 20_000 });
+  await firstTranscriptLine(window);
   return bar;
 }
 

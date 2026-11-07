@@ -102,6 +102,12 @@ export interface ConfinedProgram extends Program {
    * never rejects.
    */
   sweep?(group: number): Promise<void>;
+  /**
+   * Measures it against its request's memory and folder limits while it runs, with every process
+   * of its run (a daemon the system took over too), which only the confinement can tell from other
+   * programs'. A request with those limits doesn't run without one.
+   */
+  meter?: ProgramMeter;
 }
 
 /**
@@ -210,24 +216,34 @@ class Tail {
 /** How long a stopped program's output may stay open before the run ends without it. */
 const STOP_GRACE_MS = 2000;
 
-/** How often a program's memory and working folder are measured against its limits. */
-const WATCH_MS = 250;
+/**
+ * What a running program holds, as its limits count it, in bytes. `folder` is "unknown" when the
+ * meter couldn't measure this program's own disk use; a run whose folder stays unknown is stopped,
+ * so one run can't hide the files of another it shares a measurement with.
+ */
+export interface ProgramUse {
+  memory: number;
+  folder: number | "unknown";
+}
 
 /** Measures a running program against its limits: the host's, which reads its processes. */
 export interface ProgramMeter {
   /**
-   * The memory, in bytes, of the program started as `root` and every process under it;
-   * `unmeasured` hears why a part of it couldn't be read.
+   * Measures the program started as `root`, whose working folder is `folder`, several times a
+   * second until what it returns is called: `use` hears what it holds each time, `unmeasured` why
+   * a part couldn't be read, which then counts nothing.
    */
-  memory(root: number, unmeasured: (error: unknown) => void): Promise<number>;
-  /** The bytes the files under `folder` hold; links aren't followed. */
-  folder(folder: string): Promise<number>;
+  watch(
+    root: number,
+    folder: string,
+    use: (use: ProgramUse) => void,
+    unmeasured: (error: unknown) => void,
+  ): () => void;
 }
 
 /**
- * Measures the program's memory and working folder every `WATCH_MS` while it
- * runs, and calls `over` with the first limit it goes past. Returns what
- * stops the watching.
+ * Calls `over` with the first limit the program goes past while it runs. Returns what stops the
+ * watching.
  */
 function watchLimits(
   child: ChildProcess,
@@ -242,30 +258,24 @@ function watchLimits(
   if (!meter || (memoryBytes === undefined && folderBytes === undefined) || pid === undefined) {
     return () => undefined;
   }
-  // Measured four times a second: one report of each failure is enough to find it.
+  // Measured several times a second: one report of each failure is enough to find it.
   let reported = false;
   const reportOnce = (error: unknown) => {
     if (reported) return;
     reported = true;
     report(error);
   };
-  let measuring = false;
-  const timer = setInterval(async () => {
-    if (measuring) return;
-    measuring = true;
-    try {
-      if (memoryBytes !== undefined && (await meter.memory(pid, reportOnce)) > memoryBytes) {
-        over("memory");
-      } else if (folderBytes !== undefined && (await meter.folder(cwd)) > folderBytes) {
-        over("folder");
-      }
-    } catch (error) {
-      reportOnce(error);
-    } finally {
-      measuring = false;
-    }
-  }, WATCH_MS);
-  return () => clearInterval(timer);
+  return meter.watch(
+    pid,
+    cwd,
+    (use) => {
+      if (memoryBytes !== undefined && use.memory > memoryBytes) over("memory");
+      else if (folderBytes === undefined) return;
+      else if (use.folder === "unknown") over("folder-unknown");
+      else if (use.folder > folderBytes) over("folder");
+    },
+    reportOnce,
+  );
 }
 
 /**
@@ -360,8 +370,6 @@ export interface LocalExecutorOptions {
   reportError(error: unknown): void;
   /** Confines each program, at its level. Not given: level "none", nothing confined. */
   confinement?: Confinement;
-  /** Measures a program against a request's memory and folder limits; without it none runs. */
-  meter?: ProgramMeter;
 }
 
 /**
@@ -375,11 +383,6 @@ export function createLocalExecutor(options: LocalExecutorOptions): Executor {
     async run(request) {
       request.signal.throwIfAborted();
       const { memoryBytes, folderBytes } = request.limits ?? {};
-      if (!options.meter && (memoryBytes !== undefined || folderBytes !== undefined)) {
-        throw new Error(
-          "This Executor can't measure a program's memory or folder, so a program with those limits didn't run.",
-        );
-      }
       const cwd = request.cwd ?? (await mkdtemp(join(options.tempDir, "incarnamind-script-")));
       const temporary = request.cwd === undefined ? cwd : undefined;
       try {
@@ -394,6 +397,11 @@ export function createLocalExecutor(options: LocalExecutorOptions): Executor {
           return sweeping;
         };
         try {
+          if (!program.meter && (memoryBytes !== undefined || folderBytes !== undefined)) {
+            throw new Error(
+              "This Executor can't measure a program's memory or folder, so a program with those limits didn't run.",
+            );
+          }
           const child = await options.processes.spawn(program.command, program.args, {
             cwd,
             env: program.env,
@@ -406,7 +414,7 @@ export function createLocalExecutor(options: LocalExecutorOptions): Executor {
             processGroup: true,
           });
           group = child.pid ?? 0;
-          return await collect(child, request, cwd, leftovers, options.reportError, options.meter);
+          return await collect(child, request, cwd, leftovers, options.reportError, program.meter);
         } finally {
           // Also when it couldn't start: the run's record goes only once a sweep has found it over.
           await leftovers();
