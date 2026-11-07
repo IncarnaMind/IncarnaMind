@@ -93,3 +93,14 @@ At bb7b63aab, DeepSeek's own key, judge DeepSeek V4 Pro, fixed rig, one-minute l
 | zh-CN | **1.45 → 1.72 s** | 2.97 → 1.97 s | 2–3 → 2–3 | 12–15 → 13–14 | 10–12 → 11–12 | 15–15 → 15–15 |
 
 Every quality line holds and done is a second sooner in both languages (sooner in 83 of 90 pairs, one request in 89 of 90), but in Chinese the first whole option comes later: on today's path DeepSeek already writes its Chinese reply in its first request, and the records now come before it. Today's path here is also call help's measure on DeepSeek: the first whole option at 2.54 s (English) and 1.45 s (Chinese), done at 2.97 s in both.
+
+## The restarted second run, 2026-11-07: one line missed; not listed
+
+At 78eafccb4 on the direct Anthropic route (another key, same model and endpoint), fixed rig, judge Claude Opus 5.5, one-minute load 5.5–39.9 (median 12.8; a run whose 15-minute load passed 24 would be rerun, and none did); $4.26 (the judge $1.04). Today → the step, all 90 pairs finished:
+
+| Sonnet 5.5 | First whole option | Done | False Supported | Cited | Judged right | Every Citation found |
+|---|---|---|---|---|---|---|
+| en | 4.37 → 2.72 s | 4.37 → 3.11 s | 3–4 → 2–3 | 14–15 → 14–15 | 14–15 → 14–14 | 14–15 → 14–15 |
+| zh-CN | 4.72 → 2.81 s | 4.72 → 3.31 s | 4–8 → 4–6 | 15–15 → 15–15 | **15–15 → 12–14** | 14–15 → 14–15 |
+
+Done came sooner in 86 of 90 pairs (paired median −1.54 s), every step press was one request, and no reply showed nothing or failed. But in Chinese, judged right fell below today's lowest run: zh-say-records (twice), zh-sum, zh-check-wrong, zh-no-price and zh-answer-unknown (once each) went from right to partly, each a reply that left out part of what today's covered or added a sentence its quote doesn't state. As written, the step fails, and no model is listed. The set has now been seen by three runs of this step; a next try needs a held-out set of its own.
