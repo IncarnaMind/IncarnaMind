@@ -12,6 +12,8 @@ import {
   NotFoundError,
 } from "../../src/core";
 import { contentHash } from "../../src/core/answers/blocks";
+import type { MarkedCitation } from "../../src/core/api";
+import { pageBlocks, withAnswerChecks } from "../../src/shared/answerBlocks";
 import { formatDate } from "../../src/shared/dates";
 import { checkingModel, type Plan } from "../helpers/checks";
 import { setUpWithDocuments } from "../helpers/citations";
@@ -870,6 +872,118 @@ describe("Checks in the statement", () => {
       ["Sentences checked against the Documents", "local-model", "2"],
     ]);
     expect(paragraphsOf(parts).filter((each) => NO_RECORD.test(each))).toEqual([]);
+  });
+
+  /**
+   * A Note of `body` with an Answer added to it whose judgement found `MOON` supported, put in as
+   * Add to note puts it, and the Block it made.
+   */
+  async function fromAnswer(...body: JSONContent[]) {
+    const setup = await checking(...body);
+    const { core, mind, documents } = setup;
+    const [tides] = documents;
+    if (!tides) throw new Error("Tides was not added");
+    const [provider] = await core.listChatProviders();
+    const judged: MarkedCitation = {
+      marker: 1,
+      passageId: "passage-1",
+      documentId: tides.id,
+      documentName: tides.name,
+      contentHash: tides.contentHash,
+      pageFrom: null,
+      pageTo: null,
+      location: null,
+      quote: "Spring tides happen at new moon and at full moon.",
+      check: "found",
+      checkReason: null,
+      judgedAt: NOW,
+    };
+    const answer = {
+      id: "answer-moon",
+      text: `${MOON} [^1]`,
+      citations: [judged],
+      figures: [],
+      status: "done" as const,
+      model: { providerId: provider?.id ?? "", modelId: "local-model" },
+    };
+    const added = await core.addToNote({
+      mindId: mind.id,
+      blocks: withAnswerChecks(pageBlocks(answer, ""), answer, "", null),
+      origin: null,
+      model: answer.model,
+    });
+    const [blockId] = added.blockIds;
+    if (!blockId) throw new Error("Nothing was added.");
+    return { ...setup, blockId };
+  }
+
+  test.each([
+    {
+      language: "en",
+      own: "Sentences the author had checked against the Documents, with Check against Documents, by result:",
+      carried: "Sentences checked with the Answer they came from, by result:",
+      supported: "Supported",
+    },
+    {
+      language: "zh-CN",
+      own: "以下是“对照文档核对”的结果：",
+      carried: "以下句子已随其来源回答一并核对，按结果列出：",
+      supported: "有依据",
+    },
+  ] as const)(
+    "a sentence checked with the Answer it came from is listed under its own line, and moves to the author's once the author checks it ($language)",
+    async ({ language, own, carried, supported }) => {
+      const { core, mind, blockId } = await fromAnswer();
+      await core.updateSettings({ user: { language } });
+      const on = formatDate(NOW, language);
+
+      const before = await statementOf(core, mind.id);
+      const paragraphs = paragraphsOf(before.parts);
+      expect(paragraphs).toContain(carried);
+      expect(paragraphs).not.toContain(own);
+      const at = (parts: readonly Part[], line: string) =>
+        parts.slice(parts.findIndex((part) => part.kind === "paragraph" && part.text === line));
+      const listed = at(before.parts, carried);
+      expect(
+        tablesOf(listed)
+          .slice(0, 2)
+          .map((rows) => rows.slice(1)),
+      ).toEqual([[[supported, "1"]], [[MOON, supported, "local-model", on]]]);
+
+      await core.checkSentences({
+        requestId: randomUUID(),
+        mindId: mind.id,
+        action: "check-against-documents",
+        from: { blockId, offset: 0 },
+        to: { blockId, offset: MOON.length },
+      });
+      const after = await statementOf(core, mind.id);
+      expect(paragraphsOf(after.parts)).toContain(own);
+      expect(paragraphsOf(after.parts)).not.toContain(carried);
+      expect(tablesOf(at(after.parts, own)).at(-1)?.slice(1)).toEqual([
+        [MOON, supported, "local-model", on],
+      ]);
+    },
+  );
+
+  test("a sentence checked with its Answer is a use of the model beside the author's own checks", async () => {
+    const block = sentencesBlock(PENGUINS);
+    const { core, mind } = await fromAnswer(block);
+    await core.checkSentences({
+      requestId: randomUUID(),
+      mindId: mind.id,
+      action: "check-against-documents",
+      from: { blockId: block.attrs?.id, offset: 0 },
+      to: { blockId: block.attrs?.id, offset: PENGUINS.length },
+    });
+
+    const { parts } = await statementOf(core, mind.id);
+
+    expect(tablesOf(parts)[0]).toEqual([
+      ["Use", "Model", "Times"],
+      ["Answers added to the note", "local-model", "1"],
+      ["Sentences checked against the Documents", "local-model", "2"],
+    ]);
   });
 
   test("in Chinese, the row, the list and its dates are in Chinese", async () => {

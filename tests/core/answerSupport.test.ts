@@ -1,7 +1,8 @@
 import { describe, expect, test, vi } from "vitest";
-import { CITATION_NODE, type Core, type MarkedCitation } from "../../src/core";
+import { CITATION_NODE, CLAIM_CHECK_MARK, type Core, type MarkedCitation } from "../../src/core";
 import { SENTENCE_BATCH_INSTRUCTIONS } from "../../src/core/answers/checks/sentenceBatch";
-import { pageBlocks } from "../../src/shared/answerBlocks";
+import { checkableSentences } from "../../src/core/answers/checks/written";
+import { pageBlocks, withAnswerChecks } from "../../src/shared/answerBlocks";
 import type { NodeJSON } from "../../src/shared/blockJson";
 import { citedSentences } from "../../src/shared/citedSentences";
 import { checkGenerate, checkingModel, checkReply, isCheckRun, type Plan } from "../helpers/checks";
@@ -278,7 +279,31 @@ describe("an Answer works at once, and its Citations wait for their sentences' j
       expect(asked.ended).toBe("finished");
       expect(asked.atEnd).toMatchObject({ status: "done", text: each.answer });
       expect(asked.atEnd.citations).toMatchObject([{ marker: 1, check: "checking" }]);
-      expect((await asked.judged()).citations).toMatchObject([{ marker: 1, check: "found" }]);
+      const judgedAnswer = await asked.judged();
+      expect(judgedAnswer.citations).toMatchObject([{ marker: 1, check: "found" }]);
+      // A Note made from it carries the judgement's check, at the judgement's time (#2313).
+      const carried = withAnswerChecks(
+        pageBlocks(judgedAnswer, each.question),
+        judgedAnswer,
+        each.question,
+        null,
+      );
+      const marks: unknown[] = [];
+      const collect = (nodes: readonly NodeJSON[]) =>
+        nodes.forEach((node) => {
+          for (const mark of node.marks ?? []) {
+            if (mark.type === CLAIM_CHECK_MARK) marks.push(mark.attrs);
+          }
+          collect(node.content ?? []);
+        });
+      collect(carried);
+      // A sentence split around its Citation carries its one mark on each piece of its text.
+      const distinct = [
+        ...new Map(marks.map((mark) => [(mark as { id: string }).id, mark])).values(),
+      ];
+      expect(distinct).toMatchObject([{ state: "supported", checkedAt: expect.any(String) }]);
+      // The write's own check leaves the carried sentence to the judgement that settled it.
+      expect(checkableSentences(carried)).toHaveLength(0);
     },
   );
 

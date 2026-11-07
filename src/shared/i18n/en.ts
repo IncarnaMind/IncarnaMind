@@ -321,6 +321,7 @@ export const en = {
   "palette.group.foldersAndTags": "Folders and Tags",
   "palette.group.actions": "Actions",
   "palette.group.notes": "In your text",
+  "palette.group.meetingText": "Said in meetings",
   "palette.group.documentText": "In your Documents",
   "palette.group.conversationText": "In your conversations",
   "palette.group.ask": "Assistant",
@@ -4746,6 +4747,8 @@ export const en = {
   "aiStatement.citations.checking": "Still being checked",
   "aiStatement.sentences.intro":
     "Sentences the author had checked against the Documents, with Check against Documents, by result:",
+  "aiStatement.sentences.carried.intro":
+    "Sentences checked with the Answer they came from, by result:",
   "aiStatement.sentences.column.count": "Sentences",
   "aiStatement.sentences.supported": "Supported",
   "aiStatement.sentences.notFound": "Not found",
@@ -6025,6 +6028,8 @@ export const en = {
   "connectors.import.confirm.one": "Add 1 Connector",
   "connectors.import.sends":
     "What Answers ask these Connectors’ Tools goes to them; they may send that online.",
+  "connectors.import.placeholder":
+    "This header takes {name} from an environment variable, which IncarnaMind doesn’t read. Enter the key instead.",
   "connectors.import.nothing": "Nothing here can be added.",
   "connectors.import.adding": "Adding…",
   "connectors.consent.note":
@@ -6089,6 +6094,7 @@ export const en = {
   "remoteConnectors.signIn.error.held-back":
     "Its sign-in is with a server on another computer, so nothing was sent.",
   "remoteConnectors.signIn.error.failed": "The sign-in didn’t work.",
+  "remoteConnectors.storage.tryAgain": "Try again",
   "remoteConnectors.signIn.heldBack": "Paused: its sign-in server is on another computer.",
   "remoteConnectors.signIn.heldBack.details":
     "“Keep everything on this computer” is on, and this sign-in is with a server on another computer, so it isn’t renewed or started and its Tools aren’t used. Turn that off and it goes on from where it was.",
@@ -6320,6 +6326,7 @@ export const en = {
   "meetings.joined.transcript":
     "The Transcript of “{meeting}” moved to “{folder}”, beside its note",
   "meetings.joined.undo": "Undo",
+  "meetings.joined.undone": "“{meeting}” and its Transcript are back where they were",
   "meetings.leftApart.one":
     "1 meeting left apart from its Transcript, since each Folder keeps its work inside it",
   "meetings.leftApart.other":

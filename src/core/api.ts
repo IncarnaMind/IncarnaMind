@@ -366,8 +366,14 @@ export interface CreateMindInput {
  *   its Replace, re-check and figure paths would carry the name onto another
  *   quote, so it opens these Notes read-only. Older content is version 53
  *   content as it is: a Citation without it says nothing of a name.
+ * - 55: a `claimCheck` mark carried from an Answer names the Answer it came
+ *   from (`fromAnswer`) and the scope that Answer's Question searched (#2313).
+ *   An older version would strip the attribute on save, and the carried check
+ *   would then be re-run by a Note move or a scope comparison, so it opens
+ *   these Notes read-only. Older content is version 54 content as it is: a
+ *   mark without it was checked by this Note itself.
  */
-export const CONTENT_SCHEMA_VERSION = 54;
+export const CONTENT_SCHEMA_VERSION = 55;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -7306,6 +7312,8 @@ export interface ClaimCheckBasis {
   kept?: true;
   /** "check-against-document": how much of the picked Document or Folder was read. */
   read?: WholeRead;
+  /** The Answer a carried check came from (#2313); absent for a check the Note ran itself. */
+  fromAnswer?: string;
 }
 
 /** Pages read of a whole-read pick's total pages; a page without text cannot be read. */
@@ -8165,6 +8173,12 @@ export interface ConversationQuestion {
 /** A Citation of an Answer in a conversation: where it goes is its marker ("[^2]") in the text. */
 export interface MarkedCitation extends Citation {
   marker: number;
+  /**
+   * When the sentence judgement settled this Citation, a supported one included (ISO 8601):
+   * absent when only its quote was checked, so a Note made from the Answer carries the judgement
+   * and not the quote check alone (#2313).
+   */
+  judgedAt?: string;
 }
 
 /**
@@ -9581,6 +9595,9 @@ export type ConnectorErrorKind =
   /** Anything else, e.g. it doesn't speak MCP. */
   | "failed";
 
+/** Where a remote Connector failed, for the log (see `ConnectorError.step`). */
+export type ConnectorFailureStep = "headers" | "sign-in" | "connect" | "tools" | "call";
+
 export interface ConnectorError {
   kind: ConnectorErrorKind;
   /** "missing-command": the command that wasn't found, e.g. "npx". Null otherwise. */
@@ -9591,6 +9608,12 @@ export interface ConnectorError {
   message: string;
   /** IncarnaMind will start it again by itself shortly, waiting longer after each failure. */
   retrying: boolean;
+  /** Remote: where it failed: reading its stored headers, signing in, connecting, or listing Tools. */
+  step?: ConnectorFailureStep;
+  /** Remote: the HTTP status the server answered, when one did. */
+  status?: number;
+  /** Remote: the failure's own first line, with every header value and key-like token redacted. */
+  detail?: string;
 }
 
 /** A Tool a Connector offers. */
@@ -9768,6 +9791,8 @@ export interface ConnectorImportEntry {
   url?: string;
   connection?: "http" | "sse";
   headers?: string[];
+  /** Headers that read a value from the User's environment in the imported file: no value is stored. */
+  placeholders?: { header: string; variable: string }[];
   action: "add" | "exists" | "remote" | "invalid";
 }
 

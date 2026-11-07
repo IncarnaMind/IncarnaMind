@@ -311,6 +311,7 @@ export const zhCN = {
   "palette.group.foldersAndTags": "文件夹和标签",
   "palette.group.actions": "操作",
   "palette.group.notes": "你写的内容",
+  "palette.group.meetingText": "会议中说过的",
   "palette.group.documentText": "文档内容",
   "palette.group.conversationText": "对话内容",
   "palette.group.ask": "助手",
@@ -4531,6 +4532,7 @@ export const zhCN = {
   "aiStatement.citations.contradicted": "与文档矛盾",
   "aiStatement.citations.checking": "正在核对",
   "aiStatement.sentences.intro": "以下是“对照文档核对”的结果：",
+  "aiStatement.sentences.carried.intro": "以下句子已随其来源回答一并核对，按结果列出：",
   "aiStatement.sentences.column.count": "说法（条）",
   "aiStatement.sentences.supported": "有依据",
   "aiStatement.sentences.notFound": "未找到",
@@ -5707,6 +5709,8 @@ export const zhCN = {
   "connectors.import.confirm.one": "添加 1 个连接器",
   "connectors.import.sends":
     "回答向这些连接器的工具提出的请求会发送给它们，它们可能再通过互联网发送。",
+  "connectors.import.placeholder":
+    "此请求头从环境变量 {name} 取值，IncarnaMind 不读取环境变量。请改为填写密钥。",
   "connectors.import.nothing": "没有可以添加的内容。",
   "connectors.import.adding": "正在添加…",
   "connectors.consent.note": "这个连接器在你的电脑上运行，但它可能会把收到的内容通过网络发送出去。",
@@ -5766,6 +5770,7 @@ export const zhCN = {
     "此系统没有可用的密钥环，IncarnaMind 无法安全地保存你的登录信息。",
   "remoteConnectors.signIn.error.held-back": "它的登录服务在另一台电脑上，所以没有发送任何内容。",
   "remoteConnectors.signIn.error.failed": "未能登录。",
+  "remoteConnectors.storage.tryAgain": "重试",
   "remoteConnectors.signIn.heldBack": "已暂停：它的登录服务在另一台电脑上。",
   "remoteConnectors.signIn.heldBack.details":
     "已开启“所有内容都留在这台电脑上”，而它的登录服务在另一台电脑上，所以不会续期或开始登录，它的工具也不会使用。关闭这项设置后，它会接着之前的状态继续使用。",
@@ -5980,6 +5985,7 @@ export const zhCN = {
   "meetings.joined": "“{meeting}”已随转写稿移到“{folder}”",
   "meetings.joined.transcript": "“{meeting}”的转写稿已移到“{folder}”，与笔记放在一起",
   "meetings.joined.undo": "撤销",
+  "meetings.joined.undone": "“{meeting}”和转写稿已回到原处",
   "meetings.leftApart.one": "1 场会议未与转写稿合并：笔记和转写稿所在的文件夹都只在本文件夹内工作",
   "meetings.leftApart.other":
     "{count} 场会议未与转写稿合并：笔记和转写稿所在的文件夹都只在本文件夹内工作",
