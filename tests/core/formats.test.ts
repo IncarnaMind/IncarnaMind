@@ -543,12 +543,18 @@ describe("a sheet's header row is found from its shape (#2373)", () => {
     expect(units[1]?.text.split("\n")[0]).toBe("Name\tCity");
   });
 
-  test.each(["csv", "xlsx"] as const)(
-    "%s: a blank cell in the first data row leaves the header heading its column",
-    async (format) => {
+  test.each([
+    { format: "csv", missing: "", label: "a blank" },
+    { format: "xlsx", missing: "", label: "a blank" },
+    { format: "csv", missing: "N/A", label: "N/A" },
+    { format: "xlsx", missing: "—", label: "a dash" },
+  ] as const)(
+    "$format: a first data row with $label under the figure column leaves the header heading it",
+    async ({ format, missing }) => {
+      const first = missing === "" ? ["Alice", "Paris"] : ["Alice", "Paris", missing];
       const units = await unitsOf(format, [
         ["Store", "City", "Sales"],
-        ["Alice", "Paris"],
+        first,
         ...Array.from({ length: 120 }, (_, index) => [
           `Store ${index + 1}`,
           "Hangzhou",
