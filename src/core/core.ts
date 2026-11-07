@@ -4017,6 +4017,13 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     changed: (count) => events.emit("organizeReview.changed", { count }),
   });
+  /** Tagging states that leave a Document without its automatic Tags yet. */
+  const UNTAGGED: ReadonlySet<string> = new Set([
+    "off",
+    "failed",
+    "waiting-for-provider",
+    "pending",
+  ]);
   // Organize of the whole Library, or of one Folder, planned at any size into the Review (#1569).
   const libraryOrganizer = createLibraryOrganizer({
     db,
@@ -4042,7 +4049,21 @@ export function createCore(adapters: CoreAdapters): Core {
         : null,
     tokensOf: approximateTokens,
     propose: (run, proposals) => organizeReview.propose(run, proposals),
-    settled: (ids) => library.settle(ids),
+    settled: (ids) => {
+      library.settle(ids);
+      // Organize used to add Tags as it filed; its plan doesn't, so the tagger adds them as before,
+      // through the tagging flow's consent, until Tags wait in the Review too (#1569).
+      const untagged = documents
+        .getMany([...ids])
+        .filter((each) => UNTAGGED.has(each.tagging))
+        .map((each) => each.id);
+      if (untagged.length > 0)
+        void lookForTaggingModel()
+          .then(() => tagger.retag(untagged))
+          .catch((error: unknown) =>
+            console.error("Tagging after Organize couldn't start.", error),
+          );
+    },
     progress: (progress) => events.emit("organize.progress", progress),
   });
   try {

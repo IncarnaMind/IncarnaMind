@@ -162,7 +162,9 @@ export function createTagger(options: TaggerOptions) {
    */
   const requests = new Map<string, number>();
   const asked = new Set<string>();
-  const organized = (id: string) => options.organizing?.(id) === true;
+  // A Document the User asked to tag is the tagger's even where Organize holds it: Organize's plan
+  // hands its Documents' Tags here (#1569).
+  const organized = (id: string) => !asked.has(id) && options.organizing?.(id) === true;
 
   // A Meeting's Transcript has no Tags of its own: it goes with its Note (#2528).
   const rowOf = (id: string) =>

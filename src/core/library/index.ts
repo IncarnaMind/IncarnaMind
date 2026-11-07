@@ -1541,8 +1541,9 @@ export function createLibrary(options: {
       };
     },
     /**
-     * The plan has finished with these Documents (#1569): one waiting to be allowed, queued or
-     * failed is done, in the Folder it is in, and a job of the queue still running on it stops.
+     * The plan has finished with these Documents (#1569): each is done, in the Folder it is in,
+     * so none still waits to be allowed or counts as failed, and a job of the queue still running
+     * on it stops.
      */
     settle(ids: readonly string[]): void {
       const done = db.transaction(() =>
@@ -1552,9 +1553,9 @@ export function createLibrary(options: {
             "SELECT id, name, kind, page_count, content_hash, status FROM documents WHERE id = ? AND deleted_at IS NULL",
             [id],
           );
-          if (!row || !doc || row.status === "classified") return [];
+          if (!doc || row?.status === "classified") return [];
           asked.delete(id);
-          write(doc, row.group_id, row.source, "classified");
+          write(doc, row?.group_id ?? null, row?.source ?? "automatic", "classified");
           return [id];
         }),
       );
