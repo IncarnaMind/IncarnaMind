@@ -736,7 +736,7 @@ export const en = {
   "pictureViewer.close": "Close",
   "pictureViewer.picture": "Picture",
   "pictureViewer.plotInAnswer": "Plot {number} in this Answer",
-  "pictureViewer.pictureInNote": "Picture {number} in this Note",
+  "pictureViewer.pictureInNote": "Picture {number} in this note",
   "pictureViewer.documentSource": "{document} · {place}",
   "pictureViewer.saved": "Saved the picture",
   "editor.slash.contents": "Table of contents",

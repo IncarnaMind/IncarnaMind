@@ -232,7 +232,7 @@ test("a Note's two pictures open from the keyboard, step, zoom, copy, save and c
 
     // → steps to the Note's next picture and stops at the end; ← comes back.
     await window.keyboard.press("ArrowRight");
-    await expect(source(window)).toHaveText("Picture 2 in this Note");
+    await expect(source(window)).toHaveText("Picture 2 in this note");
     await expect(count(window)).toHaveText("2 of 2");
     await window.keyboard.press("ArrowRight");
     await expect(count(window)).toHaveText("2 of 2");
@@ -335,7 +335,7 @@ test("a Note's two pictures open from the keyboard, step, zoom, copy, save and c
     // A double-click and the hover button open it from the Note too.
     await second.getByTestId("mind-picture-image").dblclick();
     await expect(viewer(window)).toBeVisible();
-    await expect(source(window)).toHaveText("Picture 2 in this Note");
+    await expect(source(window)).toHaveText("Picture 2 in this note");
     await window.keyboard.press("Escape");
     await expect(viewer(window)).toBeHidden();
     await first.hover();
