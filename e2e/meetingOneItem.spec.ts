@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge, Meeting } from "../src/core/api";
 import { openDatabase } from "../src/core/storage";
 import { migrations } from "../src/core/storage/migrations";
@@ -11,6 +11,7 @@ import {
   dismissChatSetup,
   launchApp,
   motionSettled,
+  openMoreMenu,
   pointAndClick,
   pointAt,
   recordMeetingNow,
@@ -50,6 +51,13 @@ const core = (window: Page) =>
 
 const meetings = async (window: Page): Promise<Meeting[]> =>
   (await core(window)).evaluate((bridge) => bridge.listMeetings());
+
+/** Right-clicks `row` and opens More ›, where the meeting Note's menu keeps its Transcript's rows. */
+async function transcriptRows(window: Page, row: Locator, menu: Locator): Promise<Locator> {
+  await pointAndClick(window, row, { button: "right" });
+  await expect(menu).toBeVisible();
+  return openMoreMenu(window, menu);
+}
 
 /** Records a meeting in a new Note until it has lines, stops it, and waits for its Transcript to be read. */
 async function recordAndStop(window: Page): Promise<{ meeting: Meeting; title: string }> {
@@ -113,10 +121,9 @@ test("a meeting's Transcript has no row; a ⌘K hit inside it is the Note's and 
     new RegExp(`^${escaped(title)} · Transcript, \\d{2}:\\d{2}`),
   );
   // Its right-click menu is its Note's.
-  await pointAndClick(window, meetingsFound.getByTestId("library-meeting-hit"), {
-    button: "right",
-  });
-  await expect(window.getByRole("menuitem", { name: "Don’t cite the Transcript" })).toBeVisible();
+  const hit = meetingsFound.getByTestId("library-meeting-hit");
+  const hitMore = await transcriptRows(window, hit, meetingsFound.getByTestId("mind-actions"));
+  await expect(hitMore.getByRole("menuitem", { name: "Don’t cite the Transcript" })).toBeVisible();
   await window.keyboard.press("Escape");
   await librarySearch.fill("");
 
@@ -180,11 +187,16 @@ test("a meeting's Transcript has no row; a ⌘K hit inside it is the Note's and 
       transcriptId,
     );
   const noteTab = window.getByTestId("mind-tab").first();
-  await pointAndClick(window, noteTab, { button: "right" });
-  await pointAndClick(window, window.getByRole("menuitem", { name: "Don’t cite the Transcript" }));
+  const tabRows = () => transcriptRows(window, noteTab, noteTab.getByTestId("tab-actions"));
+  await pointAndClick(
+    window,
+    (await tabRows()).getByRole("menuitem", { name: "Don’t cite the Transcript" }),
+  );
   await expect.poll(notCited).toBe(true);
-  await pointAndClick(window, noteTab, { button: "right" });
-  await pointAndClick(window, window.getByRole("menuitem", { name: "Cite the Transcript again" }));
+  await pointAndClick(
+    window,
+    (await tabRows()).getByRole("menuitem", { name: "Cite the Transcript again" }),
+  );
   await expect.poll(notCited).toBe(false);
 
   // "@" in the composer finds the meeting by words said in it, as its Note's choice.
@@ -240,8 +252,7 @@ test("a meeting's Transcript has no row; a ⌘K hit inside it is the Note's and 
     recorded.mindId,
   );
   await expect(header).toContainText(`转写稿 · ${renamed}`);
-  await pointAndClick(window, window.getByTestId("mind-tab").first(), { button: "right" });
-  await pointAndClick(window, window.getByRole("menuitem", { name: "不引用转写稿" }));
+  await pointAndClick(window, (await tabRows()).getByRole("menuitem", { name: "不引用转写稿" }));
   await expect.poll(notCited).toBe(true);
   await expect(window.getByTestId("undo-message").last()).toHaveText(
     `“${renamed}”不再作为引用来源`,
@@ -250,8 +261,7 @@ test("a meeting's Transcript has no row; a ⌘K hit inside it is the Note's and 
   await setWindowSize(app, window, 900, 700);
   await shot(window, "one-item-renamed-dont-cite-narrow-zh");
   await setWindowSize(app, window, 1440, 900);
-  await pointAndClick(window, window.getByTestId("mind-tab").first(), { button: "right" });
-  await pointAndClick(window, window.getByRole("menuitem", { name: "重新引用转写稿" }));
+  await pointAndClick(window, (await tabRows()).getByRole("menuitem", { name: "重新引用转写稿" }));
   await expect.poll(notCited).toBe(false);
 
   // In Chinese too, the joined Transcript has no Tags of its own: no Tags button, no 标签… in its
@@ -284,8 +294,10 @@ test("a meeting's Transcript has no row; a ⌘K hit inside it is the Note's and 
     recorded.mindId,
   );
   await expect(header).toContainText(`Transcript · ${renamed}`);
-  await pointAndClick(window, window.getByTestId("mind-tab").first(), { button: "right" });
-  await pointAndClick(window, window.getByRole("menuitem", { name: "Don’t cite the Transcript" }));
+  await pointAndClick(
+    window,
+    (await tabRows()).getByRole("menuitem", { name: "Don’t cite the Transcript" }),
+  );
   await expect.poll(notCited).toBe(true);
   await expect(window.getByTestId("undo-message").last()).toHaveText(`“${renamed}” won’t be cited`);
   await shot(window, "one-item-renamed-dont-cite-en");
