@@ -123,6 +123,20 @@ function requestsIn(nodes: readonly (Y.XmlElement | Y.XmlText | Y.XmlHook)[]): s
   return [...requests];
 }
 
+/**
+ * The Blocks a whole-Block removal is set on: a paragraph or heading, or the list item, list or
+ * quote that held only it (`removedWith` in ./write). An inline node's own delete, a Citation's
+ * or a formula's inside removed words, leaves its paragraph to revise.
+ */
+const REMOVED_BLOCKS: ReadonlySet<string> = new Set([
+  "paragraph",
+  "heading",
+  "listItem",
+  "bulletList",
+  "orderedList",
+  "blockquote",
+]);
+
 const WRITTEN_ATOMS: ReadonlySet<string> = new Set([
   CITATION_NODE,
   "hardBreak",
@@ -355,8 +369,14 @@ export function waitingIn(
   const removesWhole = range.some(
     (element) =>
       isWholeRemoval(element) ||
-      [...element.createTreeWalker((each) => each instanceof Y.XmlElement && isWholeRemoval(each))]
-        .length > 0,
+      [
+        ...element.createTreeWalker(
+          (each) =>
+            each instanceof Y.XmlElement &&
+            REMOVED_BLOCKS.has(each.nodeName) &&
+            isWholeRemoval(each),
+        ),
+      ].length > 0,
   );
   const ownRemoval =
     removesWhole && requests.length > 0 && requests.every((request) => answerRequest(doc, request));

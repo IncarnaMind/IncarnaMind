@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { JSONContent } from "@tiptap/core";
@@ -81,6 +82,16 @@ const removalReply = (): ScriptedReply => ({
 });
 
 const pending = (client: MindClient) => pendingProposals(client.blocks).map((each) => each.id);
+
+/** A paragraph of `text` followed by a Citation, as an Answer writes one. */
+const cited = (text: string): JSONContent => ({
+  type: "paragraph",
+  attrs: { id: randomUUID() },
+  content: [
+    { type: "text", text },
+    { type: "citation", attrs: { documentId: "tides", quote: "spring tides" } },
+  ],
+});
 
 /** Connects to an imported Mind once its import has written every Block. */
 async function importedClient(core: Core, mindId: string): Promise<MindClient> {
@@ -433,6 +444,61 @@ describe("A waiting change that takes out a whole paragraph", { timeout: 30_000 
       });
     }
   }
+
+  // protects=a same-turn second edit over a held change that took a Citation out with a removed sentence still revises in place: an inline node's own delete is no whole-Block removal; fails_when=the whole-block refusal says the text takes text out and can't be revised; no_claim=none beyond protects.
+  test("a removed sentence's Citation is no whole-Block removal", async () => {
+    let rewrites = 0;
+    const model = scriptedModel((call): ScriptedReply => {
+      const passage = editPassage(call);
+      if (passage !== null) {
+        rewrites += 1;
+        return {
+          text:
+            rewrites === 1
+              ? "## Summary\n\nKeep this line. The quarter figures were strong."
+              : "## Summary\n\nKeep this line, and more.",
+        };
+      }
+      const edits = call.results.filter((each) => each.tool === "edit_mind").length;
+      if (edits === 0)
+        return {
+          calls: [
+            {
+              tool: "edit_mind",
+              input: {
+                part: "Summary",
+                instruction: "Remove the quarter figures",
+                removes_only: true,
+              },
+            },
+          ],
+        };
+      if (edits === 1)
+        return {
+          calls: [
+            { tool: "edit_mind", input: { part: "Summary", instruction: "Make the line longer" } },
+          ],
+        };
+      return { text: "Changed it." };
+    });
+    const { core, mind, client } = await start(model, [
+      heading(2, "Summary"),
+      cited("Keep this line. The quarter was very good, and sales were really strong."),
+    ]);
+
+    const answer = await askAssistant(core, {
+      text: "remove the quarter figures, then make the line longer",
+      mindId: mind.id,
+    });
+
+    const edits = mindCalls(answer).filter((call) => call.tool === "edit_mind");
+    expect(edits).toHaveLength(2);
+    expect(edits[0]).toMatchObject({ status: "done" });
+    expect(edits[1]).toMatchObject({ status: "done", mindChange: { revised: true } });
+    expect(lastResult(model)).not.toContain("takes text out of it");
+    await client.settled();
+    expect(shownWithChanges(client).join(" ")).toContain("Keep this line, and more.");
+  });
 
   // protects=a whole-paragraph removal waiting from the User's own Edit with AI keeps the old reason, so the source of the request, not only its shape, keeps it from being the Answer's own; fails_when=it is read as the Answer's own because it is a whole-Block removal; no_claim=none beyond protects.
   test("the User's own whole-paragraph removal keeps its own reason", async () => {
