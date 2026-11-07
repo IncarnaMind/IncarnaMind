@@ -97,7 +97,7 @@ interface Stage {
  */
 const NO_UNDO_YET: Record<string, string> = {
   "answer.regenerate": "an AI change is taken back from History (#113), not by the note's ⌘Z",
-  "folder.organize": "what it suggests is taken back in To review (#241), not by ⌘Z",
+  "folder.organize": "what it proposes waits in the Review, which Discard sets aside (#1569), not ⌘Z",
 };
 
 /** Commands that add what the system's open sheet gives: the stub answers each with a new file. */

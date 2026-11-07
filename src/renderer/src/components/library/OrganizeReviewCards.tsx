@@ -170,7 +170,7 @@ export function OrganizeReviewCard({ card, context }: { card: ReviewCard; contex
             )}
           />
         ) : (
-          <h3 className="m-0 min-w-0 truncate text-[15px] leading-5 font-semibold text-ink">
+          <h3 className="m-0 flex min-w-0 text-[15px] leading-5 font-semibold text-ink">
             {card.proposed ? (
               <button
                 type="button"
@@ -178,12 +178,12 @@ export function OrganizeReviewCard({ card, context }: { card: ReviewCard; contex
                 data-testid="organize-review-card-name"
                 title={t("organizeReview.rename")}
                 onClick={rename.start}
-                className="-ml-1.5 max-w-full truncate rounded-md px-1.5 py-0.5 text-left hover:bg-hover"
+                className="-ml-1.5 min-w-0 truncate rounded-md px-1.5 py-0.5 text-left hover:bg-hover"
               >
                 <CardName card={card} />
               </button>
             ) : (
-              <span data-testid="organize-review-card-name" title={path}>
+              <span data-testid="organize-review-card-name" title={path} className="min-w-0 truncate">
                 <CardName card={card} />
               </span>
             )}

@@ -76,7 +76,7 @@ export function OrganizeLines() {
       : null;
   return (
     <>
-      <UndoLineAt place={LIBRARY_UNDO_PLACE} className="mt-2 empty:hidden" />
+      <UndoLineAt place={LIBRARY_UNDO_PLACE} className="mt-2 -ml-4 empty:hidden" />
       {run ? (
         <Line testId="organize-running">
           <span className="tabular-nums">
