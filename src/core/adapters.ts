@@ -20,6 +20,7 @@ import type { AnswerEngine } from "./answers/engine";
 import type {
   AudioSource,
   CopilotProfileId,
+  DecisionHost,
   EngineSwitchReason,
   ExternalService,
   SandboxLevel,
@@ -1137,6 +1138,8 @@ export interface CoreAdapters {
    * still treats them as going to TypeSafe.
    */
   jevHostedUrl?: string;
+  /** Where each decision model host's requests go (#1907). Defaults to the hosts'; tests use a local fake. */
+  decisionOrigins?: Partial<Record<DecisionHost, string>>;
   /**
    * Where Look up (#286) and checking references ask Crossref's,
    * arXiv's and OpenAlex's APIs. Defaults to theirs; tests point them at a

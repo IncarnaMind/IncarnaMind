@@ -15,7 +15,8 @@ For every Document, the app's own code path, without the app's database or embed
    - `clef-flash`: Clef-Flash chosen by name, with PDF page images on.
    - `chat`: the connected chat model, from `INCARNAMIND_EVAL_CHAT_*` (as `npm run eval` reads them), with thinking off as the app asks for it on every call that doesn't write an Answer (OpenAI's small models: reasoning effort `none`). A model that reads images (from the catalog, `src/core/providers/capabilities.ts`) also gets the page images of a PDF without text, as in the app.
    - `jev`: TypeSafe's Jev 1.13 as the app's decision-model classifier: one choice for the Folder and a yes/no question with a probability for each Tag. Text only, so a scan waits.
-   - `decisions`: OpenAI's Decisions API (`gpt-6-luna`), shaped the same way, with a scan's page images. For the evaluation only: the app has no such classifier.
+   - `decisions`: OpenAI's Decisions API (`gpt-6-luna`), shaped the same way, with a scan's page images. For the evaluation only, with images; `host` measures the app's own.
+   - `host`: a decision model on another host (#1907): OpenRouter, Perplexity, Liquid AI, Cloudflare Workers AI, OpenAI or Alibaba Cloud, built as the app builds it (`src/core/tags/decisionHosts.ts`). Text only, so a scan waits.
    - `scripted`: the smoke tests' scripted chat model (`src/main/fakeChatModel.ts`) through the chat route: it files a Document in the Folder whose name it contains. No model and no network: it checks that a run goes through.
 
 The Folders and Tags are the app's starter Folders (`library.preset.*` in `src/shared/i18n/`) and preset Tags (`src/core/tags/presets.ts`), read from the source, so a change to their descriptions is measured. A PDF without text is left for a route that can't read pages, as the Library leaves it; it counts as a miss.
@@ -59,6 +60,7 @@ Needs Ollama on `http://127.0.0.1:11434` with `tev1:4b`, `tev1:0.8b` and `clef-f
 | `INCARNAMIND_ORGANIZE_BATCH` | `10` | A local route stops its models after this many Documents, then loads them again. |
 | `INCARNAMIND_EVAL_JEV_KEY`, `_MODEL`, `_URL` | none, `jev-1.13.0`, TypeSafe's | The `jev` route's key (setting it is the consent to send the excerpts), model and server. |
 | `INCARNAMIND_EVAL_DECISIONS_KEY`, `_MODEL` | none, `gpt-6-luna` | The `decisions` route's OpenAI key and model. |
+| `INCARNAMIND_EVAL_HOST`, `_HOST_KEY`, `_HOST_MODEL`, `_HOST_ACCOUNT`, `_HOST_REGION` | none, the host's best model | The `host` route's host (`openrouter`, `perplexity`, `liquid`, `cloudflare`, `openai`, `alibaba`), key (setting it is the consent to send the excerpts), model, and the account a host asks for (Cloudflare's account ID, the Model Studio workspace) with Alibaba's region (`cn` for Beijing). |
 | `INCARNAMIND_EVAL_CHAT_KIND`, `_MODEL`, `_KEY`, `_BASE_URL`, `_ENDPOINT` | none | The chat route's model, as for `npm run eval`; `_ENDPOINT` picks a hosted provider's region, e.g. `intl` for Kimi. Setting them is the consent to send the excerpts, Folder and Tag definitions to it, and the scans' page images to a model that reads images. |
 
 With no model, to check a run goes through:

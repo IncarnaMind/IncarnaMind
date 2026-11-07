@@ -1,6 +1,13 @@
 import { describe, expect, test } from "vitest";
-import type { JevSettings, TaggingModelOption, TaggingModels } from "../../src/core/api";
+import type {
+  DecisionHost,
+  DecisionHostStatus,
+  JevSettings,
+  TaggingModelOption,
+  TaggingModels,
+} from "../../src/core/api";
 import {
+  hostSetUpOffers,
   jevStateOf,
   offersJevSetUp,
   sortingOptions,
@@ -119,5 +126,101 @@ describe("the sorting picker's Jev rows (#2615)", () => {
 
   test("before Jev's settings are read, no set-up row is drawn", () => {
     expect(rows(null, [CHAT_OPTION])).toEqual(["Use your AI model"]);
+  });
+});
+
+/** A decision model on a host, as the core lists it. */
+const hosted = (
+  host: DecisionHost,
+  provider: string,
+  modelId: string,
+  name: string,
+): TaggingModelOption => ({
+  classifier: { kind: "decision", host, modelId },
+  group: "keys",
+  name,
+  provider: { en: provider, zh: provider },
+  goodForTagging: true,
+  decisionModel: true,
+  likelihoods: true,
+  cost: { kind: "unknown" },
+});
+
+const LOCAL_DECISION: TaggingModelOption = {
+  classifier: { kind: "ollama", baseUrl: "http://127.0.0.1:11434", modelId: "tev1:4b" },
+  group: "local",
+  name: "Tev1 4B",
+  provider: null,
+  goodForTagging: true,
+  decisionModel: true,
+  likelihoods: true,
+  cost: { kind: "free" },
+};
+
+const status = (
+  host: DecisionHost,
+  overrides: Partial<DecisionHostStatus> = {},
+): DecisionHostStatus => ({
+  host,
+  name: { en: host, zh: host },
+  key: "own",
+  provider: null,
+  account: null,
+  hasKey: false,
+  ready: false,
+  models: [{ id: `${host}-best`, name: `${host} best`, maker: host }],
+  service: null,
+  keyUrl: "https://example.com/keys",
+  pricingUrl: "https://example.com/pricing",
+  ...overrides,
+});
+
+describe("the sorting picker's hosts (#1907)", () => {
+  const options = [
+    hosted("openai", "OpenAI", "gpt-6-luna", "GPT-6 Luna Decisions"),
+    hosted("liquid", "Liquid AI", "d1-ultra", "d1-ultra"),
+    hosted("openrouter", "OpenRouter", "perplexity/pplx-decider-v1.2", "Decider v1.2"),
+    hosted("openrouter", "OpenRouter", "liquid/d1-ultra", "d1-ultra"),
+    JEV_OPTION,
+    CHAT_OPTION,
+    LOCAL_DECISION,
+  ];
+
+  test("the best first, as measured, one model per host, OpenAI's after the User's AI model", () => {
+    expect(rows(jevSettings({ enabled: true, hasApiKey: true }), options)).toEqual([
+      "Decider v1.2 · OpenRouter",
+      "TypeSafe Jev",
+      "d1-ultra · Liquid AI",
+      "Use your AI model",
+      "GPT-6 Luna Decisions · OpenAI",
+      "Tev1 4B",
+    ]);
+  });
+
+  test("in Local mode, no host is offered", () => {
+    expect(rows(jevSettings({}), options, true)).toEqual(["Tev1 4B"]);
+  });
+
+  test("a host is set up in place when it needs a key of its own, or its account beside a chat key", () => {
+    const offers = hostSetUpOffers(
+      [
+        status("openrouter", { key: "provider", provider: "openrouter", hasKey: false }),
+        status("perplexity"),
+        status("liquid", { hasKey: true, ready: true }),
+        status("alibaba", {
+          key: "provider",
+          provider: "qwen",
+          hasKey: true,
+          account: { kind: "alibaba-workspace", value: null },
+        }),
+      ],
+      false,
+      (host) => `Use ${host.models[0]?.name}…`,
+    );
+    expect(offers).toEqual([
+      { id: "perplexity", label: "Use perplexity best…" },
+      { id: "alibaba", label: "Use alibaba best…" },
+    ]);
+    expect(hostSetUpOffers([status("perplexity")], true, () => "")).toEqual([]);
   });
 });

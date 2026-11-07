@@ -163,7 +163,7 @@ const CONNECTOR_ERRORS = [
 ] as const;
 
 /** Organize's model, by kind only: never which model, server or provider. */
-const ORGANIZE_MODELS = ["chat", "jev", "auto", "ollama"] as const;
+const ORGANIZE_MODELS = ["chat", "jev", "decision", "auto", "ollama"] as const;
 
 /** Each Document format, counted in `documents_added`. */
 export const DOCUMENT_FORMATS = [

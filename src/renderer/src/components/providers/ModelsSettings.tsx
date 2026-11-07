@@ -24,6 +24,7 @@ import {
 } from "../ui";
 import { AddProvider } from "./AddProvider";
 import { ReadinessExplanation } from "./ChatReadinessNotice";
+import { DecisionHostsSection } from "./DecisionHostsSection";
 import { ModelDefaults } from "./ModelDefaults";
 import { PlansSettings } from "./PlansSettings";
 import { ProviderDirectory } from "./ProviderDirectory";
@@ -204,6 +205,11 @@ export function ModelsSettings() {
               open({ page: "provider", providerId: provider.id }, `provider:${provider.id}`)
             }
             onAdd={() => open({ page: "directory" }, "add-provider")}
+          />
+          <DecisionHostsSection
+            onAddProvider={(catalogId) =>
+              open(pageFor(catalogId, null), `decision-provider:${catalogId}`)
+            }
           />
           <PlansSettings />
           <details

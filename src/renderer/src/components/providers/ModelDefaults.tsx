@@ -15,11 +15,12 @@ import { TranscriptionRouteSelect } from "../meetings/TranscriptionRouteSelect";
 import { TranscriptionRouteConsent } from "../meetings/TranscriptionSettings";
 import { ReadProblem } from "../ReadProblem";
 import { buttonStyle, fieldClass, hintClass, ruledListClass, sectionTitleClass } from "../ui";
+import { DecisionSortingSetUp, firstModelOf } from "./DecisionKeyForm";
 import { JevSortingSetUp } from "./JevSortingSetUp";
 import { ModelHealthLine } from "./ModelHealthLine";
 import { providerName } from "./ProviderPage";
 import { SortingLine, SortingSelect, useSorting } from "./SortingChoice";
-import type { SortingOption } from "./sortingOptions";
+import type { SetUpOffer, SortingOption } from "./sortingOptions";
 
 export type Role = "chatModel" | "quickTasksModel" | "imageModel";
 
@@ -141,12 +142,23 @@ function TranscriptionRow({ id, services }: { id: string; services: ServicesView
 
 function SortingRow({ id }: { id: string }) {
   const t = useT();
-  const { options, current, choose, read, library, jevSetUp, jevSettings, reread } = useSorting();
-  const [settingUpJev, setSettingUpJev] = useState(false);
-  const closeJev = () => {
-    setSettingUpJev(false);
+  const {
+    options,
+    current,
+    choose,
+    read,
+    library,
+    setUpOffers,
+    jevSettings,
+    decisionHosts,
+    reread,
+  } = useSorting();
+  const [settingUp, setSettingUp] = useState<SetUpOffer["id"] | null>(null);
+  const close = () => {
+    setSettingUp(null);
     document.getElementById(id)?.focus();
   };
+  const host = decisionHosts?.find((each) => each.host === settingUp);
   return (
     <div
       data-testid="model-default-row-sorting"
@@ -169,17 +181,13 @@ function SortingRow({ id }: { id: string }) {
             className={rowSelectClass}
             options={options}
             current={current}
-            setUp={{
-              offered: jevSetUp,
-              open: settingUpJev,
-              onChoose: () => setSettingUpJev(true),
-            }}
+            setUp={{ offers: setUpOffers, open: settingUp, onChoose: setSettingUp }}
             onChange={(option) => {
-              setSettingUpJev(false);
+              setSettingUp(null);
               void choose(option);
             }}
           />
-          {settingUpJev && jevSettings ? (
+          {settingUp === "jev" && jevSettings ? (
             // Choosing here never turns tagging on: Turn on… does, once Jev is chosen (#2308).
             <JevSortingSetUp
               jev={jevSettings}
@@ -189,8 +197,22 @@ function SortingRow({ id }: { id: string }) {
                 reread();
                 return chosen;
               }}
-              onChosen={closeJev}
-              onCancel={closeJev}
+              onChosen={close}
+              onCancel={close}
+            />
+          ) : host ? (
+            // As for Jev: choosing here never turns tagging on; Turn on… does (#2308).
+            <DecisionSortingSetUp
+              key={host.host}
+              host={host}
+              choosing={false}
+              choose={async () => {
+                const chosen = await choose({ classifier: firstModelOf(host) });
+                reread();
+                return chosen;
+              }}
+              onChosen={close}
+              onCancel={close}
             />
           ) : (
             <>
