@@ -753,7 +753,8 @@ export interface SpeechSegment {
  * key. OpenAI's live model needs our own voice activity detection: `vad` is Silero's file. Qwen's
  * address is the host of the key's region: a key works in no other. Deepgram's is the server the
  * User gave (Deepgram's own, Cloudflare Workers AI or their own server); its key may be empty
- * for their own server.
+ * for their own server. Gladia is told the languages the User speaks that it transcribes, as its
+ * language detection needs a short list.
  */
 export type CloudStream =
   | { service: "openai"; model: string; apiKey: string; vad: string }
@@ -761,7 +762,11 @@ export type CloudStream =
   | { service: "qwen"; model: string; apiKey: string; url: string }
   | { service: "deepgram"; model: string; apiKey: string; url: string }
   | { service: "assemblyai"; model: string; apiKey: string }
-  | { service: "gemini"; model: string; apiKey: string };
+  | { service: "gemini"; model: string; apiKey: string }
+  | { service: "elevenlabs"; model: string; apiKey: string }
+  | { service: "speechmatics"; model: string; apiKey: string }
+  | { service: "gladia"; model: string; apiKey: string; languages: string[] }
+  | { service: "xai"; model: string; apiKey: string };
 
 /**
  * Why a cloud stream ended before it was finished: the connection was lost ("dropped"), the

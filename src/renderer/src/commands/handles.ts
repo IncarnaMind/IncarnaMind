@@ -99,6 +99,8 @@ export function useHandle<T>(handle: Handle<T>, value: T): void {
 
 /** The words or cells selected in a Document's viewer (#101, #118): what its menu does with them. */
 export interface ViewerAskActions {
+  /** Use as Citation, while a sentence waits for its Citation in this Document (#1554). */
+  cite?: () => void;
   /** Not offered while a Question waits for a model (#1789). */
   ask?: () => void;
   addToNote(): void;

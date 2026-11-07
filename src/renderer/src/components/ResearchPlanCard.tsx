@@ -6,7 +6,7 @@ import { MAX_RESEARCH_STEPS, researchItems, researchMinutes } from "../../../sha
 import { keysLabel } from "../commands/keys";
 import { NO_MIND, useComposer } from "../composer";
 import { core } from "../core";
-import { formatMoney } from "../cost";
+import { estimateText } from "../cost";
 import { AnswerError } from "../editor/AnswerView";
 import { RemoveIcon } from "../editor/icons";
 import { useLanguage, useT } from "../i18n";
@@ -530,15 +530,14 @@ function Estimate({
   }, [steps, web, model]);
   const { from, to } = researchMinutes(steps);
   const name = model ? nameOf(model.modelId, model.providerId).name : "";
+  const cost =
+    estimate?.billing === "per-token" && estimate.cost
+      ? estimateText(estimate.cost, null, t, language)
+      : null;
   const text =
     note ??
-    (estimate?.billing === "per-token" && estimate.cost
-      ? t("research.plan.estimate", {
-          cost: formatMoney(estimate.cost, language),
-          from,
-          to,
-          model: name,
-        })
+    (cost
+      ? t("research.plan.estimate", { cost, from, to, model: name })
       : t("research.plan.time", { from, to, model: name }));
   return (
     <span data-testid="research-plan-estimate" title={text} className="research-plan-estimate">

@@ -11,6 +11,7 @@ import type { DrawnPage } from "../shared/citedPage";
 import { ACCEPT_SUGGESTIONS } from "../shared/commands";
 import { optionsFor } from "../shared/exportOptions";
 import { figureScheduleChange } from "../shared/figureSchedule";
+import { graphemeBoundary } from "../shared/graphemes";
 import { translate } from "../shared/i18n";
 import { organizeModelOf, supportsLibraryImages } from "../shared/libraryModels";
 import { parseCitedArea } from "../shared/locations";
@@ -172,6 +173,7 @@ import {
   createDocuments,
   type DocumentFile,
   type DocumentImage,
+  MAX_NAME_LENGTH,
   parseListOptions,
 } from "./documents";
 import { createEvidence, parseCheckedDocument, passageResult } from "./documents/evidence";
@@ -676,6 +678,20 @@ export function createCore(adapters: CoreAdapters): Core {
     return found.name || translate(settings.get().language, "mind.untitled");
   };
   const mindsChanged = () => events.emit("minds.changed", minds.list());
+  function renameJoinedTranscripts(mind: Mind): void {
+    const transcripts = documents.list().filter((each) => each.meetingMindId === mind.id);
+    if (transcripts.length === 0) return;
+    const displayed = mindName(mind).trim();
+    const name = displayed
+      ? translate(settings.get().language, "meetings.transcript.name", { meeting: displayed })
+      : translate(settings.get().language, "meetings.transcript.nameAlone");
+    events.emit(
+      "documents.renamed",
+      transcripts.map((document) =>
+        documents.rename(document.id, name.slice(0, graphemeBoundary(name, MAX_NAME_LENGTH))),
+      ),
+    );
+  }
   // The assistant's conversations (ADR-0017); Answers a quit left being written are settled now.
   const conversations = createConversations(db, now);
   const conversationsChanged = () => events.emit("conversations.changed", null);
@@ -702,6 +718,10 @@ export function createCore(adapters: CoreAdapters): Core {
       comparisons.mindChanged(mindId);
       noteConversations.changed(mindId);
       const renamed = minds.setAutoTitle(mindId, content.peek(mindId, firstLineOf));
+      if (renamed) {
+        const mind = minds.get(mindId);
+        if (!mind.title) renameJoinedTranscripts(mind);
+      }
       if (minds.markEdited(mindId) || renamed) mindsChanged();
     },
     {
@@ -2984,6 +3004,7 @@ export function createCore(adapters: CoreAdapters): Core {
     engine: answerEngine,
     retention,
     editText,
+    recheckCitation: (citation) => recheckCitation(documents, citation),
     estimateRead(model, read) {
       const metered = chat.metered(model ?? undefined);
       return metered && meter.estimateRead(metered, read);
@@ -5104,6 +5125,8 @@ export function createCore(adapters: CoreAdapters): Core {
     renameMind: async (mindId, title) => {
       const mind = minds.rename(mindId, title);
       mindsChanged();
+      // A joined Transcript's name follows its Note (#2579): every view reads the Document's name.
+      renameJoinedTranscripts(mind);
       return mind;
     },
     deleteMind: async (mindId) => removeMind(mindId),
@@ -5570,8 +5593,18 @@ export function createCore(adapters: CoreAdapters): Core {
           ? input.unit
           : null;
       const around = parseAround(input.around);
+      const documentId = parseDocumentId(input.documentId);
+      if (input.mindId !== undefined) {
+        // One in Recently deleted is behind no wall `walledDocument` sees, so none may be cited.
+        if (documents.getMany([documentId]).length === 0) {
+          throw new NotFoundError({ key: "error.document.gone" });
+        }
+        if (walledDocument(documentId) !== walledFolder(parseMindId(input.mindId))) {
+          throw new InvalidInputError({ key: "error.folder.wall" });
+        }
+      }
       return citeSelection(documents, {
-        documentId: parseDocumentId(input.documentId),
+        documentId,
         parts,
         ...(area !== undefined && { area }),
         unit,
@@ -5771,6 +5804,8 @@ export function createCore(adapters: CoreAdapters): Core {
     planDocumentCheck: async (input) => checks.planDocumentCheck(input),
     cancelCheck: async (requestId) => checks.cancel(requestId),
     checkClaim: (input) => inFlow("check-claim", () => checks.checkClaim(input)),
+    rewriteFromDocuments: (input) =>
+      inFlow("check-claim", () => checks.rewriteFromDocuments(input)),
     chooseRecordCiteSource: (input) =>
       inFlow("check-claim", () => checks.chooseRecordCiteSource(input)),
     verifyDocument: (input) => inFlow("verify", () => checks.verifyDocument(input)),
@@ -6001,9 +6036,10 @@ export function createCore(adapters: CoreAdapters): Core {
       }
       return routeOf(classifier);
     },
-    proposeFolders: async (ids) => library.propose(ids, settings.get().language),
-    classifyDocuments: async (ids) => {
-      library.classify(ids);
+    proposeFolders: async (ids, options) =>
+      library.propose(ids, settings.get().language, undefined, options?.forService),
+    classifyDocuments: async (ids, options) => {
+      library.classify(ids, options?.forService);
       const classifier = organizeModelOf(library.settings());
       if (classifier) {
         usageData.record({

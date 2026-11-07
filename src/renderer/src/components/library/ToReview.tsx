@@ -1,4 +1,4 @@
-import type { Document } from "../../../../core/api";
+import type { Document, DocumentGroupAssignment } from "../../../../core/api";
 import { menuKeysLabel } from "../../commands/keymap";
 import { commands } from "../../commands/registry";
 import { useLanguage, useT } from "../../i18n";
@@ -6,6 +6,7 @@ import { useLibraryFolds, useRevealed } from "../../libraryFolds";
 import { FIRST_ROWS } from "../../libraryPage";
 import { formatCount } from "../../linkedFolders";
 import { lastOrganizeStep } from "../../organizeRun";
+import { type ReviewReason, reviewProblemsOf, unsettledProblemsOf } from "../../reviewProblems";
 import { useAppStore } from "../../store";
 import { type ToReview as Review, reviewSummary, TO_REVIEW } from "../../toReview";
 import { foldKeys, TREE_ROW } from "../../treeKeys";
@@ -14,9 +15,10 @@ import { ReviewRing } from "../TagColour";
 import { buttonStyle } from "../ui";
 import { LibraryRow } from "./LibraryRow";
 import { quietButtonClass } from "./LibrarySection";
+import { ReviewProblemLine } from "./ReviewProblemLine";
 import { SectionHead, sectionNameClass } from "./SectionHead";
 
-const UNSORTED_KEY = `${TO_REVIEW}:not-sorted`;
+export const UNSORTED_KEY = `${TO_REVIEW}:not-sorted`;
 
 export function ToReview({
   review,
@@ -24,13 +26,18 @@ export function ToReview({
   suggestedIn,
   notSortedOf,
   sortFailedOf,
+  assignments,
+  serviceName,
 }: {
   review: Review;
   /** The Documents Organize couldn't sort, in the page's order. */
   notSorted: readonly Document[];
   suggestedIn(documentId: string): string | null;
-  notSortedOf(documentId: string): string | null;
-  sortFailedOf(documentId: string): string | null;
+  notSortedOf(documentId: string): ReviewReason | null;
+  sortFailedOf(documentId: string): ReviewReason | null;
+  assignments: readonly DocumentGroupAssignment[];
+  /** The service Organize sends to, as the model menu names it; null when it runs here. */
+  serviceName: string | null;
 }) {
   const t = useT();
   const language = useLanguage();
@@ -56,6 +63,13 @@ export function ToReview({
   const unsorted = notSorted.length > 0;
   const shownAll = showingAll.has(UNSORTED_KEY);
   const unsortedListed = shownAll ? notSorted : notSorted.slice(0, FIRST_ROWS);
+  // One credit line for every block (#2308): its fix is one press, wherever the failures sit.
+  const credit = unsettledProblemsOf(
+    [...review.groups.flatMap((group) => group.documents), ...notSorted],
+    assignments,
+  ).find((problem) => problem.kind === "credit");
+  const unsortedProblems = reviewProblemsOf(notSorted, assignments);
+  const unsortedCovered = new Set(unsortedProblems.flatMap((problem) => problem.documentIds));
   return (
     // biome-ignore lint/a11y/useSemanticElements: a group of rows in the page's grid, under its head.
     <div
@@ -130,10 +144,19 @@ export function ToReview({
           </span>
         }
       />
+      {open && credit && (
+        // It stays at the top of the page's scroll so a row Review reveals far down keeps its
+        // one line and its action in view (#2308).
+        <div data-testid="library-review-credit" className="sticky top-0 z-10 bg-sheet">
+          <ReviewProblemLine problem={credit} serviceName={serviceName} />
+        </div>
+      )}
       {open &&
         review.groups.map(({ folder, path, documents }) => {
           const all = showingAll.has(`${TO_REVIEW}:${folder.id}`);
           const listed = all ? documents : documents.slice(0, FIRST_ROWS);
+          const problems = reviewProblemsOf(documents, assignments);
+          const covered = new Set(problems.flatMap((problem) => problem.documentIds));
           return (
             <div key={folder.id} data-testid="library-review-group" data-folder={folder.id}>
               <p className="flex h-8 items-end border-b border-rule pb-1 pl-14 text-[12px] leading-4 font-semibold text-ink-secondary">
@@ -142,6 +165,15 @@ export function ToReview({
                   count: formatCount(documents.length, language),
                 })}
               </p>
+              {problems
+                .filter((problem) => problem.kind !== "credit")
+                .map((problem) => (
+                  <ReviewProblemLine
+                    key={problem.kind}
+                    problem={problem}
+                    serviceName={serviceName}
+                  />
+                ))}
               {listed.map((doc) => (
                 <LibraryRow
                   key={doc.id}
@@ -149,7 +181,7 @@ export function ToReview({
                   review
                   suggestedIn={suggestedIn(doc.id)}
                   notSorted={null}
-                  sortFailed={sortFailedOf(doc.id)}
+                  sortFailed={covered.has(doc.id) ? null : sortFailedOf(doc.id)}
                   match={null}
                   path={null}
                 />
@@ -177,13 +209,18 @@ export function ToReview({
               count: formatCount(notSorted.length, language),
             })}
           </p>
+          {unsortedProblems
+            .filter((problem) => problem.kind !== "credit")
+            .map((problem) => (
+              <ReviewProblemLine key={problem.kind} problem={problem} serviceName={serviceName} />
+            ))}
           {unsortedListed.map((doc) => (
             <LibraryRow
               key={doc.id}
               doc={doc}
               review
               suggestedIn={null}
-              notSorted={notSortedOf(doc.id)}
+              notSorted={unsortedCovered.has(doc.id) ? null : notSortedOf(doc.id)}
               sortFailed={null}
               match={null}
               path={null}

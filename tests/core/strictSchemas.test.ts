@@ -155,6 +155,8 @@ function replyTo(body: Record<string, unknown>): Reply {
       return { text: JSON.stringify({ folders: [{ name: "Reports", description: "Reports." }] }) };
     case "suggestion":
       return { text: JSON.stringify({ text: "", passage: "", quote: "" }) };
+    case "parts":
+      return { text: JSON.stringify({ parts: ["working"] }) };
     default:
       return { text: "OK" };
   }

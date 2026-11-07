@@ -647,13 +647,7 @@
   :root[data-title-bar="inset"] .app-card[data-sidebar-hidden] .tab-strip > .sidebar-toggle {
     margin-left: 0;
   }
-  /*
-   * The window's first group starts flush against the card's left edge: its
-   * shown first tab has no left foot and a rounded corner. A later group's
-   * tabs start 10px in from the divider, so its shown first tab keeps its
-   * left foot and the divider stays one line. The 10px end padding is room for
-   * the last tab's right foot.
-   */
+  /* 10px at each end: room for the shown tab's feet when it is first or last. */
   .tab-list {
     display: flex;
     flex: 0 1 auto;
@@ -671,9 +665,6 @@
     &::-webkit-scrollbar {
       display: none;
     }
-  }
-  .tab-strip[data-first-group] .tab-list {
-    padding-left: 0;
   }
   /* Fades out on a side where tabs are scrolled out of sight. */
   .tab-list[data-hidden-before] {
@@ -794,15 +785,6 @@
   }
   .tab[aria-selected="true"] .tab-foot {
     display: block;
-  }
-  /* The window's first tab, shown, starts at the card's edge: no left foot, its content inset 16px. */
-  .tab-strip[data-first-group] .tab:first-child[aria-selected="true"] {
-    .tab-inner {
-      padding-left: 16px;
-    }
-    .tab-foot[data-side="left"] {
-      display: none;
-    }
   }
   /* The tab's icon: its kind, or in a Mind's place what the Mind is busy with. */
   .tab-icon {
@@ -1956,8 +1938,74 @@
   .check-card-ask-title {
     font-weight: 600;
     color: var(--color-ink);
-    /* A Chinese question would otherwise leave one character alone on its last line. */
-    text-wrap: pretty;
+    /* A Chinese question would otherwise leave "句子？" alone on its last line, at 900 and 1,440 px alike (#1554). */
+    text-wrap: balance;
+  }
+  /* At the viewer's foot while a sentence waits for its Citation (#1554), as an export's result line floats. */
+  /* The page's scroll area: the line floats over it, above what runs under it (a sheet's row-limit line, its tabs). */
+  .viewer-pane :is(.viewer-backdrop, .viewer-grid-scroll) {
+    anchor-name: --viewer-page;
+  }
+  .citation-pick-line-place {
+    pointer-events: none;
+    position: absolute;
+    inset-inline: 24px;
+    bottom: calc(anchor(--viewer-page bottom, 0px) + 24px);
+    z-index: 10;
+    display: flex;
+    justify-content: center;
+  }
+  .citation-pick-line {
+    pointer-events: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    max-width: 100%;
+    padding: 8px 8px 8px 12px;
+    border-radius: 8px;
+    background: var(--color-sheet);
+    box-shadow: var(--shadow-popover);
+    font-size: 13px;
+    line-height: 20px;
+    color: var(--color-ink-secondary);
+
+    & b {
+      flex: 1 1 auto;
+      min-width: 0;
+      font-weight: 600;
+      color: var(--color-ink);
+    }
+  }
+  /* The two actions keep together, after the words or under them, their words lined up with these. */
+  .citation-pick-line-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 2px 18px;
+    min-width: 0;
+  }
+  .citation-pick-line-actions {
+    display: flex;
+    flex-shrink: 0;
+    gap: 4px;
+    margin-inline-start: -10px;
+  }
+  .citation-pick-line-sentence {
+    overflow: hidden;
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--color-ink-meta);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  /* The pages end lower while the line shows, so their last lines can scroll clear of it. */
+  .viewer-pane[data-foot-line] :is(.viewer-backdrop, .viewer-grid-scroll) {
+    padding-bottom: var(--viewer-foot-room);
+  }
+  /* Continue starts its own line, so it stands in one place however long the words are, in either language (#1554). */
+  .claim-stop-line > .meta-part:last-child {
+    flex-basis: 100%;
   }
   .check-card-ask-actions {
     display: flex;
