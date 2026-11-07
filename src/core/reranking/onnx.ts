@@ -78,8 +78,8 @@ const ADAPTER_PROBE = Uint8Array.from(
 
 interface Scorer {
   session: PairSession;
-  tokenizer: Tokenizer;
-  maxTokens: number;
+  /** The token ids of the pair (query, text), as `pairIds` gives them. */
+  pairs(query: string, text: string): number[];
   /** Texts scored together: 1 on the CPU. */
   batchSize: number;
   padId: number;
@@ -105,6 +105,90 @@ export function pairIds(tokenizer: Tokenizer, query: string, text: string, maxTo
   const { ids } = tokenizer.encode(question, { text_pair: text });
   // The text comes last, followed by one end-of-text token: cut the text's end, keep that token.
   return ids.length > maxTokens ? [...ids.slice(0, maxTokens - 1), ids.at(-1) as number] : ids;
+}
+
+/** Texts whose tokens a model keeps, so a Passage met again by another search isn't read again. */
+const KEPT_TEXTS = 2_000;
+
+/** Pairs a tokenizer's pair template is checked on before it is trusted: words, CJK, marks, lines. */
+const TEMPLATE_PROBES: readonly [string, string][] = [
+  ["Which city is the capital?", "Cities\nParis is the capital and largest city of France."],
+  ["巴黎是首都吗？", "城市\n巴黎是法国的首都和最大城市，位于塞纳河畔。"],
+  ["  spaced  query ", "Notes:\n\n  1. a, b; c! (d) — e…"],
+];
+
+/**
+ * `pairIds`, keeping each text's tokens between searches: a check's searches meet the same
+ * Passages again and again (#2532). Only for a tokenizer whose pair is its two texts' own tokens
+ * between fixed special tokens, as found and checked on `TEMPLATE_PROBES`; any other tokenizer
+ * reads each pair whole, as `pairIds` does.
+ */
+export function pairEncoder(tokenizer: Tokenizer, maxTokens: number) {
+  const tokens = (text: string) => tokenizer.encode(text, { add_special_tokens: false }).ids;
+  // Found on the first pair, so loading the model reads no text.
+  let template: ReturnType<typeof pairTemplate> | undefined;
+  const kept = new Map<string, number[]>();
+  const textTokens = (text: string) => {
+    const known = kept.get(text);
+    if (known) return known;
+    const read = tokens(text);
+    const oldest = kept.size >= KEPT_TEXTS ? kept.keys().next() : null;
+    if (oldest && !oldest.done) kept.delete(oldest.value);
+    kept.set(text, read);
+    return read;
+  };
+  return (query: string, text: string): number[] => {
+    if (template === undefined) template = pairTemplate(tokenizer, tokens);
+    // The tokenizer reads an empty second text as no pair at all.
+    if (!template || text === "") return pairIds(tokenizer, query, text, maxTokens);
+    const queryTokens = tokens(query);
+    const queryLimit = Math.floor(maxTokens * QUERY_SHARE);
+    // As `pairIds` reads a cut query: decoded, then read again.
+    const question =
+      queryTokens.length > queryLimit
+        ? tokens(tokenizer.decode(queryTokens.slice(0, queryLimit), { skip_special_tokens: true }))
+        : queryTokens;
+    const ids = [
+      ...template.before,
+      ...question,
+      ...template.between,
+      ...textTokens(text),
+      ...template.after,
+    ];
+    return ids.length > maxTokens ? [...ids.slice(0, maxTokens - 1), ids.at(-1) as number] : ids;
+  };
+}
+
+/** The special tokens around a pair's two texts, if every probe's pair is exactly them and its texts' tokens. */
+function pairTemplate(tokenizer: Tokenizer, tokens: (text: string) => number[]) {
+  const [first] = TEMPLATE_PROBES;
+  if (!first) return null;
+  const same = (a: readonly number[], b: readonly number[]) =>
+    a.length === b.length && a.every((id, at) => id === b[at]);
+  const pairOf = ([query, text]: readonly [string, string]) =>
+    tokenizer.encode(query, { text_pair: text }).ids;
+  const pair = pairOf(first);
+  const query = tokens(first[0]);
+  const text = tokens(first[1]);
+  const specials = pair.length - query.length - text.length;
+  for (let before = 0; before <= specials; before++) {
+    for (let after = 0; before + after <= specials; after++) {
+      const template = {
+        before: pair.slice(0, before),
+        between: pair.slice(before + query.length, pair.length - after - text.length),
+        after: pair.slice(pair.length - after),
+      };
+      const assembled = ([a, b]: readonly [string, string]) => [
+        ...template.before,
+        ...tokens(a),
+        ...template.between,
+        ...tokens(b),
+        ...template.after,
+      ];
+      if (TEMPLATE_PROBES.every((probe) => same(assembled(probe), pairOf(probe)))) return template;
+    }
+  }
+  return null;
 }
 
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
@@ -143,11 +227,8 @@ const createOrtSession: PairSessionFactory = async (model, device) => {
 
 /** One logit per text, in the order given. */
 async function scoreTexts(model: Scorer, query: string, texts: readonly string[]) {
-  const { tokenizer, maxTokens, batchSize, padId } = model;
-  const pairs = texts.map((text, index) => ({
-    index,
-    ids: pairIds(tokenizer, query, text, maxTokens),
-  }));
+  const { batchSize, padId } = model;
+  const pairs = texts.map((text, index) => ({ index, ids: model.pairs(query, text) }));
   // Texts of similar length share a batch, so it carries little padding.
   if (batchSize > 1) pairs.sort((a, b) => a.ids.length - b.ids.length);
   const scores = new Array<number>(texts.length);
@@ -200,7 +281,7 @@ export function createOnnxCrossEncoder(options: OnnxCrossEncoderOptions = {}): C
     gpu: NonNullable<RerankingModelFiles["gpu"]>,
     tokenizer: Tokenizer,
     tokenizerConfig: unknown,
-    maxTokens: number,
+    pairs: Scorer["pairs"],
   ): Promise<GpuAttempt> {
     const fallback = (reason: CpuFallbackReason, message: string): GpuAttempt => ({
       fallback: { reason, message },
@@ -219,7 +300,7 @@ export function createOnnxCrossEncoder(options: OnnxCrossEncoderOptions = {}): C
     }
     try {
       const padId = padIdOf(tokenizer, tokenizerConfig);
-      const scorer = { session, tokenizer, maxTokens, batchSize: GPU_BATCH_SIZE, padId };
+      const scorer = { session, pairs, batchSize: GPU_BATCH_SIZE, padId };
       const difference = checkDifference(
         gpu.check,
         await scoreTexts(scorer, gpu.check.query, gpu.check.texts),
@@ -247,9 +328,8 @@ export function createOnnxCrossEncoder(options: OnnxCrossEncoderOptions = {}): C
     ]);
     const tokenizerConfig = JSON.parse(tokenizerConfigJson);
     const tokenizer = new Tokenizer(JSON.parse(tokenizerJson), tokenizerConfig);
-    const base = { key: JSON.stringify(files), tokenizer, maxTokens: files.maxTokens };
-    const gpu =
-      files.gpu && (await openGpu(files.gpu, tokenizer, tokenizerConfig, files.maxTokens));
+    const base = { key: JSON.stringify(files), pairs: pairEncoder(tokenizer, files.maxTokens) };
+    const gpu = files.gpu && (await openGpu(files.gpu, tokenizer, tokenizerConfig, base.pairs));
     if (gpu && "session" in gpu) {
       return { ...base, ...gpu, batchSize: GPU_BATCH_SIZE, device: { device: "gpu" } };
     }

@@ -23,7 +23,7 @@ What stays here is the fixture set, because the local classification comparison 
 | Photosynthesis | Photosynthesis · Wikipedia, Chlorophyll · Wikipedia | 维基百科-光合作用 | 光合作用课件 (deck, Chinese) |
 | Inflation | Inflation · Wikipedia, Consumer price index · Wikipedia | 维基百科-通货膨胀 | CPI-U 2015-2024 (XLSX, BLS) |
 
-The PDFs are the evaluation's own: the seven samples in `data/` (made for this repository and licensed under Apache-2.0; see [`data/README.md`](../../data/README.md)) and the five Chinese Wikipedia articles in `eval/retrieval/fixtures/`. The tea pair is the app's example Documents (`resources/examples/`).
+The PDFs are the evaluation's own: the seven samples in `eval/data/` (made for this repository and licensed under Apache-2.0; see [`eval/data/README.md`](../data/README.md)) and the five Chinese Wikipedia articles in `eval/retrieval/fixtures/`. The tea pair is the app's example Documents (`resources/examples/`).
 
 ## Results
 

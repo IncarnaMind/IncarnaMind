@@ -7,11 +7,15 @@ import { commands } from "../commands/registry";
 import { files } from "../core";
 import { useT } from "../i18n";
 import { helpKeysLabel, useMeetingHelp } from "../meetingHelp";
-import { useMeetings, useMeetingTime } from "../meetings";
+import { isWaitingForPermission, useMeetings, useMeetingTime } from "../meetings";
 import { clockTime, durationLabel } from "../meetingTime";
 import { useGuideInPlace } from "../permissionGuide";
 import { useAppStore } from "../store";
-import { ROUTE_LABELS } from "../transcriptionServices";
+import {
+  addTranscriptionCredit,
+  checkTranscriptionKey,
+  ROUTE_LABELS,
+} from "../transcriptionServices";
 import { hideTranscript, showTranscript, useDocumentTab } from "../transcripts";
 import { CaptureDetailsToggle } from "./CaptureDetails";
 import {
@@ -74,6 +78,7 @@ function MeetingControls({ meeting }: { meeting: Meeting }) {
   const time = clockTime(useMeetingTime(meeting));
   const { pause, resume, stop } = useMeetings.getState();
   const recording = meeting.status === "recording";
+  const waiting = isWaitingForPermission(meeting);
   const memo = meeting.kind === "memo";
   const toggle = () => void (recording ? pause(meeting.id) : resume(meeting.id));
   const shortcut = shortcutLabel("meeting.pauseResume");
@@ -85,21 +90,25 @@ function MeetingControls({ meeting }: { meeting: Meeting }) {
         <span
           aria-hidden="true"
           data-testid="meeting-dot"
-          data-status={meeting.status}
+          data-status={waiting ? "waiting" : meeting.status}
           className="recording-dot"
         />
         <span data-testid="meeting-state" className="font-semibold">
           {t(
-            !recording
-              ? "meetings.bar.paused"
-              : memo
-                ? "memos.bar.recording"
-                : "meetings.bar.recording",
+            waiting
+              ? "meetings.bar.waiting"
+              : !recording
+                ? "meetings.bar.paused"
+                : memo
+                  ? "memos.bar.recording"
+                  : "meetings.bar.recording",
           )}
         </span>
-        <span role="timer" data-testid="meeting-time" className="meeting-time">
-          {time}
-        </span>
+        {!waiting && (
+          <span role="timer" data-testid="meeting-time" className="meeting-time">
+            {time}
+          </span>
+        )}
         <LevelBars meeting={meeting} />
       </span>
       {!memo && (
@@ -312,13 +321,16 @@ function MeetingLines({ meeting }: { meeting: Meeting }) {
       }),
       ...(fellBack.reason === "refused" && {
         action: {
-          label: t("meetings.key.replace"),
+          label: t("answer.error.checkKey"),
           testId: "meeting-line-change-key",
-          // Soniox's key is its own, in Meetings; the others use their provider's, in Models.
-          onClick: () =>
-            useAppStore
-              .getState()
-              .openSettings(fellBack.route === "soniox" ? "meetings" : "models"),
+          onClick: () => void checkTranscriptionKey(fellBack.route),
+        },
+      }),
+      ...(fellBack.reason === "credit" && {
+        action: {
+          label: t("answer.error.addCredit"),
+          testId: "meeting-line-add-credit",
+          onClick: () => void addTranscriptionCredit(fellBack.route),
         },
       }),
     });
@@ -370,6 +382,7 @@ const FELL_BACK: Record<
 > = {
   dropped: "meetings.line.cloudDropped",
   refused: "meetings.line.cloudRefused",
+  credit: "meetings.line.cloudCredit",
   cap: "meetings.line.cloudCap",
   "local-mode": "meetings.line.cloudLocalMode",
   moved: "meetings.line.cloudMoved",

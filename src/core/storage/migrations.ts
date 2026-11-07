@@ -2475,6 +2475,111 @@ export const migrations: readonly Migration[] = [
       DROP TABLE temp.meeting_migration;
     `,
   },
+  {
+    version: 131,
+    description:
+      "Recently deleted: an index on deleted_folder_items by item, so listing doesn't scan it (#2274)",
+    sql: `
+      CREATE INDEX deleted_folder_items_by_item ON deleted_folder_items (item_kind, item_id)
+        WHERE deleted_at IS NULL;
+    `,
+  },
+  {
+    version: 132,
+    description:
+      "Arrivals, Linked folder links and turn-ons get their place in one order kept by the database, so a clock step doesn't decide what is new (#2370)",
+    sql: `
+      -- The places IncarnaMind has handed out in this database, so what arrived after a turn-on is
+      -- decided by the database's own order, not by the clock (#2370). One row, local to this
+      -- database and never synced, so its fixed id can't meet an id from another device.
+      CREATE TABLE IF NOT EXISTS tagging_sequence (
+        id TEXT PRIMARY KEY NOT NULL,
+        value INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      ) STRICT;
+      -- Where in that order an arrival and a Linked folder link are. The times stay, for display.
+      -- Device-local, like the switch's times beside them: a row synced from another device gets
+      -- no place here (0), so it waits for the User rather than being sent by this device's
+      -- turn-on. A later sync must leave it 0 on the receiving device.
+      ALTER TABLE document_arrivals ADD COLUMN arrived_seq INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE linked_folders ADD COLUMN created_seq INTEGER NOT NULL DEFAULT 0;
+      -- Their existing rows, in the order their times had them. A turn-on at the same
+      -- millisecond counted an arrival as new (#2308), so the turn-on comes first on a tie.
+      CREATE TEMP TABLE tagging_ranks AS
+        WITH events (kind, ref, at) AS (
+          SELECT 'turnOn', e.key, e.value
+            FROM device_settings d
+            JOIN json_each(CASE WHEN json_valid(d.value) THEN d.value ELSE '{}' END,
+                 '$.automaticSince') e
+            WHERE d.key = 'library' AND d.deleted_at IS NULL
+              AND json_type(CASE WHEN json_valid(d.value) THEN d.value ELSE '{}' END,
+                  '$.automaticSince') = 'object'
+              AND e.type = 'text'
+          UNION ALL
+          -- A turn-on kept before the switch kept its times: the consent it had then, per
+          -- service, tagging first as the decision read it.
+          SELECT 'turnOn', s.service_id, COALESCE(
+              (SELECT c.updated_at FROM data_flow_consents c
+                WHERE c.flow = 'tagging' AND c.service_id = s.service_id
+                  AND c.decision = 'accepted' AND c.deleted_at IS NULL),
+              (SELECT c.updated_at FROM data_flow_consents c
+                WHERE c.flow = 'classification' AND c.service_id = s.service_id
+                  AND c.decision = 'accepted' AND c.deleted_at IS NULL))
+            FROM (SELECT service_id FROM data_flow_consents
+                  WHERE decision = 'accepted' AND deleted_at IS NULL
+                    AND flow IN ('tagging', 'classification')
+                  GROUP BY service_id) s
+            WHERE NOT EXISTS (
+              SELECT 1 FROM device_settings d
+                WHERE d.key = 'library' AND d.deleted_at IS NULL
+                  AND json_type(CASE WHEN json_valid(d.value) THEN d.value ELSE '{}' END,
+                      '$.automaticSince') = 'object')
+          UNION ALL
+          SELECT 'folder', l.id, l.created_at
+            FROM linked_folders l WHERE l.deleted_at IS NULL
+          UNION ALL
+          SELECT 'arrival', a.id, a.arrived_at
+            FROM document_arrivals a WHERE a.deleted_at IS NULL
+        )
+        SELECT kind, ref, row_number() OVER (
+          ORDER BY at, CASE kind WHEN 'turnOn' THEN 0 WHEN 'folder' THEN 1 ELSE 2 END, ref
+        ) AS rank
+        FROM events;
+      UPDATE document_arrivals SET arrived_seq = (
+        SELECT r.rank FROM tagging_ranks r WHERE r.kind = 'arrival' AND r.ref = document_arrivals.id)
+        WHERE deleted_at IS NULL;
+      UPDATE linked_folders SET created_seq = (
+        SELECT r.rank FROM tagging_ranks r WHERE r.kind = 'folder' AND r.ref = linked_folders.id)
+        WHERE deleted_at IS NULL;
+      -- Each turn-on's place, kept next to the time it already had. Only where a turn-on exists:
+      -- a switch saved off keeps its settings exactly as they were.
+      UPDATE device_settings SET
+        value = json_set(value, '$.automaticSinceSeq',
+          (SELECT json_group_object(r.ref, r.rank) FROM tagging_ranks r WHERE r.kind = 'turnOn')),
+        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        WHERE key = 'library' AND deleted_at IS NULL
+          AND json_type(CASE WHEN json_valid(value) THEN value ELSE '{}' END,
+              '$.automaticSince') = 'object'
+          AND EXISTS (SELECT 1 FROM tagging_ranks WHERE kind = 'turnOn');
+      UPDATE device_settings SET
+        value = json_set(value, '$.automaticSinceSeq',
+          (SELECT json_group_object(r.ref, r.rank) FROM tagging_ranks r WHERE r.kind = 'turnOn')),
+        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        WHERE key = 'library' AND deleted_at IS NULL
+          AND json_valid(value)
+          AND json_type(CASE WHEN json_valid(value) THEN value ELSE '{}' END,
+              '$.automaticSince') IS NOT 'object'
+          AND EXISTS (SELECT 1 FROM tagging_ranks WHERE kind = 'turnOn');
+      -- The next place handed out is after every one filled in here.
+      INSERT INTO tagging_sequence (id, value, created_at, updated_at)
+        SELECT 'tagging', COALESCE(max(rank), 0),
+          strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        FROM tagging_ranks;
+      DROP TABLE temp.tagging_ranks;
+    `,
+  },
 ];
 
 /**

@@ -220,6 +220,36 @@ export function replyParts(prompt: Prompt, tools: readonly OfferedTool[]): Strea
   return parts;
 }
 
+/** A generated reply as a provider streams it, word by word. */
+export function streamedText(
+  reply: Awaited<ReturnType<MockLanguageModelV4["doGenerate"]>>,
+  abortSignal: AbortSignal | undefined,
+): { stream: ReadableStream<StreamPart> } {
+  const text = reply.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("");
+  const parts: StreamPart[] = [
+    { type: "stream-start", warnings: [] },
+    { type: "text-start", id: "answer" },
+    ...text
+      .split(/(?<=\s)/)
+      .map((delta): StreamPart => ({ type: "text-delta", id: "answer", delta })),
+    { type: "text-end", id: "answer" },
+    { type: "finish", finishReason: reply.finishReason, usage: reply.usage },
+  ];
+  return {
+    stream: new ReadableStream<StreamPart>({
+      pull(controller) {
+        if (abortSignal?.aborted) {
+          controller.error(new DOMException("The request was aborted.", "AbortError"));
+          return;
+        }
+        const part = parts.shift();
+        if (part) controller.enqueue(part);
+        else controller.close();
+      },
+    }),
+  };
+}
+
 /** What a provider says of a wrong key, or of a model that can't use Tools or structured output. */
 export function refusal(
   spec: ChatModelSpec,

@@ -374,7 +374,7 @@ test("a run in progress disables export and offers Stop; figures left unchecked 
   ]);
   await render({ ...source, progress: { done: 0, total: 2 } });
   expect(container.textContent).toContain("Checking 0 of 2 figures…");
-  expect(button("Export schedule…")?.hasAttribute("disabled")).toBe(true);
+  expect(button("Export schedule")?.hasAttribute("disabled")).toBe(true);
   await click(button("Stop"));
   expect(actions.onStop).toHaveBeenCalledWith();
   await render(source);

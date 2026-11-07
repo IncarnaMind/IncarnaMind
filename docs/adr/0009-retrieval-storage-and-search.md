@@ -122,7 +122,7 @@ Status: proposed by the pull request for #2042, and in force once that pull requ
 
 The "Nothing else is forgiven" above has one more exception, made for words an Answer quotes from its Document that the check read as "Quote not found" although they are on the page.
 
-- **Words an Answer puts in quotation marks may run on to the next page.** A record's quote ends where its page does, as a Passage may. So the check of the Answer's own quoted words (#483) also finds words that start on the one page a record cites and run on, in order, to the next page of the Document. This applies only to a document's pages, never to slides or sections, and every part of a quote with an ellipsis must start on the cited page. It doesn't apply to a record that cites two pages, or to words that run past the next page. It is only in that check, so a Citation's own quote and its Location are unchanged.
+- **Words an Answer puts in quotation marks may run on to the next page.** A record's quote ends where its page does, as a Passage may. So the check of the Answer's own quoted words (#483) also finds words that start on the one page a record cites and run on, in order, to the next page of the Document. This applies only to a document's pages, never to slides or sections, and every part of a quote with an ellipsis must start on the cited page. It doesn't apply to a record that cites two pages, or to words that run past the next page. It is only in that check, so a Citation's own quote and its Location are unchanged. The Citation keeps the next page with what that check found, and its card says where the quote continues, as the Document prints that page ("The quote continues on p. 12.", added 2026-11-06).
 
 Left out on purpose:
 

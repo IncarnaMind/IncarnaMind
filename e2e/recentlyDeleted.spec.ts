@@ -269,6 +269,76 @@ test("deleting a Mind, a Document, a Folder and a Tag asks nothing and lands in 
   await expect(view).toBeVisible();
 });
 
+test("a Folder and its Documents selected and deleted at once come back in the Folder, restored together (#2274)", async () => {
+  test.setTimeout(120_000);
+  const invoice = join(sources, "Invoice 4471.txt");
+  const budget = join(sources, "Budget 2026.txt");
+  await writeFile(invoice, "Invoice 4471: the rent for October is due on the first.\n");
+  await writeFile(budget, "The budget for next year, month by month.\n");
+  const { app, window } = await launchApp(dataDir);
+  try {
+    await setWindowSize(app, window, 1400, 800);
+    await dismissChatSetup(window);
+    const finance = await read(
+      window,
+      async (core) => (await core.createLibraryGroup({ name: "Finance", description: "" })).id,
+    );
+    await addDocuments(window, [invoice, budget]);
+    await read(
+      window,
+      async (core, folderId) => {
+        for (const document of await core.listDocuments()) {
+          await core.assignDocumentGroup(document.id, folderId);
+        }
+      },
+      finance,
+    );
+    const folder = sidebarFolder(window, "Finance");
+    await expect(folder).toHaveAttribute("data-count", "2");
+
+    const tree = window.getByTestId("sidebar-sections");
+    const folderRow = tree.getByRole("treeitem", { name: "Finance" });
+    await folderRow.focus();
+    if ((await folderRow.getAttribute("aria-expanded")) !== "true") {
+      await window.keyboard.press("ArrowRight");
+    }
+    await expect(tree.getByRole("treeitem", { name: "Invoice 4471" })).toBeVisible();
+    await window.keyboard.press("Shift+ArrowDown");
+    await window.keyboard.press("Shift+ArrowDown");
+    await expect(window.getByTestId("sidebar-selection")).toContainText("3 selected");
+
+    await window.keyboard.press("ControlOrMeta+Backspace");
+    await expect(undoLine(window).getByTestId("undo-message")).toHaveText(
+      "Moved 3 items to Recently deleted",
+    );
+    await expect
+      .poll(async () => (await deletedNames(window)).toSorted())
+      .toEqual(["Budget 2026", "Finance", "Invoice 4471"]);
+    const view = await openDeleted(window);
+    await expect(view).toBeVisible();
+    await expect(row(window, "Invoice 4471").getByTestId("deleted-was-in")).toHaveText("Finance");
+    await expect(row(window, "Budget 2026").getByTestId("deleted-was-in")).toHaveText("Finance");
+
+    for (const name of ["Finance", "Invoice 4471", "Budget 2026"]) {
+      await row(window, name).getByTestId("deleted-select").check();
+    }
+    await expect(window.getByTestId("deleted-selection")).toContainText("3 selected");
+    await pointAndClick(window, window.getByTestId("deleted-restore-selected"));
+    await expect(undoLine(window).getByTestId("undo-message")).toHaveText("Restored 3 items");
+    await nothingDeleted(window);
+    await expect(folder).toHaveAttribute("data-count", "2");
+    const inFolder = await read(
+      window,
+      async (core, folderId) =>
+        (await core.getLibrary()).assignments.filter((each) => each.groupId === folderId).length,
+      finance,
+    );
+    expect(inFolder).toBe(2);
+  } finally {
+    await app.close();
+  }
+});
+
 test("Delete Permanently asks once and says what is lost; the Document's file stays, and it can't be restored", async () => {
   test.setTimeout(120_000);
   const file = join(sources, "Tides.txt");

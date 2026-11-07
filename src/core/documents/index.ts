@@ -72,7 +72,7 @@ import { referenceOf, writeFileReference } from "../referenceRecords/store";
 import { foundSourceOf } from "../sources/store";
 import type { Database, SqlValue } from "../storage";
 import { tagsOfDocument } from "../tags";
-import { markArrived } from "../tags/held";
+import { markArrived, nextSequence } from "../tags/held";
 import type { StoredTaggingState } from "../tags/tagger";
 import { isPlaceholderDate } from "./creationDate";
 import { createEmbeddingQueue } from "./embedding";
@@ -738,7 +738,7 @@ export function createDocuments(options: DocumentsOptions) {
           deletedAt,
         ],
       );
-      markArrived(db, id, at);
+      markArrived(db, id, at, nextSequence(db, at));
       record();
     });
   }
@@ -2004,6 +2004,15 @@ export function createDocuments(options: DocumentsOptions) {
          AND processing_version < ?`,
       [now(), BigInt(CURRENT_SINCE.xlsx)],
     );
+    // A Word file, deck or workbook that failed as unreadable may keep its parts under other
+    // names than the usual ones, which an older pipeline didn't look for (#2620): read once more.
+    db.run(
+      `UPDATE documents SET status = 'queued', updated_at = ?
+       WHERE deleted_at IS NULL AND kind IN ('docx', 'pptx', 'xlsx') AND status = 'failed'
+         AND failure_reason = 'unreadable'
+         AND processing_version < coalesce(json_extract(?, '$.' || kind), ?)`,
+      [now(), JSON.stringify(CURRENT_SINCE), BigInt(PROCESSING_VERSION)],
+    );
     // PDFs with a page of little or no text, or one read from its picture by an older
     // reader, are processed again, so their scanned pages are read (#397): only when there is
     // a model to read them. A page of text comes out as it was (see `samePassages`).
@@ -2307,7 +2316,11 @@ export function createDocuments(options: DocumentsOptions) {
    * embeddings are off (nothing is loaded), or the model isn't ready, or
    * fails. A vector search throws instead.
    */
-  async function queryVector(query: string, mode: SearchMode): Promise<Float32Array | null> {
+  async function queryVector(
+    query: string,
+    mode: SearchMode,
+    background = false,
+  ): Promise<Float32Array | null> {
     const unavailable = () => {
       if (mode === "vector") throw model.notReadyError();
       return null;
@@ -2320,7 +2333,7 @@ export function createDocuments(options: DocumentsOptions) {
     }
     if (!(await model.load())) return unavailable();
     try {
-      return await model.embedQuery(query);
+      return await model.embedQuery(query, background);
     } catch (error) {
       if (error instanceof EmbeddingUnavailableError) return unavailable();
       if (mode === "vector") throw error;
@@ -2380,9 +2393,10 @@ export function createDocuments(options: DocumentsOptions) {
     listed: number,
     documentIds: readonly string[] | undefined,
     keywordListed = listed,
+    background = false,
   ): Promise<{ lists: number[][]; keywordOnly: Set<number> }> {
     const scope = searchScope(documentIds);
-    const vector = await queryVector(query, "hybrid");
+    const vector = await queryVector(query, "hybrid", background);
     const keyword = keywordSearch(db, query, keywordListed, scope);
     const similar = vector ? vectors.search(vector, listed, scope).map((hit) => hit.seq) : [];
     const lists = distinctPassages(db, [keyword, similar]);
@@ -2405,12 +2419,15 @@ export function createDocuments(options: DocumentsOptions) {
     query: string,
     limit: number,
     documentIds: readonly string[] | undefined,
+    background = false,
   ): Promise<SearchCandidate[]> {
     if (query.trim() === "") return [];
     const { lists, keywordOnly } = await rankings(
       query,
       Math.max(limit, HYBRID_CANDIDATES),
       documentIds,
+      undefined,
+      background,
     );
     return scored(fuseRankingScores(lists, limit, keywordOnly));
   }
@@ -2426,6 +2443,7 @@ export function createDocuments(options: DocumentsOptions) {
     query: string,
     counts: { perList: number; keywordAlone: number },
     documentIds: readonly string[] | undefined,
+    background = false,
   ): Promise<SearchCandidate[]> {
     if (query.trim() === "") return [];
     const listed = Math.max(2 * counts.perList, HYBRID_CANDIDATES);
@@ -2434,6 +2452,7 @@ export function createDocuments(options: DocumentsOptions) {
       listed,
       documentIds,
       Math.max(listed, counts.keywordAlone),
+      background,
     );
     const [keyword = [], similar = []] = lists;
     if (similar.length === 0) {
@@ -2482,10 +2501,13 @@ export function createDocuments(options: DocumentsOptions) {
      * Document and clustered by sliding window.
      */
     searchTool(query: string, toolOptions?: SearchToolOptions): Promise<WindowedPassage[]> {
+      const background = toolOptions?.background === true;
       return searchDocumentsTool(
         {
-          candidates,
-          rerankCandidates,
+          candidates: (query, limit, documentIds) =>
+            candidates(query, limit, documentIds, background),
+          rerankCandidates: (query, counts, documentIds) =>
+            rerankCandidates(query, counts, documentIds, background),
           window: (documentId, window) => passagesInWindow(db, documentId, window),
         },
         query,

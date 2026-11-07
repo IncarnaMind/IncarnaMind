@@ -16,13 +16,13 @@ directories:
 afterPack: ./scripts/afterPack.mjs
 
 # Only the bundled app goes in. The production dependencies in node_modules are added
-# automatically; the rest of the repo (sources, tests, the sample PDFs in data/) stays out.
+# automatically; the rest of the repo (sources, tests, the sample PDFs in eval/data/) stays out.
 # electron-builder arranges them itself, and a direct dependency's version wins the top
 # level: so zod is one (4.6.5, as the AI SDK uses it), and sandbox-runtime's zod 3 nests.
 #
 # A platform's own `files` list REPLACES this one rather than adding to it: with only
 # exclusions there, electron-builder falls back to "**/*" and packs the whole checkout
-# (sources, tests, data, untracked files) into app.asar. So every platform below restates
+# (sources, tests, eval/data, untracked files) into app.asar. So every platform below restates
 # out/**/* and the exclusions below, and scripts/check-package.mjs fails the release build if
 # anything else gets in.
 files:

@@ -23,6 +23,7 @@ import {
   type WordTabStop,
   type WordWidth,
 } from "../../api";
+import { readStyleTable, type WordStyleTable } from "./wordStyleTable";
 import { child, descendants, elements, local, onOff, parseXml, type XmlElement } from "./xml";
 
 /**
@@ -36,8 +37,6 @@ export const WORD_LOOK_VERSION = 7;
 
 /** The first version that read table styles' conditional formatting. */
 export const CONDITIONAL_FORMATTING_VERSION = 3;
-
-const MAX_STYLE_DEPTH = 20;
 
 /** Twips (or 1/`per` points) to points, to a hundredth. */
 function points(value: string | undefined, per = 20): number | undefined {
@@ -150,8 +149,6 @@ interface StyleParts {
 }
 
 interface StyleDefinition extends StyleParts {
-  type: string;
-  basedOn: string | null;
   next: string | null;
   tblPr?: XmlElement;
   /** A table style's formatting for parts of the table (`w:tblStylePr`), by `w:type`. */
@@ -811,9 +808,10 @@ export class LookReader {
   private readonly tables = new KeyedStyles<WordTableLook>("t");
   private readonly cells = new KeyedStyles<WordCellLook>("c");
   private readonly charactersBySize = new Map<number, number>();
+  private readonly styleTable: WordStyleTable;
   private readonly styles = new Map<string, StyleDefinition>();
-  private defaultParagraph: string | null = null;
-  private defaultTable: string | null = null;
+  private readonly defaultParagraph: string | null;
+  private readonly defaultTable: string | null;
   private readonly runDefaults: RunProps;
   private readonly paragraphDefaults: ParagraphProps;
   private readonly theme: ThemeFonts;
@@ -846,20 +844,16 @@ export class LookReader {
       major: {},
       minor: {},
     };
-    const root = parts.styles ? parseXml(parts.styles) : undefined;
-    const defaults = root && child(root, "w:docDefaults");
+    this.styleTable = readStyleTable(parts.styles ? parseXml(parts.styles) : undefined);
+    const defaults = this.styleTable.docDefaults;
     this.runDefaults = readRun(child(child(defaults ?? EMPTY, "w:rPrDefault") ?? EMPTY, "w:rPr"));
     this.paragraphDefaults = readParagraph(
       child(child(defaults ?? EMPTY, "w:pPrDefault") ?? EMPTY, "w:pPr"),
     );
-    for (const style of root ? elements(root) : []) {
-      if (style.name !== "w:style") continue;
-      const id = style.attrs["w:styleId"];
-      const type = style.attrs["w:type"];
-      if (!id || !type) continue;
-      const isDefault = style.attrs["w:default"] === "1" || style.attrs["w:default"] === "true";
-      if (isDefault && type === "paragraph") this.defaultParagraph = id;
-      if (isDefault && type === "table") this.defaultTable = id;
+    this.defaultParagraph = this.styleTable.defaultOf("paragraph");
+    this.defaultTable = this.styleTable.defaultOf("table");
+    for (const { id, type, element: style } of this.styleTable.styles) {
+      if (!type) continue;
       const conditional = new Map<string, StyleParts>();
       for (const part of elements(style)) {
         const condition = part.name === "w:tblStylePr" ? part.attrs["w:type"] : undefined;
@@ -871,8 +865,6 @@ export class LookReader {
         });
       }
       this.styles.set(`${type}:${id}`, {
-        type,
-        basedOn: child(style, "w:basedOn")?.attrs["w:val"] ?? null,
         next: child(style, "w:next")?.attrs["w:val"] ?? null,
         pPr: child(style, "w:pPr"),
         rPr: child(style, "w:rPr"),
@@ -944,17 +936,12 @@ export class LookReader {
     }
   }
 
+  /** The style's chain, the style it is based on furthest first, as Word applies them. */
   private chain(type: string, id: string | null): StyleDefinition[] {
-    const chain: StyleDefinition[] = [];
-    const seen = new Set<string>();
-    for (let at = id; at && !seen.has(at) && chain.length < MAX_STYLE_DEPTH; ) {
-      seen.add(at);
-      const style = this.styles.get(`${type}:${at}`);
-      if (!style) break;
-      chain.unshift(style);
-      at = style.basedOn;
-    }
-    return chain;
+    return this.styleTable
+      .chain(type, id)
+      .reverse()
+      .flatMap((style) => this.styles.get(`${type}:${style.id}`) ?? []);
   }
 
   table(tbl: XmlElement): TableLookContext {

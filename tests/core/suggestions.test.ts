@@ -27,6 +27,7 @@ import {
   startCore,
 } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
+import { mockEmbeddingModels, mockRerankingModels } from "../helpers/embeddingProviders";
 import { scriptedModels } from "../helpers/models";
 
 const TIDES = {
@@ -45,6 +46,12 @@ const TIDES = {
 const BREAD = {
   name: "Bread.md",
   contents: "# Bread\n\nSourdough bread needs a starter fed with flour and water every day.",
+};
+
+/** Another Passage the pause's query matches, so search hands the reranker two candidates: it returns without one. */
+const ALMANAC = {
+  name: "Almanac.md",
+  contents: "# Almanac\n\nThe moon pulls the sea twice a day.",
 };
 
 const CHAOZHOU = {
@@ -144,6 +151,17 @@ async function setUp(
   const set = await setUpWithDocuments(model, files, overrides);
   await set.core.updateSettings({ user: { suggestWhileWriting: true } });
   return set;
+}
+
+/** Resolves once the chosen embedding model has embedded every Document. */
+function rebuildFinished(core: Core): Promise<void> {
+  return new Promise((resolve) => {
+    const stop = core.on("embedding.changed", (settings) => {
+      if (settings.rebuild !== null) return;
+      stop();
+      resolve();
+    });
+  });
 }
 
 const suggestionOf = (outcome: SuggestionOutcome) => {
@@ -266,6 +284,77 @@ describe("suggestions as the User writes", () => {
       ),
     ).toEqual({ kind: "none" });
     expect(suggestionCalls(model)).toHaveLength(1);
+  });
+
+  // protects=a pause is background work: with rerank's flow revoked, its search sends nothing to the reranker and raises no consent request; fails_when=the pause asks for rerank, or a rerank request goes; no_claim=none beyond protects.
+  test("with rerank's flow revoked, a pause neither asks rerank nor sends to it", async () => {
+    const rerankers = mockRerankingModels((text) => (text.includes("Spring tides") ? 0.9 : 0.02));
+    const model = suggestingModel(SPRING);
+    const { core, mind } = await setUp(model, [TIDES, ALMANAC, BREAD], {
+      createRerankingModel: rerankers.createRerankingModel,
+    });
+    await core.saveRerankSettings({ kind: "cohere", apiKey: "cohere-test-key" });
+    expect(await core.getRerankSettings()).toMatchObject({
+      kind: "cohere",
+      hasApiKey: true,
+      paused: false,
+    });
+    // A search the User starts uses it: the pause below must not.
+    await core.searchEvidence("spring tides at the new moon and the full moon");
+    expect(rerankers.calls.length).toBeGreaterThan(0);
+    await core.revokeConsent("rerank", "https://api.cohere.com");
+    const sent = rerankers.calls.length;
+    const asked: string[] = [];
+    // Any prompt would be declined: the test must see it raised, and the search go without.
+    core.on("consent.requested", (request) => {
+      asked.push(request.flow.id);
+      void core.respondToConsent(request.requestId, false);
+    });
+
+    expect(suggestionOf(await core.suggestNext(requestFor(mind.id, ABOUT_TIDES))).text).toBe(
+      SPRING.text,
+    );
+    expect(asked).not.toContain("rerank");
+    expect(rerankers.calls).toHaveLength(sent);
+  });
+
+  // protects=a pause never sends its search query to a cloud embedding service whose flow is revoked, and asks nothing for it; fails_when=the pause asks embeddings, or a query goes before the User allows it; no_claim=none beyond protects.
+  test("with embeddings' flow revoked, a pause neither asks embeddings nor sends its query", async () => {
+    const embeddings = mockEmbeddingModels();
+    const model = suggestingModel(SPRING);
+    const { core, mind } = await setUp(model, [TIDES, ALMANAC, BREAD], {
+      createEmbeddingModel: embeddings.createEmbeddingModel,
+    });
+    const accept = core.on(
+      "consent.requested",
+      (request) => void core.respondToConsent(request.requestId, true),
+    );
+    const finished = rebuildFinished(core);
+    await core.saveEmbeddingProvider({
+      kind: "openai",
+      apiKey: "sk-test-embeddings-key",
+      modelId: "text-embedding-3-small",
+    });
+    await finished;
+    accept();
+    await core.revokeConsent("embeddings", "https://api.openai.com");
+    const sent = embeddings.calls.length;
+    const asked: string[] = [];
+    core.on("consent.requested", (request) => {
+      asked.push(request.flow.id);
+      void core.respondToConsent(request.requestId, true);
+    });
+
+    expect(suggestionOf(await core.suggestNext(requestFor(mind.id, ABOUT_TIDES))).text).toBe(
+      SPRING.text,
+    );
+    expect(asked).not.toContain("embeddings");
+    expect(embeddings.calls).toHaveLength(sent);
+
+    // A search the User starts still asks, and their answer sends the query.
+    await core.searchEvidence("spring tides at the new moon and the full moon");
+    expect(asked).toContain("embeddings");
+    expect(embeddings.calls.length).toBeGreaterThan(sent);
   });
 
   test("weak or no support sends nothing to the model", async () => {

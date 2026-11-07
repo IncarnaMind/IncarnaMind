@@ -6,6 +6,7 @@ import { deflateRawSync } from "node:zlib";
 import * as Y from "yjs";
 import { cleanApiKey } from "../shared/apiKey";
 import { isCitationStyleId, withRecentStyle } from "../shared/citationStyles";
+import { parseQuotedWords } from "../shared/citations";
 import type { DrawnPage } from "../shared/citedPage";
 import { ACCEPT_SUGGESTIONS } from "../shared/commands";
 import { optionsFor } from "../shared/exportOptions";
@@ -94,6 +95,7 @@ import { createCiting } from "./answers/citing";
 import { readMind } from "./answers/context";
 import type { AnswerSearchOptions } from "./answers/engine";
 import type { LiveTranscript } from "./answers/liveTranscript";
+import { explicitWalledFolderScope } from "./answers/scopeLine";
 import {
   type AddDocumentsResult,
   type AnswerPlace,
@@ -497,6 +499,13 @@ const isBehind = (meeting: Meeting) => meeting.transcript?.state === "behind";
 /** The longest password a PDF is unlocked with: far beyond any real one, short enough to refuse junk. */
 const MAX_PDF_PASSWORD = 1_024;
 
+/**
+ * How much of Recently deleted's 30 days an item must have left for Undo of a Restore to keep its
+ * deletion time: with less, it is deleted at the Undo's own moment, so the Redo that follows isn't
+ * refused once those last seconds pass (#2274).
+ */
+const DELETE_AGAIN_MARGIN_MS = 24 * 60 * 60 * 1000;
+
 const parseDocumentId = (input: unknown): string => {
   if (typeof input !== "string" || input === "") {
     throw new InvalidInputError({ key: "error.document.notFound" });
@@ -628,6 +637,7 @@ export function createCore(adapters: CoreAdapters): Core {
     throw error;
   }
   const events = createEventHub();
+
   const knownSecrets = new Set<string>();
   // Logs what happens from here on, from the events: never the User's content.
   const activity = logActivity(events, adapters.log ?? silentLogger, knownSecrets);
@@ -1099,8 +1109,9 @@ export function createCore(adapters: CoreAdapters): Core {
     db.close();
     throw error;
   }
-  // A saved page's pictures may come from any host: only the public internet is reached (#756).
-  const pictureFetcher = createPublicFetch(adapters.web);
+  // A saved page and its pictures are fetched only from the public internet: never this
+  // computer or a local network, every redirect checked as an address is (#2553).
+  const publicFetcher = createPublicFetch(adapters.web);
   const webPages = createWebPages({
     db,
     dataDir,
@@ -1108,7 +1119,8 @@ export function createCore(adapters: CoreAdapters): Core {
     documents,
     languages: () =>
       settings.get().language === "zh-CN" ? ["zh-CN", "zh;q=0.9", "en;q=0.8"] : ["en", "*;q=0.5"],
-    pictureFetch: pictureFetcher.fetch,
+    fetch: publicFetcher.fetch,
+    pictureFetch: publicFetcher.fetch,
     ...(adapters.pageLook ? { look: adapters.pageLook } : {}),
     keepLookByDefault: () => settings.get().user.keepWebPageLook,
     localOnly: () => embedding.localOnly(),
@@ -1493,24 +1505,25 @@ export function createCore(adapters: CoreAdapters): Core {
   /** The User's Documents searched as an Answer searches them: the search Tool, reranked as the User chose unless `rerank` is false. */
   const timedRerank = (reranker: Reranker | undefined): Reranker | undefined =>
     reranker &&
-    ((query, candidates, signal) =>
+    ((query, candidates, signal, background) =>
       timings.local(
         "rerank",
         rerank.usesBuiltIn() ? BUILT_IN_RERANKING_MODEL.name : "rerank service",
-        () => reranker(query, candidates, signal),
+        () => reranker(query, candidates, signal, background),
         () => candidates.length,
       ));
   const searchDocuments = (
     query: string,
     documentIds: readonly string[] | null,
     signal?: AbortSignal,
-    { rerank: reranking = true, parameters }: AnswerSearchOptions = {},
+    { rerank: reranking = true, parameters, background }: AnswerSearchOptions = {},
   ) => {
     const options = {
       signal,
       rerank: reranking ? timedRerank(adapters.reranker ?? rerank.active()) : undefined,
       documentIds: documentIds ?? undefined,
       ...(parameters && { parameters }),
+      ...(background === true && { background }),
     };
     const tuning = adapters.answerSearch;
     return tuning
@@ -1528,18 +1541,9 @@ export function createCore(adapters: CoreAdapters): Core {
     const walled = library.folders().filter((folder) => folder.keepInside);
     const own = mindId !== null && mindExists(mindId) ? minds.get(mindId).folderId : null;
     const ownWall = own === null ? null : library.wallOf(own);
-    const wallIds = new Set(
-      wanted.folderIds.flatMap((id) => {
-        const wall = library.wallOf(id);
-        return wall === null ? [] : [wall];
-      }),
+    const explicitFolderScope = explicitWalledFolderScope(wanted, mindId, (id) =>
+      id === null ? null : library.wallOf(id),
     );
-    const explicitFolderScope =
-      mindId === null &&
-      wallIds.size === 1 &&
-      wanted.folderIds.every((id) => library.wallOf(id) !== null) &&
-      wanted.tagIds.length === 0 &&
-      wanted.documentIds.length === 0;
     if (ownWall !== null || explicitFolderScope) {
       return resolveSearchScope(ownWall !== null ? constrainedScope(wanted, mindId) : wanted, {
         folderTree: (folderId) => folders.subtree(folderId),
@@ -2233,9 +2237,9 @@ export function createCore(adapters: CoreAdapters): Core {
         ),
       read: (mindId, look) => content.read(mindId, look),
       edit: (mindId, change) => content.edit(mindId, change),
-      text: (mindId, name, tokens, ids) => {
+      text: (mindId, name, tokens, ids, applied) => {
         const section = content
-          .peek(mindId, (blocks) => readMind(blocks, name, null, null, ids))
+          .peek(mindId, (blocks) => readMind(blocks, name, null, null, ids, true, applied))
           .section(tokens);
         return { text: section.text, origins: section.origins };
       },
@@ -2308,9 +2312,13 @@ export function createCore(adapters: CoreAdapters): Core {
         if (question) events.emit("conversation.message", question);
         return question;
       },
-      restartAnswer: (answerId, answerModel, read, emit = true) => {
-        const turn = conversations.restartAnswer(answerId, answerModel, read);
-        if (emit) events.emit("conversation.message", turn.answer);
+      restartAnswer: (answerId, answerModel, read, emit = true, origin) => {
+        const turn = conversations.restartAnswer(answerId, answerModel, read, origin);
+        if (emit) {
+          // An origin and the Answer it resets were written together: both changed at once.
+          if (origin) events.emit("conversation.message", turn.question);
+          events.emit("conversation.message", turn.answer);
+        }
         return turn;
       },
       writeAnswer: (answerId, write) => {
@@ -2334,6 +2342,13 @@ export function createCore(adapters: CoreAdapters): Core {
     workingCopyOf: (mindId) => wordImports.importedAsOf(mindId),
     searchedScope,
     mindFolder: (mindId) => (mindExists(mindId) ? minds.get(mindId).folderId : null),
+    scopeItemName,
+    libraryFolders: () =>
+      library.folders().map((folder) => ({
+        id: folder.id,
+        name: folder.name,
+        keepInside: folder.keepInside,
+      })),
     walledFolder,
     walledFolderId,
     walledDocuments,
@@ -2539,7 +2554,8 @@ export function createCore(adapters: CoreAdapters): Core {
 
   // Suggest as I write (#282): Passages found and quotes checked as Answers do (see ./answers/citing).
   const citing = createCiting({
-    search: searchDocuments,
+    search: (query, documentIds, signal, background) =>
+      searchDocuments(query, documentIds, signal, { background }),
     citationSource: (passageId) => documents.citationSource(passageId),
     pageTexts: (documentId, contentHash, from, to) =>
       documents.pageTexts(documentId, contentHash, from, to),
@@ -2819,6 +2835,23 @@ export function createCore(adapters: CoreAdapters): Core {
 
   const checks = createChecks({
     language: () => settings.get().language,
+    // What a check reads of the Documents as it runs: their words, names and whether it may use
+    // them. Its scope, their Folders and Tags are taken when the run starts (#2532).
+    libraryState: () =>
+      JSON.stringify(
+        documents
+          .list()
+          .map((document) => [
+            document.id,
+            document.name,
+            document.title,
+            document.contentHash,
+            document.status,
+            document.notCited,
+            document.ownFile,
+            document.readHiddenSheets,
+          ]),
+      ),
     content,
     requireMind: (mindId) => {
       writableMind(mindId);
@@ -3453,7 +3486,7 @@ export function createCore(adapters: CoreAdapters): Core {
   const tagger = createTagger({
     // A Document filed inside a walled Folder goes to no cloud service by itself (#2308).
     maySend: (id, service) =>
-      !library.inWall(id) && mayBackgroundSend(db, id, [service], library.turnedOnAt),
+      !library.inWall(id) && mayBackgroundSend(db, id, [service], library.turnedOnSeq),
     db,
     now,
     tags,
@@ -4347,6 +4380,7 @@ export function createCore(adapters: CoreAdapters): Core {
     meter,
     localOnly: () => embedding.localOnly(),
     providerKey: (catalogId) => chat.apiKeyOf(catalogId),
+    languages: () => [settings.get().language, ...adapters.systemLanguages()],
     log: adapters.log ?? silentLogger,
     ...(adapters.transcriptionKeyFetch && { fetch: adapters.transcriptionKeyFetch }),
     vadFile: async () => {
@@ -5112,6 +5146,7 @@ export function createCore(adapters: CoreAdapters): Core {
           mind: { id: mindId, folderId: minds.get(mindId).folderId },
           focus: null,
           scope: null,
+          folderInFront: null,
           model: null,
           forcedSkill: null,
           analyse: false,
@@ -5495,6 +5530,7 @@ export function createCore(adapters: CoreAdapters): Core {
         pageFrom: page(input.pageFrom),
         pageTo: page(input.pageTo) ?? page(input.pageFrom),
         contentHash: typeof input.contentHash === "string" ? input.contentHash : null,
+        quotedWords: parseQuotedWords(input.quotedWords),
         mindId: input.mindId,
       });
     },
@@ -5605,7 +5641,7 @@ export function createCore(adapters: CoreAdapters): Core {
     listChatProviders: () => chat.list(),
     saveChatProvider: async (input) => {
       const provider = await chat.save(input);
-      await cloudTranscription.refreshKeys();
+      await cloudTranscription.refreshKeys(provider.catalogId);
       transcriptionGateChanged();
       settingsChanged();
       await dataFlowsChanged();
@@ -5841,7 +5877,9 @@ export function createCore(adapters: CoreAdapters): Core {
     listDataFlows: () => consent.list(),
     listConsentRequests: async () => consent.requests(),
     respondToConsent: async (requestId, accept) => {
-      consent.respond(requestId, accept);
+      const answered = consent.respond(requestId, accept);
+      // Accepting the embeddings dialog is the User allowing it: Documents waiting carry on.
+      if (accept === true && answered?.flow.id === "embeddings") embedding.retry();
       await readinessChanged();
     },
     revokeConsent: async (flowId, serviceId) => {
@@ -5857,6 +5895,8 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     restoreConsent: async (flowId, serviceId, revokedAt) => {
       consent.restore(flowId, serviceId, revokedAt);
+      // Undo may bring back the choice that let embeddings run: Documents waiting carry on.
+      if (flowId === "embeddings") embedding.retry();
       connectors.consentChanged();
       transcriptionGateChanged();
       settingsChanged();
@@ -5865,6 +5905,8 @@ export function createCore(adapters: CoreAdapters): Core {
     listRegisteredDataFlows: () => consent.listRegistered(),
     allowDataFlow: async (flowId, serviceId) => {
       await consent.allow(flowId, serviceId);
+      // Documents waiting for embeddings carry on now that the User allowed it.
+      if (flowId === "embeddings") embedding.retry();
       connectors.consentChanged();
       await dataFlowsChanged();
     },
@@ -5966,11 +6008,14 @@ export function createCore(adapters: CoreAdapters): Core {
       const current = now();
       const nowMs = Date.parse(current);
       const earliest = nowMs - RECENTLY_DELETED_DAYS * 24 * 60 * 60 * 1000;
-      // A time outside Recently deleted's 30 days would list it expired or purge it at once:
-      // deleting it again at `current` keeps it restorable (#2238).
+      // A time outside Recently deleted's 30 days, or with less than a day of them left, would
+      // list it expired or purge it at once: deleting it again at `current` keeps it restorable
+      // and its Redo possible (#2238, #2274).
       const atOf = (item: DeletedAgainRef) => {
         const time = Date.parse(item.deletedAt);
-        return time >= earliest && time <= nowMs ? item.deletedAt : current;
+        return time >= earliest + DELETE_AGAIN_MARGIN_MS && time <= nowMs
+          ? item.deletedAt
+          : current;
       };
       // Documents go back together, as their deletion did (#1349), before what came after them.
       const byTime = new Map<string, string[]>();
@@ -6608,7 +6653,12 @@ export function createCore(adapters: CoreAdapters): Core {
     deleteMeetingAudio: async (meetingId) => meetings.deleteAudio(meetingId),
     retryTranscript: async (meetingId) => meetings.retryTranscript(meetingId),
     listTranscriptionServices: () => cloudTranscription.list(),
-    setTranscriptionKey: (input) => cloudTranscription.setKey(input),
+    setTranscriptionKey: async (input) => {
+      const listed = await cloudTranscription.setKey(input);
+      // A new key for the service a Meeting is sending to takes over from its next audio.
+      transcriptionGateChanged();
+      return listed;
+    },
     getTranscriptionModel: async () => transcriptionModel?.status() ?? null,
     getTranscriptionSpeed: async () => {
       const speed = settings.readDeviceValue(TRANSCRIPTION_SPEED);
@@ -6726,7 +6776,7 @@ export function createCore(adapters: CoreAdapters): Core {
       // the User's approval are denied, and Skill scripts running are stopped.
       answers.stopAll();
       void webSearch.close().catch((error: unknown) => console.error(error));
-      void pictureFetcher.close().catch((error: unknown) => console.error(error));
+      void publicFetcher.close().catch((error: unknown) => console.error(error));
       suggestions.stop();
       edits.stopAll();
       checks.stopAll();

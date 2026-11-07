@@ -349,8 +349,23 @@ export interface CreateMindInput {
  *   typed table, checked as one. A figure check of an Analysis's figure also
  *   records whether the claim judge read its sentence as naming it (`named`);
  *   one without it shows Not checked until the next Check.
+ * - 53: a Citation's `quotedWords` may instead record the page the Answer's
+ *   quoted words were found running on to past the one it cites
+ *   (`{ runsOnTo }`, #2504), as a Location, so its card says where the quote
+ *   continues. An older app would mishandle it: its figure reader refuses a
+ *   `quotedWords` it can't parse, so a figure's Citation would be lost, and
+ *   its Replace, re-check and figure paths would carry the old page onto a
+ *   new quote. So it opens these Notes read-only. Older content is version 52
+ *   content as it is: a Citation without it says nothing of a next page.
+ * - 54: a Citation's `quotedWords` may instead record that words its Answer put
+ *   in quotation marks are a cited Document's name, or a part of it
+ *   (`{ name }`, #2504), so its card says they aren't a quote from its pages.
+ *   An older app's figure reader refuses a `quotedWords` it can't parse, and
+ *   its Replace, re-check and figure paths would carry the name onto another
+ *   quote, so it opens these Notes read-only. Older content is version 53
+ *   content as it is: a Citation without it says nothing of a name.
  */
-export const CONTENT_SCHEMA_VERSION = 52;
+export const CONTENT_SCHEMA_VERSION = 54;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -2287,6 +2302,12 @@ export interface CitationToRecheck {
    * (`changed`).
    */
   contentHash?: string | null;
+  /**
+   * The words the Answer put in quotation marks that the Citation's check didn't find (#483):
+   * looked for with the quote, so a Citation not found for them stays not found until its cited
+   * Units have them (#2612).
+   */
+  quotedWords?: QuotedWordsCheck | null;
 }
 
 /** Where a Question is asked: its Note, else its conversation; null for none. */
@@ -2620,7 +2641,31 @@ export interface QuotedWords {
   answer: QuotedPiece[];
   /** The Document's words nearest them, the matching stretch `found: true`; null when none is near. */
   closest: QuotedPiece[] | null;
+  /**
+   * The Answer's quote in the Document's own marks, where the two differ only in the kind of
+   * their quotation marks (#2605): what Use the Document's wording puts in the sentence. The
+   * quote's other characters are its own, so only its marks change. Absent for any other
+   * difference, which the card offers nothing for.
+   */
+  documentWording?: string;
 }
+
+/** The Answer's quoted words, found where they run on past the page the Citation cites (#2504). */
+export interface QuotedWordsRunOn {
+  /** The page they run on to, as the Document prints it, for the card to name. */
+  runsOnTo: CitationLocation;
+}
+
+/** Words in quotation marks that are a cited Document's name, or a part of it: a name, not a quote (#2504). */
+export interface QuotedName {
+  name: string;
+}
+
+/**
+ * What the check of the Answer's quoted words found, stored as one value, so whatever drops or
+ * checks the words again drops the run-on page or the name with them.
+ */
+export type QuotedWordsCheck = QuotedWords | QuotedWordsRunOn | QuotedName;
 
 /**
  * A Citation's attributes, as stored on its node in the Mind's Yjs document.
@@ -2674,8 +2719,11 @@ export interface CitationAttributes {
   pageChecked?: boolean | null;
   /** One line on what the evidence says, when a claim check has one ("The agreement says 31 October 2026, p. 7"). */
   verdict?: string | null;
-  /** The Answer's quoted words the check didn't find, when that is why `check` is "not-found" (#483). */
-  quotedWords?: QuotedWords | null;
+  /**
+   * The Answer's quoted words the check didn't find, when that is why `check` is "not-found"
+   * (#483), or the page they were found running on to (#2504).
+   */
+  quotedWords?: QuotedWordsCheck | null;
   /**
    * The Document's version the User chose to keep citing the old one over (Keep citing the old
    * version, #99): while it is the current one, the Citation doesn't ask to be checked again.
@@ -2704,7 +2752,14 @@ export interface Citation {
   checkReason: CitationCheckReason | null;
   /** The unsure words of a scanned page the quote covers (#535). */
   unsure?: string[];
-  quotedWords?: QuotedWords;
+  quotedWords?: QuotedWordsCheck;
+  /**
+   * The words of the Answer's quotation marks that this Citation's Units were found to state
+   * (#2602), so a figure in them is stated by this Citation. None when the quoted-words check
+   * didn't look for them: a Document's name, a Citation that couldn't be checked, or words the
+   * check didn't find (its card says Quote not found instead).
+   */
+  quotedWordsFound?: string[];
   /** "unsupported" and "contradicted": what the Documents say of its sentence, in one plain sentence. */
   verdict?: string | null;
 }
@@ -3272,11 +3327,25 @@ export interface DeviceSettings {
 }
 
 /**
- * Where a Meeting's audio is turned into text: on this computer, or by a cloud service with the
- * User's own key (#141): OpenAI and Qwen (Alibaba Cloud Model Studio, for mainland China) with
- * the key of their provider in Settings › Models, Soniox with a key of its own.
+ * Where a Meeting's audio is turned into text: on this computer, or live by a cloud service with
+ * the User's own key (#141, #866): OpenAI, Qwen (Alibaba Cloud Model Studio, for mainland China),
+ * Gemini and xAI with the key of their provider in Settings › Models; Soniox, Deepgram
+ * (also at Cloudflare Workers AI or a server of the User's own), AssemblyAI, ElevenLabs,
+ * Speechmatics and Gladia with a key of their own.
  */
-export const TRANSCRIPTION_ROUTES = ["local", "openai", "soniox", "qwen"] as const;
+export const TRANSCRIPTION_ROUTES = [
+  "local",
+  "openai",
+  "soniox",
+  "qwen",
+  "deepgram",
+  "assemblyai",
+  "gemini",
+  "elevenlabs",
+  "speechmatics",
+  "gladia",
+  "xai",
+] as const;
 export type TranscriptionRoute = (typeof TRANSCRIPTION_ROUTES)[number];
 export type CloudTranscriptionRoute = Exclude<TranscriptionRoute, "local">;
 
@@ -3296,9 +3365,28 @@ export interface TranscriptionServiceStatus {
   hasKey: boolean;
   liveSpeakers: boolean;
   keyUrl: string | null;
+  /** Where credit is added to the account the key is for; null where none is known. */
+  billingUrl: string | null;
+  /**
+   * The server the audio goes to, where the User can give one (Deepgram's: Deepgram, Cloudflare
+   * Workers AI or their own); null for every other service, whose address is its own.
+   */
+  server: string | null;
+  /** Its key may be left out: a server of the User's own. */
+  keyOptional: boolean;
+  /**
+   * Saving its key first sends it to the service to check it, except in Local mode; a Deepgram
+   * key is checked only when the server saved is Deepgram's own.
+   */
+  keyChecked: boolean;
+  /** What it transcribes, as ISO 639 codes. */
+  languages: string[];
+  /** The languages the User speaks (the interface's and the computer's) that it doesn't transcribe. */
+  missingLanguages: string[];
   /**
    * It was chosen, and set back to this computer when its key began to send the audio somewhere
-   * the User hadn't chosen (a Qwen key for another region): choosing it again sends it there.
+   * the User hadn't chosen (a Qwen key for another region, another Deepgram server): choosing it
+   * again sends it there.
    */
   chooseAgain: boolean;
 }
@@ -3317,6 +3405,8 @@ export interface TranscriptionServices {
 export interface SetTranscriptionKeyInput {
   route: CloudTranscriptionRoute;
   apiKey: string;
+  /** Deepgram's server, where it isn't Deepgram's own: Cloudflare Workers AI's, or the User's. */
+  server?: string;
 }
 
 /**
@@ -4174,9 +4264,9 @@ export type WebPageLookFailure =
  * - "not-a-page": the address is a file (a PDF, an image), not a web page.
  * - "video": the page is a video, with little text to read.
  * - "not-text": the page has too little text to read, such as an app.
- * - "not-public": web search's fetcher refused it: the address is on this
- *   computer or a local network, or redirects there (#128).
- * - "too-many-redirects": it redirected more than web search's fetcher follows.
+ * - "not-public": the fetcher that reaches only the public internet refused
+ *   it: the address is on this computer or a local network, or redirects there.
+ * - "too-many-redirects": it redirected more than that fetcher follows.
  * - "not-from-search": web search fetches only the pages its search returned
  *   in the same Answer, and this wasn't one.
  * - "local-mode": "Keep everything on this computer" is on, so nothing was
@@ -8108,6 +8198,12 @@ export interface AskInConversationInput {
   quotes?: AskedQuote[] | null;
   /** Its Search scope; none or null: every Document. */
   scope?: SearchScope | null;
+  /**
+   * The Folder the Library is open on, when the Question comes from the Library with no Note:
+   * what "this folder" means there (#2529). Checked against the walls as a Note's Folder is,
+   * and not kept with the Question.
+   */
+  folderInFrontId?: string | null;
   /** The model to answer with; none or null: the default. */
   model?: ChatModelChoice | null;
   /** A Skill to load up front, by name. */
@@ -8134,6 +8230,11 @@ export interface ConversationAnswerInput {
   clearScope?: boolean;
   /** Regenerating: the Documents open on screen now, as `AskInConversationInput.onScreen`. */
   onScreen?: string[] | null;
+  /**
+   * Regenerating: the Folder the Library is open on, as `AskInConversationInput.folderInFrontId`,
+   * so Try again means the same Folder as the first Answer did (#2529).
+   */
+  folderInFrontId?: string | null;
   /**
    * Regenerating: write it with this model, and keep the Question on it, as when the model it was
    * asked with failed and the User chose another (#1848). Absent: the Question's own.
@@ -10725,6 +10826,7 @@ export type MeetingKind = "meeting" | "memo";
 /**
  * How one source is recorded right now:
  * - "off": not asked for ("Only me"), or the Meeting isn't recording.
+ * - "waiting": the system's permission prompt is open, and nothing is captured until it is answered.
  * - "starting": asked for, not heard from yet.
  * - "recording": its audio is coming in.
  * - "silent": the computer's sound has been nothing but silence for a minute,
@@ -10736,6 +10838,7 @@ export type MeetingKind = "meeting" | "memo";
  */
 export type MeetingSourceState =
   | "off"
+  | "waiting"
   | "starting"
   | "recording"
   | "silent"
@@ -11036,14 +11139,15 @@ export interface MeetingTranscript {
   /**
    * This computer took over from the cloud service the User chose, during this stretch of
    * recording: where, in the Meeting's time, and why. "dropped": the connection was lost;
-   * "refused": the service didn't accept the key; "cap": the month reached the cap;
-   * "local-mode": “Keep everything on this computer” is on; "moved": the key now sends the
-   * audio somewhere the User hasn't chosen (`TranscriptionServiceStatus.chooseAgain`). Null otherwise.
+   * "refused": the service didn't accept the key; "credit": the account has no credit left;
+   * "cap": the month reached the cap; "local-mode": “Keep everything on this computer” is on;
+   * "moved": the key now sends the audio somewhere the User hasn't chosen
+   * (`TranscriptionServiceStatus.chooseAgain`). Null otherwise.
    */
   fellBack: {
     route: CloudTranscriptionRoute;
     atMs: number;
-    reason: "dropped" | "refused" | "cap" | "local-mode" | "moved";
+    reason: "dropped" | "refused" | "credit" | "cap" | "local-mode" | "moved";
   } | null;
   /** Its own file in the data folder, once saved: kept for the Library, never shown as a path (#763). */
   savedPath: string | null;
@@ -11468,8 +11572,9 @@ export interface CoreApi {
   /**
    * Undoes a Restore: each item goes back to Recently deleted as it was before it came back, with
    * the rows its Restore brought back, deleted at the time it was deleted then, so the Folder it
-   * was in and its `RECENTLY_DELETED_DAYS` are as they were. A time outside those days, or in the
-   * future, is taken as now, so it never lands expired. Sends the events a delete sends.
+   * was in and its `RECENTLY_DELETED_DAYS` are as they were. A time outside those days, within a
+   * day of their end, or in the future, is taken as now, so it never lands expired and the Redo
+   * that follows can't be refused. Sends the events a delete sends.
    */
   deleteAgain(refs: DeletedAgainRef[]): Promise<void>;
   /**
@@ -12078,8 +12183,9 @@ export interface CoreApi {
    * only one that differs; an arXiv number on arXiv. Calling it is the
    * consent to the "reference-check" flow (ADR-0022); in local mode every
    * entry is "not-checked". One check of a Mind at a time. Answers are kept:
-   * a found record for good, a miss for seven days; `again` asks about every
-   * miss again.
+   * a found record for good, and a miss or a failure too, so an ordinary
+   * check sends nothing more; `again` asks about every kept miss and failure
+   * again.
    */
   checkReferences(mindId: string, options?: { again?: boolean }): Promise<CheckReferencesResult>;
   /** Stops a Mind's `checkReferences`: it gives "cancelled". Stopping none does nothing. */
@@ -13337,8 +13443,10 @@ export interface CoreApi {
   /** The cloud services that can transcribe meeting audio (#141), and whether each has a key. */
   listTranscriptionServices(): Promise<TranscriptionServices>;
   /**
-   * Keeps a transcription service's own key (Soniox), in the keychain, once the service accepts
-   * it. Throws `InvalidInputError` when it refuses the key.
+   * Keeps a transcription service's own key (Soniox, Deepgram, AssemblyAI, ElevenLabs,
+   * Speechmatics, Gladia), in the keychain, once the service accepts it, with Deepgram's server
+   * where it is another. Throws `InvalidInputError` when it refuses the key or the server's
+   * address isn't one.
    */
   setTranscriptionKey(input: SetTranscriptionKeyInput): Promise<TranscriptionServices>;
   /** Forgets a transcription service's own key; meeting audio is then transcribed on this computer. */

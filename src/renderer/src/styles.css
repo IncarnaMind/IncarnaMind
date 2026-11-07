@@ -832,7 +832,8 @@
   }
   /*
    * A Meeting recording, on its tab and in its bar: a small red dot, the one
-   * red outside Citation checks (the owner's choice), grey while paused.
+   * red outside Citation checks (the owner's choice), grey while paused or
+   * while the system's permission prompt is open.
    */
   .recording-dot {
     flex-shrink: 0;
@@ -841,7 +842,8 @@
     border-radius: 9999px;
     background: var(--color-danger);
 
-    &[data-status="paused"] {
+    &[data-status="paused"],
+    &[data-status="waiting"] {
       background: var(--color-ink-meta);
     }
   }
@@ -5195,7 +5197,8 @@
   .mind-picture-block {
     margin: 16px 0;
 
-    &.ProseMirror-selectednode .mind-picture-block-image {
+    &.ProseMirror-selectednode .mind-picture-block-image,
+    &[data-picture-selected] .mind-picture-block-image {
       outline: 2px solid var(--color-accent);
       outline-offset: 2px;
     }
@@ -7475,10 +7478,11 @@
    */
   .assistant-thread {
     --scrollbar: 8px;
+    --fade-bleed: 12px;
 
     flex: 1 1 auto;
     min-height: 0;
-    padding: 12px calc(var(--edge) - var(--scrollbar)) 12px var(--edge);
+    padding: 12px calc(var(--edge) - var(--scrollbar)) var(--fade-bleed) var(--edge);
     overflow-y: auto;
     overscroll-behavior: contain;
     scrollbar-gutter: stable;
@@ -7492,16 +7496,31 @@
       background: var(--color-rule-strong) padding-box;
     }
   }
-  /* A scrolling frame's last 12px fade to the sheet, so a cut line never meets its edge (#614). */
+  /*
+   * A line the foot of a scrolling frame cuts fades out whole instead of looking sliced (#614,
+   * #2616). `lh` is the frame's line height, so the fade follows its text size.
+   */
   .scroll-fade::after {
     content: "";
     position: sticky;
-    bottom: 0;
-    display: block;
-    height: 12px;
-    margin-top: -12px;
+    /* A sticky box stops at the frame's padding, so a frame with padding below reaches into it (--fade-bleed) to end at its foot. */
+    bottom: calc(0px - var(--fade-bleed, 0px));
+    display: none;
+    height: 1.5lh;
+    margin-top: -1.5lh;
     background: linear-gradient(to bottom, transparent, var(--color-sheet));
     pointer-events: none;
+  }
+  .scroll-fade[data-more-after]::after {
+    display: block;
+  }
+  /*
+   * What a scroll into view brings to the foot (the Answer a link back seeks, the keyboard moving
+   * focus) stops above the fade rather than under it (#2622): the frame keeps the fade's height
+   * clear at its bottom.
+   */
+  .scroll-fade {
+    scroll-padding-bottom: 1.5lh;
   }
   .assistant-empty {
     margin: 0;

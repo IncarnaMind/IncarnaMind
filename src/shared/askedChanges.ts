@@ -204,6 +204,22 @@ export function waitsForUser(doc: Y.Doc, requests: ReadonlySet<string>): boolean
 }
 
 /**
+ * The requests in one Mind that `calls` asked for and the window applies at once, with Undo: the
+ * changes it holds back because they take out most of the User's own text are left out (#2321).
+ */
+export function appliedRequests(
+  doc: Y.Doc,
+  mindId: string,
+  calls: readonly AnswerToolCall[],
+): Set<string> {
+  const asked = new Set(
+    calls.flatMap((call) => (call.mindChange?.mindId === mindId ? [call.mindChange.request] : [])),
+  );
+  const requested = requestedRequests(doc, asked);
+  return waitsForUser(doc, requested) ? new Set() : requested;
+}
+
+/**
  * Whether the window applies `change` at once, with Undo, or it waits for the User: a call in
  * `calls` asked for it in that Mind, and it doesn't take out most of the User's own text. The core
  * says so to the model, and the evaluations read the same answer.
@@ -213,11 +229,5 @@ export function appliedAsAsked(
   change: Pick<MindChange, "mindId" | "request">,
   calls: readonly AnswerToolCall[],
 ): boolean {
-  const asked = new Set(
-    calls.flatMap((call) =>
-      call.mindChange?.mindId === change.mindId ? [call.mindChange.request] : [],
-    ),
-  );
-  const requested = requestedRequests(doc, asked);
-  return requested.has(change.request) && !waitsForUser(doc, requested);
+  return appliedRequests(doc, change.mindId, calls).has(change.request);
 }

@@ -204,6 +204,7 @@ describe("Organize suggests a Folder and waits for the User", () => {
     expect(last).toEqual({
       id: batchId,
       groupId: null,
+      linkedFolderId: null,
       documentIds: documents.map((each) => each.id),
       adding: false,
       read: 12,
@@ -690,7 +691,12 @@ describe("Organize suggests a Folder and waits for the User", () => {
       linked.batchId,
       (batch) => !batch.adding && batch.sorted === 2,
     );
-    expect(last).toMatchObject({ groupId: thesis.id, read: 2, suggested: [] });
+    expect(last).toMatchObject({
+      groupId: thesis.id,
+      linkedFolderId: linked.id,
+      read: 2,
+      suggested: [],
+    });
     expect((await core.getLibrary()).assignments).toEqual(
       last.documentIds.map((documentId) =>
         expect.objectContaining({ documentId, groupId: thesis.id, source: "user" }),

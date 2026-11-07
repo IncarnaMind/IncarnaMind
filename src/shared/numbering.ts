@@ -170,6 +170,43 @@ export function numberingMarker(
   return text.replace("%", COUNTING[format].write(own));
 }
 
+/** What a numbered list starts counting from, as one thing the editor and the reader count by. */
+export interface ListStart {
+  /** Its first number, as its `start` gives it, from 1. */
+  start: number;
+  /** The level its outermost items draw, from 0. */
+  level: number;
+  /**
+   * The numbers of the list it is nested in, or of the closest earlier numbered list among its
+   * siblings when it continues: at its level and above.
+   */
+  from?: readonly number[] | null;
+  /** It goes on from `from` rather than starting again at its `start`. */
+  continues?: boolean;
+}
+
+/**
+ * The numbers a numbered list starts counting from: above its level, `from`'s where it has them,
+ * else 1; at its level, one less than its `start`, or `from`'s number when it continues (#2334).
+ */
+export function startingNumbers({
+  start,
+  level,
+  from = null,
+  continues = false,
+}: ListStart): number[] {
+  const numbers = Array.from({ length: level + 1 }, (_, at) => from?.[at] ?? 1);
+  numbers[level] = continues && from ? (from[level] ?? 0) : Math.max(start - 1, 0);
+  return numbers;
+}
+
+/** The numbers of the item after one drawn with `numbers` at `level`: one more there, deeper levels gone. */
+export function nextNumbers(numbers: readonly number[], level: number): number[] {
+  const next = numbers.slice(0, level + 1);
+  next[level] = (next[level] ?? 0) + 1;
+  return next;
+}
+
 /**
  * A level of a scheme as Word's numbering writes it (`w:numFmt`, `w:lvlText`) at Word level `at`
  * (from 0; `level` unless the list starts its numbering deeper, under a bullet): "%1.", "(%2)",

@@ -1,8 +1,9 @@
 import { type Editor, Extension } from "@tiptap/core";
-import { Plugin, PluginKey, type Selection } from "@tiptap/pm/state";
-import { BLOCK_ID_ATTRIBUTE } from "../../../core/api";
+import { NodeSelection, Plugin, PluginKey, type Selection } from "@tiptap/pm/state";
+import { BLOCK_ID_ATTRIBUTE, PICTURE_NODE } from "../../../core/api";
 import { runShortcut } from "../commands/keymap";
 import type { ObjectRef } from "../objects";
+import { openPictureFromEditor } from "../pictureViewer";
 import { findBlock } from "./blockCommands";
 
 const openNotes = new Set<Editor>();
@@ -52,12 +53,28 @@ export const NoteKeymap = Extension.create({
       new Plugin({
         key: new PluginKey("noteKeymap"),
         props: {
-          handleKeyDown: (view, event) =>
-            runShortcut(
+          handleKeyDown: (view, event) => {
+            // Space on the selected picture opens it at full size (#2377), as a double-click does.
+            if (
+              event.key === " " &&
+              !event.metaKey &&
+              !event.ctrlKey &&
+              !event.altKey &&
+              !event.isComposing
+            ) {
+              const { selection } = view.state;
+              if (selection instanceof NodeSelection && selection.node.type.name === PICTURE_NODE) {
+                event.preventDefault();
+                openPictureFromEditor(this.editor, selection.from);
+                return true;
+              }
+            }
+            return runShortcut(
               event,
               { selection: [], focus: blockAt(view.state.selection), surface: "mind" },
               { objectsOnly: true },
-            ),
+            );
+          },
         },
       }),
     ];
