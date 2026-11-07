@@ -43,11 +43,12 @@ async function choose(
   documents: readonly Pick<Document, "id" | "name" | "title">[],
   choice: Choice,
   on: boolean,
+  onlyName?: string,
 ): Promise<Undoable> {
   const ids = documents.map((document) => document.id);
   for (const id of ids) await choice.set(id, on);
   const [only] = documents;
-  const name = only && ids.length === 1 ? displayName(only) : null;
+  const name = ids.length === 1 ? (onlyName ?? (only ? displayName(only) : null)) : null;
   const state = on ? "on" : "off";
   const undoable: Undoable = {
     said: (t) =>
@@ -76,4 +77,6 @@ export const countAsEvidence = (
 export const markNotCited = (
   documents: readonly Pick<Document, "id" | "name" | "title">[],
   notCited: boolean,
-) => choose(documents, NOT_CITED, notCited);
+  /** The meeting's name for its Transcript, which is what the User knows it as (#2579). */
+  onlyName?: string,
+) => choose(documents, NOT_CITED, notCited, onlyName);
