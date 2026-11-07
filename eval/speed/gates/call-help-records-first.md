@@ -53,3 +53,11 @@ The runs were made at 1e4c9d92b on a direct Anthropic key, judge Claude Opus 5.5
 - **Missed: replies that showed nothing, 2 against 0.** Both en-answer-edition: Sonnet wrote the form's "★" and "→" inside the JSON as "β˜…" and "β†’", so the panel found no option. A check of that case gave the same once in two presses.
 - Failed to run: 1 on the step against 2 on today's path, all `cache_control cannot be set for empty text blocks` from the API (#2526's comment of 2026-11-07).
 - A next try needs both answered (the two form characters read back from that misencoding, and en-want's records traced, then placed at the line that holds their quote or sent back to the loop) and a new run of this gate.
+
+## The second run (written on 2026-11-07, before it)
+
+Both missed lines were traced to the reply's shape, and the step changes only there. The bar, the set, the model, the judge, the samples and the arms are as above, on the fixed call rig. The set has been seen by this step's first run; nothing in a prompt names or quotes a case.
+
+- **The form's marks.** Inside the JSON, Sonnet 5.5 wrote "★" and "→" itself, as the characters, as `★` and `→`, and twice as their bytes read in another encoding ("β˜…", "β†’"), which no option was laid out from. Now the reply after the records is fields, `lead` and `items` of `line`, `moment` and `leadsTo`, and IncarnaMind writes "★", "→" and "- " as `<help>` shows (`helpReplyText` in `src/core/answers/meetingHelp.ts`). `<help>` itself is unchanged, so a model that answers in the loop gets the form as before.
+- **en-want's records.** Read from the stored records: each not found was `pages-outside-passage`, the location unresolved in the transcript Passage that holds the line, which was the one named; the raw records gave locations such as `[5:56–6:05]`. In the loop, `cite` asks the model to fix such a record; one structured reply can't be asked, and `main`'s structured output (a small local model's) has the same gap. The records-first rules now say a Transcript line's location is the time on that line's own mark, such as "6:00". The matcher is unchanged.
+- **No text.** A reply whose records came with no item now answers in the loop, as one that isn't JSON does.
