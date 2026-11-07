@@ -1,4 +1,5 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Tokenizer } from "@huggingface/tokenizers";
 import { describe, expect, test, vi } from "vitest";
@@ -32,6 +33,7 @@ import { asCheckWork, createRerankQueue } from "../../src/core/reranking/order";
 import { createTempDataFolder, NO_MODEL_FILES } from "../helpers/core";
 import { startModelServer } from "../helpers/embedding";
 import { recordingLog } from "../helpers/log";
+import { onnxModel } from "../helpers/onnxModels";
 
 const FILES = { model: "m.onnx", tokenizer: "t.json", tokenizerConfig: "c.json", maxTokens: 512 };
 
@@ -872,6 +874,68 @@ describe("The built-in reranking model's GPU file", () => {
       { level: "info", event: "reranking.device", fields: { device: "gpu" } },
     ]);
     model.close();
+  });
+
+  const EXPORTED = onnxModel([{ op: "Neg" }, { op: "MemcpyFromHost" }, { op: "Neg" }]);
+  const EXPORTED_FILE = {
+    path: "fp16.onnx",
+    size: EXPORTED.length,
+    sha256: createHash("sha256").update(EXPORTED).digest("hex"),
+  };
+
+  /** A GPU file downloaded before, as Optimum's O4 export keeps it: with its copies from host to GPU memory. */
+  async function downloadGpuFile(dataDir: string) {
+    const gpuFolder = join(dataDir, "models", "tiny-gpu");
+    await mkdir(gpuFolder, { recursive: true });
+    await writeFile(join(gpuFolder, "fp16.onnx"), EXPORTED);
+    await writeFile(join(gpuFolder, "verified.json"), JSON.stringify({ files: [EXPORTED_FILE] }));
+    await tinyModelFiles(join(dataDir, "models", "tiny"));
+    return join(gpuFolder, "fp16.webgpu.onnx");
+  }
+
+  /** The model as IncarnaMind starts it, over that data folder. */
+  function startGpuModel(dataDir: string) {
+    const sessions = fakeSessions({});
+    const model = createRerankingModel({
+      definition: {
+        ...BUILT_IN_RERANKING_MODEL,
+        folder: "tiny",
+        files: {
+          model: "int8.onnx",
+          tokenizer: "tokenizer.json",
+          tokenizerConfig: "tokenizer_config.json",
+        },
+        gpu: { folder: "tiny-gpu", file: EXPORTED_FILE, check: CHECK },
+      },
+      source: { baseUrl: "http://127.0.0.1:9/", files: [] },
+      dataDir,
+      crossEncoder: createOnnxCrossEncoder({ createSession: sessions.createSession }),
+      emitStatus: () => {},
+    });
+    return { model, sessions };
+  }
+
+  // protects=a GPU session never opens a file that keeps a CUDA export's copies between host and GPU memory, each of which made the GPU drain once a layer (#2532); fails_when=the session opens the file as downloaded, the copy holds anything but those copies read as Identity, or it is written again at each start; no_claim=what the copies cost on any one GPU.
+  test("opens a copy of a downloaded GPU file with its copies between host and GPU memory read as Identity, written once and kept", async () => {
+    const dataDir = await createTempDataFolder();
+    const copy = await downloadGpuFile(dataDir);
+    const first = startGpuModel(dataDir);
+
+    await first.model.rerank("what is", HITS);
+
+    expect(first.sessions.opened.at(-1)).toBe("fp16.webgpu.onnx on gpu");
+    expect(new Uint8Array(await readFile(copy))).toEqual(
+      onnxModel([{ op: "Neg" }, { op: "Identity" }, { op: "Neg" }]),
+    );
+    const written = (await stat(copy)).mtimeMs;
+    first.model.close();
+
+    const next = startGpuModel(dataDir);
+    await next.model.rerank("what is", HITS);
+
+    expect(next.sessions.opened.at(-1)).toBe("fp16.webgpu.onnx on gpu");
+    expect((await stat(copy)).mtimeMs).toBe(written);
+    next.model.close();
   });
 
   test("with no GPU adapter, downloads nothing and logs why it reranks on the CPU", async () => {

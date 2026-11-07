@@ -3,9 +3,10 @@ import { withoutHostCopies } from "../../src/core/reranking/hostCopies";
 import { onnxModel } from "../helpers/onnxModels";
 
 describe("A GPU file's copies between host and GPU memory", () => {
-  // Names of 90 to 110 letters put a copy node on both sides of 128 bytes, where its length
-  // takes one byte fewer once it reads Identity.
-  test.each([90, 100, 105, 106, 107, 108, 110])(
+  // A copy node named with 78 to 81 letters is 128 bytes or more, and under 128 once it reads
+  // Identity, so its length takes one byte fewer; alone in a model, names of 16 to 21 letters do
+  // the same to the graph's length. 77, 82, 15 and 22 are the lengths either side.
+  test.each([77, 78, 81, 82])(
     "are read as Identity, and nothing else in the model changes (a node named with %i letters)",
     (letters) => {
       const name = "n".repeat(letters);
@@ -23,6 +24,17 @@ describe("A GPU file's copies between host and GPU memory", () => {
       ]);
 
       expect(Array.from(withoutHostCopies(exported))).toEqual(Array.from(expected));
+    },
+  );
+
+  test.each([15, 16, 21, 22])(
+    "are read as Identity in a model of one copy, its graph's length re-written (a node named with %i letters)",
+    (letters) => {
+      const name = "n".repeat(letters);
+
+      expect(Array.from(withoutHostCopies(onnxModel([{ op: "MemcpyFromHost", name }])))).toEqual(
+        Array.from(onnxModel([{ op: "Identity", name }])),
+      );
     },
   );
 

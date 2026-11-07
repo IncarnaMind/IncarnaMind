@@ -1,17 +1,19 @@
 /**
  * `INCARNAMIND_EVAL_SPEED_RERANK=1 npm run eval:speed` (README.md › The reranker's throughput):
- * the built-in reranker on this computer, scoring the searches Check this Note makes for its ten
- * sentences over the mixed sample set, in English and Chinese, as its GPU file was downloaded and
- * as the app opens it now, with the copies between host and GPU memory read as Identity
- * (src/core/reranking/hostCopies.ts). The two take turns, `RUNS` times each (5 by default).
+ * the built-in reranker on this computer, scoring one search for each of Check this Note's ten
+ * sentences, the sentence as its query, over the mixed sample set, in English and Chinese: from
+ * its GPU file as downloaded, and from the copy the app opens now, with the copies between host
+ * and GPU memory read as Identity (src/core/reranking/hostCopies.ts). The two take turns, `RUNS`
+ * times each (5 by default), and any score that differs between them fails the run.
  */
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "vitest";
 import type { CrossEncoder, RerankingModelFiles } from "../../src/core/adapters";
+import { withoutHostCopies } from "../../src/core/reranking/hostCopies";
 import { BUILT_IN_RERANKING_MODEL } from "../../src/core/reranking/model";
-import { createOnnxCrossEncoder, createOrtSession } from "../../src/core/reranking/onnx";
+import { createOnnxCrossEncoder } from "../../src/core/reranking/onnx";
 import { buildPdf } from "../../tests/helpers/pdf";
 import { reports } from "../everyday/asking";
 import { readConfig } from "../lib/config";
@@ -36,7 +38,7 @@ interface Search {
   texts: string[];
 }
 
-/** The searches a check makes for each of the Note's ten sentences: the queries and the texts its reranker is given. */
+/** A search for each of the Note's ten sentences, as a check searches: its query and the texts the reranker is given. */
 async function noteSearches(): Promise<Search[]> {
   const log = createLog();
   const config = readConfig(ROOT);
@@ -100,26 +102,27 @@ timedThroughput(
     const { gpu, folder, files: paths, maxTokens } = BUILT_IN_RERANKING_MODEL;
     if (!gpu) throw new Error("The built-in reranking model has no GPU file.");
     const models = join(config.cacheDir, "models");
-    const files: RerankingModelFiles = {
+    const downloaded = join(models, gpu.folder, gpu.file.path);
+    const copyFolder = await mkdtemp(join(tmpdir(), "incarnamind-rerank-copy-"));
+    const copy = join(copyFolder, "model.webgpu.onnx");
+    await writeFile(copy, withoutHostCopies(await readFile(downloaded)));
+    const files = (model: string): RerankingModelFiles => ({
       model: join(models, folder, paths.model),
       tokenizer: join(models, folder, paths.tokenizer),
       tokenizerConfig: join(models, folder, paths.tokenizerConfig),
       maxTokens,
-      gpu: { model: join(models, gpu.folder, gpu.file.path), check: gpu.check },
-    };
-    const arms = {
-      "as downloaded": () => createOnnxCrossEncoder({ createSession: createOrtSession }),
-      "host copies as Identity": () => createOnnxCrossEncoder(),
-    };
+      gpu: { model, check: gpu.check },
+    });
+    const arms = { "as downloaded": downloaded, "host copies as Identity": copy };
     type Arm = keyof typeof arms;
     const times = new Map<Arm, { load: number[]; oneByOne: number[]; atOnce: number[] }>();
     const scores = new Map<Arm, number[][]>();
     for (let run = 0; run < runs; run++) {
       const order = Object.keys(arms) as Arm[];
       for (const arm of run % 2 === 0 ? order : order.reverse()) {
-        const crossEncoder = arms[arm]();
+        const crossEncoder = createOnnxCrossEncoder();
         const begun = performance.now();
-        const device = await crossEncoder.load(files);
+        const device = await crossEncoder.load(files(arms[arm]));
         if (device.device !== "gpu")
           throw new Error(`The reranker loaded on the ${device.device}.`);
         const loaded = performance.now();
@@ -146,9 +149,10 @@ timedThroughput(
         );
       }
     }
-    const downloaded = scores.get("as downloaded")?.flat() ?? [];
+    await rm(copyFolder, { recursive: true, force: true });
+    const asDownloaded = scores.get("as downloaded")?.flat() ?? [];
     const identity = scores.get("host copies as Identity")?.flat() ?? [];
-    const differing = identity.filter((score, at) => !Object.is(score, downloaded[at])).length;
+    const differing = identity.filter((score, at) => !Object.is(score, asDownloaded[at])).length;
     const rows = [...times].map(
       ([arm, each]) =>
         `| ${arm} | ${Math.round(median(each.load))} (${range(each.load)}) | ${Math.round(median(each.oneByOne))} (${range(each.oneByOne)}) | ${Math.round(median(each.atOnce))} (${range(each.atOnce)}) |`,
@@ -172,5 +176,6 @@ timedThroughput(
     await mkdir(out, { recursive: true });
     await writeFile(join(out, "report.md"), report);
     log(`Report in ${out}`);
+    if (differing > 0) throw new Error(`${differing} scores differ between the arms.`);
   },
 );

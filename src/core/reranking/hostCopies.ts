@@ -1,11 +1,11 @@
 /**
  * A model's file as a WebGPU session should read it (#2532). The built-in reranking model's GPU
  * file is Optimum's O4 export, made for CUDA, and it keeps as nodes the copies a CUDA session put
- * between host and GPU memory (`MemcpyFromHost`, `MemcpyToHost`). A WebGPU session runs them as
- * written: the value each copies is on the GPU there, so the session first reads it back to the
- * host, once in each of the model's twelve layers, and each read waits for all the GPU was given.
- * A copy changes no value, so each is read as `Identity`, which the session's optimizer removes,
- * and every score stays the same, bit for bit.
+ * from host to GPU memory (`MemcpyFromHost`), one in each of its twelve layers. A WebGPU session
+ * runs them as written: the value each copies is on the GPU there, so the session first reads it
+ * back to the host, and each read waits for all the GPU was given, twelve times a batch. A copy
+ * changes no value, so each is read as `Identity`, which the session's optimizer removes, and every
+ * score stays the same, bit for bit. A `MemcpyToHost` is the same copy the other way.
  */
 
 const MODEL_GRAPH = 7;
@@ -94,10 +94,11 @@ const textOf = (bytes: Uint8Array, field: Field | undefined) =>
 /** The node rewritten as `Identity` if it is a copy between host and GPU memory; null if not. */
 function asIdentity(bytes: Uint8Array, node: Field): number[] | null {
   const parts = fieldsOf(bytes, node.start, node.end);
-  const opType = parts.find((part) => part.number === NODE_OP_TYPE && part.lengthDelimited);
+  // A field given twice is read as its last, as protobuf reads it.
+  const opType = parts.findLast((part) => part.number === NODE_OP_TYPE && part.lengthDelimited);
   const domain = textOf(
     bytes,
-    parts.find((part) => part.number === NODE_DOMAIN && part.lengthDelimited),
+    parts.findLast((part) => part.number === NODE_DOMAIN && part.lengthDelimited),
   );
   if (!HOST_COPIES.has(textOf(bytes, opType)) || (domain !== "" && domain !== "ai.onnx"))
     return null;
@@ -110,8 +111,8 @@ function asIdentity(bytes: Uint8Array, node: Field): number[] | null {
 /**
  * `model` (an ONNX file's bytes) with the main graph's copies between host and GPU memory read as
  * `Identity`. It is rewritten in place, and the part of it holding the result is returned, so a
- * model of hundreds of megabytes isn't held twice. A model with no such copy, or one that can't be
- * read as a model, comes back as it was, for the session to read or refuse.
+ * model of hundreds of megabytes isn't copied to be rewritten. A model with no such copy, or one
+ * that can't be read as a model, comes back as it was, the same array.
  */
 export function withoutHostCopies(model: Uint8Array): Uint8Array {
   let edits: { start: number; end: number; bytes: number[] }[];

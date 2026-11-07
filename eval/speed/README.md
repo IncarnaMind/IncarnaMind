@@ -94,7 +94,7 @@ The 30 sentences are the second held-out written set's (`writtenHeldOut.ts`) ove
 
 ## The reranker's throughput (#2532)
 
-`INCARNAMIND_EVAL_SPEED_RERANK=1` times the built-in reranker on this computer (`rerankThroughput.speed.ts`), with no model request: the twenty searches Check this Note makes for its ten sentences over the mixed sample set, in English and Chinese, scored one by one and the first twelve at once. It compares the GPU file as downloaded with the file as the app opens it, its copies between host and GPU memory read as Identity, taking turns `RUNS` times each (5 by default), and fails if any score differs between runs of an arm. The report gives each arm's load and times, and how many scores differ between the arms. A change to how the reranker runs is held to `gates/check-note-speed.md` › Gate C.
+`INCARNAMIND_EVAL_SPEED_RERANK=1` times the built-in reranker on this computer (`rerankThroughput.speed.ts`), with no model request: one search for each of Check this Note's ten sentences, the sentence as its query, over the mixed sample set, in English and Chinese, scored one by one and the first twelve at once. It compares the GPU file as downloaded with the copy the app opens, its copies between host and GPU memory read as Identity, taking turns `RUNS` times each (5 by default). It fails if any score differs between the arms or between runs of one. The report gives each arm's load and times. A change to how the reranker runs is held to `gates/check-note-speed.md` › Gate C.
 
 ## The token audit (#1634)
 
