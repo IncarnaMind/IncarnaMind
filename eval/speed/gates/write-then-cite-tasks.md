@@ -37,7 +37,7 @@ A flow and model that hold every line are listed beside the catalog (`src/core/p
 
 $12 for all of this piece of work's runs, the baseline table's included, held by the runner: each run reads what the runs before it spent from `INCARNAMIND_EVAL_SPEED_LEDGER` and stops before the next item once the total reaches `INCARNAMIND_EVAL_SPEED_STOP_USD=12`. The core counts DeepSeek V4.1 Flash at its catalog price (`overrides.ts`, the peak price); the provider's balance is read before and after each run as a check, though other work spends from the same key.
 
-*Corrected on 2026-11-07, after the first cells run and before the meeting-notes runs: this paragraph first said the catalog had no price for DeepSeek Flash. No bar or run changed.*
+*Corrected on 2026-11-07, after the two cells runs and before the meeting-notes runs: this paragraph first said the catalog had no price for DeepSeek Flash. No bar or run changed.*
 
 ## Reported, not gated
 
