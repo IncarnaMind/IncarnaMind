@@ -22,13 +22,6 @@ export function ComparisonTableMenu({
   hidden: readonly ComparisonQuestion[];
 }) {
   const t = useT();
-  const requested = comparisonCellsInTable(handle, false);
-  const mine = new Set(
-    ownComparisonCells(handle, requested).map((cell) => `${cell.documentId}\n${cell.questionId}`),
-  );
-  const withoutMine = requested.filter(
-    (cell) => !mine.has(`${cell.documentId}\n${cell.questionId}`),
-  );
   return (
     <ObjectMenu
       target={{ kind: "comparisonTable", id: handle.tableId }}
@@ -36,75 +29,88 @@ export function ComparisonTableMenu({
       className="comparison-action comparison-table-menu"
       tabIndex={-1}
       testId="comparison-table"
-      foot={(close) => (
-        <>
-          {hidden.length > 0 && (
-            <>
-              <div className={menuTitleClass}>
-                {t("comparison.column.hiddenMenu", { count: hidden.length })}
-              </div>
-              {hidden.map((question) => (
-                <button
-                  key={question.id}
-                  type="button"
-                  role="menuitem"
-                  data-testid={`comparison-column-show-${question.id}`}
-                  className={`${menuItemClass} pl-2`}
-                  onClick={() => {
-                    close();
-                    void showColumn(handle, question.id);
-                  }}
-                >
-                  <span className="flex-1">
-                    {t("comparison.column.show", { label: comparisonLabelOf(question) })}
-                  </span>
-                </button>
-              ))}
-            </>
-          )}
-          <ComparisonRefillEstimate
-            handle={handle}
-            mode="refill-all"
-            requested={withoutMine}
-            label={(count) =>
-              t(
-                count === 1 ? "comparison.refill.allCells.one" : "comparison.refill.allCells.other",
-                {
-                  count,
-                },
-              )
-            }
-          />
-          {mine.size > 0 && (
+      foot={(close) => {
+        const requested = comparisonCellsInTable(handle, false);
+        const mine = new Set(
+          ownComparisonCells(handle, requested).map(
+            (cell) => `${cell.documentId}\n${cell.questionId}`,
+          ),
+        );
+        const withoutMine = requested.filter(
+          (cell) => !mine.has(`${cell.documentId}\n${cell.questionId}`),
+        );
+        return (
+          <>
+            {hidden.length > 0 && (
+              <>
+                <div className={menuTitleClass}>
+                  {t("comparison.column.hiddenMenu", { count: hidden.length })}
+                </div>
+                {hidden.map((question) => (
+                  <button
+                    key={question.id}
+                    type="button"
+                    role="menuitem"
+                    data-testid={`comparison-column-show-${question.id}`}
+                    className={`${menuItemClass} pl-2`}
+                    onClick={() => {
+                      close();
+                      void showColumn(handle, question.id);
+                    }}
+                  >
+                    <span className="flex-1">
+                      {t("comparison.column.show", { label: comparisonLabelOf(question) })}
+                    </span>
+                  </button>
+                ))}
+              </>
+            )}
             <ComparisonRefillEstimate
               handle={handle}
               mode="refill-all"
-              requested={requested}
+              requested={withoutMine}
               label={(count) =>
                 t(
                   count === 1
-                    ? "comparison.refill.includingMine.one"
-                    : "comparison.refill.includingMine.other",
+                    ? "comparison.refill.allCells.one"
+                    : "comparison.refill.allCells.other",
+                  {
+                    count,
+                  },
+                )
+              }
+            />
+            {mine.size > 0 && (
+              <ComparisonRefillEstimate
+                handle={handle}
+                mode="refill-all"
+                requested={requested}
+                label={(count) =>
+                  t(
+                    count === 1
+                      ? "comparison.refill.includingMine.one"
+                      : "comparison.refill.includingMine.other",
+                    { count },
+                  )
+                }
+              />
+            )}
+            <ComparisonRefillEstimate
+              handle={handle}
+              mode="refill-problems"
+              requested={comparisonCellsInTable(handle, false)}
+              label={(count) =>
+                t(
+                  count === 1
+                    ? "comparison.refill.problemCells.one"
+                    : "comparison.refill.problemCells.other",
                   { count },
                 )
               }
             />
-          )}
-          <ComparisonRefillEstimate
-            handle={handle}
-            mode="refill-problems"
-            requested={comparisonCellsInTable(handle, false)}
-            label={(count) =>
-              t(
-                count === 1
-                  ? "comparison.refill.problemCells.one"
-                  : "comparison.refill.problemCells.other",
-                { count },
-              )
-            }
-          />
-        </>
-      )}
+          </>
+        );
+      }}
     />
   );
 }
