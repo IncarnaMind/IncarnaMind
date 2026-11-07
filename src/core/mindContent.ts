@@ -406,16 +406,19 @@ export function createMindContent(
       mindId: string,
       change: (blocks: Y.XmlFragment) => T,
       origin: unknown = CORE_ORIGIN,
+      cause?: EditCause,
     ): T {
       const mind = load(mindId);
       requireWritable(mind);
       let result: T | undefined;
+      mind.cause = cause;
       try {
         mind.doc.transact(() => {
           result = change(mind.doc.getXmlFragment(MIND_CONTENT_FIELD));
           stampContentVersion(mind.doc);
         }, origin);
       } finally {
+        mind.cause = undefined;
         flush(mindId, mind);
       }
       return result as T;

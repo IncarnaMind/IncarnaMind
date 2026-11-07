@@ -1,5 +1,5 @@
 import { isMacOS } from "@tiptap/core";
-import type { ReactNode } from "react";
+import type { ReactNode, Ref } from "react";
 import type { AudioSource, Meeting, MeetingSourceState } from "../../../core/api";
 import type { MessageKey } from "../../../shared/i18n";
 import { shortcutLabel } from "../commands/keymap";
@@ -16,11 +16,9 @@ import {
   checkTranscriptionKey,
   ROUTE_LABELS,
 } from "../transcriptionServices";
-import { hideTranscript, showTranscript, useDocumentTab } from "../transcripts";
 import { CaptureDetailsToggle } from "./CaptureDetails";
 import {
   BookmarkLineIcon,
-  DocumentLineIcon,
   FloatLineIcon,
   PauseLineIcon,
   ResumeLineIcon,
@@ -29,6 +27,7 @@ import {
 import { BarMore } from "./meetings/BarMore";
 import { LevelBars } from "./meetings/LevelBars";
 import { MicrophoneButton } from "./meetings/MicrophoneButton";
+import { ViewSwitch } from "./meetings/ViewSwitch";
 import { type ProblemAction, ProblemLine } from "./ProblemLine";
 import { TranscriptLines } from "./TranscriptLines";
 import { useTabPlace } from "./tabs/tabItems";
@@ -40,10 +39,19 @@ import { useTabPlace } from "./tabs/tabItems";
  * composer). Its controls, then a line for each thing about the recording
  * the User should know, then whatever the Mind adds (its audio, once paused).
  */
-export function MeetingBar({ meeting, children }: { meeting: Meeting; children?: ReactNode }) {
+export function MeetingBar({
+  meeting,
+  children,
+  ref,
+}: {
+  meeting: Meeting;
+  children?: ReactNode;
+  ref?: Ref<HTMLElement>;
+}) {
   const t = useT();
   return (
     <section
+      ref={ref}
       data-testid="meeting-bar"
       data-status={meeting.status}
       data-kind={meeting.kind}
@@ -69,12 +77,14 @@ export function MeetingBarRoom({ meeting }: { meeting: Meeting }) {
 
 /**
  * The live-recording dot (red, the one red outside Citation checks; grey
- * while paused), "Recording 24:16" (or "Paused") with its level bars, Pause my mic, Pause or
- * Resume and Stop. ⌘⇧P is the "meeting.pauseResume" command's (../commands/meetings). A voice
- * memo's reads "Voice memo 00:42", with Pause and Stop only: it has no call's parts (#1568).
+ * while paused), "Recording 24:16" (or "Paused"), Pause my mic, Pause or
+ * Resume and Stop, then Notes | Transcript with the level bars. ⌘⇧P is the
+ * "meeting.pauseResume" command's (../commands/meetings). A voice memo's reads
+ * "Voice memo 00:42" with its level bars, and Pause and Stop only: it has no call's parts (#1568).
  */
 function MeetingControls({ meeting }: { meeting: Meeting }) {
   const t = useT();
+  const tabId = useTabPlace()?.tabId;
   const time = clockTime(useMeetingTime(meeting));
   const { pause, resume, stop } = useMeetings.getState();
   const recording = meeting.status === "recording";
@@ -109,7 +119,7 @@ function MeetingControls({ meeting }: { meeting: Meeting }) {
             {time}
           </span>
         )}
-        <LevelBars meeting={meeting} />
+        {memo && <LevelBars meeting={meeting} />}
       </span>
       {!memo && (
         <MicrophoneButton
@@ -161,8 +171,8 @@ function MeetingControls({ meeting }: { meeting: Meeting }) {
             <span className="meeting-button-word">{t("meetings.mark")}</span>
           </button>
           <CallHelpToggle />
-          <TranscriptToggle meeting={meeting} />
           <CaptureDetailsToggle meeting={meeting} />
+          {tabId && <ViewSwitch meeting={meeting} tabId={tabId} />}
           <BarMore />
         </>
       )}
@@ -193,40 +203,6 @@ function CallHelpToggle() {
     >
       <FloatLineIcon className="size-3.5" />
       <span className="meeting-button-word">{t("meetings.callHelp")}</span>
-    </button>
-  );
-}
-
-/**
- * Show transcript (显示转写稿): opens the Meeting's Transcript as a tab in
- * the group beside its Mind; then Hide transcript closes it (#136). Before
- * the first line there is no Transcript to show yet, and the button waits
- * greyed, so the bar has the same width from its first paint.
- */
-function TranscriptToggle({ meeting }: { meeting: Meeting }) {
-  const t = useT();
-  const place = useTabPlace();
-  const documentId = meeting.transcript?.documentId ?? null;
-  const tab = useDocumentTab(documentId);
-  const label = t(tab ? "meetings.bar.hideTranscript" : "meetings.bar.showTranscript");
-  return (
-    <button
-      type="button"
-      data-testid="meeting-transcript-toggle"
-      data-fold="transcript"
-      aria-pressed={tab !== null}
-      disabled={!documentId}
-      aria-label={documentId ? label : t("meetings.bar.transcriptSoon")}
-      title={documentId ? label : t("meetings.bar.transcriptSoon")}
-      onClick={() => {
-        if (!documentId) return;
-        if (tab) hideTranscript(tab.id);
-        else showTranscript(documentId, place?.groupId);
-      }}
-      className="meeting-button meeting-button--words meeting-button--end"
-    >
-      <DocumentLineIcon kind="transcript" className="size-3.5" />
-      <span className="meeting-button-label">{label}</span>
     </button>
   );
 }

@@ -11135,11 +11135,11 @@ export interface MeetingTranscript {
   /** How many lines it has. */
   lines: number;
   /**
-   * The speech being transcribed now, while live: where it starts, in the Meeting's time, its
-   * words so far, and whose they are ("Me", "Them" or "Speaker ?", see src/shared/speakers.ts;
-   * null in a voice memo).
+   * The speech being transcribed now, while live, one for each side speaking, oldest first: where
+   * it starts, in the Meeting's time, its words so far, and whose they are ("Me", "Them" or
+   * "Speaker ?", see src/shared/speakers.ts; null in a voice memo).
    */
-  partial: { startMs: number; text: string; speaker: string | null } | null;
+  partials: { startMs: number; text: string; speaker: string | null }[];
   /** The speech-to-text model, while it is downloading or failed to. */
   model: TranscriptionModelStatus | null;
   /** The cloud service transcribing the live audio now (#141); null: this computer. */

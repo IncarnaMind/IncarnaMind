@@ -97,7 +97,7 @@ const meetingOf = (fill: MeetingFill | null): Meeting => ({
     documentId: "actual-transcript-document",
     state: "saved",
     lines: 3,
-    partial: null,
+    partials: [],
     model: null,
     cloud: null,
     fellBack: null,
@@ -149,6 +149,27 @@ afterEach(async () => {
   container.remove();
   vi.unstubAllGlobals();
 });
+
+/** Fill steps an editor holds, as `followSteps` makes them: done and on top until told otherwise. */
+function heldSteps() {
+  const listeners = new Set<() => void>();
+  const steps = {
+    now: "done" as "done" | "undone",
+    top: true,
+    state: () => steps.now,
+    onTop: () => steps.now === "done" && steps.top,
+    add: () => undefined,
+    undo: vi.fn(() => undefined),
+    observe(listener: () => void) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    tell: () => {
+      for (const listener of listeners) listener();
+    },
+  };
+  return steps;
+}
 
 async function show(meeting: Meeting) {
   await act(async () => root?.render(createElement(MeetingFillLine, { meeting })));
@@ -228,7 +249,7 @@ describe("meeting notes with omitted items", () => {
       expect(line?.querySelectorAll("button")).toHaveLength(2);
       await click("meeting-fill-transcript");
       expect(actions.showMeetingNoteView.mock.calls).toEqual([
-        ["meeting-tab", meeting.mindId, "transcript"],
+        ["meeting-tab", meeting.mindId, "transcript", { focus: true }],
       ]);
       expect(actions.showTranscript).not.toHaveBeenCalled();
       expect(actions.undoFill).not.toHaveBeenCalled();
@@ -274,7 +295,7 @@ describe("meeting notes with omitted items", () => {
       expect(container.querySelector('[data-testid="meeting-fill-undo"]')).toBeNull();
       await click("meeting-fill-transcript");
       expect(actions.showMeetingNoteView.mock.calls).toEqual([
-        ["meeting-tab", meeting.mindId, "transcript"],
+        ["meeting-tab", meeting.mindId, "transcript", { focus: true }],
       ]);
       expect(actions.showTranscript).not.toHaveBeenCalled();
       await click("meeting-fill-again");
@@ -350,7 +371,7 @@ describe("Transcript entry points", () => {
       await act(async () => root?.render(createElement(TranscriptLines, { meeting })));
       await click("meeting-transcript-open");
       expect(actions.showMeetingNoteView.mock.calls).toEqual([
-        ["meeting-tab", meeting.mindId, "transcript"],
+        ["meeting-tab", meeting.mindId, "transcript", { focus: true }],
       ]);
       expect(actions.showTranscript).not.toHaveBeenCalled();
     },
@@ -410,21 +431,43 @@ describe.each(["en", "zh-CN"] as const)("existing fill behavior in %s", (languag
     actions.language.current = language;
   });
 
-  test("completed fills with zero or absent new fields keep the old text and one Undo", async () => {
+  test("a fill the editor holds on top says so with its check and one Undo", async () => {
+    const { holdFillSteps } = await import("../../src/renderer/src/meetingFillSteps");
     for (const counts of [{}, { omitted: 0, unfinishedParts: 0 }]) {
-      const meeting = meetingOf(fillOf(counts));
-      const line = await show(meeting);
+      const steps = heldSteps();
+      const release = holdFillSteps("meeting-with-partial-notes", steps);
+      const line = await show(meetingOf(fillOf(counts)));
       expect(line?.textContent).toBe(
-        language === "en" ? "Note filled in · Undo" : "已补全笔记 · 撤销",
+        language === "en" ? "Note filled in from the call · Undo" : "已补全笔记 · 撤销",
       );
+      expect(line?.querySelector("svg")).not.toBeNull();
       expect(line?.querySelectorAll("button")).toHaveLength(1);
       await click("meeting-fill-undo");
+      await act(async () => release());
     }
     expect(actions.undoFill.mock.calls).toEqual([
       ["meeting-with-partial-notes"],
       ["meeting-with-partial-notes"],
     ]);
     expect(actions.showTranscript).not.toHaveBeenCalled();
+  });
+
+  test("the page stays bare: once the User types, or when no editor holds the fill, no line shows; taken back with ⌘Z, it offers Fill in again", async () => {
+    const { holdFillSteps } = await import("../../src/renderer/src/meetingFillSteps");
+    const meeting = meetingOf(fillOf());
+    expect(await show(meeting)).toBeNull();
+    const steps = heldSteps();
+    const release = holdFillSteps(meeting.id, steps);
+    expect(await show(meeting)).not.toBeNull();
+    steps.top = false;
+    await act(async () => steps.tell());
+    expect(container.querySelector('[data-testid="meeting-fill-line"]')).toBeNull();
+    steps.now = "undone";
+    await act(async () => steps.tell());
+    expect(container.querySelector('[data-testid="meeting-fill-line"]')?.textContent).toBe(
+      language === "en" ? "Fill-in undone · Fill in again" : "已撤销补全 · 重新补全",
+    );
+    await act(async () => release());
   });
 
   test("no fill draws no line", async () => {
@@ -581,7 +624,9 @@ describe("meeting-fill Undo notice", () => {
       completed({ ...meetingOf(fillOf()), kind });
       const change = actions.push.mock.calls[0]?.[0];
       if (!change) throw new Error("No Undo offered for completed additions");
-      expect(said(change, "en")).toBe(kind === "memo" ? "Memo written" : "Note filled in");
+      expect(said(change, "en")).toBe(
+        kind === "memo" ? "Memo written" : "Note filled in from the call",
+      );
       expect(said(change, "zh-CN")).toBe(kind === "memo" ? "已写入语音备忘" : "已补全笔记");
     },
   );

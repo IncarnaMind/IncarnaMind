@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { type ElectronApplication, expect, test } from "@playwright/test";
 import type { CoreBridge } from "../../src/core/api";
-import { recordMeeting, startRecording, useOutputLocation } from "../app";
+import { recordMeeting, startRecording, transcriptSaved, useOutputLocation } from "../app";
 import {
   copyModelsIn,
   copyModelsOut,
@@ -67,17 +67,18 @@ test("the packaged app transcribes a meeting from the microphone on this compute
   await start.getByTestId("meeting-start-audio").selectOption("me");
   const bar = await startRecording(window, start, { notice: true });
 
-  // The toggle is greyed until the Transcript has its first line: the model is downloaded and
+  // "Open beside" is greyed until the Transcript has its first line: the model is downloaded and
   // the engine runs. An engine that doesn't load says so instead, and the test stops there.
-  const toggle = bar.getByTestId("meeting-transcript-toggle");
+  await bar.getByTestId("meeting-views").locator("label").nth(1).click();
+  const beside = window.getByTestId("meeting-transcript-beside");
   const stopped = window
     .getByTestId("meeting-transcript-line")
     .filter({ hasText: /Transcription stopped|couldn’t/ });
-  await expect(toggle.and(window.locator(":enabled")).or(stopped)).toBeVisible({
+  await expect(beside.and(window.locator(":enabled")).or(stopped)).toBeVisible({
     timeout: 20 * 60_000,
   });
   await expect(stopped).toHaveCount(0);
-  await toggle.click();
+  await beside.click();
   const lines = window.getByTestId("transcript-lines");
   for (const word of [/fathers/i, /nation/i, /liberty/i, /equal/i]) {
     await expect(lines).toContainText(word, { timeout: 2 * 60_000 });
@@ -91,10 +92,7 @@ test("the packaged app transcribes a meeting from the microphone on this compute
   if (process.platform === "win32") await expectSpeechEngineOnTheAppsRuntime(app);
 
   await bar.getByTestId("meeting-stop").click();
-  const saved = window
-    .getByTestId("meeting-transcript-line")
-    .filter({ hasText: "Transcript saved" });
-  await expect(saved).toBeVisible({ timeout: 5 * 60_000 });
+  await transcriptSaved(window, 5 * 60_000);
   // Finished, it is kept in the Library: its file is the data folder's own, and the chosen
   // Output location gets nothing (#763).
   expect(await readdir(join(dataDir, "Transcripts"))).not.toHaveLength(0);
@@ -139,15 +137,16 @@ test("the packaged app keeps the short first word of each Chinese line", async (
   const start = await recordMeeting(window);
   await start.getByTestId("meeting-start-audio").selectOption("me");
   const bar = await startRecording(window, start, { notice: true });
-  const toggle = bar.getByTestId("meeting-transcript-toggle");
+  await bar.getByTestId("meeting-views").locator("label").nth(1).click();
+  const beside = window.getByTestId("meeting-transcript-beside");
   const stopped = window
     .getByTestId("meeting-transcript-line")
     .filter({ hasText: /Transcription stopped|couldn’t/ });
-  await expect(toggle.and(window.locator(":enabled")).or(stopped)).toBeVisible({
+  await expect(beside.and(window.locator(":enabled")).or(stopped)).toBeVisible({
     timeout: 20 * 60_000,
   });
   await expect(stopped).toHaveCount(0);
-  await toggle.click();
+  await beside.click();
 
   // One play of the file is its three lines. A slow runner's live text can fall behind before
   // them; the rest is then transcribed from the recording after Stop.
@@ -160,9 +159,7 @@ test("the packaged app keeps the short first word of each Chinese line", async (
     .toBe(true);
   if ((await words.count()) < 3) {
     await bar.getByTestId("meeting-stop").click();
-    await expect(
-      window.getByTestId("meeting-transcript-line").filter({ hasText: "Transcript saved" }),
-    ).toBeVisible({ timeout: 5 * 60_000 });
+    await transcriptSaved(window, 5 * 60_000);
   }
   const said = await words.allTextContents();
   // Each line with its first word, as tests/fixtures/speech/README.md has them.

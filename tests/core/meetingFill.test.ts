@@ -311,6 +311,27 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     core.close();
   });
 
+  // protects=the fill reaches the window as one update named for its meeting, so the editor showing the Note takes it as one step of its own Undo and ⌘Z there takes back the fill, not the User's earlier typing (#2527); fails_when=the fill's update has no cause, another update carries it, or it comes in more than one; no_claim=the editor's own history, which the window test covers.
+  test("the fill comes to the window as one update with its meeting's cause", async () => {
+    const model = fillingModel(
+      [
+        "HEADINGS: H1=NONE H2=NONE",
+        lineFact("L1", "pricing", "The enterprise price is 45 dollars a seat [^1]."),
+      ].join("\n\n"),
+      { 1: MY_LINES[0] as string },
+    );
+    const updates: { mindId: string; cause: string | null }[] = [];
+    const { core, meeting } = await recorded(model, NOTES, async (listening) => {
+      listening.on("mind.update", (event) => {
+        updates.push({ mindId: event.mindId, cause: event.cause?.requestId ?? null });
+      });
+    });
+    expect(await settledFill(core, meeting)).toMatchObject({ state: "filled" });
+    const causes = updates.filter((each) => each.mindId === meeting.mindId && each.cause !== null);
+    expect(causes.map((each) => each.cause)).toEqual([`meeting-fill:${meeting.id}`]);
+    core.close();
+  });
+
   // protects=with no notes, the sections are filled in, each citing the Transcript, and "Said in the call, not in your Documents" keeps only the claims the User's Documents don't support; fails_when=a section is missing, uncited, or a supported claim is listed; no_claim=the template's sections (#688).
   test("with no notes, the sections, and only the claims the Documents don't support", async () => {
     const supported = "The enterprise price is 45 dollars a seat.";

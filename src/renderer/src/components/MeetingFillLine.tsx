@@ -2,8 +2,10 @@ import type { Meeting, MeetingFillProblem } from "../../../core/api";
 import type { MessageKey } from "../../../shared/i18n";
 import { isPartialMeetingFill } from "../../../shared/meetingFill";
 import { useT } from "../i18n";
+import { useFillStep } from "../meetingFillSteps";
 import { useMeetings } from "../meetings";
 import { showMeetingNoteView } from "../meetingViews";
+import { CheckLineIcon } from "./lineIcons";
 import { type ProblemAction, ProblemLine } from "./ProblemLine";
 import { useTabPlace } from "./tabs/tabItems";
 
@@ -49,6 +51,7 @@ export function MeetingFillLine({ meeting }: { meeting: Meeting }) {
   const t = useT();
   const place = useTabPlace();
   const { fill } = meeting;
+  const step = useFillStep(meeting.id);
   if (!fill) return null;
   const words = WORDS[meeting.kind];
   const again = (label: string): ProblemAction => ({
@@ -77,7 +80,28 @@ export function MeetingFillLine({ meeting }: { meeting: Meeting }) {
         : t(fill.local ? words.fillingLocal : words.filling);
     return (
       <ProblemLine testId="meeting-fill-line" role="status" className="">
-        {text}
+        <span className={fill.state === "filling" ? "answer-writing" : undefined}>{text}</span>
+      </ProblemLine>
+    );
+  }
+  // Taken back in the Note, as ⌘Z does: ⇧⌘Z there brings it back, and Fill in again asks anew.
+  if (fill.state === "filled" && step === "undone") {
+    return (
+      <ProblemLine
+        testId="meeting-fill-line"
+        role="status"
+        className=""
+        action={{
+          label: t(words.again),
+          testId: "meeting-fill-again",
+          onClick: () =>
+            void (async () => {
+              await useMeetings.getState().undoFill(meeting.id);
+              await useMeetings.getState().fillNotes(meeting.id);
+            })(),
+        }}
+      >
+        {t(words.undone)}
       </ProblemLine>
     );
   }
@@ -119,7 +143,8 @@ export function MeetingFillLine({ meeting }: { meeting: Meeting }) {
             ? {
                 label: t("meetings.fill.viewTranscript"),
                 testId: "meeting-fill-transcript",
-                onClick: () => showMeetingNoteView(place.tabId, meeting.mindId, "transcript"),
+                onClick: () =>
+                  showMeetingNoteView(place.tabId, meeting.mindId, "transcript", { focus: true }),
               }
             : undefined
         }
@@ -130,11 +155,20 @@ export function MeetingFillLine({ meeting }: { meeting: Meeting }) {
     );
   }
   if (fill.state === "filled") {
+    // A call's note fills in as any AI edit applies: its line goes once the User types (#2527).
+    if (meeting.kind === "meeting" && step !== "top") return null;
     return (
       <ProblemLine testId="meeting-fill-line" role="status" className="" action={undo}>
-        {fill.mode === "transcript"
-          ? t("memos.fill.asIs", { reason: reasonOf(fill.problem) })
-          : t(words.filled)}
+        {fill.mode === "transcript" ? (
+          t("memos.fill.asIs", { reason: reasonOf(fill.problem) })
+        ) : (
+          <>
+            {meeting.kind === "meeting" && (
+              <CheckLineIcon className="mr-1 inline size-3.5 align-[-2px]" />
+            )}
+            {t(words.filled)}
+          </>
+        )}
       </ProblemLine>
     );
   }

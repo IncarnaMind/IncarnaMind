@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
 import type { NodeJSON } from "../../shared/blockJson";
 import { type MessageKey, translate } from "../../shared/i18n";
+import { meetingFillCause } from "../../shared/meetingFill";
 import type { Logger } from "../adapters";
 import type { CellAnswer } from "../answers";
 import { createElement } from "../answers/blocks";
@@ -730,7 +731,12 @@ export function createMeetingFill(options: MeetingFillOptions) {
           : await notes(meeting, transcriptId, route, controller.signal);
       if (controller.signal.aborted) throw new FillProblemError({ kind: "stopped", message: "" });
       options.checkpoint(meeting.mindId);
-      const added = content.edit(meeting.mindId, written.place);
+      const added = content.edit(
+        meeting.mindId,
+        written.place,
+        undefined,
+        meetingFillCause(meetingId),
+      );
       const done = set(meetingId, {
         state: "filled",
         mode: written.mode,

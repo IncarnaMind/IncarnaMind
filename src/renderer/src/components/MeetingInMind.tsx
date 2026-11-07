@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { type Ref, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { Meeting } from "../../../core/api";
 import { formatDateTime } from "../../../shared/dates";
 import { commands } from "../commands/registry";
@@ -6,6 +6,7 @@ import { useDismissOnEscape } from "../escapeDismiss";
 import { useGap, useLanguage, useT } from "../i18n";
 import { isLive, useMeetingOf, useMeetings } from "../meetings";
 import { clockTime } from "../meetingTime";
+import { showMeetingDetails, useMeetingNoteView } from "../meetingViews";
 import { useRequests } from "../requests";
 import { useAppStore } from "../store";
 import { useAudioKeptKey } from "../transcriptionServices";
@@ -15,40 +16,70 @@ import { MeetingBar, MeetingBarRoom } from "./MeetingBar";
 import { MeetingFillLine } from "./MeetingFillLine";
 import { ProblemLine } from "./ProblemLine";
 import { TranscriptLines } from "./TranscriptLines";
+import { useTabPlace } from "./tabs/tabItems";
 import { buttonStyle, fieldLabelClass, inputClass } from "./ui";
 
 /**
  * A Meeting's place in its Mind, under the title: the start block while it is
- * ready, the meeting bar while it records or is paused, and a line about its
- * audio, with "Delete audio now", once it is paused or stopped. Its recording
- * details (#161) open from the bar, or from the line under a stopped Meeting.
+ * ready, and the meeting bar while it records or is paused, its recording
+ * details (#161) opening from it. Once a call stops, the page stays bare
+ * (#2527): only a problem shows here, and the rest is in the chip beside ⋯
+ * (`MeetingViewChip`). A stopped voice memo keeps its lines about its
+ * Transcript, its note and its audio here.
  */
 export function MeetingInMind({ mindId }: { mindId: string }) {
   const meeting = useMeetingOf(mindId);
   const starting = useMeetings((state) => !!meeting && state.starting[meeting.id] === true);
+  const tabId = useTabPlace()?.tabId;
+  const view = useMeetingNoteView(tabId, mindId);
+  const bar = useRef<HTMLElement>(null);
+  const barHeight = useRef(0);
+  useLayoutEffect(() => {
+    if (bar.current) barHeight.current = bar.current.offsetHeight;
+  });
   if (!meeting) return null;
   if (meeting.status === "ready" && starting) {
     return <MeetingBarRoom meeting={meeting} />;
   }
   if (meeting.status === "ready") return <MeetingStart meeting={meeting} />;
   if (isLive(meeting)) {
+    if (view === "notes" || meeting.kind === "memo") {
+      return <LiveMeetingBar meeting={meeting} ref={bar} />;
+    }
+    // The Transcript view draws the bar over the Transcript; the hidden notes keep its room, so
+    // they come back where the User left them.
     return (
-      <MeetingBar meeting={meeting}>
-        <CaptureProblem meeting={meeting} className="meeting-line" />
-        {meeting.status === "paused" && <MeetingAudioLine meeting={meeting} />}
-        <CaptureDetails meeting={meeting} />
-      </MeetingBar>
+      <div aria-hidden="true" className="meeting-bar-space" style={{ height: barHeight.current }} />
+    );
+  }
+  if (meeting.kind === "meeting") {
+    return (
+      <div className="empty:hidden mb-4">
+        <TranscriptLines meeting={meeting} className="" problemsOnly />
+        <CaptureProblem meeting={meeting} onDetails={() => showMeetingDetails(meeting.mindId)} />
+      </div>
     );
   }
   return (
     <div className="mb-4">
       <TranscriptLines meeting={meeting} className="" />
-      {meeting.kind === "memo" && <MeetingFillLine meeting={meeting} />}
+      <MeetingFillLine meeting={meeting} />
       <CaptureProblem meeting={meeting} />
       <MeetingAudioLine meeting={meeting} />
       <CaptureDetailsLine meeting={meeting} />
       <CaptureDetails meeting={meeting} />
     </div>
+  );
+}
+
+/** The recording bar of a Meeting that records or is paused, with its lines. */
+export function LiveMeetingBar({ meeting, ref }: { meeting: Meeting; ref?: Ref<HTMLElement> }) {
+  return (
+    <MeetingBar meeting={meeting} ref={ref}>
+      <CaptureProblem meeting={meeting} className="meeting-line" />
+      {meeting.status === "paused" && <MeetingAudioLine meeting={meeting} />}
+      <CaptureDetails meeting={meeting} />
+    </MeetingBar>
   );
 }
 

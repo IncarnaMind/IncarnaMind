@@ -485,7 +485,7 @@ describe("Who said each line (#941)", { timeout: 60_000 }, () => {
     expect(lines.map((line) => line.speaker)).toEqual(lines.map(() => "Speaker ?"));
   });
 
-  test("speech being transcribed shows greyed with whose it is", async () => {
+  test("speech being transcribed shows with whose it is, both sides at once, before any line is finished", async () => {
     const { core, record } = await transcribingCore(await createTempDataFolder(), {
       engine: { maxSpeechMs: 20_000 },
     });
@@ -493,11 +493,16 @@ describe("Who said each line (#941)", { timeout: 60_000 }, () => {
     await core.startMeeting({ meetingId: meeting.id, systemAudio: true });
     record(5 * SECOND);
 
-    const live = await until(core, meeting.id, (transcript) => transcript.partial !== null);
-    const { partial } = live;
-    if (!partial) throw new Error("Nothing was being transcribed.");
-    expect(partial.speaker === "Me" ? FAKE_LINES : FAKE_THEIR_LINES).toContain(partial.text);
-    expect(["Me", "Them"]).toContain(partial.speaker);
+    const live = await until(core, meeting.id, (transcript) => transcript.partials.length === 2);
+    expect(live.lines).toBe(0);
+    expect(live.documentId).toBeNull();
+    expect(live.partials.map((partial) => partial.speaker).sort()).toEqual(["Me", "Them"]);
+    for (const partial of live.partials) {
+      expect(partial.speaker === "Me" ? FAKE_LINES : FAKE_THEIR_LINES).toContain(partial.text);
+    }
+    expect(live.partials.map((partial) => partial.startMs)).toEqual(
+      live.partials.map((partial) => partial.startMs).sort((a, b) => a - b),
+    );
   });
 
   test("a line of the microphone that repeats the computer sound's in the same second is dropped, and the same words said alone are kept", async () => {

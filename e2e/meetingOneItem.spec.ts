@@ -14,6 +14,7 @@ import {
   removeDataFolder,
   setLanguage,
   setWindowSize,
+  transcriptSaved,
 } from "./app";
 
 /**
@@ -58,9 +59,7 @@ async function recordAndStop(window: Page): Promise<{ meeting: Meeting; title: s
     .poll(async () => (await meetings(window))[0]?.transcript?.lines ?? 0, { timeout: 30_000 })
     .toBeGreaterThan(1);
   await window.getByTestId("meeting-stop").click();
-  await expect(window.getByTestId("meeting-transcript-line")).toContainText("Transcript saved", {
-    timeout: 30_000,
-  });
+  await transcriptSaved(window);
   const [meeting] = await meetings(window);
   if (!meeting?.transcript?.documentId) throw new Error("The meeting has no Transcript.");
   const documentId = meeting.transcript.documentId;

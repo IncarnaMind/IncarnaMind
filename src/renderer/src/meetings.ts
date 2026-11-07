@@ -8,6 +8,7 @@ import { core, files } from "./core";
 import { errorMessage } from "./errors";
 import { translateNow } from "./i18n";
 import { currentMindIdOf } from "./layoutSlice";
+import { fillHeldInEditor, undoFillInEditor } from "./meetingFillSteps";
 import { useAppStore } from "./store";
 import { useUndo } from "./undo";
 
@@ -264,7 +265,11 @@ export const useMeetings = create<MeetingsState>()((set, get) => {
     deleteAudio: (meetingId) => attempt(meetingId, () => core.deleteMeetingAudio(meetingId)),
     retryTranscript: (meetingId) => attempt(meetingId, () => core.retryTranscript(meetingId)),
     fillNotes: (meetingId) => attempt(meetingId, () => core.fillMeetingNotes(meetingId)),
-    undoFill: (meetingId) => attempt(meetingId, () => core.undoMeetingFill(meetingId)),
+    // The editor showing the Note holds a fill it took in as its own step: Undo is that step's.
+    undoFill: (meetingId) =>
+      attempt(meetingId, async () => {
+        if (!(await undoFillInEditor(meetingId))) await core.undoMeetingFill(meetingId);
+      }),
     openSettings: (meetingId, source) =>
       attempt(meetingId, async () => {
         await core.openAudioSettings(source);
@@ -301,7 +306,8 @@ function withoutKey<T>(record: Readonly<Record<string, T>>, key: string): Record
 /** Notes just filled in go on the undo stack, as a change made for the User: ⌘Z takes them back. */
 function offerUndoOfFill(before: readonly Meeting[], after: readonly Meeting[]): void {
   for (const meeting of after) {
-    if (meeting.fill?.state !== "filled") continue;
+    // The editor showing the Note took it in as its own Undo, with its line there.
+    if (meeting.fill?.state !== "filled" || fillHeldInEditor(meeting.id)) continue;
     const was = before.find((each) => each.id === meeting.id)?.fill?.state;
     if (was === undefined || was === "filled") continue;
     const memo = meeting.kind === "memo";

@@ -319,6 +319,26 @@
   .transcript-line--partial .transcript-text {
     @apply text-ink-placeholder;
   }
+  /*
+   * In a narrow group the words keep the width: Add to note keeps only its icon, and the page
+   * its least margins, so a line never wraps a letter at a time.
+   */
+  @container viewer (width < 520px) {
+    .transcript-add {
+      @apply w-7 justify-center px-0;
+    }
+    .transcript-add-word {
+      @apply sr-only;
+    }
+  }
+  @container viewer (width < 400px) {
+    .viewer-text-backdrop:has(.transcript-page) {
+      @apply px-2 pt-2;
+    }
+    .transcript-page {
+      @apply pt-4 pr-3 pl-3;
+    }
+  }
   .transcript-gap {
     @apply text-[13px] leading-5 text-ink-meta;
   }

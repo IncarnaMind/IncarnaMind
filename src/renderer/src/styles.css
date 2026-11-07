@@ -1283,6 +1283,7 @@
     color: var(--color-danger);
   }
 
+  /* On the sheet, so the notes scrolled under it don't show through its chip and buttons. */
   .mind-menu-slot {
     position: absolute;
     top: 16px;
@@ -1290,6 +1291,8 @@
     display: flex;
     align-items: center;
     gap: 4px;
+    border-radius: 6px;
+    background: var(--color-sheet);
   }
 
   /*
@@ -1586,6 +1589,10 @@
       height: 100px;
       background: linear-gradient(to top, var(--color-sheet) 44px, transparent);
     }
+  }
+  /* Above the Ask pill's 20px and 40px, when it may stand at this group's foot. */
+  .mind-foot-slot--over-pill {
+    padding-bottom: 68px;
   }
   .mind-foot-count {
     position: relative;
@@ -2400,6 +2407,9 @@
     visibility: hidden;
     pointer-events: none;
   }
+  .meeting-bar-space {
+    margin-bottom: 24px;
+  }
   /* Hangs in the 24px the bar keeps below it; notes scrolled under the bar pass behind it, not through it. */
   .meeting-bar .meeting-line-over {
     position: absolute;
@@ -2512,21 +2522,49 @@
     width: 24px;
     padding: 0;
   }
-  /* Show transcript, at the bar's far end; its words give way first in a narrow Mind. */
-  .meeting-button--end {
-    flex-shrink: 1;
-    min-width: 0;
+  /* Notes | Transcript, at the bar's far end; the Transcript carries the level bars (#138). */
+  .meeting-views {
     margin-left: auto;
-
-    &:disabled {
-      color: var(--color-ink-placeholder);
-      background: none;
-    }
+  }
+  .meeting-view {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
   }
   .meeting-button-label {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+  /*
+   * The meeting's Transcript in its Note's page, while it records: the bar stands where it stands
+   * over the notes, so switching moves nothing but the page under it.
+   */
+  .meeting-note-transcript-top {
+    flex-shrink: 0;
+    padding-bottom: 0;
+    overflow: hidden;
+    scrollbar-gutter: stable;
+  }
+  .meeting-beside {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 4px;
+    height: 24px;
+    margin-left: auto;
+    padding: 0 6px;
+    border-radius: 6px;
+    white-space: nowrap;
+    color: var(--color-ink-secondary);
+
+    &:hover:not(:disabled) {
+      background: var(--color-hover);
+      color: var(--color-ink);
+    }
+    &:disabled {
+      color: var(--color-ink-placeholder);
+    }
   }
   .meeting-more {
     display: none;
@@ -2565,12 +2603,8 @@
     }
   }
   @container meeting-bar (width < 320px) {
-    [data-fold="transcript"],
     [data-fold="details"] {
       display: none;
-    }
-    .meeting-more {
-      margin-left: auto;
     }
   }
   /* A quiet 22px chip: no fill until pointed at (the model, "All Documents"). */

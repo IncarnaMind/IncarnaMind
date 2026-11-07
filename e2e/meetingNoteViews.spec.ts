@@ -151,20 +151,20 @@ test("a meeting's ⌘K views retain its editor; assistant return and page Review
       body: JSON.stringify(before, null, 2),
       contentType: "application/json",
     });
-    await runCommand(window, "meeting.transcript", "Transcript");
+    await runCommand(window, "meeting.showTranscript", "Show the Transcript");
     await expect(transcript.getByTestId("transcript-line").first()).toBeVisible();
     await expect(editor).toBeHidden();
     await expect(chip).toContainText("Transcript");
     expect(await noteState()).toEqual(before);
     await expectSameTab();
 
-    await runCommand(window, "meeting.transcript", "Notes");
+    await runCommand(window, "meeting.showNotes", "Show Notes");
     await expect(editor).toBeVisible();
     await expect(transcript).toHaveCount(0);
     expect(await noteState()).toEqual(before);
     await expectSameTab();
 
-    await runCommand(window, "meeting.transcript", "Transcript");
+    await runCommand(window, "meeting.showTranscript", "Show the Transcript");
     await expect(transcript).toBeVisible();
     await expect(editor).toBeHidden();
     await window.keyboard.press("ControlOrMeta+j");
@@ -227,7 +227,7 @@ test("a meeting's ⌘K views retain its editor; assistant return and page Review
     await expect(paragraph).toHaveText([edited]);
     await expect(editor.getByTestId("applied-review")).toBeVisible();
     const beforeReview = await noteState();
-    await runCommand(window, "meeting.transcript", "Transcript");
+    await runCommand(window, "meeting.showTranscript", "Show the Transcript");
     await expect(transcript).toBeVisible();
     await expect(editor).toBeHidden();
     expect(await noteState()).toEqual(beforeReview);

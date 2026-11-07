@@ -1,14 +1,20 @@
-import type { LayoutTab, Meeting } from "../../../core/api";
+import type { Meeting } from "../../../core/api";
 import { writingTime } from "../../../shared/blockTimes";
 import { markNow, noteOf } from "../editor/meetingNotes";
 import { translateNow } from "../i18n";
 import { currentMindIdOf, currentTabOf } from "../layoutSlice";
 import { helpKeysLabel } from "../meetingHelp";
 import { canRecordMeetings, isLive, useMeetings } from "../meetings";
-import { meetingNoteViewFor, showMeetingNoteView } from "../meetingViews";
+import {
+  hasMeetingViews,
+  type MeetingNoteView,
+  meetingNoteViewFor,
+  showMeetingNoteView,
+  stepMeetingNoteView,
+} from "../meetingViews";
 import { useRequests } from "../requests";
 import { useAppStore } from "../store";
-import { hideTranscript, showTranscript } from "../transcripts";
+import { openTranscriptBeside } from "../transcripts";
 import { transcriptHandle } from "./handles";
 import type { Command, CommandContext } from "./registry";
 
@@ -54,19 +60,6 @@ async function leaveMark(): Promise<void> {
   }
 }
 
-/** The tab a Document shows in, and the group its meeting's Mind is in. */
-function placesOf(meeting: Meeting, documentId: string | null) {
-  let tab: LayoutTab | undefined;
-  let mindGroup: string | undefined;
-  for (const group of useAppStore.getState().layout?.groups ?? []) {
-    for (const each of group.tabs) {
-      if (each.item.kind === "document" && each.item.documentId === documentId) tab = each;
-      if (each.item.kind === "mind" && each.item.mindId === meeting.mindId) mindGroup ??= group.id;
-    }
-  }
-  return { tab, mindGroup };
-}
-
 /**
  * The Mind in view's Meeting, once it has started: the one whose recording details there are.
  * A command aimed at a Mind, as its own line's button is, takes that Mind's Meeting, which a
@@ -94,18 +87,55 @@ const whileAudioKept = (ctx: CommandContext) => {
   } as const;
 };
 
-function noteTranscriptInView(ctx: CommandContext) {
-  const tab = currentTabOf(useAppStore.getState().layout);
+/** The meeting Note in the tab in view, while it has views: the tab, its group and its Meeting. */
+function meetingPageInView(ctx: CommandContext) {
+  const layout = useAppStore.getState().layout;
+  const tab = currentTabOf(layout);
   if (tab?.item.kind !== "mind") return null;
   const mindId = tab.item.mindId;
   if (ctx.focus && (ctx.focus.kind !== "mind" || ctx.focus.id !== mindId)) return null;
   const meeting = useMeetings.getState().meetings.find((each) => each.mindId === mindId);
-  return meeting?.kind === "meeting" &&
-    meeting.status === "stopped" &&
-    meeting.transcript?.documentId
-    ? { tabId: tab.id, mindId }
-    : null;
+  if (!hasMeetingViews(meeting)) return null;
+  const groupId = layout?.groups.find((group) => group.tabs.some((each) => each.id === tab.id))?.id;
+  return { tabId: tab.id, groupId, mindId, meeting };
 }
+
+const showViewCommand = (
+  id: string,
+  view: MeetingNoteView,
+  label: "meetings.views.showNotes" | "meetings.views.showTranscript",
+): Command => ({
+  id: `meeting.${id}`,
+  label,
+  keywords: ["meetings.views.label", "meetings.views.notes", "meetings.views.transcript"],
+  group: "main",
+  // Another view is one more choice away.
+  reversible: true,
+  assistant: false,
+  when: (ctx) => {
+    const page = meetingPageInView(ctx);
+    return page !== null && meetingNoteViewFor(page.tabId, page.mindId) !== view;
+  },
+  run(ctx) {
+    const page = meetingPageInView(ctx);
+    if (page) showMeetingNoteView(page.tabId, page.mindId, view, { focus: true });
+  },
+});
+
+const stepViewCommand = (id: string, by: -1 | 1, keys: string): Command => ({
+  id: `meeting.${id}`,
+  label: by < 0 ? "meetings.views.showNotes" : "meetings.views.showTranscript",
+  shortcut: { keys },
+  palette: false,
+  group: "main",
+  reversible: true,
+  assistant: false,
+  when: (ctx) => meetingPageInView(ctx) !== null,
+  run(ctx) {
+    const page = meetingPageInView(ctx);
+    if (page) stepMeetingNoteView(page.tabId, page.mindId, by);
+  },
+});
 
 export const meetingCommands: readonly Command[] = [
   {
@@ -187,49 +217,26 @@ export const meetingCommands: readonly Command[] = [
       transcriptHandle.current?.hasLine() ? true : { reason: "meetings.command.noLine" },
     run: () => transcriptHandle.current?.addLine(),
   },
+  showViewCommand("showNotes", "notes", "meetings.views.showNotes"),
+  showViewCommand("showTranscript", "transcript", "meetings.views.showTranscript"),
+  stepViewCommand("previousView", -1, "CmdOrCtrl+Alt+Left"),
+  stepViewCommand("nextView", 1, "CmdOrCtrl+Alt+Right"),
   {
-    id: "meeting.transcript",
-    label: (ctx, t) => {
-      const note = noteTranscriptInView(ctx);
-      if (note) {
-        return t(
-          meetingNoteViewFor(note.tabId, note.mindId) === "transcript"
-            ? "meetings.views.notes"
-            : "meetings.views.transcript",
-        );
-      }
-      const meeting = liveMeeting();
-      const documentId = meeting?.transcript?.documentId ?? null;
-      const shown = meeting ? placesOf(meeting, documentId).tab : undefined;
-      return t(shown ? "meetings.bar.hideTranscript" : "meetings.bar.showTranscript");
-    },
-    keywords: ["meetings.views.notes", "meetings.views.transcript"],
+    id: "meeting.transcriptBeside",
+    label: "meetings.views.besideCommand",
+    keywords: ["meetings.views.transcript", "meetings.views.beside"],
     group: "main",
-    // Pressed again, it undoes itself.
+    // Its tab closes again.
     reversible: true,
-    when: (ctx) => noteTranscriptInView(ctx) !== null || meetingsOn(),
-    enabled: (ctx) => {
-      if (noteTranscriptInView(ctx)) return true;
-      const meeting = liveMeeting();
-      if (!meeting) return { reason: "meetings.command.noneLive" };
-      return meeting.transcript?.documentId ? true : { reason: "meetings.bar.transcriptSoon" };
-    },
+    assistant: false,
+    when: (ctx) => meetingPageInView(ctx) !== null,
+    enabled: (ctx) =>
+      meetingPageInView(ctx)?.meeting.transcript?.documentId
+        ? true
+        : { reason: "meetings.bar.transcriptSoon" },
     run(ctx) {
-      const note = noteTranscriptInView(ctx);
-      if (note) {
-        showMeetingNoteView(
-          note.tabId,
-          note.mindId,
-          meetingNoteViewFor(note.tabId, note.mindId) === "transcript" ? "notes" : "transcript",
-        );
-        return;
-      }
-      const meeting = liveMeeting();
-      const documentId = meeting?.transcript?.documentId;
-      if (!meeting || !documentId) return;
-      const { tab, mindGroup } = placesOf(meeting, documentId);
-      if (tab) hideTranscript(tab.id);
-      else showTranscript(documentId, mindGroup);
+      const page = meetingPageInView(ctx);
+      if (page) openTranscriptBeside(page);
     },
   },
   {
