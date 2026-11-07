@@ -96,6 +96,10 @@ export const ROUTE_LABELS: Record<TranscriptionRoute, MessageKey> = {
   deepgram: "meetings.route.deepgram",
   assemblyai: "meetings.route.assemblyai",
   gemini: "meetings.route.gemini",
+  elevenlabs: "meetings.route.elevenlabs",
+  speechmatics: "meetings.route.speechmatics",
+  gladia: "meetings.route.gladia",
+  xai: "meetings.route.xai",
 };
 
 /** The services as held, or read now when no view has read them yet (the meeting bar's lines). */

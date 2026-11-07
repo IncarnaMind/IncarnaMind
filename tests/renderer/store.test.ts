@@ -5,6 +5,7 @@ import {
   DEFAULT_ASSISTANT,
   type DeletedItem,
   type Document,
+  type DocumentBatch,
   type DocumentGroupAssignment,
   type Folder,
   type LibrarySnapshot,
@@ -2272,6 +2273,79 @@ describe("Get started's Ask a question", () => {
     expect(asked()).toBe(false);
     finished("own", "done");
     expect(asked()).toBe(true);
+  });
+});
+
+describe("a batch of Documents being added (#1329)", () => {
+  const batch = (over: Partial<DocumentBatch>): DocumentBatch => ({
+    id: "b",
+    groupId: null,
+    linkedFolderId: null,
+    documentIds: [],
+    adding: true,
+    read: 0,
+    sorted: 0,
+    suggested: [],
+    ...over,
+  });
+
+  test("the sidebar's tree holds the rows it had until the batch lands", () => {
+    emit("documents.batch", batch({ id: "b1", documentIds: ["new-1"] }));
+    expect(useAppStore.getState().heldDocuments).toEqual(["a", "b", "c"]);
+    // One arriving meanwhile is in the store, and still held out of the tree's list.
+    emit("document.status", doc("new-1", 1));
+    vi.advanceTimersByTime(100);
+    expect(useAppStore.getState().heldDocuments).toEqual(["a", "b", "c"]);
+    emit("documents.batch", batch({ id: "b1", documentIds: ["new-1"], adding: false }));
+    expect(useAppStore.getState().heldDocuments).toBeNull();
+  });
+
+  test("its last statuses are in the store when it lands, so no row arrives after the rest", () => {
+    emit("documents.batch", batch({ id: "b1", documentIds: ["new-1"] }));
+    emit("document.status", doc("new-1", 1));
+    expect(useAppStore.getState().documents.some((each) => each.id === "new-1")).toBe(false);
+    emit("documents.batch", batch({ id: "b1", documentIds: ["new-1"], adding: false }));
+    expect(useAppStore.getState().documents[0]?.name).toBe("new-1 v1");
+  });
+
+  test("a second batch does not take a new hold, so the first's rows stay held", () => {
+    emit("documents.batch", batch({ id: "b1", documentIds: ["one"] }));
+    // A Document arriving between the batches is in the store; a new hold would take it in.
+    emit("document.status", doc("one", 1));
+    vi.advanceTimersByTime(100);
+    emit("documents.batch", batch({ id: "b2", documentIds: ["two"] }));
+    expect(useAppStore.getState().heldDocuments).toEqual(["a", "b", "c"]);
+    emit("documents.batch", batch({ id: "b2", documentIds: ["two"], adding: false }));
+    emit("documents.batch", batch({ id: "b1", documentIds: ["one"], adding: false }));
+    expect(useAppStore.getState().heldDocuments).toBeNull();
+  });
+
+  test("a batch after the last one landed holds what the tree has by then", () => {
+    emit("documents.batch", batch({ id: "b1", documentIds: ["one"] }));
+    emit("documents.batch", batch({ id: "b1", documentIds: ["one"], adding: false }));
+    expect(useAppStore.getState().heldDocuments).toBeNull();
+    emit("document.status", doc("one", 1));
+    vi.advanceTimersByTime(100);
+    emit("documents.batch", batch({ id: "b2", documentIds: ["two"] }));
+    expect(useAppStore.getState().heldDocuments).toEqual(["one", "a", "b", "c"]);
+    emit("documents.batch", batch({ id: "b2", documentIds: ["two"], adding: false }));
+    expect(useAppStore.getState().heldDocuments).toBeNull();
+  });
+
+  test("a Linked folder's first scan never holds the tree, even while it adds", () => {
+    emit(
+      "documents.batch",
+      batch({ id: "scan", linkedFolderId: "folder", documentIds: ["found"] }),
+    );
+    expect(useAppStore.getState().heldDocuments).toBeNull();
+    emit("document.status", doc("found", 1));
+    vi.advanceTimersByTime(100);
+    expect(useAppStore.getState().heldDocuments).toBeNull();
+    emit(
+      "documents.batch",
+      batch({ id: "scan", linkedFolderId: "folder", documentIds: ["found"], adding: false }),
+    );
+    expect(useAppStore.getState().heldDocuments).toBeNull();
   });
 });
 

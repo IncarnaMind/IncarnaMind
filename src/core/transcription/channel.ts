@@ -27,12 +27,16 @@ import type {
 } from "../adapters";
 import { createAssemblyAiStream } from "./cloud/assemblyai";
 import { createDeepgramStream } from "./cloud/deepgram";
+import { createElevenLabsStream } from "./cloud/elevenlabs";
 import { createGeminiStream } from "./cloud/gemini";
+import { createGladiaStream } from "./cloud/gladia";
 import { createOpenAiStream } from "./cloud/openai";
 import { createQwenStream } from "./cloud/qwen";
 import type { CloudConnect } from "./cloud/socket";
 import { createSonioxStream } from "./cloud/soniox";
+import { createSpeechmaticsStream } from "./cloud/speechmatics";
 import type { CloudStreamHandle } from "./cloud/stream";
+import { createXaiStream } from "./cloud/xai";
 import {
   createSpeechHost,
   type SpeechEngine,
@@ -208,6 +212,8 @@ export function createChannelTranscriber(start: () => TranscriberChannel): Trans
 /** What the serving end needs for streams that go to a cloud service. */
 export interface CloudServing {
   connect: CloudConnect;
+  /** For the requests a service needs before its socket: Gladia's session. */
+  fetch: typeof fetch;
   /** Silero VAD from its file, for OpenAI's turns. */
   detectors(vadFile: string): Promise<() => VoiceDetector>;
 }
@@ -285,6 +291,14 @@ export function serveTranscriber(
         return createAssemblyAiStream(options);
       case "gemini":
         return createGeminiStream(options);
+      case "elevenlabs":
+        return createElevenLabsStream(options);
+      case "speechmatics":
+        return createSpeechmaticsStream(options);
+      case "gladia":
+        return createGladiaStream({ ...options, languages: config.languages, fetch: cloud.fetch });
+      case "xai":
+        return createXaiStream(options);
     }
     try {
       let made = detectors.get(config.vad);

@@ -2039,3 +2039,82 @@ describe("The assistant's own text already in the Mind (#1061)", { timeout: 30_0
     },
   );
 });
+
+describe("Reading the Note again in the turn that changed it", { timeout: 30_000 }, () => {
+  const CASES = [
+    {
+      language: "English",
+      title: "Q3 review",
+      section: "Summary",
+      ask: "Tidy the summary",
+      text: "The quarter was very good, and sales were really strong.",
+      applied: "The quarter was good, and sales were strong.",
+      gone: ["very", "really"],
+      held: "Strong.",
+    },
+    {
+      language: "Chinese",
+      title: "季度回顾",
+      section: "摘要",
+      ask: "整理摘要",
+      text: "第三季度表现很好，销售额非常强劲。",
+      applied: "第三季度表现好，销售额强劲。",
+      gone: ["很好", "非常"],
+      held: "强劲。",
+    },
+  ];
+
+  /** One turn that changes the section to `rewritten` and reads the Note again in it. */
+  async function readAgain(c: (typeof CASES)[number], rewritten: string) {
+    const seen: string[] = [];
+    const model = scriptedModel((call): ScriptedReply => {
+      if (editPassage(call) !== null) return { text: `¶2 ${rewritten}\n<why>Shorter.</why>` };
+      if (!called(call, "edit_mind")) {
+        return {
+          calls: [
+            { tool: "edit_mind", input: { mind: c.title, part: c.section, instruction: c.ask } },
+          ],
+        };
+      }
+      if (!called(call, "read_mind")) {
+        return { calls: [{ tool: "read_mind", input: { mind: c.title } }] };
+      }
+      seen.push(call.results.find((each) => each.tool === "read_mind")?.text ?? "");
+      return { text: c.language === "Chinese" ? "已改好。" : "Done." };
+    });
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: scriptedModels(model).createChatModel,
+    });
+    await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+    const mind = await core.createMind({ title: c.title });
+    const client = await connectToMind(core, mind.id);
+    writeMind(client, [heading(2, c.section), note(c.text)]);
+    await client.settled();
+    await askAssistant(core, { text: c.ask, mindId: mind.id });
+    await client.settled();
+    return { client, seen };
+  }
+
+  // protects=read again in the turn that made it, a change the window applies at once reads as applied, its words as text and its removed words gone, though its marks are still there; fails_when=the read says the change waits, as if the window hadn't taken it in yet; no_claim=how a real model words its reply.
+  test.each(CASES)("a change that applies at once reads as applied: $language", async (c) => {
+    const { client, seen } = await readAgain(c, c.applied);
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toContain(c.applied);
+    expect(seen[0]).not.toContain("waiting change");
+    for (const words of c.gone) expect(seen[0]).not.toContain(words);
+    // The window may not have taken it in: its marks are still in the Note as it reads.
+    expect(pendingProposals(client.blocks).length).toBeGreaterThan(0);
+  });
+
+  // protects=a change the window holds for the User still reads as waiting in the turn that made it, in English and Chinese; fails_when=the read shows it as applied before they accept it; no_claim=none.
+  test.each(CASES)("a change held for the User still reads as waiting: $language", async (c) => {
+    const { client, seen } = await readAgain(c, c.held);
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toContain("[waiting change, removes:");
+    expect(seen[0]).toContain("[waiting change, adds:");
+    expect(seen[0]).toContain(c.held);
+    expect(pendingProposals(client.blocks).length).toBeGreaterThan(0);
+  });
+});

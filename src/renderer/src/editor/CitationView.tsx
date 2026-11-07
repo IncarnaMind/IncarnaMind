@@ -1,5 +1,15 @@
 import { NodeViewWrapper, type ReactNodeViewProps } from "@tiptap/react";
-import { useCallback, useContext, useEffect, useId, useRef, useState } from "react";
+import { ySyncPluginKey } from "@tiptap/y-tiptap";
+import {
+  type KeyboardEvent as ReactKeyboardEvent,
+  type RefObject,
+  useCallback,
+  useContext,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react";
 import { createPortal } from "react-dom";
 import {
   ANSWER_BLOCK,
@@ -40,6 +50,7 @@ import { useAnswers } from "../answers";
 import { type MindFormatting, useMindFormatting } from "../citationFormatting";
 import { followNewVersion } from "../citationUpdate";
 import { useCitationRecheck } from "../citationVersion";
+import { applyCitationWording, citationWordingFix } from "../citationWording";
 import { citationHandle } from "../commands/handles";
 import { type CommandContext, commands } from "../commands/registry";
 import { CheckTheRest } from "../components/assistant/CheckTheRest";
@@ -395,10 +406,35 @@ export function CitationView({
           editor.view.focus();
         }
       : null;
+  // The Note's copy, which the check after Use the Document's wording reads its words from.
+  const mindDoc = mindId !== null ? ySyncPluginKey.getState(editor.state)?.doc : undefined;
+  const citationAt = getPos();
+  const wordingFix =
+    mindDoc && citationAt !== undefined && !inFootnote
+      ? citationWordingFix(editor, citationAt)
+      : null;
+  const useDocumentWording =
+    wordingFix && mindId !== null && mindDoc
+      ? () => {
+          if (applyCitationWording(editor, mindId, mindDoc, wordingFix.citation)) dismiss();
+        }
+      : null;
+  /** The open card: Tab from the marker goes into it, so its buttons are reached from the keyboard. */
+  const cardRef = useRef<HTMLDivElement>(null);
+  const tabIntoCard = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
+    if (event.key !== "Tab" || event.shiftKey || !open) return;
+    const first = cardRef.current?.querySelector<HTMLElement>(
+      "button:not([tabindex='-1']), a[href], input, select, textarea",
+    );
+    if (!first) return;
+    event.preventDefault();
+    first.focus();
+  };
   const choices = {
     update: recheckAsked && newVersion ? updateSentence : null,
     keepOld: recheckAsked && lookedAt ? keepOldVersion : null,
     pageChecked: pageCheck,
+    useDocumentWording,
   };
   const choicesRef = useRef(choices);
   choicesRef.current = choices;
@@ -534,6 +570,7 @@ export function CitationView({
           if (!isQuietFocus(event.currentTarget)) hold("focus", true);
         }}
         onBlur={() => hold("focus", false)}
+        onKeyDown={tabIntoCard}
         onClick={(event) => {
           // A Shift-press the editor took extended the selection, so it is not an activation of
           // the Citation; a key's click, or a press with nothing to extend, still is.
@@ -603,6 +640,7 @@ export function CitationView({
             onBlur={() => hold("card-focus", false)}
           >
             <CitationCard
+              card={cardRef}
               state={state}
               attributes={shown}
               recheck={recheck}
@@ -612,6 +650,7 @@ export function CitationView({
               onUpdate={choices.update}
               onKeep={choices.keepOld}
               onPageChecked={choices.pageChecked}
+              onUseDocumentWording={choices.useDocumentWording}
               checkAgainOf={
                 state.check === "not-checked" && state.reason !== "small-model"
                   ? judgedAnswer
@@ -755,6 +794,7 @@ function ClusterRuns({
  * what to do next (for a web page, also "Open the live page").
  */
 function CitationCard({
+  card,
   state,
   attributes,
   recheck,
@@ -766,6 +806,7 @@ function CitationCard({
   onUpdate,
   onKeep,
   onPageChecked,
+  onUseDocumentWording,
   checkAgainOf,
   onRemove,
   onRegenerate,
@@ -773,6 +814,8 @@ function CitationCard({
   signOff,
   onSignOff,
 }: {
+  /** The card's own element, for Tab from the marker to reach its buttons. */
+  card: RefObject<HTMLDivElement | null>;
   /** The User's own check of it (#1933), apart from IncarnaMind's. */
   signOff: SignOffNow | null;
   /** Null where it can't be marked, such as an Answer in the assistant. */
@@ -793,6 +836,8 @@ function CitationCard({
   onKeep: (() => void) | null;
   /** Matches the page: null where the User can't check it, such as an Answer in the assistant (#535). */
   onPageChecked: (() => void) | null;
+  /** Use the Document's wording: null where the quote differs in more than its marks, or can't be changed. */
+  onUseDocumentWording: (() => void) | null;
   /** An Answer's Citation not checked: the Answer whose sentences Check again judges (#2311). */
   checkAgainOf: { id: string; conversationId: string } | null;
   /** Null where the text can't be changed, such as an Answer in the assistant. */
@@ -872,7 +917,11 @@ function CitationCard({
   // A saved page says it was fetched again, with the day; any other Document says when it changed.
   const changedOn = web ? (changed?.notice ?? null) : on;
   return (
-    <div className={`citation-card citation-card--${state.check}`} contentEditable={false}>
+    <div
+      ref={card}
+      className={`citation-card citation-card--${state.check}`}
+      contentEditable={false}
+    >
       <div data-testid="citation-card-head" className="citation-card-head">
         <p
           data-testid="citation-badge"
@@ -948,7 +997,24 @@ function CitationCard({
       {state.reason === "unsure-word" && (
         <ScanPagePicture attributes={attributes} scanned={scannedText} />
       )}
-      {state.check === "not-found" && <CitationQuotedWords attributes={attributes} />}
+      {state.check === "not-found" && (
+        <>
+          <CitationQuotedWords attributes={attributes} />
+          {onUseDocumentWording && (
+            // Under the two texts, beside what differs: the one fix for a quote whose marks alone are the Answer's.
+            <div className="citation-card-actions">
+              <button
+                type="button"
+                data-testid="citation-use-document-wording"
+                className="citation-card-action"
+                onClick={onUseDocumentWording}
+              >
+                {t("citation.useDocumentWording")}
+              </button>
+            </div>
+          )}
+        </>
+      )}
       {changed && (
         <div data-testid="citation-changed" className="citation-card-changed">
           {words ? (

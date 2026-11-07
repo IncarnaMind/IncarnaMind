@@ -45,6 +45,7 @@ import {
   withoutArea,
 } from "../../shared/locations";
 import { citesSource, type NamedSource } from "../../shared/namedSources";
+import { documentWordingIn } from "../../shared/quoteMarks";
 import {
   findQuote,
   lostLigatures,
@@ -73,6 +74,7 @@ import {
 } from "../api";
 import type { CitationSource, DocumentDate } from "../documents";
 import { BOILERPLATE_PARAMETERS } from "../documents/boilerplate";
+import { holdsFigure } from "../documents/formats/grid";
 import type { PageText } from "../documents/passages";
 import { unsureSpansIn } from "../documents/scan/layout";
 import type { WindowedPassage } from "../documents/search";
@@ -1405,6 +1407,8 @@ interface Accepted {
    * not found (#483), or the page they run on to past the one it cites (#2504).
    */
   quotedWords?: QuotedWordsCheck;
+  /** The words of the Answer's quotation marks this record's Units state (#2602). */
+  quotedWordsFound?: string[];
   /** A Citation of the Question context, kept as it is (#1800): there is nothing of it to fix. */
   kept?: true;
 }
@@ -1447,6 +1451,7 @@ const toCitation = (record: Accepted, result: CheckResult | null): Citation => (
   checkReason: result?.checkReason ?? null,
   ...(result?.unsure && result.unsure.length > 0 && { unsure: result.unsure }),
   ...(record.quotedWords && { quotedWords: record.quotedWords }),
+  ...(record.quotedWordsFound && { quotedWordsFound: record.quotedWordsFound }),
 });
 
 export interface CitationSessionEvents {
@@ -1558,7 +1563,8 @@ export function createCitationSession(
    * The text of a sheet's title rows, above its header, by Document version
    * and sheet: the rows that name the table a Citation's rows are in, which an
    * Answer may quote as the table's title while citing one of its rows (#2358).
-   * A sheet read in one block keeps its title rows in the cited Unit itself.
+   * A title row that holds a figure names nothing (#2373). A sheet read in one
+   * block keeps its title rows in the cited Unit itself.
    */
   const titles = new Map<string, string>();
   function titleRows(record: Pick<Accepted, "source">, sheet: string | null): string {
@@ -1580,9 +1586,9 @@ export function createCitationSession(
         ? ""
         : first.text
             .split("\n")
-            .filter((_, at) => {
+            .filter((line, at) => {
               const row = rows[at] ?? 0;
-              return row > 0 && row < header;
+              return row > 0 && row < header && !line.split("\t").some((cell) => holdsFigure(cell));
             })
             .join("\n");
     titles.set(key, text);
@@ -2386,12 +2392,15 @@ export function createCitationSession(
      * rows: the rows above the header, which name the table the Citation's
      * rows are in, as a Document's name is not a quote (#2358), and words
      * that start on the one page cited may run on to the next page (#2504).
-     * One found changes nothing. One not found makes the Citation whose Units
+     * One found keeps its words with the Citation whose Units state them, which its sentence's
+     * figures are counted against (#2602). One not found makes the Citation whose Units
      * are nearest it "not found", with the Answer's words and the Document's
-     * nearest for its card. Where a Citation of the sentence couldn't be
-     * checked, no span of it is. Words in another language than every page
-     * cited are a translation: they aren't checked, and are returned to lose
-     * their quotation marks.
+     * nearest for its card, and with the Document's own words where only the
+     * kind of their quotation marks differs, for the card to offer them
+     * (#2605). Where a Citation of the sentence couldn't be checked, no span
+     * of it is. Words in another language than every page cited are a
+     * translation: they aren't checked, and are returned to lose their
+     * quotation marks.
      */
     checkQuotedWords(quoted: readonly { words: string; markers: readonly number[] }[]): string[] {
       /**
@@ -2432,6 +2441,11 @@ export function createCitationSession(
         return text !== "" && findQuote(text, words, { ...matching, numbers: true }) !== null;
       };
       const translated: string[] = [];
+      /** Keeps `words` with the record whose Units state them, for the check of its figures (#2602). */
+      const states = (record: Accepted, words: string) => {
+        record.quotedWordsFound ??= [];
+        if (!record.quotedWordsFound.includes(words)) record.quotedWordsFound.push(words);
+      };
       // A Document's name in quotation marks, as an Answer gives a title, is a name, not a quote.
       const names = [...records.values()].map(({ source }) => source.documentName);
       for (const { words, markers } of quoted) {
@@ -2448,7 +2462,11 @@ export function createCitationSession(
             : [];
         });
         if (cited.some(({ record }) => record.result?.check === "cant-check")) continue;
-        if (cited.some(({ units, matching }) => quoteInUnits(units, words, matching))) continue;
+        const stating = cited.filter(({ units, matching }) => quoteInUnits(units, words, matching));
+        if (stating.length > 0) {
+          for (const { record } of stating) states(record, words);
+          continue;
+        }
         // The name of a Document the sentence cites, or a part of it, is a name, not a quote: the
         // Citation says so and keeps its own quote's check, never found or not found by it.
         const named = cited.filter(({ record }) =>
@@ -2463,10 +2481,16 @@ export function createCitationSession(
         if (runsOn) {
           const runsOnTo = locationOf([runsOn.next], null);
           if (runsOnTo) runsOn.record.quotedWords ??= { runsOnTo };
+          states(runsOn.record, words);
           continue;
         }
-        if (cited.some(({ record, units, matching }) => titled(record, units, words, matching)))
+        const titledBy = cited.filter(({ record, units, matching }) =>
+          titled(record, units, words, matching),
+        );
+        if (titledBy.length > 0) {
+          for (const { record } of titledBy) states(record, words);
           continue;
+        }
         const inCjk = writtenInCjk(words);
         if (
           cited.length > 0 &&
@@ -2477,14 +2501,24 @@ export function createCitationSession(
           translated.push(words);
           continue;
         }
-        let nearest: { record: Accepted; closest: ReturnType<typeof closestWords> } | undefined;
+        let nearest:
+          | {
+              record: Accepted;
+              units: readonly PageText[];
+              closest: ReturnType<typeof closestWords>;
+            }
+          | undefined;
         for (const { record, units, matching } of cited) {
           const closest = closestWords(units, words, matching);
-          if (!nearest || closest.near > nearest.closest.near) nearest = { record, closest };
+          if (!nearest || closest.near > nearest.closest.near) nearest = { record, units, closest };
         }
         if (nearest?.record.result?.check !== "found") continue;
         nearest.record.result = { check: "not-found", checkReason: "quoted-words-not-on-pages" };
-        nearest.record.quotedWords = nearest.closest.shown;
+        // The page's own marks for the same words, for the User to choose (#2605).
+        const wording = documentWordingIn(words, joinUnits(nearest.units).text);
+        nearest.record.quotedWords = wording
+          ? { ...nearest.closest.shown, documentWording: wording }
+          : nearest.closest.shown;
       }
       return translated;
     },

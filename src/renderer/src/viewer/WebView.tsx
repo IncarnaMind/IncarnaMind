@@ -5,6 +5,7 @@ import type { XmlNode } from "../../../core/documents/formats/xml";
 import { documentImageUrl } from "../../../shared/documentViewer";
 import type { MessageKey } from "../../../shared/i18n";
 import { useLanguage, useT } from "../i18n";
+import { openDocumentPicture, pictureClickHandlers } from "../pictureViewer";
 import type { ViewerTarget } from "../store";
 import { pageDate } from "../webPages";
 import { useCitedArea } from "./citedArea";
@@ -108,24 +109,38 @@ function savedPicture(
   picture.className = "document-image document-web-picture";
   picture.dataset.quoteSkip = "";
   picture.dataset.testid = "web-picture";
+  picture.dataset.pictureViewer = "";
   context.pictures += 1;
   picture.dataset.figure = String(context.pictures);
   if (size.width && size.height) {
     picture.style.aspectRatio = `${size.width} / ${size.height}`;
     picture.style.width = `min(100%, ${size.width}px)`;
   }
+  // A button, so the keyboard reaches the picture too; its own click opens the viewer.
+  const button = owner.createElement("button");
+  button.type = "button";
+  button.dataset.pictureButton = "";
+  Object.assign(button.style, {
+    display: "block",
+    maxWidth: "100%",
+    border: "0",
+    padding: "0",
+    background: "none",
+    cursor: "zoom-in",
+  });
+  button.append(picture);
   loadDocumentPicture(context.documentId, src, context.signal).then(
     (url) => {
       if (!context.signal.aborted) picture.src = url;
     },
     () => {
       if (context.signal.aborted) return;
-      picture.replaceWith(
+      button.replaceWith(
         placeholder(owner, alt, context.t("viewer.markdown.imageMissing"), context.t),
       );
     },
   );
-  return picture;
+  return button;
 }
 
 /**
@@ -258,6 +273,7 @@ function WebPageContent({
   const [markTop, setMarkTop] = useState<number | null>(null);
   const [markRoom, setMarkRoom] = useState(0);
   const mark = quoteMarkOf(target.citation);
+  const pictureClick = useMemo(() => pictureClickHandlers(openDocumentPicture), []);
   const blocks = useMemo(
     () => new Map<XmlNode, number>(page.blocks.map((block, index) => [block.element, index])),
     [page],
@@ -433,6 +449,7 @@ function WebPageContent({
                 data-testid="viewer-web-article"
                 data-area-unit=""
                 className="document-markdown"
+                {...pictureClick}
               />
               {mark && markTop !== null && (
                 <CitationMark

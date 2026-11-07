@@ -345,3 +345,74 @@ test("the Library's count keeps its place and width as Documents are added", asy
   }
   await app.close();
 });
+
+test("the Documents list holds its rows while a batch is being added, and the count follows it", async () => {
+  test.setTimeout(240_000);
+  const { app, window } = await launchApp(dataDir);
+  await setWindowSize(app, window, 1440, 900);
+  await dismissChatSetup(window);
+  const core = await coreOf(window);
+
+  // Two Documents are there before the batch: their rows are the ones that must not move.
+  const earlier = ["Earlier one.txt", "Earlier two.txt"].map((name) => join(sources, name));
+  await Promise.all(earlier.map((file) => writeFile(file, "Added before the batch.\n")));
+  await core.evaluate((each, files) => each.addDocuments(files), earlier);
+  const rows = window.getByTestId("document-list-item");
+  await expect(rows).toHaveCount(2);
+  const listed = () =>
+    rows.evaluateAll((all) =>
+      all.map((row) => ({
+        name: row.querySelector('[data-testid="row-text"]')?.textContent ?? "",
+        top: Math.round(row.getBoundingClientRect().top),
+      })),
+    );
+  const before = await listed();
+  const count = window.getByTestId("library-row-count");
+  const countBox = await count.boundingBox();
+
+  // A batch of 400, started and left running.
+  const files = Array.from({ length: 400 }, (_, index) =>
+    join(sources, `Report ${String(index + 1).padStart(4, "0")}.txt`),
+  );
+  await Promise.all(files.map((file) => writeFile(file, `${file}.\n`)));
+  await window.evaluate((each) => {
+    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    (globalThis as unknown as { addedBatch?: Promise<unknown> }).addedBatch =
+      bridge.addDocuments(each);
+  }, files);
+
+  // While the core has plenty of the batch: the tree still shows the two rows where they were, and
+  // the count has already moved on, in the same place and width.
+  const seen = await window.evaluate(async () => {
+    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    let coreCount = 0;
+    const until = Date.now() + 120_000;
+    while (Date.now() < until) {
+      coreCount = (await bridge.listDocuments()).length;
+      if (coreCount >= 60) break;
+      await new Promise((done) => setTimeout(done, 20));
+    }
+    const rows = [...document.querySelectorAll('[data-testid="document-list-item"]')];
+    return {
+      coreCount,
+      count: document.querySelector('[data-testid="library-row-count"]')?.textContent ?? "",
+      rows: rows.map((row) => ({
+        name: row.querySelector('[data-testid="row-text"]')?.textContent ?? "",
+        top: Math.round(row.getBoundingClientRect().top),
+      })),
+    };
+  });
+  expect(seen.coreCount).toBeGreaterThanOrEqual(60);
+  expect(Number(seen.count.replace(/,/g, ""))).toBeGreaterThan(2);
+  expect(seen.rows).toEqual(before);
+  expect(await count.boundingBox()).toEqual(countBox);
+
+  // Landed: its rows are listed, the ones there before still under the count.
+  await window.evaluate(async () => {
+    await (globalThis as unknown as { addedBatch?: Promise<unknown> }).addedBatch;
+  });
+  await expect(count).toHaveText("402");
+  await expect(rows).toHaveCount(5);
+  expect((await listed()).map((each) => each.name)).not.toContain(before[0]?.name);
+  await app.close();
+});
