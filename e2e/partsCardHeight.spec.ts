@@ -121,6 +121,19 @@ test("the parts card keeps one height as verdicts land, scrolls a longer result,
     await expect(rows).toHaveCount(2);
     await expect(rows.nth(0)).toContainText("Checking");
     await expect(rows.nth(1)).toContainText("Checking");
+    // The card grows from its mark as it opens, so its box holds still only once that ends; the
+    // Checking rows' own motion runs on while the check does.
+    await expect
+      .poll(() =>
+        card.evaluate((element) =>
+          element.getAnimations().every((animation) => animation.playState !== "running"),
+        ),
+      )
+      .toBe(true);
+    // It opens to the rows it has, every one in view.
+    expect(await pane.evaluate((element) => element.scrollHeight <= element.clientHeight + 1)).toBe(
+      true,
+    );
     const before = await pane.boundingBox();
     if (!before) throw new Error("The parts card isn't drawn.");
 
