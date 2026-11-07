@@ -20,6 +20,7 @@ import { readMind } from "../../tests/helpers/minds";
 import { type CaseResult, fetchPapers, fetchReserves, reports, runCase } from "../everyday/asking";
 import { CASES, type LibraryName } from "../everyday/cases";
 import { writeDatedDocuments } from "../everyday/dated";
+import { judgeClaims } from "../everyday/judge";
 import { asEvalQuestion } from "../hard/lib/citations";
 import { fetchLibrary } from "../hard/lib/fetch";
 import { loadManifest } from "../hard/lib/manifest";
@@ -232,6 +233,8 @@ function questionItem(
             })),
           )
         : 0;
+      // A Question asked in a Note is offered no Tool that changes one: any change it claims is unmade.
+      const claimed = done ? (await judgeClaims(claimsJudge, answer.text, [])).unbacked : [];
       return {
         ...NOTHING,
         status: done ? "done" : "failed",
@@ -260,10 +263,12 @@ function questionItem(
         failures: [
           ...(toolTextIn(answer.text).length > 0 ? ["tool-text"] : []),
           ...(unstated === null ? ["false-supported-unread"] : []),
+          ...(claimed.length > 0 ? ["unbacked"] : []),
         ],
         // Each Citation not found, to tell a quote the model changed from one it put on the wrong page.
         text: [
           answer.text,
+          ...claimed.map((sentence) => `[unbacked] ${sentence}`),
           ...answer.citations
             .filter((citation) => citation.outcome !== "found")
             .map(
