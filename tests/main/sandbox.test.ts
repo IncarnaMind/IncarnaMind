@@ -45,6 +45,7 @@ import {
   MAC_DENIED,
   type OsExecutorOptions,
   readDeniedFolders,
+  sizedBwrap,
   withMacDenials,
 } from "../../src/main/sandbox";
 import { createTempDataFolder } from "../helpers/core";
@@ -345,6 +346,69 @@ test("bubblewrap's folders over denied ones and its /dev/shm hold 1 MB, and /dev
     "-c",
     "--tmpfs",
   ]);
+});
+
+describe.skipIf(process.platform === "win32")("the sized bubblewrap script", () => {
+  /**
+   * A made-up bubblewrap of this test's own, first on the PATH for the rest of the test, which
+   * says what `help` makes it say to `--help`.
+   */
+  async function theirBwrap(help: string) {
+    const root = await mkdtemp(join(tmpdir(), "incarnamind-bwrap-test-"));
+    const bin = join(root, "bin");
+    await mkdir(bin);
+    const bwrap = join(bin, "bwrap");
+    await writeFile(bwrap, `#!/bin/sh\n${help}\n`, { mode: 0o755 });
+    const path = process.env.PATH;
+    process.env.PATH = `${bin}:${path ?? ""}`;
+    onTestFinished(async () => {
+      if (path === undefined) delete process.env.PATH;
+      else process.env.PATH = path;
+      await rm(root, { recursive: true, force: true });
+    });
+    return { bwrap, temp: join(root, "tmp") };
+  }
+
+  test("two probes starting at once both get the sized script", async () => {
+    const { bwrap, temp } = await theirBwrap("echo '    --size BYTES  Set size of next tmpfs'");
+
+    const [first, second] = await Promise.all([sizedBwrap(temp), sizedBwrap(temp)]);
+
+    const script = join(temp, `incarnamind-bwrap-${process.getuid?.() ?? 0}`, "bwrap");
+    expect([first, second]).toEqual([
+      { kind: "sized", script },
+      { kind: "sized", script },
+    ]);
+    expect(await readFile(script, "utf8")).toBe(bwrapScript(bwrap));
+    expect(await readdir(dirname(script))).toEqual(["bwrap"]);
+  });
+
+  test("a bubblewrap that can't size a tmpfs runs as it is, not as missing", async () => {
+    const { temp } = await theirBwrap("echo '    --tmpfs DEST                 Mount new tmpfs'");
+
+    expect(await sizedBwrap(temp)).toEqual({ kind: "unsized" });
+  });
+
+  test("a probe that says nothing is reported, never taken for an old bubblewrap", async () => {
+    const { temp } = await theirBwrap("exit 1");
+
+    await expect(sizedBwrap(temp)).rejects.toThrow(/bwrap/);
+  });
+
+  test("no bubblewrap on the PATH is told apart from a failing probe", async () => {
+    const root = await mkdtemp(join(tmpdir(), "incarnamind-bwrap-test-"));
+    const bin = join(root, "bin");
+    await mkdir(bin);
+    const path = process.env.PATH;
+    process.env.PATH = bin;
+    onTestFinished(async () => {
+      if (path === undefined) delete process.env.PATH;
+      else process.env.PATH = path;
+      await rm(root, { recursive: true, force: true });
+    });
+
+    expect(await sizedBwrap(join(root, "tmp"))).toEqual({ kind: "missing" });
+  });
 });
 
 describe("the folders no program may read", () => {
@@ -1413,6 +1477,28 @@ console.log(JSON.stringify(results));
       ).rejects.toThrow(/network/);
 
       expect(existsSync(marker)).toBe(false);
+    });
+  },
+);
+
+// Last: loading the sandbox again leaves the shared configuration without a sized bubblewrap.
+test.runIf(process.platform === "linux")(
+  "with no bubblewrap on the PATH, the sandbox still reports the missing package",
+  async () => {
+    const root = await mkdtemp(join(tmpdir(), "incarnamind-bwrap-test-"));
+    const bin = join(root, "bin");
+    await mkdir(bin);
+    const path = process.env.PATH;
+    process.env.PATH = bin;
+    onTestFinished(async () => {
+      if (path === undefined) delete process.env.PATH;
+      else process.env.PATH = path;
+      await rm(root, { recursive: true, force: true });
+    });
+
+    expect(await loadOsSandbox()).toMatchObject({
+      available: false,
+      problem: { kind: "missing", packages: expect.arrayContaining(["bubblewrap"]) },
     });
   },
 );
