@@ -23,13 +23,30 @@ interface Admitted {
 // per sentence on the held-out sets (#1667).
 const QUICK_FIRST_LOOK: readonly Admitted[] = [];
 
-/** What tests and the evaluation decide instead of the list; undefined: the list's. */
+/**
+ * Models that write a check's verdict in the same reply as the `cite` call recording its quote,
+ * one request fewer per sentence (#2532). A model joins only once it holds
+ * eval/speed/gates/verdict-beside-cite.md on paired runs against today's check, and leaves the
+ * same way. A model not listed records its quote, then writes its verdict once `cite` returns.
+ */
+const VERDICT_BESIDE_CITE: readonly { model: string; since: string; gate: string }[] = [];
+
+/** What tests and the evaluation decide instead of the lists; undefined: the list's. */
 export interface CheckPathsOverride {
   quickFirstLook?(answers: ListedModel, quick: ListedModel): boolean | undefined;
+  verdictBesideCite?(model: ListedModel): boolean | undefined;
 }
 
 const named = ({ catalogId, modelId }: ListedModel) =>
   catalogId === null ? null : `${catalogId}/${withoutDateSuffix(modelId)}`;
+
+/** Whether a check on `model` asks for its verdict beside `cite`. */
+export function verdictBesideCite(model: ListedModel, override?: CheckPathsOverride): boolean {
+  const chosen = override?.verdictBesideCite?.(model);
+  if (chosen !== undefined) return chosen;
+  const name = named(model);
+  return VERDICT_BESIDE_CITE.some((each) => each.model === name);
+}
 
 /** Whether `quick` looks first at the sentences written under `answers`. */
 export function quickLooksFirst(

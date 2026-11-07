@@ -179,6 +179,7 @@ export function checkInstructions(
   figures = false,
   findsParts = false,
   library = false,
+  besideCite = false,
 ): string {
   // A sentence checked figure by figure names each figure's calculation on its Figures line.
   const REPLY =
@@ -194,6 +195,11 @@ export function checkInstructions(
         figures
           ? `Before replying, use cite to record every quote used by a requested figure or remainder, each under its own marker: ${RECORD}.`
           : `Before you reply, call cite with every quote used for the result, each under its own marker: ${RECORD}. This includes covered parts, supported domain members and the domain's membership when the whole sentence is unsupported. Use Evidence: [] only when no quote backs any part; never substitute handwritten markers for recorded Citations.`,
+        ...(besideCite && !figures
+          ? [
+              "Write your reply in the same turn as that cite call, after it: don't wait for cite to return. A quote cite can't find comes back to you to fix, with your reply.",
+            ]
+          : []),
         ...(calculate ? ["", calculationInstructions(figures)] : []),
         "",
         REPLY,

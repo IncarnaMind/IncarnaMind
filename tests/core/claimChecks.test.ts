@@ -815,6 +815,40 @@ describe("One claim check", () => {
     expect(model.doStreamCalls).toHaveLength(4);
   });
 
+  // protects=a model on the verdict-beside-cite list is told to reply beside cite, and its Run ends there once the quote is found, one request fewer (#2532); a model off the list is told nothing new and takes three; fails_when=the instruction goes to a model off the list, or a reply beside a found quote doesn't end the Run; no_claim=whether a real model follows it, which the gate measures.
+  test.each([
+    ["on the list", true, 2],
+    ["off the list", false, 3],
+  ] as const)(
+    "a model %s writes its verdict beside cite and ends there, or after it",
+    async (_, listed, requests) => {
+      const quote = "Spring tides happen at new moon and at full moon";
+      const told = "Write your reply in the same turn as that cite call";
+      const model = scriptedModel(
+        (call) => {
+          const searched = call.results.find((result) => result.tool === "search_documents");
+          if (!searched || !call.system.includes(told)) return checkReply(call, PLANS);
+          const passage = shownPassages(searched.text)[0]?.id;
+          return {
+            text: "Verdict: supported\nAbsence: no\nTides says spring tides come at new and full moon [^1].",
+            calls: [{ tool: "cite", input: { citations: [{ marker: 1, passage, quote }] } }],
+          };
+        },
+        { generate: checkGenerate(PLANS) },
+      );
+      const { core } = await setUpWithDocuments(model, [TIDES], {
+        checkPaths: { verdictBesideCite: () => listed },
+      });
+
+      expect(await core.checkClaim({ claim: SUPPORTED })).toMatchObject({
+        verdict: "supported",
+        evidence: { check: "found" },
+      });
+      expect(model.doStreamCalls).toHaveLength(requests);
+      expect(model.doStreamCalls.every((call) => JSON.stringify(call).includes(told))).toBe(listed);
+    },
+  );
+
   test("the quotes a sentence cites name their Document as it is now, and as cited once it is gone", async () => {
     const calls: ModelCall[] = [];
     const { core, client, check, tides } = await mindWith(

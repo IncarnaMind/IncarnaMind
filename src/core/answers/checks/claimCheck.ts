@@ -72,6 +72,7 @@ import type { WindowedPassage } from "../../documents/search";
 import { isRecord } from "../../errors";
 import type { Language } from "../../language";
 import { checkCalculates, givesStructuredOutput } from "../../providers/capabilities";
+import { type CheckPathsOverride, verdictBesideCite } from "../../providers/catalog/checkPaths";
 import type { PreparedChatModel } from "../../providers/chat";
 import { OUTPUT_LIMITS, outputTokens } from "../../providers/outputLimits";
 import { classifyProviderError } from "../../providers/providerErrors";
@@ -157,6 +158,8 @@ import { type BoundNumber, type CheckedText, dollarClause, unitNotStated } from 
 export interface ClaimCheckDependencies {
   /** The interface language: what a check's sentence is written in. */
   language(): Language;
+  /** What tests and the evaluation decide instead of the lists beside the catalog. */
+  checkPaths?: CheckPathsOverride;
   /** The wall a Document belongs to, or null when it belongs to none. */
   walledDocument(documentId: string): string | null;
   /** The name of that wall's Folder, or null when it belongs to none. */
@@ -598,6 +601,8 @@ export type CheckStart = Pick<ClaimCheckRequest, "claim" | "context" | "cited" |
   findsParts?: boolean;
   /** It may show the Library's facts (`ClaimCheckRequest.searched`), so it sorts as their checks do. */
   library?: boolean;
+  /** Its model writes the verdict in the same reply as `cite` (../../providers/catalog/checkPaths). */
+  besideCite?: boolean;
 };
 
 /** A check Run's instructions, for the way its model gives Citations, and its prompt. */
@@ -612,6 +617,7 @@ function runStart(request: CheckStart, language: Language, calculating: boolean)
         (request.figures?.length ?? 0) > 0,
         request.findsParts === true,
         request.library === true,
+        request.besideCite === true,
       ),
     prompt: (citedShown: string | null) => claimPrompt({ ...request, citedShown, language }),
   };
@@ -1184,6 +1190,10 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
         ...asked,
         findsParts: request.findParts !== undefined,
         library: deps.libraryFacts !== undefined,
+        besideCite: verdictBesideCite(
+          { catalogId: model.provider.catalogId, modelId: model.modelId },
+          deps.checkPaths,
+        ),
       },
       deps.language(),
       calculating,

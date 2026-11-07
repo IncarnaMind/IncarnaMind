@@ -51,7 +51,7 @@ import {
 } from "./pairedReport";
 import { percentile } from "./report";
 import { env, list, modelNamed, modelsAsked, spentUsd } from "./settings";
-import { writtenSet } from "./written";
+import { writtenSet, writtenThirdSet } from "./written";
 
 const ROOT = resolve(__dirname, "../..");
 const ANSWER_TIMEOUT_MS = 5 * 60_000;
@@ -124,6 +124,8 @@ function groupsOf(set: SetId, cacheDir: string): PairedGroup[] {
       return cellsSet(ROOT, ANSWER_TIMEOUT_MS);
     case "written":
       return writtenSet();
+    case "written3":
+      return writtenThirdSet();
     case "call-help":
       return callHelpSet();
   }

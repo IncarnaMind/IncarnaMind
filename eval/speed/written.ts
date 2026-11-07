@@ -23,8 +23,14 @@ import { openLibrary } from "../lib/library";
 import { SETS as CHECK_SETS, writeDocuments } from "../repeats/cases";
 import { marksOf, outcomeOf } from "../repeats/repeat";
 import type { GroupOptions, Measured, PairedGroup, PairedItem } from "./paired";
-import { WRITTEN_DOCUMENTS, WRITTEN_ITEMS, type WrittenItem } from "./writtenCases";
+import {
+  WRITTEN_DOCUMENTS,
+  WRITTEN_ITEMS,
+  type WrittenDocument,
+  type WrittenItem,
+} from "./writtenCases";
 import { HELD_OUT_DOCUMENTS, HELD_OUT_ITEMS } from "./writtenHeldOut";
+import { THIRD_DOCUMENTS, THIRD_ITEMS } from "./writtenHeldOut3";
 
 /** The 40-check set's Minds, as eval/repeats names them. */
 const FORTY = [
@@ -267,35 +273,42 @@ const planOf = (each: WrittenItem): Plan & { neverAsked: boolean } => ({
   neverAsked: each.fastPath === "none",
 });
 
+/** Each held-out case written alone, in a Note of its own and a Library of only its Documents. */
+function heldOutGroups(
+  setName: string,
+  setItems: readonly WrittenItem[],
+  setDocuments: readonly WrittenDocument[],
+): PairedGroup[] {
+  return setItems.map((each): PairedGroup => {
+    const writer = scriptedWriter();
+    const { language, library } = each;
+    return {
+      name: `${setName}-${language}-${each.id}`,
+      items: [item(each.id, each.kind, language, planOf(each), each.expected === "stated", writer)],
+      open: (base) =>
+        openWith(base, `paired-${setName}-${each.id}`, language, writer, async (folder) => {
+          const written: EvalDocument[] = [];
+          for (const document of setDocuments) {
+            if (document.language !== language || !document.libraries.includes(library)) continue;
+            const path = join(folder, document.file);
+            await writeFile(path, buildPdf(document.pages));
+            written.push({ key: document.file, path });
+          }
+          return written;
+        }),
+    };
+  });
+}
+
+/** The third held-out set alone (./writtenHeldOut3), for the verdict beside `cite` (#2532). */
+export const writtenThirdSet = (): PairedGroup[] =>
+  heldOutGroups("written3", THIRD_ITEMS, THIRD_DOCUMENTS);
+
 export function writtenSet(): PairedGroup[] {
-  const heldOut = (
-    [
-      ["written", WRITTEN_ITEMS, WRITTEN_DOCUMENTS],
-      ["written2", HELD_OUT_ITEMS, HELD_OUT_DOCUMENTS],
-    ] as const
-  ).flatMap(([setName, setItems, setDocuments]) =>
-    setItems.map((each): PairedGroup => {
-      const writer = scriptedWriter();
-      const { language, library } = each;
-      return {
-        name: `${setName}-${language}-${each.id}`,
-        items: [
-          item(each.id, each.kind, language, planOf(each), each.expected === "stated", writer),
-        ],
-        open: (base) =>
-          openWith(base, `paired-${setName}-${each.id}`, language, writer, async (folder) => {
-            const written: EvalDocument[] = [];
-            for (const document of setDocuments) {
-              if (document.language !== language || !document.libraries.includes(library)) continue;
-              const path = join(folder, document.file);
-              await writeFile(path, buildPdf(document.pages));
-              written.push({ key: document.file, path });
-            }
-            return written;
-          }),
-      };
-    }),
-  );
+  const heldOut = [
+    ...heldOutGroups("written", WRITTEN_ITEMS, WRITTEN_DOCUMENTS),
+    ...heldOutGroups("written2", HELD_OUT_ITEMS, HELD_OUT_DOCUMENTS),
+  ];
   const forty = CHECK_SETS.filter((set) => FORTY.includes(set.id)).map((set): PairedGroup => {
     const writer = scriptedWriter();
     return {

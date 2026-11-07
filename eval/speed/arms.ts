@@ -31,8 +31,8 @@ export interface Arm {
     writesThenCites?: boolean;
     retrievesFirst?: boolean;
   };
-  /** Whether the quick model looks first at every written sentence (#1667); unset: the list's. */
-  checks?: { quickFirstLook?: boolean };
+  /** Whether the quick model looks first at every written sentence (#1667), and whether a check's verdict comes beside `cite` (#2532); unset: the lists'. */
+  checks?: { quickFirstLook?: boolean; verdictBesideCite?: boolean };
 }
 
 /** The most of the live transcript `newest-stretch` keeps: some three minutes of talk. */
@@ -83,6 +83,12 @@ export const ARMS: readonly Arm[] = [
     label:
       "the quick-tasks model looks first at a written sentence, and only its plain yes stands (#1667)",
     checks: { quickFirstLook: true },
+  },
+  {
+    id: "verdict-beside-cite",
+    label:
+      "a check's verdict written in the same reply as its cite call, whatever the list says (#2532)",
+    checks: { verdictBesideCite: true },
   },
   {
     id: "default-effort",
@@ -141,6 +147,7 @@ export function armSwitch() {
   };
   const checkPaths: CheckPathsOverride = {
     quickFirstLook: () => current?.checks?.quickFirstLook,
+    verdictBesideCite: () => current?.checks?.verdictBesideCite,
   };
   return {
     chatModels:
