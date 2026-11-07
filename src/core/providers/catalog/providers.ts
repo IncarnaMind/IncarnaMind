@@ -36,7 +36,6 @@ export const CLAUDE_LOW_EFFORT: ProviderOptions = {
 const GEMINI_LOW: ProviderOptions = { google: { thinkingConfig: { thinkingLevel: "low" } } };
 const QWEN_THINKING_BUDGET = 512;
 const QWEN_BUDGET: ProviderOptions = { alibaba: { thinkingBudget: QWEN_THINKING_BUDGET } };
-const GLM_LOW: ProviderOptions = { zai: { reasoningEffort: "low" } };
 const OPENROUTER_LOW: ProviderOptions = { openrouter: { reasoning: { effort: "low" } } };
 // OpenRouter passes its reasoning budget to Qwen as `thinking_budget`.
 const OPENROUTER_QWEN: ProviderOptions = {
@@ -257,7 +256,7 @@ const PROVIDERS = [
     docsUrl: "https://ai.google.dev/gemini-api/docs/models",
     pricingUrl: "https://ai.google.dev/gemini-api/docs/pricing",
     request: {
-      effort: { models: { "gemini-3.8-flash": { answer: GEMINI_LOW, task: GEMINI_LOW } } },
+      effort: { models: { "gemini-3.8-flash": { answer: GEMINI_LOW } } },
     },
     roles: {
       answers: "gemini-3.8-flash",
@@ -319,9 +318,8 @@ const PROVIDERS = [
       thinkingOff: { options: { openrouter: { reasoning: { effort: "none" } } } },
       effort: {
         models: {
-          "google/gemini-3.8-flash": { answer: OPENROUTER_LOW, task: OPENROUTER_LOW },
-          "qwen/qwen3.7-plus": { answer: OPENROUTER_QWEN, task: OPENROUTER_QWEN },
-          "z-ai/glm-5.3-flash": { answer: OPENROUTER_LOW, task: OPENROUTER_LOW },
+          "google/gemini-3.8-flash": { answer: OPENROUTER_LOW },
+          "qwen/qwen3.7-plus": { task: OPENROUTER_QWEN },
         },
       },
     },
@@ -502,7 +500,7 @@ const PROVIDERS = [
     docsUrl: "https://www.alibabacloud.com/help/en/model-studio/regions",
     request: {
       thinkingOff: { options: { alibaba: { enableThinking: false } } },
-      effort: { models: { "qwen3.7-plus": { answer: QWEN_BUDGET, task: QWEN_BUDGET } } },
+      effort: { models: { "qwen3.7-plus": { task: QWEN_BUDGET } } },
     },
     roles: {
       answers: "qwen3.7-plus",
@@ -609,7 +607,6 @@ const PROVIDERS = [
         // GLM-5.3 and its Flash can't turn thinking off.
         unless: ["glm-5.3"],
       },
-      effort: { models: { "glm-5.3-flash": { answer: GLM_LOW, task: GLM_LOW } } },
     },
     roles: {
       answers: "glm-5.3-flash",

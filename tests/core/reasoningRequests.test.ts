@@ -357,29 +357,37 @@ describe("Each provider's own effort control (#1631)", () => {
     });
   });
 
-  // protects=on a provider whose reasoning isn't summarized, the models the catalog names get their own control for Answers and Tasks, and no other model or kind gets one; fails_when=a named model's Answer or Task lacks its control, or a careful Answer, a call of no kind or a model not named carries one; no_claim=the fake APIs don't check what each provider accepts.
+  // protects=on a provider whose reasoning isn't summarized, each kind the catalog names for a model gets that provider's own control (Gemini 3.8 Flash's Answers, Qwen3.7-Plus's Tasks), and every other kind and model, those measured and kept at the default included, gets none; fails_when=a named kind lacks its control, or another kind or model carries one; no_claim=the fake APIs don't check what each provider accepts.
   test.each([
     ["openrouter", "openai/gpt-6-luna", "answer", (b: Json) => b.reasoning, undefined],
-    ["openrouter", "google/gemini-3.8-flash", "task", (b: Json) => b.reasoning, { effort: "low" }],
-    ["openrouter", "z-ai/glm-5.3-flash", "answer", (b: Json) => b.reasoning, { effort: "low" }],
-    ["openrouter", "qwen/qwen3.7-plus", "answer", (b: Json) => b.reasoning, { max_tokens: 512 }],
+    [
+      "openrouter",
+      "google/gemini-3.8-flash",
+      "answer",
+      (b: Json) => b.reasoning,
+      { effort: "low" },
+    ],
+    ["openrouter", "google/gemini-3.8-flash", "task", (b: Json) => b.reasoning, undefined],
+    ["openrouter", "z-ai/glm-5.3-flash", "answer", (b: Json) => b.reasoning, undefined],
+    ["openrouter", "qwen/qwen3.7-plus", "task", (b: Json) => b.reasoning, { max_tokens: 512 }],
+    ["openrouter", "qwen/qwen3.7-plus", "answer", (b: Json) => b.reasoning, undefined],
     ["openrouter", "google/gemini-3.8-flash", "careful", (b: Json) => b.reasoning, undefined],
     ["openrouter", "google/gemini-3.8-flash", "summary", (b: Json) => b.reasoning, undefined],
     ["openrouter", "anthropic/claude-sonnet-5.5", "answer", (b: Json) => b.reasoning, undefined],
-    ["qwen", "qwen3.7-plus", "answer", (b: Json) => b.thinking_budget, 512],
     ["qwen", "qwen3.7-plus", "task", (b: Json) => b.thinking_budget, 512],
+    ["qwen", "qwen3.7-plus", "answer", (b: Json) => b.thinking_budget, undefined],
     ["qwen", "qwen3.7-plus", "careful", (b: Json) => b.thinking_budget, undefined],
-    ["qwen", "qwen3.8-max", "answer", (b: Json) => b.thinking_budget, undefined],
-    ["glm", "glm-5.3-flash", "answer", (b: Json) => b.reasoning_effort, "low"],
-    ["glm", "glm-5.3", "answer", (b: Json) => b.reasoning_effort, undefined],
+    ["qwen", "qwen3.8-max", "task", (b: Json) => b.thinking_budget, undefined],
+    ["glm", "glm-5.3-flash", "answer", (b: Json) => b.reasoning_effort, undefined],
+    ["glm", "glm-5.3-flash", "task", (b: Json) => b.reasoning_effort, undefined],
   ] as const)("%s's %s, %s", async (kind, modelId, thinking, read, expected) => {
     expect(read(await sent(kind, modelId, thinking, completion))).toEqual(expected);
   });
 
-  // protects=Gemini 3.8 Flash's Answers and Tasks think at level low, and another Gemini model or a careful Answer at Google's default; fails_when=Flash's Answer lacks thinkingLevel "low", or Gemini 3.1 Pro's or a careful Answer carries a thinking config; no_claim=the fake API doesn't check what Google accepts.
+  // protects=Gemini 3.8 Flash's Answers think at level low, and its Tasks, a careful Answer or another Gemini model at Google's default; fails_when=Flash's Answer lacks thinkingLevel "low", or its Task, a careful Answer or Gemini 3.1 Pro's carries a thinking config; no_claim=the fake API doesn't check what Google accepts.
   test.each([
     ["gemini-3.8-flash", "answer", { thinkingLevel: "low" }],
-    ["gemini-3.8-flash", "task", { thinkingLevel: "low" }],
+    ["gemini-3.8-flash", "task", undefined],
     ["gemini-3.8-flash", "careful", undefined],
     ["gemini-3.1-pro-preview", "answer", undefined],
   ] as const)("Google's %s, %s: thinking config %j", async (modelId, thinking, expected) => {
