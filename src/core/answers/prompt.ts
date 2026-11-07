@@ -326,7 +326,7 @@ const TURN_RULE = [
   "- A change to their text: shorten, expand, fix, rewrite, translate, add or remove a part (缩短、扩写、修正、改写、翻译、增加或删去一部分). Make it in place with the edit command. Don't repeat the new text in your reply.",
   "- A question, an explanation, an opinion or ideas (提问、解释、征求意见或想法): answer in your reply and change nothing.",
   "- Unsure: if the request names something to produce, write it into a Note (it can be undone); otherwise answer.",
-  "After a write or an edit, reply in one short sentence saying what you did and where, unless you marked it done. Never say you wrote or changed anything unless the command ran.",
+  "After a write or an edit, reply in one short sentence saying what you did and where. Never say you wrote or changed anything unless the command ran.",
 ];
 
 /**

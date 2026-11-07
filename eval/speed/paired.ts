@@ -543,7 +543,7 @@ const WRITE_FLOWS = [
   "assistant-write-and-ask",
 ] as const;
 /** Of them, those that ask for something after the write: only a reply can say it. */
-const SAYS_AFTER: ReadonlySet<string> = new Set([
+export const ASKS_REPLY: ReadonlySet<string> = new Set([
   "assistant-write-and-say",
   "assistant-write-and-ask",
 ]);
@@ -590,7 +590,7 @@ export function writesSet(): PairedGroup[] {
                 ),
                 failures: [
                   ...(toolTextIn(answer.text).length > 0 ? ["tool-text"] : []),
-                  ...(SAYS_AFTER.has(id) && answer.text.trim() === "" ? ["no-reply"] : []),
+                  ...(ASKS_REPLY.has(id) && answer.text.trim() === "" ? ["no-reply"] : []),
                 ],
                 text: [
                   answer.text,
@@ -770,17 +770,23 @@ export async function runOnArm(
   const tagged =
     begun === null
       ? []
-      : queryDatabase<{ started_at: string; step: string | null }>(
+      : queryDatabase<{ started_at: string; step: string | null; first_tool_ms: number | null }>(
           context.library.dataDir,
-          "SELECT started_at, step FROM ai_timings WHERE kind = 'model' AND started_at >= ?",
+          "SELECT started_at, step, first_tool_ms FROM ai_timings WHERE kind = 'model' AND started_at >= ? ORDER BY started_at",
           [begunAt],
         ).filter(
           (row) => doneMs === null || Date.parse(row.started_at) <= Date.parse(begunAt) + doneMs,
         );
   const own = tagged.filter((row) => row.step === null);
   const ofStep = (step: string) => tagged.filter((row) => row.step === step).length;
+  // Ended at its write only if the Run stopped after a step that called a Tool: a reply the model
+  // left blank after the Run went on isn't that.
+  const stoppedAtTool = own.at(-1)?.first_tool_ms != null;
   return {
     ...measured,
+    ...(measured.endedAtWrite !== undefined && {
+      endedAtWrite: measured.endedAtWrite && stoppedAtTool,
+    }),
     answerCalls: own.length,
     firstSignMs: sign,
     firstWordsMs:

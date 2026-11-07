@@ -2097,8 +2097,7 @@ export function mindTools(options: MindToolsOptions): {
   /** A call of this Answer was refused, or its result had something to say: the reply says it. */
   let saidSomething = false;
   // Sentences that couldn't be checked, or past the most a write checks, are on the lines under
-  // the Answer; a sentence flagged or cut is only in the Note, and a write with Citations that
-  // wasn't checked at all is nowhere.
+  // the Answer; a sentence flagged, or what a check cut, shows only in the Note.
   const saysAll = (
     mind: ChangeableMind,
     written: Written & { change: MindChange },
@@ -2113,9 +2112,8 @@ export function mindTools(options: MindToolsOptions): {
       !change.unlinkedSources &&
       !change.droppedSources &&
       !change.extraCells &&
-      (checked === null
-        ? !change.cited
-        : checked.cut.length === 0 && checked.unsupported === 0 && checked.contradicted === 0)
+      (checked === null ||
+        (checked.cut.length === 0 && checked.unsupported === 0 && checked.contradicted === 0))
     );
   };
   const endable = (result: string, all: boolean): string => {

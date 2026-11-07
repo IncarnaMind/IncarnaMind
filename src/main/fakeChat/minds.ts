@@ -44,6 +44,7 @@
  * the packing list" gives its new text, one item changed, one left out and one added.
  * "Summarise my leases without citing" (不加引用地总结我的租约) searches, then writes a summary
  * with no Citation into a new Mind, and again as it was once told it has none (#1415).
+ * "Note down X" (记下 X) adds X to the Mind in focus, marked done, so the turn ends with it (#1635).
  */
 
 import { answerReply, CITED_ANSWER } from "./answers";
@@ -226,6 +227,7 @@ const firstSentence = (result: string) => /^[^.。]*[.。]?/u.exec(result)?.[0] 
  */
 /** "Say you added the risks" (说你加了风险部分): a reply that claims a write no call made (#1559). */
 const CLAIMS_A_WRITE = /^say you added the risks|^说你加了风险部分/i;
+const NOTE_DOWN = /^(?:note down|记下)\s*(.+)$/i;
 const UNCITED_SUMMARY = /\bsummari[sz]e my leases without citing\b|不加引用地总结我的租约/i;
 
 export function mindsReply(prompt: Prompt, asked: string, names: readonly string[]): Reply | null {
@@ -252,6 +254,13 @@ export function mindsReply(prompt: Prompt, asked: string, names: readonly string
     if (edits < 2)
       return { tool: "edit_mind", input: { part: "Summary", instruction: "make it longer" } };
     return { text: "Made the summary in “Summary” longer twice." };
+  }
+  const noted = NOTE_DOWN.exec(question);
+  if (noted) {
+    const added = lastResult(prompt, "add_to_mind");
+    if (added === undefined)
+      return { tool: "add_to_mind", input: { content: noted[1], done: true } };
+    return { text: firstSentence(added) };
   }
   const paragraphs = paragraphsReply(prompt, question);
   if (paragraphs) return paragraphs;

@@ -3,7 +3,7 @@
  * calls and tokens, the candidate against the baseline item by item, and the quality guards, each
  * held or not; then every item, both arms side by side.
  */
-import type { ArmRun, Language, RequestTiming, SetId } from "./paired";
+import { type ArmRun, ASKS_REPLY, type Language, type RequestTiming, type SetId } from "./paired";
 import { percentile } from "./report";
 
 export interface PairedRow {
@@ -228,9 +228,10 @@ export function pairedSection(
     const marked = rows.map(run).filter((each) => each.markedDone);
     return `${marked.filter((each) => !each.endedAtWrite).length} of ${marked.length}`;
   };
-  // Every run, finished or not: one ended with no reply where the item asked for one counts.
+  // Every run of an item that asks for a reply, finished or not.
+  const asking = rows.filter((row) => ASKS_REPLY.has(row.id));
   const noReply = (run: (row: PairedRow) => ArmRun) =>
-    `${rows.map(run).filter((each) => each.failures.includes("no-reply")).length} of ${rows.length}`;
+    `${asking.map(run).filter((each) => each.failures.includes("no-reply")).length} of ${asking.length}`;
   const holds = (each: Guard) =>
     `${each.holds ? "yes" : "**no**"}${each.allowed > 0 ? ` (${each.allowed} fewer allowed)` : ""}`;
   const rule = (each: Guard) =>

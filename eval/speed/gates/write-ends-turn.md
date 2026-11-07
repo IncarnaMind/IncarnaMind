@@ -50,3 +50,14 @@ A first paired run on Claude Haiku 5.5 (12 pairs of `writes`, $0.52) was stopped
 The runs change in two places. Sonnet's held-out flows run paired, both arms, once per language, since the flows runner keeps no reply to read. Bar 1 is read from the report's "No reply where one was asked for" row, over every run. The report also gives "Marked done, still replied". Sonnet's `main` runs used `main`'s code with this step's eight-paragraph flow added to `eval/speed/flows.ts`, and no other change.
 
 The bars are unchanged.
+
+## Amended again 2026-11-07, before any counted run
+
+A second paired run on Claude Haiku 5.5 (9 pairs of `writes`, $0.37) was stopped when a second review of the fixes found the new wording of the turn rule could keep the model silent exactly when the engine keeps the turn open (text beside the write, an earlier refusal, a run asked again, a flagged sentence). It is not counted. The step changes again:
+
+- **The turn rule is `main`'s again:** reply after a write or an edit, in one short sentence. A done write that says all never reaches it, since the Run ends before another call; one that doesn't is replied to as today. So `write-replies` now differs from `today` only in the Tools' `done`.
+- **A write whose check didn't run at all** (checks turned off, Local mode, a model too small to judge) no longer keeps the reply: the model is told nothing about it, so its reply couldn't say it either.
+- **The lines under the Answer** say "Checked 12 sentences", and add "· 2 claims not checked yet" while the Note is open, as a Note written into from the assistant is.
+- **"Ended at the write"** now counts a run only if the Run stopped after a step that called a Tool, so a blank reply the model wrote after the Run went on is not counted as an end. **"No reply where one was asked for"** counts over the held-out flows' runs.
+
+The bars are unchanged.
