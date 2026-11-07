@@ -75,7 +75,7 @@ import {
 } from "../../shared/locations";
 import { holdsNothing, madeByAnswer } from "../../shared/madeMind";
 import { linkTableSources } from "../../shared/markdownTables";
-import type { MeetingHelpKind } from "../../shared/meetingHelp";
+import { HELP_SHAPE, type MeetingHelpKind } from "../../shared/meetingHelp";
 import {
   linkKnownSources,
   type NamedSource,
@@ -337,6 +337,8 @@ import {
   FOUND_TOKEN_LIMIT,
   foundWithin,
   HELP_DOCUMENTS,
+  HELP_REPLY_PROPERTIES,
+  helpReplyText,
   LIVE_TEXT_BEHIND_NOTE,
   languageSaid,
   meetingHelpInstructions,
@@ -3417,9 +3419,15 @@ export function createAnswers(options: AnswersOptions) {
       // cites in a way that list didn't admit it to (#1633).
       const writeFirst = options.writesThenCites?.(prepared, flow) ?? false;
       const recordsFirst =
-        Boolean(help) &&
+        help &&
         givesStructuredOutput(prepared.capabilities) !== false &&
-        (options.helpsInOneReply?.(prepared, flow) ?? false);
+        (options.helpsInOneReply?.(prepared, flow) ?? false)
+          ? {
+              properties: HELP_REPLY_PROPERTIES,
+              text: (reply: Readonly<Record<string, unknown>>) =>
+                helpReplyText(HELP_SHAPE[help], reply),
+            }
+          : undefined;
       for await (const event of engine.generate({
         instructions: (
           mode,
@@ -3452,7 +3460,12 @@ export function createAnswers(options: AnswersOptions) {
                   scoped,
                   calculating,
                   withMindTools || ids.size() > 0,
-                  { writeFirst, minds: withMindTools, library, recordsFirst },
+                  {
+                    writeFirst,
+                    minds: withMindTools,
+                    library,
+                    recordsFirst: recordsFirst !== undefined,
+                  },
                 ),
             inAssistant && !help ? SEARCH_SCOPE_RULE : "",
             stillReadingNote(options.documents.reading(documentIds)),
@@ -3524,7 +3537,7 @@ export function createAnswers(options: AnswersOptions) {
         support: startingSupport(prepared.support, supportByModel.get(learntKey)),
         writeThenCite: writeFirst,
         retrieveFirst,
-        recordsFirst,
+        ...(recordsFirst && { recordsFirst }),
         structuredOutput: givesStructuredOutput(prepared.capabilities),
         takesTemperature: prepared.capabilities.facts.temperature,
         window: prepared.window,

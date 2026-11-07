@@ -6,6 +6,7 @@
  */
 
 import { HELP_SHAPE, type HelpShape, type MeetingHelpKind } from "../../shared/meetingHelp";
+import { isRecord } from "../../shared/record";
 import type { WindowedPassage } from "../documents/search";
 import { LANGUAGE_NAMES, type Language } from "../language";
 import { estimateTokens } from "./context";
@@ -210,4 +211,54 @@ export function meetingHelpInstructions(
       ? `- The call is in ${callLanguage}: write all of it in ${callLanguage}, the "→" lines too, though the Question and the User's interface may be in another language. This overrides every other rule on the language to write in.`
       : `- Write in ${LANGUAGE_NAMES[language]}.`,
   ].join("\n");
+}
+
+/**
+ * A button's reply given as fields of one structured reply (#2526), after its records: the line
+ * before the options where the button asks for one, then each option, reading or line. The model
+ * writes none of the form's own marks: inside JSON, Claude Sonnet 5.5 sometimes wrote "★" and
+ * "→" as their bytes read in another encoding ("β˜…", "β†’"), and the panel then found no option.
+ */
+export const HELP_REPLY_PROPERTIES = {
+  lead: { type: "string" },
+  items: {
+    type: "array",
+    items: {
+      type: "object",
+      properties: {
+        line: { type: "string" },
+        moment: { type: "string" },
+        leadsTo: { type: "string" },
+      },
+      required: ["line", "moment", "leadsTo"],
+      additionalProperties: false,
+    },
+  },
+} as const;
+
+const field = (value: unknown, key: string): string => {
+  const given = isRecord(value) ? value[key] : undefined;
+  return typeof given === "string" ? given.trim() : "";
+};
+
+/** The reply's text in its button's form, from its fields as given so far, the panel laying it out by its first characters. */
+export function helpReplyText(shape: HelpShape, reply: unknown): string {
+  const lead = field(reply, "lead");
+  const items = isRecord(reply) && Array.isArray(reply.items) ? reply.items : [];
+  const written = items.flatMap((item, index) => {
+    const line = field(item, "line");
+    if (!line) return [];
+    if (shape === "lines") return [`- ${line}`];
+    const moment = field(item, "moment");
+    const leadsTo = field(item, "leadsTo");
+    return [
+      [
+        `${index === 0 ? "★ " : ""}${line}`,
+        ...(shape === "readings" && moment ? [moment] : []),
+        ...(leadsTo ? [`→ ${leadsTo}`] : []),
+      ].join("\n"),
+    ];
+  });
+  const body = written.join(shape === "lines" ? "\n" : "\n\n");
+  return [lead, body].filter(Boolean).join("\n\n");
 }

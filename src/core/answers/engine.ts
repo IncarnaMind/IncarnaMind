@@ -73,6 +73,7 @@ import {
   streamText,
 } from "ai";
 import { FiguresNotRead } from "../../shared/figures";
+import { isRecord } from "../../shared/record";
 import type {
   AnswerPhase,
   CitationSupport,
@@ -480,11 +481,15 @@ export interface AnswerRequest {
   /** In the Tool loop, the model writes the Answer, then cites it in the same reply (#489). */
   writeThenCite?: boolean;
   /**
-   * Answered first in one structured reply, its records before the Answer, from the Passages the
-   * messages hold, with no search: call help on a model the list admits (#2526). A model whose
-   * reply isn't JSON after all answers in the Tool loop.
+   * Answered first in one structured reply, its records before the reply's `properties`, from the
+   * Passages the messages hold, with no search: call help on a model the list admits (#2526).
+   * `text` writes the Answer from those properties as given so far. A model whose reply isn't JSON
+   * after all, or gives no text, answers in the Tool loop.
    */
-  recordsFirst?: boolean;
+  recordsFirst?: {
+    properties: Readonly<Record<string, unknown>>;
+    text(reply: Readonly<Record<string, unknown>>): string;
+  };
   /**
    * In the Tool loop, search the Question's own words before the first call, so the model can
    * answer from those Passages without searching; it searches on when they aren't enough.
@@ -2519,13 +2524,15 @@ async function* structured(
       schema: jsonSchema<{ answer: string; citations: unknown; calculations?: unknown }>({
         type: "object",
         properties: request.recordsFirst
-          ? { citations: citationsSchema, answer: answerSchema }
+          ? { citations: citationsSchema, ...request.recordsFirst.properties }
           : {
               answer: answerSchema,
               citations: citationsSchema,
               ...(request.documents.calculate && { calculations: calculationsSchema }),
             },
-        required: ["answer", "citations"],
+        required: request.recordsFirst
+          ? ["citations", ...Object.keys(request.recordsFirst.properties)]
+          : ["answer", "citations"],
       }),
       name: "answer",
     }),
@@ -2535,6 +2542,12 @@ async function* structured(
 
   let raw = "";
   let emitted = "";
+  const answerOf = (value: unknown): unknown =>
+    request.recordsFirst
+      ? isRecord(value)
+        ? request.recordsFirst.text(value)
+        : undefined
+      : (value as { answer?: unknown } | undefined)?.answer;
   const reasoning = reasoningReader();
   const emit = function* (value: unknown): Generator<AnswerEngineEvent> {
     if (typeof value !== "string" || value === emitted) return;
@@ -2551,7 +2564,7 @@ async function* structured(
       } else if (part.type === "text-delta") {
         raw += part.text;
         const { value } = await parseAnswerJson(raw);
-        yield* emit((value as { answer?: unknown } | undefined)?.answer);
+        yield* emit(answerOf(value));
       } else if (part.type === "finish-step") {
         yield { type: "usage", usage: tokenUsageOf(part.usage) };
         if (part.usage.inputTokens) sized?.learn(part.usage.inputTokens);
@@ -2571,9 +2584,10 @@ async function* structured(
   }
   if (signal.aborted) return;
   const value = await replyJson(raw);
-  const answer = (value as { answer?: unknown } | undefined)?.answer;
-  // The model didn't answer in JSON after all: it can't do structured output.
-  if (typeof answer !== "string" && !emitted) {
+  const answer = answerOf(value);
+  // The model didn't answer in JSON after all: it can't do structured output. One whose records
+  // came first but gave no text answers another way too.
+  if ((typeof answer !== "string" || (request.recordsFirst && answer.trim() === "")) && !emitted) {
     yield { type: "unsupported" };
     return;
   }

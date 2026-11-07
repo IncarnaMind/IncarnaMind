@@ -8,6 +8,7 @@
 import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
 import type { Core, CoreAdapters, Meeting, MeetingHelpKind } from "../../src/core";
+import { helpReplyText } from "../../src/core/answers/meetingHelp";
 import { CITE_RETRY_INSTRUCTIONS } from "../../src/core/answers/prompt";
 import { setMindModel } from "../../src/shared/mindModel";
 import { answerEnded, shownPassages } from "../helpers/citations";
@@ -46,21 +47,29 @@ function helpingModel(calls: ModelCall[]) {
 const HELP_FORM =
   "★ Yes, Enterprise is $45 a seat [^1]\n→ answers at once\n\nI'll send the price sheet\n→ buys time";
 
+/** HELP_FORM's options as the fields of one structured reply. */
+const HELP_ITEMS = [
+  { line: "Yes, Enterprise is $45 a seat [^1]", moment: "", leadsTo: "answers at once" },
+  { line: "I'll send the price sheet", moment: "", leadsTo: "buys time" },
+];
+
 /**
  * A model asked for one JSON reply that gives its record of the Passage found ahead first, then
- * the help form; asked in the Tool loop, as `helpingModel` answers. `json: false`: its JSON reply
- * is prose instead, as a model's that can't give structured output is.
+ * the help form's fields; asked in the Tool loop, as `helpingModel` answers. `reply: "prose"`: its
+ * JSON reply is words instead, as a model's that can't give structured output is; `"empty"`: its
+ * records come with no item.
  */
-function oneReplyModel(calls: ModelCall[], { json = true } = {}) {
+function oneReplyModel(calls: ModelCall[], { reply = "items" } = {}) {
   return scriptedModel((call) => {
     if (!call.json) return loopReply(call, calls);
     calls.push(call);
     const [found] = shownPassages(block(call.prompt, "found-in-documents") ?? "");
-    if (!json || !found) return { text: "I'd rather answer in words." };
+    if (reply === "prose" || !found) return { text: "I'd rather answer in words." };
     return {
       text: JSON.stringify({
         citations: [{ marker: 1, passage: found.id, location: "lines 1–5", quote: PRICE }],
-        answer: HELP_FORM,
+        lead: "",
+        items: reply === "empty" ? [] : HELP_ITEMS,
       }),
     };
   });
@@ -252,17 +261,20 @@ describe("Help during the call", { timeout: 60_000 }, () => {
     expect(only?.tools).toEqual([]);
     expect(only?.system).toContain('Reply with one JSON object, its records first: {"citations"');
     const schema = JSON.stringify(only?.options.responseFormat);
-    expect(schema.indexOf('"citations"')).toBeLessThan(schema.indexOf('"answer"'));
+    expect(schema.indexOf('"citations"')).toBeLessThan(schema.indexOf('"items"'));
     expect(answer.text).toBe(HELP_FORM);
     expect(answer.citations).toEqual([
       expect.objectContaining({ documentName: "Price sheet", quote: PRICE, check: "found" }),
     ]);
   });
 
-  // protects=a model the list admits whose reply isn't JSON after all still answers, in the Tool loop; fails_when=the press fails or ends with no reply; no_claim=none beyond protects (#2526).
-  test("a model whose one reply isn't JSON answers in the Tool loop instead", async () => {
+  // protects=a model the list admits whose reply isn't JSON after all, or gives its records and no item, still answers, in the Tool loop; fails_when=the press fails or ends with nothing shown; no_claim=none beyond protects (#2526).
+  test.each([
+    ["isn't JSON", "prose"],
+    ["gives no item", "empty"],
+  ])("a model whose one reply %s answers in the Tool loop instead", async (_, reply) => {
     const { core, meeting, calls } = await setUp(addPriceSheet, undefined, {
-      model: (calls) => oneReplyModel(calls, { json: false }),
+      model: (calls) => oneReplyModel(calls, { reply }),
       answerPaths: { helpsInOneReply: () => true },
     });
 
@@ -274,6 +286,39 @@ describe("Help during the call", { timeout: 60_000 }, () => {
     expect(answer.citations).toEqual([
       expect.objectContaining({ documentName: "Price sheet", quote: PRICE, check: "found" }),
     ]);
+  });
+
+  // protects=one reply's fields are laid out in each button's form, its marks written by IncarnaMind, a lead-in line first where there is one; fails_when=a mark is missing, doubled, or a field lands in the wrong place; no_claim=none beyond protects (#2526).
+  test("one reply's fields are laid out in each button's form", () => {
+    expect(helpReplyText("options", { lead: "", items: HELP_ITEMS })).toBe(HELP_FORM);
+    expect(
+      helpReplyText("readings", {
+        lead: "",
+        items: [
+          {
+            line: "They want it under £10k",
+            moment: "12:04 “ten thousand” [^1]",
+            leadsTo: "give the tiered price",
+          },
+        ],
+      }),
+    ).toBe("★ They want it under £10k\n12:04 “ten thousand” [^1]\n→ give the tiered price");
+    expect(
+      helpReplyText("lines", {
+        lead: "",
+        items: [
+          { line: "The launch moves to 18 November [^1]", moment: "", leadsTo: "" },
+          { line: "Dana confirms the date", moment: "", leadsTo: "" },
+        ],
+      }),
+    ).toBe("- The launch moves to 18 November [^1]\n- Dana confirms the date");
+    expect(
+      helpReplyText("options", {
+        lead: "Yes: it suggests the answer.",
+        items: [{ line: "What happened next?", moment: "", leadsTo: "lets them tell it" }],
+      }),
+    ).toBe("Yes: it suggests the answer.\n\n★ What happened next?\n→ lets them tell it");
+    expect(helpReplyText("options", { items: [{ line: "Half a li" }] })).toBe("★ Half a li");
   });
 
   // protects=a button pressed while the live text is behind and has no line yet is answered with one plain line saying so, in the User's language, without asking the model; fails_when=the model is asked and may tell the User to retype what was said; no_claim=the panel's drawing of it (the smoke test) (#1366).
