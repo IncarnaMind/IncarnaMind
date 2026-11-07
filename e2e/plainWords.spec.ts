@@ -164,6 +164,8 @@ for (const language of ["en", "zh-CN"] as const) {
       // dialog, which Escape closes with nothing linked.
       await answer({ canceled: false, filePaths: [folder] });
       await runCommand(window, "linkedFolder.add", link);
+      // ⌘K closes before the dialog takes Esc: a key pressed while it is still closing is its own.
+      await expect(window.getByTestId("palette")).toBeHidden();
       await expect.poll(async () => (await asked()).length).toBe(1);
       await expect(dialog).toBeVisible();
       await expect(dialog.getByTestId("link-folder-files")).toBeVisible();

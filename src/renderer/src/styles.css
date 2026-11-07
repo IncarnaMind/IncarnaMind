@@ -8780,16 +8780,10 @@
   .answer-steps-part--end {
     padding-left: 6px;
   }
-  /*
-   * The Documents read beside the Mind: the count stays whole as the line narrows, the Mind's
-   * name giving way first. A long Document's name is cut at what the line has left after the
-   * words before the Mind and the room its name keeps (any shrinking at all would ellipsise the
-   * count's last word), and the chevron stays.
-   */
+  /* A Document named beside the Mind: a long name is cut, and the chevron stays. A count has no such class: it never shrinks, and the Mind's name gives way to it. */
   .answer-steps-part--tail {
-    flex: 0 0 auto;
+    flex: 0 1 auto;
     min-width: 0;
-    max-width: calc(100% - 6rem);
   }
   .answer-steps-tail {
     min-width: 0;

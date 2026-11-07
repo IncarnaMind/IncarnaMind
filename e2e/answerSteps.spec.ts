@@ -765,11 +765,28 @@ test("Documents sent whole are read whether or not the Answer cites them: the li
   await expect(line).toHaveText("Read “Credit report draft” and 2 Documents");
   // In the narrowest assistant the Note's name gives way and the count stays whole.
   await sizeAssistant(window, 280);
-  const tail = line.locator(".answer-steps-tail");
+  // The count's part is the line's last button: it keeps its whole width, inside the line, and
+  // the Note's name is what is cut.
+  const tail = line.locator("button").last();
   await expect(tail).toHaveText("” and 2 Documents");
+  const [lineBox, tailBox, nameBox] = await Promise.all([
+    line.boundingBox(),
+    tail.boundingBox(),
+    line.getByTestId("answer-steps-mind").boundingBox(),
+  ]);
+  if (!lineBox || !tailBox || !nameBox) throw new Error("The step line isn't showing.");
+  expect(tailBox.x + tailBox.width, "the count ends inside the line").toBeLessThanOrEqual(
+    lineBox.x + lineBox.width + 1,
+  );
   expect(
     await tail.evaluate((element) => element.scrollWidth <= element.clientWidth),
     "the count is drawn whole",
+  ).toBe(true);
+  expect(
+    await line
+      .getByTestId("answer-steps-mind")
+      .evaluate((element) => element.scrollWidth > element.clientWidth),
+    "the Note's name gives way",
   ).toBe(true);
   const timeline = await openSteps(window, answer);
   expect(await stepsOf(timeline)).toEqual(["answered", "read", "read-documents"]);
