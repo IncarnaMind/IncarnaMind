@@ -98,12 +98,12 @@ export function planReply(
     (each) => isRecord(each) && typeof each.name === "string" && each.name.endsWith(folder.name),
   );
   const id = isRecord(known) && typeof known.id === "string" ? known.id : "";
+  const key = id || "N1";
   const reply =
     "language" in data
       ? {
-          folders: [
-            { id, name: id ? "" : folder.name, description: folder.description, documents: refs },
-          ],
+          folders: [{ key, name: id ? "" : folder.name, description: folder.description }],
+          documents: refs.map((ref) => ({ ref, folder: key })),
         }
       : { placements: refs.map((ref) => ({ ref, folder: id || "none" })) };
   return { text: JSON.stringify(reply), documents: refs.length };
