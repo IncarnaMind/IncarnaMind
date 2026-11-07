@@ -3,6 +3,7 @@ import { join, resolve } from "node:path";
 import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
 import type { Editor } from "@tiptap/core";
 import type { CoreBridge, Meeting } from "../src/core/api";
+import { FAKE_LINES, FAKE_THEIR_LINES } from "../src/core/transcription/fake";
 import { FAKE_CLOUD_LINES } from "../src/core/transcription/fakeCloud";
 import {
   acceptPlainTextKeys,
@@ -314,6 +315,43 @@ for (const language of ["en", "zh-CN"] as const) {
     await shot(window, `meeting-page-beside-${language}-1440`);
     await pointAndClick(window, bar.getByTestId("meeting-stop"));
     await expect(panel.getByTestId("meeting-bar")).toHaveCount(0);
+    await app.close();
+  });
+
+  // protects=on this computer, a streaming model's words being said show in the Transcript view before any line is finished, both sides' (#138, #2662); fails_when=the live view waits for a finished line, or one side's words are missing; no_claim=the real streaming model, which the packaged spec reads.
+  test(`on this computer, the Transcript shows a streaming model's words being said, before any line (${language})`, async () => {
+    const words = WORDS[language];
+    const { app, window } = await launchApp(dataDir, {
+      transcriber: { live: true, maxSpeechMs: 15_000 },
+    });
+    await setWindowSize(app, window, 900, 660);
+    await dismissChatSetup(window);
+    await setLanguage(window, language);
+    await window.evaluate(() =>
+      (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.updateSettings({
+        device: { meetingNoticeAccepted: true },
+      }),
+    );
+
+    const bar = await recordMeetingNow(window);
+    const { panel } = await notePanel(window);
+    await pointAndClick(
+      window,
+      bar.getByTestId("meeting-views").locator("label").filter({ hasText: words.transcript }),
+    );
+    const transcript = panel.getByTestId("meeting-note-transcript");
+    const partials = transcript.getByTestId("transcript-partial");
+    await expect(partials).toHaveCount(2);
+    await expect(transcript.getByTestId("transcript-line")).toHaveCount(0);
+    expect((await partials.getByTestId("transcript-speaker").allInnerTexts()).sort()).toEqual(
+      [...words.speakers].sort(),
+    );
+    for (const said of await partials.locator(".transcript-text").allInnerTexts()) {
+      expect(
+        [...FAKE_LINES, ...FAKE_THEIR_LINES].some((line) => line.startsWith(said.trim())),
+      ).toBe(true);
+    }
+    await pointAndClick(window, bar.getByTestId("meeting-stop"));
     await app.close();
   });
 
