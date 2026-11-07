@@ -37,7 +37,12 @@ test("heading meaning stays in the generation, not in a heading-name list", () =
     "Write the User, who reads these notes, in the first person (I, my; 我 in Chinese), even when the call gave their name",
   );
   expect(prompt).toContain(
-    "Name everyone else as they introduced themselves or were named in the call",
+    "Name everyone else as they introduced themselves or were named in the call, on either side: a named person is never the other side, 对方 or they",
+  );
+  expect(prompt).toContain("as we or our (我们) where they spoke for their side");
+  expect(prompt).toContain("in English Me is I, Them is the other side");
+  expect(prompt).toContain(
+    "Write a decision once, as finally agreed: not the proposal and then its confirmation, and never its figures twice",
   );
   expect(prompt).toContain(
     "The speaker marks (Me, Them and numbered voices, or their translations) are not names",
