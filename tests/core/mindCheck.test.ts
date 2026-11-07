@@ -8,13 +8,15 @@ import type { JSONContent } from "@tiptap/core";
 import { wrapLanguageModel } from "ai";
 import { describe, expect, test, vi } from "vitest";
 import * as Y from "yjs";
-import type { CheckMindInput, Core, Reranker } from "../../src/core";
+import { type CheckMindInput, type Core, MindReadOnlyError, type Reranker } from "../../src/core";
 import { documentFigureContext } from "../../src/core/answers/calculations";
 import { claimPartsReader } from "../../src/core/answers/checks/claims";
 import { updateCheck } from "../../src/core/answers/checks/sentences";
 import {
   CLAIM_CHECK_MARK,
   type ClaimCheckAttributes,
+  CONTENT_SCHEMA_VERSION,
+  CONTENT_SCHEMA_VERSION_KEY,
   MIND_SETTINGS_FIELD,
 } from "../../src/core/api";
 import { createFakeCrossEncoder } from "../../src/core/reranking/fake";
@@ -2083,4 +2085,69 @@ test("a check's search, from any flow, waits behind a Cite… search asked after
 
   expect(scored.slice(0, 3)).toEqual(["spring tides", "full moon", asked[1]]);
   core.close();
+});
+
+// protects=a Note a newer version writes while Check this note runs hears each sentence once: every sentence is still checked, the first mark that can't be written is logged once with the Note's id, and the Check ends with a problem the User can read instead of the sentence being filed as failed and the rest left unchecked (#2543); fails_when=the mark's throw is filed as its sentence's failure and throws again, so the sentence after it is never sent, or the error is never logged; no_claim=how the card words a check that failed.
+test("Check this note checks every sentence and says once when a mark can't be written", async () => {
+  const calls: ModelCall[] = [];
+  let page: MindClient | null = null;
+  let newer: Promise<void> | null = null;
+  const plans: Record<string, Plan> = {
+    [MOON]: { verdict: "supported", quote: MOON },
+    [YEARLY]: { verdict: "supported", quote: YEARLY },
+  };
+  const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  try {
+    const model = scriptedModel(
+      (call) => {
+        calls.push(call);
+        if (!isCheckRun(call) || call.results.length > 0 || !page) return checkReply(call, plans);
+        // A newer version writes the Note while the first sentence's check is under way.
+        if (!newer) {
+          page.doc
+            .getMap(MIND_SETTINGS_FIELD)
+            .set(CONTENT_SCHEMA_VERSION_KEY, CONTENT_SCHEMA_VERSION + 1);
+          newer = page.settled();
+          return { ...checkReply(call, plans), pause: { after: 0, until: newer } };
+        }
+        return checkReply(call, plans);
+      },
+      { generate: checkGenerate(plans) },
+    );
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: scriptedModels(model).createChatModel,
+    });
+    await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+    const sources = await createTempDataFolder();
+    const [tides] = await addAndProcess(core, [
+      await writeSourceFile(sources, TIDES.name, TIDES.contents),
+    ]);
+    const folder = await core.createLibraryGroup({ name: "Harbours", description: "" });
+    if (tides) await core.moveToFolder({ documentIds: [tides.id], folderId: folder.id });
+    const mind = await core.createMind({ title: "Tide notes", folderId: folder.id });
+    const client = await connectToMind(core, mind.id);
+    page = client;
+    writeMind(client, [
+      { type: "paragraph", attrs: { id: "one" }, content: [text(MOON)] },
+      { type: "paragraph", attrs: { id: "two" }, content: [text(YEARLY)] },
+    ]);
+    await client.settled();
+
+    const failure = await core.checkMind(request(mind.id, "all")).then(
+      () => null,
+      (error: unknown) => error,
+    );
+
+    // Every sentence was checked, the one queued when the first mark was refused among them.
+    expect(runsIn(calls).map(sentenceOf)).toEqual([MOON, YEARLY]);
+    // The User reads why the Check couldn't finish.
+    expect(failure).toBeInstanceOf(MindReadOnlyError);
+    expect((failure as MindReadOnlyError).wording).toEqual({ key: "error.mind.newerVersionEdit" });
+    // Logged once, with the Note it happened in.
+    const logged = errors.mock.calls.filter(([line]) => String(line).includes(mind.id));
+    expect(logged).toHaveLength(1);
+    expect(logged[0]?.[1]).toBe(failure);
+  } finally {
+    errors.mockRestore();
+  }
 });
