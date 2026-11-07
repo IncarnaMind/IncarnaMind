@@ -151,6 +151,7 @@ const QUOTED_WORDS: CitationAttributes["quotedWords"] = {
 // protects=a Citation copied as HTML, and pasted, keeps what the check of its Answer's quoted words found, either kind (#483, #2504); fails_when=the page they ran on to, or the words not found, are lost on the way; no_claim=how the card shows them.
 test.each<[string, QuotedWordsCheck]>([
   ["the page its quoted words ran on to", { runsOnTo: { kind: "page", from: 3, to: 3 } }],
+  ["that its quoted words are the Document's name", { name: "Board meeting notes for March" }],
   [
     "its quoted words not found",
     { answer: [{ text: "three months", found: false }], closest: null },
@@ -248,16 +249,18 @@ describe("Widen the Citation and Replace the Citation", () => {
     });
   });
 
-  // protects=the page the Answer's quoted words ran on to (#2504) is the old quote's, so widening and replacing drop it with the old check of those words; fails_when=the new quote's card still says the quote continues on the old page; no_claim=how the card words it.
+  // protects=the page the Answer's quoted words ran on to, or the note that they are the Document's name (#2504), is the old quote's, so widening and replacing drop it with the old check of those words; fails_when=the new quote's card still says it; no_claim=how the card words it.
   test.each([
-    ["widening", widenCitation],
-    ["replacing", replaceCitation],
-  ])(
-    "%s a Citation whose quoted words ran on to the next page says nothing of that page",
-    (_, rewrite) => {
+    ["widening", widenCitation, { runsOnTo: { kind: "page", from: 3, to: 3 } }],
+    ["replacing", replaceCitation, { runsOnTo: { kind: "page", from: 3, to: 3 } }],
+    ["widening", widenCitation, { name: "Board meeting notes for March" }],
+    ["replacing", replaceCitation, { name: "Board meeting notes for March" }],
+  ] as const)(
+    "%s a Citation whose quoted words ran on, or were its name, says nothing of them",
+    (_, rewrite, held) => {
       const { editor } = editorHolding({
         passageId: "passage-OLD",
-        quotedWords: { runsOnTo: { kind: "page", from: 3, to: 3 } },
+        quotedWords: held,
       });
       expect(
         rewrite(editor, {

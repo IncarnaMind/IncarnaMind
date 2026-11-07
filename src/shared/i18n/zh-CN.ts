@@ -4067,6 +4067,7 @@ export const zhCN = {
   "citation.closest.transcript": "转写稿 {location} 处最接近的文字",
   "citation.quoted.why": "引号里的文字会逐字核对。",
   "citation.quotedWordsRunOn": "引文接续到{place}。",
+  "citation.quotedName": "这是文档的名称，不是页面上的引文",
   "citation.meaning": "“找到引文”表示文字在那里，不表示它支持这句话。",
   "citation.open.page": "打开该页",
   "citation.open.slide": "打开该幻灯片",

@@ -357,8 +357,15 @@ export interface CreateMindInput {
  *   its Replace, re-check and figure paths would carry the old page onto a
  *   new quote. So it opens these Notes read-only. Older content is version 52
  *   content as it is: a Citation without it says nothing of a next page.
+ * - 54: a Citation's `quotedWords` may instead record that words its Answer put
+ *   in quotation marks are a cited Document's name, or a part of it
+ *   (`{ name }`, #2504), so its card says they aren't a quote from its pages.
+ *   An older app's figure reader refuses a `quotedWords` it can't parse, and
+ *   its Replace, re-check and figure paths would carry the name onto another
+ *   quote, so it opens these Notes read-only. Older content is version 53
+ *   content as it is: a Citation without it says nothing of a name.
  */
-export const CONTENT_SCHEMA_VERSION = 53;
+export const CONTENT_SCHEMA_VERSION = 54;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -2642,11 +2649,16 @@ export interface QuotedWordsRunOn {
   runsOnTo: CitationLocation;
 }
 
+/** Words in quotation marks that are a cited Document's name, or a part of it: a name, not a quote (#2504). */
+export interface QuotedName {
+  name: string;
+}
+
 /**
  * What the check of the Answer's quoted words found, stored as one value, so whatever drops or
- * checks the words again drops the run-on page with them.
+ * checks the words again drops the run-on page or the name with them.
  */
-export type QuotedWordsCheck = QuotedWords | QuotedWordsRunOn;
+export type QuotedWordsCheck = QuotedWords | QuotedWordsRunOn | QuotedName;
 
 /**
  * A Citation's attributes, as stored on its node in the Mind's Yjs document.
