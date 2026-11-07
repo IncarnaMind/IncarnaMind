@@ -1,5 +1,7 @@
 import { describe, expect, test, vi } from "vitest";
 import type { Core, DocumentBatch } from "../../src/core";
+import { createBatches } from "../../src/core/library/batches";
+import type { Database } from "../../src/core/storage";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { createSourceFolder, writeSourceFile } from "../helpers/documents";
 
@@ -40,5 +42,20 @@ describe("a batch of Documents says when it has landed", () => {
       documentIds: documents.map((each) => each.id),
     });
     core.close();
+  });
+
+  test("the landing is said at once, not on the progress timer", () => {
+    const seen: DocumentBatch[] = [];
+    const batches = createBatches({
+      db: { all: () => [] } as unknown as Database,
+      emit: (batch) => seen.push(batch),
+      file: () => undefined,
+    });
+    const id = batches.begin(null);
+    batches.added(id, "a");
+    batches.done(id);
+    // The timer only says progress, every 250 ms: a window waits for the landing to list the rows.
+    expect(seen.map((each) => each.adding)).toEqual([true, false]);
+    batches.close();
   });
 });

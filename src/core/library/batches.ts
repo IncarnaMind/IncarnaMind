@@ -100,9 +100,10 @@ export function createBatches(options: {
   const touch = (batch: Batch) => {
     if (closed || !batches.has(batch.id)) return;
     dirty.add(batch);
-    // A batch's first word is said at once, even while another batch's timer runs: a window
-    // starts holding its lists the moment a batch begins (#1329).
-    if (timer && batch.said !== null) return;
+    // A batch's first word and its landing are said at once, even while another batch's timer
+    // runs: a window starts holding its lists the moment a batch begins, and lists it the moment
+    // it has landed (#1329).
+    if (timer && batch.said !== null && batch.adding) return;
     flush();
     if (timer) return;
     const later = () => {
