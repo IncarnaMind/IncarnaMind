@@ -5769,6 +5769,7 @@ export const en = {
   "error.meeting.helpButton": "That isn’t one of this meeting’s help buttons.",
   "error.meeting.memoHelp": "A voice memo has no call help.",
   "error.meeting.microphone": "The microphone can only be paused or resumed.",
+  "error.meeting.fillUndo": "The fill-in can only be taken back or put back.",
   "error.transcription.localMode":
     "Meeting audio can’t go to a cloud service: “Keep everything on this computer” is on.",
   "error.transcription.noKey": "Add a {service} key first.",

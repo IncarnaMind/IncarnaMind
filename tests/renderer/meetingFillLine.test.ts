@@ -14,6 +14,7 @@ const actions = vi.hoisted(() => {
   return {
     language,
     place,
+    problems: {} as Record<string, string>,
     fillNotes: vi.fn(),
     undoFill: vi.fn(),
     showTranscript: vi.fn(),
@@ -32,7 +33,11 @@ vi.mock("../../src/renderer/src/i18n", () => ({
     translate(actions.language.current, key, params),
 }));
 vi.mock("../../src/renderer/src/meetings", () => ({
-  useMeetings: { getState: () => actions },
+  useMeetings: Object.assign(
+    (select: (state: { problems: Record<string, string> }) => unknown) =>
+      select({ problems: actions.problems }),
+    { getState: () => actions },
+  ),
 }));
 vi.mock("../../src/renderer/src/transcripts", () => ({
   showTranscript: actions.showTranscript,
@@ -67,7 +72,9 @@ vi.mock("../../src/renderer/src/undo", () => ({
 
 let root: Root | null = null;
 let container: HTMLElement;
-let MeetingFillLine: ComponentType<{ meeting: Meeting }>;
+let MeetingFillLine: ComponentType<{ meeting: Meeting; editor?: object }>;
+/** The editor a line shows in, as MeetingFillAt passes it. */
+const EDITOR = {};
 let TranscriptLines: ComponentType<{ meeting: Meeting }>;
 
 const fillOf = (fill: Partial<MeetingFill> = {}): MeetingFill => ({
@@ -116,6 +123,7 @@ const meetingOf = (fill: MeetingFill | null): Meeting => ({
 
 beforeEach(async () => {
   vi.clearAllMocks();
+  actions.problems = {};
   actions.language.current = "en";
   actions.place.current = { tabId: "meeting-tab", groupId: "meeting-group" };
   const document = new DOMParser().parseFromString(
@@ -172,7 +180,7 @@ function heldSteps() {
 }
 
 async function show(meeting: Meeting) {
-  await act(async () => root?.render(createElement(MeetingFillLine, { meeting })));
+  await act(async () => root?.render(createElement(MeetingFillLine, { meeting, editor: EDITOR })));
   return container.querySelector('[data-testid="meeting-fill-line"]');
 }
 
@@ -212,7 +220,7 @@ describe("meeting notes with unfinished Transcript parts", () => {
       expect(line?.textContent).toBe(text);
       expect(line?.getAttribute("title")).toBeNull();
       await click("meeting-fill-undo");
-      expect(actions.undoFill.mock.calls).toEqual([[meeting.id]]);
+      expect(actions.undoFill.mock.calls).toEqual([[meeting.id, EDITOR]]);
     },
   );
 
@@ -254,7 +262,7 @@ describe("meeting notes with omitted items", () => {
       expect(actions.showTranscript).not.toHaveBeenCalled();
       expect(actions.undoFill).not.toHaveBeenCalled();
       await click("meeting-fill-undo");
-      expect(actions.undoFill.mock.calls).toEqual([[meeting.id]]);
+      expect(actions.undoFill.mock.calls).toEqual([[meeting.id, EDITOR]]);
       expect(actions.fillNotes).not.toHaveBeenCalled();
     },
   );
@@ -435,7 +443,7 @@ describe.each(["en", "zh-CN"] as const)("existing fill behavior in %s", (languag
     const { holdFillSteps } = await import("../../src/renderer/src/meetingFillSteps");
     for (const counts of [{}, { omitted: 0, unfinishedParts: 0 }]) {
       const steps = heldSteps();
-      const release = holdFillSteps("meeting-with-partial-notes", steps);
+      const release = holdFillSteps("meeting-with-partial-notes", EDITOR, steps);
       const line = await show(meetingOf(fillOf(counts)));
       expect(line?.textContent).toBe(
         language === "en" ? "Note filled in from the call · Undo" : "已补全笔记 · 撤销",
@@ -446,8 +454,8 @@ describe.each(["en", "zh-CN"] as const)("existing fill behavior in %s", (languag
       await act(async () => release());
     }
     expect(actions.undoFill.mock.calls).toEqual([
-      ["meeting-with-partial-notes"],
-      ["meeting-with-partial-notes"],
+      ["meeting-with-partial-notes", EDITOR],
+      ["meeting-with-partial-notes", EDITOR],
     ]);
     expect(actions.showTranscript).not.toHaveBeenCalled();
   });
@@ -457,7 +465,7 @@ describe.each(["en", "zh-CN"] as const)("existing fill behavior in %s", (languag
     const meeting = meetingOf(fillOf());
     expect(await show(meeting)).toBeNull();
     const steps = heldSteps();
-    const release = holdFillSteps(meeting.id, steps);
+    const release = holdFillSteps(meeting.id, EDITOR, steps);
     expect(await show(meeting)).not.toBeNull();
     steps.top = false;
     await act(async () => steps.tell());
@@ -468,6 +476,27 @@ describe.each(["en", "zh-CN"] as const)("existing fill behavior in %s", (languag
       language === "en" ? "Fill-in undone · Fill in again" : "已撤销补全 · 重新补全",
     );
     await act(async () => release());
+  });
+
+  test("a fill another copy of the Note holds on top draws no line in this one", async () => {
+    const { holdFillSteps } = await import("../../src/renderer/src/meetingFillSteps");
+    const release = holdFillSteps("meeting-with-partial-notes", {}, heldSteps());
+    expect(await show(meetingOf(fillOf()))).toBeNull();
+    await act(async () => release());
+  });
+
+  test("what couldn't be done to the fill says so in its line, which keeps its action", async () => {
+    const problem = translate(language, "error.meeting.fillUndo");
+    actions.problems = { "meeting-with-partial-notes": problem };
+    const line = await show(meetingOf(fillOf({ state: "undone" })));
+    expect(line?.getAttribute("role")).toBe("alert");
+    expect(line?.textContent).toBe(
+      language === "en"
+        ? "The fill-in can only be taken back or put back. · Fill in again"
+        : "补全只能撤销或恢复。· 重新补全",
+    );
+    await click("meeting-fill-again");
+    expect(actions.fillNotes.mock.calls).toEqual([["meeting-with-partial-notes"]]);
   });
 
   test("no fill draws no line", async () => {
@@ -554,7 +583,7 @@ describe.each(["en", "zh-CN"] as const)("existing fill behavior in %s", (languag
     );
     expect(line?.querySelectorAll("button")).toHaveLength(1);
     await click("meeting-fill-undo");
-    expect(actions.undoFill.mock.calls).toEqual([[meeting.id]]);
+    expect(actions.undoFill.mock.calls).toEqual([[meeting.id, EDITOR]]);
     expect(actions.showTranscript).not.toHaveBeenCalled();
   });
 

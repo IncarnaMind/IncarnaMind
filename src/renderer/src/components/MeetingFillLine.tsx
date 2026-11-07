@@ -45,12 +45,14 @@ const WORDS = {
  * Where filling the notes in from the Transcript is (#142), one line under a stopped Meeting:
  * waiting for the Transcript, filling in (on this computer, where it is), "Notes filled in ·
  * Undo", or why they weren't, with Try again. A voice memo's says its note was written, or that
- * its Transcript went in as it is, and why.
+ * its Transcript went in as it is, and why. `editor`: the one it shows in, whose own Undo may
+ * hold the fill. What the User asked of it and couldn't be done says so in its place.
  */
-export function MeetingFillLine({ meeting }: { meeting: Meeting }) {
+export function MeetingFillLine({ meeting, editor }: { meeting: Meeting; editor?: object }) {
   const t = useT();
   const place = useTabPlace();
-  const step = useFillStep(meeting.id);
+  const step = useFillStep(meeting.id, editor);
+  const problem = useMeetings((state) => state.problems[meeting.id]);
   if (!meeting.fill) return null;
   // The editor holding the fill on its own Undo is ahead of the core, which follows it.
   const fill =
@@ -68,7 +70,7 @@ export function MeetingFillLine({ meeting }: { meeting: Meeting }) {
   const undo: ProblemAction = {
     label: t("meetings.fill.undo"),
     testId: "meeting-fill-undo",
-    onClick: () => void useMeetings.getState().undoFill(meeting.id),
+    onClick: () => void useMeetings.getState().undoFill(meeting.id, editor),
   };
   // Said in the interface's words now; a model's own words show on hover.
   const reasonOf = (problem: MeetingFillProblem | null) =>
@@ -79,6 +81,22 @@ export function MeetingFillLine({ meeting }: { meeting: Meeting }) {
       { service: problem?.service ?? "" },
     );
 
+  if (problem && fill.state !== "waiting" && fill.state !== "filling") {
+    return (
+      <ProblemLine
+        testId="meeting-fill-line"
+        role="alert"
+        className=""
+        action={
+          fill.state === "filled"
+            ? undo
+            : again(t(fill.state === "undone" ? words.again : "meetings.fill.tryAgain"))
+        }
+      >
+        {problem}
+      </ProblemLine>
+    );
+  }
   if (fill.state === "waiting" || fill.state === "filling") {
     const text =
       fill.state === "waiting"

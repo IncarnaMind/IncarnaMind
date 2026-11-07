@@ -8,7 +8,7 @@ import { core, files } from "./core";
 import { errorMessage } from "./errors";
 import { translateNow } from "./i18n";
 import { currentMindIdOf } from "./layoutSlice";
-import { fillHeldInEditor, undoFillInEditor } from "./meetingFillSteps";
+import { fillHeldInEditor, fillUndoneInEditor, undoFillInEditor } from "./meetingFillSteps";
 import { useAppStore } from "./store";
 import { useUndo } from "./undo";
 
@@ -57,8 +57,13 @@ interface MeetingsState {
   retryTranscript(meetingId: string): Promise<void>;
   /** Fills the notes in from the Transcript again (#142): Try again, or after an Undo. */
   fillNotes(meetingId: string): Promise<void>;
-  /** Takes back what filling the notes in added (#142). */
-  undoFill(meetingId: string): Promise<void>;
+  /**
+   * Takes back what filling the notes in added (#142). `editor`: the one whose line asks, which
+   * takes the fill back itself while it holds it on top.
+   */
+  undoFill(meetingId: string, editor?: object): Promise<void>;
+  /** The fill was taken back, or put back, with an editor's own Undo: the core follows. */
+  followFillUndo(meetingId: string, undone: boolean): Promise<void>;
   openSettings(meetingId: string, source: AudioSource): Promise<void>;
   dismissGaps(meetingId: string): void;
   /** Shows or hides a Meeting's recording details; with no `shown`, the other way from now. */
@@ -264,12 +269,21 @@ export const useMeetings = create<MeetingsState>()((set, get) => {
     },
     deleteAudio: (meetingId) => attempt(meetingId, () => core.deleteMeetingAudio(meetingId)),
     retryTranscript: (meetingId) => attempt(meetingId, () => core.retryTranscript(meetingId)),
-    fillNotes: (meetingId) => attempt(meetingId, () => core.fillMeetingNotes(meetingId)),
-    // The editor showing the Note holds a fill it took in as its own step: Undo is that step's.
-    undoFill: (meetingId) =>
+    fillNotes: (meetingId) =>
       attempt(meetingId, async () => {
-        if (!(await undoFillInEditor(meetingId))) await core.undoMeetingFill(meetingId);
+        // Fills anew only after an Undo the core knows of, which a failed follow left it without.
+        if (fillUndoneInEditor(meetingId)) {
+          await core.followMeetingFillUndo({ meetingId, undone: true });
+        }
+        await core.fillMeetingNotes(meetingId);
       }),
+    // An editor showing the Note holds a fill it took in as its own step: Undo is that step's.
+    undoFill: (meetingId, editor) =>
+      attempt(meetingId, async () => {
+        if (!(await undoFillInEditor(meetingId, editor))) await core.undoMeetingFill(meetingId);
+      }),
+    followFillUndo: (meetingId, undone) =>
+      attempt(meetingId, () => core.followMeetingFillUndo({ meetingId, undone })),
     openSettings: (meetingId, source) =>
       attempt(meetingId, async () => {
         await core.openAudioSettings(source);

@@ -5479,6 +5479,7 @@ export const zhCN = {
   "error.meeting.helpButton": "这不是这场会议的帮助按钮。",
   "error.meeting.memoHelp": "语音备忘没有通话助手。",
   "error.meeting.microphone": "麦克风只能暂停或恢复。",
+  "error.meeting.fillUndo": "补全只能撤销或恢复。",
   "error.transcription.localMode": "会议音频无法发送给云服务：已开启“所有内容都留在这台电脑上”。",
   "error.transcription.noKey": "请先添加 {service} 密钥。",
   "error.transcript.withNote": "会议的转写稿随笔记一起移动和删除。请移动或删除笔记。",

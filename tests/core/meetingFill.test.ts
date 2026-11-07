@@ -372,6 +372,19 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     const redone = await core.followMeetingFillUndo({ meetingId: meeting.id, undone: false });
     expect(redone.fill).toMatchObject({ state: "filled", addedBlockIds: filled.addedBlockIds });
     expect(shown(client)).toEqual(withFill);
+
+    // Only true or false is followed: a string "false" would have marked it taken back.
+    const asked = (input: unknown) =>
+      core.followMeetingFillUndo(input as Parameters<typeof core.followMeetingFillUndo>[0]);
+    await expect(asked({ meetingId: meeting.id, undone: "false" })).rejects.toThrow(
+      "The fill-in can only be taken back or put back.",
+    );
+    await expect(asked(meeting.id)).rejects.toThrow(
+      "The fill-in can only be taken back or put back.",
+    );
+    expect((await core.listMeetings()).find((each) => each.id === meeting.id)?.fill?.state).toBe(
+      "filled",
+    );
     core.close();
   });
 

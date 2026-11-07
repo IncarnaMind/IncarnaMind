@@ -32,6 +32,6 @@ export function MeetingFillAt({ editor, meeting }: { editor: Editor; meeting: Me
   }, [editor, meeting.kind, meeting.fill]);
 
   return slot && meeting.kind === "meeting" && meeting.fill
-    ? createPortal(<MeetingFillLine meeting={meeting} />, slot, "meeting-fill-line")
+    ? createPortal(<MeetingFillLine meeting={meeting} editor={editor} />, slot, "meeting-fill-line")
     : null;
 }

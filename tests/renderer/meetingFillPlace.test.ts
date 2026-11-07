@@ -16,12 +16,15 @@ import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import { useUndo } from "../../src/renderer/src/undo";
 import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
 
-const actions = vi.hoisted(() => ({ fillNotes: vi.fn(), undoFill: vi.fn() }));
+const actions = vi.hoisted(() => ({ fillNotes: vi.fn(), undoFill: vi.fn(), meetings: [] }));
 vi.mock("../../src/renderer/src/i18n", () => ({
   useT: () => (key: MessageKey, params?: MessageParams) => translate("en", key, params),
 }));
 vi.mock("../../src/renderer/src/meetings", () => ({
-  useMeetings: { getState: () => actions },
+  useMeetings: Object.assign(
+    (select: (state: { problems: Record<string, string> }) => unknown) => select({ problems: {} }),
+    { getState: () => actions, subscribe: () => () => undefined },
+  ),
 }));
 vi.mock("../../src/renderer/src/meetingViews", () => ({ showMeetingNoteView: vi.fn() }));
 vi.mock("../../src/renderer/src/components/tabs/tabItems", () => ({
@@ -329,9 +332,9 @@ async function showAt(editor: Editor, meeting: Meeting): Promise<HTMLElement> {
 }
 
 /** The fill as the editor holds it on its own Undo (editor/meetingFillUndo): on top. */
-async function heldOnTop(meetingId: string): Promise<() => void> {
+async function heldOnTop(meetingId: string, editor: Editor): Promise<() => void> {
   const { holdFillSteps } = await import("../../src/renderer/src/meetingFillSteps");
-  return holdFillSteps(meetingId, {
+  return holdFillSteps(meetingId, editor, {
     state: () => "done",
     onTop: () => true,
     add: () => undefined,
@@ -343,7 +346,7 @@ async function heldOnTop(meetingId: string): Promise<() => void> {
 test("portals the actual fill line into the writing with its native Undo action", async () => {
   const editor = editorWith([paragraph("own", "My notes"), paragraph("added", "Added writing")]);
   const meeting = meetingOf({ ...fillOf(), addedBlockIds: ["added"] });
-  const release = await heldOnTop(meeting.id);
+  const release = await heldOnTop(meeting.id, editor);
   const container = await showAt(editor, meeting);
 
   const slot = slotOf(editor);
@@ -356,7 +359,7 @@ test("portals the actual fill line into the writing with its native Undo action"
   expect(undo?.hasAttribute("disabled")).toBe(false);
   expect(undo?.getAttribute("tabindex")).not.toBe("-1");
   await act(() => undo?.click());
-  expect(actions.undoFill.mock.calls).toEqual([[meeting.id]]);
+  expect(actions.undoFill.mock.calls).toEqual([[meeting.id, editor]]);
   release();
 });
 
@@ -365,7 +368,7 @@ test.each(["waiting", "filling", "failed", "undone", "filled", "off"] as const)(
   async (state) => {
     const editor = editorWith([paragraph("own", "My notes"), paragraph("last", "My final line")]);
     const meeting = meetingOf(fillOf({ state }));
-    const release = state === "filled" ? await heldOnTop(meeting.id) : () => undefined;
+    const release = state === "filled" ? await heldOnTop(meeting.id, editor) : () => undefined;
     await showAt(editor, meeting);
     const slot = slotOf(editor);
     expect(slot.previousElementSibling?.textContent).toBe("My final line");

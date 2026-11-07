@@ -7,6 +7,7 @@ import { FAKE_LINES, FAKE_THEIR_LINES } from "../src/core/transcription/fake";
 import { FAKE_CLOUD_LINES } from "../src/core/transcription/fakeCloud";
 import {
   acceptPlainTextKeys,
+  closeFirstFillPopover,
   createDataFolder,
   dismissChatSetup,
   expectBarOneRow,
@@ -80,6 +81,7 @@ const WORDS = {
     details: "Recording details",
     heading: "Action items",
     lines: ["Launch date", "UK fee"],
+    overview: "The call reviewed priorities and follow-through",
   },
   "zh-CN": {
     notes: "笔记",
@@ -105,6 +107,8 @@ const WORDS = {
     details: "录制详情",
     heading: "待办",
     lines: ["上线日期", "英国费用"],
+    // The fake transcription speaks English in either language, and the fill follows it.
+    overview: "The call reviewed priorities and follow-through",
   },
 } as const;
 
@@ -119,6 +123,16 @@ test.afterEach(async () => {
 const meetingsOf = (window: Page): Promise<Meeting[]> =>
   window.evaluate(() =>
     (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.listMeetings(),
+  );
+
+/** Where the core says the fill of the Note's meeting is. */
+const fillStateOf = async (window: Page, mindId: string) =>
+  (await meetingsOf(window)).find((each) => each.mindId === mindId)?.fill?.state;
+
+/** The Note as its editor holds it, as JSON. */
+const noteJson = (editor: Locator) =>
+  editor.evaluate((element) =>
+    JSON.stringify((element as unknown as { editor: Editor }).editor.getJSON()),
   );
 
 /** The Note's tab and its panel, which every view of the meeting is drawn in. */
@@ -355,6 +369,90 @@ for (const language of ["en", "zh-CN"] as const) {
     await app.close();
   });
 
+  // protects=with the Note open twice, words the User types into the fill in one copy stay when ⌘Z runs in the other, and that copy's line no longer offers Undo of a fill changed elsewhere (#2527); fails_when=⌘Z in the other copy takes the fill's words, the typed ones with them, or its line still says Undo; no_claim=two windows, which the unit tests cover.
+  test(`with the Note open twice, words typed into the fill in one copy stay when the other undoes (${language})`, async () => {
+    const words = WORDS[language];
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    await setWindowSize(app, window, 1440, 900);
+    await dismissChatSetup(window);
+    await useLocalChatModel(window);
+    await setLanguage(window, language);
+    await window.evaluate(async () => {
+      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      await bridge.updateSettings({ device: { meetingNoticeAccepted: true } });
+    });
+    const bar = await recordMeetingNow(window);
+    const { panel, mindId } = await notePanel(window);
+    const editor = panel.getByTestId("mind-editor");
+    await pointAndClick(window, editor);
+    await focusSettled(window, editor);
+    await window.keyboard.insertText(words.lines[0]);
+    await expect
+      .poll(async () => (await meetingsOf(window))[0]?.transcript?.lines ?? 0, { timeout: 20_000 })
+      .toBeGreaterThanOrEqual(2);
+    await pointAndClick(window, bar.getByTestId("meeting-stop"));
+    const line = panel.getByTestId("meeting-fill-line");
+    await expect(line).toHaveText(`${words.filled} · ${words.undo}`, {
+      timeout: 30_000,
+      useInnerText: false,
+    });
+    await closeFirstFillPopover(window);
+
+    // The same Note again, in a split on the right.
+    await pointAndClick(window, editor.locator("p").first());
+    await window.keyboard.press("ControlOrMeta+Alt+Backslash");
+    const tabs = window.locator(`[data-testid="mind-tab"][data-mind-id="${mindId}"]`);
+    await expect(tabs).toHaveCount(2);
+    const panelIds = await tabs.evaluateAll((each) =>
+      each.map((tab) => tab.getAttribute("aria-controls")),
+    );
+    const firstId = await panel.getAttribute("id");
+    const otherId = panelIds.find((id) => id !== null && id !== firstId);
+    if (!otherId) throw new Error("Expected the Note's second copy.");
+    const other = window.locator(`[id="${otherId}"]`).getByTestId("mind-editor");
+    await expect(other).toBeVisible();
+    await expect(line).toHaveText(`${words.filled} · ${words.undo}`, { useInnerText: false });
+
+    // Words typed into a Block the fill wrote, in the second copy.
+    const added = (await meetingsOf(window))[0]?.fill?.addedBlockIds ?? [];
+    expect(added.length).toBeGreaterThan(0);
+    const blockText = (copy: Locator) =>
+      copy.evaluate((element, id) => {
+        let text: string | null = null;
+        (element as unknown as { editor: Editor }).editor.state.doc.forEach((node) => {
+          if (node.attrs.id === id) text = node.textContent;
+        });
+        return text;
+      }, added[0]);
+    const before = await blockText(other);
+    expect(before).not.toBeNull();
+    await other.evaluate((element, id) => {
+      const held = (element as unknown as { editor: Editor }).editor;
+      let at = -1;
+      held.state.doc.forEach((node, offset) => {
+        if (at >= 0 || node.attrs.id !== id) return;
+        if (node.isTextblock) at = offset + node.nodeSize - 1;
+        node.descendants((child, pos) => {
+          if (at < 0 && child.isTextblock) at = offset + 1 + pos + child.nodeSize - 1;
+        });
+      });
+      held.commands.focus(at);
+    }, added[0]);
+    await expect(other).toBeFocused();
+    const typedInFill = language === "en" ? " Dana agreed" : "小王同意了";
+    await window.keyboard.insertText(typedInFill);
+    await expect.poll(() => blockText(editor)).toBe(`${before}${typedInFill}`);
+    await expect(line).toHaveCount(0);
+
+    // ⌘Z in the first copy leaves them, and the fill's own words, in both.
+    await pointAndClick(window, editor.locator("p").first());
+    await window.keyboard.press("ControlOrMeta+z");
+    await expect.poll(() => blockText(editor)).toBe(`${before}${typedInFill}`);
+    await expect.poll(() => blockText(other)).toBe(`${before}${typedInFill}`);
+    await expect(line).toHaveCount(0);
+    await app.close();
+  });
+
   // protects=after Stop the page stays bare: the bar goes, the fill shows only at the place it writes, with its Undo line that goes on the next keystroke; ⌘Z takes back exactly the fill and ⇧⌘Z puts it back; the one chip holds the views, the audio's line and the recording details, and opens by itself only after the first fill (#2527, #138); fails_when=a line stays above the notes, ⌘Z takes back the User's own heading, the popover opens twice or never, or a string is wrong; no_claim=a real model's fill.
   test(`after Stop the page stays bare, the chip holds the rest, and ⌘Z takes back the fill (${language})`, async () => {
     const words = WORDS[language];
@@ -490,6 +588,7 @@ for (const language of ["en", "zh-CN"] as const) {
           )
           .toBe(typed);
         await expect(line).toHaveText(`${words.undone} · ${words.again}`, { useInnerText: false });
+        await expect.poll(() => fillStateOf(window, mindId)).toBe("undone");
         await window.keyboard.press("ControlOrMeta+Shift+z");
         await expect
           .poll(() =>
@@ -499,6 +598,7 @@ for (const language of ["en", "zh-CN"] as const) {
           )
           .toBe(filledJson);
         await expect(line).toHaveText(`${words.filled} · ${words.undo}`, { useInnerText: false });
+        await expect.poll(() => fillStateOf(window, mindId)).toBe("filled");
         await pointAndClick(window, line.getByTestId("meeting-fill-undo"));
         await expect
           .poll(() =>
@@ -517,13 +617,22 @@ for (const language of ["en", "zh-CN"] as const) {
         await expect(line).toHaveCount(0);
         await window.keyboard.press("ControlOrMeta+z");
         await expect(editor.locator("h2").first()).toHaveText(words.heading);
-        await expect
-          .poll(() =>
-            editor.evaluate((element) =>
-              JSON.stringify((element as unknown as { editor: Editor }).editor.getJSON()),
-            ),
-          )
-          .toBe(filledJson);
+        await expect.poll(() => noteJson(editor)).toBe(filledJson);
+
+        // Taken back, the core knows: Fill in again fills anew, and ⇧⌘Z can't bring the first back.
+        await window.keyboard.press("ControlOrMeta+z");
+        await expect.poll(() => noteJson(editor)).toBe(typed);
+        await expect.poll(() => fillStateOf(window, mindId)).toBe("undone");
+        await pointAndClick(window, line.getByTestId("meeting-fill-again"));
+        await pointAndClick(window, editor.locator("h2").first());
+        await window.keyboard.press("ControlOrMeta+Shift+z");
+        await expect(line).toHaveText(`${words.filled} · ${words.undo}`, {
+          timeout: 30_000,
+          useInnerText: false,
+        });
+        await expect.poll(() => fillStateOf(window, mindId)).toBe("filled");
+        await window.keyboard.press("ControlOrMeta+Shift+z");
+        await expect(editor.locator("p").filter({ hasText: words.overview })).toHaveCount(1);
       }
     }
     await app.close();
