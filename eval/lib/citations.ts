@@ -85,6 +85,8 @@ export const CITATION_OUTCOMES: readonly CitationOutcome[] = [
 export interface CitationRecord {
   /** The sentence of the Answer the Citation is anchored in, without its Citations. */
   sentence: string;
+  /** Which of the Answer's sentences it is, from 0; absent in a result file from before. */
+  sentenceIndex?: number;
   quote: string;
   documentName: string;
   pageFrom: number | null;
@@ -625,7 +627,7 @@ export async function askOne(
   const answer = await readAnswer(core, mind.id, asked.answerId);
   await core.closeMind(mind.id);
   const sentences = answer ? answerSentences(answer, question.language) : [];
-  const citations = sentences.flatMap((sentence) =>
+  const citations = sentences.flatMap((sentence, sentenceIndex) =>
     sentence.citations.map((citation): CitationRecord => {
       const pages = citation.documentId ? library.pageTexts(citation.documentId) : [];
       const checked = {
@@ -637,6 +639,7 @@ export async function askOne(
       };
       return {
         sentence: sentence.text,
+        sentenceIndex,
         documentName: citation.documentName ?? "",
         ...checked,
         outcome: outcomeOf(checked, pages),

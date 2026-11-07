@@ -26,6 +26,7 @@ import { armNamed, armSwitch } from "./arms";
 import { callHelpSet, rewrittenReplies } from "./callHelp";
 import { gradeAnswer } from "./judge";
 import { openLedger } from "./ledger";
+import { meetingNotesSet } from "./meetingNotes";
 import {
   type ArmRun,
   cellsSet,
@@ -132,6 +133,8 @@ function groupsOf(set: SetId, cacheDir: string): PairedGroup[] {
       return writtenSet();
     case "call-help":
       return callHelpSet();
+    case "meeting-notes":
+      return meetingNotesSet();
   }
 }
 

@@ -821,6 +821,12 @@ export interface Transcriber {
   /** Forgets a stream, and its audio not yet decoded. */
   drop(stream: string): void;
   /**
+   * Forgets cloud streams the User said no to: their audio not sent yet is thrown away, ahead of
+   * anything else, and their sockets close. Resolves once that is confirmed; an engine that
+   * doesn't confirm in time is stopped, so it sends nothing more. Never rejects.
+   */
+  dropCloud(streams: readonly string[]): Promise<void>;
+  /**
    * The stream's audio goes to a cloud service from now on, before any is pushed. If it can't,
    * or the connection is lost, the listeners hear `lost` and the stream is gone.
    */
