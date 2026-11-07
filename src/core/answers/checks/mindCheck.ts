@@ -94,8 +94,7 @@ export interface MindCheckOptions extends RunChecksOptions {
   scopeOf(mindId: string, allDocuments: boolean): MindCheckScope;
   /** The Folder the Mind is in; null for none. */
   mindFolder(mindId: string): string | null;
-  /** Loads the reranker the checks' searches will use, while the claims are named. */
-  warmReranker?(): void;
+  warmReranker?: VerifyOptions["warmReranker"];
   /** What the Citations quote, each Document named as it is now. */
   citedNow(cited: readonly CitedQuote[]): CheckedCitation[];
   /** Each live Document's version now, for which checks need a re-check. */
@@ -604,6 +603,7 @@ export function createMindCheck(options: MindCheckOptions) {
     const ready = await options.prepare(input.model ?? modelOf(mindId));
     if (!ready.ok) return ready.result;
     if (signal.aborted) return { kind: "cancelled" };
+    options.warmReranker?.();
     const found = await sort(mindId, fresh, ready.prepared, signal);
     if (found.kind !== "found") return found;
     const claims = found.claims.length + again.length;

@@ -95,6 +95,70 @@ The runs were made at 2afea5b0f (`main`), 06e949710 (`preload`) and b0ba53c17 (`
 - **Every timing bar is met,** the mixed Library's first verdict included, for the first time; no request failed and no rate limit was met at twelve.
 - **The verdict bar on Claude Haiku 5.5 is not met:** Chinese sentence 3 on the mixed Library was Supported in one of twelve's three runs and none of the preload's. It is the sentence `main` Supported in 2 of gate A's 3 runs, and six in one of gate C's; that doesn't waive it. Otherwise judged right 118 → 116 of 120 and Not checked 4 → 2. On Claude Sonnet 5.5, judged right 60 → 59 of 60, no false Supported, Not checked 1 → 1.
 
+### Each run
+
+The text above, written before the runs, stands as written, with three corrections that change no bar:
+- **The traced runs:** twelve's were `main` with twelve at once on top, not `main` itself.
+- **Processes:** each arm and run took two processes, one per Library, since the mixed Library is set for a whole process.
+- **The Sonnet cells can't show step 1:** Sonnet runs after Haiku in the same Library, so the reranker was loaded before its first search on every arm. They are the control: their ends moved +0.4 and +0.8 s with nothing changed for them, within `main`'s spreads of ends of 1.2 and 1.3 s.
+
+| Arm | Run | Model, Library | Language | 15-minute load | First rerank that scored | Rerank median | First verdict | Done |
+|---|--:|---|---|--:|--:|--:|--:|--:|
+| `main` | 1 | Haiku, timing | en | 6.0 | 2.1 s | 1.3 s | 5.6 s | 12.9 s |
+| `main` | 1 | Sonnet, timing | en | 6.0 | 0.1 s | 0.0 s | 7.1 s | 16.6 s |
+| `main` | 1 | Haiku, timing | zh-CN | 6.0 | 0.6 s | 0.0 s | 4.6 s | 12.9 s |
+| `main` | 1 | Sonnet, timing | zh-CN | 6.0 | 0.0 s | 0.0 s | 7.5 s | 14.6 s |
+| `main` | 1 | Haiku, mixed | en | 5.9 | 1.0 s | 1.6 s | 6.9 s | 16.5 s |
+| `main` | 1 | Haiku, mixed | zh-CN | 5.9 | 1.0 s | 0.9 s | 5.7 s | 13.8 s |
+| `main` | 2 | Haiku, timing | en | 7.2 | 0.8 s | 0.6 s | 4.7 s | 11.9 s |
+| `main` | 2 | Sonnet, timing | en | 7.2 | 0.0 s | 0.0 s | 7.2 s | 15.4 s |
+| `main` | 2 | Haiku, timing | zh-CN | 7.2 | 1.4 s | 0.0 s | 5.9 s | 11.3 s |
+| `main` | 2 | Sonnet, timing | zh-CN | 7.2 | 0.1 s | 0.0 s | 6.5 s | 14.2 s |
+| `main` | 2 | Haiku, mixed | en | 7.2 | 0.9 s | 1.4 s | 6.9 s | 14.8 s |
+| `main` | 2 | Haiku, mixed | zh-CN | 7.2 | 0.6 s | 0.8 s | 7.6 s | 15.1 s |
+| `main` | 3 | Haiku, timing | en | 6.8 | 0.8 s | 0.0 s | 5.1 s | 12.5 s |
+| `main` | 3 | Sonnet, timing | en | 6.8 | 0.2 s | 0.1 s | 7.5 s | 15.9 s |
+| `main` | 3 | Haiku, timing | zh-CN | 6.8 | 1.6 s | 0.0 s | 5.3 s | 11.1 s |
+| `main` | 3 | Sonnet, timing | zh-CN | 6.8 | 0.0 s | 0.0 s | 7.0 s | 15.5 s |
+| `main` | 3 | Haiku, mixed | en | 6.8 | 1.4 s | 2.2 s | 5.6 s | 16.0 s |
+| `main` | 3 | Haiku, mixed | zh-CN | 6.8 | 0.8 s | 0.6 s | 6.1 s | 12.9 s |
+| `preload` | 1 | Haiku, timing | en | 5.8 | 0.1 s | 0.1 s | 4.1 s | 10.7 s |
+| `preload` | 1 | Sonnet, timing | en | 5.8 | 0.1 s | 0.0 s | 6.8 s | 16.3 s |
+| `preload` | 1 | Haiku, timing | zh-CN | 5.8 | 0.0 s | 0.0 s | 3.7 s | 12.1 s |
+| `preload` | 1 | Sonnet, timing | zh-CN | 5.8 | 0.0 s | 0.0 s | 7.6 s | 15.8 s |
+| `preload` | 1 | Haiku, mixed | en | 6.0 | 0.4 s | 0.9 s | 4.8 s | 17.5 s |
+| `preload` | 1 | Haiku, mixed | zh-CN | 6.0 | 0.3 s | 0.4 s | 6.2 s | 14.3 s |
+| `preload` | 2 | Haiku, timing | en | 7.0 | 0.1 s | 0.1 s | 4.8 s | 11.1 s |
+| `preload` | 2 | Sonnet, timing | en | 7.0 | 0.1 s | 0.1 s | 7.4 s | 15.5 s |
+| `preload` | 2 | Haiku, timing | zh-CN | 7.0 | 0.1 s | 0.0 s | 4.0 s | 9.3 s |
+| `preload` | 2 | Sonnet, timing | zh-CN | 7.0 | 0.0 s | 0.0 s | 6.6 s | 15.4 s |
+| `preload` | 2 | Haiku, mixed | en | 7.0 | 0.8 s | 1.5 s | 7.0 s | 17.3 s |
+| `preload` | 2 | Haiku, mixed | zh-CN | 7.0 | 0.2 s | 0.5 s | 6.1 s | 11.7 s |
+| `preload` | 3 | Haiku, timing | en | 6.8 | 0.1 s | 0.0 s | 5.8 s | 11.6 s |
+| `preload` | 3 | Sonnet, timing | en | 6.8 | 0.1 s | 0.0 s | 7.0 s | 16.6 s |
+| `preload` | 3 | Haiku, timing | zh-CN | 6.8 | 0.0 s | 0.0 s | 4.6 s | 10.4 s |
+| `preload` | 3 | Sonnet, timing | zh-CN | 6.8 | 0.0 s | 0.0 s | 6.9 s | 14.1 s |
+| `preload` | 3 | Haiku, mixed | en | 6.9 | 0.4 s | 1.0 s | 5.7 s | 13.1 s |
+| `preload` | 3 | Haiku, mixed | zh-CN | 6.9 | 0.5 s | 0.5 s | 4.8 s | 11.9 s |
+| `twelve` | 1 | Haiku, timing | en | 7.3 | 0.1 s | 0.0 s | 4.7 s | 7.8 s |
+| `twelve` | 1 | Sonnet, timing | en | 7.3 | 0.1 s | 0.0 s | 7.2 s | 12.4 s |
+| `twelve` | 1 | Haiku, timing | zh-CN | 7.3 | 0.1 s | 0.0 s | 4.6 s | 7.0 s |
+| `twelve` | 1 | Sonnet, timing | zh-CN | 7.3 | 0.1 s | 0.0 s | 6.8 s | 11.8 s |
+| `twelve` | 1 | Haiku, mixed | en | 7.3 | 0.4 s | 2.1 s | 4.6 s | 11.4 s |
+| `twelve` | 1 | Haiku, mixed | zh-CN | 7.3 | 0.4 s | 1.8 s | 5.8 s | 11.7 s |
+| `twelve` | 2 | Haiku, timing | en | 6.9 | 0.1 s | 0.0 s | 4.6 s | 7.5 s |
+| `twelve` | 2 | Sonnet, timing | en | 6.9 | 0.0 s | 0.0 s | 6.3 s | 15.3 s |
+| `twelve` | 2 | Haiku, timing | zh-CN | 6.9 | 0.0 s | 0.0 s | 3.8 s | 6.4 s |
+| `twelve` | 2 | Sonnet, timing | zh-CN | 6.9 | 0.1 s | 0.0 s | 7.3 s | 10.9 s |
+| `twelve` | 2 | Haiku, mixed | en | 6.8 | 0.4 s | 2.1 s | 6.2 s | 11.6 s |
+| `twelve` | 2 | Haiku, mixed | zh-CN | 6.8 | 0.2 s | 2.2 s | 4.9 s | 9.9 s |
+| `twelve` | 3 | Haiku, timing | en | 7.0 | 0.1 s | 0.0 s | 3.2 s | 7.6 s |
+| `twelve` | 3 | Sonnet, timing | en | 7.0 | 0.1 s | 0.0 s | 6.5 s | 12.3 s |
+| `twelve` | 3 | Haiku, timing | zh-CN | 7.0 | 0.0 s | 0.0 s | 4.7 s | 11.0 s |
+| `twelve` | 3 | Sonnet, timing | zh-CN | 7.0 | 0.0 s | 0.0 s | 6.4 s | 10.6 s |
+| `twelve` | 3 | Haiku, mixed | en | 7.1 | 1.1 s | 3.7 s | 9.4 s | 17.0 s |
+| `twelve` | 3 | Haiku, mixed | zh-CN | 7.1 | 0.2 s | 2.3 s | 5.2 s | 11.3 s |
+
 ### DeepSeek V4.1 Flash 1017 (`deepseek-flash`), one run per arm, reported only
 
 - **First verdict** (timing en, timing zh-CN, mixed en, mixed zh-CN): `main` 4.6, 4.9, 4.2, 6.9 s; `preload` 4.6, 4.6, 5.3, 4.5 s; `twelve` 4.6, 4.2, 5.6, 5.8 s.

@@ -323,21 +323,31 @@ test.each([
   expect(most).toBe(atOnce);
 });
 
-// protects=Check this Note loads the built-in reranker while the claims are named, so the first sentence's search doesn't start it and wait for its model (#2532), and loads nothing with reranking off; fails_when=the reranker loads only when a check's first search asks it to rerank, or loads with reranking off; no_claim=how long a real model takes to load.
+// protects=Check this Note loads the built-in reranker before it asks for the claims, so the first sentence's search finds the load under way or done instead of starting it (#2532), and loads nothing with reranking off; fails_when=the reranker loads only when a check's first search asks it to rerank, loads twice, or loads with reranking off; no_claim=how long a real model takes to load.
 test.each([
-  ["loads the reranker before any sentence's check asks to search", true],
+  ["loads the reranker once, before it asks for the claims", true],
   ["loads no reranker with reranking off", false],
 ] as const)("Check this note %s", async (_, reranking) => {
   const sentence = "Spring tides come at new moon.";
   const plans: Record<string, Plan> = { [sentence]: { verdict: "supported", quote: MOON } };
   const events: string[] = [];
+  const loaded = Promise.withResolvers<void>();
   const fake = createFakeCrossEncoder();
   const model = scriptedModel(
     (call) => {
       if (isCheckRun(call) && call.results.length === 0) events.push("check asks");
       return checkReply(call, plans);
     },
-    { generate: checkGenerate(plans) },
+    {
+      generate: (call) => {
+        if (call.system.startsWith("You sort the sentences")) {
+          events.push("claims asked");
+          // The load ends while the claims are named, as a real one would.
+          loaded.resolve();
+        }
+        return checkGenerate(plans)(call);
+      },
+    },
   );
   const core = startCore(await createTempDataFolder(), {
     createChatModel: scriptedModels(model).createChatModel,
@@ -345,11 +355,18 @@ test.each([
       ...fake,
       load: async (files) => {
         events.push("reranker loads");
+        await loaded.promise;
         return fake.load(files);
       },
     },
   });
-  await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+  core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
+  const provider = await core.saveChatProvider({
+    kind: "anthropic",
+    apiKey: "sk-ant-test",
+    modelId: "claude-haiku-5-5",
+  });
+  if (provider.service) await core.allowDataFlow("checks", provider.service.id);
   if (!reranking) await core.removeRerankSettings();
   const sources = await createTempDataFolder();
   await addAndProcess(core, [await writeSourceFile(sources, TIDES.name, TIDES.contents)]);
@@ -357,11 +374,17 @@ test.each([
   const client = await connectToMind(core, mind.id);
   writeMind(client, [{ type: "paragraph", attrs: { id: "tide" }, content: [text(sentence)] }]);
   await client.settled();
+  events.length = 0;
 
   const result = await core.checkMind(request(mind.id, "all"));
 
   expect(result).toMatchObject({ kind: "checked", sentences: 1 });
-  expect(events.slice(0, 2)).toEqual(reranking ? ["reranker loads", "check asks"] : ["check asks"]);
+  if (!reranking) {
+    expect(events).not.toContain("reranker loads");
+    return;
+  }
+  expect(events.slice(0, 2)).toEqual(["reranker loads", "claims asked"]);
+  expect(events.filter((event) => event === "reranker loads")).toHaveLength(1);
 });
 
 describe("Check this note", () => {

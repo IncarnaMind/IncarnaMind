@@ -282,7 +282,7 @@ export function createRerank(options: {
      * so that search doesn't wait for the load (#2532). A service needs nothing.
      */
     warm(): void {
-      if (stored()?.kind === "built-in" && builtIn.isReady()) builtIn.warm();
+      if (stored()?.kind === "built-in") builtIn.warm();
     },
 
     /** Starts the built-in model's download, or tries it again after a failure. */
