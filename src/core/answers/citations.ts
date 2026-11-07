@@ -523,21 +523,30 @@ function versionOf(documents: RecheckDocuments, documentId: string, contentHash:
 type Rechecked = Pick<CitationToRecheck, "documentId" | "quote" | "pageFrom" | "pageTo">;
 
 /**
- * Words in quotation marks read for comparing with a Document's name (#2504): letters and digits in
- * lower case, keeping a "." or "," between digits, so "12.5 percent" is never "125 percent".
+ * Words in quotation marks read for comparing with a Document's name (#2504), in lower case. A mark
+ * a file name can't hold or leaves out reads as a space between words, and none beside CJK, which
+ * writes none. A figure keeps its marks and words keep their spaces: "-5%" is never "5%", "€12.5"
+ * never "£12.5", "12.5" never "125" and "now here" never "nowhere".
  */
 const nameWords = (text: string) =>
   text
     .normalize("NFKC")
     .toLowerCase()
-    .replace(/(?<!\p{N})[.,]|[.,](?!\p{N})|[^\p{L}\p{N}.,]+/gu, "");
+    .replace(/[\p{Pd}\u2212]/gu, "-")
+    .replace(NO_FIGURE_MARK, " ")
+    .replace(/ +/gu, " ")
+    .replace(BESIDE_CJK, "")
+    .trim();
+const NO_FIGURE_MARK =
+  /(?<!\p{N})[.,:/'’٫٬]|[.,:/'’٫٬](?!\p{N})|-(?!\p{N})|[^\p{L}\p{M}\p{N}\p{Sc}%‰‱±+.,:/'’٫٬-]/gu;
+const BESIDE_CJK = new RegExp(`(?<=[${CJK}]) | (?=[${CJK}])`, "gu");
 
 /**
  * The ways a Document's name, as the app shows it, is read for a name in quotation marks (#2504):
  * whole, and each whole part at a separator. An extension the app adds files by is taken off,
  * and it splits at " - ", " – ", " — ", "|", "｜", "－", "—", "―" and "_", and at "-" or "–" next
  * to a CJK character, never inside a Latin word ("Cooling-off"). A middle dot doesn't split: it
- * joins a name ("列夫·托尔斯泰").
+ * joins a name ("安娜·米勒").
  */
 function nameKeys(name: string): Set<string> {
   const extension = name.match(/\.([A-Za-z0-9]+)$/u)?.[1]?.toLowerCase();
