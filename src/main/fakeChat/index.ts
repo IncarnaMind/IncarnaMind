@@ -16,7 +16,7 @@
  * as a provider refuses a wrong key (HTTP 401); one with "no-credit" in it
  * as a provider refuses an account with nothing left (HTTP 402). A model whose id ends "-no-tools" refuses
  * Tools and structured output, as a small server model does, so its Answers have no Citations;
- * a test's hold stops every sentence judgement until it releases it.
+ * a test's hold stops every sentence judgement, and a rewrite from the Documents, until it releases it.
  * A Document whose text says "slowly" takes a moment to tag or organize; one whose text says "unreachable"
  * can't reach the model the first time it is tagged or organized (nor on the retry that follows; one that
  * says "stays unreachable" never can), and one that says
@@ -30,7 +30,7 @@ import { searchParts } from "./answers";
 import { isCell } from "./cells";
 import { CHECK_RUN, fakeAbsence, fakePresence, fakeSentenceBatch } from "./checks";
 import { fakeClaims, findsClaims } from "./claims";
-import { fakeConfirm } from "./confirm";
+import { fakeConfirm, fakeRewrite } from "./confirm";
 import { editParts, fakeEdit } from "./edit";
 import { asksForPlan, fakePlan } from "./plan";
 import {
@@ -96,6 +96,7 @@ const GENERATE_HANDLERS: readonly ((options: GenerateOptions) => string | null)[
   fakePlan,
   fakeResearchTags,
   fakeClaims,
+  fakeRewrite,
   fakeConfirm,
   fakeSkillDraft,
   (options) => fakeEdit(options.prompt)?.text ?? null,
@@ -187,9 +188,10 @@ export const createFakeChatModel: ChatModelFactory = (spec) => {
         warnings: [],
       };
     }
-    // A test's hold stops the judgement of a batch of sentences until it releases it, so the
-    // test opens a Citation whose card is still Checking (#2375), or sees a run mid-flight.
-    if (slowCheck.hold && fakeSentenceBatch(options) !== null) {
+    // A test's hold stops the judgement of a batch of sentences, and a rewrite from the
+    // Documents, until it releases it, so the test opens a Citation whose card is still Checking
+    // (#2375), sees a run mid-flight, or sees the mark of a sentence being rewritten (#1554).
+    if (slowCheck.hold && (fakeSentenceBatch(options) !== null || fakeRewrite(options) !== null)) {
       await new Promise<void>((go) => slowCheck.waiting.push(go));
     }
     return {

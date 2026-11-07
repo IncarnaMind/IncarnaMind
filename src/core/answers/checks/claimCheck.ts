@@ -36,6 +36,7 @@ import type { InlineTextProjection } from "../../../shared/inlineText";
 import { LIBRARY_FACTS } from "../../../shared/libraryFacts";
 import { formatLocation, joinUnits, locationOf, quoteInUnits } from "../../../shared/locations";
 import { isPeriod } from "../../../shared/periods";
+import { NUMBERS } from "../../../shared/rewriteWords";
 import { sentenceSpans } from "../../../shared/sentences";
 import { type UnreadFigures, unreadFiguresDetail } from "../../../shared/unreadFigures";
 import type {
@@ -2697,7 +2698,10 @@ function inLanguageAt(claim: string, first: number, end: number, wording: string
   return written === (scriptOf(claim.slice(first, end)) ?? scriptOf(nearest));
 }
 
-const sameNumber = (a: { value: number; unit: unknown }, b: { value: number; unit: unknown }) =>
+export const sameNumber = (
+  a: { value: number; unit: unknown },
+  b: { value: number; unit: unknown },
+) =>
   Math.abs(a.value - b.value) <= 1e-9 * Math.max(1, Math.abs(a.value), Math.abs(b.value)) &&
   JSON.stringify(a.unit) === JSON.stringify(b.unit);
 
@@ -2746,10 +2750,6 @@ function numberAround(text: string, start: number, end: number): string {
   }
   return text.slice(from, to);
 }
-
-/** Written numbers: digits with their separators, or Chinese numerals but a lone 一, a part of many words. */
-const NUMBERS =
-  /\p{Nd}+(?:[.,]\p{Nd}+)*|[〇零一二两三四五六七八九十百千万亿]{2,}|[〇零二两三四五六七八九十百千万亿]/gu;
 
 /** Where a clause ends: "," or ";" before a space, a sentence's stop, or their Chinese forms. */
 const CLAUSE_END = /[,;](?=\s)|\.(?=\s|$)|[，；。！？!?]/gu;
@@ -2962,7 +2962,7 @@ function inPlace(before: string, after: string, wording: string): string {
  * that occur once in it, never all the sentence's words, each choice's wording in its own found
  * quote, keeping the sentence's named periods.
  */
-function correctionFor(
+export function correctionFor(
   sentence: string,
   claim: string,
   read: ReadCorrection | undefined,

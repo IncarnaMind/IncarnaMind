@@ -88,6 +88,7 @@ export function SearchPicker<Id>({
   options,
   current,
   currentLabel,
+  startsAt,
   onChoose,
   onClose,
   testId,
@@ -107,6 +108,8 @@ export function SearchPicker<Id>({
   current: Id | undefined;
   /** Says which option is the one chosen now, to a screen reader. */
   currentLabel: string;
+  /** The option highlighted as it opens, so Enter takes it; the first, without one or a match. */
+  startsAt?(id: Id): boolean;
   onChoose(id: Id): void;
   onClose(): void;
   /** Its test ids: `{testId}-picker`, `{testId}-search` and `{testId}-option`. */
@@ -151,6 +154,13 @@ export function SearchPicker<Id>({
   }, [options, query, open]);
   const shown = Math.min(active, Math.max(0, optionRows.length - 1));
   const shownRow = optionRows[shown];
+  const startRow = useRef(0);
+  startRow.current = Math.max(
+    0,
+    optionRows.findIndex(
+      (row) => row.kind === "option" && !row.option.disabledReason && startsAt?.(row.option.id),
+    ),
+  );
 
   useEffect(() => {
     panel.current?.querySelector(`[id="${CSS.escape(`${id}-${shown}`)}"]`)?.scrollIntoView({
@@ -164,7 +174,7 @@ export function SearchPicker<Id>({
     const element = panel.current;
     if (!open || !element || !anchor) return;
     setQuery("");
-    setActive(0);
+    setActive(startRow.current);
     setScrollTop(0);
     if (!element.matches(":popover-open")) focus.remember();
     element.showPopover();
