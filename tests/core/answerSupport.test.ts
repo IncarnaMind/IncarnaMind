@@ -605,6 +605,82 @@ describe("a check names whether a thing has happened or is still to happen", () 
   });
 });
 
+const QUOTED_ENGLISH =
+  "any delay beyond the “grace period” of ten working days incurs a fee of 2% per week";
+const QUOTED_CHINESE = "逾期超过“宽限期”十个工作日的，每周加收 2% 的违约金";
+
+describe("a figure in the words a sentence quotes is stated by its Citation", () => {
+  const contract = (contents: string) => ({ name: "Supply contract.md", contents });
+  const CASES = [
+    {
+      language: "English",
+      document: contract(
+        "# Supply contract\n\nAny delay beyond the “grace period” of ten working days incurs a fee of 2% per week.\n",
+      ),
+      query: "grace period fee",
+      question: "What happens if payment is late?",
+      record: "Any delay beyond the “grace period” of ten working days",
+      answer: (extra: string) => `The contract sets out that ‘${QUOTED_ENGLISH}’[^1]${extra}.`,
+      sentence: (extra: string) => `The contract sets out that ‘${QUOTED_ENGLISH}’${extra}.`,
+      nearer: ", a 5% surcharge",
+    },
+    {
+      language: "Chinese",
+      document: contract(
+        "# 供应合同\n\n合同约定，逾期超过“宽限期”十个工作日的，每周加收 2% 的违约金。\n",
+      ),
+      query: "逾期 宽限期 违约金",
+      question: "逾期付款会怎么样？",
+      record: "逾期超过“宽限期”十个工作日",
+      answer: (extra: string) => `合同约定「${QUOTED_CHINESE}」[^1]${extra}。`,
+      sentence: (extra: string) => `合同约定「${QUOTED_CHINESE}」${extra}。`,
+      nearer: "，另加 5% 的管理费",
+    },
+  ] as const;
+
+  test.each(CASES)(
+    "in $language, a figure in the sentence's quoted words but outside the Citation's quote is found",
+    async ({ document, query, question, record, answer, sentence }) => {
+      const supported = sentence("");
+      const { core } = await setUpWithDocuments(
+        answeringModel(query, answer(""), [record], {
+          [supported]: { verdict: "supported", says: supported },
+        }),
+        [document],
+      );
+
+      const citations = await citationsOfAnswer(core, question);
+
+      expect(checkOf(citations, 1)).toMatchObject({ check: "found" });
+    },
+  );
+
+  test.each(CASES)(
+    "in $language, a figure stated nowhere on the cited pages is still not checked",
+    async ({ document, query, question, record, answer, sentence, nearer }) => {
+      const unsupported = sentence(nearer);
+      const plans: Record<string, Plan> = {
+        [unsupported]: { verdict: "supported", says: unsupported },
+      };
+      let judged = 0;
+      const { core } = await setUpWithDocuments(
+        answeringModel(query, answer(nearer), [record], plans, {
+          judge: (call) => {
+            judged += 1;
+            return batchReply(call, plans);
+          },
+        }),
+        [document],
+      );
+
+      const citations = await citationsOfAnswer(core, question);
+
+      expect(judged).toBeGreaterThan(0);
+      expect(checkOf(citations, 1)).toMatchObject({ check: "not-checked" });
+    },
+  );
+});
+
 describe("the sentences of an Answer its check reads", () => {
   test("a table's row and a sentence with a Calculated figure are told apart from an ordinary cited sentence", () => {
     const text = [

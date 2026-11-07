@@ -11,6 +11,7 @@
 import { generateText } from "ai";
 import { type CitedSentence, citedSentences } from "../../../shared/citedSentences";
 import { judgesUnreliably } from "../../../shared/smallModel";
+import { nameKey } from "../../../shared/text";
 import type {
   ChatModelChoice,
   Citation,
@@ -30,6 +31,7 @@ import { currentTask } from "../../runs/current";
 import { inStep } from "../../timing/flows";
 import { estimateTokens } from "../context";
 import { answerTemperature } from "../engine";
+import { quotedWordsOfSentence } from "../quotedWords";
 import { needsCalculation } from "./calculationGate";
 import type { CheckedCitation } from "./claimCheck";
 import { claimsAtOnce } from "./runChecks";
@@ -98,10 +100,37 @@ export interface AnswerCheckOptions {
   capLeft(): Money | null;
 }
 
+/**
+ * The words a sentence puts in quotation marks, when the quoted-words check found them on the
+ * pages it cites (#2602): a figure in them is stated by its Citations. None when the check didn't
+ * look for them: the words are a Document's name, a Citation it names couldn't be checked, or
+ * they weren't found (and that Citation shows quote not found).
+ */
+function quotedWordsFound(
+  sentence: CitedSentence,
+  citations: readonly MarkedCitation[],
+): readonly string[] {
+  const words = quotedWordsOfSentence(sentence.sentence);
+  if (words.length === 0) return [];
+  const cited = sentence.markers.flatMap((marker) =>
+    citations.filter((citation) => citation.marker === marker),
+  );
+  if (
+    cited.length === 0 ||
+    cited.some(
+      (citation) =>
+        citation.check === "cant-check" || citation.checkReason === "quoted-words-not-on-pages",
+    )
+  )
+    return [];
+  const names = new Set(citations.map((citation) => nameKey(citation.documentName)));
+  return words.filter((each) => !names.has(nameKey(each)));
+}
+
 /** The sentences that hold a waiting Citation, each with its Citations whose quotes were found. */
 function sentencesToCheck(
   input: Pick<AnswerCheckInput, "text" | "citations" | "figures" | "waiting">,
-): (CitedSentence & { found: MarkedCitation[] })[] {
+): (CitedSentence & { found: MarkedCitation[]; quoted: readonly string[] })[] {
   return citedSentences(input.text, input.figures)
     .filter((each) => !each.calculated)
     .filter((each) => each.markers.some((marker) => input.waiting.has(marker)))
@@ -113,6 +142,7 @@ function sentencesToCheck(
           ? [citation]
           : [];
       }),
+      quoted: quotedWordsFound(each, input.citations),
     }));
 }
 
@@ -143,7 +173,7 @@ const WORSE: Record<SupportResult["check"], number> = {
 
 /** A sentence a batch judged, as its Citations show it; null when it isn't judged. */
 async function supportOf(
-  sentence: CitedSentence & { found: MarkedCitation[] },
+  sentence: CitedSentence & { found: MarkedCitation[]; quoted: readonly string[] },
   verdict: BatchVerdict | undefined,
   units: AnswerCheckOptions["units"],
 ): Promise<SupportResult | null> {
@@ -167,6 +197,7 @@ async function supportOf(
     computed: [],
     inputs: [],
     citations: sentence.found.map((citation) => ({ citation, units: units(citation) })),
+    quotedWords: sentence.quoted,
     confirm: async () => false,
   });
   return calculation ? null : { check: "found", verdict: null };
