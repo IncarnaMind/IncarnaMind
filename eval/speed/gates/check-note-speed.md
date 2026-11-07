@@ -117,13 +117,13 @@ The runs were made at a9bc9b0bc (twelve) against 7cb76c42a (six), on Claude Haik
 
 **Decision, 2026-11-06:** Check this Note stays at six, with steps 1 and 2. Twelve's end comes sooner, but the User sees the first verdict, and on a Library of real size twelve makes it later, because every search waits for the one reranker. The false Supported isn't the reason: `main` Supports that sentence too, in 2 of gate A's 3 runs. That doesn't waive it: it stays a false Supported on `main`, and twelve's one counts against twelve. What could bring twelve back is a staggered start, with the first sentence's searches scored first, or more rerank throughput. Twelve goes back to #2532.
 
-## Gate C, written on 2026-11-07 before its runs: twelve at once again, on a reranker that no longer drains the GPU twelve times a batch
+## Gate C, written on 2026-11-07 before its runs: twelve at once again, on a reranker that no longer drains the GPU twelve times a search
 
 What changed since the rerun above: the built-in reranker's GPU file is Optimum's O4 export, made for CUDA, and it keeps twelve copies between host and GPU memory as nodes, one after each layer's attention scale. On WebGPU each made the session read a value back from the GPU, waiting for all it had been given, twelve times a batch. The GPU session now reads them as Identity (`src/core/reranking/hostCopies.ts`). A copy changes no value, so no search, Passage or verdict can change for it; what it changes is how soon a search is scored.
 
 ### The reranker's own bars, before the check's runs
 
-`INCARNAMIND_EVAL_SPEED_RERANK=1` (`../rerankThroughput.speed.ts`), five runs an arm taking turns, on twenty searches over the mixed Library, one for each of the Note's ten sentences in English and ten in Chinese, the sentence as its query:
+`INCARNAMIND_EVAL_SPEED_RERANK=1` (`../rerankThroughput.speed.ts`), five runs an arm taking turns, on the twenty searches Check this Note makes over the mixed Library (ten sentences in English and ten in Chinese):
 
 - **Every score the same, bit for bit,** in every search, as the GPU file was downloaded and with its copies read as Identity. One differing score fails it, and the copies stay.
 - **Twelve searches at once no slower:** the median with the copies read as Identity is not above the median as downloaded.
@@ -150,20 +150,25 @@ Check this Note takes twelve only if every cell holds every bar and each model h
 
 ## Result of gate C, 2026-11-07: the copies read as Identity ship; Check this Note stays at six
 
-Two corrections to the text above, made after the runs and changing no bar: the heading said "a search" for "a batch", and the reranker's searches were described as the ones Check this Note makes, where a check writes its own queries; they are one search for each sentence, the sentence as its query.
+Two corrections to the text above, which stands as it was written and changes no bar: its heading should say "a batch", not "a search"; and the reranker's searches aren't the ones Check this Note makes, since a check writes its own queries; they are one search for each sentence, the sentence as its query.
 
 ### The reranker's own bars: met
 
-The copy the GPU session opens is written once beside the downloaded file, with its twelve `MemcpyFromHost` nodes read as Identity (`src/core/reranking/index.ts`, `hostCopies.ts`), and opened by its path. It was first built to open the rewritten bytes; that keeps the model in memory a second time for as long as the session is open (the process's external memory stayed 241 MB higher, and its resident memory 60 to 110 MB higher), so the copy is a file instead. Five runs an arm, taking turns, with the 15-minute load at 6 to 11; milliseconds, median (range):
+The GPU session opens a copy of its file with the twelve `MemcpyFromHost` nodes read as Identity (`src/core/reranking/hostCopies.ts`). The reranker's process writes it once beside the downloaded file, flushed to disk before it is named, and opens it by its path (`src/core/reranking/onnx.ts`). Its name holds the downloaded file's size and time and the rewrite's version. A copy that won't open, or fails the check, is removed and the downloaded file opened. It was first built to open the rewritten bytes; that keeps the model in memory a second time for as long as the session is open (the process's external memory stayed 241 MB higher, and its resident memory 60 to 110 MB higher), so the copy is a file instead.
+
+Two runs, each of five runs an arm taking turns, with the copy written as the app writes it before the first; milliseconds, median (range):
 
 | Arm | Load | 20 searches one by one | The first 12 at once |
 |---|--:|--:|--:|
-| As downloaded | 742 (631–840) | 5,930 (5,587–6,884) | 4,204 (3,687–5,107) |
-| Copies read as Identity | 684 (566–928) | 5,266 (4,936–5,445) | 3,796 (3,498–3,845) |
+| As downloaded, 15-minute load 6 to 11 | 742 (631–840) | 5,930 (5,587–6,884) | 4,204 (3,687–5,107) |
+| Copies read as Identity, load 6 to 11 | 684 (566–928) | 5,266 (4,936–5,445) | 3,796 (3,498–3,845) |
+| As downloaded, load 5 to 7 | 487 (456–626) | 4,738 (4,348–5,206) | 3,055 (2,965–3,287) |
+| Copies read as Identity, load 5 to 7 | 472 (426–486) | 4,391 (4,319–4,857) | 2,948 (2,842–3,508) |
 
-- **Every score the same:** 0 of 349 differ, bit for bit, and none differs between runs of an arm. The real-model test (`tests/core/realReranker.test.ts`) gives the same on English, Chinese and long Passages, with the copy written as the app writes it.
-- **Twelve at once:** 10% sooner; one by one, 11%.
-- **Memory:** not measured by the eval. Measured in separate processes, one per way of opening the GPU session, after it opened: 865 to 894 MB resident from the downloaded file, 863 to 865 MB from the copy. The copy takes 235 MB more on disk. Writing it reads the downloaded file once, 0.2 to 0.8 s, the first time the GPU session opens after it is downloaded; later starts open the copy as they opened the file before.
+The copy is sooner in both: one by one and twelve at once, by 11% and 10% while other work was on this computer, and by 7% and 3.5% when it was quiet.
+
+- **Every score the same:** 0 of 349 scores differ between the arms, bit for bit, in each run of five, and none differs between runs of an arm. The real-model test (`tests/core/realReranker.test.ts`, opt-in) gives the same on English, Chinese and long Passages, with the copy written by the app's own path. Both were measured on one Apple M2 Max; other GPUs aren't measured, and on each the check still decides whether the GPU is used.
+- **Memory:** not measured by the eval. Measured in separate processes, one per way of opening the GPU session, after it opened: 865 to 894 MB resident from the downloaded file, 863 to 865 MB from the copy. The copy takes 235 MB more on disk, as long as the downloaded file is kept. Writing it reads the downloaded file once, 0.2 to 0.8 s, the first time the GPU session opens after the file is downloaded; later starts open the copy as they opened the file before.
 
 ### Check this Note at twelve: not met
 
