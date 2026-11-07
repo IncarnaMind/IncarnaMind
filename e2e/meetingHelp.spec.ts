@@ -572,7 +572,7 @@ test("help during the call: a model's notes before its records never show, the o
     if (seen.length === 1) await expect(suggestion.getByTestId("help-outline")).toHaveCount(2);
     if (seen.length === 12) await shot(panel, "help-panel-notes-streaming");
   }
-  expect(seen.some((text) => /newest lines ask/.test(text))).toBe(false);
+  expect(seen.some((text) => /newest lines ask|最新的几句/.test(text))).toBe(false);
   await expect(suggestion).toHaveAttribute("data-status", "done");
   await expect(suggestion.getByTestId("help-option-say").first()).toContainText("$45 per seat");
   await expect(suggestion).not.toContainText("newest lines ask");
