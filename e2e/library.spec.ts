@@ -280,7 +280,9 @@ test("Organize proposes a Folder that Confirm files, keeps the User's correction
     await expect(card(window, "Research").getByTestId("organize-review-name")).toHaveText([
       "Research notes",
     ]);
-    expect(await placed(window)).toEqual({ "Research notes": { folder: null, source: null } });
+    expect(await placed(window)).toEqual({
+      "Research notes": { folder: null, source: "automatic" },
+    });
     await pointAndClick(window, review.getByTestId("organize-review-confirm"));
     await expect(review).toHaveCount(0);
     const research = section(library, "Research");

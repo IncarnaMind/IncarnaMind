@@ -48,7 +48,7 @@ const SENTENCES_LEFT: Record<string, number> = {
   "exports/index.ts": 4,
   "folders.ts": 1,
   "layout.ts": 25,
-  "library/index.ts": 14,
+  "library/index.ts": 13,
   "meetings/index.ts": 10,
   "mindContent.ts": 2,
   "mindIndex.ts": 1,

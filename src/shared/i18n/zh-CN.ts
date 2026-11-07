@@ -5111,6 +5111,7 @@ export const zhCN = {
   "error.folder.insideItself": "文件夹不能放进它自己或其子文件夹中。",
   "error.organizeReview.invalid": "无法识别对建议的这次更改。重新打开后再试一次。",
   "error.organizeReview.mergeIntoItself": "文件夹不能合并到自身。",
+  "error.organize.invalid": "无法识别这次整理请求。请再整理一次。",
   "error.folder.limit": "资料库最多可以有 100 个文件夹。",
   "error.mind.notFound": "这篇笔记不存在或已删除。",
   "error.layout.units": "文档中的位置从 1 开始编号。",

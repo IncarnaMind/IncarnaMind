@@ -363,7 +363,7 @@ interface ParsedInput {
 
 function parseAim(input: unknown): FolderCountAim | null {
   if (input === undefined) return null;
-  const invalid = new InvalidInputError("folders must be fewer or more than a count of Folders.");
+  const invalid = new InvalidInputError({ key: "error.organize.invalid" });
   if (!isRecord(input)) throw invalid;
   const count = "fewerThan" in input ? input.fewerThan : input.moreThan;
   if (typeof count !== "number" || !Number.isInteger(count) || count < 0 || count > 100)
@@ -373,21 +373,21 @@ function parseAim(input: unknown): FolderCountAim | null {
 
 function parseInput(input: unknown): ParsedInput {
   if (input === undefined) input = {};
-  if (!isRecord(input)) throw new InvalidInputError("organizeLibrary expects an object.");
+  if (!isRecord(input)) throw new InvalidInputError({ key: "error.organize.invalid" });
   const { documentIds, folderId, forService, costAccepted, folders } = input;
   if (
     documentIds !== undefined &&
     !(Array.isArray(documentIds) && documentIds.every((id) => typeof id === "string" && id !== ""))
   )
-    throw new InvalidInputError("Choose valid Documents.");
+    throw new InvalidInputError({ key: "error.organize.invalid" });
   if (folderId !== undefined && (typeof folderId !== "string" || folderId === ""))
     throw new InvalidInputError({ key: "error.folder.notFound" });
   if (forService !== undefined && typeof forService !== "string")
-    throw new InvalidInputError("forService must be a service id.");
+    throw new InvalidInputError({ key: "error.organize.invalid" });
   if (costAccepted !== undefined && typeof costAccepted !== "boolean")
-    throw new InvalidInputError("costAccepted must be true or false.");
+    throw new InvalidInputError({ key: "error.organize.invalid" });
   if (documentIds !== undefined && folderId !== undefined)
-    throw new InvalidInputError("Organize either these Documents or one Folder.");
+    throw new InvalidInputError({ key: "error.organize.invalid" });
   return {
     documentIds: documentIds === undefined ? null : [...new Set(documentIds as string[])],
     folderId: folderId ?? null,

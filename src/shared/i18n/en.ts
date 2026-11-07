@@ -5361,6 +5361,7 @@ export const en = {
   "error.organizeReview.invalid":
     "This change to the suggestions couldn’t be read. Open them again and try once more.",
   "error.organizeReview.mergeIntoItself": "A Folder can’t be merged into itself.",
+  "error.organize.invalid": "This Organize request couldn’t be read. Try Organize again.",
   "error.folder.limit": "The Library supports up to 100 Folders.",
   "error.mind.notFound": "That note doesn’t exist or has been deleted.",
   "error.layout.units": "That place in a Document counts from 1.",

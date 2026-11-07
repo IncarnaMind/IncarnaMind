@@ -1,8 +1,8 @@
 /** The plan's requests to the User's chat model (see ./plan). */
-import { generateText, jsonSchema, Output } from "ai";
+import { generateText, jsonSchema, Output, type OutputInterface } from "ai";
 import { LANGUAGE_NAMES } from "../language";
 import type { ChatLanguageModel } from "../providers/models";
-import { outputTokens } from "../providers/outputLimits";
+import { type ModelCallKind, outputTokens } from "../providers/outputLimits";
 import type { FolderAim, PlanFolder, PlanModel, SortedFolder } from "./plan";
 
 const SORT_INSTRUCTIONS = [
@@ -42,21 +42,20 @@ const DESCRIPTION_MOST = 300;
 const tidy = (text: unknown, most: number) =>
   typeof text === "string" ? text.replace(/\s+/g, " ").trim().slice(0, most) : "";
 
-const ask = <T>(
+const ask = <O extends OutputInterface>(
   model: ChatLanguageModel,
   instructions: string,
   prompt: unknown,
-  name: string,
-  schema: object,
-  maxOutputTokens: number,
+  output: O,
+  [kind, count]: [ModelCallKind, number],
   signal: AbortSignal,
 ) =>
   generateText({
     model,
     instructions,
     prompt: JSON.stringify(prompt),
-    output: Output.object({ name, schema: jsonSchema<T>(schema) }),
-    maxOutputTokens,
+    output,
+    maxOutputTokens: outputTokens(kind, count),
     maxRetries: 2,
     abortSignal: AbortSignal.any([signal, AbortSignal.timeout(180_000)]),
   });
@@ -65,7 +64,7 @@ const ask = <T>(
 export function chatPlanModel(model: ChatLanguageModel): PlanModel {
   return {
     async sort({ documents, folders, language, within, aim }, signal) {
-      const result = await ask<{ folders: unknown[]; documents: unknown[] }>(
+      const result = await ask(
         model,
         [SORT_INSTRUCTIONS, aimed(aim), ...(within === null ? [] : [WITHIN_INSTRUCTIONS])].join(
           "\n",
@@ -76,40 +75,42 @@ export function chatPlanModel(model: ChatLanguageModel): PlanModel {
           folders,
           documents,
         },
-        "folder_plan",
-        {
-          type: "object",
-          properties: {
-            folders: {
-              type: "array",
-              items: {
-                type: "object",
-                properties: {
-                  key: { type: "string" },
-                  name: { type: "string" },
-                  description: { type: "string" },
+        Output.object({
+          name: "folder_plan",
+          schema: jsonSchema<{ folders: unknown[]; documents: unknown[] }>({
+            type: "object",
+            properties: {
+              folders: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    key: { type: "string" },
+                    name: { type: "string" },
+                    description: { type: "string" },
+                  },
+                  required: ["key", "name", "description"],
+                  additionalProperties: false,
                 },
-                required: ["key", "name", "description"],
-                additionalProperties: false,
+              },
+              documents: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    ref: { type: "string", enum: documents.map((each) => each.ref) },
+                    folder: { type: "string" },
+                  },
+                  required: ["ref", "folder"],
+                  additionalProperties: false,
+                },
               },
             },
-            documents: {
-              type: "array",
-              items: {
-                type: "object",
-                properties: {
-                  ref: { type: "string", enum: documents.map((each) => each.ref) },
-                  folder: { type: "string" },
-                },
-                required: ["ref", "folder"],
-                additionalProperties: false,
-              },
-            },
-          },
-          required: ["folders", "documents"],
-          additionalProperties: false,
-        },
-        outputTokens("folder-plan", documents.length),
+            required: ["folders", "documents"],
+            additionalProperties: false,
+          }),
+        }),
+        ["folder-plan", documents.length],
         signal,
       );
       return sortedFolders(result.output, folders);
@@ -117,31 +118,33 @@ export function chatPlanModel(model: ChatLanguageModel): PlanModel {
 
     async place(documents, folders, signal) {
       const refs = documents.map((each) => each.ref);
-      const result = await ask<{ placements: unknown[] }>(
+      const result = await ask(
         model,
         PLACE_INSTRUCTIONS,
         { folders, documents },
-        "placements",
-        {
-          type: "object",
-          properties: {
-            placements: {
-              type: "array",
-              items: {
-                type: "object",
-                properties: {
-                  ref: { type: "string", enum: refs },
-                  folder: { type: "string", enum: [...folders.map((each) => each.id), NONE] },
+        Output.object({
+          name: "placements",
+          schema: jsonSchema<{ placements: unknown[] }>({
+            type: "object",
+            properties: {
+              placements: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    ref: { type: "string", enum: refs },
+                    folder: { type: "string", enum: [...folders.map((each) => each.id), NONE] },
+                  },
+                  required: ["ref", "folder"],
+                  additionalProperties: false,
                 },
-                required: ["ref", "folder"],
-                additionalProperties: false,
               },
             },
-          },
-          required: ["placements"],
-          additionalProperties: false,
-        },
-        outputTokens("placements", documents.length),
+            required: ["placements"],
+            additionalProperties: false,
+          }),
+        }),
+        ["placements", documents.length],
         signal,
       );
       const ids = new Set(folders.map((each) => each.id));
@@ -157,7 +160,7 @@ export function chatPlanModel(model: ChatLanguageModel): PlanModel {
 
     async nameSubfolders(groups, language, signal) {
       const refs = groups.map((each) => each.ref);
-      const result = await ask<{ groups: unknown[] }>(
+      const result = await ask(
         model,
         SUBFOLDER_INSTRUCTIONS,
         {
@@ -168,28 +171,30 @@ export function chatPlanModel(model: ChatLanguageModel): PlanModel {
             documents: documents.map(({ name, type, text }) => ({ name, type, text })),
           })),
         },
-        "subfolders",
-        {
-          type: "object",
-          properties: {
-            groups: {
-              type: "array",
-              items: {
-                type: "object",
-                properties: {
-                  ref: { type: "string", enum: refs },
-                  name: { type: "string" },
-                  description: { type: "string" },
+        Output.object({
+          name: "subfolders",
+          schema: jsonSchema<{ groups: unknown[] }>({
+            type: "object",
+            properties: {
+              groups: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    ref: { type: "string", enum: refs },
+                    name: { type: "string" },
+                    description: { type: "string" },
+                  },
+                  required: ["ref", "name", "description"],
+                  additionalProperties: false,
                 },
-                required: ["ref", "name", "description"],
-                additionalProperties: false,
               },
             },
-          },
-          required: ["groups"],
-          additionalProperties: false,
-        },
-        outputTokens("subfolders", groups.length),
+            required: ["groups"],
+            additionalProperties: false,
+          }),
+        }),
+        ["subfolders", groups.length],
         signal,
       );
       const named = new Map<string, { name: string; description: string }>();
