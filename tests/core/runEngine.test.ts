@@ -13,6 +13,7 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { APICallError } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test, vi } from "vitest";
+import { withCacheBreakpoints } from "../../src/core/providers/promptCache";
 import { createAiSdkRunEngine } from "../../src/core/runs/aiSdkEngine";
 import type {
   GateDecision,
@@ -591,6 +592,83 @@ describe.each(ENGINES)("A Run engine: $name", ({ create }) => {
     expect(bodies[2]?.max_tokens).toBe(8_000);
     expect(run.text).toBe("Written.");
     expect(run.events.at(-1)?.type).toBe("finished");
+  });
+
+  // protects=a reply that said nothing, as Claude's comes back from a Run (an assistant turn holding only its message_start), isn't sent to Anthropic when the Answer asks again, so the prompt cache can't mark an empty text block, which Anthropic refuses with a 400; fails_when=the re-ask sends the empty turn and is refused; no_claim=other providers, whose requests are unchanged (#2701).
+  test("on Anthropic, asking again after a reply that said nothing leaves that reply out, and is answered", async () => {
+    const bodies: { messages: { role: string; content: { type: string; text?: string }[] }[] }[] =
+      [];
+    const emptyReply = [
+      sse("message_start", {
+        message: {
+          id: "msg_empty",
+          type: "message",
+          role: "assistant",
+          content: [],
+          usage: { input_tokens: 5, output_tokens: 1 },
+        },
+      }),
+      sse("message_delta", { delta: { stop_reason: "end_turn" }, usage: { output_tokens: 1 } }),
+      sse("message_stop", {}),
+    ].join("");
+    const server = async (_url: unknown, init?: { body?: unknown }): Promise<Response> => {
+      const body = JSON.parse(String(init?.body));
+      bodies.push(body);
+      const blankMarked = body.messages.some(
+        (message: { content: { type: string; text?: string; cache_control?: unknown }[] }) =>
+          message.content.some(
+            (part) => part.type === "text" && !part.text?.trim() && part.cache_control,
+          ),
+      );
+      if (blankMarked) {
+        return new Response(
+          JSON.stringify({
+            type: "error",
+            error: {
+              type: "invalid_request_error",
+              message:
+                "messages.1.content.0.text: cache_control cannot be set for empty text blocks",
+            },
+          }),
+          { status: 400, headers: { "content-type": "application/json" } },
+        );
+      }
+      const reply = bodies.length === 1 ? emptyReply : writtenReply;
+      return new Response(reply, { headers: { "content-type": "text/event-stream" } });
+    };
+    const anthropic = withCacheBreakpoints(
+      createAnthropic({ apiKey: "test-key", fetch: server })("claude-haiku-5-5"),
+    );
+    const asked: RunMessage = { role: "user", text: "When is high water?" };
+
+    const first = await collect(
+      create(),
+      request(
+        scriptedModel(() => ({ text: "" })),
+        { model: anthropic },
+      ),
+    );
+    const again = await collect(
+      create(),
+      request(
+        scriptedModel(() => ({ text: "" })),
+        {
+          model: anthropic,
+          messages: [
+            asked,
+            ...(first.finished ?? []),
+            { role: "user", text: "Your reply is empty. Say when high water is." },
+          ],
+        },
+      ),
+    );
+
+    expect(first.text).toBe("");
+    expect(first.finished).toEqual([{ role: "assistant", text: "", toolCalls: [] }]);
+    expect(bodies).toHaveLength(2);
+    expect(bodies[1]?.messages.map((message) => message.role)).toEqual(["user"]);
+    expect(again.text).toBe("Written.");
+    expect(again.events.at(-1)?.type).toBe("finished");
   });
 
   test("endsAfter: the Run ends after the step it names, with no further model call", async () => {
