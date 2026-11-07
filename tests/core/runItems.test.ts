@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { ProviderError } from "../../src/core";
-import { RATE_LIMIT_PAUSES_MS, RunItemError, runItems } from "../../src/core/runs/stop";
+import { RATE_LIMIT_PAUSES_MS, RunItemError, runItems, startItems } from "../../src/core/runs/stop";
 
 const failure = (kind: ProviderError["kind"], extra: Partial<ProviderError> = {}) =>
   new RunItemError({ kind, message: kind, ...extra });
@@ -190,5 +190,66 @@ describe("Running a run's items", () => {
     );
     expect(run.outcomes.map((each) => each.status)).toEqual(["done", "stopped", "stopped"]);
     expect(run.stop).toBeNull();
+  });
+
+  // protects=items pushed into a run while earlier ones still run share its one limit at once and start in order, and close waits for every one (#1635: a write's sentences as its paragraphs land); fails_when=each push runs its items alongside the others past the limit, or close resolves before items pushed later end; no_claim=none beyond protects.
+  test("items pushed while others run share one limit at once, in order, and close waits for them all", async () => {
+    let running = 0;
+    let most = 0;
+    const started: number[] = [];
+    const ended: number[] = [];
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const run = startItems(
+      async (item: number) => {
+        started.push(item);
+        running++;
+        most = Math.max(most, running);
+        await held;
+        running--;
+        ended.push(item);
+        return item;
+      },
+      { concurrency: 3 },
+    );
+    run.push([1, 2]);
+    run.push([3, 4]);
+    run.push([5]);
+    expect(started).toEqual([1, 2, 3]);
+    release();
+    const { outcomes, stop } = await run.close();
+
+    expect(most).toBe(3);
+    expect(started).toEqual([1, 2, 3, 4, 5]);
+    expect(ended).toHaveLength(5);
+    expect(outcomes.map((each) => each.status)).toEqual(["done", "done", "done", "done", "done"]);
+    expect(stop).toBeNull();
+  });
+
+  // protects=a stop in an open run settles the items pushed after it not checked, for its reason, without running them (#1635); fails_when=items pushed after the stop are run; no_claim=none beyond protects.
+  test("a stop settles the items pushed after it not checked, unrun", async () => {
+    const ran: number[] = [];
+    const run = startItems(
+      async (item: number) => {
+        ran.push(item);
+        if (item === 1) throw failure("cost-cap");
+        return item;
+      },
+      { concurrency: 1 },
+    );
+    run.push([1]);
+    await new Promise((resolve) => setImmediate(resolve));
+    run.push([2, 3]);
+    const { outcomes, stop } = await run.close();
+
+    expect(ran).toEqual([1]);
+    expect(stop).toEqual({ reason: "cost-cap" });
+    expect(outcomes.map((each) => each.status)).toEqual([
+      "not-checked",
+      "not-checked",
+      "not-checked",
+    ]);
   });
 });

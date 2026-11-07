@@ -1687,39 +1687,6 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
     expect(new Set(marks.map(({ check }) => check.request)).size).toBe(1);
   });
 
-  // protects=paragraphs checked as they land never have more sentences checked at once across the write than its check holds, six on a cloud model (#1618); fails_when=each paragraph's sentences start on their own and more than six are in flight; no_claim=how a provider's limit on requests reacts.
-  test("paragraphs checked as they land never check more sentences at once than the write's check holds", async () => {
-    const lines = Array.from(
-      { length: SENTENCES_CHECKED_AT_MOST },
-      (_, index) => `${UNBACKED} ${String.fromCharCode(65 + index)}`,
-    );
-    let inFlight = 0;
-    let most = 0;
-    let release: () => void = () => undefined;
-    const released = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    await write({
-      content: `## Tides\n\n${lines.map((line) => `${line} [^1].`).join("\n\n")}`,
-      cloud: { kind: "anthropic", modelId: "claude-haiku-5-5" },
-      streamed: { after: () => Number.POSITIVE_INFINITY, until: () => Promise.resolve() },
-      check: (call) => {
-        const reply = checkReply(call, PLANS);
-        if (call.results.length > 0) {
-          if (endsCheck(reply)) inFlight--;
-          return reply;
-        }
-        inFlight++;
-        most = Math.max(most, inFlight);
-        // Each check's first reply waits until six are in flight, or all of the write's are.
-        if (inFlight >= 6) release();
-        return { ...reply, pause: { after: 0, until: released } };
-      },
-    });
-
-    expect(most).toBe(6);
-  });
-
   // protects=a cited sentence with a figure is checked only once the whole write is in, as its figure is read with the Note's own language and separators, while one with no figure is checked as it lands (#1635); fails_when=the figure's sentence is checked before the rest of the write is in; no_claim=which figures a later paragraph would read otherwise.
   test("a sentence with a figure waits for the whole write, one without starts as it lands", async () => {
     let heldUntilChecked: () => void = () => undefined;
