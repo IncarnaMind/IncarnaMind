@@ -8,6 +8,7 @@ import { MetaLine } from "../components/MetaLine";
 import { ProblemLine } from "../components/ProblemLine";
 import { buttonStyle } from "../components/ui";
 import { type EstimateLine, runStopParts } from "../cost";
+import { useEarlyChecks } from "../earlyChecks";
 import { useLanguage, useT } from "../i18n";
 import { confirmCheck, dismissMindCheck, startMindCheck, useMindCheck } from "../mindCheck";
 import { shownClaims } from "./claimChecks";
@@ -142,14 +143,20 @@ export function RunningText({
   const language = useLanguage();
   const running = useChecks((state) => state.running[mindId]);
   const progress = useMindCheckProgress(editor, running?.requestId ?? null);
+  // Before the run marks its claims, the sentences whose checks have started count (#1624).
+  const early = useEarlyChecks(({ byMind }) => {
+    const shown = byMind[mindId];
+    return shown && shown.requestId === running?.requestId ? shown.sentences.length : 0;
+  });
   if (!running) return null;
   if (running.action !== "whole-mind") return <>{t(`checks.running.${running.action}`)}</>;
   const format = (value: number) => new Intl.NumberFormat(language).format(value);
+  const total = progress.total > 0 ? progress.total : early;
   return (
     <span data-testid={testId} className="tabular-nums">
-      {progress.total === 0
+      {total === 0
         ? t("verify.finding")
-        : t("badge.checking", { done: format(progress.done), total: format(progress.total) })}
+        : t("badge.checking", { done: format(progress.done), total: format(total) })}
     </span>
   );
 }

@@ -52,6 +52,7 @@ export const SIGNS: readonly CoreEventName[] = [
   "mind.update",
   "comparison.filling",
   "task.changed",
+  "mindCheck.early",
 ];
 const WORDS: ReadonlySet<CoreEventName> = new Set(["answer.delta", "mind.update"]);
 

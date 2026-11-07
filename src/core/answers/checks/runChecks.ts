@@ -170,9 +170,12 @@ export function earlyChecks(
   }
   const started = new Map<string, Early[]>();
   return {
-    /** `readNow` says what the check reads besides its request (the Library, the Note's record choices): it is taken only if that is unchanged. */
-    start(claim: QueuedClaim, readNow: () => string): void {
-      if (limit.free() === 0) return;
+    /**
+     * `readNow` says what the check reads besides its request (the Library, the Note's record
+     * choices): it is taken only if that is unchanged. False when no place was free to start it.
+     */
+    start(claim: QueuedClaim, readNow: () => string): boolean {
+      if (limit.free() === 0) return false;
       const stop = new AbortController();
       const request = checkRequestOf(claim, run, limit, AbortSignal.any([run.signal, stop.signal]));
       const key = requestKey(request);
@@ -188,6 +191,7 @@ export function earlyChecks(
         console.error(`A check started early for Note ${run.mindId} failed:`, error);
       });
       started.set(key, [...(started.get(key) ?? []), early]);
+      return true;
     },
     /** Stops at once the early checks of claims the run won't send as they were sent. */
     keep(queued: readonly QueuedClaim[]): void {

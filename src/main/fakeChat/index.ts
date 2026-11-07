@@ -115,16 +115,39 @@ function generatedText(options: GenerateOptions): string {
 
 /**
  * A slow check holds until a test releases it through `incarnamindSlowCheck`, so a window test can
- * open a Citation whose sentence is still judged without leaning on a time (#2375).
+ * open a Citation whose sentence is still judged without leaning on a time (#2375). `holdSort`
+ * holds a Note's sort after the first sentence it names, so a window test sees that sentence's
+ * check start while the rest are named (#1624).
  */
 const slowCheck = {
   hold: false,
+  holdSort: false,
   waiting: [] as (() => void)[],
   release() {
     for (const go of slowCheck.waiting.splice(0)) go();
   },
 };
 (globalThis as { incarnamindSlowCheck?: typeof slowCheck }).incarnamindSlowCheck = slowCheck;
+
+/** A sort's reply that waits, after the first sentence it names, for the test to release it. */
+function heldAfterFirstClaim(
+  streamed: ReturnType<typeof streamedText>,
+): ReturnType<typeof streamedText> {
+  let named = false;
+  return {
+    stream: streamed.stream.pipeThrough(
+      new TransformStream({
+        async transform(part, controller) {
+          if (named && slowCheck.holdSort) {
+            await new Promise<void>((go) => slowCheck.waiting.push(go));
+          }
+          controller.enqueue(part);
+          if (part.type === "text-delta" && part.delta.includes("}]}")) named = true;
+        },
+      }),
+    ),
+  };
+}
 
 export const createFakeChatModel: ChatModelFactory = (spec) => {
   const generate = async (
@@ -237,7 +260,10 @@ export const createFakeChatModel: ChatModelFactory = (spec) => {
     doStream: async (options) => {
       const { prompt, tools, abortSignal, responseFormat } = options;
       // A Note's sort streams its reply (#2532): it is answered as when it was generated.
-      if (findsClaims(options)) return streamedText(await generate(options), abortSignal);
+      if (findsClaims(options)) {
+        const streamed = streamedText(await generate(options), abortSignal);
+        return slowCheck.holdSort ? heldAfterFirstClaim(streamed) : streamed;
+      }
       // A test's hold stops a check Run's judgement of a claim until it releases it, so a window
       // test sees the run mid-flight (#2313).
       if (slowCheck.hold && CHECK_RUN.test(systemOf(prompt))) {

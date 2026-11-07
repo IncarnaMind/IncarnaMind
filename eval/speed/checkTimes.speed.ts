@@ -194,6 +194,10 @@ function watchNote(
   return {
     landed,
     firstMarkMs: () => firstMarkMs,
+    /** A mark the window draws before the Note has it: a sentence checked early (#1624). */
+    marked: () => {
+      firstMarkMs ??= since();
+    },
     stop: () => doc.off("update", read),
   };
 }
@@ -221,6 +225,9 @@ async function noteFlow(
   await client.settled();
   recorder.begin(sentences);
   const watch = watchNote(client.doc, sentences, recorder.since, await versionsOf(core));
+  const stopEarly = core.on("mindCheck.early", (event) => {
+    if (event.mindId === mindId && event.sentences.length > 0) watch.marked();
+  });
   let doneMs = 0;
   // Its end is taken when the check ends, not after a search asked during it.
   const checking = core
@@ -243,6 +250,7 @@ async function noteFlow(
   );
   await checking;
   watch.stop();
+  stopEarly();
   return {
     checkStartMs: watch.firstMarkMs() ?? doneMs,
     doneMs,

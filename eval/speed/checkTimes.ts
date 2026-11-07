@@ -325,7 +325,10 @@ export interface FlowTimes {
   load: number;
   /** The machine's load over the last 15 minutes as the run began, which a timing run is held to. */
   load15: number;
-  /** When the check itself began: after the claims were named, for a Note's check. */
+  /**
+   * When the check itself began: for a Note's check, its first mark the window draws, a sentence
+   * checked while the claims are still named included (#1624).
+   */
   checkStartMs: number;
   /** When the first mark reached the page, one that couldn't be checked included. */
   firstMarkMs: number | null;

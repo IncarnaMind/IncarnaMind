@@ -3,7 +3,9 @@ import type { Editor } from "@tiptap/react";
 import { type CSSProperties, useCallback, useEffect, useRef, useState } from "react";
 import type * as Y from "yjs";
 import { setClaimFocus, setOpenClaim } from "../checks";
+import { useEarlyChecks } from "../earlyChecks";
 import { focusFigure, useFigureFocus } from "../figures";
+import { useT } from "../i18n";
 import { mindFolded } from "../mindColumn";
 import { motionMode, subscribeMotion } from "../motion";
 import { ClaimMark } from "./ClaimCheckCard";
@@ -12,7 +14,7 @@ import { useCardPlace } from "./checkPlace";
 import { textBlockEdited } from "./citationNumbers";
 import { markOf, type ShownClaim, setClaimInline, setClaimRooms, shownClaims } from "./claimChecks";
 import { figurePlace } from "./figurePlaces";
-import type { ClaimMarkState } from "./icons";
+import { ClaimMarkIcon, type ClaimMarkState } from "./icons";
 import {
   EDGE_GAP,
   MARK_HEIGHT,
@@ -23,6 +25,7 @@ import {
   revealOrder,
 } from "./marginMarks";
 import { OpinionCard } from "./OpinionCard";
+import { positionOf } from "./proposalReview";
 import { scrollMindTo } from "./reviewPick";
 
 /** When an Answer finishes, its checks appear one after another, this far apart. */
@@ -90,12 +93,51 @@ function endOfSentence(editor: Editor, to: number): SentenceBox | null {
   return drawnBox(rect.top, rect.bottom, rect.right);
 }
 
+/**
+ * The sentences checked before their run marks them (`useEarlyChecks`), where they are in the
+ * editor now, but those that have a mark of their own by then.
+ */
+function earlySentences(
+  editor: Editor,
+  mindId: string,
+  marked: readonly { from: number; to: number }[],
+): { key: string; from: number; to: number }[] {
+  const { doc } = editor.state;
+  return (useEarlyChecks.getState().byMind[mindId]?.sentences ?? []).flatMap((sentence) => {
+    const from = positionOf(doc, sentence.from);
+    const to = positionOf(doc, sentence.to);
+    if (from === null || to === null || to <= from) return [];
+    if (marked.some((mark) => mark.from < to && mark.to > from)) return [];
+    return [{ key: `${sentence.from.blockId}:${sentence.from.offset}`, from, to }];
+  });
+}
+
+/** A sentence checked before its run marks it (#1624): the checking mark alone, with no card yet. */
+function EarlyMark({ style }: { style: CSSProperties }) {
+  const t = useT();
+  const label = t("claim.mark.label", { state: t("claim.state.checking") });
+  return (
+    <span
+      data-testid="claim-mark-early"
+      data-check="checking"
+      className="margin-check claim-mark"
+      style={{ ...style, cursor: "default" }}
+      role="img"
+      aria-label={label}
+      title={label}
+    >
+      <ClaimMarkIcon state="checking" className="margin-check-icon" />
+    </span>
+  );
+}
+
 /** A mark as measured, before its row places it. */
 interface Measured {
-  /** "claim:" and the sentence check's id. */
+  /** "claim:" and the sentence check's id; "early:" and its sentence's place for one checked early. */
   key: string;
   state: ClaimMarkState;
-  claim: ShownClaim;
+  /** Null for a sentence checked before its run marks it (`useEarlyChecks`): it has no card yet. */
+  claim: ShownClaim | null;
   /** The vertical middle of the sentence's first line, from the top of the column. */
   middle: number;
   /** The first line's box, from the top of the column. */
@@ -123,7 +165,7 @@ function lineOf(mark: Measured, widths: ReadonlyMap<string, number>): MarkLine {
     bottom: mark.lineBottom,
     middle: mark.middle,
     left: mark.startLeft,
-    width: widths.get(mark.claim.check.id) ?? PLAIN_MARK_WIDTH,
+    width: (mark.claim && widths.get(mark.claim.check.id)) ?? PLAIN_MARK_WIDTH,
     silent: mark.state === "not-checked",
   };
 }
@@ -176,8 +218,8 @@ const sameMarks = (a: readonly Mark[], b: readonly Mark[]) =>
       mark.left === other.left &&
       mark.inline === other.inline &&
       mark.delay === other.delay &&
-      mark.claim.check === other.claim.check &&
-      mark.claim.sentence.text === other.claim.sentence.text
+      mark.claim?.check === other.claim?.check &&
+      mark.claim?.sentence.text === other.claim?.sentence.text
     );
   });
 
@@ -287,7 +329,9 @@ export function MarginChecks({
     const element = layer.current;
     if (!element) return;
     const shown = new Set(
-      marks.filter((mark) => mark.state !== "not-checked").map((mark) => mark.claim.check.id),
+      marks.flatMap((mark) =>
+        mark.claim && mark.state !== "not-checked" ? [mark.claim.check.id] : [],
+      ),
     );
     const drawn = new Map<string, number>();
     for (const mark of element.querySelectorAll<HTMLElement>("[data-claim]")) {
@@ -360,6 +404,28 @@ export function MarginChecks({
           revealing.add(mark.key);
         seen.current.set(mark.key, state);
         measured.push(mark);
+      }
+      // A folded margin keeps room after a sentence only for its own mark's card.
+      const marked = measured.flatMap(({ claim }) => (claim ? [claim.sentence] : []));
+      for (const sentence of folded ? [] : earlySentences(editor, mind.id, marked)) {
+        let coords: SentenceBox | null;
+        try {
+          coords = startOfSentence(editor, sentence.from, sentence.to);
+        } catch {
+          continue;
+        }
+        if (!coords) continue;
+        measured.push({
+          key: `early:${sentence.key}`,
+          state: "checking",
+          claim: null,
+          middle: (coords.top + coords.bottom) / 2 - rect.top,
+          lineTop: coords.top - rect.top,
+          lineBottom: coords.bottom - rect.top,
+          startLeft: coords.at,
+          inlineLeft: null,
+          delay: null,
+        });
       }
       // In the margin, marks keep the line their sentence starts on: side by side when it starts
       // on one line, and under the line's first when one would pass the pane's edge. A sentence
@@ -442,15 +508,19 @@ export function MarginChecks({
     });
     document.fonts.addEventListener("loadingdone", request);
     void document.fonts.ready.then(request);
+    const stopEarly = useEarlyChecks.subscribe((now, before) => {
+      if (now.byMind[mind.id] !== before.byMind[mind.id]) request();
+    });
     return () => {
       cancelAnimationFrame(frame);
+      stopEarly();
       editor.off("transaction", onTransaction);
       resizes.disconnect();
       paneResizes.disconnect();
       mutations.disconnect();
       document.fonts.removeEventListener("loadingdone", request);
     };
-  }, [editor]);
+  }, [editor, mind.id]);
 
   useEffect(
     () => () => {
@@ -476,28 +546,33 @@ export function MarginChecks({
     [],
   );
 
-  const markElement = (mark: Mark) => (
-    <ClaimMark
-      key={mark.key}
-      claim={mark.claim}
-      editor={editor}
-      mindId={mind.id}
-      doc={mind.doc}
-      reveal={mark.delay !== null}
-      style={
-        {
-          top: mark.top,
-          left: mark.left,
-          "--reveal-delay": `${mark.delay ?? 0}ms`,
-        } as CSSProperties
-      }
-      inline={mark.inline}
-      onRevealed={() => {
-        reveals.current.delete(`${mark.key}:${mark.state}`);
-        setMarks((drawn) => drawn.map((each) => (each === mark ? { ...each, delay: null } : each)));
-      }}
-    />
-  );
+  const markElement = (mark: Mark) =>
+    mark.claim === null ? (
+      <EarlyMark key={mark.key} style={{ top: mark.top, left: mark.left }} />
+    ) : (
+      <ClaimMark
+        key={mark.key}
+        claim={mark.claim}
+        editor={editor}
+        mindId={mind.id}
+        doc={mind.doc}
+        reveal={mark.delay !== null}
+        style={
+          {
+            top: mark.top,
+            left: mark.left,
+            "--reveal-delay": `${mark.delay ?? 0}ms`,
+          } as CSSProperties
+        }
+        inline={mark.inline}
+        onRevealed={() => {
+          reveals.current.delete(`${mark.key}:${mark.state}`);
+          setMarks((drawn) =>
+            drawn.map((each) => (each === mark ? { ...each, delay: null } : each)),
+          );
+        }}
+      />
+    );
 
   return (
     <div ref={layer} className="margin-checks" data-testid="margin-checks">
