@@ -150,3 +150,5 @@ export const LIBRARY_FLOWS: readonly Flow[] = [
     },
   },
 ];
+
+export const LIBRARY_FLOW_IDS: ReadonlySet<string> = new Set(LIBRARY_FLOWS.map((flow) => flow.id));

@@ -5,6 +5,7 @@
  * wait over 2 s) and the time budgets of #1624; then each model request and local step the flows
  * made, by flow and step.
  */
+import { LIBRARY_FLOW_IDS } from "./libraryFlows";
 import type { FlowSigns, Language } from "./signs";
 
 /** One row of the core's timing records (src/core/timing/timings.ts), as stored. */
@@ -35,6 +36,9 @@ export interface FlowRun {
   error: string | null;
   records: TimingRecord[];
 }
+
+/** The data flows the Library's background queue sends on, untagged with any flow. */
+const BACKGROUND = new Set(["tagging", "classification"]);
 
 export const SIGN_WITHIN_MS = 500;
 export const QUIET_AT_MOST_MS = 2000;
@@ -68,10 +72,16 @@ export function flowTable(runs: readonly FlowRun[]): string {
       const timed = each.flatMap((run) => (run.signs ? [run.signs] : []));
       const sign = known(timed.map((run) => run.firstSignMs));
       const quiet = timed.map((run) => run.longestQuietMs);
-      // A flow's requests are tagged with the core's flows it runs, not with its own id.
+      // A flow's requests are tagged with the core's flows it runs, not with its own id; the
+      // Library's run in its background queue, tagged with their data flow alone.
       const calls = each.map(
         (run) =>
-          run.records.filter((record) => record.kind === "model" && record.flow !== null).length,
+          run.records.filter(
+            (record) =>
+              record.kind === "model" &&
+              (record.flow !== null ||
+                (LIBRARY_FLOW_IDS.has(run.flow) && BACKGROUND.has(record.data_flow ?? ""))),
+          ).length,
       );
       const signOk = (percentile(sign, HELD_AT) ?? Number.POSITIVE_INFINITY) <= SIGN_WITHIN_MS;
       const quietOk = (percentile(quiet, HELD_AT) ?? Number.POSITIVE_INFINITY) <= QUIET_AT_MOST_MS;
