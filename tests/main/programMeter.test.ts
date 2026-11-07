@@ -181,12 +181,18 @@ test("a stat line's state, flags, start and size, whatever its name holds", () =
   ).toEqual({ comm: "a (b) c", state: "D", flags: 0x404044, started: 731, vsize: 0 });
 });
 
+/** A wall clock, and the app's CPU time, both in ms, that only a test moves. */
 function clock(start = 1_000_000) {
   let t = start;
+  let used = 0;
   return {
     now: () => t,
     advance: (ms: number) => {
       t += ms;
+    },
+    cpu: () => used,
+    burn: (ms: number) => {
+      used += ms;
     },
   };
 }
@@ -567,6 +573,7 @@ describe("the meter's ticks (macOS)", () => {
       platform: "darwin",
       interval: false,
       now: c.now,
+      cpu: c.cpu,
       folder: async () => 0,
     });
     const each = watcher();
@@ -588,6 +595,8 @@ interface ProcNode {
   hold?: Promise<void>;
   /** How long the fd folder's read takes, in ms on the test's clock. */
   takes?: number;
+  /** How much of the app's CPU time, in ms, the fd folder's read uses. */
+  burns?: number;
   links?: Record<string, string | Error>;
   sizes?: Record<string, { device: number; inode: string; bytes: number } | Error>;
   maps?: string | (() => AsyncIterable<Uint8Array>);
@@ -643,6 +652,7 @@ function fakeProc(
       if (c) {
         fdReadAt.set(pid, [...(fdReadAt.get(pid) ?? []), c.now()]);
         c.advance(at.takes ?? 0);
+        c.burn(at.burns ?? 0);
       }
       await at.hold;
       if (at.fdsErr) throw err(at.fdsErr);
@@ -729,6 +739,7 @@ function linux(
     platform: "linux",
     interval: false,
     now: c.now,
+    cpu: c.cpu,
     reader: proc.reader,
     folder: options.folder ?? (async () => 0),
   });
@@ -1213,6 +1224,7 @@ describe("the meter, on Linux's /proc", () => {
       platform: "linux",
       interval: false,
       now: c.now,
+      cpu: c.cpu,
       reader,
       folder: async () => 0,
     });
@@ -1322,6 +1334,7 @@ describe("the 10 s clock", () => {
       platform: "linux",
       interval: false,
       now: c.now,
+      cpu: c.cpu,
       reader,
       folder: async () => 0,
     });
@@ -1350,6 +1363,7 @@ describe("the 10 s clock", () => {
       platform: "linux",
       interval: false,
       now: c.now,
+      cpu: c.cpu,
       folder: async () => 3 * MB,
     });
     const each = watcher();
@@ -1364,30 +1378,40 @@ describe("the 10 s clock", () => {
 const sinceFirst = (times: readonly number[] = []) => times.map((t) => t - (times[0] ?? 0));
 
 describe("a run's reads, paced by their cost", () => {
-  test("a heavy run's next read waits three times as long as its last took, from its end; the disk stays known meanwhile", async () => {
+  test("a heavy run's next read begins four times its last read's wall time after that read began; the disk stays known meanwhile", async () => {
     const { c, meters, each, fdReadAt } = linux({
       600: { leader: { ...deleted(5 * MB), takes: 400 } },
     });
     await run(meters, c, 11, 250);
-    // Read from 0 to 400 ms, so none before 1,600: the tick at 1,650; read to 2,050, so none before
-    // 3,250: the tick at 3,300.
+    // Read from 0 ms for 400, so none before 1,600: the tick at 1,650; then none before 3,250:
+    // the tick at 3,300.
     expect(sinceFirst(fdReadAt.get(600))).toEqual([0, 1650, 3300]);
     expect(each.peak().unknown).toBe(false);
     expect(each.uses.at(-1)?.folder).toBe(5 * MB);
   });
 
-  test("the wait is 6 s at most, however long the last read took", async () => {
+  test("a read that uses more of the app's CPU than its wall time is paced by the CPU", async () => {
     const { c, meters, fdReadAt } = linux({
-      600: { leader: { ...deleted(5 * MB), takes: 2500 } },
+      600: { leader: { ...deleted(5 * MB), takes: 100, burns: 500 } },
     });
-    await run(meters, c, 25, 250);
-    // Read from 0 to 2,500 ms; 7,500 more would be three times it, so the wait is 6,000.
-    expect(sinceFirst(fdReadAt.get(600))).toEqual([0, 8500]);
+    await run(meters, c, 18, 250);
+    // 100 ms on the clock, 500 of CPU: none before 2,000, so the tick at 2,100; then 4,200.
+    expect(sinceFirst(fdReadAt.get(600))).toEqual([0, 2100, 4200]);
+  });
+
+  test("the wait counts a read's cost up to its 2 s deadline: 8 s at most from its start", async () => {
+    const slow = linux({ 600: { leader: { ...deleted(5 * MB), takes: 2500 } } });
+    await run(slow.meters, slow.c, 31, 250);
+    // Read from 0 to 2,500 ms, counted as 2,000: none before 8,000. The same for 60 s of CPU.
+    expect(sinceFirst(slow.fdReadAt.get(600))).toEqual([0, 8000]);
+    const busy = linux({ 600: { leader: { ...deleted(5 * MB), takes: 100, burns: 60_000 } } });
+    await run(busy.meters, busy.c, 33, 250);
+    expect(sinceFirst(busy.fdReadAt.get(600))).toEqual([0, 8100]);
   });
 
   test("an ordinary run's read, 3 ms, is followed on the next tick, as without pacing", async () => {
     const { c, meters, fdReadAt } = linux({
-      600: { leader: { ...deleted(5 * MB), takes: 3 } },
+      600: { leader: { ...deleted(5 * MB), takes: 3, burns: 3 } },
     });
     await run(meters, c, 6, 250);
     expect(sinceFirst(fdReadAt.get(600))).toEqual([0, 253, 506, 759, 1012, 1265]);

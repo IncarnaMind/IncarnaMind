@@ -6,8 +6,8 @@
  * that no folder names any more. Windows has no `ps`; its Job Object will hold these limits.
  */
 import { execFile } from "node:child_process";
-import type { Dirent } from "node:fs";
-import { lstat, open, readdir, readFile, readlink, stat } from "node:fs/promises";
+import { createReadStream, type Dirent } from "node:fs";
+import { lstat, readdir, readFile, readlink, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { promisify } from "node:util";
@@ -325,11 +325,6 @@ export const MAPS_CAP_BYTES = 6 * 1024 * 1024;
  */
 export const MAPS_BUDGET_BYTES = 32 * 1024 * 1024;
 
-const MAPS_CHUNK_BYTES = 64 * 1024;
-
-/** How Linux ends the name of a file that no folder names any more, in `fd` links and `maps`. */
-const DELETED = " (deleted)";
-
 /** An fd whose target no longer exists, or a process gone between reads: counted as nothing. */
 const GONE = new Set(["ENOENT", "ESRCH"]);
 
@@ -359,21 +354,7 @@ export const procReader: ProcReader = {
     const info = await stat(`${procBase(pid, tid)}/fd/${fd}`);
     return { device: info.dev, inode: String(info.ino), bytes: info.size };
   },
-  async *maps(pid, tid) {
-    // One chunk at a time, never read ahead: a read then uses no more CPU than its wall time,
-    // which is what paces a run's reads.
-    const file = await open(`${procBase(pid, tid)}/maps`);
-    try {
-      for (;;) {
-        const chunk = Buffer.allocUnsafe(MAPS_CHUNK_BYTES);
-        const { bytesRead } = await file.read(chunk, 0, MAPS_CHUNK_BYTES, null);
-        if (bytesRead === 0) return;
-        yield chunk.subarray(0, bytesRead);
-      }
-    } finally {
-      await file.close();
-    }
-  },
+  maps: (pid, tid) => createReadStream(`${procBase(pid, tid)}/maps`, { highWaterMark: 64 * 1024 }),
   tasks: async (pid) =>
     (await readdir(`/proc/${pid}/task`)).map(Number).filter((tid) => Number.isSafeInteger(tid)),
   stat: (pid, tid) => readFile(`${procBase(pid, tid)}/stat`, "utf8"),
@@ -585,7 +566,7 @@ async function readFds(
   for (const fd of fds) {
     const path = `${procBase(pid, tid)}/fd/${fd}`;
     try {
-      if (!(await reader.readlink(pid, tid, fd)).endsWith(DELETED)) continue;
+      if (!(await reader.readlink(pid, tid, fd)).endsWith(" (deleted)")) continue;
       const { device, inode, bytes } = await reader.size(pid, tid, fd);
       files.push({ pid, device, inode, bytes });
     } catch (error) {
@@ -619,17 +600,9 @@ async function readMaps(
       if (bytes > limit) {
         return { files: unlinkedMappings(pid, deleted.join("\n")), bytes, capped: true };
       }
-      const text = partial + decoder.write(chunk);
-      // Searched for rather than split into lines: a turn can read 32 MiB of a run's maps, and
-      // almost none of it names a deleted file.
-      for (
-        let at = text.indexOf(`${DELETED}\n`);
-        at !== -1;
-        at = text.indexOf(`${DELETED}\n`, at + 1)
-      ) {
-        deleted.push(text.slice(text.lastIndexOf("\n", at) + 1, at + DELETED.length));
-      }
-      partial = text.slice(text.lastIndexOf("\n") + 1);
+      const lines = (partial + decoder.write(chunk)).split("\n");
+      partial = lines.pop() ?? "";
+      for (const line of lines) if (line.endsWith(" (deleted)")) deleted.push(line);
     }
   } catch (error) {
     const code = errnoOf(error);
@@ -716,6 +689,8 @@ interface Watched {
   walking: boolean;
   /** When its read of open files in flight began. */
   readingSince: number | null;
+  /** The app's CPU time, in ms, as that read began. */
+  readingCpu: number;
   /** The soonest its next read of open files may begin. */
   nextReadAt: number;
   /** How its last read ended, and when that read began, until a tick acts on it. */
@@ -741,9 +716,16 @@ export interface MetersOptions {
   folder?: (folder: string) => Promise<number>;
   reader?: ProcReader;
   now?: () => number;
+  /** The CPU time the app has used, in ms. */
+  cpu?: () => number;
   /** False: only `tick` measures, as a test drives it. */
   interval?: boolean;
 }
+
+const appCpu = () => {
+  const { user, system } = process.cpuUsage();
+  return (user + system) / 1000;
+};
 
 /** Past this, a read in flight leaves the disk unknown each tick (it isn't cancellable). */
 const DISK_DEADLINE_MS = COMMAND_MS;
@@ -752,14 +734,14 @@ const DISK_DEADLINE_MS = COMMAND_MS;
 export const UNKNOWN_DISK_MS = 10_000;
 
 /**
- * A run's next read of its open files waits this many times as long as its last read took, from
- * its end: a run that makes its reads heavy is read a quarter of the time at most, while its reads
- * keep within their deadline (#2351).
+ * A run's next read of its open files begins no sooner than this many times its last read's cost
+ * after that read began, the cost being the longer of its wall time and the CPU time the app used
+ * meanwhile, on every thread: a read of 30 MB of maps took about 1.8 times its wall time in CPU. A
+ * cost counts up to the read's 2 s deadline, so the wait is 8 s at most. While a read costs no
+ * more, a run that makes its reads heavy keeps the app reading a quarter of the time and a quarter
+ * of a core at most (#2351).
  */
-export const READ_PACE = 3;
-
-/** The longest that wait, three times a read's deadline: a write goes unseen 6 s more at most. */
-const PACE_MAX_MS = READ_PACE * DISK_DEADLINE_MS;
+export const READ_PACE = 4;
 
 /**
  * Measures every program it watches each `WATCH_MS`, from one listing of the computer's processes
@@ -768,8 +750,8 @@ const PACE_MAX_MS = READ_PACE * DISK_DEADLINE_MS;
  * stops that run at once (`disk-unmeasured`). One that is slow, past its 2 s deadline, leaves the
  * disk unknown for that turn while every limit keeps running on what was last read; a run whose
  * disk stays unknown for more than `UNKNOWN_DISK_MS` in a row is stopped. The clock is checked every
- * tick, so a read that never returns stops its run too. A run's next read waits `READ_PACE` times
- * as long as its last took. On macOS one lsof reads every run's open files every other turn, and
+ * tick, so a read that never returns stops its run too. A run's next read waits on its last one's
+ * cost (`READ_PACE`). On macOS one lsof reads every run's open files every other turn, and
  * each run reads its own when that fails; on Linux each reads `/proc`.
  */
 export function createMeters(options: MetersOptions = {}): Meters {
@@ -778,6 +760,7 @@ export function createMeters(options: MetersOptions = {}): Meters {
   const sizeOf = options.folder ?? folderSize;
   const reader = options.reader ?? procReader;
   const now = options.now ?? Date.now;
+  const cpu = options.cpu ?? appCpu;
   const watched = new Set<Watched>();
   let timer: ReturnType<typeof setInterval> | undefined;
   let ticking = false;
@@ -819,7 +802,8 @@ export function createMeters(options: MetersOptions = {}): Meters {
   function readEnded(each: Watched, startedAt: number) {
     const at = now();
     each.readingSince = null;
-    each.nextReadAt = at + Math.min(READ_PACE * (at - startedAt), PACE_MAX_MS);
+    const cost = Math.max(at - startedAt, cpu() - each.readingCpu);
+    each.nextReadAt = startedAt + READ_PACE * Math.min(cost, DISK_DEADLINE_MS);
   }
 
   /** Records how a run's read of its open files ended; a failed one stops the run before it's told. */
@@ -914,6 +898,7 @@ export function createMeters(options: MetersOptions = {}): Meters {
       if (!each.walking) walk(each);
       if (listing && unlinkedTurn && each.readingSince === null && at >= each.nextReadAt) {
         each.readingSince = at;
+        each.readingCpu = cpu();
         batch.push({ each, pids });
       }
     }
@@ -1019,6 +1004,7 @@ export function createMeters(options: MetersOptions = {}): Meters {
           unlinked: 0,
           walking: false,
           readingSince: null,
+          readingCpu: 0,
           nextReadAt: Number.NEGATIVE_INFINITY,
           ended: null,
           failed: false,
