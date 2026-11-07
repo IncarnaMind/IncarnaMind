@@ -398,6 +398,6 @@ test.skipIf(KEY === undefined)(
     for (const miss of failed) console.log(`failed: ${miss}`);
     for (const miss of unanswered) console.log(`didn't say the answer: ${miss}`);
     expect(failed).toEqual([]);
-    core.close();
+    expect(unanswered).toEqual([]);
   },
 );
