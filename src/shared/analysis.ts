@@ -304,6 +304,8 @@ export type AnalysisEnd =
   | { kind: "timed-out"; limitMs: number }
   | { kind: "stopped" }
   | { kind: "out-of-memory" }
+  /** Stopped because its disk use couldn't be measured, so its folder limit couldn't be held. */
+  | { kind: "disk-unmeasured" }
   /** Python or its window stopped under the code, for no reason it gave: the log has the detail. */
   | { kind: "crashed" }
   /**

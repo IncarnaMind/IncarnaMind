@@ -90,6 +90,17 @@ export function breakpointsOf(prompt: Prompt): number[] {
 }
 
 /**
+ * An assistant turn that holds no text but blank text: Claude's empty reply comes back from a Run
+ * so, kept alive by the provider's `message_start` part, and Anthropic refuses a cache mark on an
+ * empty text block, which the turn before a re-ask's note gets (#2701).
+ */
+const saysNothing = (message: Prompt[number]): boolean =>
+  message.role === "assistant" &&
+  message.content.every(
+    (part) => part.type === "custom" || (part.type === "text" && part.text.trim() === ""),
+  );
+
+/**
  * A model whose requests carry cache breakpoints on their stable parts (see
  * `breakpointsOf`), at the end of a message's stable start (see
  * `stablePrefixOptions`), and on the last Tool, while Anthropic's limit allows:
@@ -101,9 +112,10 @@ export function withCacheBreakpoints(model: ChatLanguageModel): ChatLanguageMode
     middleware: {
       specificationVersion: "v4",
       transformParams: async ({ params }) => {
-        const marks = new Set(breakpointsOf(params.prompt));
+        const sent = params.prompt.filter((message) => !saysNothing(message)) as Prompt;
+        const marks = new Set(breakpointsOf(sent));
         let prefixes = 0;
-        const prompt = params.prompt.map((message, at) => {
+        const prompt = sent.map((message, at) => {
           const split = prefixes === 0 ? withStablePrefix(message) : null;
           if (split) prefixes++;
           const each = split ?? message;

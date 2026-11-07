@@ -1,11 +1,12 @@
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { markdownToBlocks } from "../../src/core/answers/markdown";
 import { calculatedCells, chartOfTable } from "../../src/core/tools/minds/charts";
 import { type ChartAttributes, readChart } from "../../src/shared/charts";
 import type { PlacedFigure } from "../../src/shared/figureMarkers";
 import { pendingProposals, proposalRequestOf } from "../../src/shared/proposals";
 import { askAssistant, changesIn, lastResult } from "../helpers/assistant";
+import { checkReply, isCheckRun } from "../helpers/checks";
 import { setUpWithDocuments, shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
@@ -18,6 +19,23 @@ import {
   scriptedModels,
 } from "../helpers/models";
 import { buildPdf } from "../helpers/pdf";
+
+// Armed, the next chart drawn throws once, as a chart step that breaks after its write's Citations
+// went in does.
+const chartBreaks = vi.hoisted(() => ({ armed: false }));
+vi.mock(import("../../src/core/tools/minds/charts"), async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    chartOfTable: (...args: Parameters<typeof actual.chartOfTable>) => {
+      if (chartBreaks.armed) {
+        chartBreaks.armed = false;
+        throw new Error("The chart broke.");
+      }
+      return actual.chartOfTable(...args);
+    },
+  };
+});
 
 /**
  * "Make a bar chart of revenue by quarter" (#1091), through the core's public
@@ -210,6 +228,41 @@ function writeThenCite(content: string) {
 }
 
 describe("A chart only draws what is cited", { timeout: 60_000 }, () => {
+  // protects=a write made before cite whose chart step breaks after its Citations went in is still checked once the Run ends (#1635); fails_when=the break leaves the write's found Citations unchecked, which reads as checked; no_claim=what makes a chart step break.
+  test("a chart step that breaks after the Citations went in leaves the write checked", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      // `cite` in the step after the write: the chart waits for its Citations, drawn after the Run.
+      const model = scriptedModel((call): ScriptedReply => {
+        if (isCheckRun(call)) return checkReply(call, {});
+        const search = call.results.find((each) => each.tool === "search_documents");
+        if (!search) return { calls: [{ tool: "search_documents", input: { query: "revenue" } }] };
+        if (!called(call, "add_to_mind")) {
+          const input = { chart: { kind: "bar", title: "Revenue" }, content: TABLE };
+          return { calls: [{ tool: "add_to_mind", input }] };
+        }
+        if (!called(call, "cite")) {
+          return { calls: [{ tool: "cite", input: { citations: citationsIn(search) } }] };
+        }
+        return { text: "" };
+      });
+      const { core, mind, client } = await setUp(model);
+      chartBreaks.armed = true;
+
+      const answer = await askAssistant(core, {
+        text: "make a bar chart of revenue by quarter",
+        mindId: mind.id,
+      });
+      await client.settled();
+
+      expect(chartBreaks.armed).toBe(false);
+      expect(changesIn(answer).at(-1)?.selfCheck).toMatchObject({ sent: QUARTERS.length });
+    } finally {
+      chartBreaks.armed = false;
+      errors.mockRestore();
+    }
+  });
+
   // protects=a table written before cite records its markers, in the same step, gets its chart once the Citations are in, each value with its cell's checked Citation; fails_when=the chart is drawn first and its values keep no Citation; no_claim=how a real provider orders the calls.
   test("cite after add_to_mind in the same step still gives the chart its Citations", async () => {
     const model = writeThenCite(TABLE);

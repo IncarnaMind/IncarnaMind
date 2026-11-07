@@ -17,6 +17,7 @@ import { DOMParser } from "@xmldom/xmldom";
 import * as Y from "yjs";
 import type { NodeJSON } from "../../../shared/blockJson";
 import type { ResolvedCitationStyle } from "../../../shared/citationStyles";
+import type { PrintedMarks } from "../../../shared/exportMarks";
 import { proposalRequestOf } from "../../../shared/proposals";
 import type { SourceContext } from "../../../shared/sources";
 import { wordFileOf, wordFingerprint, wordSourceOf } from "../../../shared/wordFiles";
@@ -38,7 +39,14 @@ import { nodesByPlace, noteXmlIn, readWordDocument } from "../../documents/forma
 import { WORD_LOOK_VERSION } from "../../documents/formats/docxLook";
 import { openWordPackage, reviewOf } from "../../documents/formats/docxPackage";
 import { relationshipsOf } from "../../documents/formats/officePackage";
-import { child, elements, type XmlElement } from "../../documents/formats/xml";
+import {
+  child,
+  descendants,
+  elements,
+  local,
+  parseXml,
+  type XmlElement,
+} from "../../documents/formats/xml";
 import {
   type Block,
   type FailedSentence,
@@ -52,6 +60,15 @@ import {
 import { type ContentsEntry, DocxWriter } from "../docx";
 import type { ExportLabels } from "../labels";
 import { noteChecks } from "../noteChecks";
+import {
+  FOOTER_CONTENT_TYPE,
+  FOOTER_RELATIONSHIP,
+  HEADER_CONTENT_TYPE,
+  HEADER_RELATIONSHIP,
+  pageMarksReferences,
+  pageNumberFooter,
+  watermarkHeader,
+} from "../wordFurniture";
 import { Review, type ReviewChoices } from "../wordReview";
 import { AtomPlan, copiedText } from "./atoms";
 import { styleWritten, type Written } from "./citations";
@@ -76,7 +93,7 @@ import {
   PatchTarget,
   reserveIds,
 } from "./parts";
-import { applySplices } from "./text";
+import { appendInside, applySplices, closeTag, endOf, openTag, selfClosing, startOf } from "./text";
 
 export interface WordPatchInput {
   /** The package kept when the Mind was imported. */
@@ -100,6 +117,8 @@ export interface WordPatchInput {
   review: ReviewChoices;
   /** The Mind's comments (#328), written back into the file with their threads and resolved state. */
   comments?: readonly MindComment[];
+  /** The page numbers and watermark the file carries (#1258). */
+  marks?: PrintedMarks;
 }
 
 export interface WordPatchResult {
@@ -431,8 +450,14 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
     lookCurrent: (wordLookOf(doc)?.version ?? 0) >= WORD_LOOK_VERSION,
   });
   let text: string;
+  let placedWatermark = false;
   try {
     text = docxWriter.finish(patch.write());
+    if (input.marks) {
+      const marked = await writePageMarks(writer, pkg.part, text, input.marks);
+      text = marked.text;
+      placedWatermark = marked.watermark;
+    }
   } catch (error) {
     throw new WordPartError(
       pkg.part,
@@ -481,6 +506,7 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
   await comments.flush(review.comments);
   await commentsExtended.flush(review.extended);
   await target.flush();
+  if (placedWatermark) await enableDisplayBackgroundShape(writer, pkg.part);
   if (hasContents(current)) await enableUpdateFields(writer, pkg.part);
 
   const report: WordExportReport = {
@@ -581,6 +607,112 @@ async function enableUpdateFields(writer: WordPackageWriter, mainPart: string): 
     "word/settings.xml",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml",
   );
+}
+
+/**
+ * The page numbers and watermark of an imported file that has none of its own (#1258): a footer
+ * and a header part, which every section refers to. A file whose sections already name a header
+ * or a footer keeps it, so the file's own furniture is never replaced.
+ */
+async function writePageMarks(
+  writer: WordPackageWriter,
+  mainPart: string,
+  text: string,
+  marks: PrintedMarks,
+): Promise<{ text: string; watermark: boolean }> {
+  if (!marks.pageNumbers && marks.watermark === null) return { text, watermark: false };
+  const root = parseXml(text);
+  const sections = descendants(root, "w:sectPr");
+  if (sections.length === 0) return { text, watermark: false };
+  const has = (kind: "header" | "footer") =>
+    sections.some((sectPr) =>
+      elements(sectPr).some((each) => local(each.name) === `${kind}Reference`),
+    );
+  const relationships = await writer.relationshipsOf(mainPart);
+  const add = async (
+    kind: "header" | "footer",
+    xml: string,
+    contentType: string,
+  ): Promise<string> => {
+    const name = writer.freeName(`word/${kind}`, "xml");
+    writer.add(name, xml);
+    await writer.addContentType(name, contentType);
+    return relationships.add(
+      kind === "header" ? HEADER_RELATIONSHIP : FOOTER_RELATIONSHIP,
+      name.slice(name.lastIndexOf("/") + 1),
+    );
+  };
+  const headerId =
+    marks.watermark !== null && !has("header")
+      ? await add("header", watermarkHeader(marks.watermark), HEADER_CONTENT_TYPE)
+      : undefined;
+  const footerId =
+    marks.pageNumbers && !has("footer")
+      ? await add("footer", pageNumberFooter(), FOOTER_CONTENT_TYPE)
+      : undefined;
+  if (headerId === undefined && footerId === undefined) return { text, watermark: false };
+  const references = pageMarksReferences({
+    ...(headerId !== undefined && { headerId }),
+    ...(footerId !== undefined && { footerId }),
+  });
+  return {
+    text: applySplices(
+      text,
+      sections.map((sectPr) =>
+        selfClosing(sectPr)
+          ? {
+              from: startOf(sectPr),
+              to: endOf(sectPr),
+              text: `${openTag(text, sectPr)}${references}${closeTag(sectPr)}`,
+            }
+          : {
+              from: sectPr.openEnd ?? startOf(sectPr),
+              to: sectPr.openEnd ?? startOf(sectPr),
+              text: references,
+            },
+      ),
+    ),
+    watermark: headerId !== undefined,
+  };
+}
+
+/** The settings before `w:displayBackgroundShape` in WordprocessingML's order (CT_Settings). */
+const SETTINGS_BEFORE_BACKGROUND = new Set([
+  "writeProtection",
+  "view",
+  "zoom",
+  "removePersonalInformation",
+  "removeDateAndTime",
+  "doNotDisplayPageBoundaries",
+]);
+
+/** Shows the header's watermark, as Word's own Watermark command does. */
+async function enableDisplayBackgroundShape(
+  writer: WordPackageWriter,
+  mainPart: string,
+): Promise<void> {
+  const part = await writer.part("word/settings.xml");
+  if (!part) {
+    writer.add(
+      "word/settings.xml",
+      `${XML_DECLARATION}<w:settings xmlns:w="${WORD_NS}"><w:displayBackgroundShape/></w:settings>`,
+    );
+    const relationships = await writer.relationshipsOf(mainPart);
+    relationships.add(`${REL_NS}/settings`, "settings.xml");
+    relationships.flush();
+    await writer.addContentType(
+      "word/settings.xml",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml",
+    );
+    return;
+  }
+  if (/<w:displayBackgroundShape\b/.test(part.text)) return;
+  const root = child(part.root, "w:settings") ?? part.root;
+  const first = elements(root).find((each) => !SETTINGS_BEFORE_BACKGROUND.has(local(each.name)));
+  const splice = first
+    ? { from: startOf(first), to: startOf(first), text: "<w:displayBackgroundShape/>" }
+    : appendInside(part.text, root, "<w:displayBackgroundShape/>");
+  writer.set("word/settings.xml", applySplices(part.text, [splice]));
 }
 
 const signatureLoss: WordExportLoss = {

@@ -128,6 +128,8 @@ export interface VerifyOptions {
   discardWordMind(mindId: string): Promise<void>;
   defaultModel(): ChatModelChoice | null;
   prepare(choice: ChatModelChoice | null): Promise<Prepared>;
+  /** Loads the reranker the checks' searches will use, while the model names the claims (#2532). */
+  warmReranker?(): void;
   evidenceScope(mindId: string, allDocuments: boolean, verification: Verification): MindCheckScope;
   claimCheck(request: ClaimCheckRequest): Promise<ClaimCheckResult>;
   withResult(
@@ -274,6 +276,7 @@ export function createVerify(options: VerifyOptions) {
     const ready = await options.prepare(model ?? options.defaultModel());
     if (!ready.ok) return ready.result;
     if (signal.aborted) return { kind: "cancelled" };
+    options.warmReranker?.();
 
     const { sentences, snapshot } = sortingInput(mindId, verification);
     const found = await claimsAmong(
@@ -347,6 +350,7 @@ export function createVerify(options: VerifyOptions) {
     if (!ready.ok) return ready.result;
     if (signal.aborted || verification.sortedText !== sortingInput(mindId, verification).snapshot)
       return { kind: "cancelled" };
+    options.warmReranker?.();
 
     const startedAt = options.now().toISOString();
     const claims = verification.claims;

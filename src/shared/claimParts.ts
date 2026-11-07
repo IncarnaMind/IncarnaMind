@@ -49,6 +49,7 @@ const FAILURES: Record<ClaimCheckFailure, true> = {
   "out-of-credit": true,
   failed: true,
   stopped: true,
+  "answer-failed": true,
   "too-many": true,
   "consent-revoked": true,
   "local-mode": true,

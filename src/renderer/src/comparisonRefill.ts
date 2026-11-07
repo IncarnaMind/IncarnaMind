@@ -24,51 +24,72 @@ export type ComparisonRefillStart =
 
 export type ComparisonRefillScope = "row" | "column";
 
+/** A cell of the table as it is now, with whether the User's own mark stands on it. */
+type CellState = ReturnType<typeof comparisonCellOf>;
+
+function statesOf(
+  handle: ComparisonHandle,
+  requested: readonly ComparisonCellRef[],
+): Map<ComparisonCellRef, CellState> {
+  const found = comparisonTableIn(handle.editor, handle.tableId);
+  const states = new Map<ComparisonCellRef, CellState>();
+  if (!found) return states;
+  const doc = noteDocOf(handle.editor);
+  const signOffs = doc ? signOffsOf(doc) : [];
+  const versions = liveVersions();
+  for (const target of requested) {
+    found.table.forEach((row) => {
+      if (row.attrs.documentId !== target.documentId) return;
+      const at = comparisonCellInRow(row, target.questionId);
+      if (!at) return;
+      const cell = row.child(at.index);
+      states.set(target, {
+        ...comparisonCellOf(cell.attrs),
+        reviewed: comparisonCellChecked(
+          signOffs,
+          comparisonCellTarget(handle.tableId, target.documentId, target.questionId),
+          comparisonCellContent(cell.toJSON()),
+          versions,
+        ),
+      });
+    });
+  }
+  return states;
+}
+
+/** The cells the User wrote or checked themselves: a whole-table fill leaves them unless asked. */
+export function ownComparisonCells(
+  handle: ComparisonHandle,
+  requested: readonly ComparisonCellRef[],
+): ComparisonCellRef[] {
+  const states = statesOf(handle, requested);
+  return requested.filter((target) => {
+    const state = states.get(target);
+    return state !== undefined && (state.edited === true || state.reviewed === true);
+  });
+}
+
 export function refillableComparisonCells(
   handle: ComparisonHandle,
   mode: ComparisonFillMode,
   requested: readonly ComparisonCellRef[],
   scope?: ComparisonRefillScope,
 ): ComparisonCellRef[] {
-  const found = comparisonTableIn(handle.editor, handle.tableId);
-  if (!found) return [];
   const unique = requested.filter(
     (target, index) =>
       requested.findIndex(
         (other) => other.documentId === target.documentId && other.questionId === target.questionId,
       ) === index,
   );
-  const doc = noteDocOf(handle.editor);
-  const signOffs = doc ? signOffsOf(doc) : [];
-  const versions = liveVersions();
-  const stateOf = (target: ComparisonCellRef) => {
-    let state: ReturnType<typeof comparisonCellOf> | null = null;
-    found.table.forEach((row) => {
-      if (row.attrs.documentId !== target.documentId) return;
-      const at = comparisonCellInRow(row, target.questionId);
-      if (at) {
-        const cell = row.child(at.index);
-        state = {
-          ...comparisonCellOf(cell.attrs),
-          reviewed: comparisonCellChecked(
-            signOffs,
-            comparisonCellTarget(handle.tableId, target.documentId, target.questionId),
-            comparisonCellContent(cell.toJSON()),
-            versions,
-          ),
-        };
-      }
-    });
-    return state;
-  };
+  const states = statesOf(handle, unique);
   const candidates = unique.filter((target) => {
-    const state = stateOf(target);
-    return state !== null && comparisonRefillable(state, mode, true);
+    const state = states.get(target);
+    return state !== undefined && comparisonRefillable(state, mode, true);
   });
   return candidates.filter((target) => {
-    const state = stateOf(target);
+    const state = states.get(target);
     return (
-      state !== null &&
+      state !== undefined &&
       comparisonRefillable(state, mode, scope === undefined && unique.length === 1)
     );
   });
