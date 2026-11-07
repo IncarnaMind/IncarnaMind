@@ -1004,6 +1004,21 @@ export async function useLocalChatModel(window: Page, modelId = "fake-model"): P
   }, modelId);
 }
 
+/** Organize plans with the first chat model set up, the scripted one with `fakeChat`, and sorts nothing by itself. */
+export async function organizeWithChatModel(window: Page, modelId = "fake-model"): Promise<void> {
+  await window.evaluate(async (model) => {
+    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    const [provider] = await bridge.listChatProviders();
+    if (!provider) throw new Error("No AI model was set up.");
+    const { settings } = await bridge.getLibrary();
+    await bridge.saveLibrarySettings({
+      ...settings,
+      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: model } },
+      automatic: false,
+    });
+  }, modelId);
+}
+
 /**
  * Turns embeddings on with the built-in model (the smoke tests' fake), through
  * the core's bridge as Settings would: they are off by default.

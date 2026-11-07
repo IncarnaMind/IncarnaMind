@@ -14,6 +14,7 @@ import {
   newMind,
   pointAndClick,
   removeDataFolder,
+  runCommand,
   setLanguage,
   setWindowSize,
   urlsOpened,
@@ -21,11 +22,12 @@ import {
 
 /*
  * The sidebar's "Needs attention · Review" (#2308): each press takes the User to the next
- * Document Organize couldn't sort, its row in view with the group's line and its action; once
- * every one was seen the status goes. A failure is one plain line for the group, naming the
- * service Organize sends to, with that cause's action and Try again; a cause the Library can't
- * name is one plain line with Try again. Never the provider's sentence. In English and Chinese,
- * at 900 and 1,440 pixels. Set INCARNAMIND_SCREENSHOTS to save screenshots.
+ * Document Organize couldn't sort, its row in view; once every one was seen the status goes. A
+ * failure is one plain line in Not in a Folder's head, naming the cause; a row names only the
+ * cause, with the whole sentence in its tooltip; a cause the Library can't name is one plain line
+ * with Try again. Never the provider's sentence. Failures are recorded by the sorting that runs on
+ * its own, one Document at a time; what Organize proposes waits in the Review (#1569). In English
+ * and Chinese, at 900 and 1,440 pixels. Set INCARNAMIND_SCREENSHOTS to save screenshots.
  */
 
 const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
@@ -51,18 +53,62 @@ async function screenshot(target: Page, name: string): Promise<void> {
 
 const attentionOf = (window: Page) => window.getByTestId("organization-attention");
 
-const unsortedRows = (window: Page) =>
-  window.getByTestId("library-review-unsorted").getByTestId("library-review-document");
+/**
+ * A chat model for Organize, allowed to send, sorting new Documents by itself: that sorting
+ * records a failure on each Document it couldn't reach the model for, which Organize's plan
+ * doesn't.
+ */
+async function sortWithChatModel(window: Page, folders: readonly string[]): Promise<void> {
+  await window.evaluate(async (names) => {
+    const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    const provider = await core.saveChatProvider({
+      kind: "openai",
+      apiKey: "sk-test",
+      modelId: "fake-model",
+    });
+    const flow = (await core.listDataFlows()).find((each) => each.flow.id === "classification");
+    if (flow) await core.allowDataFlow("classification", flow.flow.service.id);
+    for (const name of names) await core.createLibraryGroup({ name, description: `${name}.` });
+    await core.saveLibrarySettings({
+      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "fake-model" } },
+      automatic: true,
+      turnOn: true,
+    });
+  }, folders);
+}
 
-/** The ids of the rows To review lists as not sorted, in the page's order. */
-const unsortedIds = (window: Page) =>
+/**
+ * The scripted model meets an empty account, or can't be reached, on these words. Past the start
+ * of the text, which is all Organize's plan reads of a Document, only the one-by-one sort meets
+ * them: the plan answers as a model with credit again, or back online, would.
+ */
+const pastThePlansExcerpt = (subject: string, words: string) =>
+  `${Array.from({ length: 40 }, (_, at) => `${subject}, line ${at + 1}: hours on the harbour works.`).join("\n")}\n${words}`;
+
+/** The ids of Not in a Folder's rows Organize couldn't sort, in the page's order. */
+const notSortedIds = (window: Page) =>
   window.evaluate(() =>
     [
       ...document.querySelectorAll<HTMLElement>(
-        '[data-testid="library-review-unsorted"] [data-testid="library-review-document"]',
+        '[data-section="not-in-a-folder"] [data-testid="library-document"]',
       ),
-    ].map((row) => row.dataset.documentId ?? ""),
+    ]
+      .filter((row) => row.querySelector('[data-testid="library-not-sorted"]') !== null)
+      .map((row) => row.dataset.documentId ?? ""),
   );
+
+/** How many Documents each Folder holds, by name, read through the core. */
+const filedCounts = (window: Page) =>
+  window.evaluate(async () => {
+    const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    const { groups, assignments } = await core.getLibrary();
+    return Object.fromEntries(
+      groups.map((group) => [
+        group.name,
+        assignments.filter((each) => each.groupId === group.id).length,
+      ]),
+    );
+  });
 
 interface Press {
   clicked: number | null;
@@ -131,6 +177,15 @@ async function pressReview(
   });
 }
 
+/** Confirms what waits in the Review, from the Library's top, so nothing waits any more. */
+async function confirmWaiting(window: Page): Promise<void> {
+  await pointAndClick(window, window.getByTestId("organize-waiting-review"));
+  await expect(window.getByTestId("organize-review")).toBeVisible();
+  await pointAndClick(window, window.getByTestId("organize-review-confirm"));
+  await expect(window.getByTestId("organize-review")).toHaveCount(0);
+  await expect(window.getByTestId("organize-waiting")).toHaveCount(0);
+}
+
 test("Review goes to each Document that needs attention, and a credit failure is one plain line for the group", async () => {
   test.setTimeout(180_000);
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
@@ -139,22 +194,7 @@ test("Review goes to each Document that needs attention, and a credit failure is
     await leaveFirstOpen(window);
     await acceptPlainTextKeys(window);
     await interceptOpenExternal(app);
-    await window.evaluate(async () => {
-      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-      const provider = await core.saveChatProvider({
-        kind: "openai",
-        apiKey: "sk-test",
-        modelId: "fake-model",
-      });
-      await core.saveLibrarySettings({
-        classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "fake-model" } },
-        automatic: false,
-      });
-      // The classification flow goes where the model kept for Organize sends.
-      const flow = (await core.listDataFlows()).find((each) => each.flow.id === "classification");
-      if (flow) await core.allowDataFlow("classification", flow.flow.service.id);
-      await core.createLibraryGroup({ name: "Invoice", description: "Invoices" });
-    });
+    await sortWithChatModel(window, ["Invoice"]);
     await setWindowSize(app, window, 1440, 900);
     await setLanguage(window, "en");
 
@@ -162,19 +202,21 @@ test("Review goes to each Document that needs attention, and a credit failure is
     for (let at = 1; at <= 4; at++) {
       const name = at === 4 ? LONG_NAME : `Invoice ${at}`;
       const path = join(sources, `${name}.txt`);
-      await writeFile(path, `Invoice ${at} for consulting. The account is out of credit.`);
+      await writeFile(
+        path,
+        pastThePlansExcerpt(`Invoice ${at} for consulting`, "The account is out of credit."),
+      );
       files.push(path);
     }
     await addDocuments(window, files);
     await window.getByTestId("open-library").click();
-    await pointAndClick(window, window.getByTestId("library").getByTestId("library-organize"));
 
     const library = window.getByTestId("library");
     const status = attentionOf(window);
     await expect(status).toBeVisible({ timeout: 60_000 });
     await expect(status.getByTestId("status-label")).toHaveText("Needs attention");
 
-    // The Not in a Folder header says the shared cause in words only: the action is on To review's line.
+    // The Not in a Folder header says the shared cause in words only: Try again can't help it.
     const header = library.getByTestId("library-organize-failed");
     await expect(header).toHaveText("4 Documents not organized: no credit left");
     await expect(header.getByRole("button")).toHaveCount(0);
@@ -209,6 +251,7 @@ test("Review goes to each Document that needs attention, and a credit failure is
       "title",
       new RegExp(LONG_NAME),
     );
+    await expect(library).not.toContainText("You exceeded your current quota");
 
     // Get info says the same plain words, never the provider's sentence.
     await failedRow.locator("[data-row-main]").focus();
@@ -224,23 +267,10 @@ test("Review goes to each Document that needs attention, and a credit failure is
     await window.keyboard.press("Escape");
     await expect(info).toHaveCount(0);
 
-    await pointAndClick(window, library.getByTestId("library-review-not-sorted"));
+    await expect.poll(() => notSortedIds(window)).toHaveLength(4);
+    const [firstId = "", secondId = "", thirdId = "", fourthId = ""] = await notSortedIds(window);
 
-    // One line for the group, not the provider's sentence in every row.
-    const line = library.getByTestId("library-review-problem");
-    await expect(line).toHaveCount(1);
-    await expect(line).toHaveAttribute("data-kind", "credit");
-    await expect(line).toContainText("Your OpenAI key is out of credit");
-    await expect(line.getByRole("button")).toHaveText(["Add credit"]);
-    await expect(unsortedRows(window)).toHaveCount(4);
-    await expect(
-      window.getByTestId("library-review-unsorted").getByTestId("library-not-sorted"),
-    ).toHaveCount(0);
-    const order = await unsortedIds(window);
-    expect(order).toHaveLength(4);
-    const [firstId = "", secondId = "", thirdId = "", fourthId = ""] = order;
-
-    // The first press from the Library, in English: that Document's row in view, its line showing.
+    // The first press from the Library, in English: that Document's row in view.
     await screenshot(window, "review-attention-en-1440-status");
     const first = await pressReview(window, firstId);
     expect(first.selected).toBe(firstId);
@@ -251,8 +281,10 @@ test("Review goes to each Document that needs attention, and a credit failure is
     // The second from the Library, in Chinese.
     await setLanguage(window, "zh-CN");
     await expect(header).toHaveText("4 个文档未整理：额度已用完");
-    await expect(line).toContainText("你的 OpenAI 密钥额度已用完");
-    await expect(line.getByRole("button")).toHaveText(["充值"]);
+    await expect(failedRow.getByTestId("library-not-sorted")).toHaveAttribute(
+      "title",
+      "你的 OpenAI 密钥额度已用完",
+    );
     await screenshot(window, "review-attention-zh-1440-status");
     const second = await pressReview(window, secondId);
     expect(second.selected).toBe(secondId);
@@ -278,7 +310,7 @@ test("Review goes to each Document that needs attention, and a credit failure is
 
     // The fourth from a Note, in Chinese: every one was seen, so the status goes.
     await setLanguage(window, "zh-CN");
-    await expect(line).toContainText("你的 OpenAI 密钥额度已用完");
+    await expect(header).toHaveText("4 个文档未整理：额度已用完");
     await screenshot(window, "review-attention-zh-900-status");
     await newMind(window);
     const fourth = await pressReview(window, fourthId);
@@ -295,57 +327,25 @@ test("Review goes to each Document that needs attention, and a credit failure is
     await screenshot(window, "review-attention-en-900-gone");
     await expect(attentionOf(window)).toHaveCount(0);
 
-    // Add credit opens the company's billing page; back in the app, they try once by themselves (#2308).
-    await pointAndClick(window, line.getByTestId("library-review-problem-fix"));
+    // Add credit, from ⌘K, opens the company's billing page; back in the app, Organize runs once
+    // by itself on those four, and its Review proposes their Folder (#2308).
+    await runCommand(window, "library.addCredit", "Add credit for Organize");
     await expect
       .poll(() => urlsOpened(app))
       .toContain("https://platform.openai.com/settings/organization/billing/overview");
     await window.evaluate(() => {
       globalThis.dispatchEvent(new Event("focus"));
     });
-    await expect(library.getByTestId("library-review-unsorted")).toHaveCount(0, {
-      timeout: 60_000,
-    });
-    await expect(library.getByTestId("library-review-problem")).toHaveCount(0);
+    const review = window.getByTestId("organize-review");
+    await expect(review).toBeVisible({ timeout: 60_000 });
+    await expect(window.getByTestId("organize-review-card-name")).toHaveText(["Invoice"]);
+    await expect(window.getByTestId("organize-review-row")).toHaveCount(4);
+    await pointAndClick(window, window.getByTestId("organize-review-confirm"));
+    await expect(review).toHaveCount(0);
+    expect(await filedCounts(window)).toEqual({ Invoice: 4 });
+    await expect(header).toHaveCount(0);
+    await expect(library.getByTestId("library-not-sorted")).toHaveCount(0);
     await expect(attentionOf(window)).toHaveCount(0);
-    // The retry runs on its own: wait for the four to be classified, not only queued.
-    await expect
-      .poll(
-        async () =>
-          await window.evaluate(async () => {
-            const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-            const [{ assignments }, documents] = await Promise.all([
-              core.getLibrary(),
-              core.listDocuments(),
-            ]);
-            return documents
-              .filter((document) => /^Invoice \d/.test(document.name))
-              .map(
-                (document) =>
-                  assignments.find((each) => each.documentId === document.id)?.status ?? null,
-              );
-          }),
-        { timeout: 60_000 },
-      )
-      .toEqual(["classified", "classified", "classified", "classified"]);
-    const sorted = await window.evaluate(async () => {
-      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-      const [{ groups, assignments }, documents] = await Promise.all([
-        core.getLibrary(),
-        core.listDocuments(),
-      ]);
-      return documents
-        .filter((document) => /^Invoice \d/.test(document.name))
-        .map((document) => {
-          const held = assignments.find((each) => each.documentId === document.id);
-          return {
-            folder: groups.find((each) => each.id === held?.groupId)?.name ?? null,
-            status: held?.status ?? null,
-          };
-        });
-    });
-    expect(sorted).toHaveLength(4);
-    for (const each of sorted) expect(each).toEqual({ folder: "Invoice", status: "classified" });
 
     // A cause the Library can't name is still one plain line with Try again, never the provider's words.
     const unreadable: string[] = [];
@@ -355,49 +355,32 @@ test("Review goes to each Document that needs attention, and a credit failure is
       unreadable.push(path);
     }
     await addDocuments(window, unreadable);
-    await pointAndClick(window, library.getByTestId("library-organize"));
-    const notSorted = library.getByTestId("library-review-not-sorted");
-    await expect(notSorted).toBeVisible({ timeout: 60_000 });
-    await pointAndClick(window, notSorted);
-    const fallback = library.getByTestId("library-review-problem");
-    await expect(fallback).toHaveCount(1);
-    await expect(fallback).toHaveAttribute("data-kind", "other");
-    await expect(fallback).toContainText("Couldn’t organize 2 Documents");
-    await expect(fallback.getByRole("button")).toHaveText(["Try again"]);
-    const unsorted = library.getByTestId("library-review-unsorted");
-    await expect(unsorted).toBeVisible();
-    await expect(unsorted).not.toContainText("Cannot connect to API");
+    await expect(header).toHaveText("2 Documents not organized · Try again", { timeout: 60_000 });
+    await expect(header.getByRole("button")).toHaveText(["Try again"]);
+    const loose = library.locator(
+      '[data-testid="library-section"][data-section="not-in-a-folder"]',
+    );
+    await expect(loose.getByTestId("library-not-sorted")).toHaveCount(2);
+    await expect(loose.getByTestId("library-not-sorted").first()).toContainText(
+      "Couldn’t organize",
+    );
+    await expect(loose).not.toContainText("Cannot connect to API");
     await setLanguage(window, "zh-CN");
-    await expect(fallback).toContainText("“整理”未能处理 2 个文档");
-    await expect(fallback.getByRole("button")).toHaveText(["重试"]);
-    await expect(unsorted).not.toContainText("Cannot connect to API");
+    await expect(header).toHaveText("2 个文档未整理 · 重试");
+    await expect(loose).not.toContainText("Cannot connect to API");
   } finally {
     await app.close();
   }
 });
 
-test("Review opens To review past its first rows when a search hides them", async () => {
+test("Review reaches a Document past Not in a Folder's first rows when a search hides it", async () => {
   test.setTimeout(180_000);
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   try {
     await dismissChatSetup(window);
     await leaveFirstOpen(window);
     await acceptPlainTextKeys(window);
-    await window.evaluate(async () => {
-      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-      const provider = await core.saveChatProvider({
-        kind: "openai",
-        apiKey: "sk-test",
-        modelId: "fake-model",
-      });
-      await core.saveLibrarySettings({
-        classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "fake-model" } },
-        automatic: false,
-      });
-      const flow = (await core.listDataFlows()).find((each) => each.flow.id === "classification");
-      if (flow) await core.allowDataFlow("classification", flow.flow.service.id);
-      await core.createLibraryGroup({ name: "Invoice", description: "Invoices" });
-    });
+    await sortWithChatModel(window, ["Invoice"]);
     await setWindowSize(app, window, 1440, 900);
     await setLanguage(window, "en");
 
@@ -410,15 +393,14 @@ test("Review opens To review past its first rows when a search hides them", asyn
     await addDocuments(window, files);
     await window.getByTestId("open-library").click();
     const library = window.getByTestId("library");
-    await pointAndClick(window, library.getByTestId("library-organize"));
-    const notSorted = library.getByTestId("library-review-not-sorted");
-    await expect(notSorted).toBeVisible({ timeout: 60_000 });
-    await pointAndClick(window, notSorted);
+    await expect(library.getByTestId("library-organize-failed")).toHaveText(
+      "9 Documents not organized: no credit left",
+      { timeout: 60_000 },
+    );
 
-    // To review draws the first 8; the ninth is the Document the page doesn't draw yet.
-    await expect(unsortedRows(window)).toHaveCount(8);
-    const listed = await unsortedIds(window);
-    expect(listed).toHaveLength(8);
+    // Not in a Folder draws its first 8; the ninth is the Document the page doesn't draw yet.
+    await expect.poll(() => notSortedIds(window)).toHaveLength(8);
+    const listed = await notSortedIds(window);
     const last = await window.evaluate(async (shown) => {
       const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
       const documents = await core.listDocuments();
@@ -430,8 +412,8 @@ test("Review opens To review past its first rows when a search hides them", asyn
     }, listed);
     if (last === null) throw new Error("The ninth Document isn't in the Library.");
 
-    // A search on before each press hides every row it lists; with more than a fold's worth
-    // not sorted, Review still opens the list and lands on the ninth.
+    // A search on before each press hides every row; Review still clears it, shows the whole
+    // list and lands on the ninth.
     for (const id of [...listed, last]) {
       await library.getByTestId("library-search").fill("Nothing matches this");
       await pressReview(window, id);
@@ -449,21 +431,7 @@ test("a Document Review showed needs attention again after Undo, and Review land
     await dismissChatSetup(window);
     await leaveFirstOpen(window);
     await acceptPlainTextKeys(window);
-    await window.evaluate(async () => {
-      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-      const provider = await core.saveChatProvider({
-        kind: "openai",
-        apiKey: "sk-test",
-        modelId: "fake-model",
-      });
-      await core.saveLibrarySettings({
-        classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "fake-model" } },
-        automatic: false,
-      });
-      const flow = (await core.listDataFlows()).find((each) => each.flow.id === "classification");
-      if (flow) await core.allowDataFlow("classification", flow.flow.service.id);
-      await core.createLibraryGroup({ name: "Invoice", description: "Invoices" });
-    });
+    await sortWithChatModel(window, ["Invoice"]);
     await setWindowSize(app, window, 1440, 900);
     await setLanguage(window, "en");
 
@@ -472,7 +440,6 @@ test("a Document Review showed needs attention again after Undo, and Review land
     await addDocuments(window, [path]);
     await window.getByTestId("open-library").click();
     const library = window.getByTestId("library");
-    await pointAndClick(window, library.getByTestId("library-organize"));
 
     // One Document needs attention, and the sidebar says so in the singular (#2308).
     const status = attentionOf(window);
@@ -493,7 +460,7 @@ test("a Document Review showed needs attention again after Undo, and Review land
 
     // In a Folder it needs nothing; Undo brings the failure back, and with it the status.
     const row = library
-      .getByTestId("library-review-document")
+      .getByTestId("library-document")
       .filter({ has: window.getByRole("button", { name: "Invoice 1", exact: true }) });
     await expect(row).toHaveCount(1);
     await row.locator("[data-row-main]").focus();
@@ -505,6 +472,7 @@ test("a Document Review showed needs attention again after Undo, and Review land
       picker.locator('[data-testid="move-to-option"][aria-selected="true"]'),
     ).toContainText("Invoice");
     await window.keyboard.press("Enter");
+    await expect.poll(() => filedCounts(window)).toEqual({ Invoice: 1 });
     await expect(attentionOf(window)).toHaveCount(0);
 
     await leaveText(window);
@@ -520,30 +488,14 @@ test("a Document Review showed needs attention again after Undo, and Review land
   }
 });
 
-test("mixed causes retry only what can help, and the one credit line stays with a row far down", async () => {
+test("mixed causes retry only what can help, and Review lands on the credit failure far down", async () => {
   test.setTimeout(240_000);
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   try {
     await dismissChatSetup(window);
     await leaveFirstOpen(window);
     await acceptPlainTextKeys(window);
-    await window.evaluate(async () => {
-      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-      const provider = await core.saveChatProvider({
-        kind: "openai",
-        apiKey: "sk-test",
-        modelId: "fake-model",
-      });
-      await core.saveLibrarySettings({
-        classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "fake-model" } },
-        automatic: false,
-      });
-      const flow = (await core.listDataFlows()).find((each) => each.flow.id === "classification");
-      if (flow) await core.allowDataFlow("classification", flow.flow.service.id);
-      for (const name of ["Alpha", "Beta", "Gamma", "Delta"]) {
-        await core.createLibraryGroup({ name, description: `Notes about ${name}.` });
-      }
-    });
+    await sortWithChatModel(window, ["Alpha", "Beta", "Gamma", "Delta"]);
     await setWindowSize(app, window, 1440, 900);
     await setLanguage(window, "en");
 
@@ -557,47 +509,43 @@ test("mixed causes retry only what can help, and the one credit line stays with 
     }
     const creditPath = join(sources, "Alpha credit check.txt");
     await writeFile(creditPath, "The account is out of credit.");
-    const networkPath = join(sources, "Alpha unreachable check.txt");
-    await writeFile(networkPath, "The model was unreachable slowly.");
+    const networkPath = join(sources, "Alpha network check.txt");
+    await writeFile(
+      networkPath,
+      pastThePlansExcerpt("Alpha notes, read slowly", "The model stays unreachable."),
+    );
     files.push(creditPath, networkPath);
     await addDocuments(window, files);
     await window.getByTestId("open-library").click();
     const library = window.getByTestId("library");
-    await pointAndClick(window, library.getByTestId("library-organize"));
 
-    // One credit failure and one the model couldn't reach: Try again can help only the second.
+    // The 32 it sorted wait in the Review; once they are confirmed, Not in a Folder's head
+    // counts the two it couldn't: a credit failure and one the model couldn't reach.
+    await expect(window.getByTestId("organize-waiting")).toContainText("32 Documents to confirm", {
+      timeout: 120_000,
+    });
+    await confirmWaiting(window);
+    expect(await filedCounts(window)).toEqual({ Alpha: 8, Beta: 8, Gamma: 8, Delta: 8 });
     const header = library.getByTestId("library-organize-failed");
     await expect(header).toHaveText("2 Documents not organized · Try again", {
-      timeout: 120_000,
+      timeout: 60_000,
     });
     await expect(header.getByRole("button")).toHaveText(["Try again"]);
 
-    // The first resend fails again, as its first run did; the credit failure is not sent.
+    // Try again sends only the one the model couldn't reach: the credit failure can't be helped
+    // by sending it again, so the Review proposes a Folder for one Document.
     await pointAndClick(window, header.getByRole("button"));
-    await expect(library.getByTestId("library-organizing")).toBeVisible({ timeout: 30_000 });
-    await expect(header).toHaveText("2 Documents not organized · Try again", {
-      timeout: 60_000,
-    });
-
-    // The second resend reaches the model: only the credit failure is left, with nothing to retry.
-    await pointAndClick(window, header.getByRole("button"));
-    await expect(library.getByTestId("library-organizing")).toBeVisible({ timeout: 30_000 });
-    await expect(header).toHaveText("1 Document not organized: no credit left", {
-      timeout: 60_000,
-    });
+    await expect(window.getByTestId("organize-running")).toBeVisible({ timeout: 30_000 });
+    const review = window.getByTestId("organize-review");
+    await expect(review).toBeVisible({ timeout: 60_000 });
+    await expect(window.getByTestId("organize-review-row")).toHaveCount(1);
+    await expect(window.getByTestId("organize-review-name")).toHaveText(["Alpha network check"]);
+    await pointAndClick(window, window.getByTestId("organize-review-confirm"));
+    await expect(review).toHaveCount(0);
+    await expect(header).toHaveText("1 Document not organized: no credit left");
     await expect(header.getByRole("button")).toHaveCount(0);
 
-    // Four Suggested Folder blocks sit above the one Document left unsorted.
-    await pointAndClick(window, library.getByTestId("library-review-not-sorted"));
-    await expect(library.getByTestId("library-review-group")).toHaveCount(4);
-    const creditLine = library.getByTestId("library-review-credit");
-    await expect(creditLine).toHaveCount(1);
-    await expect(
-      library.locator('[data-testid="library-review-problem"][data-kind="credit"]'),
-    ).toHaveCount(1);
-    await expect(creditLine).toContainText("Your OpenAI key is out of credit");
-    await expect(creditLine.getByTestId("library-review-problem-fix")).toHaveText("Add credit");
-
+    // Review lands on it below the four Folders' sections, its row in view with its cause.
     const creditId = await window.evaluate(async () => {
       const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
       const documents = await core.listDocuments();
@@ -606,43 +554,33 @@ test("mixed causes retry only what can help, and the one credit line stays with 
       );
     });
     if (creditId === null) throw new Error("The credit Document isn't in the Library.");
-
-    // Review lands on it far below the Suggested Folder blocks; its one line and action come too.
     const press = await pressReview(window, creditId);
     expect(press.selected).toBe(creditId);
     const geometry = await window.evaluate((id) => {
       const panel = document.querySelector('[data-testid="library"]');
       const scroller = panel?.querySelector<HTMLElement>(":scope > div");
-      const wrapper = document.querySelector<HTMLElement>('[data-testid="library-review-credit"]');
-      const row = document.querySelector<HTMLElement>(
-        `[data-review] [data-document-id="${CSS.escape(id)}"]`,
+      const row = panel?.querySelector<HTMLElement>(
+        `[data-testid="library-document"][data-document-id="${CSS.escape(id)}"]`,
       );
-      if (!scroller || !wrapper || !row) return null;
+      const cause = row?.querySelector<HTMLElement>('[data-testid="library-not-sorted"]');
+      if (!scroller || !row || !cause) return null;
       const view = scroller.getBoundingClientRect();
-      const line = wrapper.getBoundingClientRect();
       const rowBox = row.getBoundingClientRect();
-      const action = wrapper.querySelector<HTMLElement>(
-        '[data-testid="library-review-problem-fix"]',
-      );
-      const actionBox = action?.getBoundingClientRect() ?? null;
+      const causeBox = cause.getBoundingClientRect();
       return {
         scrollTop: scroller.scrollTop,
         view: { top: view.top, bottom: view.bottom },
-        line: { top: line.top, bottom: line.bottom },
         row: { top: rowBox.top, bottom: rowBox.bottom },
-        action: actionBox ? { top: actionBox.top, bottom: actionBox.bottom } : null,
+        cause: { top: causeBox.top, bottom: causeBox.bottom },
       };
     }, creditId);
-    if (!geometry) throw new Error("The credit line, its action or the row isn't drawn.");
+    if (!geometry) throw new Error("The credit Document's row or its cause isn't drawn.");
     expect(geometry.scrollTop).toBeGreaterThan(300);
-    expect(Math.abs(geometry.line.top - geometry.view.top)).toBeLessThanOrEqual(2);
-    expect(geometry.line.bottom).toBeLessThanOrEqual(geometry.view.bottom);
     expect(geometry.row.top).toBeGreaterThanOrEqual(geometry.view.top);
     expect(geometry.row.bottom).toBeLessThanOrEqual(geometry.view.bottom);
-    if (!geometry.action) throw new Error("Add credit isn't drawn on the credit line.");
-    expect(geometry.action.top).toBeGreaterThanOrEqual(geometry.view.top);
-    expect(geometry.action.bottom).toBeLessThanOrEqual(geometry.view.bottom);
-    await screenshot(window, "review-attention-en-1440-credit-line-below-blocks");
+    expect(geometry.cause.top).toBeGreaterThanOrEqual(geometry.view.top);
+    expect(geometry.cause.bottom).toBeLessThanOrEqual(geometry.view.bottom);
+    await screenshot(window, "review-attention-en-1440-credit-row-below-folders");
   } finally {
     await app.close();
   }

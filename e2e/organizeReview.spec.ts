@@ -9,6 +9,7 @@ import {
   dismissChatSetup,
   launchApp,
   motionSettled,
+  organizeWithChatModel,
   pointAndClick,
   removeDataFolder,
   runCommand,
@@ -67,25 +68,13 @@ const core = (window: Page) => ({
   waiting: () =>
     window.evaluate(
       async () =>
-        (await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.getOrganizeReview())
-          .count,
+        (
+          await (
+            globalThis as unknown as { incarnamind: CoreBridge }
+          ).incarnamind.getOrganizeReview()
+        ).count,
     ),
 });
-
-/** Organize plans with the scripted model on this computer, which needs no consent. */
-async function organizeWithLocalModel(window: Page): Promise<void> {
-  await window.evaluate(async () => {
-    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-    const [provider] = await bridge.listChatProviders();
-    if (!provider) throw new Error("No AI model was set up.");
-    const { settings } = await bridge.getLibrary();
-    await bridge.saveLibrarySettings({
-      ...settings,
-      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "fake-model" } },
-      automatic: false,
-    });
-  });
-}
 
 /** Files on three subjects: four kitchen quotes, four race plans and two garden notes. */
 async function files(): Promise<string[]> {
@@ -105,11 +94,12 @@ async function files(): Promise<string[]> {
 
 async function start(language: Language, width: number, height: number) {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  // biome-ignore lint/correctness/useHookAtTopLevel: an e2e helper whose name begins with "use", not a React hook.
   await useLocalChatModel(window);
   await dismissChatSetup(window);
   await setWindowSize(app, window, width, height);
   await setLanguage(window, language);
-  await organizeWithLocalModel(window);
+  await organizeWithChatModel(window);
   return { app, window };
 }
 
@@ -163,9 +153,7 @@ for (const [language, width, height] of [
           documents: say("organizeReview.documents", { count: documents }),
           into,
         });
-      await expect(willMove).toHaveText(
-        sentence(8, say("organizeReview.into.new", { count: 2 })),
-      );
+      await expect(willMove).toHaveText(sentence(8, say("organizeReview.into.new", { count: 2 })));
       await expect(card(window, "Kitchen").getByTestId("organize-review-row")).toHaveCount(4);
       await expect(card(window, "Race").getByTestId("organize-review-row")).toHaveCount(4);
       await expect(window.getByTestId("organize-review-left-out-row")).toHaveCount(2);
@@ -185,9 +173,7 @@ for (const [language, width, height] of [
       // Untick one Document: Confirm will leave it where it is.
       await pointAndClick(window, row(window, "Race 4").getByTestId("organize-review-tick"));
       await expect(row(window, "Race 4")).toHaveAttribute("data-ticked", "false");
-      await expect(willMove).toHaveText(
-        sentence(7, say("organizeReview.into.new", { count: 2 })),
-      );
+      await expect(willMove).toHaveText(sentence(7, say("organizeReview.into.new", { count: 2 })));
 
       // Rename a new Folder in place.
       await pointAndClick(window, card(window, "Kitchen").getByTestId("organize-review-card-name"));
@@ -248,7 +234,7 @@ test("Organize This Folder proposes subfolders inside it, and moves nothing out 
       for (const [name, text] of [
         [`Lease ${at}.txt`, `Lease of the Harbour Street office, schedule ${at}.`],
         [`NDA ${at}.txt`, `Mutual NDA with a supplier, clause ${at}.`],
-      ]) {
+      ] as const) {
         const path = join(sources, name);
         await writeFile(path, text);
         paths.push(path);
