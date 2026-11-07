@@ -875,6 +875,19 @@ export function createMeetingFill(options: MeetingFillOptions) {
       return set(meetingId, { state: "undone", omitted: 0, unfinishedParts: 0, blocks: [] });
     },
 
+    /**
+     * The editor took the fill back with its own Undo, or put it back: only its state follows, so
+     * Try again fills anew after one, and its Blocks are still the fill's after the other.
+     */
+    followUndo(meetingId: string, undone: boolean): Meeting {
+      const fill = meetings.storedFill(meetingId);
+      if (undone && fill?.state === "filled") return set(meetingId, { state: "undone" });
+      if (!undone && fill?.state === "undone" && fill.blocks.length > 0) {
+        return set(meetingId, { state: "filled" });
+      }
+      return meetings.get(meetingId);
+    },
+
     /** At start: a fill a quit cut short wrote nothing, and says so; one waiting starts now. */
     resume(): void {
       for (const { meetingId, fill } of meetings.unfinishedFills()) pickUp(meetingId, fill);

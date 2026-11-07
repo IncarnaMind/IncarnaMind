@@ -4,6 +4,7 @@ import { formatDateTime } from "../../../shared/dates";
 import { captureLines } from "../captureHealth";
 import { commands } from "../commands/registry";
 import { useLanguage, useT } from "../i18n";
+import { currentTabOf } from "../layoutSlice";
 import { useMeetings } from "../meetings";
 import { clockTime } from "../meetingTime";
 import {
@@ -14,6 +15,7 @@ import {
   useMeetingNoteViews,
 } from "../meetingViews";
 import { useRequests } from "../requests";
+import { useAppStore } from "../store";
 import { takeFirstShow } from "../tips";
 import {
   CheckLineIcon,
@@ -62,24 +64,32 @@ export function MeetingViewChip({ meeting, tabId }: { meeting: Meeting; tabId: s
   const detailsAsked = useMeetingNoteViews((state) =>
     state.details?.mindId === meeting.mindId ? state.details.at : null,
   );
+  // A Note open in two groups has a chip in each: the one in the tab in front answers.
+  const inFront = useAppStore((state) => currentTabOf(state.layout)?.id === tabId);
   const detailsHandled = useRef(detailsAsked);
   useEffect(() => {
     if (detailsAsked === null || detailsAsked === detailsHandled.current) return;
     detailsHandled.current = detailsAsked;
+    if (!inFront) return;
     useMeetings.getState().showDetails(meeting.id, true);
     show();
-  }, [detailsAsked, meeting.id, show]);
+  }, [detailsAsked, inFront, meeting.id, show]);
 
   // "Delete audio" from ⌘K asks here, where the audio's line is.
+  const askedHere = useRef(false);
   useEffect(() => {
-    if (asked) show({ quiet: true });
-  }, [asked, show]);
+    if (!asked || !inFront) return;
+    askedHere.current = true;
+    show({ quiet: true });
+  }, [asked, inFront, show]);
   // Closed with the question open, the audio is kept, as Keep it does.
   const wasOpen = useRef(menu.open);
   useEffect(() => {
     const closed = wasOpen.current && !menu.open;
     wasOpen.current = menu.open;
-    if (closed && useRequests.getState().deleteAudio?.meetingId === meeting.id) {
+    if (!closed || !askedHere.current) return;
+    askedHere.current = false;
+    if (useRequests.getState().deleteAudio?.meetingId === meeting.id) {
       useRequests.getState().clear("deleteAudio");
     }
   }, [menu.open, meeting.id]);

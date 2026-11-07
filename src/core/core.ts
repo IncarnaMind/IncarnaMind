@@ -6694,6 +6694,8 @@ export function createCore(adapters: CoreAdapters): Core {
     stopMeeting: async (meetingId) => stopMeeting(meetingId),
     fillMeetingNotes: async (meetingId) => meetingFill.retry(meetings.get(meetingId).id),
     undoMeetingFill: async (meetingId) => meetingFill.undo(meetings.get(meetingId).id),
+    followMeetingFillUndo: async ({ meetingId, undone }) =>
+      meetingFill.followUndo(meetings.get(meetingId).id, undone),
     deleteMeetingAudio: async (meetingId) => meetings.deleteAudio(meetingId),
     retryTranscript: async (meetingId) => meetings.retryTranscript(meetingId),
     listTranscriptionServices: () => cloudTranscription.list(),

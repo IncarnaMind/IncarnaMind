@@ -50,9 +50,15 @@ const WORDS = {
 export function MeetingFillLine({ meeting }: { meeting: Meeting }) {
   const t = useT();
   const place = useTabPlace();
-  const { fill } = meeting;
   const step = useFillStep(meeting.id);
-  if (!fill) return null;
+  if (!meeting.fill) return null;
+  // The editor holding the fill on its own Undo is ahead of the core, which follows it.
+  const fill =
+    step === "undone" && meeting.fill.state === "filled"
+      ? { ...meeting.fill, state: "undone" as const }
+      : step === "top" && meeting.fill.state === "undone"
+        ? { ...meeting.fill, state: "filled" as const }
+        : meeting.fill;
   const words = WORDS[meeting.kind];
   const again = (label: string): ProblemAction => ({
     label,
@@ -81,27 +87,6 @@ export function MeetingFillLine({ meeting }: { meeting: Meeting }) {
     return (
       <ProblemLine testId="meeting-fill-line" role="status" className="">
         <span className={fill.state === "filling" ? "answer-writing" : undefined}>{text}</span>
-      </ProblemLine>
-    );
-  }
-  // Taken back in the Note, as ⌘Z does: ⇧⌘Z there brings it back, and Fill in again asks anew.
-  if (fill.state === "filled" && step === "undone") {
-    return (
-      <ProblemLine
-        testId="meeting-fill-line"
-        role="status"
-        className=""
-        action={{
-          label: t(words.again),
-          testId: "meeting-fill-again",
-          onClick: () =>
-            void (async () => {
-              await useMeetings.getState().undoFill(meeting.id);
-              await useMeetings.getState().fillNotes(meeting.id);
-            })(),
-        }}
-      >
-        {t(words.undone)}
       </ProblemLine>
     );
   }

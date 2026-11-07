@@ -7,6 +7,7 @@
 import type { Editor } from "@tiptap/core";
 import * as Y from "yjs";
 import { isPartialMeetingFill, meetingFillCause } from "../../../shared/meetingFill";
+import { core } from "../core";
 import { holdFillSteps } from "../meetingFillSteps";
 import { useMeetings } from "../meetings";
 import { EDIT_FROM_CORE, takeEditUpdates } from "../mindCopies";
@@ -28,7 +29,21 @@ export function takeFillInEditor(editor: Editor, meetingId: string): () => void 
     const steps = followSteps(editor, [step]);
     if (!steps) return;
     release?.();
-    release = holdFillSteps(meetingId, steps);
+    const held = holdFillSteps(meetingId, steps);
+    // The core keeps the fill's state, for Try again and for when the Note opens again.
+    let undone = false;
+    const stopFollowing = steps.observe(() => {
+      const now = steps.state() === "undone";
+      if (now === undone) return;
+      undone = now;
+      core.followMeetingFillUndo({ meetingId, undone: now }).catch((error: unknown) => {
+        console.error(`The fill of meeting ${meetingId} couldn't follow its Undo.`, error);
+      });
+    });
+    release = () => {
+      stopFollowing();
+      held();
+    };
     offerEditorUndo(
       editor,
       (t) => {

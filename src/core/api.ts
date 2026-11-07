@@ -13524,6 +13524,11 @@ export interface CoreApi {
   fillMeetingNotes(meetingId: string): Promise<Meeting>;
   /** Takes back what filling in added, leaving the notes as the User left them (#142). */
   undoMeetingFill(meetingId: string): Promise<Meeting>;
+  /**
+   * The editor showing the Note took the fill back with its own Undo (`undone`), or put it back
+   * with its Redo: the fill's state follows, and nothing in the Note is changed (#2527).
+   */
+  followMeetingFillUndo(input: { meetingId: string; undone: boolean }): Promise<Meeting>;
   /** Opens the system's settings where the User allows IncarnaMind to record this source. */
   openAudioSettings(source: AudioSource): Promise<void>;
   /**
@@ -14219,6 +14224,7 @@ const methods: Record<CoreApiMethod, true> = {
   retryTranscript: true,
   fillMeetingNotes: true,
   undoMeetingFill: true,
+  followMeetingFillUndo: true,
   openAudioSettings: true,
   askMeetingHelp: true,
   setMeetingTemplate: true,
