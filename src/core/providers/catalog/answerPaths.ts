@@ -52,6 +52,15 @@ const WRITES_THEN_CITES: readonly Admitted[] = [
  */
 const RETRIEVES_FIRST: readonly Admitted[] = [];
 
+/**
+ * Answers call help in one structured reply, its records first and the reply after them, from the
+ * Passages the press was given, instead of the Tool loop (#2526). Claude Sonnet 5.5 can't stop
+ * thinking: at its least, it thinks after each Tool's result, so in the loop its reply, written
+ * after `cite`'s, came whole once that thinking ended, about 5 s after the press. A model that
+ * can't give structured output answers in the loop.
+ */
+const HELPS_IN_ONE_REPLY: readonly Admitted[] = [];
+
 /** A model as an Answer runs it. */
 export interface ListedModel {
   catalogId: string | null;
@@ -62,6 +71,7 @@ export interface ListedModel {
 export interface AnswerPathsOverride {
   writesThenCites?(model: ListedModel): boolean | undefined;
   retrievesFirst?(model: ListedModel): boolean | undefined;
+  helpsInOneReply?(model: ListedModel): boolean | undefined;
 }
 
 const listed = (
@@ -86,3 +96,9 @@ export const retrievesFirst = (
   flow: AnswerFlow,
   override?: AnswerPathsOverride,
 ): boolean => override?.retrievesFirst?.(model) ?? listed(RETRIEVES_FIRST, model, flow);
+
+export const helpsInOneReply = (
+  model: ListedModel,
+  flow: AnswerFlow,
+  override?: AnswerPathsOverride,
+): boolean => override?.helpsInOneReply?.(model) ?? listed(HELPS_IN_ONE_REPLY, model, flow);

@@ -480,6 +480,12 @@ export interface AnswerRequest {
   /** In the Tool loop, the model writes the Answer, then cites it in the same reply (#489). */
   writeThenCite?: boolean;
   /**
+   * Answered first in one structured reply, its records before the Answer, from the Passages the
+   * messages hold, with no search: call help on a model the list admits (#2526). A model whose
+   * reply isn't JSON after all answers in the Tool loop.
+   */
+  recordsFirst?: boolean;
+  /**
    * In the Tool loop, search the Question's own words before the first call, so the model can
    * answer from those Passages without searching; it searches on when they aren't enough.
    */
@@ -1404,6 +1410,18 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
         searched = merged;
         yield { type: "phase", phase: "writing" };
         return merged;
+      }
+
+      if (request.recordsFirst && request.structuredOutput !== false) {
+        let unsupported = false;
+        for await (const event of onePass("structured-output")) {
+          if (event.type === "unsupported") {
+            unsupported = true;
+            break;
+          }
+          yield event;
+        }
+        if (!unsupported || signal.aborted) return;
       }
 
       // Structured output isn't tried for a model known to give none, unless it is where to start
@@ -2481,6 +2499,15 @@ async function* structured(
   budget?: WindowBudget,
 ): Attempt {
   const { signal } = request;
+  const answerSchema = {
+    type: "string",
+    description: "The Answer, in Markdown, with Citation markers and figure markers.",
+  };
+  // A small local model leaves out what its schema doesn't require: a record needs its quote here.
+  const citationsSchema = {
+    ...recordsSchema,
+    items: { ...recordsSchema.items, required: [...recordsSchema.items.required, "quote"] },
+  };
   const result = streamText({
     model: request.model,
     instructions,
@@ -2491,18 +2518,13 @@ async function* structured(
     output: Output.object({
       schema: jsonSchema<{ answer: string; citations: unknown; calculations?: unknown }>({
         type: "object",
-        properties: {
-          answer: {
-            type: "string",
-            description: "The Answer, in Markdown, with Citation markers and figure markers.",
-          },
-          // A small local model leaves out what its schema doesn't require: a record needs its quote here.
-          citations: {
-            ...recordsSchema,
-            items: { ...recordsSchema.items, required: [...recordsSchema.items.required, "quote"] },
-          },
-          ...(request.documents.calculate && { calculations: calculationsSchema }),
-        },
+        properties: request.recordsFirst
+          ? { citations: citationsSchema, answer: answerSchema }
+          : {
+              answer: answerSchema,
+              citations: citationsSchema,
+              ...(request.documents.calculate && { calculations: calculationsSchema }),
+            },
         required: ["answer", "citations"],
       }),
       name: "answer",

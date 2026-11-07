@@ -669,6 +669,8 @@ export interface AnswersOptions {
   writesThenCites?(prepared: PreparedChatModel, flow: AnswerFlow): boolean;
   /** Whether an Answer on this model, in this flow, searches its Question before the first call (#1633). */
   retrievesFirst?(prepared: PreparedChatModel, flow: AnswerFlow): boolean;
+  /** Whether call help on this model is answered in one structured reply, its records first (#2526). */
+  helpsInOneReply?(prepared: PreparedChatModel, flow: AnswerFlow): boolean;
   /** Searching the User's Documents, and what Citations point to. */
   documents: DocumentsForAnswers;
   /** Runs Analyses (#447, ADR-0023); absent: no Answer is offered `run_analysis`. */
@@ -3414,6 +3416,10 @@ export function createAnswers(options: AnswersOptions) {
       // A model cites as the write-then-cite list says, whichever way it searches, so it never
       // cites in a way that list didn't admit it to (#1633).
       const writeFirst = options.writesThenCites?.(prepared, flow) ?? false;
+      const recordsFirst =
+        Boolean(help) &&
+        givesStructuredOutput(prepared.capabilities) !== false &&
+        (options.helpsInOneReply?.(prepared, flow) ?? false);
       for await (const event of engine.generate({
         instructions: (
           mode,
@@ -3446,7 +3452,7 @@ export function createAnswers(options: AnswersOptions) {
                   scoped,
                   calculating,
                   withMindTools || ids.size() > 0,
-                  { writeFirst, minds: withMindTools, library },
+                  { writeFirst, minds: withMindTools, library, recordsFirst },
                 ),
             inAssistant && !help ? SEARCH_SCOPE_RULE : "",
             stillReadingNote(options.documents.reading(documentIds)),
@@ -3518,6 +3524,7 @@ export function createAnswers(options: AnswersOptions) {
         support: startingSupport(prepared.support, supportByModel.get(learntKey)),
         writeThenCite: writeFirst,
         retrieveFirst,
+        recordsFirst,
         structuredOutput: givesStructuredOutput(prepared.capabilities),
         takesTemperature: prepared.capabilities.facts.temperature,
         window: prepared.window,

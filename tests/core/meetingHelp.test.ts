@@ -5,8 +5,9 @@
  * Meeting names its latest help, the line it answers and the conversation it went to; the
  * template adds its buttons.
  */
+import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
-import type { Core, Meeting, MeetingHelpKind } from "../../src/core";
+import type { Core, CoreAdapters, Meeting, MeetingHelpKind } from "../../src/core";
 import { CITE_RETRY_INSTRUCTIONS } from "../../src/core/answers/prompt";
 import { setMindModel } from "../../src/shared/mindModel";
 import { answerEnded, shownPassages } from "../helpers/citations";
@@ -42,6 +43,59 @@ function helpingModel(calls: ModelCall[]) {
   });
 }
 
+const HELP_FORM =
+  "★ Yes, Enterprise is $45 a seat [^1]\n→ answers at once\n\nI'll send the price sheet\n→ buys time";
+
+/**
+ * A model asked for one JSON reply that gives its record of the Passage found ahead first, then
+ * the help form; asked in the Tool loop, as `helpingModel` answers. `json: false`: its JSON reply
+ * is prose instead, as a model's that can't give structured output is.
+ */
+function oneReplyModel(calls: ModelCall[], { json = true } = {}) {
+  return scriptedModel((call) => {
+    if (!call.json) return loopReply(call, calls);
+    calls.push(call);
+    const [found] = shownPassages(block(call.prompt, "found-in-documents") ?? "");
+    if (!json || !found) return { text: "I'd rather answer in words." };
+    return {
+      text: JSON.stringify({
+        citations: [{ marker: 1, passage: found.id, location: "lines 1–5", quote: PRICE }],
+        answer: HELP_FORM,
+      }),
+    };
+  });
+}
+
+/** `helpingModel`'s reply to a request of the Tool loop. */
+function loopReply(call: ModelCall, calls: ModelCall[]) {
+  calls.push(call);
+  const [found] = shownPassages(block(call.prompt, "found-in-documents") ?? "");
+  if (found && !call.results.some((result) => result.tool === "cite")) {
+    return {
+      calls: [
+        { tool: "cite", input: { citations: [{ marker: 1, passage: found.id, quote: PRICE }] } },
+      ],
+    };
+  }
+  return { text: HELP_FORM };
+}
+
+/** Adds a price sheet holding PRICE, and waits until it is read. */
+async function addPriceSheet(core: Core) {
+  const sources = await createSourceFolder();
+  const added = await core.addDocuments([
+    await writeSourceFile(
+      sources,
+      "Price sheet.txt",
+      `Price sheet 2026\n\nTeam plan: $25 per seat a month.\n${PRICE}\nThe launch moves to the eighteenth of November for every plan.`,
+    ),
+  ]);
+  await waitForProcessing(
+    core,
+    added.documents.map((document) => document.id),
+  );
+}
+
 /**
  * A meeting recording with lines from both sides; `before`, what to do first (Documents wait while
  * it records); `lines` and `theirLines`, what each side says.
@@ -49,13 +103,21 @@ function helpingModel(calls: ModelCall[]) {
 async function setUp(
   before?: (core: Core) => Promise<void>,
   said: { lines?: readonly string[]; theirLines?: readonly string[] } = {},
+  {
+    model = helpingModel,
+    answerPaths,
+  }: {
+    model?: (calls: ModelCall[]) => MockLanguageModelV4;
+    answerPaths?: CoreAdapters["answerPaths"];
+  } = {},
 ) {
   const calls: ModelCall[] = [];
   const dataDir = await createTempDataFolder();
-  const models = scriptedModels(helpingModel(calls));
+  const models = scriptedModels(model(calls));
   const { core, record } = await transcribingCore(dataDir, {
     createChatModel: models.createChatModel,
     engine: said,
+    ...(answerPaths && { answerPaths }),
   });
   await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
   await before?.(core);
@@ -170,6 +232,45 @@ describe("Help during the call", { timeout: 60_000 }, () => {
     expect(found).toContain("Price sheet");
     expect(found).not.toContain("Transcript");
     expect(calls[0]?.tools).toContain("search_documents");
+    expect(answer.citations).toEqual([
+      expect.objectContaining({ documentName: "Price sheet", quote: PRICE, check: "found" }),
+    ]);
+  });
+
+  // protects=call help on a model the list admits is answered in one JSON reply, its records first, from the Passages found ahead, offered no Tool, and its Citation is checked as any; fails_when=it goes through the Tool loop, asks for the reply before the records, or loses the Citation; no_claim=what a real model writes (eval/speed/gates/call-help-records-first.md) (#2526).
+  test("on a model the list admits, help is one JSON reply, its records first, cited from what was found ahead", async () => {
+    const { core, meeting, calls } = await setUp(addPriceSheet, undefined, {
+      model: (calls) => oneReplyModel(calls),
+      answerPaths: { helpsInOneReply: () => true },
+    });
+
+    const { answer } = await press(core, meeting, "answer");
+
+    expect(calls).toHaveLength(1);
+    const [only] = calls;
+    expect(only?.json).toBe(true);
+    expect(only?.tools).toEqual([]);
+    expect(only?.system).toContain('Reply with one JSON object, its records first: {"citations"');
+    const schema = JSON.stringify(only?.options.responseFormat);
+    expect(schema.indexOf('"citations"')).toBeLessThan(schema.indexOf('"answer"'));
+    expect(answer.text).toBe(HELP_FORM);
+    expect(answer.citations).toEqual([
+      expect.objectContaining({ documentName: "Price sheet", quote: PRICE, check: "found" }),
+    ]);
+  });
+
+  // protects=a model the list admits whose reply isn't JSON after all still answers, in the Tool loop; fails_when=the press fails or ends with no reply; no_claim=none beyond protects (#2526).
+  test("a model whose one reply isn't JSON answers in the Tool loop instead", async () => {
+    const { core, meeting, calls } = await setUp(addPriceSheet, undefined, {
+      model: (calls) => oneReplyModel(calls, { json: false }),
+      answerPaths: { helpsInOneReply: () => true },
+    });
+
+    const { answer } = await press(core, meeting, "answer");
+
+    expect(calls[0]?.json).toBe(true);
+    expect(calls.at(-1)?.tools).toContain("cite");
+    expect(answer.text).toBe(HELP_FORM);
     expect(answer.citations).toEqual([
       expect.objectContaining({ documentName: "Price sheet", quote: PRICE, check: "found" }),
     ]);

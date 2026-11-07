@@ -846,7 +846,14 @@ export function documentInstructions(
     writeFirst = false,
     minds = false,
     library = { total: listed.total },
-  }: { writeFirst?: boolean; minds?: boolean; library?: LibraryDocuments } = {},
+    recordsFirst = false,
+  }: {
+    writeFirst?: boolean;
+    minds?: boolean;
+    library?: LibraryDocuments;
+    /** Structured output, its records before the Answer, with the Passages in the messages (#2526). */
+    recordsFirst?: boolean;
+  } = {},
 ): string {
   const dated = datedDocumentsNote(passages);
   const notes = [
@@ -877,6 +884,26 @@ export function documentInstructions(
         ...(calculate ? ["", CALCULATE] : []),
       ].join("\n");
     case "structured-output":
+      if (recordsFirst) {
+        return [
+          added,
+          documentNames(listed),
+          ...rest,
+          "",
+          'Reply with one JSON object, its records first: {"citations": [{"marker": 1, "passage": "P1", "location": "…", "quote": "…"}], "answer": "…"}. The Passages are in the messages, each with its id.',
+          `- citations: first, one record for each quote the Answer will use: a marker number (1, 2, …), ${RECORD}.`,
+          "- answer: then the Answer, in Markdown, with each marker as [^1] right after the claim its record supports. Use only markers you recorded, and add no list of sources.",
+          ...(keeps ? [KEEP_CITATIONS("give a record in citations")] : []),
+          UNBROKEN_QUOTE,
+          QUOTATION_MARKS,
+          NO_CALCULATE,
+          notCovered(true),
+          CITED_SAYS_ONLY_ITS_QUOTE,
+          FIGURES_AS_STATED,
+          scannedWords(true),
+          readingRules(true),
+        ].join("\n");
+      }
       return [
         added,
         documentNames(listed),

@@ -30,6 +30,7 @@ export interface Arm {
   paths?: {
     writesThenCites?: boolean;
     retrievesFirst?: boolean;
+    helpsInOneReply?: boolean;
   };
   /** Whether the quick model looks first at every written sentence (#1667); unset: the list's. */
   checks?: { quickFirstLook?: boolean };
@@ -111,6 +112,12 @@ export const ARMS: readonly Arm[] = [
     }),
   },
   {
+    id: "help-records-first",
+    label:
+      "call help in one structured reply, its records first and the reply after them, from the Passages the press was given (#2526)",
+    paths: { helpsInOneReply: true },
+  },
+  {
     id: "retrieve-first",
     label:
       "the Question searched before the first call, answered from those Passages unless it needs more (#1633)",
@@ -138,6 +145,7 @@ export function armSwitch() {
   const answerPaths: AnswerPathsOverride = {
     writesThenCites: () => current?.paths?.writesThenCites,
     retrievesFirst: () => current?.paths?.retrievesFirst,
+    helpsInOneReply: () => current?.paths?.helpsInOneReply,
   };
   const checkPaths: CheckPathsOverride = {
     quickFirstLook: () => current?.checks?.quickFirstLook,
