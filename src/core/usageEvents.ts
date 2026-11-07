@@ -165,6 +165,23 @@ const CONNECTOR_ERRORS = [
 /** Organize's model, by kind only: never which model, server or provider. */
 const ORGANIZE_MODELS = ["chat", "jev", "decision", "auto", "ollama"] as const;
 
+/** A week's model spend in US dollars, as the cost cap's estimate counts it (#1993). */
+export const SPEND_RANGES = ["0", "under_1", "1_5", "5_20", "20_50", "over_50"] as const;
+
+/** What paid for a week's model calls (#1993). */
+export const SPEND_ROUTES = ["own_key", "subscription_sign_in", "local", "mixed"] as const;
+
+/** The kind of provider of a week's model calls (#1993): never a model's name. */
+export const SPEND_PROVIDER_KINDS = [
+  "anthropic",
+  "openai",
+  "google",
+  "china",
+  "openrouter",
+  "ollama",
+  "other",
+] as const;
+
 /** Each Document format, counted in `documents_added`. */
 export const DOCUMENT_FORMATS = [
   "pdf",
@@ -215,6 +232,20 @@ export const USAGE_EVENTS = {
     found: count,
     not_found: count,
     cant_check: count,
+  },
+  /**
+   * A completed week with a model call in it, sent while usage data is on:
+   * about what the week's models cost (a range of the cost record's own
+   * estimate, not a provider's bill), the kind of route that paid, and how
+   * many Answers were started and how many checks there were (#1993). Never a
+   * model's name, a Question or a Document.
+   */
+  model_spend_week: {
+    spend_range: oneOf(SPEND_RANGES),
+    route: oneOf(SPEND_ROUTES),
+    provider_kind: oneOf(SPEND_PROVIDER_KINDS),
+    questions: count,
+    checks: count,
   },
   /** The User opened a Citation's card: its check. */
   citation_opened: { check: oneOf(CITATION_CHECKS) },
