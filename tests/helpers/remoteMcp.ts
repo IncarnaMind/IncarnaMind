@@ -70,6 +70,12 @@ export interface FakeRemote {
   refreshDelayMs: number;
   /** When set, refreshes are refused with this status and body. */
   refreshRefusal: { status: number; body: unknown } | null;
+  /** When set, the authorization code's exchange is refused with this status and body. */
+  exchangeRefusal: { status: number; body: unknown } | null;
+  /** The secret the manual OAuth app must present; a test may use a shape the generic redactor keeps. */
+  manualSecret: string;
+  /** Issue tokens of letters alone, a shape the generic redactor keeps, as some services do. */
+  opaqueTokens: boolean;
 
   /** Every request to each endpoint, by path, in order. */
   requests: { method: string; path: string; authorization: string | null }[];
@@ -184,9 +190,14 @@ export async function startFakeRemote(): Promise<FakeRemote> {
 
   const issue = (clientId: string, resource: string): IssuedTokens => {
     const n = fake.issued.length + 1;
+    const letters = [...String(n)].map((digit) => "abcdefghij"[Number(digit)]).join("");
     const tokens = {
-      accessToken: `access-token-${n}-${"a".repeat(24)}`,
-      refreshToken: `refresh-token-${n}-${"r".repeat(24)}`,
+      accessToken: fake.opaqueTokens
+        ? `harbouraccess${letters}`
+        : `access-token-${n}-${"a".repeat(24)}`,
+      refreshToken: fake.opaqueTokens
+        ? `harbourrenew${letters}`
+        : `refresh-token-${n}-${"r".repeat(24)}`,
       clientId,
       resource,
     };
@@ -217,11 +228,15 @@ export async function startFakeRemote(): Promise<FakeRemote> {
     const form = Object.fromEntries(new URLSearchParams(await readBody(request)));
     fake.tokenRequests.push(form);
     const { clientId, secret } = credentials(request, form);
-    if (!known(clientId) || (clientId === MANUAL_CLIENT_ID && secret !== MANUAL_CLIENT_SECRET)) {
+    if (!known(clientId) || (clientId === MANUAL_CLIENT_ID && secret !== fake.manualSecret)) {
       sendJson(response, 401, { error: "invalid_client" });
       return;
     }
     if (form.grant_type === "authorization_code") {
+      if (fake.exchangeRefusal) {
+        sendJson(response, fake.exchangeRefusal.status, fake.exchangeRefusal.body);
+        return;
+      }
       const pending = codes.get(form.code ?? "");
       codes.delete(form.code ?? "");
       const challenge = createHash("sha256")
@@ -385,6 +400,9 @@ export async function startFakeRemote(): Promise<FakeRemote> {
     expiresIn: 3600,
     refreshDelayMs: 0,
     refreshRefusal: null,
+    exchangeRefusal: null,
+    manualSecret: MANUAL_CLIENT_SECRET,
+    opaqueTokens: false,
     requests: [],
     registrations: [],
     authorizeRequests: [],
