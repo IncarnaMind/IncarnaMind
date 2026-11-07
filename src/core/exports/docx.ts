@@ -132,7 +132,7 @@ const NOTE_MARK =
   /<w:r><w:rPr><w:rStyle w:val="[^"]*"\/><\/w:rPr><w:footnoteReference w:id="(\d+)"\/><\/w:r>/g;
 
 /** One level of a list, or of a quote, indents this much (half an inch). */
-const INDENT = 720;
+export const INDENT = 720;
 /** A list item's number or bullet hangs this far left of its text. */
 const HANGING = 360;
 /** A to-do's box is at the text edge, its text 28px in; a nested to-do steps in 24px, as in the editor. */

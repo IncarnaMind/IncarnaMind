@@ -428,6 +428,21 @@ describe("The words an Answer put in quotation marks that a Citation's page lack
     expect(parseQuotedWords("not json")).toBeNull();
     expect(parseQuotedWords(undefined)).toBeNull();
   });
+
+  test("the Document's own words for a quote that differs only in its marks are kept, when it has them (#2605)", () => {
+    const stored = {
+      answer: [{ text: "the vendor’s ‘soft weight’ rule", found: false }],
+      closest: [{ text: "the vendor’s “soft weight” rule", found: false }],
+      documentWording: "the vendor’s “soft weight” rule",
+    };
+    expect(parseQuotedWords(stored)).toEqual(stored);
+    expect(parseQuotedWords({ ...stored, documentWording: "" })).not.toHaveProperty(
+      "documentWording",
+    );
+    expect(parseQuotedWords({ ...stored, documentWording: 4 })).not.toHaveProperty(
+      "documentWording",
+    );
+  });
 });
 
 describe("A Citation's Location label (ADR-0011)", () => {

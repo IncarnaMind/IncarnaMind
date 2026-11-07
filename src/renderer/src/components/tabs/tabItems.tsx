@@ -1,7 +1,7 @@
 import { createContext, useContext } from "react";
 import type { Meeting, TabItem } from "../../../../core/api";
 import { useT } from "../../i18n";
-import { isLive, useMeetingOf, useMeetingTime } from "../../meetings";
+import { isLive, isWaitingForPermission, useMeetingOf, useMeetingTime } from "../../meetings";
 import { clockTime } from "../../meetingTime";
 import { useMindStatus } from "../../mindStatus";
 import { useAppStore } from "../../store";
@@ -42,15 +42,20 @@ function MindIcon({ mindId }: { mindId: string }) {
   const t = useT();
   const status = useMindStatus(mindId);
   const meeting = useMeetingOf(mindId);
-  // A Meeting recording: a small red dot (the owner's choice), grey while paused.
+  // A Meeting recording: a small red dot (the owner's choice), grey while paused or waiting.
   if (isLive(meeting)) {
+    const waiting = isWaitingForPermission(meeting);
     return (
       <span
         role="img"
         data-testid="mind-tab-recording"
-        data-status={meeting.status}
+        data-status={waiting ? "waiting" : meeting.status}
         aria-label={t(
-          meeting.status === "recording" ? "meetings.bar.recording" : "meetings.bar.paused",
+          waiting
+            ? "meetings.bar.waiting"
+            : meeting.status === "recording"
+              ? "meetings.bar.recording"
+              : "meetings.bar.paused",
         )}
         className="recording-dot"
       />
@@ -71,7 +76,7 @@ function MindIcon({ mindId }: { mindId: string }) {
 /** A Mind's Meeting time on its tab, ticking while it records; nothing when it has none live. */
 export function MeetingTabTime({ mindId }: { mindId: string }) {
   const meeting = useMeetingOf(mindId);
-  if (!isLive(meeting)) return null;
+  if (!isLive(meeting) || isWaitingForPermission(meeting)) return null;
   return <LiveMeetingTime meeting={meeting} />;
 }
 

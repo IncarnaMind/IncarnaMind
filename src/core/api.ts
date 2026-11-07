@@ -2647,6 +2647,13 @@ export interface QuotedWords {
   answer: QuotedPiece[];
   /** The Document's words nearest them, the matching stretch `found: true`; null when none is near. */
   closest: QuotedPiece[] | null;
+  /**
+   * The Answer's quote in the Document's own marks, where the two differ only in the kind of
+   * their quotation marks (#2605): what Use the Document's wording puts in the sentence. The
+   * quote's other characters are its own, so only its marks change. Absent for any other
+   * difference, which the card offers nothing for.
+   */
+  documentWording?: string;
 }
 
 /** The Answer's quoted words, found where they run on past the page the Citation cites (#2504). */
@@ -2752,6 +2759,13 @@ export interface Citation {
   /** The unsure words of a scanned page the quote covers (#535). */
   unsure?: string[];
   quotedWords?: QuotedWordsCheck;
+  /**
+   * The words of the Answer's quotation marks that this Citation's Units were found to state
+   * (#2602), so a figure in them is stated by this Citation. None when the quoted-words check
+   * didn't look for them: a Document's name, a Citation that couldn't be checked, or words the
+   * check didn't find (its card says Quote not found instead).
+   */
+  quotedWordsFound?: string[];
   /** "unsupported" and "contradicted": what the Documents say of its sentence, in one plain sentence. */
   verdict?: string | null;
 }
@@ -3320,9 +3334,10 @@ export interface DeviceSettings {
 
 /**
  * Where a Meeting's audio is turned into text: on this computer, or live by a cloud service with
- * the User's own key (#141, #866): OpenAI, Qwen (Alibaba Cloud Model Studio, for mainland China)
- * and Gemini with the key of their provider in Settings › Models; Soniox, Deepgram (also at
- * Cloudflare Workers AI or a server of the User's own) and AssemblyAI with a key of their own.
+ * the User's own key (#141, #866): OpenAI, Qwen (Alibaba Cloud Model Studio, for mainland China),
+ * Gemini and xAI with the key of their provider in Settings › Models; Soniox, Deepgram
+ * (also at Cloudflare Workers AI or a server of the User's own), AssemblyAI, ElevenLabs,
+ * Speechmatics and Gladia with a key of their own.
  */
 export const TRANSCRIPTION_ROUTES = [
   "local",
@@ -3332,6 +3347,10 @@ export const TRANSCRIPTION_ROUTES = [
   "deepgram",
   "assemblyai",
   "gemini",
+  "elevenlabs",
+  "speechmatics",
+  "gladia",
+  "xai",
 ] as const;
 export type TranscriptionRoute = (typeof TRANSCRIPTION_ROUTES)[number];
 export type CloudTranscriptionRoute = Exclude<TranscriptionRoute, "local">;
@@ -10821,6 +10840,7 @@ export type MeetingKind = "meeting" | "memo";
 /**
  * How one source is recorded right now:
  * - "off": not asked for ("Only me"), or the Meeting isn't recording.
+ * - "waiting": the system's permission prompt is open, and nothing is captured until it is answered.
  * - "starting": asked for, not heard from yet.
  * - "recording": its audio is coming in.
  * - "silent": the computer's sound has been nothing but silence for a minute,
@@ -10832,6 +10852,7 @@ export type MeetingKind = "meeting" | "memo";
  */
 export type MeetingSourceState =
   | "off"
+  | "waiting"
   | "starting"
   | "recording"
   | "silent"
@@ -11468,15 +11489,18 @@ export interface CoreApi {
    * language, and makes them. `classifyDocuments` then suggests one for each. Returns the
    * Folders made, none when no Document has text to read. Throws InvalidInputError with no
    * model for Organize, or one that can't name Folders (a decision model), and what the
-   * provider throws; nothing is made then.
+   * provider throws; nothing is made then. With `forService`, a continuation of a press
+   * authorized for that service: Organize sending elsewhere proposes nothing.
    */
-  proposeFolders(documentIds: string[]): Promise<LibraryGroup[]>;
+  proposeFolders(documentIds: string[], options?: { forService?: string }): Promise<LibraryGroup[]>;
   /**
    * Queues selected documents, or all. Organize suggests a Folder for each
    * (a Suggested Folder) and its Tags; manual assignments are preserved, and
-   * only their Tags suggested.
+   * only their Tags suggested. With `forService`, a continuation of a press
+   * authorized for that service: a different destination queues and clears
+   * nothing, and a change while the run waits sends nothing there.
    */
-  classifyDocuments(documentIds?: string[]): Promise<void>;
+  classifyDocuments(documentIds?: string[], options?: { forService?: string }): Promise<void>;
   /**
    * Stops automatic Tagging with AI where the Documents waiting to be
    * tagged, or being tagged, are: each of their Folders, and Not in a Folder
@@ -13436,9 +13460,10 @@ export interface CoreApi {
   /** The cloud services that can transcribe meeting audio (#141), and whether each has a key. */
   listTranscriptionServices(): Promise<TranscriptionServices>;
   /**
-   * Keeps a transcription service's own key (Soniox, Deepgram, AssemblyAI), in the keychain, once
-   * the service accepts it, with Deepgram's server where it is another. Throws
-   * `InvalidInputError` when it refuses the key or the server's address isn't one.
+   * Keeps a transcription service's own key (Soniox, Deepgram, AssemblyAI, ElevenLabs,
+   * Speechmatics, Gladia), in the keychain, once the service accepts it, with Deepgram's server
+   * where it is another. Throws `InvalidInputError` when it refuses the key or the server's
+   * address isn't one.
    */
   setTranscriptionKey(input: SetTranscriptionKeyInput): Promise<TranscriptionServices>;
   /** Forgets a transcription service's own key; meeting audio is then transcribed on this computer. */

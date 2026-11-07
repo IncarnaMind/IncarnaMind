@@ -2237,9 +2237,9 @@ export function createCore(adapters: CoreAdapters): Core {
         ),
       read: (mindId, look) => content.read(mindId, look),
       edit: (mindId, change) => content.edit(mindId, change),
-      text: (mindId, name, tokens, ids) => {
+      text: (mindId, name, tokens, ids, applied) => {
         const section = content
-          .peek(mindId, (blocks) => readMind(blocks, name, null, null, ids))
+          .peek(mindId, (blocks) => readMind(blocks, name, null, null, ids, true, applied))
           .section(tokens);
         return { text: section.text, origins: section.origins };
       },
@@ -3486,7 +3486,7 @@ export function createCore(adapters: CoreAdapters): Core {
   const tagger = createTagger({
     // A Document filed inside a walled Folder goes to no cloud service by itself (#2308).
     maySend: (id, service) =>
-      !library.inWall(id) && mayBackgroundSend(db, id, [service], library.turnedOnAt),
+      !library.inWall(id) && mayBackgroundSend(db, id, [service], library.turnedOnSeq),
     db,
     now,
     tags,
@@ -5979,9 +5979,10 @@ export function createCore(adapters: CoreAdapters): Core {
       }
       return routeOf(classifier);
     },
-    proposeFolders: async (ids) => library.propose(ids, settings.get().language),
-    classifyDocuments: async (ids) => {
-      library.classify(ids);
+    proposeFolders: async (ids, options) =>
+      library.propose(ids, settings.get().language, undefined, options?.forService),
+    classifyDocuments: async (ids, options) => {
+      library.classify(ids, options?.forService);
       const classifier = organizeModelOf(library.settings());
       if (classifier) {
         usageData.record({

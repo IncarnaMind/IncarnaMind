@@ -42,6 +42,7 @@ import { type MessageKey, type MessageParams, translate } from "../../shared/i18
 import { mindName } from "../../shared/naming";
 import { filingFolder } from "../../shared/searchScope";
 import { tagLinks } from "../../shared/tagLinks";
+import { attentionOrder } from "./attention";
 import {
   deleted,
   documentsAdded,
@@ -56,7 +57,7 @@ import { LIBRARY_DELETED } from "./deletedItems";
 import { applyAssignments, applyDocumentChanges, createDocumentUpdates } from "./documentUpdates";
 import { describeError, errorMessage } from "./errors";
 import { folderPathLabel, folderWallOf, isInsideFolder } from "./folders";
-import { languageNow } from "./i18n";
+import { languageNow, translateNow } from "./i18n";
 import {
   createLayoutSlice,
   currentMindIdOf,
@@ -91,6 +92,7 @@ import { stepsShownOf } from "./nudges";
 import type { ObjectRef } from "./objects";
 import { useRequests } from "./requests";
 import { resolveSettingsPage, type SettingsPage, type SettingsTarget } from "./settingsPages";
+import { sortOf, useSort } from "./sortChoices";
 import { returnFocusAfterTabClose } from "./tabFocus";
 import { tabTitle } from "./tabs";
 import { asOneStep, makeInTurn, sayWhileSlow, type Undoable, UndoRefused, useUndo } from "./undo";
@@ -152,6 +154,13 @@ export interface AppState extends LayoutSlice {
   /** Most recently added first. */
   documents: Document[];
   /**
+   * The Documents the sidebar's tree may list while Document batches are still
+   * being added: those it listed when the first batch began, so no row moves
+   * down as each part of a batch lands (#1329). Null: nothing is being added.
+   * The Library's count still follows every Document.
+   */
+  heldDocuments: readonly string[] | null;
+  /**
    * The text kept of Documents unlinked with their Linked folder, so the
    * Citations that quote it can still be checked. Set once loaded, then follows the core's event.
    */
@@ -202,6 +211,13 @@ export interface AppState extends LayoutSlice {
    * again); or "starters", the starter Folders at its top.
    */
   libraryFilter: string;
+  /** The Document the sidebar's Review asked the Library to show: its row, once the page is ready. */
+  reviewTarget: string | null;
+  /**
+   * The Documents needing attention the User has already been taken to, so the
+   * sidebar's status counts the rest and goes once every one was seen (#2308).
+   */
+  reviewedAttention: ReadonlySet<string>;
   /** The Folder the Library is open on, for a Question's Folder in front (#2529); null: none. */
   libraryFolderId: string | null;
   refreshLibrary(): Promise<void>;
@@ -211,6 +227,13 @@ export interface AppState extends LayoutSlice {
    * or behind the one shown.
    */
   openLibrary(filter?: string, options?: { side?: boolean; behind?: boolean }): void;
+  /**
+   * Takes the User to the first Document needing attention the Library hasn't
+   * shown them yet, its row in view with its problem's line and action (#2308).
+   */
+  reviewAttention(): void;
+  /** Keeps only the reviewed Documents that still need attention, so a new failure shows again. */
+  keepReviewedAttention(live: ReadonlySet<string>): void;
   /**
    * Shows Home (one tab per window): its tab where it is open, else a new one
    * in the focused group; with `first`, as at a launch, just before the tab
@@ -504,6 +527,12 @@ function moveLinkSteps(from: string, to: string): void {
 /** Puts a Linked folder in the list in place, if it's there. New ones arrive with the core's event. */
 const replaceLinked = (linkedFolders: LinkedFolder[], linked: LinkedFolder) =>
   linkedFolders.map((each) => (each.id === linked.id ? linked : each));
+
+/**
+ * The batches still being added, by id: while one is, the sidebar's tree holds the rows it had
+ * when the first batch began, so nothing moves down as the rest of a batch lands (#1329).
+ */
+const addingBatches = new Set<string>();
 
 /**
  * The core's per-Document events (status, Tags, moves, removals, Library
@@ -987,6 +1016,7 @@ export const useAppStore = create<AppState>()((set, get) => {
     settings: null,
     chatReadiness: null,
     documents: [],
+    heldDocuments: null,
     keptCitationTexts: [],
     skippedFiles: [],
     alreadyAdded: [],
@@ -1006,6 +1036,8 @@ export const useAppStore = create<AppState>()((set, get) => {
     tagsDialogOpen: false,
     library: null,
     libraryFilter: "all",
+    reviewTarget: null,
+    reviewedAttention: new Set(),
     libraryFolderId: null,
     refreshLibrary: async () => {
       const ticket = ++libraryRequest;
@@ -1054,6 +1086,34 @@ export const useAppStore = create<AppState>()((set, get) => {
         where: options?.side ? { in: "side" } : { in: "place" },
         ...(options?.behind && { behind: true }),
       });
+    },
+    reviewAttention: () => {
+      const state = get();
+      // The Library takes its target once the layout has answered: a press before then, as a
+      // double click's second, would count the first Document seen without showing it.
+      if (state.reviewTarget !== null) {
+        get().openLibrary();
+        return;
+      }
+      const library = state.library;
+      const own = state.documents.filter((document) => isOwnDocument(document, allExamples(state)));
+      const order = attentionOrder(
+        own,
+        library?.groups ?? [],
+        library?.assignments ?? [],
+        sortOf("library:all")(useSort.getState()),
+        translateNow,
+        languageNow(),
+      );
+      const next = order.find((id) => !state.reviewedAttention.has(id));
+      if (next === undefined) return;
+      set({ reviewTarget: next, reviewedAttention: new Set([...state.reviewedAttention, next]) });
+      get().openLibrary();
+    },
+    keepReviewedAttention: (live) => {
+      const reviewed = get().reviewedAttention;
+      const kept = [...reviewed].filter((id) => live.has(id));
+      if (kept.length < reviewed.size) set({ reviewedAttention: new Set(kept) });
     },
     skills: [],
     examples: null,
@@ -2171,6 +2231,28 @@ core.on("document.status", (changed) => {
   documentUpdates.upsert([changed]);
   const state = useAppStore.getState();
   if (readOwnDocument(changed, state)) state.updateGettingStarted({ indexed: true });
+});
+
+// A batch of new Documents is landing: the sidebar's tree holds the rows it had until the last
+// batch has all been added, so they don't move down as each part of it arrives (#1329). The count
+// follows every Document meanwhile.
+core.on("documents.batch", (batch) => {
+  // A Linked folder's first scan can wait, paused or out of reach, for a long while: its Documents
+  // show as what the folder found, and are no reason to hold the tree (#1329).
+  if (batch.linkedFolderId !== null) return;
+  const wasAdding = addingBatches.size > 0;
+  if (batch.adding) addingBatches.add(batch.id);
+  else addingBatches.delete(batch.id);
+  const adding = addingBatches.size > 0;
+  if (!wasAdding && adding) {
+    const { documents } = useAppStore.getState();
+    useAppStore.setState({ heldDocuments: documents.map((each) => each.id) });
+  } else if (wasAdding && !adding) {
+    // The batch has all been added: apply what its last status events say now, before its
+    // Documents are listed, so they arrive with the rest instead of one by one above them.
+    documentUpdates.flush();
+    useAppStore.setState({ heldDocuments: null });
+  }
 });
 
 // The examples made, opened again or removed: their Mind and Linked folder show "Example".

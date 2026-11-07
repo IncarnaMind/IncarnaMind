@@ -40,6 +40,8 @@ const GAP_REASONS: Record<Exclude<GapReason, "muted">, MessageKey> = {
   interrupted: "transcript.gap.interrupted",
   lost: "transcript.gap.lost",
   uncaptured: "transcript.gap.uncaptured",
+  permission: "transcript.gap.permission",
+  stalled: "transcript.gap.stalled",
   cloud: "transcript.gap.cloud",
 };
 

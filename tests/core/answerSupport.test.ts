@@ -16,6 +16,7 @@ import {
   scriptedModel,
 } from "../helpers/models";
 import { docxOf } from "../helpers/office";
+import { buildPdf } from "../helpers/pdf";
 import { para, pptxOf, sp, txBody } from "../helpers/pptx";
 
 /**
@@ -627,6 +628,229 @@ describe("a check names whether a thing has happened or is still to happen", () 
 
     expect(already.verdict).toBe("unsupported");
     expect(planned.verdict).toBe("supported");
+  });
+});
+
+const QUOTED_ENGLISH =
+  "any delay beyond the “grace period” of ten working days incurs a fee of 2% per week";
+const QUOTED_CHINESE = "逾期超过“宽限期”十个工作日的，每周加收 2% 的违约金";
+
+/** Every cited sentence of `answer`, judged supported, as a model that keeps to its quotes is. */
+function supportedPlans(answer: string): Record<string, Plan> {
+  return Object.fromEntries(
+    citedSentences(answer).map(({ sentence }) => [
+      sentence,
+      { verdict: "supported" as const, says: sentence },
+    ]),
+  );
+}
+
+/** Asks one Question about `document`, citing `quote`, with the plan that judges the Answer supported. */
+async function askedCited(
+  question: string,
+  query: string,
+  answer: string,
+  quote: string,
+  document: { name: string; contents: string },
+) {
+  const { core } = await setUpWithDocuments(
+    answeringModel(query, answer, [quote], supportedPlans(answer)),
+    [document],
+  );
+  return citationsOfAnswer(core, question);
+}
+
+describe("a figure in the words a sentence quotes is stated by its Citation", () => {
+  const contract = (contents: string) => ({ name: "Supply contract.md", contents });
+  const CASES = [
+    {
+      language: "English",
+      document: contract(
+        "# Supply contract\n\nAny delay beyond the “grace period” of ten working days incurs a fee of 2% per week.\n",
+      ),
+      query: "grace period fee",
+      question: "What happens if payment is late?",
+      record: "Any delay beyond the “grace period” of ten working days",
+      answer: (extra: string) => `The contract sets out that ‘${QUOTED_ENGLISH}’[^1]${extra}.`,
+      nearer: ", a 5% surcharge",
+    },
+    {
+      language: "Chinese",
+      document: contract(
+        "# 供应合同\n\n合同约定，逾期超过“宽限期”十个工作日的，每周加收 2% 的违约金。\n",
+      ),
+      query: "逾期 宽限期 违约金",
+      question: "逾期付款会怎么样？",
+      record: "逾期超过“宽限期”十个工作日",
+      answer: (extra: string) => `合同约定「${QUOTED_CHINESE}」[^1]${extra}。`,
+      nearer: "，另加 5% 的管理费",
+    },
+  ] as const;
+
+  test.each(CASES)(
+    "in $language, a figure in the sentence's quoted words but outside the Citation's quote is found",
+    async ({ document, query, question, record, answer }) => {
+      const citations = await askedCited(question, query, answer(""), record, document);
+
+      expect(checkOf(citations, 1)).toMatchObject({ check: "found" });
+    },
+  );
+
+  test.each(CASES)(
+    "in $language, a figure stated nowhere on the cited pages is still not checked",
+    async ({ document, query, question, record, answer, nearer }) => {
+      const citations = await askedCited(question, query, answer(nearer), record, document);
+
+      expect(checkOf(citations, 1)).toMatchObject({ check: "not-checked" });
+    },
+  );
+
+  test("a figure past an abbreviation the quoted-words check ends its sentence at is not checked", async () => {
+    const answer = "The schedule says “The fee is 5% per week,” said Mr. Smith[^1].";
+    const citations = await askedCited(
+      "What does the schedule say?",
+      "fee per week grace period",
+      answer,
+      "The fee is 3% per week",
+      {
+        name: "Fee schedule.md",
+        contents: "# Fee schedule\n\nThe fee is 3% per week after the grace period.\n",
+      },
+    );
+
+    expect(checkOf(citations, 1)).toMatchObject({ check: "not-checked" });
+  });
+
+  test("a figure quoted in a table cell and cited in another is not checked", async () => {
+    const answer = [
+      "| Quote | Where |",
+      "|:--|:--|",
+      "| “the fee is 5% per week” | See contract [^1] |",
+    ].join("\n");
+    const citations = await askedCited(
+      "What does the terms document say?",
+      "see contract fee",
+      answer,
+      "See contract",
+      {
+        name: "Terms.md",
+        contents: "# Terms\n\nThe fee is 3% per week. See contract for details.\n",
+      },
+    );
+
+    expect(checkOf(citations, 1)).toMatchObject({ check: "not-checked" });
+  });
+
+  test("a figure in words under a Citation that couldn't be checked is not checked", async () => {
+    const report = {
+      name: "Site safety report.md",
+      contents: "# Site safety report\n\nSafety training coverage reached 98% of site staff.\n",
+    };
+    const survey = {
+      name: "Survey.pdf",
+      contents: buildPdf([
+        { lines: ["Survey of the harbour", "The harbour floor is mostly sand."] },
+        { image: true },
+        { lines: ["The survey ended in March.", "Divers mapped the old wreck."] },
+      ]),
+    };
+    const answer = "The report says “coverage reached 98% of site staff” [^1][^2].";
+    const model = scriptedModel(
+      (call) => {
+        if (isCheckRun(call)) return checkReply(call, {});
+        const searches = call.results.filter((result) => result.tool === "search_documents");
+        if (searches.length === 0) {
+          return {
+            calls: [
+              {
+                tool: "search_documents",
+                input: { query: "harbour floor survey training coverage" },
+              },
+            ],
+          };
+        }
+        if (!call.results.some((result) => result.tool === "cite")) {
+          const passages = shownPassages(searches.at(-1)?.text ?? "");
+          return {
+            calls: [
+              {
+                tool: "cite",
+                input: {
+                  citations: [
+                    {
+                      marker: 1,
+                      passage: passages.find((each) =>
+                        each.text.includes("Safety training coverage"),
+                      )?.id,
+                      quote: "Safety training coverage reached",
+                    },
+                    {
+                      marker: 2,
+                      passage: passages.find((each) => each.text.includes("harbour floor"))?.id,
+                      pageFrom: 2,
+                      pageTo: 2,
+                      quote: "The harbour floor is mostly sand.",
+                    },
+                  ],
+                },
+              },
+            ],
+          };
+        }
+        return { text: answer };
+      },
+      { generate: checkGenerate({}), judgesItsAnswers: true },
+    );
+    const { core } = await setUpWithDocuments(model, [report, survey]);
+
+    const citations = await citationsOfAnswer(core, "What were the findings?");
+
+    expect(checkOf(citations, 1)).toMatchObject({ check: "not-checked" });
+    expect(checkOf(citations, 2)).toMatchObject({ check: "cant-check" });
+  });
+
+  test("a figure in a Document's name in quotation marks is not checked", async () => {
+    const citations = await askedCited(
+      "What does the contract say?",
+      "contract terms levy",
+      "The “Contract Term 10 Rules” sets the terms [^1].",
+      "The terms set the levy",
+      {
+        name: "Contract Term 10 Rules.md",
+        contents: "# Contract\n\nThe terms set the levy.\n",
+      },
+    );
+
+    expect(checkOf(citations, 1)).toMatchObject({ check: "not-checked" });
+  });
+
+  test("a figure in words the page doesn't have still leaves the sentence not checked", async () => {
+    const answer = "The reports say “every site passed 90% of its annual audit” [^1][^2].";
+    const { core } = await setUpWithDocuments(
+      answeringModel(
+        "site safety training audit coverage",
+        answer,
+        [
+          "Safety training coverage reached 98% of site staff",
+          "Every site passed its annual audit in the first quarter",
+        ],
+        supportedPlans(answer),
+      ),
+      [
+        {
+          name: "Safety report.md",
+          contents: "# Safety\n\nSafety training coverage reached 98% of site staff in 2025.\n",
+        },
+        {
+          name: "Audit report.md",
+          contents: "# Audit\n\nEvery site passed its annual audit in the first quarter.\n",
+        },
+      ],
+    );
+
+    const citations = await citationsOfAnswer(core, "How did the sites do?");
+
+    expect(checkOf(citations, 1)).toMatchObject({ check: "not-checked" });
   });
 });
 

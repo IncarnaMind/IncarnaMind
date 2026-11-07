@@ -390,4 +390,77 @@ describe("exporting a Mind to HTML", () => {
     });
     expect((await core.getSettings()).user.exportOptions.format).toBe("html");
   });
+
+  const listItem = (words: string, ...lists: JSONContent[]): JSONContent => ({
+    type: "listItem",
+    content: [paragraph(text(words)), ...lists],
+  });
+  const ordered = (attrs: Record<string, unknown>, ...items: JSONContent[]): JSONContent => ({
+    type: "orderedList",
+    attrs,
+    content: items,
+  });
+
+  for (const language of ["en", "zh-CN"] as const) {
+    // protects=every numbered list prints each item with the marker the editor draws, in every scheme, from a start level and continuing from the list before, and stays a list to a screen reader and the validator (#2334); fails_when=it prints the browser's own "1. a. i." numbering; no_claim=how wide a marker is laid out.
+    test(`each item carries the marker the editor draws, in every scheme (${language})`, async () => {
+      const { core, mind, client } = await setUp();
+      await core.updateSettings({ user: { language } });
+      const word = (index: number) => (language === "en" ? `Item ${index}` : `条目${index}`);
+      writeMind(client, [
+        ordered({}, listItem(word(1)), listItem(word(2))),
+        ordered(
+          { numbering: "clauses" },
+          listItem(word(3), ordered({}, listItem(word(4)), listItem(word(5)))),
+          listItem(word(6)),
+        ),
+        ordered({ numbering: "outline" }, listItem(word(7), ordered({}, listItem(word(8))))),
+        ordered(
+          { numbering: "chinese" },
+          listItem(word(9), ordered({}, listItem(word(10)))),
+          listItem(word(11)),
+        ),
+        ordered({ numbering: "clauses", startLevel: 1 }, listItem(word(12))),
+        ordered({ start: 3 }, listItem(word(13)), listItem(word(14))),
+        paragraph(text(language === "en" ? "Between." : "之间。")),
+        ordered({ continues: true }, listItem(word(15)), listItem(word(16))),
+      ]);
+      await client.settled();
+
+      const html = decode((await core.exportMind(mind.id, { format: "html" })).data);
+      const { document } = parseHTML(html);
+      expect(
+        [...document.querySelectorAll("ol li")].map((li) => li.getAttribute("data-marker")),
+      ).toEqual([
+        "1.",
+        "2.",
+        "(a)",
+        "(i)",
+        "(ii)",
+        "(b)",
+        "1.",
+        "1.1.",
+        "一、",
+        "（一）",
+        "二、",
+        "(i)",
+        "3.",
+        "4.",
+        "5.",
+        "6.",
+      ]);
+      const list = document.querySelector("ol");
+      expect(list?.localName).toBe("ol");
+      expect([...(list?.children ?? [])].map((child) => child.localName)).toEqual(["li", "li"]);
+
+      const report = await new HtmlValidate({
+        extends: ["html-validate:recommended"],
+      }).validateString(html);
+      expect(
+        report.results.flatMap((result) =>
+          result.messages.map((message) => `${message.ruleId}: ${message.message}`),
+        ),
+      ).toEqual([]);
+    });
+  }
 });

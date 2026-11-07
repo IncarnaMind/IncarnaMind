@@ -21,6 +21,7 @@ import { MeetingNoticeDialog } from "./components/MeetingNoticeDialog";
 import { MindStyleHost } from "./components/MindStyle";
 import { PanelBoundary } from "./components/PanelBoundary";
 import { Peek } from "./components/Peek";
+import { PictureViewer } from "./components/PictureViewer";
 import { ProblemMark } from "./components/ProblemLine";
 import { ChatGptWelcomeDialog } from "./components/providers/ChatGptSignIn";
 import { RequestedDialogs } from "./components/RequestedDialogs";
@@ -334,6 +335,7 @@ function Workspace() {
           <DocumentMoveTo />
           <InfoPanel />
           <Peek />
+          <PictureViewer />
           <AddWebPageDialog />
           <FeedbackDialog />
           <WordImportDialog />
