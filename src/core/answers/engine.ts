@@ -790,17 +790,22 @@ function linesOf(text: string): TextPart[] {
  * holds other text before it; and, where that last paragraph mixes marked and unmarked lines, its
  * unmarked lines. A marked paragraph before the last is the Answer's, so a note can no longer hide
  * between two of them. An Answer alone, written beside `cite` as one marked paragraph, has nothing
- * to judge and costs no request.
+ * to judge and costs no request. Text shaped like a Tool call is never judged: its records are read
+ * at the end (`takeToolText`), and dropping the block here would lose them.
  */
 function workingCandidates(text: string): TextPart[] {
   const paragraphs = paragraphsOf(text);
   const out: TextPart[] = [];
   for (const [index, paragraph] of paragraphs.entries()) {
+    if (takeToolText(paragraph.text, TOOL_TEXT_TAGS).text !== paragraph.text) continue;
     const last = index === paragraphs.length - 1;
     const marked = MARKER.test(paragraph.text);
     if (marked && !last) continue;
     if (marked && paragraph.text.includes("\n")) {
-      const unmarked = linesOf(paragraph.text).filter((line) => !MARKER.test(line.text));
+      const unmarked = linesOf(paragraph.text).filter(
+        (line) =>
+          !MARKER.test(line.text) && takeToolText(line.text, TOOL_TEXT_TAGS).text === line.text,
+      );
       for (const line of unmarked) {
         out.push({
           from: paragraph.from + line.from,

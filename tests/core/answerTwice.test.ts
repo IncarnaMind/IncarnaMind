@@ -407,4 +407,35 @@ describe("An Answer written in the turn that calls cite", { timeout: 30_000 }, (
       "Spring tides come at new and full moon[c].\nCitations need to be recorded now.",
     );
   });
+
+  // protects=a <cite> block written as text beside a cite call keeps its records: the judgement never sees Tool-call text; fails_when=the block is judged away and its Citation lost; no_claim=none beyond protects.
+  test("a cite block written as text keeps its records, unjudged", async () => {
+    const model = scriptedModel(
+      (call: ModelCall): ScriptedReply => {
+        const searched = call.results.find((result) => result.tool === "search_documents");
+        if (!searched) {
+          return { calls: [{ tool: "search_documents", input: { query: "spring tides" } }] };
+        }
+        const passage = shownPassages(searched.text)[0]?.id ?? "P1";
+        return {
+          text: `${ANSWER}\n\n${NEAP} [^2].\n\n<cite>${JSON.stringify([
+            { marker: 2, passage, quote: NEAP },
+          ])}</cite>`,
+          calls: [{ tool: "cite", input: { citations: [{ marker: 1, passage, quote: SPRING }] } }],
+        };
+      },
+      { generate: judging("working") },
+    );
+    const { core, client, mind } = await setUpWithDocuments(
+      model,
+      [{ name: "Tides.md", contents: TIDES_MD }],
+      WRITES_THEN_CITES,
+    );
+
+    const { answerId } = await askAndFinish(core, client, mind.id, "When are spring tides?");
+
+    // The block's record is kept; a marker-less record may also be listed on its own.
+    const got = new Set(citationsIn(client, answerId).map((citation) => citation.quote));
+    expect(got).toEqual(new Set([SPRING, NEAP]));
+  });
 });

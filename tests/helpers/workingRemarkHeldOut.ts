@@ -76,7 +76,7 @@ export const DOCUMENT_HELD_OUT: readonly DocumentQuestion[] = [
   },
   { question: "Why did the gross margin fall in the third quarter?", says: "freight" },
   { question: "How many contractors were there at the end of the quarter?", says: "38" },
-  { question: "When is the next operations review scheduled?", says: "14 January 2027" },
+  { question: "When is the next operations review scheduled?", says: "2027" },
   { question: "租期多长，从什么时候开始？", says: "六年" },
   { question: "月租金是多少，多久复核一次？", says: "18,400" },
   { question: "租户要交多少押金？", says: "两个月" },

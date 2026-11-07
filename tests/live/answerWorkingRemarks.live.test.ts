@@ -418,12 +418,23 @@ test.skipIf(KEY === undefined)(
       // The parts the judgement called the model's working: text the Answer is meant not to show.
       const judgedWorking = judged.flatMap((each) => {
         let parts: unknown;
+        let prompt: string;
         try {
           parts = (JSON.parse(each.text) as { parts?: unknown }).parts;
+          const sent = JSON.parse(each.prompt) as { role: string; content: unknown }[];
+          prompt = sent
+            .flatMap((message) =>
+              typeof message.content === "string"
+                ? [message.content]
+                : (message.content as { type: string; text?: string }[])
+                    .filter((part) => part.type === "text")
+                    .map((part) => part.text ?? ""),
+            )
+            .join("\n");
         } catch {
           return [];
         }
-        const segments = [...each.prompt.matchAll(/<reply id="\d+">\n([\s\S]*?)\n<\/reply>/g)].map(
+        const segments = [...prompt.matchAll(/<reply id="\d+">\n([\s\S]*?)\n<\/reply>/g)].map(
           (match) => fromData(match[1] ?? ""),
         );
         return Array.isArray(parts)
