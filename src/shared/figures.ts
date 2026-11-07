@@ -139,6 +139,8 @@ export interface FigureContext {
   yen?: "CNY" | "JPY" | "unsure" | null;
   /** A table header or caption that applies to the text: the scale or currency it states. */
   header?: string | null;
+  /** `header` read once with this context, so each cell of a table reads it no more (#2523). */
+  headerRead?: HeaderRead | null;
   /** Read years, dates, quarters and periods as plain figures too. */
   dates?: boolean;
   /**
@@ -883,9 +885,9 @@ function settle(context: FigureContext): Settled {
     accounts: context.accounts === true,
     negativeBrackets: context.negativeBrackets === true,
     pageCut: pageCut(context.around?.before ?? ""),
-    periodColumns: headsPeriods(
-      `${context.header ?? ""}\n${context.around?.before ?? ""}`.normalize("NFKC"),
-    ),
+    periodColumns:
+      context.headerRead?.periodColumns ??
+      headsPeriods(`${context.header ?? ""}\n${context.around?.before ?? ""}`.normalize("NFKC")),
     before: (context.around?.before ?? "").slice(-400).normalize("NFKC").replace(DASHES, "-"),
     after: (context.around?.after ?? "").slice(0, 400).normalize("NFKC").replace(DASHES, "-"),
   };
@@ -1389,6 +1391,29 @@ interface Statement extends Span {
   exponent: number;
   scaleWord: string | null;
   unit: FigureUnit;
+}
+
+/** A `header` read once, for a table's many cells to share (#2523). */
+export interface HeaderRead {
+  readonly statements: readonly HeaderStatement[];
+  /** Whether a line of the header heads columns of periods (`headsPeriods`). */
+  readonly periodColumns: boolean;
+}
+
+export type HeaderStatement = Statement;
+
+/**
+ * What a header (`FigureContext.header`) states, read with `context` once: the stated units its
+ * text gives, and whether it heads columns of periods. Each cell of a table then reads it with
+ * `headerRead` instead of reading the header again (#2523).
+ */
+export function readHeader(text: string, context: FigureContext = {}): HeaderRead {
+  const ofHeader = { ...context, header: null, headerRead: null };
+  const settled = settle({ ...context, header: text, headerRead: null });
+  return {
+    statements: headerStatements(text, ofHeader, settled),
+    periodColumns: settled.periodColumns,
+  };
 }
 
 const CN_UNIT_WORDS = `${HAN_CURRENCIES}|元`;
@@ -3479,7 +3504,9 @@ function figuresIn(text: string, context: FigureContext): Figure[] {
   const { s } = prepared;
   const plain = settle(context);
   const statements = statementsIn(prepared, text, plain);
-  const header = context.header ? headerStatements(context.header, context, plain) : [];
+  const header =
+    context.headerRead?.statements ??
+    (context.header ? headerStatements(context.header, context, plain) : []);
   const settled = {
     ...plain,
     accounts: context.accounts ?? writesAccounts(s, [...statements, ...header]),
