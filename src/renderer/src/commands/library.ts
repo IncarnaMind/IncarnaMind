@@ -1,10 +1,14 @@
 import { attentionIds } from "../attention";
 import { looseDocumentIds, organizeDocuments } from "../organizeDocuments";
+import { confirmReview, openReview, useOrganizeReview } from "../organizeReview";
 import { documentsOfCause, fixOrganizeProblem } from "../organizeFix";
 import { retryableIds, unsettledProblemsOf } from "../reviewProblems";
 import { allExamples, isOwnDocument, useAppStore } from "../store";
-import { hasNotSorted, waitingIds } from "../suggestionReview";
 import type { Command } from "./registry";
+
+/** How many Documents wait in Suggestions to be confirmed. */
+const waitingCount = () =>
+  useOrganizeReview.getState().count ?? useAppStore.getState().library?.reviewCount ?? 0;
 
 /** The User's own Documents, as the Library counts them (#2308). */
 const ownNow = () => {
@@ -31,9 +35,21 @@ export const libraryCommands: readonly Command[] = [
     label: "library.review.open",
     keywords: ["library.review.open.keywords"],
     group: "open",
-    when: () => waitingIds().length > 0 || hasNotSorted(),
+    when: () => waitingCount() > 0,
     reversible: true,
-    run: () => useAppStore.getState().openLibrary("review"),
+    // Nothing moves from the chat: the assistant's Organize replies with its own Review (#1569).
+    assistant: false,
+    run: openReview,
+  },
+  {
+    id: "library.confirmSuggestions",
+    label: "organizeReview.confirmCommand",
+    keywords: ["organizeReview.confirmCommand.keywords"],
+    group: "main",
+    when: () => useOrganizeReview.getState().open,
+    reversible: true,
+    assistant: false,
+    run: () => confirmReview(),
   },
   {
     id: "library.reviewNext",
@@ -55,13 +71,13 @@ export const libraryCommands: readonly Command[] = [
     keywords: ["library.organize.keywords"],
     group: "main",
     when: () => looseDocumentIds(useAppStore.getState()).length > 0,
-    // Its suggestions wait in To review, and its Undo takes them back with the Folders it made.
+    // What it proposes waits in the Review, where nothing moves before Confirm (#1569).
     reversible: true,
-    // The assistant's Organize is documents.organize, which files them at once with one Undo (#2252).
+    // The assistant's Organize is documents.organize, which replies with its Review (#2252).
     assistant: false,
     async run() {
       useAppStore.getState().openLibrary();
-      await organizeDocuments(looseDocumentIds(useAppStore.getState()));
+      await organizeDocuments(null);
     },
   },
   {

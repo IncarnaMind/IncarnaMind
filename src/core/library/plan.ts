@@ -26,6 +26,7 @@
  * steps 2–4 placed 98% where the labels put them, asking the model about a quarter of them.
  */
 import { isCjk } from "../../shared/text";
+import type { FolderCountAim } from "../api";
 import type { Language } from "../language";
 
 /** How many Documents the model sees to propose Folders: every one of a Library this small. */
@@ -44,6 +45,15 @@ export interface FolderAim {
   most: number;
 }
 export const AIM: FolderAim = { least: 3, most: MOST_NEW };
+
+/** One or two fewer or more Folders than the last plan proposed, within `AIM`. */
+export function aimAfter(last: FolderCountAim | null): FolderAim {
+  if (last === null) return AIM;
+  const within = (count: number) => Math.max(AIM.least, Math.min(count, MOST_NEW));
+  return "fewerThan" in last
+    ? { least: within(last.fewerThan - 2), most: within(last.fewerThan - 1) }
+    : { least: within(last.moreThan + 1), most: within(last.moreThan + 2) };
+}
 export const SPLIT_OVER = 40;
 export const MIN_SUBFOLDER = 5;
 export const SUBFOLDERS = { min: 2, max: 5 } as const;

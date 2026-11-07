@@ -17,7 +17,6 @@ import { folderProblemWords, type ReviewReason, ROW_PROBLEM_WORDS } from "../../
 import { useSelectable } from "../../selection";
 import { rowDrag } from "../../sidebarMoves";
 import { useAppStore } from "../../store";
-import { acceptSuggestions } from "../../suggestionReview";
 import { isDeleteKey, isMoveToKey, isTagsKey, TREE_ROW } from "../../treeKeys";
 import { typesText } from "../../undo";
 import { useRename } from "../../useRename";
@@ -34,14 +33,6 @@ import { ReviewRing } from "../TagColour";
 import { useTabPlace } from "../tabs/tabItems";
 import { focusStillWith } from "../useFocusReturn";
 import { documentsToMove, useDocumentMove } from "./DocumentMoveTo";
-import {
-  moveFromReview,
-  REVIEW_COLUMNS,
-  REVIEW_ROW,
-  ReviewAccept,
-  ReviewFolder,
-  SuggestedAccept,
-} from "./ReviewCells";
 import { RowTags } from "./RowTags";
 
 /**
@@ -168,8 +159,6 @@ function RetryOrganize({
 export const LibraryRow = memo(function LibraryRow({
   doc,
   depth = 0,
-  suggestedIn,
-  review = false,
   notSorted,
   sortFailed,
   match,
@@ -178,12 +167,9 @@ export const LibraryRow = memo(function LibraryRow({
   doc: Document;
   /** How deep in a Folder's sub-Folders it is: each level indents it 16px, up to 3. */
   depth?: number;
-  /** The Suggested Folder it waits in, if Organize suggested one. */
-  suggestedIn: string | null;
-  review?: boolean;
   /** Why Organize couldn't place it, if it couldn't. */
   notSorted: ReviewReason | null;
-  /** Why a Suggested Folder's latest run failed, if it did. */
+  /** Why Organize's latest run on it failed, if it did. */
   sortFailed: ReviewReason | null;
   /** How it matches the search, while there is one. */
   match: SearchMatch | null;
@@ -217,7 +203,7 @@ export const LibraryRow = memo(function LibraryRow({
   const peek = usePeekKey(doc.id, "library");
   // A double-click keeps the preview it opened, then renames.
   const rename = useRename<HTMLButtonElement>(
-    `${review ? "library-review" : "library-document"}:${doc.id}`,
+    `library-document:${doc.id}`,
     () => keepPreviewOf(doc.id),
   );
   const renameDocument = useAppStore((state) => state.renameDocument);
@@ -225,8 +211,7 @@ export const LibraryRow = memo(function LibraryRow({
   const pathButton = useRef<HTMLButtonElement>(null);
   const moveTo = (anchor: HTMLElement | null) => {
     if (!anchor) return;
-    if (review) moveFromReview(doc.id, anchor);
-    else useDocumentMove.getState().show({ anchor, documentIds: documentsToMove(doc.id) });
+    useDocumentMove.getState().show({ anchor, documentIds: documentsToMove(doc.id) });
   };
   const menuButton = () => row.current?.querySelector<HTMLElement>("[data-object-menu]") ?? null;
   const dragSource = useDragSource(() => rowDrag({ kind: "document", id: doc.id }, "library"));
@@ -235,22 +220,7 @@ export const LibraryRow = memo(function LibraryRow({
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     objectMenu.rowProps.onKeyDown(event);
     if (event.defaultPrevented || typesText(event.target)) return;
-    // Enter accepts a Folder To review suggested (#241); elsewhere, and on a Document it couldn't
-    // sort, it opens, as it does on every other row.
-    if (
-      review &&
-      suggestedIn !== null &&
-      event.key === "Enter" &&
-      !(event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) &&
-      event.target instanceof Element &&
-      event.target.matches("[data-row-main]")
-    ) {
-      event.preventDefault();
-      // A held key accepts one row, not the whole list.
-      if (!event.repeat) {
-        void acceptSuggestions(documentsToMove(doc.id)).catch(useAppStore.getState().reportError);
-      }
-    } else if (isMoveToKey(event)) {
+    if (isMoveToKey(event)) {
       event.preventDefault();
       moveTo(menuButton());
     } else if (isTagsKey(event)) {
@@ -267,9 +237,8 @@ export const LibraryRow = memo(function LibraryRow({
     // biome-ignore lint/a11y/useFocusableInteractive: the name's button takes the focus, and the arrow keys move between them.
     <div
       ref={row}
-      data-testid={review ? "library-review-document" : "library-document"}
+      data-testid="library-document"
       data-document-id={doc.id}
-      data-suggested={suggestedIn !== null ? "" : undefined}
       data-dragging={dragged || undefined}
       role="row"
       {...select.rowProps}
@@ -296,13 +265,9 @@ export const LibraryRow = memo(function LibraryRow({
       <div
         {...(rename.renaming ? {} : dragSource)}
         style={depth > 0 ? { paddingLeft: 16 * Math.min(depth, 3) } : undefined}
-        className={
-          review
-            ? REVIEW_ROW
-            : "flex min-h-[39px] items-center gap-4 pr-1.5 pl-3 group-data-[hide~=narrowest]/page:gap-2"
-        }
+        className="flex min-h-[39px] items-center gap-4 pr-1.5 pl-3 group-data-[hide~=narrowest]/page:gap-2"
       >
-        <div className={`flex min-w-0 flex-1 items-center ${review ? REVIEW_COLUMNS.name : ""}`}>
+        <div className="flex min-w-0 flex-1 items-center">
           <span aria-hidden="true" className="w-5 shrink-0" />
           <div className={`min-w-0 flex-1 ${match ? "py-1.5" : ""}`}>
             <div className="flex min-w-0 items-center gap-2">
@@ -393,19 +358,6 @@ export const LibraryRow = memo(function LibraryRow({
                     )}
                   </span>
                 )}
-                {suggestedIn !== null && !review && (
-                  <>
-                    <span
-                      data-testid="library-suggested"
-                      title={t("library.suggested.title", { folder: suggestedIn })}
-                      className="inline-flex shrink-0 items-center gap-1 text-label font-semibold text-review"
-                    >
-                      <ReviewRing />
-                      {t("library.suggested")}
-                    </span>
-                    <SuggestedAccept doc={doc} folder={suggestedIn} />
-                  </>
-                )}
               </span>
               {doc.reference && !rename.renaming && (
                 <CiteAsToggle
@@ -449,21 +401,10 @@ export const LibraryRow = memo(function LibraryRow({
         </div>
         <div
           data-row-cell="tags"
-          className={`${review ? REVIEW_COLUMNS.tags : COLUMN_CLASSES.tags} flex min-w-0 items-center overflow-hidden`}
+          className={`${COLUMN_CLASSES.tags} flex min-w-0 items-center overflow-hidden`}
         >
           <RowTags document={doc} />
         </div>
-        {review && suggestedIn !== null ? (
-          <>
-            <span className={REVIEW_COLUMNS.folder}>
-              <ReviewFolder doc={doc} folder={suggestedIn} onChange={moveTo} />
-            </span>
-            <span className={REVIEW_COLUMNS.accept}>
-              <ReviewAccept doc={doc} folder={suggestedIn} />
-            </span>
-          </>
-        ) : (
-          <>
             <span
               data-testid="library-document-format"
               className={`${COLUMN_CLASSES.format} truncate text-[13px] text-ink-secondary`}
@@ -476,8 +417,6 @@ export const LibraryRow = memo(function LibraryRow({
             >
               {added}
             </span>
-          </>
-        )}
         <span className={COLUMN_CLASSES.more}>
           <ObjectMenu
             target={{ kind: "document", id: doc.id }}

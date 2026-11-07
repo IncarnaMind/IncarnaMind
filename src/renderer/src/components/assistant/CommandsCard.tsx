@@ -17,6 +17,7 @@ import { showFileLabelKey } from "../../fileInfo";
 import { openFolderMenu } from "../../folderMenu";
 import { useT } from "../../i18n";
 import { useMindCheck } from "../../mindCheck";
+import { openReview } from "../../organizeReview";
 import type { Translate } from "../../objects";
 import { useAppStore } from "../../store";
 import { CheckLineIcon, ShieldLineIcon } from "../lineIcons";
@@ -49,7 +50,8 @@ function madeLines(t: Translate, done: readonly CommandDone[]): string[] {
  * The card under the reply of an Answer that ran commands (#1110): for each Run, what changed,
  * from what the commands returned ("Renamed 3 Documents · Moved 2 Documents to “Real estate” ·
  * Undo"), then each thing changed, a rename as its old and new names. Undo takes back the whole
- * Run, as ⌘Z does; a file saved can be shown where it is. A command that failed, or that the User
+ * Run, as ⌘Z does; a file saved can be shown where it is, and what Organize proposed opens in
+ * its Review (#1569). A command that failed, or that the User
  * didn't allow, says so on a line of its own.
  */
 export function CommandsCard({
@@ -146,6 +148,19 @@ export function CommandsCard({
                       </button>
                     </>
                   )
+                )}
+                {!undone[run] && done.some((each) => (each.review?.count ?? 0) > 0) && (
+                  <>
+                    <Dot />
+                    <button
+                      type="button"
+                      data-testid="command-changes-review"
+                      onClick={openReview}
+                      className="mind-changes-review"
+                    >
+                      {t("library.review")}
+                    </button>
+                  </>
                 )}
                 {saved.map((file) => (
                   <span key={file.path}>

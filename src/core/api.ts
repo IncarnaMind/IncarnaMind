@@ -6460,7 +6460,16 @@ export interface OrganizeLibraryInput {
   forService?: string;
   /** The User saw the estimate and went on. */
   costAccepted?: boolean;
+  /**
+   * Fewer Folders or More Folders in the Suggestions: plan again for fewer or more new Folders
+   * than the last plan proposed in the same place (subfolders when `folderId` is given), still
+   * 3 to 7.
+   */
+  folders?: FolderCountAim;
 }
+
+/** How many new Folders a plan made again aims at, against how many the last plan proposed. */
+export type FolderCountAim = { fewerThan: number } | { moreThan: number };
 
 export type OrganizeLibraryResult =
   /** Estimated at more than $1: nothing was sent, and the User is asked first. */

@@ -56,7 +56,7 @@ const filingsOf = (library: ScopeLibrary): DocumentGroupAssignment[] =>
 
 /**
  * Whether a Note behind `wall` (null: outside every wall) may not pick this choice: one behind
- * another wall, or a Document behind its own that Organize only suggested there. A meeting's
+ * another wall, or a Document behind its own that the User didn't file there. A meeting's
  * Transcript is where its Note is, which the User put there (#2528).
  */
 export function blockedFrom(
@@ -129,8 +129,7 @@ const MAX_CHOICES_PER_KIND = 50;
 
 /**
  * How many Documents each Folder and Tag holds that can be searched (#764): an in-app
- * Folder's filed Documents and those of the Folders inside it (suggested ones too, unless
- * a Folder there keeps its work inside it), a Linked folder's Documents with those in its
+ * Folder's filed Documents and those of the Folders inside it, a Linked folder's Documents with those in its
  * sub-Folders, and a Tag's.
  */
 export function scopeCounts(library: ScopeLibrary): Map<string, number> {

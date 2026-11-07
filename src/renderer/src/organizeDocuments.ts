@@ -1,15 +1,9 @@
 import { create } from "zustand";
-import type { DocumentGroupAssignment, OrganizeReviewFolder } from "../../core/api";
 import { organizeModelOf } from "../../shared/libraryModels";
-import { core } from "./core";
-import { useNotices } from "./notices";
-import { sayWhenOrganized, useOrganizeAsk } from "./organizeRun";
+import { organize, organizeEach } from "./organizeReview";
 import { type AppState, allExamples, isOwnDocument, useAppStore } from "./store";
 
-/** Whether Organize is reading the Documents to propose Folders, before it sorts them. */
-export const useProposing = create<{ proposing: boolean }>()(() => ({ proposing: false }));
-
-/** The User's own Documents in no Folder: one waiting in a Suggested Folder counts as in it. */
+/** The User's own Documents in no Folder: what the Library's Organize sorts. */
 export function looseDocumentIds(
   state: Pick<AppState, "documents" | "library" | "examples" | "otherExamples">,
 ): string[] {
@@ -24,63 +18,63 @@ export function looseDocumentIds(
     .map((each) => each.id);
 }
 
+/** The Documents Organize was asked for with no model chosen: what the row under the head says it needs. */
+export const useOrganizeAsk = create<{
+  ids: readonly string[] | null;
+  ask(ids: readonly string[]): void;
+  close(): void;
+}>()((set) => ({
+  ids: null,
+  ask: (ids) => set({ ids }),
+  close: () => set({ ids: null }),
+}));
+
 /**
- * Organize on these Documents, from the Library or ⌘K (#2308). With no Folders yet, Organize's
- * model first proposes a few from what the Documents say and makes them; a decision model can't
- * name a Folder, so the starter Folders open instead. Then it suggests a Folder for each, to
- * accept in To review, and one Undo takes back the suggestions and the Folders it made. With no
- * model chosen, the row under Not in a Folder asks for one first.
+ * Organize, from the Library, ⌘K, the footer's Allow or a fix (#2308, #1569): the Library's
+ * Documents in no Folder (`ids` null) or these, planned as a whole into the Review, where nothing
+ * moves before the User confirms it. A model that can only choose among Folders (a decision model)
+ * sorts each into the Folders there are, and with none the starter Folders open instead. With no
+ * model chosen, the row under Not in a Folder asks for one first. `forService`: the service a
+ * press was authorized for; Organize sends nowhere else.
  */
 export async function organizeDocuments(
-  ids: readonly string[],
-  /** What Undo goes back to, when it was read before something set the Documents going. */
-  read?: ReadonlyMap<string, DocumentGroupAssignment>,
-  /** The service a billing continuation was authorized for: Organize stops if it sends elsewhere. */
-  forService?: string,
+  ids: readonly string[] | null,
+  options: { forService?: string } = {},
 ): Promise<void> {
-  // A second run while the first proposes would propose again, and its Undo would miss Folders.
-  if (useProposing.getState().proposing) return;
   const app = useAppStore.getState();
   const library = app.library;
   const model = library ? organizeModelOf(library.settings) : null;
   if (!library || !model) {
-    useOrganizeAsk.getState().ask(ids);
+    useOrganizeAsk.getState().ask(ids ?? looseDocumentIds(app));
     return;
   }
-  const before =
-    read ??
-    new Map<string, DocumentGroupAssignment>(
-      library.assignments
-        .filter((item) => ids.includes(item.documentId))
-        .map((item) => [item.documentId, item]),
-    );
-  let proposed: readonly OrganizeReviewFolder[] = [];
-  if (library.groups.length === 0) {
-    if (model.kind !== "chat") {
-      app.openLibrary("starters");
-      return;
-    }
-    if (forService !== undefined) {
-      const route = await core.getTaggingRoute("classification");
-      if (route.where !== "cloud" || route.service.id !== forService) return;
-    }
-    useProposing.setState({ proposing: true });
-    try {
-      proposed = await core.proposeFolders(
-        [...ids],
-        forService === undefined ? undefined : { forService },
-      );
-    } finally {
-      useProposing.setState({ proposing: false });
-    }
-    await app.refreshLibrary();
-    if (proposed.length === 0) {
-      useNotices.getState().confirm("library.organize.noneFit");
-      return;
-    }
+  if (model.kind !== "chat") {
+    if (library.groups.length === 0) app.openLibrary("starters");
+    else await organizeEach(ids ?? looseDocumentIds(app), null, options.forService);
+    return;
   }
-  // Proposed Folders are made only when the User confirms them, so nothing is taken back here.
-  await core.classifyDocuments([...ids], forService === undefined ? undefined : { forService });
-  await app.refreshLibrary();
-  sayWhenOrganized(ids, before);
+  await organize({
+    ...(ids && { documentIds: [...ids] }),
+    ...(options.forService !== undefined && { forService: options.forService }),
+  });
+}
+
+/** Organize This Folder: its own Documents, into subfolders inside it; nothing moves out of it. */
+export async function organizeFolder(folderId: string): Promise<void> {
+  const app = useAppStore.getState();
+  const library = app.library;
+  const model = library ? organizeModelOf(library.settings) : null;
+  if (!library || !model) {
+    app.openSettings("models", "tagging");
+    return;
+  }
+  app.openLibrary();
+  if (model.kind !== "chat") {
+    const inside = library.assignments
+      .filter((item) => item.groupId === folderId)
+      .map((item) => item.documentId);
+    await organizeEach(inside, folderId);
+    return;
+  }
+  await organize({ folderId });
 }

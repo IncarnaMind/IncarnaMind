@@ -3,7 +3,13 @@
  * the Documents still being read, plans them (./plan) with the User's Organize model, and writes
  * the plan into the Review, where nothing moves before the User confirms it (#1569).
  */
-import type { ExternalService, OrganizeLibraryResult, OrganizeProgress, RunEstimate } from "../api";
+import type {
+  ExternalService,
+  FolderCountAim,
+  OrganizeLibraryResult,
+  OrganizeProgress,
+  RunEstimate,
+} from "../api";
 import { decodeVector } from "../documents/vectors";
 import { InvalidInputError, isRecord } from "../errors";
 import type { Language } from "../language";
@@ -15,6 +21,7 @@ import { documentType, excerptFromPassages } from "../tags/classify";
 import type { GroupClassifier } from "./classifier";
 import { organizeExcerpt, type StoredDocument, storedOrganizeSource } from "./excerpt";
 import {
+  aimAfter,
   finishPlan,
   type LibraryPlan,
   meanVector,
@@ -235,6 +242,7 @@ export function createLibraryOrganizer(options: {
             input.folderId === null
               ? null
               : (options.folders().find((folder) => folder.id === input.folderId)?.name ?? null),
+          aim: aimAfter(input.folders),
         });
 
         if (readable.length > 0 && !input.costAccepted) {
@@ -329,12 +337,23 @@ interface ParsedInput {
   folderId: string | null;
   forService: string | undefined;
   costAccepted: boolean;
+  folders: FolderCountAim | null;
+}
+
+function parseAim(input: unknown): FolderCountAim | null {
+  if (input === undefined) return null;
+  const invalid = new InvalidInputError("folders must be fewer or more than a count of Folders.");
+  if (!isRecord(input)) throw invalid;
+  const count = "fewerThan" in input ? input.fewerThan : input.moreThan;
+  if (typeof count !== "number" || !Number.isInteger(count) || count < 0 || count > 100)
+    throw invalid;
+  return "fewerThan" in input ? { fewerThan: count } : { moreThan: count };
 }
 
 function parseInput(input: unknown): ParsedInput {
   if (input === undefined) input = {};
   if (!isRecord(input)) throw new InvalidInputError("organizeLibrary expects an object.");
-  const { documentIds, folderId, forService, costAccepted } = input;
+  const { documentIds, folderId, forService, costAccepted, folders } = input;
   if (
     documentIds !== undefined &&
     !(Array.isArray(documentIds) && documentIds.every((id) => typeof id === "string" && id !== ""))
@@ -353,6 +372,7 @@ function parseInput(input: unknown): ParsedInput {
     folderId: folderId ?? null,
     forService,
     costAccepted: costAccepted ?? false,
+    folders: parseAim(folders),
   };
 }
 

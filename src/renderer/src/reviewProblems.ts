@@ -54,10 +54,7 @@ export interface ReviewProblem {
   documentIds: string[];
 }
 
-type Held = Pick<
-  DocumentGroupAssignment,
-  "documentId" | "status" | "groupId" | "source" | "suggested" | "error"
->;
+type Held = Pick<DocumentGroupAssignment, "documentId" | "status" | "groupId" | "source" | "error">;
 
 /** The failures in these Documents, one entry per cause, in the order the Library names them. */
 export function reviewProblemsOf(
