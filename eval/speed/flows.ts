@@ -140,14 +140,19 @@ function asked(
 ) {
   return async ({ core, language }: FlowContext) => {
     const { mindId } = await mindWith(core, language, paragraphs(language));
-    let answer: Awaited<ReturnType<typeof ask>> | null = null;
+    const asked: { answer?: Awaited<ReturnType<typeof ask>> } = {};
     const signs = await timed(core, mindId, async () => {
-      answer = await ask(core, { text: text[language], mindId, conversationId: null, focus: null });
+      asked.answer = await ask(core, {
+        text: text[language],
+        mindId,
+        conversationId: null,
+        focus: null,
+      });
     });
-    if (made && answer) {
+    if (made && asked.answer) {
       const client = await connectToMind(core, mindId);
       await client.settled();
-      const missing = made(answer, readMind(client));
+      const missing = made(asked.answer, readMind(client));
       if (missing) throw new Error(missing);
     }
     return signs;
@@ -388,12 +393,12 @@ export const FLOWS: readonly Flow[] = [
           CITED.map((each) => citedParagraph(each[language], report, each.quote, each.page)),
         );
         await client.settled();
-        let checked: Awaited<ReturnType<Core["checkContradictions"]>> | null = null;
+        const ran: { result?: Awaited<ReturnType<Core["checkContradictions"]>> } = {};
         const signs = await timed(core, mind.id, async () => {
-          checked = await core.checkContradictions({ requestId: randomUUID(), mindId: mind.id });
+          ran.result = await core.checkContradictions({ requestId: randomUUID(), mindId: mind.id });
         });
-        if (checked?.kind !== "checked" || checked.checked === 0) {
-          throw new Error(`Nothing was checked: ${JSON.stringify(checked)}`);
+        if (ran.result?.kind !== "checked" || ran.result.checked === 0) {
+          throw new Error(`Nothing was checked: ${JSON.stringify(ran.result)}`);
         }
         return signs;
       } finally {
