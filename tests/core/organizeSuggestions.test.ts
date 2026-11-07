@@ -228,14 +228,14 @@ describe("Organize suggests a Folder and waits for the User", () => {
     const { assignments } = await core.getLibrary();
     expect(assignments).toHaveLength(12);
     for (const assignment of assignments) {
-      expect(assignment).toMatchObject({ source: "automatic", groupId: null, suggested: false });
+      expect(assignment).toMatchObject({ source: "automatic", groupId: null });
     }
     const waiting = await Promise.all(documents.map((each) => proposedFor(core, each.id)));
     expect(waiting.filter((id) => id === finance.id)).toHaveLength(8);
     expect(waiting.filter((id) => id === thesis.id)).toHaveLength(4);
   });
 
-  test("accepting makes Suggested Folders the User's choices, which a later Organize leaves alone", async () => {
+  test("confirming files the ticked Documents as the User's choices, which a later Organize leaves alone, and Undo puts them back", async () => {
     const { core, fake, finance, thesis, sources } = await setUp();
     const [invoice, other, chapter] = await addAndSort(core, sources, [
       "Invoice 1",
@@ -243,62 +243,45 @@ describe("Organize suggests a Folder and waits for the User", () => {
       "Chapter 1",
     ]);
     if (!invoice || !other || !chapter) throw new Error("Not added.");
-    const assigned: DocumentGroupAssignment[][] = [];
-    core.on("library.assignments", (list) => assigned.push(list));
-
-    const changes = await core.acceptAssignments([invoice.id, chapter.id, invoice.id]);
-
-    expect(changes).toEqual([
-      {
-        documentId: invoice.id,
-        before: expect.objectContaining({
-          assignment: expect.objectContaining({
-            groupId: finance.id,
-            source: "automatic",
-            suggested: true,
-          }),
-        }),
-        after: expect.objectContaining({
-          assignment: expect.objectContaining({
-            groupId: finance.id,
-            source: "user",
-            suggested: false,
-          }),
-        }),
-      },
-      {
-        documentId: chapter.id,
-        before: expect.objectContaining({
-          assignment: expect.objectContaining({ suggested: true }),
-        }),
-        after: expect.objectContaining({
-          assignment: expect.objectContaining({
-            groupId: thesis.id,
-            source: "user",
-            suggested: false,
-          }),
-        }),
-      },
-    ]);
-    expect(assigned).toHaveLength(1);
-    expect(assigned[0]).toHaveLength(2);
-    expect(assigned[0]).toEqual(
-      expect.arrayContaining(
-        changes.map((each) =>
-          expect.objectContaining({
-            documentId: each.documentId,
-            groupId: each.after.assignment?.groupId,
-            source: each.after.assignment?.source,
-            suggested: each.after.assignment?.suggested,
-          }),
-        ),
-      ),
+    const review = (await core.getOrganizeReview()).items;
+    const rows = [invoice.id, chapter.id].map(
+      (id) => review.find((each) => each.documentId === id)?.id ?? "",
     );
-    expect(await core.acceptAssignments([invoice.id])).toEqual([]);
+    const assigned: DocumentGroupAssignment[] = [];
+    core.on("library.assignments", (list) => assigned.push(...list));
 
-    // Organize now finds no Folder for anything: only the suggestion left waiting changes.
+    const confirmed = await core.confirmOrganizeReview(rows);
+
+    if (!confirmed) throw new Error("Nothing was confirmed.");
+    expect(confirmed.documentIds.toSorted()).toEqual([invoice.id, chapter.id].toSorted());
+    const filed = [
+      { documentId: invoice.id, groupId: finance.id, source: "user" },
+      { documentId: chapter.id, groupId: thesis.id, source: "user" },
+    ];
+    for (const each of filed) {
+      expect(await assignmentOf(core, each.documentId)).toMatchObject(each);
+      expect(assigned).toContainEqual(expect.objectContaining(each));
+    }
+    expect(await proposedFor(core, other.id)).toBe(finance.id);
+    expect(await core.confirmOrganizeReview(rows)).toBeNull();
+
+    // Undo puts both back in no Folder, waiting; Redo files them again.
+    await core.undoOrganizeReviewConfirmation(confirmed.id);
+    expect(await assignmentOf(core, invoice.id)).toMatchObject({
+      groupId: null,
+      source: "automatic",
+    });
+    expect(await proposedFor(core, invoice.id)).toBe(finance.id);
+    expect(await proposedFor(core, chapter.id)).toBe(thesis.id);
+    await core.redoOrganizeReviewConfirmation(confirmed.id);
+    for (const each of filed) {
+      expect(await assignmentOf(core, each.documentId)).toMatchObject(each);
+    }
+
+    // Organize now finds no Folder for anything: only the Document still waiting changes.
     fake.sort(() => ({ groupId: "__unsorted__" }));
     await core.classifyDocuments([invoice.id, other.id, chapter.id]);
+    await vi.waitFor(async () => expect(await proposedFor(core, other.id)).toBe("left out"));
     await vi.waitFor(async () => {
       const { assignments } = await core.getLibrary();
       expect(assignments.map((each) => each.status)).toEqual([
@@ -307,68 +290,45 @@ describe("Organize suggests a Folder and waits for the User", () => {
         "classified",
       ]);
     });
-    expect(await assignmentOf(core, invoice.id)).toMatchObject({
-      groupId: finance.id,
-      source: "user",
-    });
-    expect(await assignmentOf(core, chapter.id)).toMatchObject({
-      groupId: thesis.id,
-      source: "user",
-    });
+    for (const each of filed) {
+      expect(await assignmentOf(core, each.documentId)).toMatchObject(each);
+      expect(await proposedFor(core, each.documentId)).toBeNull();
+    }
     expect(await assignmentOf(core, other.id)).toMatchObject({
       groupId: null,
       source: "automatic",
-      suggested: false,
     });
   });
 
-  test("rejecting leaves the Document Not in a Folder, and Organize doesn't suggest that Folder for it again", async () => {
-    const { core, fake, finance, thesis, sources } = await setUp();
+  test("a Folder the User unticks isn't proposed for that Document again, and it stays in no Folder; another Document still gets it", async () => {
+    const { core, fake, finance, sources } = await setUp();
     const [invoice] = await addAndSort(core, sources, ["Invoice 1"]);
     if (!invoice) throw new Error("Not added.");
-
-    const changes = await core.rejectAssignments([invoice.id]);
-
-    expect(changes).toEqual([
-      {
-        documentId: invoice.id,
-        before: expect.objectContaining({
-          assignment: expect.objectContaining({ groupId: finance.id, suggested: true }),
-        }),
-        after: expect.objectContaining({
-          assignment: expect.objectContaining({
-            groupId: null,
-            source: "automatic",
-            suggested: false,
-          }),
-        }),
-      },
-    ]);
-    const held = await assignmentOf(core, invoice.id);
-    if (!held || !changes[0]) throw new Error("No assignment.");
-    const { documentId: _id, tagging: _tagging, ...fields } = held;
-    expect(fields).toEqual(changes[0].after.assignment);
-    expect(await core.rejectAssignments([invoice.id])).toEqual([]);
-
-    await core.classifyDocuments([invoice.id]);
-    await vi.waitFor(async () =>
-      expect(await assignmentOf(core, invoice.id)).toMatchObject({ status: "classified" }),
+    const row = (await core.getOrganizeReview()).items.find(
+      (each) => each.documentId === invoice.id,
     );
-    expect(fake.offered.at(-1)).not.toContain(finance.id);
-    expect(await assignmentOf(core, invoice.id)).toMatchObject({
-      groupId: thesis.id,
-      suggested: true,
+    if (!row) throw new Error("Nothing waits for it.");
+
+    await core.editOrganizeReview({ kind: "tick", itemIds: [row.id], ticked: false });
+    await core.confirmOrganizeReview([row.id]);
+
+    expect(await assignmentOf(core, invoice.id)).toMatchObject({ groupId: null });
+    const asked = fake.answered();
+    await core.classifyDocuments([invoice.id]);
+    await vi.waitFor(async () => {
+      expect(fake.answered()).toBe(asked + 1);
+      expect(await assignmentOf(core, invoice.id)).toMatchObject({ status: "classified" });
     });
-    // Only for that Document: another invoice is still suggested Finance.
+    expect(fake.offered.at(-1)).toContain(finance.id);
+    expect(await proposedFor(core, invoice.id)).toBeNull();
+    expect(await assignmentOf(core, invoice.id)).toMatchObject({ groupId: null });
+    // Only for that Document: another invoice is still proposed Finance.
     const [next] = await addAndSort(core, sources, ["Invoice 2"]);
-    expect(await assignmentOf(core, next?.id ?? "")).toMatchObject({
-      groupId: finance.id,
-      suggested: true,
-    });
+    expect(await proposedFor(core, next?.id ?? "")).toBe(finance.id);
   });
 
-  test("a run that fails after a Suggested Folder, turned down, is finished: not one Organize couldn't sort", async () => {
-    const { core, fake, sources } = await setUp();
+  test("a run that fails leaves the Folder proposed before waiting, and the Document in no Folder", async () => {
+    const { core, fake, finance, sources } = await setUp();
     const [invoice] = await addAndSort(core, sources, ["Invoice 1"]);
     if (!invoice) throw new Error("Not added.");
 
@@ -379,228 +339,15 @@ describe("Organize suggests a Folder and waits for the User", () => {
     await vi.waitFor(async () =>
       expect(await assignmentOf(core, invoice.id)).toMatchObject({ status: "failed" }),
     );
-    expect(await assignmentOf(core, invoice.id)).toMatchObject({ suggested: true });
-
-    const [change] = await core.rejectAssignments([invoice.id]);
-    expect(change?.after.assignment).toMatchObject({
-      groupId: null,
-      suggested: false,
-      status: "classified",
-      error: null,
-    });
-    expect(await assignmentOf(core, invoice.id)).toMatchObject({
-      groupId: null,
-      suggested: false,
-      status: "classified",
-      error: null,
-    });
-  });
-
-  test("rejecting while a re-run is classifying settles the Document and its tagging, through Undo and Redo", async () => {
-    const { core, fake, finance, sources } = await setUp();
-    const [invoice] = await addAndSort(core, sources, ["Invoice 1"]);
-    if (!invoice) throw new Error("Not added.");
-    const documentNow = async () =>
-      (await core.listDocuments()).find((each) => each.id === invoice.id);
-    let release = () => {};
-    fake.hold(
-      new Promise<void>((resolve) => {
-        release = resolve;
-      }),
-    );
-
-    await core.classifyDocuments([invoice.id]);
-    // The run has reached the model and waits there, as one under way when the User turns it down.
-    await vi.waitFor(async () => {
-      expect(fake.offered.length).toBeGreaterThan(1);
-      expect(await assignmentOf(core, invoice.id)).toMatchObject({ status: "classifying" });
-      expect((await documentNow())?.tagging).toBe("tagging");
-    });
-
-    const [change] = await core.rejectAssignments([invoice.id]);
-    expect(change?.after.assignment).toMatchObject({
-      groupId: null,
-      suggested: false,
-      status: "classified",
-      error: null,
-    });
-    expect((await documentNow())?.tagging).toBe("tagged");
-
-    // The held run comes back stale: it leaves both rows as the Reject settled them.
-    release();
-    await vi.waitFor(() => expect(fake.answered()).toBe(2));
-    expect(await assignmentOf(core, invoice.id)).toMatchObject({
-      groupId: null,
-      suggested: false,
-      status: "classified",
-      error: null,
-    });
-    expect((await documentNow())?.tagging).toBe("tagged");
-
-    // Undo puts the Suggested Folder back; it is classified again and waits.
-    if (!change) throw new Error("Not rejected.");
-    await core.restoreAssignment(invoice.id, change.before, change.after);
-    await vi.waitFor(async () => {
-      expect(await assignmentOf(core, invoice.id)).toMatchObject({
-        groupId: finance.id,
-        suggested: true,
-        status: "classified",
-      });
-      expect((await documentNow())?.tagging).toBe("tagged");
-    });
-
-    // Redo turns it down again: the assignment and the Document settle together.
-    await core.rejectAssignments([invoice.id]);
-    expect(await assignmentOf(core, invoice.id)).toMatchObject({
-      groupId: null,
-      suggested: false,
-      status: "classified",
-    });
-    expect((await documentNow())?.tagging).toBe("tagged");
-    fake.hold(null);
-  });
-
-  test("turning down a failed re-run with automatic Organize off settles the Document's tagging, and Undo brings its failure back", async () => {
-    const { core, classifier, fake, finance, sources } = await setUp();
-    const [invoice] = await addAndSort(core, sources, ["Invoice 1"]);
-    if (!invoice) throw new Error("Not added.");
-    await core.saveLibrarySettings({ classifier, automatic: false });
-    fake.sort(() => {
-      throw new Error("The model stopped answering");
-    });
-    await core.classifyDocuments([invoice.id]);
-    await vi.waitFor(async () => {
-      expect(await assignmentOf(core, invoice.id)).toMatchObject({ status: "failed" });
-      expect((await documentOf(core, invoice.id))?.tagging).toBe("failed");
-    });
-
-    const [change] = await core.rejectAssignments([invoice.id]);
 
     expect(await assignmentOf(core, invoice.id)).toMatchObject({
       groupId: null,
-      suggested: false,
-      status: "classified",
-      error: null,
-    });
-    // Organize held it before the Reject: the failed run may not come back as a tagging failure.
-    expect((await documentOf(core, invoice.id))?.tagging).toBe("tagged");
-
-    // Undo brings the failed run back, and the Document's failure with its reason too.
-    if (!change) throw new Error("Not rejected.");
-    await core.restoreAssignment(invoice.id, change.before, change.after);
-    expect(await assignmentOf(core, invoice.id)).toMatchObject({
-      groupId: finance.id,
-      suggested: true,
-      status: "failed",
       error: { message: "The model stopped answering" },
     });
-    const undone = await documentOf(core, invoice.id);
-    expect(undone?.tagging).toBe("failed");
-    expect(undone?.taggingError).toMatchObject({ message: "The model stopped answering" });
-
-    // Redo turns it down again: the assignment and the Document settle together.
-    await core.rejectAssignments([invoice.id]);
-    expect(await assignmentOf(core, invoice.id)).toMatchObject({
-      groupId: null,
-      suggested: false,
-      status: "classified",
-      error: null,
-    });
-    const redone = await documentOf(core, invoice.id);
-    expect(redone?.tagging).toBe("tagged");
-    expect(redone?.taggingError).toBeNull();
+    expect(await proposedFor(core, invoice.id)).toBe(finance.id);
   });
 
-  test("turning down a suggestion leaves a retag the User asked for to the tagger, through Undo and Redo", async () => {
-    const { core, classifier, fake, finance, sources } = await setUp();
-    const [invoice] = await addAndSort(core, sources, ["Invoice 1"]);
-    if (!invoice) throw new Error("Not added.");
-    await core.saveLibrarySettings({ classifier, automatic: false });
-    fake.failTags(rateLimited());
-    await core.retagDocuments([invoice.id]);
-    await vi.waitFor(async () => {
-      expect((await documentOf(core, invoice.id))?.tagging).toBe("waiting-for-provider");
-      expect((await documentOf(core, invoice.id))?.taggingError?.kind).toBe("rate-limit");
-    });
-
-    const [change] = await core.rejectAssignments([invoice.id]);
-
-    // Organize didn't hold the tagging: the tagger's rate-limited run stays, and still runs.
-    expect((await documentOf(core, invoice.id))?.tagging).toBe("waiting-for-provider");
-    expect((await documentOf(core, invoice.id))?.taggingError?.kind).toBe("rate-limit");
-
-    // Its Undo and Redo touch only the assignment: the tagger's run is not theirs to restore.
-    if (!change) throw new Error("Not rejected.");
-    await core.restoreAssignment(invoice.id, change.before, change.after);
-    expect(await assignmentOf(core, invoice.id)).toMatchObject({
-      groupId: finance.id,
-      suggested: true,
-      status: "classified",
-    });
-    expect((await documentOf(core, invoice.id))?.tagging).toBe("waiting-for-provider");
-    expect((await documentOf(core, invoice.id))?.taggingError?.kind).toBe("rate-limit");
-    await core.rejectAssignments([invoice.id]);
-    expect(await assignmentOf(core, invoice.id)).toMatchObject({
-      groupId: null,
-      suggested: false,
-      status: "classified",
-    });
-    expect((await documentOf(core, invoice.id))?.tagging).toBe("waiting-for-provider");
-    expect((await documentOf(core, invoice.id))?.taggingError?.kind).toBe("rate-limit");
-
-    fake.failTags(null);
-    await core.retagDocuments([invoice.id]);
-    await vi.waitFor(async () => {
-      expect((await documentOf(core, invoice.id))?.tagging).toBe("tagged");
-    });
-  });
-
-  test("putting a rejected Suggested Folder back offers that Folder to Organize again, and rejecting it once more turns it down again", async () => {
-    const { core, fake, finance, thesis, sources } = await setUp();
-    const [invoice] = await addAndSort(core, sources, ["Invoice 1"]);
-    if (!invoice) throw new Error("Not added.");
-    const [rejected] = await core.rejectAssignments([invoice.id]);
-    if (!rejected) throw new Error("Not rejected.");
-
-    await core.restoreAssignment(invoice.id, rejected.before, rejected.after);
-    expect(await assignmentOf(core, invoice.id)).toMatchObject({
-      groupId: finance.id,
-      suggested: true,
-    });
-    await core.classifyDocuments([invoice.id]);
-    await vi.waitFor(async () =>
-      expect(await assignmentOf(core, invoice.id)).toMatchObject({ status: "classified" }),
-    );
-    expect(fake.offered.at(-1)).toContain(finance.id);
-
-    await core.rejectAssignments([invoice.id]);
-    await core.classifyDocuments([invoice.id]);
-    await vi.waitFor(async () =>
-      expect(await assignmentOf(core, invoice.id)).toMatchObject({
-        groupId: thesis.id,
-        suggested: true,
-      }),
-    );
-    expect(fake.offered.at(-1)).not.toContain(finance.id);
-  });
-
-  test("accepting or rejecting leaves a Document the User moved meanwhile as they put it", async () => {
-    const { core, finance, thesis, sources } = await setUp();
-    const [invoice, other] = await addAndSort(core, sources, ["Invoice 1", "Invoice 2"]);
-    if (!invoice || !other) throw new Error("Not added.");
-    await core.moveToFolder({ documentIds: [invoice.id], folderId: thesis.id });
-
-    expect(await core.acceptAssignments([invoice.id])).toEqual([]);
-    expect(await core.rejectAssignments([invoice.id])).toEqual([]);
-    expect(await assignmentOf(core, invoice.id)).toMatchObject({
-      groupId: thesis.id,
-      source: "user",
-    });
-    expect(await core.acceptAssignments([invoice.id, other.id])).toHaveLength(1);
-    expect(await assignmentOf(core, other.id)).toMatchObject({ groupId: finance.id });
-  });
-
-  test("moving a Document out of its Suggested Folder makes the new place the User's choice", async () => {
+  test("moving a Document while a Folder waits for it in Suggestions makes the new place the User's choice", async () => {
     const { core, thesis, sources } = await setUp();
     const [invoice, other] = await addAndSort(core, sources, ["Invoice 1", "Invoice 2"]);
     if (!invoice || !other) throw new Error("Not added.");
@@ -611,32 +358,32 @@ describe("Organize suggests a Folder and waits for the User", () => {
     expect(await assignmentOf(core, invoice.id)).toMatchObject({
       groupId: thesis.id,
       source: "user",
-      suggested: false,
     });
     expect(await assignmentOf(core, other.id)).toMatchObject({
       groupId: null,
       source: "user",
-      suggested: false,
     });
   });
 
-  test("accepting or rejecting changes nothing if any Document is unknown", async () => {
+  test("Confirm given anything but a list of rows changes nothing", async () => {
     const { core, finance, sources } = await setUp();
     const [invoice] = await addAndSort(core, sources, ["Invoice 1"]);
     if (!invoice) throw new Error("Not added.");
     const waiting = await assignmentOf(core, invoice.id);
+    const row = (await core.getOrganizeReview()).items.find(
+      (each) => each.documentId === invoice.id,
+    );
+    if (!row) throw new Error("Nothing waits for it.");
 
-    await expect(core.acceptAssignments([invoice.id, "no-such-document"])).rejects.toThrow(
-      NotFoundError,
-    );
-    await expect(core.rejectAssignments([invoice.id, "no-such-document"])).rejects.toThrow(
-      NotFoundError,
-    );
-    await expect(core.acceptAssignments(invoice.id as unknown as string[])).rejects.toThrow(
+    await expect(core.confirmOrganizeReview(row.id as unknown as string[])).rejects.toThrow(
       InvalidInputError,
     );
+    await expect(core.confirmOrganizeReview([row.id, ""])).rejects.toThrow(InvalidInputError);
+    expect(await core.confirmOrganizeReview(["no-such-row"])).toBeNull();
+
     expect(await assignmentOf(core, invoice.id)).toEqual(waiting);
-    expect(waiting).toMatchObject({ groupId: finance.id, suggested: true });
+    expect(waiting).toMatchObject({ groupId: null });
+    expect(await proposedFor(core, invoice.id)).toBe(finance.id);
   });
 
   test("Documents added to a Folder are filed there as the User's choice, with only their Tags suggested", async () => {
@@ -659,7 +406,6 @@ describe("Organize suggests a Folder and waits for the User", () => {
         documentId: each.id,
         groupId: thesis.id,
         source: "user",
-        suggested: false,
       }),
     );
     // The snapshot lists assignments in no set order.
@@ -672,7 +418,7 @@ describe("Organize suggests a Folder and waits for the User", () => {
     const last = await batches.until(batchId, (batch) => !batch.adding && batch.sorted === 3);
     expect(last).toMatchObject({ groupId: thesis.id, read: 3, suggested: [] });
     await allFiled();
-    expect(assigned.every((each) => each.groupId === thesis.id && !each.suggested)).toBe(true);
+    expect(assigned.every((each) => each.groupId === thesis.id)).toBe(true);
     const tagsOf = Object.fromEntries(
       (await core.listDocuments()).map((each) => [each.name, each.tags.map((tag) => tag.tagId)]),
     );
@@ -868,57 +614,6 @@ describe("Putting a Document's place and tagging back", () => {
     await vi.waitFor(async () => expect((await documentOf(core, id))?.tagging).toBe("tagging"));
     return release;
   }
-
-  test("a retag the User asks for after a Reject survives that Reject's Undo", async () => {
-    const { core, classifier, fake, finance, sources } = await setUp();
-    const [invoice] = await addAndSort(core, sources, ["Invoice 1"]);
-    if (!invoice) throw new Error("Not added.");
-    await core.saveLibrarySettings({ classifier, automatic: false });
-    // A re-run that fails: Organize held the Document, so the Reject settles its tagging.
-    fake.sort(() => {
-      throw new Error("The model stopped answering");
-    });
-    await core.classifyDocuments([invoice.id]);
-    await vi.waitFor(async () => {
-      expect(await assignmentOf(core, invoice.id)).toMatchObject({
-        status: "failed",
-        suggested: true,
-      });
-      expect((await documentOf(core, invoice.id))?.tagging).toBe("failed");
-    });
-    const [change] = await core.rejectAssignments([invoice.id]);
-    if (!change) throw new Error("Not rejected.");
-    expect((await documentOf(core, invoice.id))?.tagging).toBe("tagged");
-
-    // With the Reject done the tagger may run again, and the User asks for it.
-    fake.failTags(rateLimited());
-    await core.retagDocuments([invoice.id]);
-    await vi.waitFor(async () => {
-      expect((await documentOf(core, invoice.id))?.tagging).toBe("waiting-for-provider");
-      expect((await documentOf(core, invoice.id))?.taggingError?.kind).toBe("rate-limit");
-    });
-
-    // Undo puts the failed run back, and leaves the newer retag alone: it wins.
-    const undone = await core.restoreAssignment(invoice.id, change.before, change.after);
-    expect(await assignmentOf(core, invoice.id)).toMatchObject({
-      groupId: finance.id,
-      suggested: true,
-      status: "failed",
-    });
-    expect((await documentOf(core, invoice.id))?.tagging).toBe("waiting-for-provider");
-    expect((await documentOf(core, invoice.id))?.taggingError?.kind).toBe("rate-limit");
-    // Only the row that moved is carried, so its own Redo can't put the tagging back either.
-    expect(undone?.before.tagging).toBeNull();
-    expect(undone?.after.tagging).toBeNull();
-
-    // The Reject again settles it as before, so the tagger can take it once the provider is back.
-    await core.rejectAssignments([invoice.id]);
-    fake.failTags(null);
-    await core.retagDocuments([invoice.id]);
-    await vi.waitFor(async () =>
-      expect((await documentOf(core, invoice.id))?.tagging).toBe("tagged"),
-    );
-  });
 
   test("Undo, a retag, Redo and Undo: the newer retag stands through all three", async () => {
     const fake = sorter();
@@ -1199,7 +894,7 @@ describe("Putting a Document's place and tagging back", () => {
 });
 
 describe("Migration 36", () => {
-  test("keeps every assignment made before it as it was, none of them a suggestion", async () => {
+  test("keeps every assignment made before it as it was, none of them waiting in Suggestions", async () => {
     const dataDir = await createTempDataFolder();
     const sources = await createSourceFolder();
     const at = "2026-10-01T09:00:00.000Z";
@@ -1250,25 +945,89 @@ describe("Migration 36", () => {
     const core = startCore(dataDir);
 
     expect((await core.getLibrary()).assignments).toEqual([
-      expect.objectContaining({
-        documentId: "automatic",
-        groupId: "finance",
-        source: "automatic",
-        suggested: false,
-      }),
-      expect.objectContaining({
-        documentId: "chosen",
-        groupId: "finance",
-        source: "user",
-        suggested: false,
-      }),
-      expect.objectContaining({
-        documentId: "unsorted",
-        groupId: null,
-        source: "user",
-        suggested: false,
-      }),
+      expect.objectContaining({ documentId: "automatic", groupId: "finance", source: "automatic" }),
+      expect.objectContaining({ documentId: "chosen", groupId: "finance", source: "user" }),
+      expect.objectContaining({ documentId: "unsorted", groupId: null, source: "user" }),
     ]);
-    expect(await core.acceptAssignments(["automatic", "chosen", "unsorted"])).toEqual([]);
+    expect((await core.getOrganizeReview()).items).toEqual([]);
+  });
+});
+
+describe("Migration 136", () => {
+  test("a Folder turned down before Suggestions isn't proposed for that Document; another still gets it", async () => {
+    const dataDir = await createTempDataFolder();
+    const sources = await createSourceFolder();
+    const at = "2026-10-01T09:00:00.000Z";
+    const db = openDatabase(join(dataDir, DATABASE_FILE));
+    try {
+      migrate(
+        db,
+        migrations.filter((migration) => migration.version < 136),
+      );
+      for (const [id, name] of [
+        ["finance", "Finance"],
+        ["thesis", "Thesis"],
+      ] as const) {
+        db.run(
+          "INSERT INTO library_groups (id, name, description, created_at, updated_at) VALUES (?, ?, '', ?, ?)",
+          [id, name, at, at],
+        );
+      }
+      // Added and waiting to be read, so this version reads them when it starts.
+      for (const id of ["Invoice 1", "Invoice 2"]) {
+        const text = `${id}: GBP 100.`;
+        const path = await writeSourceFile(sources, `${id}.txt`, text);
+        db.run(
+          `INSERT INTO documents (id, content_hash, name, kind, size, status, path, file_status,
+             processing_version, metadata_version, created_at, updated_at)
+           VALUES (?, ?, ?, 'text', ?, 'queued', ?, 'available', ?, ?, ?, ?)`,
+          [
+            id,
+            sha256(text),
+            id,
+            Buffer.byteLength(text),
+            path,
+            BigInt(PROCESSING_VERSION),
+            BigInt(METADATA_VERSION),
+            at,
+            at,
+          ],
+        );
+      }
+      // Turned down for the first invoice, in To review.
+      db.run(
+        `INSERT INTO document_group_rejections (id, document_id, group_id, created_at, updated_at)
+         VALUES ('turned-down', 'Invoice 1', 'finance', ?, ?)`,
+        [at, at],
+      );
+    } finally {
+      db.close();
+    }
+    const fake = sorter();
+    const core = startCore(dataDir, { createChatModel: () => fake.model });
+    const provider = await core.saveChatProvider({ kind: "ollama", modelId: "main-model" });
+    await core.saveLibrarySettings({
+      classifier: {
+        kind: "chat",
+        choice: { providerId: provider.id, modelId: "small-classifier" },
+      },
+      automatic: false,
+    });
+    fake.sort((_name, choices) => ({
+      groupId: choices.includes("finance") ? "finance" : "__unsorted__",
+    }));
+    await vi.waitFor(
+      async () =>
+        expect((await core.listDocuments()).map((each) => each.status)).toEqual(["ready", "ready"]),
+      { timeout: 15_000 },
+    );
+
+    await core.classifyDocuments(["Invoice 1", "Invoice 2"]);
+
+    await vi.waitFor(async () => expect(await proposedFor(core, "Invoice 2")).toBe("finance"));
+    await vi.waitFor(async () =>
+      expect(await assignmentOf(core, "Invoice 1")).toMatchObject({ status: "classified" }),
+    );
+    expect(await proposedFor(core, "Invoice 1")).toBeNull();
   });
 });

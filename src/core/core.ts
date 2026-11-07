@@ -8,7 +8,6 @@ import { cleanApiKey } from "../shared/apiKey";
 import { isCitationStyleId, withRecentStyle } from "../shared/citationStyles";
 import { parseQuotedWords } from "../shared/citations";
 import type { DrawnPage } from "../shared/citedPage";
-import { ACCEPT_SUGGESTIONS } from "../shared/commands";
 import { optionsFor } from "../shared/exportOptions";
 import { figureScheduleChange } from "../shared/figureSchedule";
 import { graphemeBoundary } from "../shared/graphemes";
@@ -2075,21 +2074,6 @@ export function createCore(adapters: CoreAdapters): Core {
         }
         return undefined;
       };
-      // Accepting files each suggestion in its suggested Folder, so it goes through the same door
-      // as a move: from the Document's own side of the wall, into a Folder `filedWithin` allows.
-      if (input.command === ACCEPT_SUGGESTIONS) {
-        const suggested = new Map(
-          library.snapshot().assignments.map((each) => [each.documentId, each.groupId]),
-        );
-        const crossing = input.ids.some((id) => {
-          const into = suggested.get(id) ?? null;
-          return walledDocument(id) !== wallId || filedWithin(wallId, into)?.folderId !== into;
-        });
-        if (crossing) {
-          const key = wallId === null ? "error.folder.wallAccept" : "error.folder.wallAcceptInside";
-          throw new InvalidInputError({ key });
-        }
-      }
       for (const id of input.ids) {
         const wall = wallOf(id);
         if (wall !== undefined && wall !== wallId) refuse();
@@ -6418,30 +6402,6 @@ export function createCore(adapters: CoreAdapters): Core {
         throw new TranslatableError({ key: "error.meeting.purgeFailed" });
       }
     },
-    acceptAssignments: async (ids, checked, wall) => {
-      if (checked !== undefined && wall !== undefined) {
-        // Judged here, at the filing (#2250): a Folder that gained a wall since the check, or a
-        // Document that left it, accepts nothing. One that now waits for another Folder is the
-        // move check's to refuse, with its own words (#2243).
-        const side = wall;
-        const suggested = new Map(
-          library.snapshot().assignments.map((each) => [each.documentId, each]),
-        );
-        const crossing = ids.some((id) => {
-          const into = checked[id] ?? null;
-          const waiting = suggested.get(id);
-          if (!waiting?.suggested || waiting.groupId !== into) return false;
-          return !mayFileWithin(side, into, walledDocument(id));
-        });
-        if (crossing) {
-          throw new InvalidInputError({
-            key: side === null ? "error.folder.wallAccept" : "error.folder.wallAcceptInside",
-          });
-        }
-      }
-      return library.accept(ids, checked);
-    },
-    rejectAssignments: async (ids) => library.reject(ids),
     getOrganizeReview: async () => organizeReview.get(),
     editOrganizeReview: async (edit) => organizeReview.edit(edit),
     restoreOrganizeReview: async (before, after) => organizeReview.restore(before, after),

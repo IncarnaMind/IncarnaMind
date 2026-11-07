@@ -198,7 +198,6 @@ describe("the examples' Documents", () => {
         assignment: {
           groupId: null,
           source: "automatic",
-          suggested: false,
           status: "pending",
           error: null,
           model: null,

@@ -414,9 +414,7 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
     const again = await core.getLibrary();
     const remade = again.groups.find((each) => each.name === "Leases");
     expect(remade).toBeDefined();
-    expect(
-      again.assignments.filter((each) => each.groupId === remade?.id && !each.suggested),
-    ).toHaveLength(2);
+    expect(again.assignments.filter((each) => each.groupId === remade?.id)).toHaveLength(2);
   });
 
   // protects=renaming a preset Tag with the assistant and undoing puts back that it was not the User's; fails_when=the preset stays the User's at 0; no_claim=a real model's ids.

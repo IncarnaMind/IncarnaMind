@@ -489,12 +489,6 @@ export const en = {
   "error.paste.conversationGone":
     "The pasted text wasn’t saved: this conversation has been deleted.",
   "error.paste.noteGone": "The pasted text wasn’t saved: this note has been deleted.",
-  "error.folder.wallAccept":
-    "Not accepted: some suggestions would file Documents into a Folder that keeps its work inside it, and the assistant can’t do that from outside it. You can still accept them yourself in To review.",
-  "error.folder.suggestionMoved":
-    "Not accepted: a suggested Folder changed after the assistant checked it, so nothing was accepted. You can accept them yourself in To review.",
-  "error.folder.wallAcceptInside":
-    "Not accepted: inside a Folder that keeps its work inside it, the assistant accepts only suggestions for that Folder. You can still accept the others yourself in To review.",
   "error.folder.keepInside": "keepInside must be true or false.",
   "error.folder.parentId": "Choose a Folder or the top level for this Folder.",
   "undo.folderWallOn": "“{name}” now keeps its work inside it",
@@ -5472,7 +5466,6 @@ export const en = {
   "error.commands.noFolderName": "The command needs the Folder’s name.",
   "error.commands.noTag": "The command needs the Tag’s name.",
   "error.commands.noFolderPath": "The command needs the folder to add files from.",
-  "error.commands.nothingWaiting": "Nothing is waiting in To review.",
   "error.commands.noIds": "The command needs the Documents or notes it acts on.",
   "error.commands.noDocument": "There is no Document with the id {id}.",
   "error.commands.exampleDocument":
@@ -5839,7 +5832,6 @@ export const en = {
   "error.agent.keyUnreadable":
     "This agent’s key can’t be read here. Disconnect it and connect it again.",
   "error.agent.undoChanged": "{path} has changed since, so IncarnaMind left it as it is.",
-  "error.library.checkedFolders": "Choose valid Suggested Folders.",
   "error.library.noClassifier": "Choose a classification model first.",
   "error.library.flow": "That isn’t a Tagging, Organize or page-image flow.",
   "error.library.noFolders": "Create or choose Folders first.",

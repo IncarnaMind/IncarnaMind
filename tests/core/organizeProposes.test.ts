@@ -10,9 +10,11 @@ import type { LanguageModelV4CallOptions } from "@ai-sdk/provider";
 import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test, vi } from "vitest";
 import { type Core, DATABASE_FILE, type OrganizeReviewItem } from "../../src/core";
-import { openDatabase } from "../../src/core/storage";
+import { METADATA_VERSION, PROCESSING_VERSION } from "../../src/core/documents/processing";
+import { migrate, openDatabase } from "../../src/core/storage";
+import { migrations } from "../../src/core/storage/migrations";
 import { createTempDataFolder, manualClock, startCore } from "../helpers/core";
-import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
+import { addAndProcess, createSourceFolder, sha256, writeSourceFile } from "../helpers/documents";
 import { proposedFor } from "../helpers/library";
 import { scriptedModels } from "../helpers/models";
 import { buildPdf } from "../helpers/pdf";
@@ -298,48 +300,73 @@ describe("Every Organize run proposes, and files nothing", () => {
 
 describe("Suggestions from before an upgrade (migration 135)", () => {
   test("a Document waiting in a Suggested Folder waits in Suggestions instead, in no Folder, and the Library says so once", async () => {
-    const { core, dataDir, kitchen, add, createChatModel } = await start();
-    const [quote, plan] = await add("Kitchen quote", "Race plan");
-    if (!quote || !plan || !kitchen) throw new Error("Not set up.");
-    await core.assignDocumentGroup(plan.id, kitchen.id);
-    core.close();
-    // As an earlier version left it: the quote waiting in Kitchen as a suggestion.
+    const dataDir = await createTempDataFolder();
+    const sources = await createSourceFolder();
+    const at = "2026-11-01T09:00:00.000Z";
+    // As an earlier version left it: the quote waiting in Kitchen as a suggestion, and the plan
+    // filed there by the User.
     const db = openDatabase(join(dataDir, DATABASE_FILE));
     try {
-      const at = new Date().toISOString();
-      db.run(
-        `INSERT INTO document_groups
-           (id, document_id, group_id, source, suggested, status, content_hash, request_id,
-            created_at, updated_at, filed_at)
-         VALUES (?, ?, ?, 'automatic', 1, 'classified', ?, ?, ?, ?, ?)`,
-        [
-          crypto.randomUUID(),
-          quote.id,
-          kitchen.id,
-          quote.contentHash,
-          crypto.randomUUID(),
-          at,
-          at,
-          at,
-        ],
+      migrate(
+        db,
+        migrations.filter((migration) => migration.version < 135),
       );
-      db.run("DELETE FROM schema_migrations WHERE version = 135");
+      for (const [id, name] of [
+        ["kitchen", "Kitchen"],
+        ["race", "Race"],
+      ] as const) {
+        db.run(
+          "INSERT INTO library_groups (id, name, description, created_at, updated_at) VALUES (?, ?, '', ?, ?)",
+          [id, name, at, at],
+        );
+      }
+      for (const [id, source, suggested] of [
+        ["Kitchen quote", "automatic", 1],
+        ["Race plan", "user", 0],
+      ] as const) {
+        const text = `${id}: a few words.`;
+        const path = await writeSourceFile(sources, `${id}.txt`, text);
+        db.run(
+          `INSERT INTO documents (id, content_hash, name, kind, size, status, path, file_status,
+             processing_version, metadata_version, created_at, updated_at)
+           VALUES (?, ?, ?, 'text', ?, 'ready', ?, 'available', ?, ?, ?, ?)`,
+          [
+            id,
+            sha256(text),
+            id,
+            Buffer.byteLength(text),
+            path,
+            BigInt(PROCESSING_VERSION),
+            BigInt(METADATA_VERSION),
+            at,
+            at,
+          ],
+        );
+        db.run(
+          `INSERT INTO document_groups
+             (id, document_id, group_id, source, suggested, status, content_hash, request_id,
+              created_at, updated_at, filed_at)
+           VALUES (?, ?, 'kitchen', ?, ?, 'classified', ?, ?, ?, ?, ?)`,
+          [`assignment-${id}`, id, source, suggested, sha256(text), `request-${id}`, at, at, at],
+        );
+      }
     } finally {
       db.close();
     }
 
-    const upgraded = startCore(dataDir, { createChatModel });
+    const upgraded = startCore(dataDir);
 
-    expect(await proposedFor(upgraded, quote.id)).toBe(kitchen.id);
-    expect((await rowOf(upgraded, quote.id)).origin).toBe("migrated");
-    expect(await assignmentOf(upgraded, quote.id)).toMatchObject({
+    expect(await proposedFor(upgraded, "Kitchen quote")).toBe("kitchen");
+    expect((await rowOf(upgraded, "Kitchen quote")).origin).toBe("migrated");
+    expect(await assignmentOf(upgraded, "Kitchen quote")).toMatchObject({
       groupId: null,
-      suggested: false,
+      source: "automatic",
     });
-    expect(await assignmentOf(upgraded, plan.id)).toMatchObject({
-      groupId: kitchen.id,
+    expect(await assignmentOf(upgraded, "Race plan")).toMatchObject({
+      groupId: "kitchen",
       source: "user",
     });
+    expect(await proposedFor(upgraded, "Race plan")).toBeNull();
     const library = await upgraded.getLibrary();
     expect(library.groups.map((each) => each.name)).toEqual(["Kitchen", "Race"]);
     expect(library.reviewMoved).toBe(1);

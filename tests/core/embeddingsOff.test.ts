@@ -395,7 +395,7 @@ describe("Turning embeddings on leaves every Document's Organize state as it was
     await vi.waitFor(async () => expect(await proposedFor(core, id)).toBe(group.id));
     expect(
       (await core.getLibrary()).assignments.find((each) => each.documentId === id),
-    ).toMatchObject({ groupId: null, status: "classified", suggested: false });
+    ).toMatchObject({ groupId: null, status: "classified" });
   });
 });
 

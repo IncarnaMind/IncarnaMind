@@ -282,7 +282,17 @@ function asBefore(dataDir: string, before: (db: ReturnType<typeof openDatabase>)
     DROP TABLE meetings_left_apart;
     DROP INDEX documents_by_meeting_mind;
     ALTER TABLE documents DROP COLUMN meeting_mind_id;
-    DELETE FROM schema_migrations WHERE version = ${ours.version};
+    -- That version still had what migration 136 takes away.
+    CREATE TABLE document_group_rejections (
+      id TEXT PRIMARY KEY NOT NULL,
+      document_id TEXT NOT NULL,
+      group_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      deleted_at TEXT
+    ) STRICT;
+    ALTER TABLE document_groups ADD COLUMN suggested INTEGER NOT NULL DEFAULT 0;
+    DELETE FROM schema_migrations WHERE version IN (${ours.version}, 136);
   `);
   before(db);
   db.close();
