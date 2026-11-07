@@ -20,6 +20,7 @@ import { answerEnded, setUpWithDocuments } from "../helpers/citations";
 import { logFileIn, testProcesses, tideServer, waitForState } from "../helpers/connectors";
 import { createTempDataFolder, manualClock, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
+import { planReply } from "../helpers/library";
 import { type ModelCall, scriptedModel } from "../helpers/models";
 import { fakePrinter } from "../helpers/printer";
 import { transcribingCore, until } from "../helpers/transcription";
@@ -1424,24 +1425,17 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
       },
       {
         generate: ({ prompt }) => {
-          let data: {
-            groups?: { id: string; name: string }[];
-            documents?: unknown;
-            folders?: string[];
-          };
+          const planned = planReply(prompt, { name: "Leases", description: "Lease papers" });
+          if (planned) {
+            if (prompt.includes('"language"')) classified += planned.documents;
+            return { text: planned.text };
+          }
+          let data: { groups?: { id: string; name: string }[] };
           try {
-            data = JSON.parse(prompt) as {
-              groups?: { id: string; name: string }[];
-              documents?: unknown;
-              folders?: string[];
-            };
+            data = JSON.parse(prompt) as { groups?: { id: string; name: string }[] };
           } catch {
             return { text: JSON.stringify({ tags: [] }) };
           }
-          if (data.documents && data.folders)
-            return {
-              text: JSON.stringify({ folders: [{ name: "Leases", description: "Lease papers" }] }),
-            };
           if (!data.groups) return { text: JSON.stringify({ tags: [] }) };
           classified += 1;
           const leases = data.groups.find((each) => each.name === "Leases");
@@ -1499,7 +1493,7 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
       (await core.listDataFlows()).find((each) => each.flow.id === "classification")?.consent;
     expect(await consent()).toBe("declined");
     expect((await core.getLibrary()).settings.automatic).toBe(automatic);
-    // The permit carried from Allow reaches the classifier: the run sorts all four, and proposes.
+    // The permit carried from Allow reaches the model: the plan sends all four, and proposes.
     expect(classified - classifiedBefore).toBe(4);
     expect((await core.getLibrary()).groups.map((each) => each.name)).not.toContain("Leases");
     const filedIn = async () => (await proposedInto(core, "Leases")).length;

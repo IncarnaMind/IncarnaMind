@@ -25,6 +25,7 @@ import type {
   LibraryGroup,
   MarkAiTextChoice,
   Mind,
+  OrganizeLibraryResult,
   OrganizeReviewChange,
   OrganizeReviewFolder,
   SavedFile,
@@ -126,8 +127,17 @@ export interface CommandsHost {
     permit: CloudReadPermit | undefined,
     runId: string,
   ): Promise<{ failed: unknown | null; untouched: number; tagChanges: TagLinkChange[] }>;
-  /** Proposes Folders for these Documents, with the run's permit when it has one (#2252); none is made. */
-  proposeFolders(ids: readonly string[], permit?: CloudReadPermit): Promise<OrganizeReviewFolder[]>;
+  /**
+   * Plans these Documents as the Library's Organize does, at any size, with the run's permit, and
+   * proposes into Suggestions under `runId`, into Folders outside every wall (#1569). Null when
+   * Organize's model can't name Folders and there are Folders to sort into one by one instead.
+   */
+  organizeByPlan(
+    ids: readonly string[],
+    signal: AbortSignal,
+    permit: CloudReadPermit | undefined,
+    runId: string,
+  ): Promise<OrganizeLibraryResult | null>;
   /** Proposes a Folder by name, made only when the User confirms it; null when one has that name. */
   proposeFolder(name: string, about: string): OrganizeReviewFolder | null;
   /**

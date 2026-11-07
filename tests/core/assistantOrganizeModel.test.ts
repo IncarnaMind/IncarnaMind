@@ -17,6 +17,7 @@ import {
   startCore,
 } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
+import { planReply } from "../helpers/library";
 import { type GenerateCall, scriptedModel, scriptedModels } from "../helpers/models";
 import { waitForTagging } from "../helpers/tags";
 
@@ -42,18 +43,13 @@ const FILES = [
 
 /** Proposes one Folder, and puts every Document it is asked about in it. */
 const classifying = ({ prompt }: GenerateCall) => {
-  let data: {
-    groups?: { id: string; name: string }[];
-    documents?: unknown;
-    folders?: string[];
-  };
+  const planned = planReply(prompt, { name: "Leases", description: "Lease papers" });
+  if (planned) return { text: planned.text };
+  let data: { groups?: { id: string; name: string }[] };
   try {
     data = JSON.parse(prompt) as typeof data;
   } catch {
     return { text: JSON.stringify({ tags: [] }) };
-  }
-  if (data.documents && data.folders) {
-    return { text: JSON.stringify({ folders: [{ name: "Leases", description: "Lease papers" }] }) };
   }
   if (!data.groups) return { text: JSON.stringify({ tags: [] }) };
   const leases = data.groups.find((each) => each.name === "Leases");

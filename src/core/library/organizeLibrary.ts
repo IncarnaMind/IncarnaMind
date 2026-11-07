@@ -4,6 +4,7 @@
  * the plan into the Review, where nothing moves before the User confirms it (#1569).
  */
 import type {
+  CloudReadPermit,
   ExternalService,
   FolderCountAim,
   OrganizeLibraryResult,
@@ -14,6 +15,7 @@ import { decodeVector } from "../documents/vectors";
 import { InvalidInputError, isRecord } from "../errors";
 import type { Language } from "../language";
 import type { OrganizeReviewProposal, OrganizeReviewRun } from "../organizeReview";
+import type { OrganizeReviewOrigin } from "../organizeReview/types";
 import { classifyProviderError } from "../providers/providerErrors";
 import { gateStop } from "../sendGate";
 import type { Database } from "../storage";
@@ -46,6 +48,17 @@ interface Subject extends StoredDocument {
   embedding_model: string | null;
 }
 
+/** A run the core starts for the assistant, beside what the User's own run is given (#1569). */
+export interface OwnRun {
+  /** Who asked, and the id its Undo takes the proposals back by. */
+  run: { origin: OrganizeReviewOrigin; runId: string };
+  /** The cloud read the User allowed for this run. */
+  permit?: CloudReadPermit;
+  signal?: AbortSignal;
+  /** The only Folders it may propose, by id. */
+  folders?: ReadonlySet<string>;
+}
+
 const BEING_READ = new Set(["queued", "extracting"]);
 const READABLE = new Set(["ready", "embedding", "waiting-for-model"]);
 
@@ -59,7 +72,7 @@ export function createLibraryOrganizer(options: {
   wallOf(folderId: string): string | null;
   embedding: { enabled(): boolean; readonly id: string };
   organizeService(settings: LibrarySettings): ExternalService | null;
-  prepare(settings: LibrarySettings): Promise<GroupClassifier>;
+  prepare(settings: LibrarySettings, permit?: CloudReadPermit): Promise<GroupClassifier>;
   /** What these requests would cost on the Organize model; null for one not billed per token. */
   estimate(settings: LibrarySettings, requests: readonly PlanRequest[]): RunEstimate | null;
   /** The estimate in US dollars, or null when it has no price. */
@@ -162,7 +175,7 @@ export function createLibraryOrganizer(options: {
   };
 
   /** The Folders a run may file into, each named by its path: every Folder, or the Folder's own. */
-  const candidatesOf = (folderId: string | null): PlanFolder[] => {
+  const candidatesOf = (folderId: string | null, allowed?: ReadonlySet<string>): PlanFolder[] => {
     const folders = options.folders();
     const byId = new Map(folders.map((folder) => [folder.id, folder]));
     const pathOf = (folder: LibraryGroup): string[] | null => {
@@ -177,7 +190,8 @@ export function createLibraryOrganizer(options: {
       return folderId === null ? names : null;
     };
     return folders.flatMap((folder) => {
-      const path = folder.id === folderId ? null : pathOf(folder);
+      const path =
+        folder.id === folderId || allowed?.has(folder.id) === false ? null : pathOf(folder);
       return path && path.length > 0
         ? [{ id: folder.id, name: path.join(" › "), description: folder.description }]
         : [];
@@ -190,16 +204,18 @@ export function createLibraryOrganizer(options: {
       current?.abort();
     },
 
-    async organize(raw: unknown): Promise<OrganizeLibraryResult> {
+    async organize(raw: unknown, own?: OwnRun): Promise<OrganizeLibraryResult> {
       const input = parseInput(raw);
       const settings = options.settings();
       if (input.folderId !== null && !options.folders().some((f) => f.id === input.folderId))
         throw new InvalidInputError({ key: "error.folder.notFound" });
-      const runId = crypto.randomUUID();
+      const runId = own?.run.runId ?? crypto.randomUUID();
       current?.abort();
       const controller = new AbortController();
       current = controller;
-      const { signal } = controller;
+      const signal = own?.signal
+        ? AbortSignal.any([controller.signal, own.signal])
+        : controller.signal;
       try {
         // A continuation sorts only for the service its press was authorized for (#2308).
         if (
@@ -236,7 +252,7 @@ export function createLibraryOrganizer(options: {
             vector: vectors[at] as Float32Array,
           })),
           excerptOf: (id) => excerptOf(readable.find((each) => each.id === id) as Subject),
-          folders: candidatesOf(input.folderId),
+          folders: candidatesOf(input.folderId, own?.folders),
           language: options.language(),
           within:
             input.folderId === null
@@ -254,7 +270,7 @@ export function createLibraryOrganizer(options: {
 
         let plan: LibraryPlan | null = null;
         if (readable.length > 0) {
-          const classifier = await options.prepare(settings);
+          const classifier = await options.prepare(settings, own?.permit);
           if (!classifier.plan) throw new InvalidInputError({ key: "error.library.cantPropose" });
           const model = classifier.plan;
           plan = await finishPlan(local, {
@@ -307,7 +323,7 @@ export function createLibraryOrganizer(options: {
           });
         });
         const proposed = options.propose(
-          {
+          own?.run ?? {
             origin: input.folderId === null ? "library" : "folder",
             runId,
             folderId: input.folderId,

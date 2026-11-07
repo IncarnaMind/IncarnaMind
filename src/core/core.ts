@@ -2025,7 +2025,26 @@ export function createCore(adapters: CoreAdapters): Core {
         newFolders: wall === null,
       });
     },
-    proposeFolders: (ids, permit) => library.propose(ids, settings.get().language, permit),
+    organizeByPlan: async (ids, signal, permit, runId) => {
+      const outside = new Set(
+        library
+          .folders()
+          .filter((folder) => filedWithin(null, folder.id)?.folderId === folder.id)
+          .map((folder) => folder.id),
+      );
+      try {
+        return await libraryOrganizer.organize(
+          { documentIds: [...ids] },
+          { run: { origin: "assistant", runId }, permit, signal, folders: outside },
+        );
+      } catch (error) {
+        // A model that can't name Folders still sorts into those there are, one Document at a time.
+        const cantPlan =
+          error instanceof InvalidInputError && error.wording?.key === "error.library.cantPropose";
+        if (cantPlan && outside.size > 0) return null;
+        throw error;
+      }
+    },
     proposeFolder: (name, about) =>
       organizeReview.proposeFolders([{ name, description: about }])[0] ?? null,
     withdrawOrganizeRun: (runId, folderIds) => organizeReview.withdraw(runId, folderIds),
@@ -4004,7 +4023,7 @@ export function createCore(adapters: CoreAdapters): Core {
       const classifier = organizeModelOf(chosen);
       return classifier && tagging.service(classifier);
     },
-    prepare: (chosen) => prepareOrganize(chosen),
+    prepare: (chosen, permit) => prepareOrganize(chosen, permit),
     estimate: (chosen, requests) => {
       const classifier = organizeModelOf(chosen);
       const metered = classifier?.kind === "chat" ? chat.metered(classifier.choice) : null;
