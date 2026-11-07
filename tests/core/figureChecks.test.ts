@@ -230,6 +230,8 @@ async function checkWith(options: {
   /** Its Document has no pages, as a whole TXT or Markdown file cited before Units. */
   pagesless?: boolean;
   calculations?: readonly unknown[];
+  /** It calls calculate this many times, one figure each, before its cite: a turn's Tool calls race. */
+  calculatesBeforeCite?: number;
   judgement?: string;
   failure?: { status: number; message: string };
   besideCite?: string;
@@ -243,6 +245,8 @@ async function checkWith(options: {
   providerKind?: ChatProviderKind;
   /** It never calls cite: its sources and its calculation's inputs give their quotes inline. */
   neverCites?: boolean;
+  /** The sentence cites its Document, so a calculation's citation 1 names a citation it has. */
+  citeSentence?: boolean;
   /** Asked once more for its record, it gives this quote, under the markers asked for if any. */
   recordWhenAsked?: string;
   scope?: { documentIds: string[] | null; excluded: Map<string, "own-file"> };
@@ -272,6 +276,18 @@ async function checkWith(options: {
         !call.results.some((result) => result.tool === "cite")
       )
         return { text: sent(options.text) };
+      if (options.calculatesBeforeCite) {
+        const made = call.results.filter((result) => result.tool === "calculate").length;
+        if (made < options.calculatesBeforeCite)
+          return {
+            calls: [
+              {
+                tool: "calculate",
+                input: { figures: (options.calculations ?? []).slice(made, made + 1) },
+              },
+            ],
+          };
+      }
       if (!options.neverCites && !call.results.some((result) => result.tool === "cite"))
         return {
           text: options.besideCite && sent(options.besideCite),
@@ -398,6 +414,15 @@ async function checkWith(options: {
     claim: options.claim ?? "Revenue in 2024 was £20 and revenue in 2025 was £20.",
     figures: options.figures,
     scope: options.scope ?? { documentIds: null, excluded: new Map() },
+    ...(options.citeSentence && {
+      cited: [
+        {
+          documentName: source.documentName,
+          quote: source.text,
+          passageId: source.passageId,
+        },
+      ],
+    }),
     model: prepared,
     signal: new AbortController().signal,
   });
@@ -724,6 +749,10 @@ test("saved formulas recheck exact UTF-16 spans without another calculate call",
   expect(
     again.calls.flatMap((call) => call.results).some((result) => result.tool === "calculate"),
   ).toBe(false);
+  // A saved calculation has no Document number to cite, so the undecided ask never fires for it.
+  expect(again.calls.map((call) => call.prompt).join("\n")).not.toContain(
+    "you give neither the Document's number",
+  );
   // The saved figure goes by its handle, without its Citations' ids and versions (#2525).
   const asked = again.calls.map((call) => call.prompt).join("\n");
   expect(asked).toContain('"id":"F1"');
@@ -802,6 +831,21 @@ test("saved formulas recheck exact UTF-16 spans without another calculate call",
     reason: "analysis-gone",
   });
   expect(retained.result.figures?.[0]?.sourceInput).toBeNull();
+
+  // A saved calculation and an Analysis's figure have no Document number by contract, so the
+  // undecided ask never fires for either.
+  for (const each of [saved, analysis]) {
+    const undecided = await checkWith({
+      figures: [each],
+      body,
+      text: reply([
+        { ...item(), verdict: "unsupported", topic: "not found", source: null, says: null },
+      ]),
+    });
+    expect(undecided.calls.map((call) => call.prompt).join("\n")).not.toContain(
+      "you give neither the Document's number",
+    );
+  }
 });
 
 test("a saved calculation's verdict and evidence both come from working it out again, whatever source the model names", async () => {
@@ -936,6 +980,125 @@ test("a Figures line naming a calculation the check never made is asked again, a
     askedAgain: { note: "wasn't worked out in this check", text: reply([item()]) },
   });
   expect(calls.filter((call) => call.prompt.includes("wasn't worked out"))).toHaveLength(1);
+  expect(result.figures?.[0]?.result.verdict).toBe("supported");
+});
+
+test("a figure left undecided with neither its source nor a reason is asked once, and the reply with its source binds", async () => {
+  const { result, calls } = await checkWith({
+    figures: [target("f1")],
+    text: reply([
+      { ...item(), verdict: "unsupported", topic: "not found", source: null, says: null },
+    ]),
+    askedAgain: {
+      note: "you give neither the Document's number nor what differs",
+      text: reply([item()]),
+    },
+  });
+  expect(
+    calls.filter((call) => call.prompt.includes("you give neither the Document's number")),
+  ).toHaveLength(1);
+  expect(result.figures?.[0]?.result.verdict).toBe("supported");
+});
+
+test("a supported figure with no source is asked for its source, and a reply without a new quote is not accepted", async () => {
+  const { result, calls } = await checkWith({
+    figures: [target("f1")],
+    text: reply([{ ...item(), source: null }]),
+    askedAgain: { note: "a supported figure needs its source", text: reply([item()]) },
+  });
+  expect(
+    calls.filter((call) => call.prompt.includes("a supported figure needs its source")),
+  ).toHaveLength(1);
+  expect(result.figures?.[0]?.result.verdict).toBe("not-checked");
+});
+
+test("a source position that names another number than the one given is read as the number the quote writes once", async () => {
+  const body = "Revenue\t100\t120";
+  const units: UnitText[] = [
+    {
+      page: 1,
+      text: body,
+      kind: "rows",
+      label: { sheet: "Budget", from: 1, to: 1, rows: [1], column: 0 },
+    },
+  ];
+  const { result } = await checkWith({
+    figures: [target("f1", "120", "Revenue 2025")],
+    claim: "Revenue was 120.",
+    body,
+    units,
+    quotes: [body],
+    text: reply([
+      {
+        ...item(),
+        source: { citation: 1, number: "120", position: 1, reading: null, unitQuote: null },
+      },
+    ]),
+  });
+  expect(result.figures?.[0]?.result.verdict).toBe("supported");
+});
+
+test("a calculate that ran before the cite beside it recorded its quote is worked out again, and the reply's source binds", async () => {
+  const { result } = await checkWith({
+    figures: [target("f1")],
+    calculations: [
+      {
+        marker: 1,
+        label: "Revenue",
+        formula: "source",
+        stated: "£20",
+        relation: "equals",
+        inputs: [{ name: "source", label: "Revenue", citation: 1, position: 1 }],
+      },
+    ],
+    calculatesBeforeCite: 1,
+    text: reply([item()]),
+  });
+  expect(result.figures?.[0]?.result.verdict).toBe("supported");
+});
+
+test("two calculates that raced their cite are both worked out again, and the calculation binds", async () => {
+  const calculation = (marker: number) => ({
+    marker,
+    label: "Revenue",
+    formula: "source",
+    stated: "£20",
+    relation: "equals",
+    inputs: [{ name: "source", label: "Revenue", citation: 1, position: 1 }],
+  });
+  const { result } = await checkWith({
+    figures: [target("f1")],
+    calculations: [calculation(1), calculation(2)],
+    calculatesBeforeCite: 2,
+    citeSentence: true,
+    text: reply([{ ...item(), source: null, calculation: 1 }]),
+  });
+  expect(result.figures?.[0]?.result.verdict).toBe("supported");
+});
+
+test("a calculate the model abandoned for a readable source does not hide the figure", async () => {
+  const { result } = await checkWith({
+    figures: [target("f1")],
+    calculations: [
+      {
+        marker: 1,
+        label: "Revenue",
+        formula: "source",
+        stated: "£20",
+        relation: "equals",
+        inputs: [
+          {
+            name: "source",
+            label: "Revenue",
+            citation: 1,
+            position: 1,
+            unitQuote: "no such line",
+          },
+        ],
+      },
+    ],
+    text: reply([item()]),
+  });
   expect(result.figures?.[0]?.result.verdict).toBe("supported");
 });
 

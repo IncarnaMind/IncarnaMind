@@ -344,24 +344,28 @@ export function createJournal(db: Database, now: () => string) {
       );
     },
 
-    /** Records a step as started, before it runs: a new attempt of one that ran before. */
-    started(taskId: string, key: string, effect: TaskEffect | null): void {
+    /**
+     * Records a step as started, before it runs: a new attempt of one that ran before. `result` is
+     * what its row shows while it runs; how it ends replaces it.
+     */
+    started(taskId: string, key: string, effect: TaskEffect | null, result: unknown = null): void {
       const at = now();
+      const shown = result === null ? null : JSON.stringify(result);
       db.transaction(() => {
         const known = step(taskId, key);
         if (known) {
           db.run(
-            `UPDATE run_steps SET status = 'started', effect = ?, result = NULL,
+            `UPDATE run_steps SET status = 'started', effect = ?, result = ?,
                attempts = attempts + 1, started_at = ?, completed_at = NULL, updated_at = ?
              WHERE run_id = ? AND key = ? AND deleted_at IS NULL`,
-            [effect ? JSON.stringify(effect) : null, at, at, taskId, key],
+            [effect ? JSON.stringify(effect) : null, shown, at, at, taskId, key],
           );
           return;
         }
         db.run(
-          `INSERT INTO run_steps (id, run_id, key, effect, status, started_at, created_at, updated_at)
-           VALUES (?, ?, ?, ?, 'started', ?, ?, ?)`,
-          [randomUUID(), taskId, key, effect ? JSON.stringify(effect) : null, at, at, at],
+          `INSERT INTO run_steps (id, run_id, key, effect, status, result, started_at, created_at, updated_at)
+           VALUES (?, ?, ?, ?, 'started', ?, ?, ?, ?)`,
+          [randomUUID(), taskId, key, effect ? JSON.stringify(effect) : null, shown, at, at, at],
         );
       });
     },
