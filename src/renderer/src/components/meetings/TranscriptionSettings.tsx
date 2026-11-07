@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from "react";
+import { type KeyboardEvent, useEffect, useId, useState } from "react";
 import type { SecretStorageStatus, TranscriptionServiceStatus } from "../../../../core/api";
 import { checkApiKey } from "../../../../shared/apiKey";
 import { core } from "../../core";
@@ -199,6 +199,13 @@ function TranscriptionKeyRow({ service }: { service: TranscriptionServiceStatus 
     setOpen(false);
     setKey("");
   };
+  const closeOnEscape = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key !== "Escape") return;
+    // Esc puts the form away before it closes Settings.
+    event.preventDefault();
+    event.stopPropagation();
+    close();
+  };
   const given = text !== "" || (takesServer && server.trim() !== "");
 
   return (
@@ -246,12 +253,7 @@ function TranscriptionKeyRow({ service }: { service: TranscriptionServiceStatus 
               aria-describedby={`${serverId}-tip`}
               value={server}
               onChange={(event) => setServer(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Escape") {
-                  event.stopPropagation();
-                  close();
-                }
-              }}
+              onKeyDown={closeOnEscape}
               className={`${inputClass} mt-0 min-w-48`}
             />
             <p id={`${serverId}-tip`} className={rowTextClass}>
@@ -280,12 +282,7 @@ function TranscriptionKeyRow({ service }: { service: TranscriptionServiceStatus 
               aria-describedby={stray ? `${inputId}-stray` : undefined}
               value={key}
               onChange={(event) => setKey(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Escape") {
-                  event.stopPropagation();
-                  close();
-                }
-              }}
+              onKeyDown={closeOnEscape}
               className={`${inputClass} mt-0 min-w-48 flex-1`}
             />
             <button
