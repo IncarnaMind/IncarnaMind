@@ -21,7 +21,7 @@ const OPENAI: SaveChatProviderInput = { kind: "openai", apiKey: "sk-test", model
 /**
  * A model for each provider, counting its calls: the first Organize of "Credit report" on
  * Anthropic fails as an account with no credit, and a "Blocker" call can be held to keep the
- * one-at-a-time background queue busy.
+ * one-at-a-time background queue busy. Its retry's own call can be held too, mid-request.
  */
 function models() {
   const sent: Record<string, number> = {};
@@ -29,6 +29,7 @@ function models() {
   const byKind = new Map<string, MockLanguageModelV4>();
   let creditFailed = false;
   let hold: Promise<void> | null = null;
+  let retryHold: { reached(): void; until: Promise<void> } | null = null;
   const modelFor = (kind: string) => {
     const known = byKind.get(kind);
     if (known) return known;
@@ -42,6 +43,12 @@ function models() {
           named.set(key, (named.get(key) ?? 0) + 1);
         }
         if (kind === "anthropic" && hold !== null && prompt.includes("Blocker")) await hold;
+        if (kind === "anthropic" && creditFailed && retryHold && prompt.includes("Credit report")) {
+          const { reached, until } = retryHold;
+          retryHold = null;
+          reached();
+          await until;
+        }
         if (kind === "anthropic" && !creditFailed && prompt.includes("Credit report")) {
           creditFailed = true;
           throw new Error("The account is out of credit.");
@@ -69,6 +76,17 @@ function models() {
     sent: (kind: string) => sent[kind] ?? 0,
     namedSent: (kind: string, name: string) => named.get(`${kind}\n${name}`) ?? 0,
     hold: (value: Promise<void> | null) => (hold = value),
+    /** Holds the credit Document's next call on Anthropic: `reached` once it is sent. */
+    holdRetry() {
+      let release: () => void = () => undefined;
+      const until = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const reached = new Promise<void>((resolve) => {
+        retryHold = { reached: resolve, until };
+      });
+      return { reached, release };
+    },
     createChatModel: (spec: ChatModelSpec) => modelFor(spec.kind),
   };
 }
@@ -113,6 +131,7 @@ async function start() {
     sent: scripted.sent,
     namedSent: scripted.namedSent,
     hold: scripted.hold,
+    holdRetry: scripted.holdRetry,
   };
 }
 
@@ -220,6 +239,65 @@ describe("a billing continuation's destination (#2535)", () => {
     expect(clearedFor(dataDir, credit.id)).toEqual([serviceA]);
     expect(clearedFor(dataDir, credit.id)).not.toContain(serviceB);
     expect((await assignmentOf(core, credit.id))?.status).toBe("failed");
+  });
+
+  test("a continuation whose own call to A is held while Organize moves to B sends nothing to B", async () => {
+    const { core, dataDir, openai, choose, currentService, add, namedSent, holdRetry } =
+      await start();
+    const serviceA = await currentService();
+    const credit = await add("Credit report.txt", "The account is out of credit.");
+    await failedFirst(core, credit.id);
+    const held = holdRetry();
+    const settled = new Promise<void>((resolve) => {
+      const stop = core.on("library.assignments", (changed) => {
+        const done = changed.some(
+          (each) =>
+            each.documentId === credit.id &&
+            (each.status === "failed" || each.status === "classified"),
+        );
+        if (done) {
+          stop();
+          resolve();
+        }
+      });
+    });
+
+    await core.classifyDocuments([credit.id], { forService: serviceA });
+    await held.reached;
+    await choose(openai.id, OPENAI.modelId);
+    const serviceB = await currentService();
+    held.release();
+
+    await settled;
+    expect((await assignmentOf(core, credit.id))?.status).toBe("failed");
+    expect(namedSent("anthropic", "Credit report")).toBe(2);
+    expect(namedSent("openai", "Credit report")).toBe(0);
+    expect(clearedFor(dataDir, credit.id)).toEqual([serviceA]);
+    expect(clearedFor(dataDir, credit.id)).not.toContain(serviceB);
+    expect((await assignmentOf(core, credit.id))?.error?.message).toContain("out of credit");
+  });
+
+  test("with Local mode kept on, a continuation waiting there goes back to its failure once B is chosen", async () => {
+    const { core, dataDir, openai, choose, currentService, add, namedSent } = await start();
+    const serviceA = await currentService();
+    const credit = await add("Credit report.txt", "The account is out of credit.");
+    await failedFirst(core, credit.id);
+
+    await core.setLocalOnly(true);
+    await core.classifyDocuments([credit.id], { forService: serviceA });
+    await vi.waitFor(async () => {
+      expect((await assignmentOf(core, credit.id))?.status).toBe("waiting");
+    });
+    await choose(openai.id, OPENAI.modelId);
+    const serviceB = await currentService();
+
+    await vi.waitFor(async () => {
+      expect((await assignmentOf(core, credit.id))?.status).toBe("failed");
+    });
+    expect((await assignmentOf(core, credit.id))?.error?.message).toContain("out of credit");
+    expect(namedSent("openai", "Credit report")).toBe(0);
+    expect(clearedFor(dataDir, credit.id)).toEqual([serviceA]);
+    expect(clearedFor(dataDir, credit.id)).not.toContain(serviceB);
   });
 
   test("a continuation that waited in Local mode refuses when Organize moved to B", async () => {
