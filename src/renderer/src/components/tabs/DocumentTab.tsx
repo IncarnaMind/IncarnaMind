@@ -1,10 +1,15 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Document, DocumentPlace, LayoutTab } from "../../../../core/api";
 import { citedTextKept } from "../../../../shared/citations";
+import { useAnnotations, useDocumentAnnotations } from "../../annotations";
 import { useViewerHandle, ViewerTabContext } from "../../commands/handles";
+import { AnnotationsPanel } from "../../components/AnnotationsPanel";
 import { useT } from "../../i18n";
 import { useAppStore, type ViewerTarget } from "../../store";
+import { AnnotationAreas } from "../../viewer/AnnotationAreas";
+import { AnnotationExportLine } from "../../viewer/AnnotationExportLine";
 import { AreaModeContext, AreaOverlay, RegionHighlight } from "../../viewer/areaSelection";
+import { CitationPickLine } from "../../viewer/CitationPickLine";
 import { CitedVersionView } from "../../viewer/CitedVersionView";
 import { DocumentView } from "../../viewer/DocumentView";
 import { type PlaceMemory, PlaceMemoryContext, type ViewPlace } from "../../viewer/place";
@@ -15,6 +20,10 @@ import { DocumentRemoved } from "../../viewer/ViewerMessage";
 
 /** How far the User scrolls a preview, at least, to keep it: the jump to the quote doesn't count. */
 const KEEP_AFTER_SCROLL_PX = 120;
+/** The least viewer the list opens in at all. */
+const LEAST_VIEWER_WITH_LIST = 420;
+/** Below this the list takes the page's place; from it, it sits beside the page. */
+const LIST_BESIDE_FROM = 760;
 
 /**
  * What the viewer shows of a Document's file, as a key that changes when
@@ -174,30 +183,100 @@ export function DocumentTab({ tab }: { tab: LayoutTab }) {
   const fileKey = useFileKey(document);
   const places = usePlaceMemory(target);
   const [section, setSection] = useState<HTMLElement | null>(null);
+  const [viewerWidth, setViewerWidth] = useState(0);
+  const setRoom = useAnnotations((state) => state.setRoom);
+  const setListInPlace = useAnnotations((state) => state.setListInPlace);
+  const viewerId = tab.id;
+  const panelOpen = useAnnotations((state) => state.panelOpen[viewerId] === true);
+  const togglePanel = useAnnotations((state) => state.togglePanel);
+  const loadAnnotations = useAnnotations((state) => state.load);
+  const shownDocumentId = document?.id;
+  const storedAnnotations = useDocumentAnnotations(shownDocumentId ?? "");
+  const shownVersion = document?.contentHash;
+  // A new version of the file re-anchors its highlights: read them again with its text.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new version is what reloads them
+  useEffect(() => {
+    if (shownDocumentId) void loadAnnotations(shownDocumentId);
+  }, [loadAnnotations, shownDocumentId, shownVersion]);
   const [reader, setReader] = useState<SelectionReader | null>(null);
   const [areaActive, setAreaActive] = useState(false);
+  const [areaPurpose, setAreaPurpose] = useState<"ask" | "highlight">("ask");
   // A reader is a function: kept as one, not called as an update.
   const lendReader = useCallback((lent: SelectionReader | null) => setReader(() => lent), []);
   useKeepOnReading(section, tab.id, tab.preview);
+  // Below 760 the list takes the page's place; a pane that a resize narrows past it closes, keeping the page.
+  const wide = useRef(false);
+  useEffect(() => {
+    if (!section || !document) return;
+    const measure = () => {
+      const width = section.clientWidth;
+      setViewerWidth(width);
+      setRoom(viewerId, width >= LEAST_VIEWER_WITH_LIST);
+      if (
+        useAnnotations.getState().panelOpen[viewerId] &&
+        wide.current &&
+        width < LIST_BESIDE_FROM
+      ) {
+        useAnnotations.getState().togglePanel(false, viewerId);
+      }
+      wide.current = width >= LIST_BESIDE_FROM;
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(section);
+    return () => observer.disconnect();
+  }, [section, document, setRoom, viewerId]);
   const areaMode = useMemo(
     () => ({
       active: areaActive,
+      purpose: areaPurpose,
+      setPurpose: setAreaPurpose,
       setActive: (active: boolean) => {
         setAreaActive(active);
+        if (!active) setAreaPurpose("ask");
         // The viewer takes the focus, so Enter can take the page in view and Esc can stop.
         if (active) section?.focus();
       },
     }),
-    [areaActive, section],
+    [areaActive, areaPurpose, section],
   );
   // Sheets pick cells, not areas (#118).
   const areaAvailable =
     document !== undefined && document.kind !== "xlsx" && document.kind !== "csv";
   const areaCommand = useMemo(
-    () => (areaAvailable ? { select: () => areaMode.setActive(!areaMode.active) } : {}),
-    [areaAvailable, areaMode],
+    () =>
+      areaAvailable
+        ? {
+            select: () => areaMode.setActive(!areaMode.active),
+            highlight: () => {
+              setAreaPurpose("highlight");
+              setAreaActive(true);
+              section?.focus();
+            },
+          }
+        : {},
+    [areaAvailable, areaMode, section],
   );
   useViewerHandle("area", areaCommand, tab.id);
+  const inPlace = panelOpen && viewerWidth > 0 && viewerWidth < LIST_BESIDE_FROM;
+  useEffect(() => {
+    setListInPlace(viewerId, inPlace);
+  }, [inPlace, setListInPlace, viewerId]);
+  const closeList = () => {
+    togglePanel(false, viewerId);
+    requestAnimationFrame(() => {
+      const toggle = section?.querySelector<HTMLElement>(
+        '[data-testid="viewer-annotations-toggle"]',
+      );
+      (
+        toggle ?? section?.querySelector<HTMLElement>('[data-testid="document-file-menu"]')
+      )?.focus();
+    });
+  };
+  const showPage = () => {
+    togglePanel(false, viewerId);
+    requestAnimationFrame(() => section?.focus());
+  };
 
   return (
     <section
@@ -213,33 +292,60 @@ export function DocumentTab({ tab }: { tab: LayoutTab }) {
         <AreaModeContext.Provider value={areaAvailable ? areaMode : null}>
           <ViewerFrameContext.Provider value={frame}>
             <PlaceMemoryContext.Provider value={places}>
-              {!document ? (
-                <>
-                  <ViewerHeader />
-                  <DocumentRemoved quote={target.quote} unlinked={unlinked} />
-                </>
-              ) : (
-                // Keyed, so another Document, or a new read of its file, starts afresh (the last one
-                // goes at once). While its view loads, the header alone: the page comes a moment later.
-                <Suspense key={fileKey} fallback={<ViewerHeader />}>
-                  <SelectionReaderContext.Provider value={lendReader}>
-                    {citedVersion && document.contentHash !== citedVersion ? (
-                      <CitedVersionView document={document} target={target} />
-                    ) : (
-                      <DocumentView document={document} target={target} />
-                    )}
-                  </SelectionReaderContext.Provider>
-                </Suspense>
-              )}
-              {document && reader && (
-                <SelectionMenu document={document} section={section} reader={reader} />
-              )}
-              {document && areaAvailable && <AreaOverlay section={section} document={document} />}
-              {document && (
-                <RegionHighlight
-                  section={section}
-                  unit={target.pageFrom ?? null}
-                  area={target.area}
+              <div className={inPlace ? "flex min-w-0 shrink-0" : "flex min-h-0 min-w-0 flex-1"}>
+                <div
+                  className={`relative flex min-h-0 min-w-0 flex-col [container:viewer/inline-size] ${
+                    inPlace ? "h-9 flex-1 shrink-0 overflow-hidden" : "flex-1"
+                  }`}
+                >
+                  {!document ? (
+                    <>
+                      <ViewerHeader />
+                      <DocumentRemoved quote={target.quote} unlinked={unlinked} />
+                    </>
+                  ) : (
+                    // Keyed, so another Document, or a new read of its file, starts afresh (the last one
+                    // goes at once). While its view loads, the header alone: the page comes a moment later.
+                    <Suspense key={fileKey} fallback={<ViewerHeader />}>
+                      <SelectionReaderContext.Provider value={lendReader}>
+                        {citedVersion && document.contentHash !== citedVersion ? (
+                          <CitedVersionView document={document} target={target} />
+                        ) : (
+                          <DocumentView document={document} target={target} />
+                        )}
+                      </SelectionReaderContext.Provider>
+                    </Suspense>
+                  )}
+                  {document && reader && (
+                    <SelectionMenu document={document} section={section} reader={reader} />
+                  )}
+                  {document && areaAvailable && (
+                    <AreaOverlay section={section} document={document} />
+                  )}
+                  {document && <CitationPickLine documentId={document.id} />}
+                  {document && (
+                    <AnnotationAreas section={section} annotations={storedAnnotations} />
+                  )}
+                  {document && (
+                    <RegionHighlight
+                      section={section}
+                      unit={target.pageFrom ?? null}
+                      area={target.area}
+                    />
+                  )}
+                  {document && <AnnotationExportLine documentId={document.id} />}
+                </div>
+                {document && panelOpen && !inPlace && (
+                  <AnnotationsPanel document={document} container={section} onClose={closeList} />
+                )}
+              </div>
+              {document && panelOpen && inPlace && (
+                <AnnotationsPanel
+                  document={document}
+                  container={section}
+                  inPlace
+                  onClose={closeList}
+                  onShowPage={showPage}
                 />
               )}
             </PlaceMemoryContext.Provider>

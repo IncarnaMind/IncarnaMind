@@ -24,7 +24,7 @@ permissions:
   contents: read
 
 env:
-  # As in eval.yml: the evaluation drives the core in plain Node, on the CPU.
+  # The evaluation drives the core in plain Node, on the CPU.
   ONNXRUNTIME_NODE_INSTALL: skip
   ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
 

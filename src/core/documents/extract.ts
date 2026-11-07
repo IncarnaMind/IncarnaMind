@@ -14,9 +14,12 @@ import type { LogFields, PagePicture, PictureRead, RecognizedLine } from "../ada
 import type { DocumentKind, UnreadParts } from "../api";
 import { isRecord } from "../errors";
 import { ExtractionError, extractUnits } from "./formats";
+import { extractDocx } from "./formats/docx";
+import { extractPptx } from "./formats/pptx";
 import { type FigureReading, readWebPage, webUnits } from "./formats/web";
 import { extractXlsx, unreadPartsOf } from "./formats/xlsx";
 import { joinPrintedLines, type PrintedLine, type PrintedText } from "./lineWrap";
+import { type FileAnnotation, readFileAnnotations } from "./pdfAnnotations";
 import { passwordProblem } from "./pdfPasswords";
 import { printedPageNames } from "./printedPages";
 import { scannedUnit } from "./scan/layout";
@@ -29,6 +32,7 @@ import {
   pictureShare,
 } from "./scan/pages";
 import { anchorsBack, readWithQuarterTurn } from "./scan/rotation";
+import { shiftedDigits } from "./tableCells";
 import {
   continuedTables,
   findTables,
@@ -98,6 +102,10 @@ export interface ExtractedText {
    * page ended itself (see `joinPrintedLines`), which the wider join keeps.
    */
   keptBreaks?: ReadonlyMap<number, ReadonlySet<number>>;
+  /** PDFs: the highlights and notes the file itself holds (#327). */
+  fileAnnotations?: FileAnnotation[];
+  /** Word files, decks and workbooks: relationships parts that couldn't be read; the rest was. */
+  unreadable?: readonly string[];
 }
 
 /**
@@ -127,7 +135,12 @@ export async function extractText(
   }
   if (kind === "xlsx") {
     const { units, workbook } = await extractXlsx(bytes, readHiddenSheets);
-    return { pageCount: null, units, unread: null, parts: unreadPartsOf(workbook) };
+    const { unreadable } = workbook;
+    return { pageCount: null, units, unread: null, parts: unreadPartsOf(workbook), unreadable };
+  }
+  if (kind === "docx" || kind === "pptx") {
+    const { units, unreadable } = await (kind === "docx" ? extractDocx(bytes) : extractPptx(bytes));
+    return { pageCount: null, units, unread: null, parts: null, unreadable };
   }
   return { pageCount: null, units: await extractUnits(kind, bytes), unread: null, parts: null };
 }
@@ -288,26 +301,46 @@ function pdfjsDataUrls() {
 /** A scan's picture larger than this many pixels isn't drawn: reading it would take too much memory. */
 const MAX_PICTURE_PIXELS = 50_000_000;
 
+/** A footnote's mark is set clearly smaller than its line, and raised above its baseline (#2474). */
+const MARK_SIZE = 0.8;
+const MARK_RAISE = 0.25;
+const MARK_AFTER_NUMBER = /[\p{Nd})）%]$/u;
+const ALL_DIGITS = /^\d+$/;
+
 function printedLines(items: readonly object[]): PrintedLine[] {
   const lines: PrintedLine[] = [];
   let text = "";
   let right = 0;
   let size = 0;
+  let baseline: number | null = null;
   const end = () => {
     lines.push({ text, size, right });
     text = "";
     right = 0;
     size = 0;
+    baseline = null;
   };
   for (const item of items) {
     // Marked-content boundaries carry no text.
     if (!("str" in item) || typeof item.str !== "string") continue;
-    text += item.str.replaceAll("\u0000", "").replace(/\r\n?/g, "\n");
+    const read = item.str.replaceAll("\u0000", "").replace(/\r\n?/g, "\n");
     const placed = textItemOf(item);
+    // Read as plain digits, a raised mark after an amount would make it 1,240.501 (#2474), the
+    // way a table row's mark is a footnote's and not a digit (#448).
+    const mark =
+      placed !== null &&
+      baseline !== null &&
+      size > 0 &&
+      ALL_DIGITS.test(placed.str.trim()) &&
+      placed.fontSize <= size * MARK_SIZE &&
+      placed.baseline - baseline >= placed.size * MARK_RAISE &&
+      MARK_AFTER_NUMBER.test(text);
+    text += mark ? shiftedDigits(read, true) : read;
     // A line set at an angle has no right end to compare, but its size still tells a heading
     // from the text under it, so only the edge is left out.
     if (placed && placed.str.trim() !== "") {
       size = Math.max(size, placed.fontSize);
+      baseline ??= placed.baseline;
       if (placed.level) right = Math.max(right, placed.x + placed.width);
     }
     if ("hasEOL" in item && item.hasEOL === true) end();
@@ -571,6 +604,7 @@ async function extractPdf(
     const document = await task.promise;
     const pages: TextUnit[] = [];
     const keptBreaks = new Map<number, ReadonlySet<number>>();
+    const fileAnnotations: FileAnnotation[] = [];
     const scanned: number[] = [];
     const scanFields = new Map<number, { text: string; anchors: Anchor[] }>();
     const unreadForms: number[] = [];
@@ -590,6 +624,13 @@ async function extractPdf(
       const read = readPageText(content.items);
       if (read.kept.size > 0) keptBreaks.set(number, read.kept);
       pages.push({ page: number, kind: "page", label: null, text: read.text, anchors: null });
+      try {
+        // The file's own highlights and notes (#327): a damaged one is left out, not the page.
+        const annotations = await page.getAnnotations();
+        fileAnnotations.push(...readFileAnnotations(number, annotations, content.items));
+      } catch (error) {
+        console.error(`PDF page ${number}: its annotations couldn't be read`, error);
+      }
       const layout = pageTables(textLayerRows(content.items));
       // A recognizer's searchable layer is invisible text over the page's picture; visible text
       // over a background picture is the page's own, so its figures are still checked (#448).
@@ -636,7 +677,7 @@ async function extractPdf(
     const units = pages.map((unit, index) =>
       withTables(withPrintedName(unit, names[index] ?? null), tables.get(unit.page)),
     );
-    return { pageCount: pages.length, units, unread, parts: null, keptBreaks };
+    return { pageCount: pages.length, units, unread, parts: null, keptBreaks, fileAnnotations };
   } catch (error) {
     if (reading?.signal.aborted) throw reading.signal.reason;
     const name = error instanceof Error ? error.name : "";

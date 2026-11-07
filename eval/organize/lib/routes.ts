@@ -14,7 +14,9 @@
  * - "jev": TypeSafe's Jev as the app's decision-model classifier: one choice for the Folder
  *   and one yes/no question per Tag, each with a probability. Text only, so scans wait.
  * - "decisions": OpenAI's Decisions API (gpt-6-luna) in the same shape, with a scan's page
- *   images as data URLs. Evaluation only: the app has no such classifier.
+ *   images as data URLs. Evaluation only, with images; "host" measures the app's own.
+ * - "host": a decision model on another host (#1907), from INCARNAMIND_EVAL_HOST_*, built as the
+ *   core builds it (src/core/tags/decisionHosts.ts, `prepareGroups`). Text only, so scans wait.
  * - "scripted": the smoke tests' scripted chat model through the chat route,
  *   which files a Document in the Folder whose name it contains: no model, no
  *   network, to check the run itself.
@@ -38,6 +40,12 @@ import {
   modelsProviderOfKind,
   type Price,
 } from "../../../src/core/providers/catalog";
+import {
+  DECISION_HOST_ENTRIES,
+  DECISION_HOSTS,
+  decisionEndpoint,
+  isDecisionHost,
+} from "../../../src/core/providers/catalog/decisions";
 import { JEV_HOSTED_URL, JEV_PATH } from "../../../src/core/providers/jev";
 import { serviceForUrl } from "../../../src/core/providers/kinds";
 import { type ChatLanguageModel, createAiSdkChatModel } from "../../../src/core/providers/models";
@@ -55,6 +63,7 @@ export const ROUTES = [
   "chat",
   "jev",
   "decisions",
+  "host",
   "scripted",
 ] as const;
 export type RouteName = (typeof ROUTES)[number];
@@ -119,6 +128,27 @@ function decisionsSettings(env: NodeJS.ProcessEnv = process.env) {
   return { key, model: env.INCARNAMIND_EVAL_DECISIONS_MODEL ?? "gpt-6-luna" };
 }
 
+/** The decision model host, its key (setting it is the consent to send the excerpts), model and account. */
+function hostSettings(env: NodeJS.ProcessEnv = process.env) {
+  const host = env.INCARNAMIND_EVAL_HOST;
+  if (!isDecisionHost(host)) {
+    throw new Error(
+      `The host route needs INCARNAMIND_EVAL_HOST, one of ${DECISION_HOSTS.join(", ")}.`,
+    );
+  }
+  const key = env.INCARNAMIND_EVAL_HOST_KEY;
+  if (!key) throw new Error("The host route needs INCARNAMIND_EVAL_HOST_KEY.");
+  const entry = DECISION_HOST_ENTRIES[host];
+  const model = env.INCARNAMIND_EVAL_HOST_MODEL ?? entry.models[0]?.id ?? "";
+  const endpoint = decisionEndpoint(host, model, {
+    account: env.INCARNAMIND_EVAL_HOST_ACCOUNT ?? null,
+    region: env.INCARNAMIND_EVAL_HOST_REGION ?? null,
+  });
+  if (!endpoint) throw new Error(`${entry.name.en} needs INCARNAMIND_EVAL_HOST_ACCOUNT.`);
+  const price = entry.models.find((each) => each.id === model)?.inputPerMillion ?? null;
+  return { key, model, endpoint, name: entry.name.en, price };
+}
+
 interface DecisionCall {
   input: number;
   scores: Record<string, number>;
@@ -150,9 +180,8 @@ function decisionRecorder() {
  * Tag's probability: `fetch` is wrapped for the run, and only the decision endpoint's answers
  * are read, from a copy.
  */
-function tapDecisionCalls(baseUrl: string, read: (body: Record<string, unknown>) => DecisionCall) {
+function tapDecisionCalls(target: string, read: (body: Record<string, unknown>) => DecisionCall) {
   const recorder = decisionRecorder();
-  const target = `${baseUrl}${JEV_PATH}`;
   const original = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
     const response = await original(input, init);
@@ -377,7 +406,7 @@ export function buildRoute(
     }
     case "jev": {
       const { key, model, url } = jevSettings();
-      const tap = tapDecisionCalls(url, (body) => {
+      const tap = tapDecisionCalls(`${url}${JEV_PATH}`, (body) => {
         const answers = isRecord(body.answers) ? body.answers : {};
         return {
           input: usageField(body.usage, "input_tokens", "prompt_tokens"),
@@ -411,6 +440,50 @@ export function buildRoute(
         tokens: calls.tokens,
         scores: calls.scores,
         price: { currency: "USD", input: DECISIONS_PRICE_PER_MILLION, output: 0 },
+      };
+    }
+    case "host": {
+      const { key, model, endpoint, name: host, price } = hostSettings();
+      const tap = tapDecisionCalls(endpoint.url, (body) => {
+        // TypeSafe's shape keys the answers by question id; OpenAI's lists them, named "q_<id>".
+        const answers = Array.isArray(body.answers)
+          ? Object.fromEntries(
+              body.answers.flatMap((answer: unknown) =>
+                isRecord(answer) && typeof answer.name === "string"
+                  ? [[answer.name.replace(/^q_/, ""), { noul: answer.probability }]]
+                  : [],
+              ),
+            )
+          : isRecord(body.answers)
+            ? body.answers
+            : isRecord(body.result) && isRecord(body.result.answers)
+              ? body.result.answers
+              : {};
+        return {
+          input: usageField(body.usage, "input_tokens", "prompt_tokens"),
+          scores: Object.fromEntries(
+            Object.entries(answers).flatMap(([id, answer]) =>
+              isRecord(answer) && typeof answer.noul === "number" ? [[id, answer.noul]] : [],
+            ),
+          ),
+        };
+      });
+      return {
+        name,
+        label: `${model} through ${host}, the app's decision-model classifier (text only)`,
+        models: [],
+        local: false,
+        classifier: decisionGroupClassifier({
+          baseUrl: endpoint.url,
+          endpoint,
+          apiKey: key,
+          model,
+          local: false,
+          usePageImages: false,
+        }),
+        tokens: tap.tokens,
+        scores: tap.scores,
+        ...(price !== null && { price: { currency: "USD" as const, input: price, output: 0 } }),
       };
     }
     case "scripted": {

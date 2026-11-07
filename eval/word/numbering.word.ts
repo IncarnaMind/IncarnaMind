@@ -4,7 +4,7 @@
  * LibreOffice opens it and draws each item's number as the scheme writes it ("(a)", "(i)", "1.1.",
  * "（一）"). A second Mind has a list under a bullet, a nested list from 3, and two nested lists in
  * one item, the second starting again. Its PDF is kept for a person to look at when
- * INCARNAMIND_WORD_PDFS is set (CI uploads it). Without LibreOffice the check is skipped, unless
+ * INCARNAMIND_WORD_PDFS is set. Without LibreOffice the check is skipped, unless
  * INCARNAMIND_WORD_REQUIRE_LIBREOFFICE=1.
  */
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";

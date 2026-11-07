@@ -22,6 +22,7 @@ import { openCited, quoteSaysSo } from "../openCited";
 import { useAppStore } from "../store";
 import { ComparisonRefillEstimate } from "./ComparisonRefillEstimate";
 import { citationsIn } from "./copyNotes";
+import { useCitedOrigin } from "./mindContext";
 import { Popover } from "./Popover";
 import { SignOffLine } from "./SignOff";
 import { useComparisonCellSignOff } from "./signOffActions";
@@ -33,6 +34,7 @@ export function ComparisonCellCard({
   handle: ComparisonCellHandle;
   replace: boolean;
 }) {
+  const origin = useCitedOrigin();
   const t = useT();
   const place = useTabPlace();
   const first = useRef<HTMLButtonElement>(null);
@@ -101,6 +103,7 @@ export function ComparisonCellCard({
         ...(citation.location && { location: citation.location }),
       },
       {
+        origin,
         check: state.check,
         withQuote: quoteSaysSo(state.check) || state.reason === "document-removed",
         number: index + 1,

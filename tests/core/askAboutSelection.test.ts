@@ -82,7 +82,7 @@ const answerOf = async (core: Core, conversationId: string, answerId: string) =>
 };
 
 describe("Asking about words selected in a Document", { timeout: 30_000 }, () => {
-  // protects=the selected words reach the model right before the Question (the line of the Minds' names between), with where they are and the Passage of their page to cite, and the Answer's Citation of them is found on that page (#101); fails_when=they are left out, the Passage of the other page that has the same words is given, or the Citation moves; no_claim=what a real model makes of them, which the everyday evaluation measures.
+  // protects=the selected words reach the model right before the Question (the lines of the Minds' names and the Search scope between), with where they are and the Passage of their page to cite, and the Answer's Citation of them is found on that page (#101); fails_when=they are left out, the Passage of the other page that has the same words is given, or the Citation moves; no_claim=what a real model makes of them, which the everyday evaluation measures.
   test("go right before the Question, with the Passage of their page, and are cited there", async () => {
     const { core, model, mind, selectedOn } = await setUp();
     const quote = await selectedOn(2);
@@ -101,7 +101,7 @@ describe("Asking about words selected in a Document", { timeout: 30_000 }, () =>
     expect(passages.length).toBeGreaterThan(0);
     for (const passage of passages) expect(passage.pages).toMatch(/^(?:2|1-2|2-3)$/);
     expect(sent).toMatch(
-      /<\/selected-text>\n\nThe User's Notes: "Tides"\n\nWhat does this mean\?$/,
+      /<\/selected-text>\n\nThe User's Notes: "Tides"\n\nSearch scope: All Documents \(1\)\n\nWhat does this mean\?$/,
     );
     const answer = await answerOf(core, asked.conversation.id, asked.answerId);
     // Found where it was selected; its sentence's judgement is tests/core/answerSupport.test.ts's.

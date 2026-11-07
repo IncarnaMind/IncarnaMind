@@ -300,8 +300,8 @@ export function createMeetings(options: MeetingsOptions) {
   function fillOf(row: MeetingRow): MeetingFill | null {
     const stored = storedFillOf(row);
     if (!stored) return null;
-    const { blocks: _blocks, ...fill } = stored;
-    return fill;
+    const { blocks, ...fill } = stored;
+    return { ...fill, addedBlockIds: [...(blocks ?? [])] };
   }
 
   function toMeeting(row: MeetingRow): Meeting {
@@ -487,6 +487,7 @@ export function createMeetings(options: MeetingsOptions) {
           atMs: stalledFrom,
           durationMs: run.startMs - stalledFrom,
         });
+        transcripts?.captureStalled(current.meetingId, stalledFrom, run.startMs);
       }
     }
     if (source === "system") {
@@ -539,6 +540,15 @@ export function createMeetings(options: MeetingsOptions) {
     // where they arrive, however short the gap, to stay in step with the computer's sound (#846).
     endRun(current, source);
     if (state === "recording" && current.sources[source] === "silent") return;
+    // The microphone's permission prompt holds up the capture of both sources, so its wait is the
+    // Meeting's, and nothing is captured until it is answered.
+    if (source === "microphone") {
+      if (state === "waiting") {
+        transcripts?.waitingForPermission(current.meetingId, meetingTime(current));
+      } else if (current.sources.microphone === "waiting") {
+        transcripts?.permissionAnswered(current.meetingId, meetingTime(current));
+      }
+    }
     setSource(current, source, state);
   }
 

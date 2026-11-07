@@ -2,14 +2,16 @@
  * The first speech-to-text engine (#136): Qwen3-ASR-0.6B, int8, with Silero
  * VAD, both through sherpa-onnx-node (Apache-2.0), on the CPU. Decoding runs
  * on sherpa's own threads (`decodeAsync`), so the process keeps taking audio
- * while a stretch is decoded. The desktop app runs it in a utility process
- * (src/main/transcriberProcess.ts), never on the core's thread.
+ * while a stretch is decoded. Beside it, a small streaming model reads the
+ * live words as they are said (#2662, ADR-0027), on the process's own thread:
+ * sherpa-onnx has no asynchronous call for it. The desktop app runs it in a
+ * utility process (src/main/transcriberProcess.ts), never on the core's thread.
  */
 import type { TranscriptionModelFiles } from "../adapters";
 import { MEETING_SAMPLE_RATE } from "../adapters";
 import { engineModule, exportsOf } from "../engineModules";
 import { contextWords, echoes, hotwordsOf, mayMend, withToldWords } from "./context";
-import type { SpeechEngine, VoiceDetector } from "./speech";
+import type { LiveReading, SpeechEngine, VoiceDetector } from "./speech";
 import { textOfResult, wordsOnly } from "./speechText";
 import { writtenNumbers } from "./spokenNumbers";
 
@@ -28,6 +30,8 @@ const TURN_MIN_SPEECH = 0.25;
 
 /** The engine id the model definitions use (./model). */
 export const QWEN3_ASR = "qwen3-asr";
+/** The kinds of streaming model, as the model definitions name them (./model): a transducer's files are its encoder, decoder, joiner and tokens. */
+export const STREAMING_TRANSDUCER = "streaming-transducer";
 
 /** The speech engine, its voice detector and the speaker pass (./diarization). */
 export const SHERPA = engineModule(
@@ -35,6 +39,7 @@ export const SHERPA = engineModule(
   async () => exportsOf(await import("sherpa-onnx-node")),
   [
     "OfflineRecognizer.createAsync",
+    "OnlineRecognizer",
     "Vad",
     "OfflineSpeakerDiarization",
     "SpeakerEmbeddingExtractor",
@@ -48,7 +53,7 @@ export const SHERPA = engineModule(
 export const SHERPA_ADDON = engineModule(
   "sherpa-onnx-node/addon.js",
   async () => exportsOf(await import("sherpa-onnx-node/addon.js")),
-  ["getOfflineStreamResultAsJson", "offlineStreamSetOption"],
+  ["getOfflineStreamResultAsJson", "getOnlineStreamResultAsJson", "offlineStreamSetOption"],
 );
 
 type Sherpa = Awaited<ReturnType<typeof SHERPA.load>>;
@@ -107,6 +112,88 @@ export async function createSileroDetectors(vadFile: string): Promise<() => Voic
   return () => sileroDetector(sherpa, vadFile, TURN_MIN_SPEECH);
 }
 
+/**
+ * The streaming model's threads. Measured on the FLEURS clips (#2662): one thread read them at
+ * 0.044 of their time, two at 0.039 for nearly three times the CPU.
+ */
+const LIVE_THREADS = 1;
+
+/** A model that writes English in capitals only: its words, as live text, in lower case. */
+const CAPITALS_ONLY = /^[^\p{Ll}]*\p{Lu}[^\p{Ll}]*$/u;
+
+/** Readings by the streaming model of `live`, each of one stretch of speech. */
+async function liveReadings(
+  live: NonNullable<TranscriptionModelFiles["live"]>,
+): Promise<() => LiveReading> {
+  if (live.engine !== STREAMING_TRANSDUCER)
+    throw new Error(`Unknown streaming speech model "${live.engine}".`);
+  const sherpa = await SHERPA.load();
+  const addon = await SHERPA_ADDON.load();
+  const required = (name: string) => {
+    const path = live.files[name];
+    if (!path) throw new Error(`The streaming model has no ${name} file.`);
+    return path;
+  };
+  const recognizer = new sherpa.OnlineRecognizer({
+    featConfig: { sampleRate: MEETING_SAMPLE_RATE, featureDim: 80 },
+    modelConfig: {
+      transducer: {
+        encoder: required("encoder"),
+        decoder: required("decoder"),
+        joiner: required("joiner"),
+      },
+      tokens: required("tokens"),
+      numThreads: LIVE_THREADS,
+      provider: "cpu",
+      debug: 0,
+    },
+    decodingMethod: "greedy_search",
+    // The voice detector ends each stretch, as it does for the final text.
+    enableEndpoint: 0,
+  });
+  return () => {
+    const stream = recognizer.createStream();
+    const words = () => {
+      while (recognizer.isReady(stream)) recognizer.decode(stream);
+      let text: string;
+      try {
+        text = recognizer.getResult(stream).text;
+      } catch (error) {
+        if (!(error instanceof SyntaxError)) throw error;
+        // As for a final reading (#981): sherpa's reader refused the result's JSON.
+        text = textOfResult(addon.getOnlineStreamResultAsJson(recognizer.handle, stream.handle));
+      }
+      return CAPITALS_ONLY.test(text) ? text.toLowerCase() : text;
+    };
+    return {
+      hear(samples) {
+        stream.acceptWaveform({ samples, sampleRate: MEETING_SAMPLE_RATE });
+        return words();
+      },
+      end() {
+        stream.inputFinished();
+        return words();
+      },
+    };
+  };
+}
+
+/** The streaming model's readings, or none if it can't load: live words are then read again as before. */
+async function liveReadingsOrNone(
+  live: NonNullable<TranscriptionModelFiles["live"]>,
+): Promise<(() => LiveReading) | undefined> {
+  try {
+    return await liveReadings(live);
+  } catch (error) {
+    // The process has no logger of its own: its output goes to the app's log.
+    console.warn(
+      "The streaming speech model couldn't load; live words are read again as speech goes on.",
+      error instanceof Error ? error.message : String(error),
+    );
+    return undefined;
+  }
+}
+
 export async function createSherpaEngine(model: TranscriptionModelFiles): Promise<SpeechEngine> {
   if (model.engine !== QWEN3_ASR)
     throw new Error(`Unknown speech-to-text engine "${model.engine}".`);
@@ -135,6 +222,7 @@ export async function createSherpaEngine(model: TranscriptionModelFiles): Promis
   });
 
   const detector = () => sileroDetector(sherpa, model.vad, STRETCH_MIN_SPEECH);
+  const live = model.live && (await liveReadingsOrNone(model.live));
 
   async function read(samples: Float32Array, words: readonly string[]): Promise<string> {
     const stream = recognizer.createStream();
@@ -154,6 +242,7 @@ export async function createSherpaEngine(model: TranscriptionModelFiles): Promis
 
   return {
     detector,
+    ...(live && { live }),
     recognizer: {
       async decode(samples, _stream, given) {
         const words = contextWords(given);

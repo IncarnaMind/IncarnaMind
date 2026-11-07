@@ -1,0 +1,600 @@
+import { describe, expect, test } from "vitest";
+import { CITATION_NODE, GENERATED_MARK } from "../../src/core/api";
+import { type FactPlacementInput, placeFacts } from "../../src/core/meetings/factPlacement";
+import type { MeetingFact } from "../../src/core/meetings/factProtocol";
+import { asGenerated } from "../../src/shared/aiText";
+import { citationNode, type NodeJSON } from "../../src/shared/blockJson";
+
+const checkedCitation = (quote: string, speaker = "Them", from = 127): NodeJSON =>
+  citationNode({
+    passageId: "transcript-passage",
+    documentId: "transcript-document",
+    documentName: "Team call",
+    contentHash: "transcript-version",
+    pageFrom: 1,
+    pageTo: 1,
+    location: { kind: "time", from, to: from + 8, speaker },
+    quote,
+    check: "found",
+    checkReason: null,
+  });
+
+function fact(text: string, changes: Partial<MeetingFact> = {}): MeetingFact {
+  const citations = changes.citations ?? [checkedCitation(text)];
+  const body = asGenerated([
+    { type: "paragraph", content: [{ type: "text", text }, ...citations] },
+  ])[0];
+  if (!body) throw new Error("A fact needs its generated paragraph");
+  return {
+    id: "F1",
+    topic: "Contract",
+    lines: ["L1"],
+    sections: ["actions"],
+    claim: false,
+    supersedes: [],
+    body,
+    citations,
+    ...changes,
+  };
+}
+
+const reference = (topic: string, direction: "above" | "below") => `${topic}: see ${direction}.`;
+
+const input = (
+  facts: readonly MeetingFact[],
+  changes: Partial<FactPlacementInput> = {},
+): FactPlacementInput => ({
+  facts,
+  overview: null,
+  lines: [{ marker: "L1", heading: false, ancestors: [] }],
+  headings: new Map(),
+  claims: new Set<string>(),
+  reference,
+  ...changes,
+});
+
+const textOf = (node: NodeJSON): string =>
+  node.type === "text" ? (node.text ?? "") : (node.content ?? []).map(textOf).join("");
+
+const citationsOf = (node: NodeJSON): NodeJSON[] =>
+  node.type === CITATION_NODE ? [node] : (node.content ?? []).flatMap(citationsOf);
+
+function freeze(value: unknown): void {
+  if (!value || typeof value !== "object" || Object.isFrozen(value)) return;
+  if (value instanceof Map || value instanceof Set) {
+    for (const item of value.values()) freeze(item);
+  } else {
+    for (const item of Object.values(value)) freeze(item);
+  }
+  Object.freeze(value);
+}
+
+describe("Meeting fact placement (#2306)", () => {
+  test.each([
+    { text: "Dana sends the contract by Friday.", topic: "Contract", section: "actions" },
+    { text: "林周五前发送合同。", topic: "合同", section: "actions" },
+    { text: "The final rate is 18%.", topic: "Rate", section: "decisions" },
+    { text: "谁签署合同还没定。", topic: "签署人", section: "questions" },
+  ] as const)(
+    "writes a $section fact whole in its section and points the User's line to it with the same Citations: $topic",
+    ({ text, topic, section }) => {
+      const accepted = fact(text, { topic, sections: [section] });
+      const placed = placeFacts(input([accepted]));
+
+      expect(placed.sections).toEqual(new Map([[section, [accepted.body]]]));
+      expect(placed.sections.get(section)?.[0]).toBe(accepted.body);
+      expect(placed.lines.get("L1")).toHaveLength(1);
+      const pointer = placed.lines.get("L1")?.[0];
+      expect(pointer && textOf(pointer).trim()).toBe(`${topic}: see below.`);
+      expect(pointer && citationsOf(pointer)).toEqual(accepted.citations);
+      expect(pointer?.content?.[0]?.marks).toEqual([{ type: GENERATED_MARK }]);
+      expect(placed.unplaced).toBe(0);
+    },
+  );
+
+  test.each([
+    { text: "Sam will book the room by Monday.", topic: "Room booking" },
+    { text: "小陈周一前预订会议室。", topic: "预订会议室" },
+  ])(
+    "keeps an unrelated commitment, owner and deadline together in Actions: $topic",
+    ({ text, topic }) => {
+      const accepted = fact(text, { lines: [], topic });
+      const placed = placeFacts(input([accepted]));
+
+      expect(placed.lines.size).toBe(0);
+      expect(placed.sections.get("actions")).toEqual([accepted.body]);
+      expect(placed.sections.get("actions")?.[0]).toBe(accepted.body);
+      expect(placed.unplaced).toBe(0);
+    },
+  );
+
+  test.each([
+    { sections: ["summary", "questions", "decisions", "actions"], home: "actions" },
+    { sections: ["summary", "questions", "decisions"], home: "decisions" },
+    { sections: ["summary", "questions"], home: "questions" },
+    { sections: ["summary"], home: "summary" },
+  ] as const)("uses one complete canonical category for $sections", ({ sections, home }) => {
+    const accepted = fact("The agreed detail stays intact.", {
+      lines: [],
+      sections: [...sections],
+    });
+    const placed = placeFacts(input([accepted]));
+
+    expect(placed.sections.get(home)).toEqual([accepted.body]);
+    expect(
+      [...placed.sections.values()].flat().filter((node) => node === accepted.body),
+    ).toHaveLength(1);
+    if (home !== "summary") expect(placed.sections.has("summary")).toBe(false);
+    for (const section of sections) {
+      if (section === home || section === "summary") continue;
+      const node = placed.sections.get(section)?.[0];
+      expect(node && textOf(node).trim()).toBe(
+        section === "questions" ? "Contract: see above." : "Contract: see below.",
+      );
+      expect(node && citationsOf(node)).toEqual(accepted.citations);
+    }
+    expect(placed.unplaced).toBe(0);
+  });
+
+  test("preserves an unknown-line fact in Summary once without multiplying its warning", () => {
+    const first = checkedCitation("The rate stays unchanged.");
+    const second = checkedCitation("The rate is confirmed.", "Me", 208);
+    const accepted = fact("The rate stays unchanged.", {
+      lines: ["L404", "L405"],
+      sections: [],
+      citations: [first, second],
+    });
+    const placed = placeFacts(input([accepted]));
+
+    expect(placed.lines.size).toBe(0);
+    expect(placed.sections).toEqual(new Map([["summary", [accepted.body]]]));
+    expect(placed.unplaced).toBe(1);
+  });
+
+  test("ignores an invalid ranked line while its valid successor still gets the fact or its pointer", () => {
+    const background = fact("The fee stays at 18%.", {
+      lines: ["L404", "L1"],
+      sections: ["summary"],
+    });
+    const kept = placeFacts(input([background]));
+
+    expect(kept.lines).toEqual(new Map([["L1", [background.body]]]));
+    expect(kept.sections.size).toBe(0);
+    expect(kept.unplaced).toBe(1);
+
+    const action = fact("Dana sends the contract by Friday.", { lines: ["L404", "L1"] });
+    const pointed = placeFacts(input([action]));
+
+    expect(pointed.sections).toEqual(new Map([["actions", [action.body]]]));
+    expect(pointed.lines.get("L1")).toHaveLength(1);
+    const pointer = pointed.lines.get("L1")?.[0];
+    expect(pointer && textOf(pointer).trim()).toBe("Contract: see below.");
+    expect(pointed.unplaced).toBe(1);
+  });
+
+  test("uses a requested category, not a heading line, as the full fallback home", () => {
+    const accepted = fact("Lin sends the file tomorrow.", { lines: ["H73", "L404"] });
+    const placed = placeFacts(
+      input([accepted], {
+        lines: [{ marker: "H73", heading: true, ancestors: [] }],
+      }),
+    );
+
+    expect(placed.lines.size).toBe(0);
+    expect(placed.sections.get("actions")).toEqual([accepted.body]);
+    expect(placed.unplaced).toBe(1);
+  });
+
+  test("preserves a fact with no home in the Summary catchall", () => {
+    const accepted = fact("This detail must not disappear.", { lines: [], sections: [] });
+    const placed = placeFacts(input([accepted]));
+
+    expect(placed.sections).toEqual(new Map([["summary", [accepted.body]]]));
+    expect(placed.unplaced).toBe(1);
+  });
+
+  test("respects model ranking while references follow the actual earlier and later User lines", () => {
+    const accepted = fact("The final rate is 18%.", {
+      lines: ["L99", "L8", "L30", "L8"],
+      sections: ["summary"],
+    });
+    const placed = placeFacts(
+      input([accepted], {
+        lines: [
+          { marker: "L8", heading: false, ancestors: [] },
+          { marker: "L99", heading: false, ancestors: [] },
+          { marker: "L30", heading: false, ancestors: [] },
+        ],
+      }),
+    );
+
+    expect(placed.lines.get("L99")).toEqual([accepted.body]);
+    const earlier = placed.lines.get("L8")?.[0];
+    const later = placed.lines.get("L30")?.[0];
+    expect(placed.lines.get("L8")).toHaveLength(1);
+    expect(earlier && textOf(earlier).trim()).toBe("Contract: see below.");
+    expect(later && textOf(later).trim()).toBe("Contract: see above.");
+    expect(earlier && citationsOf(earlier)).toEqual(accepted.citations);
+    expect(later && citationsOf(later)).toEqual(accepted.citations);
+    expect(placed.sections.size).toBe(0);
+  });
+
+  test("a decision answering a line inside its routed heading is written whole there, and the User's other lines point up or down to it", () => {
+    const accepted = fact("The final rate is 18%.", {
+      lines: ["L99", "L8", "L30"],
+      sections: ["decisions"],
+    });
+    const placed = placeFacts(
+      input([accepted], {
+        lines: [
+          { marker: "L8", heading: false, ancestors: [] },
+          { marker: "H7", heading: true, ancestors: [] },
+          { marker: "L99", heading: false, ancestors: ["H7"] },
+          { marker: "H12", heading: true, ancestors: [] },
+          { marker: "L30", heading: false, ancestors: ["H12"] },
+        ],
+        headings: new Map([["decisions", "H7"]]),
+      }),
+    );
+
+    expect(placed.sections.size).toBe(0);
+    expect(placed.lines.get("L99")).toEqual([accepted.body]);
+    const pointers = new Map(
+      [...placed.lines]
+        .filter(([marker]) => marker !== "L99")
+        .map(([marker, nodes]) => [marker, nodes.map((node) => textOf(node).trim())]),
+    );
+    expect(pointers).toEqual(
+      new Map([
+        ["L8", ["Contract: see below."]],
+        ["L30", ["Contract: see above."]],
+      ]),
+    );
+    for (const nodes of placed.lines.values()) {
+      expect(nodes.flatMap(citationsOf)).toEqual(accepted.citations);
+    }
+  });
+
+  test("an arbitrary routed category spans every descendant heading, so a line deep inside it is filled out in place", () => {
+    const accepted = fact("林周五前发送合同。");
+    const placed = placeFacts(
+      input([accepted], {
+        lines: [
+          { marker: "H73", heading: true, ancestors: [] },
+          { marker: "H8", heading: true, ancestors: ["H73"] },
+          { marker: "H204", heading: true, ancestors: ["H73", "H8"] },
+          { marker: "L1", heading: false, ancestors: ["H73", "H8", "H204"] },
+        ],
+        headings: new Map([["actions", "H73"]]),
+      }),
+    );
+
+    expect(placed.lines.get("L1")).toEqual([accepted.body]);
+    expect(placed.sections.size).toBe(0);
+  });
+
+  test("a full fact in an ordinary line needs no Summary reference even under a different heading", () => {
+    const accepted = fact("This is the final background detail.", { sections: ["summary"] });
+    const placed = placeFacts(
+      input([accepted], {
+        lines: [
+          { marker: "H11", heading: true, ancestors: [] },
+          { marker: "L1", heading: false, ancestors: ["H11"] },
+        ],
+      }),
+    );
+
+    expect(placed.lines.get("L1")).toEqual([accepted.body]);
+    expect(placed.sections.size).toBe(0);
+  });
+
+  test("a line after a routed category that ends earlier points above to the whole fact", () => {
+    const accepted = fact("Dana sends the contract by Friday.");
+    const placed = placeFacts(
+      input([accepted], {
+        lines: [
+          { marker: "H7", heading: true, ancestors: [] },
+          { marker: "L8", heading: false, ancestors: ["H7"] },
+          { marker: "H12", heading: true, ancestors: [] },
+          { marker: "L1", heading: false, ancestors: ["H12"] },
+        ],
+        headings: new Map([["actions", "H7"]]),
+      }),
+    );
+
+    expect(placed.sections).toEqual(new Map([["actions", [accepted.body]]]));
+    expect(placed.lines.get("L1")).toHaveLength(1);
+    const pointer = placed.lines.get("L1")?.[0];
+    expect(pointer && textOf(pointer).trim()).toBe("Contract: see above.");
+    expect(pointer && citationsOf(pointer)).toEqual(accepted.citations);
+  });
+
+  test("an unrelated nested heading does not cover a routed category", () => {
+    const accepted = fact("The fee is 18%.", { sections: ["summary"] });
+    const placed = placeFacts(
+      input([accepted], {
+        lines: [
+          { marker: "H7", heading: true, ancestors: [] },
+          { marker: "H8", heading: true, ancestors: ["H7"] },
+          { marker: "L1", heading: false, ancestors: ["H7", "H8"] },
+          { marker: "H12", heading: true, ancestors: [] },
+        ],
+        headings: new Map([["claims", "H12"]]),
+        claims: new Set([accepted.id]),
+      }),
+    );
+
+    expect(placed.lines.get("L1")).toEqual([accepted.body]);
+    const claim = placed.sections.get("claims")?.[0];
+    expect(claim && textOf(claim).trim()).toBe("Contract: see above.");
+  });
+
+  test("category-to-category references follow routed positions instead of category order", () => {
+    const accepted = fact("Dana sends the contract by Friday.", {
+      lines: [],
+      sections: ["decisions", "questions", "actions"],
+    });
+    const placed = placeFacts(
+      input([accepted], {
+        lines: [
+          { marker: "H7", heading: true, ancestors: [] },
+          { marker: "L8", heading: false, ancestors: ["H7"] },
+          { marker: "H12", heading: true, ancestors: [] },
+          { marker: "L1", heading: false, ancestors: ["H12"] },
+        ],
+        headings: new Map([
+          ["questions", "H7"],
+          ["actions", "H12"],
+        ]),
+      }),
+    );
+
+    expect(placed.sections.get("actions")).toEqual([accepted.body]);
+    const question = placed.sections.get("questions")?.[0];
+    const decision = placed.sections.get("decisions")?.[0];
+    expect(question && textOf(question).trim()).toBe("Contract: see below.");
+    expect(decision && textOf(decision).trim()).toBe("Contract: see above.");
+  });
+
+  test("a category's full paragraph also covers a routed ancestor category", () => {
+    const accepted = fact("Dana sends the contract by Friday.", {
+      lines: [],
+      sections: ["actions", "decisions"],
+    });
+    const placed = placeFacts(
+      input([accepted], {
+        lines: [
+          { marker: "H7", heading: true, ancestors: [] },
+          { marker: "H12", heading: true, ancestors: ["H7"] },
+          { marker: "L1", heading: false, ancestors: ["H7", "H12"] },
+        ],
+        headings: new Map([
+          ["decisions", "H7"],
+          ["actions", "H12"],
+        ]),
+      }),
+    );
+
+    expect(placed.sections).toEqual(new Map([["actions", [accepted.body]]]));
+  });
+
+  test("repeated input IDs create only one full fact, one pointer per line and one Claims reference", () => {
+    const citations = [
+      checkedCitation("I will send the contract by Friday.", "Dana", 311),
+      checkedCitation("Friday is confirmed.", "Me", 328),
+    ];
+    const accepted = fact("Dana sends the contract by Friday.", {
+      lines: ["L1", "L2"],
+      sections: ["actions", "actions"],
+      citations,
+    });
+    const placed = placeFacts(
+      input([accepted, accepted, structuredClone(accepted)], {
+        lines: [
+          { marker: "L1", heading: false, ancestors: [] },
+          { marker: "L2", heading: false, ancestors: [] },
+        ],
+        claims: new Set([accepted.id, "F404"]),
+      }),
+    );
+
+    expect(placed.sections.get("actions")).toEqual([accepted.body]);
+    for (const marker of ["L1", "L2"]) {
+      expect(placed.lines.get(marker)).toHaveLength(1);
+      const pointer = placed.lines.get(marker)?.[0];
+      expect(pointer && textOf(pointer).trim()).toBe("Contract: see below.");
+    }
+    expect(placed.sections.get("claims")).toHaveLength(1);
+    const claim = placed.sections.get("claims")?.[0];
+    expect(claim && textOf(claim).trim()).toBe("Contract: see above.");
+    expect(claim && citationsOf(claim)).toEqual(citations);
+    expect(claim && citationsOf(claim)[0]).toBe(citations[0]);
+    expect(claim && citationsOf(claim)[1]).toBe(citations[1]);
+    expect(placed.unplaced).toBe(0);
+  });
+
+  test("a repeated invalid-home ID counts as one unplaced fact, not one per input or Citation", () => {
+    const accepted = fact("保留这条事实。", { lines: ["L404"], sections: [] });
+    const placed = placeFacts(
+      input([accepted, structuredClone(accepted), accepted], {
+        claims: new Set([accepted.id]),
+      }),
+    );
+
+    expect(placed.sections.get("summary")).toEqual([accepted.body]);
+    expect(placed.sections.get("claims")).toHaveLength(1);
+    expect(placed.unplaced).toBe(1);
+  });
+
+  test("the Claims checklist comes from checked IDs rather than the model's claim flag", () => {
+    const accepted = fact("The fee is 18%.", { claim: true });
+    const placed = placeFacts(input([accepted]));
+
+    expect(placed.sections.has("claims")).toBe(false);
+  });
+
+  test.each([
+    { home: "Actions", lines: [], sections: ["actions"] },
+    { home: "User's line", lines: ["L1"], sections: ["summary"] },
+  ] as const)(
+    "an earlier Claims heading points below to the whole fact in its $home",
+    ({ lines, sections }) => {
+      const accepted = fact("The fee is 18%.", { lines: [...lines], sections: [...sections] });
+      const placed = placeFacts(
+        input([accepted], {
+          lines: [
+            { marker: "H7", heading: true, ancestors: [] },
+            { marker: "L8", heading: false, ancestors: ["H7"] },
+            { marker: "H12", heading: true, ancestors: [] },
+            { marker: "L1", heading: false, ancestors: ["H12"] },
+          ],
+          headings: new Map([
+            ["claims", "H7"],
+            ["actions", "H12"],
+          ]),
+          claims: new Set([accepted.id]),
+        }),
+      );
+
+      const claim = placed.sections.get("claims")?.[0];
+      expect(claim && textOf(claim).trim()).toBe("Contract: see below.");
+      expect(claim && citationsOf(claim)).toEqual(accepted.citations);
+    },
+  );
+
+  test.each([
+    { home: "Actions", lines: [], sections: ["actions"] },
+    { home: "User's line", lines: ["L1"], sections: ["summary"] },
+  ] as const)(
+    "no Claims stub is added around the whole fact in a descendant $home",
+    ({ home, lines, sections }) => {
+      const accepted = fact("费用为 18%。", { lines: [...lines], sections: [...sections] });
+      const placed = placeFacts(
+        input([accepted], {
+          lines: [
+            { marker: "H7", heading: true, ancestors: [] },
+            { marker: "H12", heading: true, ancestors: ["H7"] },
+            { marker: "L1", heading: false, ancestors: ["H7", "H12"] },
+          ],
+          headings: new Map([
+            ["claims", "H7"],
+            ["actions", "H12"],
+          ]),
+          claims: new Set([accepted.id]),
+        }),
+      );
+
+      expect(placed.sections.has("claims")).toBe(false);
+      expect(home === "Actions" ? placed.sections.get("actions") : placed.lines.get("L1")).toEqual([
+        accepted.body,
+      ]);
+    },
+  );
+
+  test.each([
+    ["Dana sends the file Friday.", "Sam does not send the file Friday."],
+    ["林周五发送文件。", "陈周五不发送文件。"],
+    ["Dana sends Reports/Q3.csv on Friday.", "Sam sends reports/q3.csv on Friday."],
+  ])(
+    "shared cues and dates never merge independent accepted facts: %s",
+    (firstText, secondText) => {
+      const citations = [checkedCitation(`${firstText} ${secondText}`, "Dana", 614)];
+      const first = fact(firstText, { id: "F1", lines: [], citations });
+      const second = fact(secondText, { id: "F2", lines: [], citations });
+      const placed = placeFacts(input([first, second]));
+
+      expect(placed.sections.get("actions")).toEqual([first.body, second.body]);
+      expect(placed.sections.get("actions")?.map(textOf)).toEqual([firstText, secondText]);
+    },
+  );
+
+  test.each([
+    {
+      topic: "# **[Contract](javascript:alert(1))** [^99] <img>",
+      text: "Dana sends it Friday.",
+      chinese: false,
+    },
+    {
+      topic: "# **[合同](javascript:alert(1))** [^99] <图片>",
+      text: "林周五发送。",
+      chinese: true,
+    },
+  ])(
+    "topics are plain generated text, never parsed as Markdown or Citations: $topic",
+    ({ topic, text, chinese }) => {
+      const accepted = fact(text, { topic });
+      const placed = placeFacts(
+        input([accepted], {
+          reference: chinese
+            ? (name, direction) => `${name}：详见${direction === "above" ? "上" : "下"}文。`
+            : reference,
+        }),
+      );
+
+      const pointer = placed.lines.get("L1")?.[0];
+      const expected = chinese ? `${topic}：详见下文。 ` : `${topic}: see below. `;
+      expect(pointer?.type).toBe("paragraph");
+      expect(pointer?.content).toEqual([
+        { type: "text", text: expected, marks: [{ type: GENERATED_MARK }] },
+        ...accepted.citations,
+      ]);
+    },
+  );
+
+  test.each([
+    "The call reviewed the contract and resolved the release plan.",
+    "本次通话讨论合同并确定发布计划。",
+  ])("prepends the actual generated overview before residual Summary facts: %s", (overviewText) => {
+    const overview = fact(overviewText);
+    const residual = fact("The fee stays at 18%.", { id: "F2", lines: [], sections: ["summary"] });
+    const related = fact("Dana sends the contract Friday.");
+    const placed = placeFacts(
+      input([related, residual], {
+        overview: { body: overview.body, citations: overview.citations },
+      }),
+    );
+
+    expect(placed.sections.get("summary")).toEqual([overview.body, residual.body]);
+    expect(placed.sections.get("summary")?.[0]).toBe(overview.body);
+    expect(placed.sections.get("summary")?.map(textOf)).toEqual([
+      overviewText,
+      "The fee stays at 18%.",
+    ]);
+  });
+
+  test("an overview survives without facts, and empty input creates no generic Summary", () => {
+    const overview = fact("The call reviewed the release plan.");
+    expect(
+      placeFacts(
+        input([], {
+          overview: { body: overview.body, citations: overview.citations },
+        }),
+      ).sections,
+    ).toEqual(new Map([["summary", [overview.body]]]));
+    expect(placeFacts(input([]))).toEqual({ lines: new Map(), sections: new Map(), unplaced: 0 });
+  });
+
+  test("placement does not mutate accepted bodies, Citation attrs, routes, IDs or User line order", () => {
+    const accepted = fact("林周五前发送合同。", {
+      lines: ["L2", "L1"],
+      sections: ["summary", "actions", "decisions"],
+    });
+    const request = input([accepted, accepted], {
+      lines: [
+        { marker: "H7", heading: true, ancestors: [] },
+        { marker: "L1", heading: false, ancestors: ["H7"] },
+        { marker: "H12", heading: true, ancestors: [] },
+        { marker: "L2", heading: false, ancestors: ["H12"] },
+      ],
+      headings: new Map([["actions", "H7"]]),
+      claims: new Set([accepted.id]),
+    });
+    const before = structuredClone({ ...request, reference: null });
+    freeze(request);
+    const placed = placeFacts(request);
+
+    expect({ ...request, reference: null }).toEqual(before);
+    expect(placeFacts(request)).toEqual(placed);
+    expect(placed.sections.get("actions")?.[0]).toBe(accepted.body);
+  });
+});

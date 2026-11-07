@@ -87,9 +87,9 @@ export function statementBlocks(
   const t = (key: MessageKey, params?: Record<string, string | number>) =>
     translate(language, key, params);
   const number = new Intl.NumberFormat(language === "zh-CN" ? "zh-CN" : "en").format;
-  const { uses, sections, removed, citations, sentences, checked, unread } = figures;
+  const { uses, sections, removed, citations, sentences, carried, checked, unread } = figures;
   const citationTotal = totalCitations(citations);
-  const sentenceTotal = totalSentences(sentences);
+  const sentenceTotal = totalSentences(sentences) + totalSentences(carried);
   const intro = paragraph(t("aiStatement.intro", { date: formatDate(date, language) }));
   const note = paragraph(t("aiStatement.note"));
 
@@ -184,6 +184,33 @@ export function statementBlocks(
           ),
           ...unreadPartsCounts(unread, t).map(paragraph),
         ];
+  /** Sentences checked one way, under the line that says how, by result and then one by one. */
+  const sentenceGroup = (
+    intro: MessageKey,
+    counts: SentenceCounts,
+    rows: readonly CheckedSentence[],
+  ): NodeJSON[] =>
+    totalSentences(counts) === 0
+      ? []
+      : [
+          paragraph(t(intro)),
+          table(
+            [t("aiStatement.citations.column.result"), t("aiStatement.sentences.column.count")],
+            resultRows(counts, SENTENCE_ROWS, []),
+            1,
+          ),
+          paragraph(t("aiStatement.sentences.list.intro", { count: SENTENCE_WORDS })),
+          table(
+            [
+              t("aiStatement.sentences.column.sentence"),
+              t("aiStatement.citations.column.result"),
+              t("aiStatement.uses.column.model"),
+              t("aiStatement.sentences.column.checked"),
+            ],
+            rows.map(checkedRow),
+            4,
+          ),
+        ];
   const checksPart =
     citationTotal === 0 && sentenceTotal === 0
       ? [paragraph(t("aiStatement.checks.none"))]
@@ -205,25 +232,15 @@ export function statementBlocks(
           ...(sentenceTotal === 0
             ? []
             : [
-                paragraph(t("aiStatement.sentences.intro")),
-                table(
-                  [
-                    t("aiStatement.citations.column.result"),
-                    t("aiStatement.sentences.column.count"),
-                  ],
-                  resultRows(sentences, SENTENCE_ROWS, []),
-                  1,
+                ...sentenceGroup(
+                  "aiStatement.sentences.intro",
+                  sentences,
+                  checked.filter((each) => !each.carried),
                 ),
-                paragraph(t("aiStatement.sentences.list.intro", { count: SENTENCE_WORDS })),
-                table(
-                  [
-                    t("aiStatement.sentences.column.sentence"),
-                    t("aiStatement.citations.column.result"),
-                    t("aiStatement.uses.column.model"),
-                    t("aiStatement.sentences.column.checked"),
-                  ],
-                  checked.map(checkedRow),
-                  4,
+                ...sentenceGroup(
+                  "aiStatement.sentences.carried.intro",
+                  carried,
+                  checked.filter((each) => each.carried),
                 ),
                 ...unreadPart,
               ]),

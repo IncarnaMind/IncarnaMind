@@ -14,6 +14,9 @@
  * 3. the local decision models installed in Ollama (Tev1, Clef-Flash);
  * 4. the User's chat model on this computer.
  *
+ * Never a decision model on another host (#1907): a key given for chat doesn't cover sending
+ * Documents, so one starts only when the User chooses it with its sends line.
+ *
  * In local mode it picks only models on this computer. On the Organize
  * evaluation a cloud provider's cheap model tagged better than any local
  * route, and Tev1 4B filed 71 of 75 text Documents to qwen3.5:4b's 59.
@@ -21,6 +24,12 @@
 import type { ChatModelChoice, ChatProvider, ExternalService } from "../api";
 import { priceFor } from "../cost/price";
 import { catalogProvider, catalogRoleModel } from "../providers/catalog";
+import {
+  DECISION_HOST_ENTRIES,
+  type DecisionHost,
+  type DecisionModel,
+  decisionModelOf,
+} from "../providers/catalog/decisions";
 import type { DescribedModel } from "../providers/chat";
 import { serviceForUrl } from "../providers/kinds";
 import { hasOllamaModel } from "../providers/ollama";
@@ -39,6 +48,15 @@ import type {
 const TEXT_DECISION_MODELS = ["tev1:4b", "tev1:0.8b"] as const;
 const PAGE_DECISION_MODEL = "clef-flash";
 const DECISION_MODELS = [...TEXT_DECISION_MODELS, PAGE_DECISION_MODEL] as const;
+/**
+ * The other decision models Ollama serves on this computer, offered when installed: Cloudflare's
+ * Clef and Perplexity's Decider (`pplx-decider` may be v1, not v1.2). Automatic never picks them.
+ */
+const OTHER_LOCAL_DECISION_MODELS: Readonly<Record<string, string>> = {
+  clef: "Clef",
+  "pplx-decider": "Decider",
+  "pplx-decider-flash": "Decider Flash",
+};
 
 /** A typical Document's tagging request, in tokens: an excerpt with the Folders and Tags, and a short reply. */
 const TYPICAL_REQUEST = { input: 1_500, output: 25 };
@@ -128,6 +146,16 @@ export function costPer100(price: DescribedModel["price"]): TaggingCost {
   return { kind: "estimate", currency: price.currency, amount };
 }
 
+/** About what 100 Documents cost with a decision model, billed for input only. */
+const hostCost = (model: DecisionModel | undefined): TaggingCost =>
+  model?.inputPerMillion == null
+    ? { kind: "unknown" }
+    : {
+        kind: "estimate",
+        currency: "USD",
+        amount: (TYPICAL_REQUEST.input * model.inputPerMillion * 100) / 1e6,
+      };
+
 /** Ollama's decision models picked per Document ("auto"). */
 const AUTO_DECISION_NAME = "Tev1, Clef-Flash";
 
@@ -135,7 +163,8 @@ const AUTO_DECISION_NAME = "Tev1, Clef-Flash";
 const decisionModelName = (model: string) =>
   model === PAGE_DECISION_MODEL
     ? "Clef-Flash"
-    : model.replace(/^tev1:(.+)$/i, (_, size: string) => `Tev1 ${size.toUpperCase()}`);
+    : (OTHER_LOCAL_DECISION_MODELS[model.replace(/:latest$/, "")] ??
+      model.replace(/^tev1:(.+)$/i, (_, size: string) => `Tev1 ${size.toUpperCase()}`));
 
 export interface TaggingOptions {
   setting(): LibraryClassifier;
@@ -147,6 +176,13 @@ export interface TaggingOptions {
     quickTasksModel(answers: ChatModelChoice): ChatModelChoice | null;
   };
   jev: { enabled(): boolean; service(): ExternalService | null };
+  decisions: {
+    /** The hosts whose key (and account) are there, in the catalog's order. */
+    ready(): Promise<DecisionHost[]>;
+    service(host: DecisionHost): ExternalService | null;
+    /** The models a host offers now: the measured ones first, then any its listing adds. */
+    models(host: DecisionHost): Promise<DecisionModel[]>;
+  };
   localOnly(): boolean;
   /** Where Ollama is when no Ollama provider is saved. */
   ollamaUrl: string;
@@ -160,7 +196,7 @@ export interface TaggingOptions {
 export type Tagging = ReturnType<typeof createTagging>;
 
 export function createTagging(options: TaggingOptions) {
-  const { chat, jev } = options;
+  const { chat, jev, decisions } = options;
   /** What Ollama said it has installed, by address: when it was asked, in order and in time. */
   const lists = new Map<string, { order: number; at: number; models: readonly string[] }>();
   let listsAsked = 0;
@@ -331,6 +367,24 @@ export function createTagging(options: TaggingOptions) {
     cost: { kind: "unknown" },
   };
 
+  /** A model on a decision model host as the Tagging section lists it. */
+  const hostOption = (
+    host: DecisionHost,
+    modelId: string,
+    model: DecisionModel | undefined = decisionModelOf(host, modelId),
+  ): TaggingModelOption => {
+    return {
+      classifier: { kind: "decision", host, modelId },
+      group: "keys",
+      name: model?.name ?? modelId,
+      provider: DECISION_HOST_ENTRIES[host].name,
+      goodForTagging: true,
+      decisionModel: true,
+      likelihoods: true,
+      cost: hostCost(model),
+    };
+  };
+
   /** The option a classifier is: `goodForTagging` when it was picked for tagging. */
   function optionOf(
     classifier: TaggingClassifier,
@@ -339,6 +393,8 @@ export function createTagging(options: TaggingOptions) {
     switch (classifier.kind) {
       case "jev":
         return JEV_OPTION;
+      case "decision":
+        return hostOption(classifier.host, classifier.modelId);
       case "chat":
         return chatOption(classifier.choice, goodForTagging);
       case "auto":
@@ -350,16 +406,23 @@ export function createTagging(options: TaggingOptions) {
 
   const serviceOf = (classifier: TaggingClassifier): ExternalService | null => {
     if (classifier.kind === "jev") return jev.service();
+    if (classifier.kind === "decision") return decisions.service(classifier.host);
     if (classifier.kind === "chat") return chat.describeModel(classifier.choice)?.service ?? null;
     return serviceForUrl(classifier.baseUrl);
   };
 
   /** Where a saved choice sends its requests; unknown when what it names isn't there. */
-  function destinationOf(classifier: TaggingClassifier): TaggingDestination {
+  function destinationOf(
+    classifier: TaggingClassifier,
+    readyHosts: readonly DecisionHost[],
+  ): TaggingDestination {
     if (classifier.kind === "chat" && !chat.describeModel(classifier.choice)) {
       return { kind: "unknown" };
     }
     if (classifier.kind === "jev" && !jev.enabled()) return { kind: "unknown" };
+    if (classifier.kind === "decision" && !readyHosts.includes(classifier.host)) {
+      return { kind: "unknown" };
+    }
     const service = serviceOf(classifier);
     return service ? { kind: "service", service } : { kind: "here" };
   }
@@ -401,6 +464,13 @@ export function createTagging(options: TaggingOptions) {
         }
       };
       if (jev.enabled()) add(JEV_OPTION);
+      // Every host is a cloud service: none in Local mode.
+      const readyHosts = await decisions.ready();
+      if (!options.localOnly()) {
+        for (const host of readyHosts) {
+          for (const model of await decisions.models(host)) add(hostOption(host, model.id, model));
+        }
+      }
       for (const provider of providers) {
         const local = provider.service === null && provider.kind !== "chatgpt";
         const on = (modelId: string | undefined) =>
@@ -438,6 +508,11 @@ export function createTagging(options: TaggingOptions) {
             ),
           );
         }
+        for (const [model, name] of Object.entries(OTHER_LOCAL_DECISION_MODELS)) {
+          if (hasOllamaModel(models, model)) {
+            add(decisionOption({ kind: "ollama", baseUrl, modelId: model }, name));
+          }
+        }
       }
       const order: Record<TaggingModelGroup, number> = { keys: 0, plan: 1, local: 2 };
       // By group, as the chip groups them; in each, the models picked for tagging first.
@@ -456,7 +531,7 @@ export function createTagging(options: TaggingOptions) {
         saved:
           saved.kind === "automatic"
             ? null
-            : { classifier: saved, destination: destinationOf(saved) },
+            : { classifier: saved, destination: destinationOf(saved, readyHosts) },
       };
     },
   };

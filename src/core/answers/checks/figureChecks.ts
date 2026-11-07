@@ -915,7 +915,9 @@ export function oneVerdict(result: ClaimCheckResult): ClaimCheckResult {
  * A sentence's figure results when the reply's Roles line gives the sentence to someone its
  * Passage doesn't name (#1766): a figure that agreed or disagreed with that Passage's number is
  * Unsupported, since the number is someone else's, and so are the sentence's other words, whatever
- * the remainder's own roles say.
+ * the remainder's own roles say. An Analysis's figure, which no Passage holds, is Unsupported only
+ * for another figure's name (#2378): when its item names it, the reply is at odds with itself and
+ * the figure is Not checked (#2584).
  */
 export function aboutSomeoneElse(result: ClaimCheckResult): ClaimCheckResult {
   const { figures } = result;
@@ -937,7 +939,16 @@ export function aboutSomeoneElse(result: ClaimCheckResult): ClaimCheckResult {
   const rows = figures.map(
     (figure): FigureCheckResult => ({
       ...figure,
-      result: unbacked(figure.result),
+      result:
+        figure.calculated?.figure.analysis && figure.result.verdict === "supported"
+          ? {
+              verdict: "not-checked",
+              reason: "malformed",
+              detail: null,
+              versions: figure.result.versions,
+              excluded: figure.result.excluded,
+            }
+          : unbacked(figure.result),
     }),
   );
   const remainder = result.remainder ? unbacked(result.remainder) : result.remainder;

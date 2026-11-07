@@ -7,6 +7,7 @@
  */
 
 import { decodePart } from "../../documents/formats/docxImport";
+import { relationshipsPartOf } from "../../documents/formats/officePackage";
 import { descendants, parseXml, type XmlElement } from "../../documents/formats/xml";
 import {
   type Deflate,
@@ -62,12 +63,6 @@ export interface PartText {
   text: string;
   root: XmlElement;
 }
-
-/** Where a part's relationships are: "word/document.xml" → "word/_rels/document.xml.rels". */
-export const relationshipsPartOf = (part: string): string => {
-  const slash = part.lastIndexOf("/");
-  return `${part.slice(0, slash + 1)}_rels/${part.slice(slash + 1)}.rels`;
-};
 
 export class WordPackageWriter {
   private readonly read = new Map<string, PartText>();

@@ -183,7 +183,7 @@ test("a change in a Mind not in front names it, with Open and Undo, beside the l
   );
   const titles = answer.getByTestId("mind-changes-title");
   await expect(titles).toHaveText([
-    "Wrote 1 paragraph in “Project plan”",
+    "Added 1 paragraph to “Project plan”",
     "Wrote “Fieldwork plan”",
   ]);
   await expect(window.getByTestId("proposals-count")).toHaveCount(0);
@@ -376,3 +376,52 @@ test("a table the assistant writes into a Mind is a table, and its line counts i
   await expect(kept).toHaveText("· 1 处出处未关联，显示为文字");
   await screenshot(window, "assistant-table-zh");
 });
+
+// Playwright has no test.each: one test per language and width (#2356).
+for (const [language, width, lines, asked, card, said] of [
+  [
+    "en",
+    1440,
+    [
+      "Tides rise twice a day along this coast.",
+      "Parking: the tenant may use six spaces. Each costs 800 a month.",
+      "The harbour office posts the times each week.",
+      "Visitors sign in at the front desk before they walk down to the pier.",
+    ],
+    "delete the second paragraph of the note",
+    "Removed the paragraph “Parking” (2 sentences) from “Harbour notes”",
+    "Removed the paragraph “Parking” (2 sentences)",
+  ],
+  [
+    "zh-CN",
+    900,
+    [
+      "这一带海岸每天涨潮两次。",
+      "停车位：承租方可使用 6 个车位。每个车位每月 800 元。",
+      "港务处每周公布潮汐时间。",
+      "访客走到码头之前，请先在前台登记姓名和来访事由。",
+    ],
+    "删除笔记的第二段",
+    "从“Harbour notes”中删除了“停车位”一段（2 句）",
+    "删除了“停车位”一段（2 句）",
+  ],
+] as const) {
+  test(`an edit asked only to take text out says what went on its card and the Note's line, and Undo puts it back (${language}, ${width} px)`, async () => {
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    await dismissChatSetup(window);
+    await useLocalChatModel(window);
+    await setLanguage(window, language);
+    await setWindowSize(app, window, width, 900);
+    await writeMind(window, "Harbour notes", [...lines]);
+    const editor = window.getByTestId("mind-editor");
+
+    const answer = await askInAssistant(window, asked);
+    await expect(answer.getByTestId("mind-changes-title")).toHaveText(card);
+    await expect(editor.locator("p")).toHaveText([lines[0], lines[2], lines[3]]);
+    await expect(editor.getByTestId("applied-count")).toHaveText(said);
+    await screenshot(window, `removed-${language}-${width}`);
+
+    await pointAndClick(window, answer.getByTestId("mind-changes-undo"));
+    await expect(editor.locator("p")).toHaveText([...lines]);
+  });
+}

@@ -264,6 +264,14 @@ li > p {
   margin-bottom: 3pt;
 }
 
+/*
+ * Each numbered item's marker as the editor draws it (#2334), as its own ::marker: Chromium draws
+ * a positioned box after the text around it, so the PDF would read "Clause one.1." (#2663).
+ */
+ol.numbered > li:not(.continued)::marker {
+  content: attr(data-marker) " ";
+}
+
 li.continued {
   list-style: none;
 }

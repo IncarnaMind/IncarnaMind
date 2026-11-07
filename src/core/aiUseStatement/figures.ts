@@ -113,6 +113,8 @@ export interface CheckedSentence {
   model: string | null;
   /** When it was checked, ISO 8601 UTC; null when no check ran. */
   checkedAt: string | null;
+  /** Its check came with the Answer it was written from (#2313), not one the author ran. */
+  carried: boolean;
 }
 
 export interface AiUseFigures {
@@ -124,7 +126,10 @@ export interface AiUseFigures {
   /** Pieces of AI text taken out of the Mind again. */
   removed: number;
   citations: CitationCounts;
+  /** The checks the author ran, by result. */
   sentences: SentenceCounts;
+  /** The checks that came with the Answers the sentences were written from, by result. */
+  carried: SentenceCounts;
   checked: CheckedSentence[];
   unread: UnreadFile[];
 }
@@ -321,14 +326,16 @@ export function readFigures(sources: FigureSources): AiUseFigures {
     else section.kept++;
   }
 
-  const sentences: SentenceCounts = {
+  const counts = (): SentenceCounts => ({
     supported: 0,
     unsupported: 0,
     notFound: 0,
     contradicted: 0,
     needsRecheck: 0,
     notChecked: 0,
-  };
+  });
+  const sentences = counts();
+  const carried = counts();
   const versions = new Map(documents.map((document) => [document.id, document.contentHash]));
   const { figureContexts, figured } = figuresNow(fragment);
   const checked: CheckedSentence[] = [];
@@ -346,7 +353,8 @@ export function readFigures(sources: FigureSources): AiUseFigures {
     });
     const result = sentenceResultOf(shown, check, cited.length);
     if (!result) continue;
-    sentences[result === "changed" ? "needsRecheck" : result]++;
+    const fromAnswer = check.fromAnswer !== undefined;
+    (fromAnswer ? carried : sentences)[result === "changed" ? "needsRecheck" : result]++;
     const quoted = firstWords(comparableSentence(sentence), SENTENCE_WORDS);
     const ran = result !== "notChecked";
     checked.push({
@@ -354,13 +362,14 @@ export function readFigures(sources: FigureSources): AiUseFigures {
       result,
       model: ran ? sources.modelName(check.providerId, check.modelId) : null,
       checkedAt: ran ? check.checkedAt : null,
+      carried: fromAnswer,
     });
   }
-  // A Mind whose record holds no check (made before checks were recorded, or cleared) still used the model.
-  if (!uses.some((each) => each.use === "sentence-checked")) {
-    for (const { result, model } of checked) {
-      if (result !== "notChecked") use("sentence-checked", model);
-    }
+  // A Mind whose record holds no check (made before checks were recorded, or cleared) still used
+  // the model. A check that came with an Answer is never in the Mind's record: its mark says so.
+  const recorded = uses.some((each) => each.use === "sentence-checked");
+  for (const { result, model, carried: withAnswer } of checked) {
+    if (result !== "notChecked" && (withAnswer || !recorded)) use("sentence-checked", model);
   }
 
   const order = (use: Use) => USES.indexOf(use);
@@ -376,6 +385,7 @@ export function readFigures(sources: FigureSources): AiUseFigures {
     removed,
     citations,
     sentences,
+    carried,
     checked,
     unread: fragment.doc ? checkUnreadOf(fragment.doc, requests) : [],
   };

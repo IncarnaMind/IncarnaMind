@@ -176,9 +176,16 @@ describe("A table the assistant writes into a Mind is a table", { timeout: 30_00
     expect(pipeText(readMind(client))).toBe(false);
     expect(tablesIn(readMind(client))).toEqual([EXPECTED_ROWS]);
     expect(changesIn(answer)).toEqual([
-      { mindId: mind.id, created: false, request: expect.any(String), proposals: 1, tables: 1 },
+      {
+        mindId: mind.id,
+        created: false,
+        request: expect.any(String),
+        proposals: 1,
+        tables: 1,
+        added: true,
+      },
     ]);
-    expect(lastResult(model)).toContain("Changed 1 place in “Tides”");
+    expect(lastResult(model)).toContain("Added a table to “Tides”");
     expect(lastResult(model)).toContain("One of them adds a table.");
     await resolveChanges(client, "accept");
     expect(tablesIn(readMind(client))).toEqual([EXPECTED_ROWS]);

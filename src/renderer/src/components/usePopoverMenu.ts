@@ -138,6 +138,18 @@ function place(
   return { left, top, width, height: Math.min(height, room) };
 }
 
+/**
+ * Fits a menu already showing to the window, keeping the place it was put in: moving it while
+ * the User is on their way to an item puts another item under the pointer.
+ */
+function fitHeight(menu: HTMLElement): void {
+  menu.style.removeProperty("max-height");
+  const placed = Number.parseFloat(menu.style.top);
+  const top = Number.isFinite(placed) ? placed : menu.getBoundingClientRect().top;
+  const room = window.innerHeight - EDGE_PX - top;
+  if (menu.offsetHeight > room) menu.style.maxHeight = `${Math.max(0, room)}px`;
+}
+
 /** The checked item, or the first; with `first`, the first whatever is checked. */
 function firstItem(menu: HTMLElement | null, first = false): HTMLElement | undefined {
   const all = itemsOf(menu);
@@ -417,14 +429,18 @@ export function usePopoverMenu({
     return () => window.removeEventListener("keydown", onKey, true);
   }, [open]);
 
-  // Items that come after it opened, such as models still being listed then: placed again for
-  // the menu's new size, and the checked one focused, as it would have been had it been there.
+  // Items that come after it opened, such as models still being listed then: a menu already
+  // showing keeps the place the User is aiming in and only fits its new height; one not yet
+  // showing is placed again. The checked item takes the focus as it would have had it been there.
   useEffect(() => {
     const element = menu.current;
     if (!open || !element) return;
     const observer = new MutationObserver(() => {
-      const anchor = button.current;
-      place(anchor, element, anchor && outer.current ? outer.current(anchor) : null, align);
+      if (element.matches(":popover-open")) fitHeight(element);
+      else {
+        const anchor = button.current;
+        place(anchor, element, anchor && outer.current ? outer.current(anchor) : null, align);
+      }
       if (!touched.current && element.matches(":popover-open")) focusFirst(element, first);
     });
     observer.observe(element, { childList: true, subtree: true });

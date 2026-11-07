@@ -23,6 +23,7 @@ import {
   proposalRequestOf,
   resolveProposals,
 } from "../../src/shared/proposals";
+import { BETWEEN_KEPT, BETWEEN_KEPT_LINES } from "../helpers/betweenKept";
 import { setUpWithDocuments } from "../helpers/citations";
 import { createTempDataFolder, nextEvent, saveProviderUnasked, startCore } from "../helpers/core";
 import {
@@ -278,6 +279,40 @@ describe("Edit with AI", () => {
       expect.objectContaining({ contentHash: "an-older-version", keptOver: tides.contentHash }),
     ]);
   });
+
+  // protects=a Citation a rewrite keeps, checked again in its Document's current version, says nothing of the page the Answer's quoted words ran on to in the old one (#2504); rejected, it is as it was; fails_when=the accepted Citation keeps the old run-on page; no_claim=none beyond protects.
+  test.each([
+    ["accepted", "accept", "current"],
+    ["rejected", "reject", "old"],
+  ] as const)(
+    "a Citation whose quoted words ran on, through a rewrite %s",
+    async (_, outcome, version) => {
+      const { core, mind, client, tides } = await setUp(
+        editingModel(() => "Spring tides come at new and full moon [1]."),
+      );
+      const runOn = { runsOnTo: { kind: "page", from: 2, to: 2 } };
+      const held = citation(tides);
+      held.attrs = { ...held.attrs, contentHash: "an-older-version", quotedWords: runOn };
+      const note = paragraph(
+        text("Spring tides happen at new moon and at full moon "),
+        held,
+        text("."),
+      );
+      writeMind(client, [note]);
+      await client.settled();
+
+      await core.editWithAi(wholeParagraph(client, mind.id, note.attrs.id, "shorten"));
+      await resolveChanges(client, outcome);
+
+      const after: Record<string, unknown>[] = [];
+      readMind(client).descendants((node) => {
+        if (node.type.name === "citation") after.push(node.attrs);
+      });
+      expect(after.map((attrs) => [attrs.contentHash, attrs.quotedWords ?? null])).toEqual([
+        version === "current" ? [tides.contentHash, null] : ["an-older-version", runOn],
+      ]);
+    },
+  );
 
   // protects=a rewrite that moves a marked Citation, or deletes the sentence it is in, keeps the Citation's id: accepted, the moved Citation is the one the mark names; rejected, the Citation stays as it was; and one the accepted deletion took out comes back marked from a version kept before (#1933), in English and Chinese; fails_when=the Citation the rewrite writes, or the restored one, has another id; no_claim=how the model words the rewrite.
   test.each([
@@ -2093,6 +2128,12 @@ describe("Edit with AI and the model's service", () => {
   });
 });
 
+/** A paragraph of five sentences, the first about a fifth of it. */
+const FIVE_SENTENCES = {
+  en: "The tides here rise twice a day. Boats leave at high water. The harbour office posts the times each week. Fishermen check them on Mondays. The ferry follows its own timetable.",
+  zh: "这里的潮水每天涨两次。船在涨潮时出港。港务办公室每周公布时间。渔民每周一查看。渡轮另有时刻表。",
+};
+
 describe("An edit the User asked for (#880)", () => {
   const FIRST = "Tides rise twice a day along this coast.";
   const SECOND = "It's a big harbour and a lot of boats don't leave at low water.";
@@ -2141,6 +2182,29 @@ describe("An edit the User asked for (#880)", () => {
     expect((await core.listCheckpoints(mind.id)).checkpoints).toEqual([
       expect.objectContaining({ reason: "accept" }),
     ]);
+  });
+
+  // protects=an edit that takes out more than half of the selection is not drawn as applied while it streams, though most of its new text is found there, so it doesn't show as applied and then turn into a waiting change (#880, #2356); fails_when=its updates ask the window to draw it as applied; no_claim=how the window draws it.
+  test("an edit that will wait for the User is not drawn as applied while it streams", async () => {
+    const kept = "Fees are per night and are paid at the desk on arrival, in cash or by card.";
+    const cut =
+      "The trail starts behind the station. It climbs for two hours through pine woods. A hut at the top sells tea and soup. The path down is steep and loose after rain. Most walkers are back by four.";
+    const { core, mind, client } = await noteOf(
+      plain([kept, cut]),
+      () => `¶1 ${kept}\n\n¶2 The trail starts behind the station.`,
+    );
+    const causes: (EditCause | undefined)[] = [];
+    const stop = core.on("mind.update", (event) => {
+      if (event.mindId === mind.id) causes.push(event.cause);
+    });
+
+    const result = await core.editWithAi(wholeMind(client, mind.id, "Tidy it up"));
+    stop();
+
+    expect(result).toMatchObject({ kind: "proposed", held: true });
+    const named = causes.filter((cause) => cause !== undefined);
+    expect(named.length).toBeGreaterThan(0);
+    expect(named.map((cause) => cause.apply)).toEqual(named.map(() => false));
   });
 
   test('whole note selected, "make the second paragraph more formal": the model\'s only paragraph changes the second, and the two it left out are kept, named for the window', async () => {
@@ -2217,36 +2281,48 @@ describe("An edit the User asked for (#880)", () => {
     ]);
   });
 
-  test("in Chinese, a paragraph rewritten between two kept as they were changes that paragraph, not its neighbour", async () => {
-    const lines = [
-      "我们周二和港务局开会，讨论新的潮位计。",
-      "说实话旧的潮位计挺乱的，老是坏，大家都不太信那些数了。",
-      "港务局下个月会就预算投票。",
-    ];
-    const formal = "现有潮位计运行状况不稳定，故障频发，各方对其采集数据的可靠性普遍存疑。";
-    const { core, mind, client } = await setUp(
-      editingModel(() => [lines[0], formal, lines[2]].join("\n\n")),
-    );
-    const blocks = lines.map((line) => paragraph(text(line)));
-    writeMind(client, blocks);
-    await client.settled();
+  // protects=in Chinese, a paragraph rewritten between two kept as they were changes that paragraph, never its neighbour, when the rewrite keeps more than half of its own words; one written in other words is added before it, which stays and is told as left out, as a reply without names can't say which it means (#2333, #2356); fails_when=the neighbour changes, or a rewrite in other words writes over the User's paragraph; no_claim=what a real model writes.
+  test.each([
+    { rewrite: "说实话旧的潮位计挺乱的，经常出故障，大家都不太信那些数了。", takes: true },
+    {
+      rewrite: "现有潮位计运行状况不稳定，故障频发，各方对其采集数据的可靠性普遍存疑。",
+      takes: false,
+    },
+  ])(
+    "in Chinese, a paragraph rewritten between two kept as they were: $rewrite",
+    async ({ rewrite, takes }) => {
+      const lines = [
+        "我们周二和港务局开会，讨论新的潮位计。",
+        "说实话旧的潮位计挺乱的，老是坏，大家都不太信那些数了。",
+        "港务局下个月会就预算投票。",
+      ];
+      const { core, mind, client } = await setUp(
+        editingModel(() => [lines[0], rewrite, lines[2]].join("\n\n")),
+      );
+      const blocks = lines.map((line) => paragraph(text(line)));
+      writeMind(client, blocks);
+      await client.settled();
 
-    const result = await core.editWithAi({
-      requestId: `asked-${++ids}`,
-      mindId: mind.id,
-      from: { blockId: blocks[0]?.attrs.id ?? "", offset: 0 },
-      to: { blockId: blocks[2]?.attrs.id ?? "", offset: lines[2]?.length ?? 0 },
-      text: lines.join("\n"),
-      action: "instruction",
-      instruction: "把第二段改得更正式，其他段落保持不变",
-    });
+      const result = await core.editWithAi({
+        requestId: `asked-${++ids}`,
+        mindId: mind.id,
+        from: { blockId: blocks[0]?.attrs.id ?? "", offset: 0 },
+        to: { blockId: blocks[2]?.attrs.id ?? "", offset: lines[2]?.length ?? 0 },
+        text: lines.join("\n"),
+        action: "instruction",
+        instruction: "把第二段改得更正式，其他段落保持不变",
+      });
 
-    expect(result).toMatchObject({ kind: "proposed" });
-    expect(result).not.toHaveProperty("held");
-    expect(result).not.toHaveProperty("leftOut");
-    await resolveChanges(client, "accept");
-    expect(shownWithChanges(client)).toEqual([lines[0], formal, lines[2]]);
-  });
+      expect(result).toMatchObject({ kind: "proposed" });
+      expect(result).not.toHaveProperty("held");
+      if (takes) expect(result).not.toHaveProperty("leftOut");
+      else expect(result).toMatchObject({ leftOut: [{ whole: true }] });
+      await resolveChanges(client, "accept");
+      expect(shownWithChanges(client)).toEqual(
+        takes ? [lines[0], rewrite, lines[2]] : [lines[0], rewrite, lines[1], lines[2]],
+      );
+    },
+  );
 
   // protects=a paragraph goes when the reply quotes it, and stays when the reply only leaves it out, whatever the request says (#2180, #880); fails_when=a "delete" request takes out a paragraph left out unquoted, or a quoted one stays; no_claim=that a real model quotes it.
   test("a paragraph the reply quotes as taken out goes, and applies; one it only leaves out stays, even when asked to delete", async () => {
@@ -2617,6 +2693,70 @@ describe("An edit the User asked for (#880)", () => {
     expect(result).toEqual({ kind: "unplaced", quotes: [quote] });
     expect(shownWithChanges(client)).toEqual(lines);
   });
+
+  // protects=a quote is read word for word with its spaces: "The keys are nowhere." takes nothing out of "The keys are now here.", and the edit is refused; between two Latin letters a space parts words, so in Chinese too, a Latin word inside a Chinese line (#2589); fails_when=a sentence with other words is taken out; no_claim=how often a model quotes this way.
+  test.each([
+    {
+      language: "English",
+      lines: ["Rent is monthly.", "The keys are now here.", "Water is quarterly."],
+      quote: "The keys are nowhere.",
+    },
+    {
+      language: "Chinese",
+      lines: ["租金按月支付。", "密码写成 now here 两个词。", "水费按季度支付。"],
+      quote: "密码写成 nowhere 两个词。",
+    },
+  ])(
+    "a quote whose spaces part other words takes nothing out, $language",
+    async ({ lines, quote }) => {
+      const { core, mind, client } = await setUp(editingModel(() => `<removed>${quote}</removed>`));
+      writeMind(
+        client,
+        lines.map((line) => paragraph(text(line))),
+      );
+      await client.settled();
+
+      const result = await core.editWithAi(wholeMind(client, mind.id, "Delete that sentence"));
+
+      expect(result).toEqual({ kind: "unplaced", quotes: [quote] });
+      expect(shownWithChanges(client)).toEqual(lines);
+    },
+  );
+
+  // protects=a quote whose spaces differ only where they part no words still takes its words out: two spaces for one, and none, or one, beside a Chinese character (#2589); fails_when=the edit is refused, or other words go; no_claim=none beyond protects.
+  test.each([
+    {
+      language: "English",
+      lines: ["Rent is monthly.", "The keys are now here.", "Water is quarterly."],
+      quote: "The keys  are now here.",
+    },
+    {
+      language: "Chinese",
+      lines: ["租金按月支付。", "请使用 Excel 表格记账。", "水费按季度支付。"],
+      quote: "请使用Excel表格记账。",
+    },
+    {
+      language: "Chinese with the words parted",
+      lines: ["租金按月支付。", "密码写成 now here 两个词。", "水费按季度支付。"],
+      quote: "密码写成now here两个词。",
+    },
+  ])(
+    "a quote whose spaces part no other words takes its paragraph out, $language",
+    async ({ lines, quote }) => {
+      const { core, mind, client } = await setUp(editingModel(() => `<removed>${quote}</removed>`));
+      writeMind(
+        client,
+        lines.map((line) => paragraph(text(line))),
+      );
+      await client.settled();
+
+      const result = await core.editWithAi(wholeMind(client, mind.id, "Delete that sentence"));
+
+      expect(result).toMatchObject({ kind: "proposed" });
+      await resolveChanges(client, "accept");
+      expect(shownWithChanges(client)).toEqual([lines[0], lines[2]]);
+    },
+  );
 
   // protects=a part quote whose words a paragraph the reply wrote still holds refuses the edit, so no other paragraph loses them: written back as it was, rewritten around them, or only there; in Chinese too (#2180); fails_when=the words come out of a paragraph nobody named, or the quote is let pass; no_claim=how often a real model quotes this way.
   test.each([
@@ -3452,6 +3592,110 @@ describe("An edit the User asked for (#880)", () => {
     expect(shown.join("\n")).toContain(`[-${THIRD}-]`);
   });
 
+  // protects=a reply that keeps a few of the selection's sentences and drops the rest without quoting them takes out most of it, so it waits for the User, as a sentence taken out reads word by word since #2356: Improve, Shorten, "Fix the typos" keeping two of five, a typo fixed and the rest cut, a whole Note whose first paragraph is cut to its first sentence; English and Chinese; fails_when=it applies at once; no_claim=how often a model cuts.
+  test.each([
+    {
+      case: "en, Improve keeps one of five",
+      lines: [FIVE_SENTENCES.en],
+      action: "improve",
+      reply: "The tides here rise twice a day.",
+    },
+    {
+      case: "en, Shorten keeps one of five",
+      lines: [FIVE_SENTENCES.en],
+      action: "shorten",
+      reply: "The tides here rise twice a day.",
+    },
+    {
+      case: "en, Fix the typos keeps two of five",
+      lines: [FIVE_SENTENCES.en],
+      action: "instruction",
+      instruction: "Fix the typos",
+      reply: "¶1 The tides here rise twice a day. Boats leave at high water.",
+    },
+    {
+      case: "en, a typo fixed and the rest cut",
+      lines: [FIVE_SENTENCES.en.replace("twice", "twise")],
+      action: "instruction",
+      instruction: "Fix the typos",
+      reply: "The tides here rise twice a day.",
+    },
+    {
+      case: "en, a whole Note, its first paragraph cut to its first sentence",
+      lines: [FIVE_SENTENCES.en, "Fees are per night."],
+      action: "instruction",
+      instruction: "Tidy it up",
+      reply: "The tides here rise twice a day.\n\nFees are per night.",
+    },
+    {
+      case: "zh, Improve keeps one of five",
+      lines: [FIVE_SENTENCES.zh],
+      action: "improve",
+      reply: "这里的潮水每天涨两次。",
+    },
+    {
+      case: "zh, Shorten keeps one of five",
+      lines: [FIVE_SENTENCES.zh],
+      action: "shorten",
+      reply: "这里的潮水每天涨两次。",
+    },
+    {
+      case: "zh, a whole Note, its first paragraph cut to its first sentence",
+      lines: [FIVE_SENTENCES.zh, "费用按夜收取。"],
+      action: "instruction",
+      instruction: "整理一下",
+      reply: "这里的潮水每天涨两次。\n\n费用按夜收取。",
+    },
+  ] as const)("a reply that cuts most of the selection waits for the User: $case", async (each) => {
+    const blocks = plain(each.lines);
+    const { core, mind, client } = await noteOf(blocks, () => each.reply);
+    const id = String(blocks[0]?.attrs?.id);
+    const instruction = "instruction" in each ? each.instruction : undefined;
+
+    const result = await core.editWithAi(
+      each.lines.length > 1
+        ? wholeMind(client, mind.id, instruction ?? "")
+        : wholeParagraph(client, mind.id, id, each.action, instruction),
+    );
+
+    expect(result).toMatchObject({ kind: "proposed", held: true });
+    expect(pendingProposals(client.blocks).length).toBeGreaterThan(0);
+  });
+
+  // protects=a reply that drops one sentence, or a little under half of a paragraph, applies at once as before (#880, #2356); English and Chinese; fails_when=it waits for the User; no_claim=none beyond protects.
+  test.each([
+    {
+      case: "en, one sentence of five",
+      line: FIVE_SENTENCES.en,
+      reply: FIVE_SENTENCES.en.replace(" The ferry follows its own timetable.", ""),
+    },
+    {
+      case: "en, 44% of the paragraph",
+      line: "The office opens at nine every weekday morning. It shuts early, at four, on Fridays.",
+      reply: "The office opens at nine every weekday morning.",
+    },
+    {
+      case: "zh, one sentence of five",
+      line: FIVE_SENTENCES.zh,
+      reply: FIVE_SENTENCES.zh.replace("渡轮另有时刻表。", ""),
+    },
+    {
+      case: "zh, 46% of the paragraph",
+      line: "办公室工作日早上九点开门。周五下午四点提前关门。",
+      reply: "办公室工作日早上九点开门。",
+    },
+  ])("a reply that cuts less than half of the selection applies at once: $case", async (each) => {
+    const blocks = plain([each.line]);
+    const { core, mind, client } = await noteOf(blocks, () => each.reply);
+
+    const result = await core.editWithAi(
+      wholeParagraph(client, mind.id, String(blocks[0]?.attrs?.id), "improve"),
+    );
+
+    expect(result).toMatchObject({ kind: "proposed" });
+    expect(result).not.toHaveProperty("held");
+  });
+
   test("a translation is mapped by its order and never held, however much it changes", async () => {
     const { core, asked } = await threeParagraphs(({ passage }) => passage.toUpperCase());
 
@@ -3604,6 +3848,130 @@ describe("How a change reads (#1028)", () => {
     ]);
   });
 
+  // protects=a long paragraph written over by a short line about something else reads whole, before and after, though the two share a few words ("on the", "water", 渔船, 沙洲上), late in the paragraph or at its start ("Boats", 潮汐时间表) (#1028, #2356); English and Chinese; fails_when=old and new words interleave through it; no_claim=what a real model writes.
+  test.each([
+    {
+      language: "English",
+      before:
+        "The harbour office posts the times each week, and the boats leave on the morning tide when there is enough water over the bar to clear it, so the schedule moves with the moon rather than the clock.",
+      after: "Boats rest on the mud at low water.",
+    },
+    {
+      language: "Chinese",
+      before:
+        "港务处每周公布一次潮汐时间，渔船在早潮时出海，那时沙洲上的水够深，船可以安全通过，所以出海的时间跟着月亮走，而不是跟着钟表走。",
+      after: "渔船退潮时搁在沙洲上。",
+    },
+    {
+      language: "English, a word shared at the start",
+      before:
+        "Boats always leave on the morning tide whenever there is enough water over the bar to clear it, so the harbour office posts the times on the board by the steps and changes them as the moon moves, once each week.",
+      after: "Boats rest quietly at low water.",
+    },
+    {
+      language: "Chinese, words shared at the start",
+      before:
+        "今天渔船出海时的潮汐时间表，由港务处每周公布一次，船长们据此安排出港，所以出海的时间跟着月亮走。",
+      after: "码头贴着潮汐时间表。",
+    },
+  ])(
+    "a long paragraph written over by a short line about something else reads whole ($language)",
+    async ({ before, after }) => {
+      const { core, mind, client } = await setUp(editingModel(() => after));
+      writeMind(client, [paragraph(text(before))]);
+      await client.settled();
+
+      await core.editWithAi({
+        ...everything(client, mind.id, "Make it clearer"),
+        action: "improve",
+      });
+      await client.settled();
+
+      expect(shownWithChanges(client)).toEqual([`[-${before}-]{+${after}+}`]);
+    },
+  );
+
+  // protects=only the paragraph's old words replaced or taken out count toward it written anew, so a few words reworded with a sentence cut, 40% or more in all, read whole, as does a shortening that takes out most of a paragraph, and neither waits for the User; a few words swapped in a long paragraph, or words only added however many, read word by word (#1028, #2356); English and Chinese; fails_when=old and new words interleave through a paragraph mostly changed, a long addition reads whole, or the shortening waits; no_claim=what a real model writes.
+  test.each([
+    {
+      case: "en, two words reworded and a sentence cut",
+      before:
+        "The committee approved the budget on Tuesday. Catering costs about four hundred pounds. Volunteers need to arrive early to set out chairs.",
+      after: "The board approved its budget on Tuesday. Catering costs about four hundred pounds.",
+      whole: true,
+    },
+    {
+      case: "zh, two words reworded and a sentence cut",
+      before: "委员会周二批准了预算。餐饮费用大约四百英镑。志愿者需要提前到场摆放椅子。",
+      after: "理事会周二批准了经费。餐饮费用大约四百英镑。",
+      whole: true,
+    },
+    {
+      case: "en, a shortening that takes out most of the paragraph",
+      before:
+        "Sales grew twelve percent this quarter, mostly from new customers in the east, and most customers are happy with delivery.",
+      after: "Sales grew twelve percent this quarter, mostly from new eastern customers.",
+      whole: true,
+    },
+    {
+      case: "zh, a shortening that takes out most of the paragraph",
+      before:
+        "本季度销售额增长了百分之十二，主要来自华东地区的新客户，大部分客户对交付速度表示满意。",
+      after: "本季度销售额增长了百分之十二，主要来自华东新客户。",
+      whole: true,
+    },
+    {
+      case: "en, three words swapped in a long paragraph",
+      before:
+        "Boats always leave on the morning tide whenever there is enough water over the bar to clear it, so the harbour office posts the times on the board by the steps and changes them as the moon moves, once each week.",
+      after:
+        "Boats always leave on the evening tide whenever there is enough water over the bar to clear it, so the harbour office posts the times on the wall by the steps and changes them as the moon moves, once each month.",
+      shown:
+        "Boats always leave on the [-morning-]{+evening+} tide whenever there is enough water over the bar to clear it, so the harbour office posts the times on the [-board-]{+wall+} by the steps and changes them as the moon moves, once each [-week-]{+month+}.",
+    },
+    {
+      case: "zh, two words swapped in a long paragraph",
+      before:
+        "今天渔船出海时的潮汐时间表，由港务处每周公布一次，船长们据此安排出港，所以出海的时间跟着月亮走。",
+      after:
+        "明天渔船出海时的潮汐时间表，由港务处每月公布一次，船长们据此安排出港，所以出海的时间跟着月亮走。",
+      shown:
+        "[-今天-]{+明天+}渔船出海时的潮汐时间表，由港务处[-每周-]{+每月+}公布一次，船长们据此安排出港，所以出海的时间跟着月亮走。",
+    },
+    {
+      case: "en, words only added, five times the paragraph",
+      before: "Fees are per night.",
+      after:
+        "Fees are per night, and a deposit of one night is taken when you book, which comes back in full if you cancel at least a week before you arrive.",
+      shown:
+        "Fees are per night{+, and a deposit of one night is taken when you book, which comes back in full if you cancel at least a week before you arrive+}.",
+    },
+    {
+      case: "zh, words only added, four times the paragraph",
+      before: "费用按夜收取。",
+      after: "费用按夜收取，预订时先收一晚的押金，入住前一周取消可全额退还。",
+      shown: "费用按夜收取{+，预订时先收一晚的押金，入住前一周取消可全额退还+}。",
+    },
+  ])("how a change reads, by the words it changes: $case", async (each) => {
+    const { core, mind, client } = await setUp(editingModel(() => each.after));
+    writeMind(client, [paragraph(text(each.before))]);
+    await client.settled();
+
+    const result = await core.editWithAi({
+      ...everything(client, mind.id, "Make it clearer"),
+      action: "improve",
+    });
+    await client.settled();
+
+    expect(result).toMatchObject({ kind: "proposed" });
+    expect(result).not.toHaveProperty("held");
+    expect(shownWithChanges(client)).toEqual([
+      "whole" in each ? `[-${each.before}-]{+${each.after}+}` : each.shown,
+    ]);
+    await resolveChanges(client, "accept");
+    expect(shownWithChanges(client)).toEqual([each.after]);
+  });
+
   test("a heading changed at all reads whole", async () => {
     const { core, mind, client } = await setUp(
       editingModel(() => "## Key strengths\n\nSpring tides are strongest at new moon."),
@@ -3657,7 +4025,7 @@ describe("How a change reads (#1028)", () => {
   // protects=asked to replace a list item without the reply quoting it, the new item comes and the old one stays, offered for removal as left out, since a reply's new line takes no paragraph's place by its place alone (#2333); never read as a translation; fails_when=the old item is written over or taken out unquoted; no_claim=what a real model quotes.
   test("asked to replace a list item, without the reply quoting it, the new item comes and the old one stays as left out: not read as a translation", async () => {
     const degree = "2016.09—2018.06 上海财经大学 会计学 硕士";
-    const job = "2018.10—至今 Deloitte Touche Tohmatsu, Senior Manager";
+    const job = "2018.10—至今 Quillmere Hart Advisory, Senior Manager";
     const { core, mind, client } = await setUp(
       editingModel(() =>
         ["## 经历", "- 2012.09—2016.06 复旦大学 金融学 学士", `- ${job}`].join("\n\n"),
@@ -4114,7 +4482,7 @@ describe("An edit never loses the User's words (#2333)", () => {
     English: {
       lines: ["Rent is 1,200 a month.", "Parking is 100 a month.", "Water is 30 a month."],
       added: "Internet is 40 a month.",
-      changed: "Parking is 120 a month.",
+      changed: "Parking is 120 a month, in the north garage.",
       translated: [
         "Le loyer est de 1 200 par mois.",
         "Le parking coûte 100 par mois.",
@@ -4124,7 +4492,7 @@ describe("An edit never loses the User's words (#2333)", () => {
     Chinese: {
       lines: ["房租每月1200元。", "停车每月100元。", "物业每月30元。"],
       added: "网络每月40元。",
-      changed: "停车每月120元。",
+      changed: "停车每月120元，车位在北区。",
       translated: [
         "Rent is 1,200 yuan a month.",
         "Parking is 100 yuan a month.",
@@ -4305,23 +4673,33 @@ describe("An edit never loses the User's words (#2333)", () => {
     },
   );
 
+  // protects=a paragraph or a list item between two the reply keeps, in a reply without names, takes the place of the one between only when it says more than half of that one's own words: a rewrite of it goes in its place, and anything else is added before it, which stays and is told as left out (#1028, #2333, #2356); English and Chinese; fails_when=a line about something else writes over the one between, or a rewrite of it is added beside it; no_claim=what a real model writes.
   test.each([
-    { lines: SANDWICH, between: "The office moves to York in May." },
-    { lines: SANDWICH_ZH, between: "办公室五月搬到约克。" },
+    { lines: SANDWICH, between: "The office moves to York in May.", takes: false },
+    { lines: SANDWICH_ZH, between: "办公室五月搬到约克。", takes: false },
+    {
+      lines: SANDWICH,
+      between: "Dana leads the design work and reports every two weeks.",
+      takes: true,
+    },
+    { lines: SANDWICH_ZH, between: "达娜负责设计，每两周汇报一次。", takes: true },
   ])(
-    "a plain paragraph between two kept ones takes the place of the one between: $between",
-    async ({ lines, between }) => {
+    "a plain paragraph between two kept ones takes the place of the one between only as a rewrite of it: $between",
+    async ({ lines, between, takes }) => {
       const { core, mind, client, before } = await noteOf(plain(lines), () =>
         [lines[0], between, lines[2]].join("\n\n"),
       );
 
       await core.editWithAi(wholeMind(client, mind.id, "Change the second paragraph"));
 
-      expect(await acceptThenUndo(client, before)).toEqual([lines[0], between, ...lines.slice(2)]);
+      expect(await acceptThenUndo(client, before)).toEqual(
+        takes
+          ? [lines[0], between, ...lines.slice(2)]
+          : [lines[0], between, lines[1], ...lines.slice(2)],
+      );
     },
   );
 
-  // protects=a list item about something else between two items the reply keeps takes the place of the item there: anchored on both sides, the old item goes whole and the new one comes once, never written into it word by word (#1028), and Undo then reject restores the Note; English and Chinese; fails_when=the old item stays as left out beside the new one; no_claim=what a real model writes.
   test.each([
     {
       items: [
@@ -4330,6 +4708,16 @@ describe("An edit never loses the User's words (#2333)", () => {
         "Cut the month-end close from ten days to six",
       ],
       made: "Ran the vendor review",
+      takes: false,
+    },
+    {
+      items: [
+        "Led quarterly forecasting for a team of twelve analysts",
+        "Presented findings to the board every month",
+        "Cut the month-end close from ten days to six",
+      ],
+      made: "Presented findings to the board every quarter",
+      takes: true,
     },
     {
       items: [
@@ -4337,11 +4725,21 @@ describe("An edit never loses the User's words (#2333)", () => {
         "2016.09—2018.06 上海财经大学 会计学 硕士",
         "2018.07—2020.06 某银行 管培生",
       ],
-      made: "2020.07—至今 Deloitte Touche Tohmatsu, Senior Manager",
+      made: "2020.07—至今 Quillmere Hart Advisory, Senior Manager",
+      takes: false,
+    },
+    {
+      items: [
+        "2012.09—2016.06 复旦大学 金融学 学士",
+        "2016.09—2018.06 上海财经大学 会计学 硕士",
+        "2018.07—2020.06 某银行 管培生",
+      ],
+      made: "2016.09—2018.06 上海财经大学 会计学 硕士 优秀毕业生",
+      takes: true,
     },
   ])(
-    "a list item between two kept ones takes the place of the one between: $made",
-    async ({ items, made }) => {
+    "a list item between two kept ones takes the place of the one between only as a rewrite of it: $made",
+    async ({ items, made, takes }) => {
       const [first = "", old = "", last = ""] = items;
       const { core, mind, client, before } = await noteOf([bullets(...items)], () =>
         [first, made, last].map((item) => `- ${item}`).join("\n\n"),
@@ -4350,9 +4748,16 @@ describe("An edit never loses the User's words (#2333)", () => {
       const result = await core.editWithAi(wholeMind(client, mind.id, "Replace the second item"));
 
       expect(result).toMatchObject({ kind: "proposed" });
-      expect(result).not.toHaveProperty("leftOut");
-      expect(shownWhole(client)).toEqual([first, `+ ${made}`, `- ${old}`, last]);
-      expect(await acceptThenUndo(client, before)).toEqual([first, made, last]);
+      if (takes) {
+        expect(result).not.toHaveProperty("leftOut");
+        // Written into the item in its place, as a change of its words.
+        expect(shownWhole(client)).toHaveLength(3);
+        expect(await acceptThenUndo(client, before)).toEqual([first, made, last]);
+      } else {
+        expect(result).toMatchObject({ leftOut: [{ whole: true }] });
+        expect(shownWhole(client)).toEqual([first, `+ ${made}`, old, last]);
+        expect(await acceptThenUndo(client, before)).toEqual([first, made, old, last]);
+      }
     },
   );
 
@@ -4954,6 +5359,343 @@ describe("A rewrite names the paragraph each of its own replaces (#2356)", () =>
       expect(await acceptThenUndo(client, before)).toEqual(after);
     },
   );
+
+  const COSTS = {
+    en: ["Rent is 1,200 a month.", "Parking is 100 a month.", "Water is 30 a month."],
+    zh: ["房租每月1200元。", "停车每月100元。", "水费每月30元。"],
+  };
+
+  // protects=in a reply without names, a new line on the pattern of the Note's lines takes no line's place: "网费每月40元。" shares "费每" with "水费每月30元。" alone, which made it read as that line, but says none of the words only that line has, so it is added and every line of the User's stays; after the line before it, after a stray line, after the first line, or another new line, and alone, which is the reply's own words and goes in nowhere; Chinese and the English mirror (#2356, part 4 of #2333); fails_when=a line of the User's is written over or lost; no_claim=how often a model leaves its names out.
+  test.each([
+    {
+      lines: COSTS.zh,
+      asked: "在停车后面加一行网费，每月40元。",
+      reply: "停车每月100元。\n\n网费每月40元。",
+      added: "网费每月40元。",
+    },
+    {
+      lines: COSTS.zh,
+      asked: "在停车后面加一行网费，每月40元。",
+      reply: "网费每月40元。",
+      added: null,
+    },
+    {
+      lines: COSTS.zh,
+      asked: "在停车后面加一行网费，每月40元。",
+      reply: "停车每月100元。\n\n如下：\n\n网费每月40元。",
+      added: "网费每月40元。",
+    },
+    {
+      lines: COSTS.zh,
+      asked: "在停车后面加一行网费，每月40元。",
+      reply: "房租每月1200元。\n\n网费每月40元。",
+      added: "网费每月40元。",
+    },
+    {
+      lines: COSTS.zh,
+      asked: "在停车后面加一行电费，每月60元。",
+      reply: "停车每月100元。\n\n电费每月60元。",
+      added: "电费每月60元。",
+    },
+    {
+      lines: COSTS.en,
+      asked: "Add internet after parking, 40 a month.",
+      reply: "Parking is 100 a month.\n\nInternet is 40 a month.",
+      added: "Internet is 40 a month.",
+    },
+    {
+      lines: COSTS.en,
+      asked: "Add internet after parking, 40 a month.",
+      reply: "Internet is 40 a month.",
+      added: null,
+    },
+    {
+      lines: COSTS.en,
+      asked: "Add internet after parking, 40 a month.",
+      reply: "Parking is 100 a month.\n\nAs follows:\n\nInternet is 40 a month.",
+      added: "Internet is 40 a month.",
+    },
+  ])("a new line on the pattern of the others takes no line's place: $reply", async (each) => {
+    const { core, mind, client, before } = await noteOf(plain(each.lines), () => each.reply);
+
+    await core.editWithAi(wholeMind(client, mind.id, each.asked));
+
+    const after = await acceptThenUndo(client, before);
+
+    expect(after).toEqual(
+      each.added === null ? each.lines : expect.arrayContaining([...each.lines, each.added]),
+    );
+  });
+
+  // protects=a new line of a reply without names with the same amount as one of the User's lines takes no line's place either: "Internet is 30 a month." beside "Water is 30 a month." shares the amount, not what the line is about, so it is added and the water line stays; after the line before it, after the first line, and alone; English and Chinese, the amount in digits or in Chinese numerals (#2356, part 4 of #2333); fails_when=the water line is written over; no_claim=how often a model leaves its names out.
+  test.each([
+    {
+      lines: COSTS.en,
+      asked: "Add internet after parking, 30 a month.",
+      reply: "Parking is 100 a month.\n\nInternet is 30 a month.",
+      added: "Internet is 30 a month.",
+    },
+    {
+      lines: COSTS.en,
+      asked: "Add internet after parking, 30 a month.",
+      reply: "Rent is 1,200 a month.\n\nInternet is 30 a month.",
+      added: "Internet is 30 a month.",
+    },
+    {
+      lines: COSTS.en,
+      asked: "Add internet after parking, 30 a month.",
+      reply: "Internet is 30 a month.",
+      added: null,
+    },
+    {
+      lines: COSTS.zh,
+      asked: "在停车后面加一行网费，每月30元。",
+      reply: "停车每月100元。\n\n网费每月30元。",
+      added: "网费每月30元。",
+    },
+    {
+      lines: COSTS.zh,
+      asked: "在停车后面加一行网费，每月30元。",
+      reply: "房租每月1200元。\n\n网费每月30元。",
+      added: "网费每月30元。",
+    },
+    {
+      lines: COSTS.zh,
+      asked: "在停车后面加一行网费，每月30元。",
+      reply: "网费每月30元。",
+      added: null,
+    },
+    {
+      lines: ["房租每月一千二百元。", "停车每月一百元。", "水费每月三十元。"],
+      asked: "在停车后面加一行网费，每月三十元。",
+      reply: "停车每月一百元。\n\n网费每月三十元。",
+      added: "网费每月三十元。",
+    },
+  ])("a new line with the same amount as another takes no line's place: $reply", async (each) => {
+    const { core, mind, client, before } = await noteOf(plain(each.lines), () => each.reply);
+
+    await core.editWithAi(wholeMind(client, mind.id, each.asked));
+
+    const after = await acceptThenUndo(client, before);
+
+    expect(after).toEqual(
+      each.added === null ? each.lines : expect.arrayContaining([...each.lines, each.added]),
+    );
+  });
+
+  const NUMBERED = {
+    revenue: ["2024 revenue was 1.2m.", "2025 revenue was 1.4m."],
+    revenueOn: ["2024 revenue was 1.2m.", "2025 revenue was 1.4m.", "2027 revenue will be 1.8m."],
+    rooms: ["Room 101 is free.", "Room 102 is booked.", "Room 104 is free."],
+    quarters: ["Q1 sales were 120.", "Q2 sales were 140.", "Q4 sales will be 190."],
+    long: [
+      "The quarterly revenue for the northern region in 2024 was reported as 1.2m by the finance team.",
+      "The quarterly revenue for the northern region in 2025 was reported as 1.4m by the finance team.",
+    ],
+    zhRevenue: ["2024年收入120万元。", "2025年收入140万元。"],
+    zhRevenueOn: ["2024年收入120万元。", "2025年收入140万元。", "2027年收入预计180万元。"],
+    zhRooms: ["101房间空着。", "102房间已订。", "104房间空着。"],
+  };
+
+  // protects=a new line of a reply without names that differs from one of the User's lines only in its numbers (a year, a room, a quarter, an amount) is added, never written over that line, as which line it means can't be told from its words: alone it is the reply's own words and goes in nowhere; after the line before it, after the first line, between two lines it repeats, and a long line the summary rule would read as the old one; a different line with the same amount is added too; English and Chinese (#2356, part 4 of #2333); fails_when=a line of the User's is written over or lost; no_claim=how often a model leaves its names out.
+  test.each([
+    { lines: COSTS.en, asked: "Water is 35 now.", reply: "Water is 35 a month.", added: null },
+    {
+      lines: COSTS.en,
+      asked: "Parking is 120 now.",
+      reply: "Rent is 1,200 a month.\n\nParking is 120 a month.",
+      added: "Parking is 120 a month.",
+    },
+    {
+      lines: NUMBERED.revenue,
+      asked: "Add 2026 at 1.4m.",
+      reply: "2026 revenue was 1.4m.",
+      added: null,
+    },
+    {
+      lines: NUMBERED.revenueOn,
+      asked: "Add 2026 at 1.4m.",
+      reply: "2024 revenue was 1.2m.\n\n2026 revenue was 1.4m.",
+      added: "2026 revenue was 1.4m.",
+    },
+    {
+      lines: NUMBERED.rooms,
+      asked: "Add room 103, booked.",
+      reply: "Room 103 is booked.",
+      added: null,
+    },
+    {
+      lines: NUMBERED.rooms,
+      asked: "Add room 103, booked.",
+      reply: "Room 101 is free.\n\nRoom 103 is booked.",
+      added: "Room 103 is booked.",
+    },
+    {
+      lines: NUMBERED.rooms,
+      asked: "Add room 103, booked.",
+      reply: "Room 101 is free.\n\nRoom 103 is booked.\n\nRoom 104 is free.",
+      added: "Room 103 is booked.",
+    },
+    {
+      lines: NUMBERED.quarters,
+      asked: "Add Q3 at 140.",
+      reply: "Q1 sales were 120.\n\nQ3 sales were 140.",
+      added: "Q3 sales were 140.",
+    },
+    {
+      lines: NUMBERED.long,
+      asked: "Add 2026 at 1.4m.",
+      reply:
+        "The quarterly revenue for the northern region in 2026 was reported as 1.4m by the finance team.",
+      added: null,
+    },
+    {
+      lines: ["Rent is 1,200 a month.", "Parking is 40 a month.", "Water is 30 a month."],
+      asked: "Add internet after parking, 40 a month.",
+      reply: "Parking is 40 a month.\n\nInternet is 40 a month.",
+      added: "Internet is 40 a month.",
+    },
+    { lines: COSTS.zh, asked: "水费改成每月35元。", reply: "水费每月35元。", added: null },
+    {
+      lines: NUMBERED.zhRevenue,
+      asked: "加上2026年，140万元。",
+      reply: "2026年收入140万元。",
+      added: null,
+    },
+    {
+      lines: NUMBERED.zhRevenueOn,
+      asked: "加上2026年，140万元。",
+      reply: "2024年收入120万元。\n\n2026年收入140万元。",
+      added: "2026年收入140万元。",
+    },
+    { lines: NUMBERED.zhRooms, asked: "加上103房间，已订。", reply: "103房间已订。", added: null },
+    {
+      lines: NUMBERED.zhRooms,
+      asked: "加上103房间，已订。",
+      reply: "101房间空着。\n\n103房间已订。",
+      added: "103房间已订。",
+    },
+  ])("a line that differs from another only in its numbers is added: $reply", async (each) => {
+    const { core, mind, client, before } = await noteOf(plain(each.lines), () => each.reply);
+
+    await core.editWithAi(wholeMind(client, mind.id, each.asked));
+
+    const after = await acceptThenUndo(client, before);
+    if (each.added === null) {
+      expect(after).toEqual(each.lines);
+      return;
+    }
+    expect(after).toEqual(expect.arrayContaining([...each.lines, each.added]));
+    expect(after).toHaveLength(each.lines.length + 1);
+  });
+
+  // protects=over one selected paragraph, a reply without names that changes only its numbers rewrites that paragraph, as there is no other line it could mean: a date range, a room (#2356); English and Chinese; fails_when=the new line is added beside the paragraph; no_claim=none beyond protects.
+  test.each([
+    {
+      line: "2017.05—2017.04 at a consulting firm, analyst.",
+      reply: "2017.05—2018.09 at a consulting firm, analyst.",
+    },
+    { line: "Room 102 is booked.", reply: "Room 103 is booked." },
+    { line: "2017.05—2017.04 某咨询公司 分析师", reply: "2017.05—2018.09 某咨询公司 分析师" },
+    { line: "102房间已订。", reply: "103房间已订。" },
+  ])(
+    "over one paragraph, a reply that changes only its numbers rewrites it: $reply",
+    async (each) => {
+      const blocks = plain([each.line]);
+      const { core, mind, client, before } = await noteOf(blocks, () => each.reply);
+
+      await core.editWithAi(
+        wholeParagraph(
+          client,
+          mind.id,
+          String(blocks[0]?.attrs?.id),
+          "instruction",
+          "Change the number",
+        ),
+      );
+
+      expect(await acceptThenUndo(client, before)).toEqual([each.reply]);
+    },
+  );
+
+  // protects=a line of a reply without names that says other words of one paragraph than its numbers, as a rewrite by the quarter does, still takes that paragraph's place, so the rules above add no copy beside a rewrite; a reply by names that changes only a line's amount replaces it exactly (#2356); Chinese and English; fails_when=the old line stays beside the new one; no_claim=none beyond protects.
+  test.each([
+    {
+      lines: COSTS.zh,
+      asked: "水费改成每月35元。",
+      reply: "¶3 水费每月35元。",
+      now: ["房租每月1200元。", "停车每月100元。", "水费每月35元。"],
+    },
+    {
+      lines: COSTS.zh,
+      asked: "房租改成1300元。",
+      reply: "¶1 房租每月1300元。",
+      now: ["房租每月1300元。", "停车每月100元。", "水费每月30元。"],
+    },
+    {
+      lines: COSTS.en,
+      asked: "Water is 35 now.",
+      reply: "¶3 Water is 35 a month.",
+      now: ["Rent is 1,200 a month.", "Parking is 100 a month.", "Water is 35 a month."],
+    },
+    {
+      lines: COSTS.en,
+      asked: "Rent is 1,300 now.",
+      reply: "¶1 Rent is 1,300 a month.",
+      now: ["Rent is 1,300 a month.", "Parking is 100 a month.", "Water is 30 a month."],
+    },
+    {
+      lines: COSTS.zh,
+      asked: "水费改成每季度90元。",
+      reply: "停车每月100元。\n\n水费每季度90元。",
+      now: ["房租每月1200元。", "停车每月100元。", "水费每季度90元。"],
+    },
+    {
+      lines: COSTS.en,
+      asked: "Water is 90 a quarter now.",
+      reply: "Parking is 100 a month.\n\nWater is 90 a quarter.",
+      now: ["Rent is 1,200 a month.", "Parking is 100 a month.", "Water is 90 a quarter."],
+    },
+  ])(
+    "a line that says what its paragraph is about, or names it, takes its place: $reply",
+    async (each) => {
+      const { core, mind, client, before } = await noteOf(plain(each.lines), () => each.reply);
+
+      await core.editWithAi(wholeMind(client, mind.id, each.asked));
+
+      expect(await acceptThenUndo(client, before)).toEqual(each.now);
+    },
+  );
+
+  // protects=a short summary of a long paragraph, after its heading, takes the paragraph's place, though it says few of that paragraph's words: most of its own words are that paragraph's alone (#2356); English and Chinese; fails_when=the summary is added beside the paragraph; no_claim=none beyond protects.
+  test.each([
+    {
+      heading: "Summary",
+      long: "Revenue for September was €312,000, up 6% on August, with the largest gains in the Nordic region. Support tickets fell by a fifth after the help centre was rewritten, and the average response time dropped to 3 hours. Two senior engineers joined in September, which brings the team to 23 people.",
+      reply: "## Summary\n\nRevenue was €312,000. It was up 6%. The team now has 23 people.",
+      now: "Revenue was €312,000. It was up 6%. The team now has 23 people.",
+    },
+    {
+      heading: "概要",
+      long: "九月收入为三十一万二千欧元，比八月增长百分之六，北欧地区增幅最大。帮助中心改写后，支持工单减少了五分之一，平均回复时间降到三小时。九月有两名资深工程师加入，团队达到二十三人。",
+      reply: "## 概要\n\n现在九月收入共三十一万二千欧元，多了百分之六。团队现有二十三人。",
+      now: "现在九月收入共三十一万二千欧元，多了百分之六。团队现有二十三人。",
+    },
+  ])("a short summary of a long paragraph takes its place: $heading", async (each) => {
+    const title: JSONContent = {
+      type: "heading",
+      attrs: { id: `block-${++ids}`, level: 2 },
+      content: [text(each.heading)],
+    };
+    const { core, mind, client, before } = await noteOf(
+      [title, ...plain([each.long])],
+      () => each.reply,
+    );
+
+    await core.editWithAi(wholeMind(client, mind.id, "Two sentences."));
+
+    expect(await acceptThenUndo(client, before)).toEqual([each.heading, each.now]);
+  });
 
   // protects=a reply that names a paragraph twice, names one the selection hasn't, or names one with no words for it is refused with its own problem, and the Note is exactly as it was, nothing waiting; English and Chinese; fails_when=any change goes in, or the edit reads as done; no_claim=how often a real model misnames.
   test.each([
@@ -5566,9 +6308,9 @@ describe("A rewrite names the paragraph each of its own replaces (#2356)", () =>
       after: ["Rent is 1,250 a month.", "Water is 30 a month."],
     },
     {
-      reply: "Rent is 1,250 a month.\n\n¶2 Water is 30 a month.",
+      reply: "Rent is 1,250 a month, due on the first.\n\n¶2 Water is 30 a month.",
       result: { kind: "proposed" },
-      after: ["Rent is 1,250 a month.", "Water is 30 a month."],
+      after: ["Rent is 1,250 a month, due on the first.", "Water is 30 a month."],
     },
     {
       reply: "修改如下：\n\n¶1 房租每月1250元。",
@@ -5666,6 +6408,15 @@ describe("A rewrite of text marked as code (#2362)", () => {
         "[-Check the build, then run npm test before you push.-]{+Check the build before you push.+}",
       runs: ["-npm test"],
       after: "Check the build before you push.",
+    },
+    {
+      case: "a paragraph with code reworded anew",
+      content: [text("Check the build, then run "), code("npm test"), text(" before you push.")],
+      reply: "Build it first and push afterwards.",
+      shown:
+        "[-Check the build, then run npm test before you push.-]{+Build it first and push afterwards.+}",
+      runs: ["-npm test"],
+      after: "Build it first and push afterwards.",
     },
     {
       case: "code taken out in part",
@@ -6596,5 +7347,116 @@ describe("A selection too long for the model is edited in parts (#2348)", () => 
     // The first part's changes, applied before the second failed, are gone with it.
     expect(pendingProposals(client.blocks)).toHaveLength(0);
     expect(shownWithChanges(client)).toEqual([body(0), body(1), body(2)]);
+  });
+});
+
+describe("Held-out shapes for how an edit reads and when it waits (#2356), written before any run", () => {
+  // protects=only old words replaced or taken out count toward a paragraph written anew, 40% or more reading whole: a word changed with a phrase added, or words only added, read word by word, two words of four replaced read whole, and a short sentence cut from three reads word by word; none waits; English and Chinese; fails_when=added words count against the old ones, so a small change with an addition reads whole, or a paragraph mostly replaced interleaves; no_claim=what a real model writes.
+  test.each([
+    {
+      case: "en, a word changed and a phrase added",
+      before: "Ferries run every hour.",
+      after: "Ferries run every two hours on weekdays, and less often at weekends.",
+      whole: false,
+    },
+    {
+      case: "zh, words only added",
+      before: "渡轮每小时一班。",
+      after: "渡轮工作日每两小时一班，周末班次更少。",
+      whole: false,
+    },
+    {
+      case: "en, two words of four replaced",
+      before: "Gates open at noon.",
+      after: "Doors open at dawn.",
+      whole: true,
+    },
+    {
+      case: "zh, two words of three replaced",
+      before: "大门中午开放。",
+      after: "侧门清晨开放。",
+      whole: true,
+    },
+    {
+      case: "en, one short sentence of three cut",
+      before: "Bring water. Bring a hat. Leave dogs at home.",
+      after: "Bring water. Leave dogs at home.",
+      whole: false,
+    },
+    {
+      case: "zh, one short sentence of three cut",
+      before: "带水。带帽子。狗留在家里。",
+      after: "带水。狗留在家里。",
+      whole: false,
+    },
+  ])("held out: $case", async (each) => {
+    const blocks = plain([each.before]);
+    const { core, mind, client } = await noteOf(blocks, () => each.after);
+
+    const result = await core.editWithAi(
+      wholeParagraph(client, mind.id, String(blocks[0]?.attrs?.id), "improve"),
+    );
+
+    expect(result).toMatchObject({ kind: "proposed" });
+    expect(result).not.toHaveProperty("held");
+    const [line] = shownWithChanges(client);
+    if (each.whole) expect(line).toBe(`[-${each.before}-]{+${each.after}+}`);
+    else {
+      expect(line).not.toBe(`[-${each.before}-]{+${each.after}+}`);
+      expect(line?.slice(0, 2)).toBe(each.before.slice(0, 2));
+    }
+    await resolveChanges(client, "accept");
+    expect(shownWithChanges(client)).toEqual([each.after]);
+  });
+
+  // protects=an edit over a whole Note that keeps one paragraph as it was and cuts a longer one to its first sentence takes out more than half of the selection, so it waits, though most of its new text is found there (#880, #2356); English and Chinese; fails_when=new text found in the selection lets it apply at once; no_claim=how often a model cuts.
+  test.each([
+    {
+      case: "en",
+      kept: "Fees are per night and are paid at the desk on arrival, in cash or by card.",
+      cut: "The trail starts behind the station. It climbs for two hours through pine woods. A hut at the top sells tea and soup. The path down is steep and loose after rain. Most walkers are back by four.",
+      first: "The trail starts behind the station.",
+    },
+    {
+      case: "zh",
+      kept: "住宿按晚收费，入住时在前台用现金或银行卡支付。",
+      cut: "步道从车站后面开始。沿着松林往上要走两个小时。山顶的小屋卖茶和汤。下山的路很陡，雨后路面松散。山路两旁有很多野花。大多数人四点前回来。",
+      first: "步道从车站后面开始。",
+    },
+  ])(
+    "held out: a kept paragraph and a long one cut to its first sentence wait ($case)",
+    async (each) => {
+      const { core, mind, client } = await noteOf(
+        plain([each.kept, each.cut]),
+        () => `¶1 ${each.kept}\n\n¶2 ${each.first}`,
+      );
+
+      const result = await core.editWithAi(wholeMind(client, mind.id, "Tidy it up"));
+
+      expect(result).toMatchObject({ kind: "proposed", held: true });
+      await resolveChanges(client, "reject");
+      expect(shownWithChanges(client)).toEqual([each.kept, each.cut]);
+    },
+  );
+});
+
+describe("Held-out shapes for a new line between two the reply keeps (#2333, #2356), written before any run", () => {
+  // protects=a reply without names that repeats the lines on both sides of one of the User's lines takes that line's place with the new line between only when it says more than half of that line's own words; any other new line is added and the User's line stays, so nothing the reply doesn't clearly rewrite is written over; just over and at half, English and Chinese; fails_when=a line about something else, or one saying half of its words or fewer, writes over the User's line, or a rewrite saying most of them is added beside it; no_claim=what a real model writes.
+  test.each(BETWEEN_KEPT_LINES)("held out: $case", async (each) => {
+    const lines = BETWEEN_KEPT[each.language];
+    const [first = "", old = "", last = ""] = lines;
+    const { core, mind, client } = await noteOf(plain(lines), () =>
+      [first, each.line, last].join("\n\n"),
+    );
+
+    await core.editWithAi(wholeMind(client, mind.id, "Tidy it up"));
+    await resolveChanges(client, "accept");
+
+    const after = shownWithChanges(client);
+    if (each.takes) expect(after).toEqual([first, each.line, last]);
+    else {
+      expect(after).toEqual(expect.arrayContaining([first, old, each.line, last]));
+      expect(after).toHaveLength(4);
+    }
   });
 });

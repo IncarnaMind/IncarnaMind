@@ -1129,6 +1129,188 @@ describe("The calculate Tool", { timeout: 60_000 }, () => {
   });
 });
 
+describe("A raised footnote digit after an amount (#2474)", { timeout: 60_000 }, () => {
+  test("calculate and the Check read 1,240.50, and neither a joined quote nor a joined number passes", async () => {
+    const pdf = buildPdf([
+      {
+        lines: ["Grants paid 2025"],
+        placed: [
+          { text: "Hollin Pumps 1,240.50", x: 72, y: 700 },
+          { text: "1", x: 173, y: 703, size: 7 },
+        ],
+      },
+    ]);
+    const figures = (passage: string) => [
+      {
+        marker: 1,
+        label: "Grant paid",
+        formula: "amount",
+        inputs: [
+          {
+            name: "amount",
+            label: "Grant",
+            passage,
+            location: "p. 1",
+            quote: "Hollin Pumps 1,240.50¹",
+            number: "1,240.50",
+          },
+        ],
+      },
+      {
+        marker: 2,
+        label: "Joined digits",
+        formula: "joined",
+        inputs: [
+          {
+            name: "joined",
+            label: "Joined",
+            passage,
+            location: "p. 1",
+            quote: "Hollin Pumps 1,240.501",
+            number: "1,240.501",
+          },
+        ],
+      },
+      {
+        marker: 3,
+        label: "Joined number",
+        formula: "named",
+        inputs: [
+          {
+            name: "named",
+            label: "Named",
+            passage,
+            location: "p. 1",
+            quote: "Hollin Pumps 1,240.50¹",
+            number: "1,240.501",
+          },
+        ],
+      },
+    ];
+    const model = calculatingModel({
+      queries: ["grants paid"],
+      steps: [
+        (passages): Call[] => [
+          {
+            tool: "calculate",
+            input: { figures: figures(passageOf(passages, "Grants paid 2025")) },
+          },
+        ],
+      ],
+      answer: "Hollin Pumps was paid [=1].",
+    });
+    const { core } = await setUpCalculating(model, [
+      { name: "Grants paid 2025.pdf", contents: pdf },
+    ]);
+
+    const { answer } = await askAndRead(core, "How much was Hollin Pumps paid?");
+
+    expect(shown(answerBlocks(answer))).toBe("Hollin Pumps was paid 1,240.50.");
+    expect(answer.figures).toMatchObject([
+      {
+        marker: 1,
+        shown: "1,240.50",
+        inputs: [
+          {
+            citation: { quote: "Hollin Pumps 1,240.50¹", check: "found", pageFrom: 1 },
+            number: { chars: "1,240.50¹", value: 1240.5 },
+          },
+        ],
+      },
+    ]);
+    expect(answer.figures).toHaveLength(1);
+    const [message] = told(model, "calculate");
+    expect(message).toContain("Recorded [=1] = 1,240.50");
+    expect(message).toContain("[=2] joined: the quote isn't word for word");
+    expect(message).toContain('[=3] named: the quote has no number "1,240.501"; it has 1,240.50¹.');
+  });
+});
+
+describe("A circled footnote mark after an amount (#2646)", { timeout: 60_000 }, () => {
+  test("calculate reads 1,240.50 from 1,240.50①, and a joined number doesn't pass", async () => {
+    const figures = (passage: string) => [
+      {
+        marker: 1,
+        label: "Grant paid",
+        formula: "amount",
+        inputs: [
+          {
+            name: "amount",
+            label: "Grant",
+            passage,
+            quote: "Hollin Pumps 1,240.50①",
+            number: "1,240.50",
+          },
+        ],
+      },
+      {
+        marker: 2,
+        label: "Joined digits",
+        formula: "joined",
+        inputs: [
+          {
+            name: "joined",
+            label: "Joined",
+            passage,
+            quote: "Hollin Pumps 1,240.501",
+            number: "1,240.501",
+          },
+        ],
+      },
+      {
+        marker: 3,
+        label: "Joined number",
+        formula: "named",
+        inputs: [
+          {
+            name: "named",
+            label: "Named",
+            passage,
+            quote: "Hollin Pumps 1,240.50①",
+            number: "1,240.501",
+          },
+        ],
+      },
+    ];
+    const model = calculatingModel({
+      queries: ["grants paid"],
+      steps: [
+        (passages): Call[] => [
+          {
+            tool: "calculate",
+            input: { figures: figures(passageOf(passages, "Grants paid 2025")) },
+          },
+        ],
+      ],
+      answer: "Hollin Pumps was paid [=1].",
+    });
+    const { core } = await setUpCalculating(model, [
+      { name: "Grants paid 2025.txt", contents: "Grants paid 2025\nHollin Pumps 1,240.50①" },
+    ]);
+
+    const { answer } = await askAndRead(core, "How much was Hollin Pumps paid?");
+
+    expect(shown(answerBlocks(answer))).toBe("Hollin Pumps was paid 1,240.50.");
+    expect(answer.figures).toMatchObject([
+      {
+        marker: 1,
+        shown: "1,240.50",
+        inputs: [
+          {
+            citation: { quote: "Hollin Pumps 1,240.50①", check: "found" },
+            number: { chars: "1,240.50①", value: 1240.5 },
+          },
+        ],
+      },
+    ]);
+    expect(answer.figures).toHaveLength(1);
+    const [message] = told(model, "calculate");
+    expect(message).toContain("Recorded [=1] = 1,240.50");
+    expect(message).toContain("[=2] joined: the quote isn't word for word");
+    expect(message).toContain('[=3] named: the quote has no number "1,240.501"; it has 1,240.50①.');
+  });
+});
+
 describe("Amounts in brackets are negative (#978)", { timeout: 60_000 }, () => {
   const inputs = (cited: number[], numbers: string[]) =>
     ["price", "agent", "legal", "other"].map((name, index) => ({
@@ -4233,41 +4415,49 @@ describe("A nearer line, page, section, row head or column head decides the scal
   });
 
   test.each([
-    "(in £, thousands)",
-    "(in £, '000)",
-    "(in US$, millions)",
-    "(in euros, millions)",
-    "(in $US thousands)",
-    "(in £ and $ thousands)",
-  ])("a bracket stating a scale later in its tail (%s) is no currency alone", async (statement) => {
-    const { answer, asked } = await figuresUnder(
-      "Tail amounts",
-      {
-        name: "Tail amounts.pdf",
-        contents: buildPdf([{ lines: ["Tail amounts", statement, ...rows] }]),
-      },
-      rows,
-      [statement, statement],
-    );
+    ["(in £, thousands)", 900_000, "GBP"],
+    ["(in £, '000)", 900_000, "GBP"],
+    ["(in US$, millions)", 900_000_000, "USD"],
+    ["(in euros, millions)", 900_000_000, "EUR"],
+    ["(in dollars, in thousands)", 900_000, "USD"],
+  ])(
+    "a bracket's currency and the scale later in its tail are both read (%s)",
+    async (statement, value, currency) => {
+      const { answer } = await figuresUnder(
+        "Tail amounts",
+        {
+          name: "Tail amounts.pdf",
+          contents: buildPdf([{ lines: ["Tail amounts", statement, ...rows] }]),
+        },
+        rows,
+        [statement, statement],
+      );
 
-    expect(answer.figures).toEqual([]);
-    expect(asked).toMatch(/states no unit or scale|can be read as more than one scale/);
-  });
+      expect(answer.figures.map((figure) => [figure.marker, figure.value])).toEqual([
+        [1, value],
+        [2, value],
+      ]);
+      expect(answer.figures[0]?.inputs[0]?.unitStatement?.currency).toBe(currency);
+    },
+  );
 
-  test("a scale later in a bracket's tail still scales the amounts", async () => {
-    const statement = "(in dollars, in thousands)";
-    const { answer } = await figuresUnder(
-      "Tail in thousands",
-      {
-        name: "Tail in thousands.pdf",
-        contents: buildPdf([{ lines: ["Tail in thousands", statement, ...rows] }]),
-      },
-      rows,
-      [statement],
-    );
+  test.each(["(in $US thousands)", "(in £ and $ thousands)"])(
+    "a bracket's tail the reader can't settle refuses the figures (%s)",
+    async (statement) => {
+      const { answer, asked } = await figuresUnder(
+        "Tail amounts",
+        {
+          name: "Tail amounts.pdf",
+          contents: buildPdf([{ lines: ["Tail amounts", statement, ...rows] }]),
+        },
+        rows,
+        [statement, statement],
+      );
 
-    expect(answer.figures.map((figure) => [figure.marker, figure.value])).toEqual([[1, 900_000]]);
-  });
+      expect(answer.figures).toEqual([]);
+      expect(asked).toMatch(/states no unit or scale|can be read as more than one scale/);
+    },
+  );
 
   test("a row's bracket that isn't wholly a scale is no scale, so (m/s) is no millions", async () => {
     const speedRows: [string, string] = ["Speed (m/s) 12.5", "Wind (m/s) 3.5"];
@@ -4481,7 +4671,7 @@ describe("A nearer line, page, section, row head or column head decides the scal
 
   test("a line with two scales refuses before it combines with a row head", async () => {
     const dollarRows: [string, string] = ["Revenue (US$) 1,234.5", "Costs (US$) 334.5"];
-    const twoScales = "Volumes in millions; amounts in thousands";
+    const twoScales = "Revenue in US$ millions; costs in US$ thousands";
     const { answer, asked } = await figuresUnder(
       "Two scales",
       {

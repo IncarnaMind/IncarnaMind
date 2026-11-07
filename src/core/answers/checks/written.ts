@@ -39,17 +39,16 @@
  */
 import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
-import { readCalculatedFigureEvidence } from "../../../shared/calculatedFigures";
 import { citationAttributesOf } from "../../../shared/citations";
 import { SENTENCES_CHECKED_AT_MOST } from "../../../shared/claimChecks";
 import { planOf } from "../../../shared/claimParts";
 import { beginFigureCheck } from "../../../shared/figureChecks";
 import { readTableBinding } from "../../../shared/figureRuns";
 import {
-  type InlineTextPiece,
   type InlineTextProjection,
+  inlineLayout,
   inlineSpan,
-  projectInlineText,
+  projectedContent,
   sliceInlineText,
 } from "../../../shared/inlineText";
 import { INLINE_NODE, isClaim, onlyNamesItsTable, sentenceSpans } from "../../../shared/sentences";
@@ -58,7 +57,6 @@ import {
   ANALYSIS_TABLE_ATTRIBUTE,
   ANALYSIS_TABLE_NODE,
   BLOCK_ID_ATTRIBUTE,
-  CALCULATED_FIGURE_NODE,
   CITATION_NODE,
   type CitationAttributes,
   type CitedQuote,
@@ -74,6 +72,7 @@ import {
 import { MindReadOnlyError } from "../../errors";
 import type { PreparedChatModel } from "../../providers/chat";
 import type { RecordCitePlace } from "../../recordCites/referents";
+import { asCheckWork } from "../../reranking/order";
 import { type ItemOutcome, RunItemError, runItems, type Slots, slots } from "../../runs/stop";
 import { inStep } from "../../timing/flows";
 import { type MarkJSON, type NodeJSON, syncContent, topLevelBlocks } from "../blocks";
@@ -196,31 +195,6 @@ function paragraphText(content: readonly NodeJSON[]): string {
     .join("");
 }
 
-function inlineLayout(content: readonly NodeJSON[]): { node: NodeJSON; start: number }[] {
-  let at = 0;
-  return content.map((node) => {
-    const start = at;
-    at += node.type === "text" ? (node.text ?? "").length : 1;
-    return { node, start };
-  });
-}
-
-function projectedContent(content: readonly NodeJSON[]) {
-  const pieces = inlineLayout(content).map(({ node, start }): InlineTextPiece => {
-    const place = {
-      from: start,
-      to: start + (node.type === "text" ? (node.text ?? "").length : 1),
-    };
-    if (node.type === "text") return { kind: "text", text: node.text ?? "", ...place };
-    if (node.type === CITATION_NODE) return { kind: "citation", ...place };
-    if (node.type === "hardBreak") return { kind: "break", ...place };
-    const figure =
-      node.type === CALCULATED_FIGURE_NODE ? readCalculatedFigureEvidence(node.attrs ?? {}) : null;
-    return { kind: "atom", ...place, ...(figure && { shown: figure.figure.shown }) };
-  });
-  return { pieces, projection: projectInlineText(pieces) };
-}
-
 /** An Analysis's own table: its cells are its run's, never claims a check reads (#2378). */
 const boundTable = (node: NodeJSON) =>
   node.type === "table" && readTableBinding(node.attrs?.[ANALYSIS_TABLE_ATTRIBUTE]) !== null;
@@ -290,6 +264,15 @@ export function checkableSentences(blocks: readonly NodeJSON[]): Sentence[] {
           citationAttributesOf(inline.attrs ?? {}),
         );
         if (cited.length === 0 && !isClaim(text)) continue;
+        // A sentence the Answer's own judgement settled came with its mark: it isn't checked again.
+        const carried = layout.some(
+          ({ node: inline, start }) =>
+            inline.type === "text" &&
+            start >= span.from &&
+            start < span.to &&
+            (inline.marks ?? []).some((mark) => mark.type === CLAIM_CHECK_MARK),
+        );
+        if (carried) continue;
         found.push({
           path: here,
           from: span.from,
@@ -1012,45 +995,52 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     };
     const { stop } = await runItems(
       waiting ? [] : sending,
-      async (sentence): Promise<Checked> => {
-        const read = reads.get(sentence) ?? { claim: sentence.text, context: sentence.context };
-        const first =
-          looked.get(sentence) ??
-          (quick &&
-            (await options.firstLook({
-              claim: read.claim,
-              figures: read.figures?.length ?? 0,
-              inCell: sentence.inCell,
-              place:
-                sentence.place.after.kind === "start" && beforeWrite
-                  ? { ...sentence.place, after: beforeWrite }
-                  : sentence.place,
-              paragraph: sentence.context,
-              citations: sentence.citations,
-              scope: scope.scope,
-              ask: (asked, until) => quickLook(quick, asked, until),
-              signal: AbortSignal.any([
-                signal,
-                AbortSignal.timeout(options.claimTimeLimitMs * FIRST_LOOK_SHARE),
-              ]),
-            })));
-        if (quick && first?.result) {
-          return { result: first.result, uncovered: null, nodes: null, by: quick, passedOn: null };
-        }
-        if (first) looked.set(sentence, first);
-        const result = await checkWithin(sentence, read, mindId, scope, prepared, limit, signal);
-        const failure = runFailureOf(result);
-        if (failure) throw new RunItemError(failure);
-        // Asked to cut what a cell's Citations don't state, Edit with AI rewrote its figure.
-        const uncovered =
-          result.verdict === "unsupported" && result.unsupported?.covered && !sentence.inCell
-            ? result.unsupported.uncovered
+      (sentence): Promise<Checked> =>
+        asCheckWork(async () => {
+          const read = reads.get(sentence) ?? { claim: sentence.text, context: sentence.context };
+          const first =
+            looked.get(sentence) ??
+            (quick &&
+              (await options.firstLook({
+                claim: read.claim,
+                figures: read.figures?.length ?? 0,
+                inCell: sentence.inCell,
+                place:
+                  sentence.place.after.kind === "start" && beforeWrite
+                    ? { ...sentence.place, after: beforeWrite }
+                    : sentence.place,
+                paragraph: sentence.context,
+                citations: sentence.citations,
+                scope: scope.scope,
+                ask: (asked, until) => quickLook(quick, asked, until),
+                signal: AbortSignal.any([
+                  signal,
+                  AbortSignal.timeout(options.claimTimeLimitMs * FIRST_LOOK_SHARE),
+                ]),
+              })));
+          if (quick && first?.result) {
+            return {
+              result: first.result,
+              uncovered: null,
+              nodes: null,
+              by: quick,
+              passedOn: null,
+            };
+          }
+          if (first) looked.set(sentence, first);
+          const result = await checkWithin(sentence, read, mindId, scope, prepared, limit, signal);
+          const failure = runFailureOf(result);
+          if (failure) throw new RunItemError(failure);
+          // Asked to cut what a cell's Citations don't state, Edit with AI rewrote its figure.
+          const uncovered =
+            result.verdict === "unsupported" && result.unsupported?.covered && !sentence.inCell
+              ? result.unsupported.uncovered
+              : null;
+          const nodes = uncovered
+            ? await cutOf(blocks, mindId, sentence, uncovered, prepared, scope, limit, signal)
             : null;
-        const nodes = uncovered
-          ? await cutOf(blocks, mindId, sentence, uncovered, prepared, scope, limit, signal)
-          : null;
-        return { result, uncovered, nodes, by: prepared, passedOn: first?.asked ? quick : null };
-      },
+          return { result, uncovered, nodes, by: prepared, passedOn: first?.asked ? quick : null };
+        }),
       {
         concurrency: claimsAtOnce(prepared),
         signal,

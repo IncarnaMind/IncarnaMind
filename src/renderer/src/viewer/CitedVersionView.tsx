@@ -8,6 +8,7 @@ import { citedVersionHandles } from "../commands/handles";
 import { MetaLine } from "../components/MetaLine";
 import { LineAction } from "../components/ProblemLine";
 import { core } from "../core";
+import { useCitedOrigin } from "../editor/mindContext";
 import { useLanguage, useT } from "../i18n";
 import { openCurrentVersion } from "../openCited";
 import { useAppStore, type ViewerTarget } from "../store";
@@ -159,6 +160,7 @@ export function CitedVersionView({
 
 /** The Document's current version at the Citation's place, from the bar or the line that says the text failed. */
 function useOpenCurrent(document: Document, target: ViewerTarget): () => void {
+  const origin = useCitedOrigin();
   const cited = target.citation;
   return useMemo(
     () => () => {
@@ -173,6 +175,7 @@ function useOpenCurrent(document: Document, target: ViewerTarget): () => void {
           ...(cited.location && { location: cited.location }),
         },
         {
+          origin,
           check: cited.check,
           withQuote: true,
           ...(cited.number !== undefined && { number: cited.number }),
@@ -180,7 +183,7 @@ function useOpenCurrent(document: Document, target: ViewerTarget): () => void {
         },
       ).catch(useAppStore.getState().reportError);
     },
-    [cited, document.id, target.quote],
+    [cited, document.id, target.quote, origin],
   );
 }
 

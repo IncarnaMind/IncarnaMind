@@ -2,7 +2,7 @@ import { deflateSync } from "node:zlib";
 
 /**
  * Builds tiny, valid PDFs for tests, so fixtures stay readable and small
- * instead of being committed as binaries. The sample PDFs in `data/` are built
+ * instead of being committed as binaries. The sample PDFs in `eval/data/` are built
  * with it too (`scripts/sampleDocuments`), so what the app reads is the same
  * kind of file the tests do.
  */
@@ -26,12 +26,27 @@ export type PdfDrawing =
   | { rule: readonly [number, number, number, number]; width?: number; gray?: number }
   | { rectangle: readonly [number, number, number, number]; gray?: number };
 
+/** A highlight or sticky note saved in the page's file, as a reader writes it (#327). */
+export interface PdfMark {
+  subtype: "Highlight" | "Underline" | "Squiggly" | "StrikeOut" | "Text";
+  /** In the page's own coordinates, as /Rect. */
+  rect: readonly [number, number, number, number];
+  /** The words' own rectangles, eight numbers each, as /QuadPoints. */
+  quadPoints?: readonly number[];
+  contents?: string;
+  title?: string;
+  /** As /C: each from 0 to 1. */
+  color?: readonly [number, number, number];
+}
+
 export interface PdfPage {
   fields?: readonly {
     dictionary: string;
     appearance: string | Readonly<Record<string, string>> | null;
     parent?: string;
   }[];
+  /** Highlights and comments the file itself holds, drawn by another reader (#327). */
+  marks?: readonly PdfMark[];
   /** Lines of text drawn top to bottom in Helvetica: WinAnsi's characters, and the options' symbols. */
   lines?: readonly string[];
   /**
@@ -49,8 +64,8 @@ export interface PdfPage {
   invisibleText?: boolean;
   /** The degrees `printed` and `chineseLines` are set at, as a stamp up a margin is. */
   tilt?: number;
-  /** Text drawn where each says, in Helvetica at 10 points: a table's cells. */
-  placed?: readonly { text: string; x: number; y: number }[];
+  /** Text drawn where each says, in Helvetica (at 10 points unless given): a table's cells or a figure's footnote mark. */
+  placed?: readonly { text: string; x: number; y: number; size?: number }[];
   /** Rules and filled rectangles, drawn before the text. */
   drawn?: readonly PdfDrawing[];
   /** Draws a small greyscale image, like a scanned page. */
@@ -398,10 +413,10 @@ function contentStream(page: PdfPage, symbols: readonly PdfSymbol[]): string {
     parts.push(`BT /F1 11 Tf 72 ${y} Td (${escapeLatin(encode(line, symbols))}) Tj ET`);
     y -= LINE_HEIGHT;
   }
-  for (const { text, x, y: at } of page.placed ?? []) {
+  for (const { text, x, y: at, size = 10 } of page.placed ?? []) {
     const chinese = /\p{Script=Han}/u.test(text);
     const shown = chinese ? `<${toUcs2Hex(text)}>` : `(${escapeLatin(encode(text, symbols))})`;
-    parts.push(`BT /${chinese ? "F2" : "F1"} 10 Tf ${x} ${at} Td ${shown} Tj ET`);
+    parts.push(`BT /${chinese ? "F2" : "F1"} ${size} Tf ${x} ${at} Td ${shown} Tj ET`);
   }
   for (const line of page.chineseLines ?? []) {
     parts.push(`BT /F2 11 Tf ${place(72)} <${toUcs2Hex(line)}> Tj ET`);
@@ -565,33 +580,47 @@ export function buildPdf(pages: readonly PdfPage[], options: PdfOptions = {}): U
       scan = ` /XObject << /Scan ${id} 0 R >>`;
     }
     const size = page.scan ? (page.landscape ? "842 595" : "595 842") : "612 792";
-    const annotations = (page.fields ?? []).map((field) => {
-      const id = nextId++;
-      const appearance = (value: string) => {
-        const appearanceId = nextId++;
-        objects[appearanceId] =
-          `<< /Type /XObject /Subtype /Form /BBox [0 0 300 24] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Length ${value.length} >>\nstream\n${value}\nendstream`;
-        return `${appearanceId} 0 R`;
-      };
-      const normal =
-        field.appearance === null
-          ? null
-          : typeof field.appearance === "string"
-            ? appearance(field.appearance)
-            : `<< ${Object.entries(field.appearance)
-                .map(([state, value]) => `/${state} ${appearance(value)}`)
-                .join(" ")} >>`;
-      let parent = "";
-      if (field.parent) {
-        const parentId = nextId++;
-        fields.push(parentId);
-        objects[parentId] = `<< ${field.parent} /Kids [${id} 0 R] >>`;
-        parent = ` /Parent ${parentId} 0 R`;
-      } else fields.push(id);
-      objects[id] =
-        `<< /Type /Annot /Subtype /Widget /P ${pageId} 0 R ${field.dictionary}${parent}${normal === null ? "" : ` /AP << /N ${normal} >>`} >>`;
-      return `${id} 0 R`;
-    });
+    const annotations = [
+      ...(page.fields ?? []).map((field) => {
+        const id = nextId++;
+        const appearance = (value: string) => {
+          const appearanceId = nextId++;
+          objects[appearanceId] =
+            `<< /Type /XObject /Subtype /Form /BBox [0 0 300 24] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Length ${value.length} >>\nstream\n${value}\nendstream`;
+          return `${appearanceId} 0 R`;
+        };
+        const normal =
+          field.appearance === null
+            ? null
+            : typeof field.appearance === "string"
+              ? appearance(field.appearance)
+              : `<< ${Object.entries(field.appearance)
+                  .map(([state, value]) => `/${state} ${appearance(value)}`)
+                  .join(" ")} >>`;
+        let parent = "";
+        if (field.parent) {
+          const parentId = nextId++;
+          fields.push(parentId);
+          objects[parentId] = `<< ${field.parent} /Kids [${id} 0 R] >>`;
+          parent = ` /Parent ${parentId} 0 R`;
+        } else fields.push(id);
+        objects[id] =
+          `<< /Type /Annot /Subtype /Widget /P ${pageId} 0 R ${field.dictionary}${parent}${normal === null ? "" : ` /AP << /N ${normal} >>`} >>`;
+        return `${id} 0 R`;
+      }),
+      ...(page.marks ?? []).map((mark) => {
+        const id = nextId++;
+        objects[id] =
+          `<< /Type /Annot /Subtype /${mark.subtype} /P ${pageId} 0 R ` +
+          `/Rect [${mark.rect.join(" ")}]` +
+          (mark.quadPoints ? ` /QuadPoints [${mark.quadPoints.join(" ")}]` : "") +
+          (mark.contents ? ` /Contents (${escapeLatin(mark.contents)})` : "") +
+          (mark.title ? ` /T (${escapeLatin(mark.title)})` : "") +
+          (mark.color ? ` /C [${mark.color.join(" ")}]` : "") +
+          " >>";
+        return `${id} 0 R`;
+      }),
+    ];
     objects[pageId] =
       `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${size}] ` +
       `${page.rotation === undefined ? "" : `/Rotate ${page.rotation} `}` +

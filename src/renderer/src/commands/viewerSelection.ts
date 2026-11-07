@@ -18,13 +18,28 @@ const offersSlideAsk = () => slide()?.ask !== undefined;
 
 const offersArea = () => area()?.select !== undefined;
 
+const offersAreaHighlight = () => area()?.highlight !== undefined;
+
 const rangeSelected = () => range() !== null;
 
 const rangeOffersAsk = () => range()?.ask !== undefined;
 
+const offersCite = () => (selection()?.cite ?? range()?.cite) !== undefined;
+
 /** The viewer's selection menu in ⌘K (#101), while text is selected in a Document, and its
  *  slide and area actions (#118). */
 export const viewerSelectionCommands: readonly Command[] = [
+  {
+    id: "viewer.selection.useAsCitation",
+    // It answers a sentence's card in the User's own window, words they selected there (#1554).
+    assistant: false,
+    label: "claim.useAsCitation",
+    group: "main",
+    // Undo, on its line, or ⌘Z in the Note, takes the Citation back with the check it had.
+    reversible: true,
+    when: offersCite,
+    run: () => (selection()?.cite ?? range()?.cite)?.(),
+  },
   {
     id: "viewer.slide.ask",
     assistant: false,
@@ -44,6 +59,16 @@ export const viewerSelectionCommands: readonly Command[] = [
     reversible: true,
     when: offersArea,
     run: () => area()?.select?.(),
+  },
+  {
+    id: "viewer.area.highlight",
+    assistant: false,
+    label: "command.annotations.highlightArea",
+    group: "main",
+    // Delete takes the highlight back, with Undo.
+    reversible: true,
+    when: offersAreaHighlight,
+    run: () => area()?.highlight?.(),
   },
   {
     id: "viewer.range.ask",
@@ -82,6 +107,15 @@ export const viewerSelectionCommands: readonly Command[] = [
     reversible: true,
     when: offersAsk,
     run: () => selection()?.ask?.(),
+  },
+  {
+    id: "viewer.selection.highlight",
+    label: "command.annotations.highlight",
+    group: "main",
+    // Delete takes it back, with Undo.
+    reversible: true,
+    when: selected,
+    run: () => selection()?.highlight?.(),
   },
   {
     id: "viewer.selection.addToNote",

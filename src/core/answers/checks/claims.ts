@@ -215,19 +215,75 @@ export function readClaimParts(
   const found = new Map<number, readonly ClaimPartPlan[]>();
   const seen = new Set<number>();
   for (const value of parsed.sentences) {
-    if (typeof value !== "object" || value === null) continue;
-    const { number, parts } = value as Record<string, unknown>;
-    const sentence = sentences.find((each) => each.number === number);
-    if (!sentence) continue;
-    if (seen.has(sentence.number)) {
-      found.delete(sentence.number);
+    const record = recordOf(value, sentences);
+    if (!record) continue;
+    if (seen.has(record.number)) {
+      found.delete(record.number);
       continue;
     }
-    seen.add(sentence.number);
-    const plans = literalParts(parts, sentence.text);
-    if (plans !== null) found.set(sentence.number, plans);
+    seen.add(record.number);
+    if (record.parts !== null) found.set(record.number, record.parts);
   }
   return found.size > 0 || parsed.sentences.length === 0 ? found : null;
+}
+
+/** The sentence a sorting reply's record is for, and its parts (null when they can't be read); null for no sentence asked. */
+function recordOf(
+  value: unknown,
+  sentences: readonly { number: number; text: string }[],
+): { number: number; parts: readonly ClaimPartPlan[] | null } | null {
+  if (typeof value !== "object" || value === null) return null;
+  const { number, parts } = value as Record<string, unknown>;
+  const sentence = sentences.find((each) => each.number === number);
+  return sentence ? { number: sentence.number, parts: literalParts(parts, sentence.text) } : null;
+}
+
+/**
+ * Reads a sorting reply as it streams: each sentence's parts once its record in the reply's
+ * `sentences` list has closed, so its check can start before the reply ends. A sentence the reply
+ * gives twice is given each time; `readClaimParts`, on the whole reply, still decides.
+ */
+export function claimPartsReader(sentences: readonly { number: number; text: string }[]) {
+  let reply = "";
+  let at = 0;
+  const open: string[] = [];
+  let inString = false;
+  let escaped = false;
+  let record = -1;
+  let ended = false;
+  return (delta: string): { number: number; parts: readonly ClaimPartPlan[] }[] => {
+    reply += delta;
+    const read: { number: number; parts: readonly ClaimPartPlan[] }[] = [];
+    for (; at < reply.length && !ended; at++) {
+      const char = reply[at];
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (char === "\\") escaped = true;
+        else if (char === '"') inString = false;
+        continue;
+      }
+      // As `readClaimParts`, the reply's JSON starts at its first "{".
+      if (open.length === 0 && char !== "{") continue;
+      if (char === '"') inString = true;
+      else if (char === "{" || char === "[") {
+        if (char === "{" && open.length === 2 && open[1] === "[") record = at;
+        open.push(char);
+      } else if (char === "}" || char === "]") {
+        open.pop();
+        if (char === "}" && open.length === 2 && record >= 0) {
+          try {
+            const found = recordOf(JSON.parse(reply.slice(record, at + 1)), sentences);
+            if (found?.parts) read.push({ number: found.number, parts: found.parts });
+          } catch {
+            // A record that isn't JSON: the whole reply, read at its end, decides its sentence.
+          }
+          record = -1;
+        }
+        ended = open.length === 0;
+      }
+    }
+    return read;
+  };
 }
 
 /** The parts a check's own `Parts:` line gives its sentence; null when it has none that can be read. */

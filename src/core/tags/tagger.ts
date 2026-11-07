@@ -385,6 +385,7 @@ export function createTagger(options: TaggerOptions) {
         return;
       }
       current = id;
+      const request = requests.get(id) ?? 0;
       try {
         await tagDocument(id, call);
       } finally {
@@ -394,7 +395,8 @@ export function createTagger(options: TaggerOptions) {
         // Interrupted by an Answer: it waits, first in line, until no Answer is being written.
         if (!queue.includes(id)) queue.unshift(id);
         if (setState(id, "pending")) announce([id]);
-      } else {
+      } else if ((requests.get(id) ?? 0) === request) {
+        // A Re-tag that came in meanwhile is the next turn's to answer, so its ask stays.
         asked.delete(id);
       }
     } catch (error) {

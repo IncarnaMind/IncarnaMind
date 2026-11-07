@@ -228,6 +228,24 @@ const STREAMABLE_HTTP_TYPES = new Set(["http", "streamable-http", "streamablehtt
 const looksLikeServer = (value: unknown) =>
   isRecord(value) && (typeof value.command === "string" || typeof value.url === "string");
 
+/** A header value another app kept as a reference to the User's environment: `${env:NAME}` (#2025). */
+const ENV_PLACEHOLDER = /\$\{env:([A-Za-z_][A-Za-z0-9_]*)\}/g;
+
+/**
+ * The headers whose value names an environment variable, and the variable: the import
+ * tells the User to enter the key instead, and stores no value for them.
+ */
+function placeholdersIn(headers: Record<string, string>): { header: string; variable: string }[] {
+  const found = new Map<string, { header: string; variable: string }>();
+  for (const [header, value] of Object.entries(headers)) {
+    for (const match of value.matchAll(ENV_PLACEHOLDER)) {
+      const variable = match[1] ?? "";
+      found.set(`${header}:${variable}`, { header, variable });
+    }
+  }
+  return [...found.values()];
+}
+
 function remoteCandidate(name: string, value: Record<string, unknown>): ImportCandidate {
   const url = typeof value.url === "string" ? value.url.trim() : "";
   const base = { name, command: null, args: [], env: [], ...(url ? { url } : {}) };
@@ -238,10 +256,30 @@ function remoteCandidate(name: string, value: Record<string, unknown>): ImportCa
   try {
     const parsed = parseRemoteUrl(url);
     const headers = parseHeaders(value.headers);
+    const placeholders = placeholdersIn(headers);
     const connection = type === "sse" ? "sse" : "http";
     return {
-      entry: { ...base, url: parsed, headers: Object.keys(headers), connection, action: "add" },
-      config: { transport: "http", name, url: parsed, client: null, headers, connection },
+      entry: {
+        ...base,
+        url: parsed,
+        headers: Object.keys(headers),
+        ...(placeholders.length > 0 && { placeholders }),
+        connection,
+        action: "add",
+      },
+      config: {
+        transport: "http",
+        name,
+        url: parsed,
+        client: null,
+        headers: Object.fromEntries(
+          Object.entries(headers).map(([header, headerValue]) => [
+            header,
+            placeholders.some((each) => each.header === header) ? "" : headerValue,
+          ]),
+        ),
+        connection,
+      },
     };
   } catch {
     return { entry: { ...base, action: "invalid" }, config: null };

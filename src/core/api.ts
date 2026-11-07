@@ -13,6 +13,7 @@ import type {
   TaggingModels,
   TaggingRoute,
 } from "./library/types";
+import type { DecisionHost } from "./providers/catalog/decisions";
 import type { Localized } from "./providers/catalog/types";
 import type { UiUsageEvent } from "./usageEvents";
 
@@ -38,6 +39,7 @@ export type {
   TaggingModels,
   TaggingRoute,
 } from "./library/types";
+export type { DecisionHost } from "./providers/catalog/decisions";
 
 /**
  * The core's public interface: the only API the UI uses.
@@ -349,8 +351,29 @@ export interface CreateMindInput {
  *   typed table, checked as one. A figure check of an Analysis's figure also
  *   records whether the claim judge read its sentence as naming it (`named`);
  *   one without it shows Not checked until the next Check.
+ * - 53: a Citation's `quotedWords` may instead record the page the Answer's
+ *   quoted words were found running on to past the one it cites
+ *   (`{ runsOnTo }`, #2504), as a Location, so its card says where the quote
+ *   continues. An older app would mishandle it: its figure reader refuses a
+ *   `quotedWords` it can't parse, so a figure's Citation would be lost, and
+ *   its Replace, re-check and figure paths would carry the old page onto a
+ *   new quote. So it opens these Notes read-only. Older content is version 52
+ *   content as it is: a Citation without it says nothing of a next page.
+ * - 54: a Citation's `quotedWords` may instead record that words its Answer put
+ *   in quotation marks are a cited Document's name, or a part of it
+ *   (`{ name }`, #2504), so its card says they aren't a quote from its pages.
+ *   An older app's figure reader refuses a `quotedWords` it can't parse, and
+ *   its Replace, re-check and figure paths would carry the name onto another
+ *   quote, so it opens these Notes read-only. Older content is version 53
+ *   content as it is: a Citation without it says nothing of a name.
+ * - 55: a `claimCheck` mark carried from an Answer names the Answer it came
+ *   from (`fromAnswer`) and the scope that Answer's Question searched (#2313).
+ *   An older version would strip the attribute on save, and the carried check
+ *   would then be re-run by a Note move or a scope comparison, so it opens
+ *   these Notes read-only. Older content is version 54 content as it is: a
+ *   mark without it was checked by this Note itself.
  */
-export const CONTENT_SCHEMA_VERSION = 52;
+export const CONTENT_SCHEMA_VERSION = 55;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -679,6 +702,8 @@ export type ProposalRequest =
       instruction?: string;
       /** Why the model changed the text, in its few words (#202); absent when it didn't say. */
       reason?: string;
+      /** The assistant said the User asked only for text to go: a change that does more waits for them (#2356). */
+      removesOnly?: true;
     })
   | (ProposalMaker & { source: "answer"; answerId: string })
   | (ProposalMaker & {
@@ -686,6 +711,8 @@ export type ProposalRequest =
       requested?: RequestedChange;
       action?: EditAction;
       instruction?: string;
+      /** It revises a change the assistant said was asked only to take text out, and is held to it (#2356). */
+      removesOnly?: true;
     })
   | (ProposalMaker & { source: "comparison-table"; tableId: string })
   | (ProposalMaker & { source: "research"; taskId: string })
@@ -1464,6 +1491,29 @@ export interface EditAsk {
 export type ChartProblem = "noTable" | "noNumbers" | "needsTwo" | "uncited";
 
 /**
+ * What an edit does to the User's sentences in the paragraphs it touches (#2356): each kept word
+ * for word, taken out whole, shortened by words taken out, or rewritten (joined to another or
+ * reworded); and how many it writes that aren't one of theirs with words taken out.
+ */
+export interface SentenceChanges {
+  kept: number;
+  takenOut: number;
+  shortened: number;
+  rewritten: number;
+  written: number;
+  /** The first few of the User's sentences taken out whole and rewritten, as they read. */
+  named: { takenOut: string[]; rewritten: string[] };
+}
+
+/** Whole paragraphs a change removes and nothing else (`paragraphsRemoved`): how many, their sentences, and how the first is named. */
+export interface RemovedParagraphs {
+  paragraphs: number;
+  sentences: number;
+  /** The first one's label ("Parking"), or its first words, "…" when cut. */
+  start: string;
+}
+
+/**
  * What a call of a Minds' Tool did (#202): the changes it proposed in one
  * Mind, which wait there for the User to accept or reject them.
  */
@@ -1479,6 +1529,12 @@ export interface MindChange {
   proposals: number;
   /** How many paragraphs they change, add or remove, each once (`changedParagraphs`). Absent: none. */
   changed?: number;
+  /** Every paragraph and table it changes it adds whole, changing none of the User's (`addsOnly`). */
+  added?: true;
+  /** What it does to the User's sentences, read from the text before and after it (`sentenceChanges`). Absent: it touches none. */
+  sentences?: SentenceChanges;
+  /** It only removes whole paragraphs, none of the User's other text changed (`onlyRemoves`). */
+  removed?: RemovedParagraphs;
   /** How many paragraphs the whole Blocks it wrote hold (a heading or a table holds none). Absent: none. */
   paragraphs?: number;
   /** How many tables it added. Absent: none. */
@@ -2250,12 +2306,20 @@ export interface CitationToRecheck {
   pageFrom: number | null;
   pageTo: number | null;
   quote: string;
+  /** The stored Location: a Transcript recheck stays at these cues, not repeated words elsewhere. */
+  location?: CitationLocation | null;
   /**
    * The version the Citation quotes. When the Document has a newer one, the result also says
    * how the Citation stands in this version (`inQuotedVersion`) and how its words changed
    * (`changed`).
    */
   contentHash?: string | null;
+  /**
+   * The words the Answer put in quotation marks that the Citation's check didn't find (#483):
+   * looked for with the quote, so a Citation not found for them stays not found until its cited
+   * Units have them (#2612).
+   */
+  quotedWords?: QuotedWordsCheck | null;
 }
 
 /** Where a Question is asked: its Note, else its conversation; null for none. */
@@ -2352,6 +2416,123 @@ export interface SelectedPart {
 export interface CitedSelection extends CitationRecheck {
   /** The words selected, read as words, without a running header or footer selected with them. */
   quote: string;
+}
+
+/** A colour a highlight is drawn in, in the order the colours are offered. */
+export type AnnotationColour = "yellow" | "green" | "blue" | "pink" | "purple";
+
+export const ANNOTATION_COLOURS: readonly AnnotationColour[] = ["yellow", "pink", "purple"];
+
+/** Where an annotation came from: the User, in the viewer, or the PDF file itself. */
+export type AnnotationSource = "user" | "file";
+
+/** What an annotation was made from, kept so a new version of its Document finds its words again. */
+export interface AnnotationAnchor {
+  parts: SelectedPart[];
+  /** The region of a Unit a highlight marks, not only its words (#118). */
+  area?: CitedArea;
+  /** The Unit the region is on, from 1. */
+  unit?: number | null;
+  /** The words just before and after a region of a picture, where the view names no Unit. */
+  around?: { before?: string; after?: string };
+}
+
+/**
+ * A highlight on a Document, with the note the User wrote under it (#327): its
+ * quote and Location (ADR-0011), as a Citation's are, so it can be searched
+ * and cited, and the file's own annotations read when a PDF is added.
+ */
+export interface Annotation {
+  /** A random UUID generated on this device. */
+  id: string;
+  documentId: string;
+  /** The Document's name now, for a list that shows more than one Document's. */
+  documentName: string;
+  /** The version its quote was placed in; a Document at another version re-anchors it once. */
+  contentHash: string | null;
+  /** The Passage a Citation of it points at. */
+  passageId: string | null;
+  source: AnnotationSource;
+  colour: AnnotationColour;
+  /** The words highlighted, read as words, as its Citation quotes them. */
+  quote: string;
+  /** The User's note about them; null when they wrote none. */
+  note: string | null;
+  pageFrom: number | null;
+  pageTo: number | null;
+  /** Its Location in the Document's own units, stored so its label reads after the Document is gone. */
+  location: CitationLocation | null;
+  /** As its Citation's check stood when it was made or last re-anchored. */
+  check: CitationCheck;
+  checkReason: CitationCheckReason | null;
+  /**
+   * The selection it was made from; for an annotation read from a file, the file's own words and
+   * the words around them, so a new version finds them again.
+   */
+  anchor: AnnotationAnchor | null;
+  /** A file annotation's author, as the file says; null for the User's own. */
+  author: string | null;
+  /** Its words aren't in the Document's current version: kept in the list, saying so. */
+  missing: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** A highlight the User makes, or a note under it, from words they selected (`createAnnotation`). */
+export interface CreateAnnotationInput {
+  documentId: string;
+  parts: SelectedPart[];
+  colour: AnnotationColour;
+  /** The note to write with it, when "Add a note…" made it. */
+  note?: string | null;
+  /** The region of a Unit the User marked (#118): a highlight may mark an area, not only words. */
+  area?: CitedArea;
+  /** The Unit the region is on, from 1. */
+  unit?: number | null;
+  /** The words just before and after a region of a picture, where the view names no Unit. */
+  around?: { before?: string; after?: string };
+}
+
+/** What changes on an annotation: its note and its colour, each left out when unchanged. */
+export interface AnnotationEdit {
+  note?: string | null;
+  colour?: AnnotationColour;
+}
+
+/** Which annotations to collect: a Document's, a Folder's (with its sub-Folders'), or one colour's. */
+export interface AnnotationsIn {
+  documentId?: string;
+  folderId?: string;
+  colour?: AnnotationColour;
+}
+
+/** One Document's annotations, for Collect into a Mind. */
+export interface AnnotationGroup {
+  documentId: string;
+  documentName: string;
+  /** In page order, then the order they were made. */
+  annotations: Annotation[];
+}
+
+/**
+ * An annotation Search or ⌘K found: its quote or its note holds the words, as
+ * a short excerpt with them marked, and where its Document has it.
+ */
+export interface AnnotationMatch {
+  annotationId: string;
+  documentId: string;
+  documentName: string;
+  colour: AnnotationColour;
+  source: AnnotationSource;
+  /** The User's note on it, when they wrote one. */
+  note: string | null;
+  /** What was searched: the quote, the note, or both, a line between. */
+  excerpt: string;
+  highlights: TextRange[];
+  pageFrom: number | null;
+  pageTo: number | null;
+  location: CitationLocation | null;
+  missing: boolean;
 }
 
 /** A Passage found for a piece of the User's own writing (`findPassages`, #281). */
@@ -2589,7 +2770,31 @@ export interface QuotedWords {
   answer: QuotedPiece[];
   /** The Document's words nearest them, the matching stretch `found: true`; null when none is near. */
   closest: QuotedPiece[] | null;
+  /**
+   * The Answer's quote in the Document's own marks, where the two differ only in the kind of
+   * their quotation marks (#2605): what Use the Document's wording puts in the sentence. The
+   * quote's other characters are its own, so only its marks change. Absent for any other
+   * difference, which the card offers nothing for.
+   */
+  documentWording?: string;
 }
+
+/** The Answer's quoted words, found where they run on past the page the Citation cites (#2504). */
+export interface QuotedWordsRunOn {
+  /** The page they run on to, as the Document prints it, for the card to name. */
+  runsOnTo: CitationLocation;
+}
+
+/** Words in quotation marks that are a cited Document's name, or a part of it: a name, not a quote (#2504). */
+export interface QuotedName {
+  name: string;
+}
+
+/**
+ * What the check of the Answer's quoted words found, stored as one value, so whatever drops or
+ * checks the words again drops the run-on page or the name with them.
+ */
+export type QuotedWordsCheck = QuotedWords | QuotedWordsRunOn | QuotedName;
 
 /**
  * A Citation's attributes, as stored on its node in the Mind's Yjs document.
@@ -2643,8 +2848,11 @@ export interface CitationAttributes {
   pageChecked?: boolean | null;
   /** One line on what the evidence says, when a claim check has one ("The agreement says 31 October 2026, p. 7"). */
   verdict?: string | null;
-  /** The Answer's quoted words the check didn't find, when that is why `check` is "not-found" (#483). */
-  quotedWords?: QuotedWords | null;
+  /**
+   * The Answer's quoted words the check didn't find, when that is why `check` is "not-found"
+   * (#483), or the page they were found running on to (#2504).
+   */
+  quotedWords?: QuotedWordsCheck | null;
   /**
    * The Document's version the User chose to keep citing the old one over (Keep citing the old
    * version, #99): while it is the current one, the Citation doesn't ask to be checked again.
@@ -2673,7 +2881,14 @@ export interface Citation {
   checkReason: CitationCheckReason | null;
   /** The unsure words of a scanned page the quote covers (#535). */
   unsure?: string[];
-  quotedWords?: QuotedWords;
+  quotedWords?: QuotedWordsCheck;
+  /**
+   * The words of the Answer's quotation marks that this Citation's Units were found to state
+   * (#2602), so a figure in them is stated by this Citation. None when the quoted-words check
+   * didn't look for them: a Document's name, a Citation that couldn't be checked, or words the
+   * check didn't find (its card says Quote not found instead).
+   */
+  quotedWordsFound?: string[];
   /** "unsupported" and "contradicted": what the Documents say of its sentence, in one plain sentence. */
   verdict?: string | null;
 }
@@ -3043,7 +3258,10 @@ export interface EditCause {
   requestId: string;
   /** Its Proposals' `ProposalRef.request`. */
   request: string;
-  /** Drawn as applied while it streams in; false until its new text maps onto the selection. */
+  /**
+   * Drawn as applied while it streams in: its new text maps onto the selection, and what it has
+   * written so far would not wait for the User.
+   */
   apply: boolean;
 }
 
@@ -3238,11 +3456,25 @@ export interface DeviceSettings {
 }
 
 /**
- * Where a Meeting's audio is turned into text: on this computer, or by a cloud service with the
- * User's own key (#141): OpenAI and Qwen (Alibaba Cloud Model Studio, for mainland China) with
- * the key of their provider in Settings › Models, Soniox with a key of its own.
+ * Where a Meeting's audio is turned into text: on this computer, or live by a cloud service with
+ * the User's own key (#141, #866): OpenAI, Qwen (Alibaba Cloud Model Studio, for mainland China),
+ * Gemini and xAI with the key of their provider in Settings › Models; Soniox, Deepgram
+ * (also at Cloudflare Workers AI or a server of the User's own), AssemblyAI, ElevenLabs,
+ * Speechmatics and Gladia with a key of their own.
  */
-export const TRANSCRIPTION_ROUTES = ["local", "openai", "soniox", "qwen"] as const;
+export const TRANSCRIPTION_ROUTES = [
+  "local",
+  "openai",
+  "soniox",
+  "qwen",
+  "deepgram",
+  "assemblyai",
+  "gemini",
+  "elevenlabs",
+  "speechmatics",
+  "gladia",
+  "xai",
+] as const;
 export type TranscriptionRoute = (typeof TRANSCRIPTION_ROUTES)[number];
 export type CloudTranscriptionRoute = Exclude<TranscriptionRoute, "local">;
 
@@ -3262,9 +3494,28 @@ export interface TranscriptionServiceStatus {
   hasKey: boolean;
   liveSpeakers: boolean;
   keyUrl: string | null;
+  /** Where credit is added to the account the key is for; null where none is known. */
+  billingUrl: string | null;
+  /**
+   * The server the audio goes to, where the User can give one (Deepgram's: Deepgram, Cloudflare
+   * Workers AI or their own); null for every other service, whose address is its own.
+   */
+  server: string | null;
+  /** Its key may be left out: a server of the User's own. */
+  keyOptional: boolean;
+  /**
+   * Saving its key first sends it to the service to check it, except in Local mode; a Deepgram
+   * key is checked only when the server saved is Deepgram's own.
+   */
+  keyChecked: boolean;
+  /** What it transcribes, as ISO 639 codes. */
+  languages: string[];
+  /** The languages the User speaks (the interface's and the computer's) that it doesn't transcribe. */
+  missingLanguages: string[];
   /**
    * It was chosen, and set back to this computer when its key began to send the audio somewhere
-   * the User hadn't chosen (a Qwen key for another region): choosing it again sends it there.
+   * the User hadn't chosen (a Qwen key for another region, another Deepgram server): choosing it
+   * again sends it there.
    */
   chooseAgain: boolean;
 }
@@ -3280,9 +3531,39 @@ export interface TranscriptionServices {
   services: TranscriptionServiceStatus[];
 }
 
+/** A host of decision models other than TypeSafe's Jev, as Settings › Models and the sorting picker list it (#1907). */
+export interface DecisionHostStatus {
+  host: DecisionHost;
+  name: Localized;
+  /** "provider": it uses the key of the chat provider `provider` (a catalog id); "own": a key of its own. */
+  key: "provider" | "own";
+  provider: string | null;
+  /** What else it asks for, and what is saved: Cloudflare's account ID, or the Model Studio workspace. */
+  account: { kind: "cloudflare-account" | "alibaba-workspace"; value: string | null } | null;
+  hasKey: boolean;
+  /** Its key and account are there: its models can be chosen. */
+  ready: boolean;
+  /** Best first. */
+  models: { id: string; name: string; maker: string }[];
+  /** Where Document text goes, once its account is known. */
+  service: ExternalService | null;
+  keyUrl: string;
+  pricingUrl: string;
+}
+
+export interface SetDecisionKeyInput {
+  host: DecisionHost;
+  /** A new key, for a host with its own; left out to keep the saved one. */
+  apiKey?: string;
+  /** Cloudflare's account ID or the Model Studio workspace; left out to keep the saved one. */
+  account?: string;
+}
+
 export interface SetTranscriptionKeyInput {
   route: CloudTranscriptionRoute;
   apiKey: string;
+  /** Deepgram's server, where it isn't Deepgram's own: Cloudflare Workers AI's, or the User's. */
+  server?: string;
 }
 
 /**
@@ -4140,9 +4421,9 @@ export type WebPageLookFailure =
  * - "not-a-page": the address is a file (a PDF, an image), not a web page.
  * - "video": the page is a video, with little text to read.
  * - "not-text": the page has too little text to read, such as an app.
- * - "not-public": web search's fetcher refused it: the address is on this
- *   computer or a local network, or redirects there (#128).
- * - "too-many-redirects": it redirected more than web search's fetcher follows.
+ * - "not-public": the fetcher that reaches only the public internet refused
+ *   it: the address is on this computer or a local network, or redirects there.
+ * - "too-many-redirects": it redirected more than that fetcher follows.
  * - "not-from-search": web search fetches only the pages its search returned
  *   in the same Answer, and this wasn't one.
  * - "local-mode": "Keep everything on this computer" is on, so nothing was
@@ -6460,6 +6741,8 @@ export type EditWithAiResult =
       stopped?: "changed";
       /** What its new text left out of the selection, kept; absent when nothing. */
       leftOut?: LeftOutPart[];
+      /** The paragraphs of the selection a reply by names didn't name, as they were (#2356). Absent: none. */
+      unnamed?: LeftOutPart[];
       /**
        * The Mind's Yjs state vector once the Proposals were written. This reply can reach a
        * window before the last `"mind.update"` that wrote them, so a window waits until its
@@ -7150,6 +7433,8 @@ export interface ClaimCheckBasis {
   kept?: true;
   /** "check-against-document": how much of the picked Document or Folder was read. */
   read?: WholeRead;
+  /** The Answer a carried check came from (#2313); absent for a check the Note ran itself. */
+  fromAnswer?: string;
 }
 
 /** Pages read of a whole-read pick's total pages; a page without text cannot be read. */
@@ -7204,6 +7489,35 @@ export interface PlanDocumentCheckInput {
   within: SearchScope;
   model?: ChatModelChoice | null;
 }
+
+/** Rewrite with what the Documents say (#1554): one sentence check of a Mind whose card offers it. */
+export interface RewriteFromDocumentsInput {
+  mindId: string;
+  /** The check: unsupported, with no Citation, beside a Passage that gives another value (#770). */
+  checkId: string;
+  /** The model to use: the Mind's own; none, or null, the default chat model. */
+  model?: ChatModelChoice | null;
+}
+
+export type RewriteFromDocumentsResult =
+  /**
+   * The sentence's old words and the Passage's for them, held by every rule a correction is, and
+   * the model that wrote them.
+   */
+  | { kind: "rewritten"; correction: ClaimCorrection; providerId: string; modelId: string }
+  /** The reply gave no rewrite the rules hold: the sentence stays. */
+  | { kind: "kept" }
+  /**
+   * The model found nothing to change, and the sentence already gives the Passage's figure, of
+   * what the Passage gives it for: the Documents give the same value.
+   */
+  | { kind: "same" }
+  /** The model found nothing to change, but the sentence doesn't give the Passage's value: it stays. */
+  | { kind: "none" }
+  /** The sentence, its check or its Passage changed since the check: nothing was sent. */
+  | { kind: "changed" }
+  | Extract<CheckSentencesResult, { kind: "not-ready" | "local-mode" | "cancelled" }>
+  | { kind: "failed"; error: ProviderError };
 
 export interface DocumentToRead {
   documentId: string;
@@ -7980,6 +8294,12 @@ export interface ConversationQuestion {
 /** A Citation of an Answer in a conversation: where it goes is its marker ("[^2]") in the text. */
 export interface MarkedCitation extends Citation {
   marker: number;
+  /**
+   * When the sentence judgement settled this Citation, a supported one included (ISO 8601):
+   * absent when only its quote was checked, so a Note made from the Answer carries the judgement
+   * and not the quote check alone (#2313).
+   */
+  judgedAt?: string;
 }
 
 /**
@@ -8072,6 +8392,12 @@ export interface AskInConversationInput {
   quotes?: AskedQuote[] | null;
   /** Its Search scope; none or null: every Document. */
   scope?: SearchScope | null;
+  /**
+   * The Folder the Library is open on, when the Question comes from the Library with no Note:
+   * what "this folder" means there (#2529). Checked against the walls as a Note's Folder is,
+   * and not kept with the Question.
+   */
+  folderInFrontId?: string | null;
   /** The model to answer with; none or null: the default. */
   model?: ChatModelChoice | null;
   /** A Skill to load up front, by name. */
@@ -8098,6 +8424,11 @@ export interface ConversationAnswerInput {
   clearScope?: boolean;
   /** Regenerating: the Documents open on screen now, as `AskInConversationInput.onScreen`. */
   onScreen?: string[] | null;
+  /**
+   * Regenerating: the Folder the Library is open on, as `AskInConversationInput.folderInFrontId`,
+   * so Try again means the same Folder as the first Answer did (#2529).
+   */
+  folderInFrontId?: string | null;
   /**
    * Regenerating: write it with this model, and keep the Question on it, as when the model it was
    * asked with failed and the User chose another (#1848). Absent: the Question's own.
@@ -8144,6 +8475,13 @@ export interface AddToNoteInput {
   model: ChatModelChoice | null;
   /** They wait as changes to accept or reject, each Block one (a new Mind made from an Answer). */
   proposed?: boolean;
+  /**
+   * Whether their words are AI's, kept under `GENERATED_MARK`: true unless the caller says
+   * these are the User's own Blocks, as Collect's annotations are.
+   */
+  generated?: boolean;
+  /** Whether they are recorded as AI use: true unless these are the User's own Blocks. */
+  recordUse?: boolean;
 }
 
 /** What "Add to note" put into a Mind: the ids of its new top-level Blocks, in order. */
@@ -9385,6 +9723,9 @@ export type ConnectorErrorKind =
   /** Anything else, e.g. it doesn't speak MCP. */
   | "failed";
 
+/** Where a remote Connector failed, for the log (see `ConnectorError.step`). */
+export type ConnectorFailureStep = "headers" | "sign-in" | "connect" | "tools" | "call";
+
 export interface ConnectorError {
   kind: ConnectorErrorKind;
   /** "missing-command": the command that wasn't found, e.g. "npx". Null otherwise. */
@@ -9395,6 +9736,12 @@ export interface ConnectorError {
   message: string;
   /** IncarnaMind will start it again by itself shortly, waiting longer after each failure. */
   retrying: boolean;
+  /** Remote: where it failed: reading its stored headers, signing in, connecting, or listing Tools. */
+  step?: ConnectorFailureStep;
+  /** Remote: the HTTP status the server answered, when one did. */
+  status?: number;
+  /** Remote: the failure's own first line, with every header value and key-like token redacted. */
+  detail?: string;
 }
 
 /** A Tool a Connector offers. */
@@ -9572,6 +9919,8 @@ export interface ConnectorImportEntry {
   url?: string;
   connection?: "http" | "sse";
   headers?: string[];
+  /** Headers that read a value from the User's environment in the imported file: no value is stored. */
+  placeholders?: { header: string; variable: string }[];
   action: "add" | "exists" | "remote" | "invalid";
 }
 
@@ -9944,6 +10293,13 @@ export type CommandAsk =
       folder: string;
       /** The name it would be saved under; the next free one if that is taken. */
       fileName: string;
+      /** The picture files it saves beside that one, each once, by the names it writes; none unless the format writes them. */
+      pictures: readonly string[];
+      /**
+       * The list an earlier Allow saw, when the files changed since: the card names the new list
+       * and marks what wasn't there, and none is written until the User allows again (#2514).
+       */
+      previous?: { fileName: string; pictures: readonly string[] };
     }
   | { kind: "add"; folder: string; files: string[] }
   | { kind: "final"; command: CommandId; items: CommandItem[] }
@@ -10314,6 +10670,8 @@ export interface ExportMindOptions {
 export interface MindExportPreview {
   /** A file name for the export, from the Mind's title, e.g. "Tides.docx". */
   fileName: string;
+  /** The picture files a Markdown export writes beside it, each once, by the names it writes; none for every other format. */
+  pictures: readonly string[];
   /**
    * The Citations in the exported text. Each becomes its own footnote, even
    * when several cite the same page.
@@ -10689,6 +11047,7 @@ export type MeetingKind = "meeting" | "memo";
 /**
  * How one source is recorded right now:
  * - "off": not asked for ("Only me"), or the Meeting isn't recording.
+ * - "waiting": the system's permission prompt is open, and nothing is captured until it is answered.
  * - "starting": asked for, not heard from yet.
  * - "recording": its audio is coming in.
  * - "silent": the computer's sound has been nothing but silence for a minute,
@@ -10700,6 +11059,7 @@ export type MeetingKind = "meeting" | "memo";
  */
 export type MeetingSourceState =
   | "off"
+  | "waiting"
   | "starting"
   | "recording"
   | "silent"
@@ -10814,6 +11174,12 @@ export interface MeetingFill {
   /** The model that wrote it runs on this computer. */
   local: boolean;
   problem: MeetingFillProblem | null;
+  /** Known rejected additions, including an unavailable overview; absent on older fills. */
+  omitted?: number;
+  /** Transcript parts not finished when a request failed; absent on older fills. */
+  unfinishedParts?: number;
+  /** Blocks inserted by this fill, for status placement without changing the Note. */
+  addedBlockIds?: string[];
 }
 
 /**
@@ -11000,14 +11366,15 @@ export interface MeetingTranscript {
   /**
    * This computer took over from the cloud service the User chose, during this stretch of
    * recording: where, in the Meeting's time, and why. "dropped": the connection was lost;
-   * "refused": the service didn't accept the key; "cap": the month reached the cap;
-   * "local-mode": “Keep everything on this computer” is on; "moved": the key now sends the
-   * audio somewhere the User hasn't chosen (`TranscriptionServiceStatus.chooseAgain`). Null otherwise.
+   * "refused": the service didn't accept the key; "credit": the account has no credit left;
+   * "cap": the month reached the cap; "local-mode": “Keep everything on this computer” is on;
+   * "moved": the key now sends the audio somewhere the User hasn't chosen
+   * (`TranscriptionServiceStatus.chooseAgain`). Null otherwise.
    */
   fellBack: {
     route: CloudTranscriptionRoute;
     atMs: number;
-    reason: "dropped" | "refused" | "cap" | "local-mode" | "moved";
+    reason: "dropped" | "refused" | "credit" | "cap" | "local-mode" | "moved";
   } | null;
   /** Its own file in the data folder, once saved: kept for the Library, never shown as a path (#763). */
   savedPath: string | null;
@@ -11335,15 +11702,18 @@ export interface CoreApi {
    * language, and makes them. `classifyDocuments` then suggests one for each. Returns the
    * Folders made, none when no Document has text to read. Throws InvalidInputError with no
    * model for Organize, or one that can't name Folders (a decision model), and what the
-   * provider throws; nothing is made then.
+   * provider throws; nothing is made then. With `forService`, a continuation of a press
+   * authorized for that service: Organize sending elsewhere proposes nothing.
    */
-  proposeFolders(documentIds: string[]): Promise<LibraryGroup[]>;
+  proposeFolders(documentIds: string[], options?: { forService?: string }): Promise<LibraryGroup[]>;
   /**
    * Queues selected documents, or all. Organize suggests a Folder for each
    * (a Suggested Folder) and its Tags; manual assignments are preserved, and
-   * only their Tags suggested.
+   * only their Tags suggested. With `forService`, a continuation of a press
+   * authorized for that service: a different destination queues and clears
+   * nothing, and a change while the run waits sends nothing there.
    */
-  classifyDocuments(documentIds?: string[]): Promise<void>;
+  classifyDocuments(documentIds?: string[], options?: { forService?: string }): Promise<void>;
   /**
    * Stops automatic Tagging with AI where the Documents waiting to be
    * tagged, or being tagged, are: each of their Folders, and Not in a Folder
@@ -11432,8 +11802,9 @@ export interface CoreApi {
   /**
    * Undoes a Restore: each item goes back to Recently deleted as it was before it came back, with
    * the rows its Restore brought back, deleted at the time it was deleted then, so the Folder it
-   * was in and its `RECENTLY_DELETED_DAYS` are as they were. A time outside those days, or in the
-   * future, is taken as now, so it never lands expired. Sends the events a delete sends.
+   * was in and its `RECENTLY_DELETED_DAYS` are as they were. A time outside those days, within a
+   * day of their end, or in the future, is taken as now, so it never lands expired and the Redo
+   * that follows can't be refused. Sends the events a delete sends.
    */
   deleteAgain(refs: DeletedAgainRef[]): Promise<void>;
   /**
@@ -12042,8 +12413,9 @@ export interface CoreApi {
    * only one that differs; an arXiv number on arXiv. Calling it is the
    * consent to the "reference-check" flow (ADR-0022); in local mode every
    * entry is "not-checked". One check of a Mind at a time. Answers are kept:
-   * a found record for good, a miss for seven days; `again` asks about every
-   * miss again.
+   * a found record for good, and a miss or a failure too, so an ordinary
+   * check sends nothing more; `again` asks about every kept miss and failure
+   * again.
    */
   checkReferences(mindId: string, options?: { again?: boolean }): Promise<CheckReferencesResult>;
   /** Stops a Mind's `checkReferences`: it gives "cancelled". Stopping none does nothing. */
@@ -12170,6 +12542,8 @@ export interface CoreApi {
   citeSelection(input: {
     documentId: string;
     parts: SelectedPart[];
+    /** The Note the Citation is for: refused from a Document behind a Folder wall it is outside. */
+    mindId?: string;
     area?: CitedArea;
     /** The Unit the area is on, when its text found no place there: a picture of that page or slide. */
     unit?: number | null;
@@ -12179,6 +12553,39 @@ export interface CoreApi {
      */
     around?: { before?: string; after?: string };
   }): Promise<CitedSelection>;
+  /**
+   * Highlights words the User selected in a Document (#327), as `citeSelection`
+   * cites them, with an optional note under them. Refused, as `citeSelection`
+   * refuses. Its quote holds the words as its Citation quotes them, so Add to
+   * note and Collect into a Mind can cite it.
+   */
+  createAnnotation(input: CreateAnnotationInput): Promise<Annotation>;
+  /**
+   * A Document's annotations, newest first: the User's and those read from a
+   * PDF file. One whose Document has a new version is re-anchored by its quote
+   * first, and says "missing" when its words are gone.
+   */
+  listAnnotations(documentId: string): Promise<Annotation[]>;
+  /** Annotations to collect: a Document's, a Folder's, or one colour's, grouped by Document in page order. */
+  annotationsIn(input: AnnotationsIn): Promise<AnnotationGroup[]>;
+  /** How many annotations each of the User's Documents has, by Document id; Documents with none are left out. */
+  annotationCounts(): Promise<Record<string, number>>;
+  /** Changes an annotation's note or colour. */
+  updateAnnotation(id: string, edit: AnnotationEdit): Promise<Annotation>;
+  /** Deletes an annotation, softly: `restoreAnnotation` takes it back. */
+  deleteAnnotation(id: string): Promise<Annotation>;
+  /** Takes back a delete. */
+  restoreAnnotation(id: string): Promise<Annotation>;
+  /**
+   * Searches the User's annotations' quotes and notes, best match first
+   * (#327): what Search, ⌘K and the assistant find by. `limit` defaults to 50.
+   */
+  searchAnnotations(query: string, options?: { limit?: number }): Promise<AnnotationMatch[]>;
+  /**
+   * A Document's annotations as Markdown — each quote, its note and its
+   * Location — saved in the Output location, as an export is (#327).
+   */
+  saveAnnotationsExport(documentId: string): Promise<SavedExport | { status: "empty" }>;
   /**
    * Searches the Passages of live Documents, best match first: hybrid
    * (keyword and vector) search by default, which is keyword search while
@@ -12546,6 +12953,14 @@ export interface CoreApi {
    * and stops a whole read already running there.
    */
   planDocumentCheck(input: PlanDocumentCheckInput): Promise<DocumentCheckPlan>;
+  /**
+   * Rewrite with what the Documents say (#1554): asks the Mind's model (the default one when it
+   * has none) for the words of the sentence to change to what the Passage beside its check says,
+   * on the "checks" flow, and keeps
+   * them only when the Passage's quote holds them and gives every figure the rewritten sentence
+   * gives. Nothing in the Mind changes: the editor writes it, cited, as one step of Undo.
+   */
+  rewriteFromDocuments(input: RewriteFromDocumentsInput): Promise<RewriteFromDocumentsResult>;
   /** Stops a `checkSentences` request: it gives "cancelled". Stopping one that ended does nothing. */
   cancelCheck(requestId: string): Promise<void>;
   /**
@@ -12922,6 +13337,17 @@ export interface CoreApi {
    */
   testJevConnection(input?: TestJevConnectionInput): Promise<ConnectionTestResult>;
 
+  /** The hosts of decision models other than Jev (#1907), and whether each can be used here. */
+  listDecisionHosts(): Promise<DecisionHostStatus[]>;
+  /**
+   * Keeps a decision model host's own key, and the account it asks for, once a question about a
+   * fixed text (nothing of the User's) shows the host accepts them. Throws `InvalidInputError` when
+   * it refuses them, and `LocalModeError` in Local mode; nothing is kept then.
+   */
+  setDecisionKey(input: SetDecisionKeyInput): Promise<DecisionHostStatus[]>;
+  /** Forgets what a decision model host keeps on this device: its own key and its account. */
+  removeDecisionKey(host: DecisionHost): Promise<DecisionHostStatus[]>;
+
   /** Connectors that are not deleted, in name order (ignoring case), each with its state. */
   listConnectors(): Promise<Connector[]>;
   /**
@@ -13113,9 +13539,14 @@ export interface CoreApi {
   /**
    * What `exportMind` will write with these options: the file name, and how
    * many of the exported Citations are unverified, so the User sees that
-   * before the file is written.
+   * before the file is written. Given the folder it goes to, the names are the
+   * ones it writes there, the next free one where a name is taken.
    */
-  previewMindExport(mindId: string, options: ExportMindOptions): Promise<MindExportPreview>;
+  previewMindExport(
+    mindId: string,
+    options: ExportMindOptions,
+    folder?: string,
+  ): Promise<MindExportPreview>;
   /**
    * Exports a Mind as a file, which the host saves: its title, its Notes
    * (those switched out of Question context too), its Answers and, if
@@ -13301,8 +13732,10 @@ export interface CoreApi {
   /** The cloud services that can transcribe meeting audio (#141), and whether each has a key. */
   listTranscriptionServices(): Promise<TranscriptionServices>;
   /**
-   * Keeps a transcription service's own key (Soniox), in the keychain, once the service accepts
-   * it. Throws `InvalidInputError` when it refuses the key.
+   * Keeps a transcription service's own key (Soniox, Deepgram, AssemblyAI, ElevenLabs,
+   * Speechmatics, Gladia), in the keychain, once the service accepts it, with Deepgram's server
+   * where it is another. Throws `InvalidInputError` when it refuses the key or the server's
+   * address isn't one.
    */
   setTranscriptionKey(input: SetTranscriptionKeyInput): Promise<TranscriptionServices>;
   /** Forgets a transcription service's own key; meeting audio is then transcribed on this computer. */
@@ -13487,6 +13920,8 @@ export interface CoreEvents {
   "documents.moved": Document[];
   /** Documents removed from the index, by the User or with their Linked folder: their ids. */
   "documents.removed": string[];
+  /** A Document's highlights and notes changed (#327): read `listAnnotations` again. */
+  "annotations.changed": { documentId: string };
   /** A Document renamed, by the User or the assistant (#1110), whole as it is named now. */
   "documents.renamed": Document[];
   /** The Documents whose PDF password is kept changed (#763): their ids now. */
@@ -13550,6 +13985,8 @@ export interface CoreEvents {
   "copilot.changed": CopilotStatus;
   /** Jev was set up, changed or removed on this device. */
   "jev.changed": JevSettings;
+  /** A decision model host's key or account was kept or forgotten: the list as `listDecisionHosts` returns it. */
+  "decisions.changed": DecisionHostStatus[];
   /**
    * Skills were imported, duplicated, turned on or off, removed or restored:
    * the list as `listSkills` now returns it.
@@ -13753,6 +14190,15 @@ const methods: Record<CoreApiMethod, true> = {
   downloadOnlineOnlyFiles: true,
   recheckCitation: true,
   citeSelection: true,
+  createAnnotation: true,
+  listAnnotations: true,
+  annotationsIn: true,
+  annotationCounts: true,
+  updateAnnotation: true,
+  deleteAnnotation: true,
+  restoreAnnotation: true,
+  searchAnnotations: true,
+  saveAnnotationsExport: true,
   searchPassages: true,
   findPassages: true,
   citePassage: true,
@@ -13826,6 +14272,7 @@ const methods: Record<CoreApiMethod, true> = {
   respondToEditAsk: true,
   checkSentences: true,
   planDocumentCheck: true,
+  rewriteFromDocuments: true,
   cancelCheck: true,
   checkClaim: true,
   chooseRecordCiteSource: true,
@@ -13931,6 +14378,9 @@ const methods: Record<CoreApiMethod, true> = {
   saveJevSettings: true,
   removeJevSettings: true,
   testJevConnection: true,
+  listDecisionHosts: true,
+  setDecisionKey: true,
+  removeDecisionKey: true,
   listConnectors: true,
   addConnector: true,
   getExamples: true,

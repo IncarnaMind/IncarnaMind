@@ -4,7 +4,7 @@ import type { Document, LibraryGroup } from "../../../core/api";
 import { focusComposer } from "../commands/assistant";
 import { useComposer } from "../composer";
 import { LIBRARY_DELETED } from "../deletedItems";
-import { errorMessage, providerErrorText } from "../errors";
+import { errorMessage } from "../errors";
 import { useFindSources } from "../findSources";
 import { folderPathLabel } from "../folders";
 import { useLanguage, useT } from "../i18n";
@@ -21,6 +21,7 @@ import {
 } from "../libraryFilters";
 import { useLibraryFolds } from "../libraryFolds";
 import {
+  FIRST_ROWS,
   folderFacet,
   listedDocumentIds,
   NOT_IN_A_FOLDER,
@@ -46,13 +47,14 @@ import {
   useOwnDocuments,
 } from "../ownDocuments";
 import { useDeleted } from "../recentlyDeleted";
+import { reviewProblemKind, reviewReason } from "../reviewProblems";
 import { extendThroughRows, useSelection, useSelectionOrder } from "../selection";
 import { DEFAULT_SORT, sorted } from "../sort";
 import { sortOf, useSort } from "../sortChoices";
 import { documentFields, folderFields } from "../sortFields";
 import { useAppStore } from "../store";
 import { hasNotSorted, waitingIds } from "../suggestionReview";
-import { reviewIds, toReviewOf } from "../toReview";
+import { reviewIds, TO_REVIEW, toReviewOf } from "../toReview";
 import { moveThroughRows } from "../treeKeys";
 import { useUnreadFiles } from "../unreadFiles";
 import { FindSourcesPanel } from "./FindSourcesPanel";
@@ -65,12 +67,13 @@ import { LibraryEmpty } from "./library/LibraryEmpty";
 import { LibraryHeader } from "./library/LibraryHeader";
 import { LibrarySection } from "./library/LibrarySection";
 import { MeetingHits } from "./library/MeetingHits";
-import { ToReview } from "./library/ToReview";
+import { ToReview, UNSORTED_KEY } from "./library/ToReview";
 import { useFittingColumns } from "./library/useFittingColumns";
 import { useReviewFocus } from "./library/useReviewFocus";
 import { ProblemLine } from "./ProblemLine";
 import { ReferenceImportPanel } from "./ReferenceImportPanel";
 import { UnreadFilesLine } from "./UnreadFilesLine";
+import { useTaggingService } from "./useTaggingService";
 
 const NO_GROUPS: readonly LibraryGroup[] = [];
 const NO_DOCUMENTS: readonly Document[] = [];
@@ -105,10 +108,20 @@ export function LibraryPane() {
   const linkedFolders = useAppStore((state) => state.linkedFolders);
   const tagFilter = useAppStore(useShallow((state) => state.tagFilter));
   const request = useAppStore((state) => state.libraryFilter);
+  const reviewTarget = useAppStore((state) => state.reviewTarget);
   const findingSources = useFindSources((state) => state.open);
   const [search, setSearch] = useState("");
   /** The format, year, status and Folder filters' choices; the Tags filter is the store's, shared with the sidebar. */
   const [facetFilter, setFacetFilter] = useState<FilterSelection>({});
+  // The Folder the Library shows is the one its own Folder filter narrows to; clearing it shows
+  // everything, so no Folder is in front (#2529).
+  const folderFilter = facetFilter.folder?.length === 1 ? (facetFilter.folder[0] ?? null) : null;
+  const narrowedTo = useRef<string | null>(null);
+  useEffect(() => {
+    if (folderFilter !== null) useAppStore.setState({ libraryFolderId: folderFilter });
+    else if (narrowedTo.current !== null) useAppStore.setState({ libraryFolderId: null });
+    narrowedTo.current = folderFilter;
+  }, [folderFilter]);
   // A source's view lists that source's Documents even when they are the examples': the examples
   // leave the Library once the User has a Document of their own, but their Linked folder's row
   // stays the way back to them (#1944).
@@ -235,28 +248,37 @@ export function LibraryPane() {
     const held = new Map((snapshot?.assignments ?? []).map((item) => [item.documentId, item]));
     return new Map(documents.map((doc) => [doc.id, organizeStateOf(doc, held.get(doc.id))]));
   }, [documents, snapshot?.assignments]);
+  const anyFailed = useMemo(
+    () => [...states.values()].some((state) => state.run === "failed"),
+    [states],
+  );
+  // Only a failure's line names the service Organize sends to, so the route is read then alone.
+  const organizeService = useTaggingService("classification", anyFailed);
+  const organizeServiceName =
+    organizeService.route.where === "cloud" ? organizeService.route.service.name : null;
   const unsortedIds = useMemo(
     () => new Set([...states].flatMap(([id, state]) => (state.place === "notSorted" ? [id] : []))),
     [states],
   );
-  const notSortedOf = useCallback(
+  const reasonOf = useCallback(
     (documentId: string) => {
-      if (!unsortedIds.has(documentId)) return null;
       const said = assignments.get(documentId)?.error;
-      const text = said ? providerErrorText(said, t) : "";
-      return text || t("library.notSorted.noReason");
+      return reviewReason(said ? reviewProblemKind(said.kind) : "other", organizeServiceName, t);
     },
-    [unsortedIds, assignments, t],
+    [assignments, t, organizeServiceName],
+  );
+  const notSortedOf = useCallback(
+    (documentId: string) => (unsortedIds.has(documentId) ? reasonOf(documentId) : null),
+    [unsortedIds, reasonOf],
   );
   const sortFailedOf = useCallback(
     (documentId: string) => {
       const state = states.get(documentId);
-      if (!state?.suggested || state.run !== "failed") return null;
-      const said = assignments.get(documentId)?.error;
-      const text = said ? providerErrorText(said, t) : "";
-      return text || t("library.notSorted.noReason");
+      return state?.run === "failed" && !state.manual && state.place !== "notSorted"
+        ? reasonOf(documentId)
+        : null;
     },
-    [states, assignments, t],
+    [states, reasonOf],
   );
   const notSorted = useMemo(
     () =>
@@ -328,6 +350,70 @@ export function LibraryPane() {
     held.keepOnly((ref) => visible.has(ref.id));
   }, [shownIds, reviewList]);
   useReviewFocus(grid, reviewList.join());
+  // The row may hide behind the search, a filter or a folded section: clear what hides it before
+  // the reveal looks, which gives up after 120 frames (#2308).
+  useEffect(() => {
+    if (reviewTarget === null) return;
+    useAppStore.setState({ reviewTarget: null });
+    setSearch("");
+    setFacetFilter((current) => (isFiltering(current) ? {} : current));
+    if (useAppStore.getState().tagFilter.length > 0) useAppStore.getState().setTagFilter([]);
+    const folds = useLibraryFolds.getState();
+    const group = toReviewOf(documents, folders, snapshot?.assignments ?? []).groups.find((each) =>
+      each.documents.some((document) => document.id === reviewTarget),
+    );
+    const waitsInReview = group !== undefined || unsortedIds.has(reviewTarget);
+    if (waitsInReview) {
+      // Already open, To review needn't be shown again: that would take the focus off the row.
+      if (!folds.reviewOpen) folds.showReview();
+      if (group ? group.documents.length > FIRST_ROWS : unsortedIds.size > FIRST_ROWS) {
+        folds.showAll(group ? `${TO_REVIEW}:${group.folder.id}` : UNSORTED_KEY);
+      }
+    } else {
+      const folderId = folderOf(reviewTarget);
+      if (folderId === null) {
+        folds.setOpen(NOT_IN_A_FOLDER, true);
+        folds.showAll(NOT_IN_A_FOLDER);
+      } else {
+        const chain: string[] = [];
+        const seen = new Set<string>();
+        let at: string | null = folderId;
+        while (at !== null && !seen.has(at)) {
+          const folder = folders.find((each) => each.id === at);
+          if (!folder) break;
+          seen.add(at);
+          chain.unshift(at);
+          at = folder.parentId;
+        }
+        const [top] = chain;
+        if (top !== undefined) {
+          folds.setOpen(top, true);
+          folds.showAll(top);
+        }
+        for (const each of chain) {
+          folds.setSubOpen(each, true);
+          folds.showAll(each);
+        }
+      }
+    }
+    const id = reviewTarget;
+    // A Document waiting in To review shows there, beside its group's line, not in a section.
+    const within = waitsInReview
+      ? `[data-review] [data-document-id="${CSS.escape(id)}"]`
+      : `[data-document-id="${CSS.escape(id)}"]`;
+    let frames = 0;
+    const reveal = () => {
+      const row = page.current?.querySelector<HTMLElement>(within);
+      if (row) {
+        row.scrollIntoView({ block: "center" });
+        useSelection.getState().choose("library", { kind: "document", id });
+        row.querySelector<HTMLElement>("[data-row-main]")?.focus({ preventScroll: true });
+        return;
+      }
+      if (frames++ < 120) requestAnimationFrame(reveal);
+    };
+    requestAnimationFrame(reveal);
+  }, [reviewTarget, documents, folders, snapshot, unsortedIds, folderOf]);
   const selectingMany = useSelection(
     (state) => state.surface === "library" && state.items.length > 1,
   );
@@ -544,6 +630,8 @@ export function LibraryPane() {
                     suggestedIn={suggestedOf}
                     notSortedOf={notSortedOf}
                     sortFailedOf={sortFailedOf}
+                    assignments={snapshot?.assignments ?? []}
+                    serviceName={organizeServiceName}
                   />
                 )}
                 {sections.map((section) => (

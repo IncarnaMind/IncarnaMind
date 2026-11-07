@@ -7,8 +7,14 @@ import { listParts, meetingFolder } from "../../src/core/meetings/audioFiles";
 import { FAKE_LINES, FAKE_THEIR_LINES } from "../../src/core/transcription/fake";
 import { askAndFinish, citingModel, onlyCitation, type ShownPassage } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
+import { startModelServer } from "../helpers/embedding";
 import { connectToMind } from "../helpers/mindClient";
-import { transcribingCore, transcriptOf, until } from "../helpers/transcription";
+import {
+  NO_TRANSCRIPTION_FILES,
+  transcribingCore,
+  transcriptOf,
+  until,
+} from "../helpers/transcription";
 
 const SECOND = 1000;
 
@@ -129,26 +135,32 @@ describe("A Meeting's live Transcript", { timeout: 60_000 }, () => {
     ).toBe(true);
   });
 
-  test("live text that falls behind says so, and the rest is transcribed from the audio after Stop", async () => {
-    const dataDir = await createTempDataFolder();
-    const { core, record } = await transcribingCore(dataDir, { engine: { decodeMs: 30 } });
-    const meeting = await core.createMeeting();
-    await core.startMeeting({ meetingId: meeting.id });
-    await until(core, meeting.id, (transcript) => transcript.state === "live");
+  test.each([
+    ["", false],
+    [", with a streaming model's live words too (#2662)", true],
+  ])(
+    "live text that falls behind says so, and the rest is transcribed from the audio after Stop%s",
+    async (_with, live) => {
+      const dataDir = await createTempDataFolder();
+      const { core, record } = await transcribingCore(dataDir, { engine: { decodeMs: 30, live } });
+      const meeting = await core.createMeeting();
+      await core.startMeeting({ meetingId: meeting.id });
+      await until(core, meeting.id, (transcript) => transcript.state === "live");
 
-    // Forty seconds arrive at once: far more than the engine has decoded.
-    record(40 * SECOND);
-    await until(core, meeting.id, (transcript) => transcript.state === "behind");
+      // Forty seconds arrive at once: far more than the engine has decoded.
+      record(40 * SECOND);
+      await until(core, meeting.id, (transcript) => transcript.state === "behind");
 
-    await core.stopMeeting(meeting.id);
-    const saved = await until(core, meeting.id, (transcript) => transcript.state === "saved");
-    const final = readVtt(readFileSync(saved.savedPath as string, "utf8"));
-    expect(final.cues.length).toBeGreaterThanOrEqual(19);
-    expect(final.cues.at(-1)?.endMs).toBeGreaterThanOrEqual(38 * SECOND);
-    // What was transcribed from the audio after Stop is labelled by its source too.
-    const late = final.cues.filter((cue) => cue.startMs >= 30 * SECOND);
-    expect(new Set(late.map((cue) => cue.speaker))).toEqual(new Set(["Me", "Them"]));
-  });
+      await core.stopMeeting(meeting.id);
+      const saved = await until(core, meeting.id, (transcript) => transcript.state === "saved");
+      const final = readVtt(readFileSync(saved.savedPath as string, "utf8"));
+      expect(final.cues.length).toBeGreaterThanOrEqual(19);
+      expect(final.cues.at(-1)?.endMs).toBeGreaterThanOrEqual(38 * SECOND);
+      // What was transcribed from the audio after Stop is labelled by its source too.
+      const late = final.cues.filter((cue) => cue.startMs >= 30 * SECOND);
+      expect(new Set(late.map((cue) => cue.speaker))).toEqual(new Set(["Me", "Them"]));
+    },
+  );
 
   // protects=a stretch with no audio on disk is said to have none captured, and "its audio was deleted" only when the audio was deleted; a stretch under a second is not listed; fails_when=audio that was never saved is said to be deleted, or a gap of under a second is listed; no_claim=the capture's own stalls, which the fake capture has none of (#1343).
   test.each([
@@ -180,6 +192,61 @@ describe("A Meeting's live Transcript", { timeout: 60_000 }, () => {
       expect(gaps.every((gap) => gap.toMs - gap.fromMs >= 1000)).toBe(true);
     },
   );
+
+  // protects=the system's permission prompt holding the capture is a gap that says it waited, never that audio was deleted, and a wait under a second is not listed; fails_when=the stretch is uncaptured or lost, or a sub-second wait is a gap; no_claim=the page's waiting state, which the smoke test covers.
+  test.each([
+    ["two seconds", 2 * SECOND, true],
+    ["under a second", 400, false],
+  ] as const)(
+    "the capture waits %s for the microphone permission: its stretch is a gap only when it is listed",
+    async (_what, waitMs, listed) => {
+      const dataDir = await createTempDataFolder();
+      const { core, capture, clock, record } = await transcribingCore(dataDir, {
+        capture: { microphone: "waiting" },
+      });
+      const meeting = await core.createMeeting();
+      const started = await core.startMeeting({ meetingId: meeting.id });
+      expect(started.sources.microphone).toBe("waiting");
+
+      clock.advance(waitMs);
+      capture.answerPermission();
+      expect((await core.listMeetings()).find((each) => each.id === meeting.id)?.sources).toEqual({
+        microphone: "recording",
+        system: "recording",
+      });
+      record(9 * SECOND);
+      await until(core, meeting.id, (transcript) => transcript.lines >= 4);
+
+      await core.stopMeeting(meeting.id);
+      const saved = await until(core, meeting.id, (transcript) => transcript.state === "saved");
+      const { gaps } = readVtt(readFileSync(saved.savedPath as string, "utf8"));
+      expect(gaps.filter((gap) => gap.reason === "permission")).toEqual(
+        listed ? [{ fromMs: 0, toMs: waitMs, reason: "permission" }] : [],
+      );
+      expect(gaps.map((gap) => gap.reason)).not.toContain("lost");
+      expect(gaps.map((gap) => gap.reason)).not.toContain("uncaptured");
+      expect(gaps.every((gap) => gap.toMs - gap.fromMs >= 1000)).toBe(true);
+    },
+  );
+
+  // protects=a capture that stalls leaves a gap that says no sound came in, one for both sources, not that audio was deleted; fails_when=the stretch is uncaptured or lost, or each source lists its own stall; no_claim=how the recording details word the same stall.
+  test("a capture that stalls is a gap that says so, once, not that its audio was deleted", async () => {
+    const dataDir = await createTempDataFolder();
+    const { core, clock, record } = await transcribingCore(dataDir);
+    const meeting = await core.createMeeting();
+    await core.startMeeting({ meetingId: meeting.id });
+    record(5 * SECOND);
+    await until(core, meeting.id, (transcript) => transcript.lines >= 2);
+
+    // Three seconds pass with no audio from either source, then both come back.
+    clock.advance(3 * SECOND);
+    record(6 * SECOND);
+
+    await core.stopMeeting(meeting.id);
+    const saved = await until(core, meeting.id, (transcript) => transcript.state === "saved");
+    const { gaps } = readVtt(readFileSync(saved.savedPath as string, "utf8"));
+    expect(gaps).toEqual([{ fromMs: 5 * SECOND, toMs: 8 * SECOND, reason: "stalled" }]);
+  });
 
   test("a line whose words hold control characters is kept as one line, and the file reads back (#981)", async () => {
     const dataDir = await createTempDataFolder();
@@ -443,6 +510,61 @@ describe("Who said each line (#941)", { timeout: 60_000 }, () => {
     if (!partial) throw new Error("Nothing was being transcribed.");
     expect(partial.speaker === "Me" ? FAKE_LINES : FAKE_THEIR_LINES).toContain(partial.text);
     expect(["Me", "Them"]).toContain(partial.speaker);
+  });
+
+  test("a speech model from before live words gets its streaming model when a Meeting starts, and that Meeting is transcribed meanwhile (#2662)", async () => {
+    const dataDir = await createTempDataFolder();
+    const streaming = await startModelServer({ "encoder.onnx": 600 });
+    // The streaming model's download waits until the test lets it go.
+    streaming.behave("encoder.onnx", { held: true });
+    const { core, record } = await transcribingCore(dataDir, {
+      transcriptionModelSource: { ...NO_TRANSCRIPTION_FILES, live: streaming.source },
+    });
+    expect((await core.getTranscriptionModel())?.state).toBe("ready");
+    const meeting = await core.createMeeting();
+    await core.startMeeting({ meetingId: meeting.id, systemAudio: true });
+    record(5 * SECOND);
+
+    await until(core, meeting.id, (transcript) => transcript.lines >= 2);
+    await vi.waitFor(() =>
+      expect(streaming.requests.map((request) => request.path)).toEqual(["encoder.onnx"]),
+    );
+    expect((await core.getTranscriptionModel())?.state).toBe("ready");
+
+    streaming.release();
+    const file = join(dataDir, "models", "streaming-zipformer-zh-en-int8", "encoder.onnx");
+    await vi.waitFor(() => expect(existsSync(file)).toBe(true));
+  });
+
+  test("with a streaming model, the words being said show as they are heard, then the finished line takes their place (#2662)", async () => {
+    const { core, capture, clock } = await transcribingCore(await createTempDataFolder(), {
+      engine: { live: true, maxSpeechMs: 20_000 },
+    });
+    const meeting = await core.createMeeting();
+    await core.startMeeting({ meetingId: meeting.id, systemAudio: false });
+    const microphone = (ms: number, quiet = false) => {
+      for (let at = 0; at < ms; at += 100) {
+        clock.advance(100);
+        capture.push("microphone", 100, quiet);
+      }
+    };
+    const line = FAKE_LINES[0] as string;
+
+    microphone(SECOND);
+    const hearing = await until(core, meeting.id, (transcript) => transcript.partial !== null);
+    // A second in: the first words of what is being said, the line not yet finished.
+    expect(line.startsWith(hearing.partial?.text ?? "?")).toBe(true);
+    expect(hearing.partial?.text.length).toBeLessThan(line.length);
+    expect(hearing.lines).toBe(0);
+
+    microphone(SECOND);
+    microphone(SECOND, true);
+    await until(
+      core,
+      meeting.id,
+      (transcript) => transcript.lines === 1 && transcript.partial === null,
+    );
+    expect((await linesOf(core, meeting.id)).map((cue) => cue.text)).toEqual([line]);
   });
 
   test("a line of the microphone that repeats the computer sound's in the same second is dropped, and the same words said alone are kept", async () => {

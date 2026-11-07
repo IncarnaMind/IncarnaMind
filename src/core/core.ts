@@ -6,14 +6,18 @@ import { deflateRawSync } from "node:zlib";
 import * as Y from "yjs";
 import { cleanApiKey } from "../shared/apiKey";
 import { isCitationStyleId, withRecentStyle } from "../shared/citationStyles";
+import { parseQuotedWords } from "../shared/citations";
 import type { DrawnPage } from "../shared/citedPage";
 import { ACCEPT_SUGGESTIONS } from "../shared/commands";
 import { optionsFor } from "../shared/exportOptions";
 import { figureScheduleChange } from "../shared/figureSchedule";
+import { graphemeBoundary } from "../shared/graphemes";
+import type { MessageKey, MessageParams } from "../shared/i18n";
 import { translate } from "../shared/i18n";
 import { organizeModelOf, supportsLibraryImages } from "../shared/libraryModels";
-import { parseCitedArea } from "../shared/locations";
+import { formatLocation, parseCitedArea, parseLocation } from "../shared/locations";
 import { holdsOnlyItsTitle } from "../shared/madeMind";
+import { isPartialMeetingFill } from "../shared/meetingFill";
 import {
   HEARD_FROM,
   helpKindsFor,
@@ -66,6 +70,7 @@ import { agentSocketPath, createAgents } from "./agents";
 import { createAgentSetup, skillInstalled } from "./agents/setup";
 import { createAiUse } from "./aiUse";
 import { createAiUseStatement } from "./aiUseStatement";
+import { createAnnotations } from "./annotations";
 import { createAiSdkAnswerEngine, createAnswers } from "./answers";
 import { createAskedChanges } from "./answers/applyAsked";
 import { createChecks } from "./answers/checks";
@@ -94,8 +99,10 @@ import { createCiting } from "./answers/citing";
 import { readMind } from "./answers/context";
 import type { AnswerSearchOptions } from "./answers/engine";
 import type { LiveTranscript } from "./answers/liveTranscript";
+import { explicitWalledFolderScope } from "./answers/scopeLine";
 import {
   type AddDocumentsResult,
+  type AnnotationColour,
   type AnswerPlace,
   type ChatModelChoice,
   type ChatProviderKind,
@@ -109,6 +116,7 @@ import {
   type CoreEventSource,
   DEFAULT_MIND_KIND,
   DELETED_KINDS,
+  type DecisionHostStatus,
   type DeletedAgainRef,
   type DeletedItem,
   type Document,
@@ -170,6 +178,7 @@ import {
   createDocuments,
   type DocumentFile,
   type DocumentImage,
+  MAX_NAME_LENGTH,
   parseListOptions,
 } from "./documents";
 import { createEvidence, parseCheckedDocument, passageResult } from "./documents/evidence";
@@ -216,16 +225,16 @@ import {
 import { type AnyEventListener, createEventHub } from "./events";
 import { createExamples, type ExampleReadyState } from "./examples";
 import { createLocalExecutor } from "./execution";
-import { createExports, type ExportsDependencies } from "./exports";
+import { createExports, ExportChangedError, type ExportsDependencies } from "./exports";
 import { createComparisonExport } from "./exports/comparisonExport";
 import { figureScheduleBook } from "./exports/figureScheduleBook";
 import { exportLabels } from "./exports/labels";
-import { renderMarkdown } from "./exports/markdown";
+import { isPictureFile, renderMarkdown } from "./exports/markdown";
 import { setTextOnlyDocuments, textOnlyDocuments } from "./exports/sharedPictures";
 import { writeXlsx } from "./exports/xlsx";
 import { figureSchedule } from "./figureSchedule";
 import { createFileLock } from "./fileLock";
-import { safeFileName, writeNewFile } from "./fileNames";
+import { freeFileName, safeFileName, writeNewFile } from "./fileNames";
 import { createFolders } from "./folders";
 import { LANGUAGES, systemRegion } from "./language";
 import { createLayouts } from "./layout";
@@ -273,6 +282,7 @@ import {
 } from "./minds";
 import { firstLineOf, readBlocks, textStart, theirChangesReading } from "./mindText";
 import { createModelRuntimeFolderNotice } from "./modelRuntimeFolder";
+import { createModelSpend } from "./modelSpend";
 import { newestReads, readNewest } from "./newest";
 import { createNoteAdding, insertBlocks } from "./noteAdding";
 import { createNoteConversations } from "./noteConversations";
@@ -333,6 +343,7 @@ import { migrate, openDatabase } from "./storage";
 import { createSuggestions } from "./suggestions";
 import { createTags, tagsOfDocument } from "./tags";
 import { chatClassifier, type TagClassifier } from "./tags/classify";
+import { createDecisionHosts } from "./tags/decisionHosts";
 import { mayBackgroundSend } from "./tags/held";
 import { createJevTagging, decisionModelTagger } from "./tags/jev";
 import { createRateLimitPause } from "./tags/rateLimit";
@@ -497,6 +508,13 @@ const isBehind = (meeting: Meeting) => meeting.transcript?.state === "behind";
 /** The longest password a PDF is unlocked with: far beyond any real one, short enough to refuse junk. */
 const MAX_PDF_PASSWORD = 1_024;
 
+/**
+ * How much of Recently deleted's 30 days an item must have left for Undo of a Restore to keep its
+ * deletion time: with less, it is deleted at the Undo's own moment, so the Redo that follows isn't
+ * refused once those last seconds pass (#2274).
+ */
+const DELETE_AGAIN_MARGIN_MS = 24 * 60 * 60 * 1000;
+
 const parseDocumentId = (input: unknown): string => {
   if (typeof input !== "string" || input === "") {
     throw new InvalidInputError({ key: "error.document.notFound" });
@@ -628,6 +646,7 @@ export function createCore(adapters: CoreAdapters): Core {
     throw error;
   }
   const events = createEventHub();
+
   const knownSecrets = new Set<string>();
   // Logs what happens from here on, from the events: never the User's content.
   const activity = logActivity(events, adapters.log ?? silentLogger, knownSecrets);
@@ -666,6 +685,20 @@ export function createCore(adapters: CoreAdapters): Core {
     return found.name || translate(settings.get().language, "mind.untitled");
   };
   const mindsChanged = () => events.emit("minds.changed", minds.list());
+  function renameJoinedTranscripts(mind: Mind): void {
+    const transcripts = documents.list().filter((each) => each.meetingMindId === mind.id);
+    if (transcripts.length === 0) return;
+    const displayed = mindName(mind).trim();
+    const name = displayed
+      ? translate(settings.get().language, "meetings.transcript.name", { meeting: displayed })
+      : translate(settings.get().language, "meetings.transcript.nameAlone");
+    events.emit(
+      "documents.renamed",
+      transcripts.map((document) =>
+        documents.rename(document.id, name.slice(0, graphemeBoundary(name, MAX_NAME_LENGTH))),
+      ),
+    );
+  }
   // The assistant's conversations (ADR-0017); Answers a quit left being written are settled now.
   const conversations = createConversations(db, now);
   const conversationsChanged = () => events.emit("conversations.changed", null);
@@ -692,6 +725,10 @@ export function createCore(adapters: CoreAdapters): Core {
       comparisons.mindChanged(mindId);
       noteConversations.changed(mindId);
       const renamed = minds.setAutoTitle(mindId, content.peek(mindId, firstLineOf));
+      if (renamed) {
+        const mind = minds.get(mindId);
+        if (!mind.title) renameJoinedTranscripts(mind);
+      }
       if (minds.markEdited(mindId) || renamed) mindsChanged();
     },
     {
@@ -885,6 +922,13 @@ export function createCore(adapters: CoreAdapters): Core {
     sender: adapters.usageData,
     localOnly: () => embedding.localOnly(),
   });
+  const modelSpend = createModelSpend({
+    db,
+    settings,
+    now: () => adapters.now?.() ?? new Date(),
+    sending: () => usageData.status().enabled,
+    record: (event) => usageData.record(event),
+  });
   const privacy = createPrivacy({ settings, crashReporter: adapters.crashReporter, usageData });
   const privacyChanged = () => events.emit("privacy.changed", privacy.status());
   const modelRuntimeFolder = createModelRuntimeFolderNotice(
@@ -962,6 +1006,7 @@ export function createCore(adapters: CoreAdapters): Core {
   const background = createBackgroundQueue({ reportError: (error) => console.error(error) });
   let documents: ReturnType<typeof createDocuments>;
   let citedPages: CitedPages;
+  let annotations: ReturnType<typeof createAnnotations>;
   /** Set once created, so a failure after it can close it. */
   let createdDocuments: ReturnType<typeof createDocuments> | undefined;
   try {
@@ -997,6 +1042,10 @@ export function createCore(adapters: CoreAdapters): Core {
         );
       },
       emitKept: (kept) => events.emit("keptCitationTexts.changed", kept),
+      fileAnnotations: (documentId, contentHash, found) => {
+        annotations.replaceFileAnnotations(documentId, contentHash, found);
+        events.emit("annotations.changed", { documentId });
+      },
       foldersChanged,
       linkedFoldersChanged: (list) => {
         events.emit("linkedFolders.changed", list);
@@ -1099,8 +1148,22 @@ export function createCore(adapters: CoreAdapters): Core {
     db.close();
     throw error;
   }
-  // A saved page's pictures may come from any host: only the public internet is reached (#756).
-  const pictureFetcher = createPublicFetch(adapters.web);
+  annotations = createAnnotations(db, now, {
+    currentVersion: (documentId) => documents.currentVersion(documentId),
+    cite: (documentId, anchor) =>
+      citeSelection(documents, {
+        documentId,
+        parts: anchor.parts,
+        ...(anchor.area && { area: anchor.area }),
+        unit: anchor.unit ?? null,
+        ...(anchor.around && { around: anchor.around }),
+      }),
+  });
+  const annotationsChanged = (documentId: string) =>
+    events.emit("annotations.changed", { documentId });
+  // A saved page and its pictures are fetched only from the public internet: never this
+  // computer or a local network, every redirect checked as an address is (#2553).
+  const publicFetcher = createPublicFetch(adapters.web);
   const webPages = createWebPages({
     db,
     dataDir,
@@ -1108,7 +1171,8 @@ export function createCore(adapters: CoreAdapters): Core {
     documents,
     languages: () =>
       settings.get().language === "zh-CN" ? ["zh-CN", "zh;q=0.9", "en;q=0.8"] : ["en", "*;q=0.5"],
-    pictureFetch: pictureFetcher.fetch,
+    fetch: publicFetcher.fetch,
+    pictureFetch: publicFetcher.fetch,
     ...(adapters.pageLook ? { look: adapters.pageLook } : {}),
     keepLookByDefault: () => settings.get().user.keepWebPageLook,
     localOnly: () => embedding.localOnly(),
@@ -1493,24 +1557,25 @@ export function createCore(adapters: CoreAdapters): Core {
   /** The User's Documents searched as an Answer searches them: the search Tool, reranked as the User chose unless `rerank` is false. */
   const timedRerank = (reranker: Reranker | undefined): Reranker | undefined =>
     reranker &&
-    ((query, candidates, signal) =>
+    ((query, candidates, signal, background) =>
       timings.local(
         "rerank",
         rerank.usesBuiltIn() ? BUILT_IN_RERANKING_MODEL.name : "rerank service",
-        () => reranker(query, candidates, signal),
+        () => reranker(query, candidates, signal, background),
         () => candidates.length,
       ));
   const searchDocuments = (
     query: string,
     documentIds: readonly string[] | null,
     signal?: AbortSignal,
-    { rerank: reranking = true, parameters }: AnswerSearchOptions = {},
+    { rerank: reranking = true, parameters, background }: AnswerSearchOptions = {},
   ) => {
     const options = {
       signal,
       rerank: reranking ? timedRerank(adapters.reranker ?? rerank.active()) : undefined,
       documentIds: documentIds ?? undefined,
       ...(parameters && { parameters }),
+      ...(background === true && { background }),
     };
     const tuning = adapters.answerSearch;
     return tuning
@@ -1528,18 +1593,9 @@ export function createCore(adapters: CoreAdapters): Core {
     const walled = library.folders().filter((folder) => folder.keepInside);
     const own = mindId !== null && mindExists(mindId) ? minds.get(mindId).folderId : null;
     const ownWall = own === null ? null : library.wallOf(own);
-    const wallIds = new Set(
-      wanted.folderIds.flatMap((id) => {
-        const wall = library.wallOf(id);
-        return wall === null ? [] : [wall];
-      }),
+    const explicitFolderScope = explicitWalledFolderScope(wanted, mindId, (id) =>
+      id === null ? null : library.wallOf(id),
     );
-    const explicitFolderScope =
-      mindId === null &&
-      wallIds.size === 1 &&
-      wanted.folderIds.every((id) => library.wallOf(id) !== null) &&
-      wanted.tagIds.length === 0 &&
-      wanted.documentIds.length === 0;
     if (ownWall !== null || explicitFolderScope) {
       return resolveSearchScope(ownWall !== null ? constrainedScope(wanted, mindId) : wanted, {
         folderTree: (folderId) => folders.subtree(folderId),
@@ -2036,7 +2092,7 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     outputFolder: async () => outputs.settings().location,
     window: (request, signal, ended) => windowCommands.run(request, signal, ended),
-    exportMind: async (mindId, format, folder, approved, marking) => {
+    exportMind: async (mindId, format, folder, approved, marking, approvedFiles) => {
       const options = optionsFor(format, settings.get().user.exportOptions);
       let written = options;
       let settled: MarkingSettled | null = null;
@@ -2057,18 +2113,28 @@ export function createCore(adapters: CoreAdapters): Core {
       if (exported.word && exported.word.notKept.length > 0) {
         throw new InvalidInputError({ key: "error.commands.wordLoses" });
       }
+      // The name this folder gives the file now, as the card worked it out, must be the one the
+      // User allowed; a Note renamed or a name taken since asks again (#2514).
+      if (
+        approvedFiles &&
+        (folder === null ||
+          (await freeFileName(folder, exported.fileName)) !== approvedFiles.fileName)
+      )
+        throw new ExportChangedError();
       const file = await outputs.save({
-        name: exported.fileName,
+        name: approvedFiles?.fileName ?? exported.fileName,
         data: exported.data,
         ownFile: ownFileOf(written),
         fromFolder: folderOfNote(mindId),
         ...(folder !== null && { folder, approved }),
+        ...(approvedFiles !== undefined && { exact: true }),
       });
       try {
         await saveExportFiles(
           exported.files,
           folder ?? file.folder,
           typeof mindId === "string" ? mindId : null,
+          approvedFiles?.pictures,
         );
       } catch (error) {
         // A file that would link pictures none can see is taken back: the export didn't happen.
@@ -2155,6 +2221,23 @@ export function createCore(adapters: CoreAdapters): Core {
       reading: (documentIds) =>
         documents.reading(documentIds ?? undefined).map((each) => ({ name: each.name })),
       search: searchDocuments,
+      highlightText: (documentIds, query) => {
+        const wanted = documentIds === null ? null : new Set(documentIds);
+        const matches = annotations
+          .search(query, 8)
+          .filter((match) => wanted === null || wanted.has(match.documentId));
+        if (matches.length === 0) return "";
+        const lines = matches.map((match) => {
+          const where = match.location
+            ? formatLocation(match.location, (key: MessageKey, params?: MessageParams) =>
+                translate("en", key, params),
+              )
+            : "";
+          const note = match.note === null ? "" : ` — the User's note: ${match.note}`;
+          return `- ${match.documentName}${where ? `, ${where}` : ""}: “${match.excerpt}”${note}`;
+        });
+        return `The User's own highlights and notes on these words, already checked against the Documents:\n${lines.join("\n")}`;
+      },
       webAddress: (documentId) => documents.getMany([documentId])[0]?.web?.address ?? null,
       citationSource: (passageId) => documents.citationSource(passageId),
       pageTexts: (documentId, contentHash, from, to) =>
@@ -2233,9 +2316,9 @@ export function createCore(adapters: CoreAdapters): Core {
         ),
       read: (mindId, look) => content.read(mindId, look),
       edit: (mindId, change) => content.edit(mindId, change),
-      text: (mindId, name, tokens, ids) => {
+      text: (mindId, name, tokens, ids, applied) => {
         const section = content
-          .peek(mindId, (blocks) => readMind(blocks, name, null, null, ids))
+          .peek(mindId, (blocks) => readMind(blocks, name, null, null, ids, true, applied))
           .section(tokens);
         return { text: section.text, origins: section.origins };
       },
@@ -2308,9 +2391,13 @@ export function createCore(adapters: CoreAdapters): Core {
         if (question) events.emit("conversation.message", question);
         return question;
       },
-      restartAnswer: (answerId, answerModel, read, emit = true) => {
-        const turn = conversations.restartAnswer(answerId, answerModel, read);
-        if (emit) events.emit("conversation.message", turn.answer);
+      restartAnswer: (answerId, answerModel, read, emit = true, origin) => {
+        const turn = conversations.restartAnswer(answerId, answerModel, read, origin);
+        if (emit) {
+          // An origin and the Answer it resets were written together: both changed at once.
+          if (origin) events.emit("conversation.message", turn.question);
+          events.emit("conversation.message", turn.answer);
+        }
         return turn;
       },
       writeAnswer: (answerId, write) => {
@@ -2334,6 +2421,13 @@ export function createCore(adapters: CoreAdapters): Core {
     workingCopyOf: (mindId) => wordImports.importedAsOf(mindId),
     searchedScope,
     mindFolder: (mindId) => (mindExists(mindId) ? minds.get(mindId).folderId : null),
+    scopeItemName,
+    libraryFolders: () =>
+      library.folders().map((folder) => ({
+        id: folder.id,
+        name: folder.name,
+        keepInside: folder.keepInside,
+      })),
     walledFolder,
     walledFolderId,
     walledDocuments,
@@ -2539,7 +2633,8 @@ export function createCore(adapters: CoreAdapters): Core {
 
   // Suggest as I write (#282): Passages found and quotes checked as Answers do (see ./answers/citing).
   const citing = createCiting({
-    search: searchDocuments,
+    search: (query, documentIds, signal, background) =>
+      searchDocuments(query, documentIds, signal, { background }),
     citationSource: (passageId) => documents.citationSource(passageId),
     pageTexts: (documentId, contentHash, from, to) =>
       documents.pageTexts(documentId, contentHash, from, to),
@@ -2819,6 +2914,23 @@ export function createCore(adapters: CoreAdapters): Core {
 
   const checks = createChecks({
     language: () => settings.get().language,
+    // What a check reads of the Documents as it runs: their words, names and whether it may use
+    // them. Its scope, their Folders and Tags are taken when the run starts (#2532).
+    libraryState: () =>
+      JSON.stringify(
+        documents
+          .list()
+          .map((document) => [
+            document.id,
+            document.name,
+            document.title,
+            document.contentHash,
+            document.status,
+            document.notCited,
+            document.ownFile,
+            document.readHiddenSheets,
+          ]),
+      ),
     content,
     requireMind: (mindId) => {
       writableMind(mindId);
@@ -2941,6 +3053,7 @@ export function createCore(adapters: CoreAdapters): Core {
     engine: answerEngine,
     retention,
     editText,
+    recheckCitation: (citation) => recheckCitation(documents, citation),
     estimateRead(model, read) {
       const metered = chat.metered(model ?? undefined);
       return metered && meter.estimateRead(metered, read);
@@ -3259,20 +3372,32 @@ export function createCore(adapters: CoreAdapters): Core {
     files: readonly ExportFile[] | undefined,
     folder: string,
     from: string | null,
+    /** The names the User allowed, in the order the pictures to write were listed (#2514). */
+    approvedNames?: readonly string[],
   ): Promise<void> => {
+    let next = 0;
     for (const file of files ?? []) {
       // A picture named after its content: the file there already holds these bytes, so it is
       // linked, not copied again as "picture-… 2.png" (#1937).
       if (await outputs.holds(folder, file.name, file.data)) continue;
+      const name = approvedNames?.[next];
+      if (approvedNames) {
+        // A picture changed since the card, or the list did: nothing is written under a new name.
+        if (name === undefined || name !== (await freeFileName(folder, file.name)))
+          throw new ExportChangedError();
+        next++;
+      }
       await outputs.save({
-        name: file.name,
+        name: name ?? file.name,
         data: file.data,
         ownFile: "export",
         fromFolder: folderOfNote(from),
         folder,
         approved: true,
+        exact: approvedNames !== undefined,
       });
     }
+    if (approvedNames && next !== approvedNames.length) throw new ExportChangedError();
   };
   /**
    * Saves an export in the Output location, as the window's save: what went wrong is a result, not
@@ -3316,6 +3441,16 @@ export function createCore(adapters: CoreAdapters): Core {
     signal: lifetime.signal,
     localOnly: () => embedding.localOnly(),
   });
+  // Decision models on other hosts (#1907): the same flows and consent as Jev, per host.
+  const decisionHosts = createDecisionHosts({
+    settings,
+    secrets,
+    consent,
+    providerKey: (catalogId) => chat.apiKeyOf(catalogId),
+    localOnly: () => embedding.localOnly(),
+    signal: lifetime.signal,
+    ...(adapters.decisionOrigins && { origins: adapters.decisionOrigins }),
+  });
   // Tagging on a plan goes gently, and waits while the plan's limit holds.
   const planPaceFor = (plan: Plan) =>
     createPlanPace({
@@ -3350,6 +3485,7 @@ export function createCore(adapters: CoreAdapters): Core {
       quickTasksModel: (answers) => chat.quickTasksModel(answers),
     },
     jev,
+    decisions: decisionHosts,
     localOnly: () => embedding.localOnly(),
     ollamaUrl: adapters.ollamaUrl ?? defaultOllamaUrl(),
     localModels: adapters.localModels ?? installedOllamaModels,
@@ -3422,6 +3558,8 @@ export function createCore(adapters: CoreAdapters): Core {
     switch (classifier.kind) {
       case "jev":
         return jev.prepare();
+      case "decision":
+        return decisionHosts.prepare(classifier.host, classifier.modelId);
       case "auto": {
         const model = await tagging.textDecisionModel(classifier.baseUrl);
         if (!model)
@@ -3453,7 +3591,7 @@ export function createCore(adapters: CoreAdapters): Core {
   const tagger = createTagger({
     // A Document filed inside a walled Folder goes to no cloud service by itself (#2308).
     maySend: (id, service) =>
-      !library.inWall(id) && mayBackgroundSend(db, id, [service], library.turnedOnAt),
+      !library.inWall(id) && mayBackgroundSend(db, id, [service], library.turnedOnSeq),
     db,
     now,
     tags,
@@ -3465,6 +3603,7 @@ export function createCore(adapters: CoreAdapters): Core {
       const classifier = await tagging.resolve();
       if (!classifier) return false;
       if (classifier.kind === "jev") return jev.canRun();
+      if (classifier.kind === "decision") return decisionHosts.canRun(classifier.host);
       if (classifier.kind === "chat") {
         const readiness = await chat.readiness(classifier.choice, "tagging");
         return readiness.ready && readiness.consent !== "needed";
@@ -3476,6 +3615,7 @@ export function createCore(adapters: CoreAdapters): Core {
       if (!classifier || decisionModelElsewhere(classifier)) return false;
       if (embedding.localOnly() && tagging.service(classifier)) return false;
       if (classifier.kind === "jev") return jev.mightBeReady();
+      if (classifier.kind === "decision") return decisionHosts.mightBeReady(classifier.host);
       if (classifier.kind === "chat") return chat.mightBeReady("tagging", classifier.choice);
       return true;
     },
@@ -3529,6 +3669,7 @@ export function createCore(adapters: CoreAdapters): Core {
         case "ollama":
           return supportsLibraryImages(classifier.modelId) && classifier.usePageImages === true;
         case "jev":
+        case "decision":
           return false;
         case "chat": {
           const reader = chat.imageModel(classifier.choice);
@@ -3609,6 +3750,11 @@ export function createCore(adapters: CoreAdapters): Core {
         if (embedding.localOnly() && !prepared.local)
           throw new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
         return prepared;
+      }
+      if (classifier.kind === "decision") {
+        if (embedding.localOnly())
+          throw new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
+        return decisionHosts.prepareGroups(classifier.host, classifier.modelId, permit);
       }
       const { choice } = classifier;
       const ready = await chat.readiness(choice, "classification");
@@ -3842,6 +3988,14 @@ export function createCore(adapters: CoreAdapters): Core {
   };
   let lastAutomatic = library.settings().automatic;
 
+  /** A decision model host's key or account was kept or forgotten: say so, and Documents waiting may go on. */
+  const decisionsChanged = async (hosts: DecisionHostStatus[]) => {
+    if (lifetime.signal.aborted) return hosts;
+    events.emit("decisions.changed", hosts);
+    await dataFlowsChanged();
+    await taggingChanged();
+    return hosts;
+  };
   /** Jev was set up, changed or removed: say so, and Documents waiting may go on. */
   const jevChanged = async () => {
     const status = await jev.status();
@@ -4124,8 +4278,10 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     skillIsBuiltIn: (name) => skills.list().some((skill) => skill.name === name && skill.builtIn),
     now: () => (adapters.now?.() ?? new Date()).getTime(),
+    answerStarted: () => modelSpend.answerStarted(),
   });
   usageData.record({ event: "app_opened", fields: { language: settings.get().language } });
+  modelSpend.start();
   const dataFlowsRead = newestReads();
   /** After the User allows or revokes a flow: the flows as they are now, and what that changes. */
   const dataFlowsChanged = async () => {
@@ -4338,6 +4494,7 @@ export function createCore(adapters: CoreAdapters): Core {
         return isRecord(value) ? (value as Record<string, number>) : {};
       },
       emitStatus: () => meetingsChanged(),
+      log: adapters.log ?? silentLogger,
     });
   // Where meeting audio is transcribed (#141): this computer, or the cloud service the User chose.
   const cloudTranscription = createCloudTranscription({
@@ -4347,6 +4504,7 @@ export function createCore(adapters: CoreAdapters): Core {
     meter,
     localOnly: () => embedding.localOnly(),
     providerKey: (catalogId) => chat.apiKeyOf(catalogId),
+    languages: () => [settings.get().language, ...adapters.systemLanguages()],
     log: adapters.log ?? silentLogger,
     ...(adapters.transcriptionKeyFetch && { fetch: adapters.transcriptionKeyFetch }),
     vadFile: async () => {
@@ -4681,7 +4839,13 @@ export function createCore(adapters: CoreAdapters): Core {
           title:
             meeting.kind === "memo"
               ? translate(language, "memos.fill.notify", { memo: name })
-              : translate(language, "meetings.fill.notify", { meeting: name }),
+              : translate(
+                  language,
+                  isPartialMeetingFill(meeting.fill)
+                    ? "meetings.fill.notify.partial"
+                    : "meetings.fill.notify",
+                  { meeting: name },
+                ),
           body: "",
         },
         (windowIds) => mindShown(meeting.mindId, windowIds),
@@ -4919,7 +5083,9 @@ export function createCore(adapters: CoreAdapters): Core {
 
   const routeOf = (classifier: TaggingClassifier): TaggingRoute => {
     const service = tagging.service(classifier);
-    return service ? { where: "cloud", service } : { where: "local" };
+    if (service) return { where: "cloud", service };
+    // A host without its account yet sends nowhere; it isn't on this computer.
+    return classifier.kind === "decision" ? { where: "none" } : { where: "local" };
   };
   const taggingModels = async (): Promise<TaggingModels> => {
     const hadModel = tagsWith() !== null;
@@ -5048,6 +5214,8 @@ export function createCore(adapters: CoreAdapters): Core {
     renameMind: async (mindId, title) => {
       const mind = minds.rename(mindId, title);
       mindsChanged();
+      // A joined Transcript's name follows its Note (#2579): every view reads the Document's name.
+      renameJoinedTranscripts(mind);
       return mind;
     },
     deleteMind: async (mindId) => removeMind(mindId),
@@ -5112,6 +5280,7 @@ export function createCore(adapters: CoreAdapters): Core {
           mind: { id: mindId, folderId: minds.get(mindId).folderId },
           focus: null,
           scope: null,
+          folderInFront: null,
           model: null,
           forcedSkill: null,
           analyse: false,
@@ -5495,6 +5664,8 @@ export function createCore(adapters: CoreAdapters): Core {
         pageFrom: page(input.pageFrom),
         pageTo: page(input.pageTo) ?? page(input.pageFrom),
         contentHash: typeof input.contentHash === "string" ? input.contentHash : null,
+        quotedWords: parseQuotedWords(input.quotedWords),
+        ...(input.location !== undefined && { location: parseLocation(input.location) }),
         mindId: input.mindId,
       });
     },
@@ -5512,13 +5683,128 @@ export function createCore(adapters: CoreAdapters): Core {
           ? input.unit
           : null;
       const around = parseAround(input.around);
+      const documentId = parseDocumentId(input.documentId);
+      if (input.mindId !== undefined) {
+        // One in Recently deleted is behind no wall `walledDocument` sees, so none may be cited.
+        if (documents.getMany([documentId]).length === 0) {
+          throw new NotFoundError({ key: "error.document.gone" });
+        }
+        if (walledDocument(documentId) !== walledFolder(parseMindId(input.mindId))) {
+          throw new InvalidInputError({ key: "error.folder.wall" });
+        }
+      }
       return citeSelection(documents, {
-        documentId: parseDocumentId(input.documentId),
+        documentId,
         parts,
         ...(area !== undefined && { area }),
         unit,
         ...(around && { around }),
       });
+    },
+    createAnnotation: async (input) => {
+      if (!isRecord(input) || !Array.isArray(input.parts)) {
+        throw new InvalidInputError({ key: "error.selection.none" });
+      }
+      const parts = input.parts.map(parseSelectedPart);
+      const area = input.area === undefined ? undefined : selectionArea(input.area);
+      if (parts.every((part) => part.text.trim() === "") && area === undefined) {
+        throw new InvalidInputError({ key: "error.selection.none" });
+      }
+      const unit =
+        typeof input.unit === "number" && Number.isInteger(input.unit) && input.unit >= 1
+          ? input.unit
+          : null;
+      const around = parseAround(input.around);
+      const documentId = parseDocumentId(input.documentId);
+      const cited = citeSelection(documents, {
+        documentId,
+        parts,
+        ...(area && { area }),
+        unit,
+        ...(around && { around }),
+      });
+      const unsure = cited.check === "cant-check" && cited.checkReason === "unsure-word";
+      // A region of a picture is cited as a picture: there is nothing in it to check.
+      const pictured = area !== undefined && cited.checkReason === "picture";
+      // A picture's place is its page: a region on a Unit the Document doesn't have is refused.
+      if (pictured && cited.location === null) {
+        throw new InvalidInputError({ key: "error.annotation.refused" });
+      }
+      if (cited.check !== "found" && !unsure && !pictured) {
+        throw new InvalidInputError({
+          key:
+            cited.checkReason === "too-many-pages"
+              ? "error.annotation.refused.pages"
+              : cited.checkReason === "in-several-places"
+                ? "error.annotation.refused.places"
+                : cited.checkReason === "no-text"
+                  ? "error.annotation.refused.noText"
+                  : "error.annotation.refused",
+        });
+      }
+      const saved = annotations.create({
+        documentId,
+        parts,
+        colour: input.colour,
+        note: typeof input.note === "string" ? input.note : null,
+        ...(area && { area }),
+        unit,
+        ...(around && { around }),
+        ...cited,
+      });
+      annotationsChanged(documentId);
+      return saved;
+    },
+    listAnnotations: async (documentId) => annotations.list(parseDocumentId(documentId)),
+    annotationsIn: async (input) => {
+      if (!isRecord(input)) throw new InvalidInputError({ key: "error.annotation.collect" });
+      const colour = typeof input.colour === "string" ? input.colour : undefined;
+      return annotations.in({
+        ...(typeof input.documentId === "string" && { documentId: input.documentId }),
+        ...(typeof input.folderId === "string" && { folderId: input.folderId }),
+        ...(colour !== undefined && { colour: colour as AnnotationColour }),
+      });
+    },
+    annotationCounts: async () => annotations.counts(),
+    updateAnnotation: async (id, edit) => {
+      if (typeof id !== "string" || id === "")
+        throw new InvalidInputError({ key: "error.annotation.needed" });
+      if (!isRecord(edit)) throw new InvalidInputError({ key: "error.annotation.edit" });
+      const changed = annotations.update(id, {
+        ...(edit.note !== undefined && { note: edit.note as string | null }),
+        ...(edit.colour !== undefined && { colour: edit.colour as AnnotationColour }),
+      });
+      annotationsChanged(changed.documentId);
+      return changed;
+    },
+    deleteAnnotation: async (id) => {
+      if (typeof id !== "string" || id === "")
+        throw new InvalidInputError({ key: "error.annotation.needed" });
+      const removed = annotations.remove(id);
+      annotationsChanged(removed.documentId);
+      return removed;
+    },
+    restoreAnnotation: async (id) => {
+      if (typeof id !== "string" || id === "")
+        throw new InvalidInputError({ key: "error.annotation.needed" });
+      const restored = annotations.restore(id);
+      annotationsChanged(restored.documentId);
+      return restored;
+    },
+    searchAnnotations: async (query, options) => {
+      if (typeof query !== "string")
+        throw new InvalidInputError({ key: "error.annotation.search" });
+      const limit =
+        isRecord(options) && typeof options.limit === "number" && options.limit > 0
+          ? Math.min(Math.floor(options.limit), 200)
+          : 50;
+      return annotations.search(query, limit);
+    },
+    saveAnnotationsExport: async (documentId) => {
+      const id = parseDocumentId(documentId);
+      if (annotations.list(id).length === 0) return { status: "empty" };
+      const { name, text } = annotations.markdown(id, settings.get().language);
+      return saveExport(name, new TextEncoder().encode(text), null);
     },
     searchPassages: (query, options) => {
       const place = parsePassagePlace(isRecord(options) ? options.place : undefined);
@@ -5605,7 +5891,7 @@ export function createCore(adapters: CoreAdapters): Core {
     listChatProviders: () => chat.list(),
     saveChatProvider: async (input) => {
       const provider = await chat.save(input);
-      await cloudTranscription.refreshKeys();
+      await cloudTranscription.refreshKeys(provider.catalogId);
       transcriptionGateChanged();
       settingsChanged();
       await dataFlowsChanged();
@@ -5713,6 +5999,8 @@ export function createCore(adapters: CoreAdapters): Core {
     planDocumentCheck: async (input) => checks.planDocumentCheck(input),
     cancelCheck: async (requestId) => checks.cancel(requestId),
     checkClaim: (input) => inFlow("check-claim", () => checks.checkClaim(input)),
+    rewriteFromDocuments: (input) =>
+      inFlow("check-claim", () => checks.rewriteFromDocuments(input)),
     chooseRecordCiteSource: (input) =>
       inFlow("check-claim", () => checks.chooseRecordCiteSource(input)),
     verifyDocument: (input) => inFlow("verify", () => checks.verifyDocument(input)),
@@ -5841,7 +6129,9 @@ export function createCore(adapters: CoreAdapters): Core {
     listDataFlows: () => consent.list(),
     listConsentRequests: async () => consent.requests(),
     respondToConsent: async (requestId, accept) => {
-      consent.respond(requestId, accept);
+      const answered = consent.respond(requestId, accept);
+      // Accepting the embeddings dialog is the User allowing it: Documents waiting carry on.
+      if (accept === true && answered?.flow.id === "embeddings") embedding.retry();
       await readinessChanged();
     },
     revokeConsent: async (flowId, serviceId) => {
@@ -5857,6 +6147,8 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     restoreConsent: async (flowId, serviceId, revokedAt) => {
       consent.restore(flowId, serviceId, revokedAt);
+      // Undo may bring back the choice that let embeddings run: Documents waiting carry on.
+      if (flowId === "embeddings") embedding.retry();
       connectors.consentChanged();
       transcriptionGateChanged();
       settingsChanged();
@@ -5865,6 +6157,8 @@ export function createCore(adapters: CoreAdapters): Core {
     listRegisteredDataFlows: () => consent.listRegistered(),
     allowDataFlow: async (flowId, serviceId) => {
       await consent.allow(flowId, serviceId);
+      // Documents waiting for embeddings carry on now that the User allowed it.
+      if (flowId === "embeddings") embedding.retry();
       connectors.consentChanged();
       await dataFlowsChanged();
     },
@@ -5874,8 +6168,12 @@ export function createCore(adapters: CoreAdapters): Core {
     getModelRuntimeFolder: () => modelRuntimeFolder.present(),
     showModelRuntimeFolder: () => modelRuntimeFolder.show(),
     updatePrivacySettings: async (patch) => {
+      const before = privacy.status();
       const { changed, settings: updated } = privacy.update(patch);
       if (changed) privacyChanged();
+      // Turning usage data on never sends a completed week from before the User agreed, and
+      // the week it happens in counts only from then.
+      if (!before.usageData.enabled && updated.usageData.enabled) modelSpend.consentStarted();
       return updated;
     },
     recordUsage: async (event) => usageData.recordFromUi(event),
@@ -5937,9 +6235,10 @@ export function createCore(adapters: CoreAdapters): Core {
       }
       return routeOf(classifier);
     },
-    proposeFolders: async (ids) => library.propose(ids, settings.get().language),
-    classifyDocuments: async (ids) => {
-      library.classify(ids);
+    proposeFolders: async (ids, options) =>
+      library.propose(ids, settings.get().language, undefined, options?.forService),
+    classifyDocuments: async (ids, options) => {
+      library.classify(ids, options?.forService);
       const classifier = organizeModelOf(library.settings());
       if (classifier) {
         usageData.record({
@@ -5966,11 +6265,14 @@ export function createCore(adapters: CoreAdapters): Core {
       const current = now();
       const nowMs = Date.parse(current);
       const earliest = nowMs - RECENTLY_DELETED_DAYS * 24 * 60 * 60 * 1000;
-      // A time outside Recently deleted's 30 days would list it expired or purge it at once:
-      // deleting it again at `current` keeps it restorable (#2238).
+      // A time outside Recently deleted's 30 days, or with less than a day of them left, would
+      // list it expired or purge it at once: deleting it again at `current` keeps it restorable
+      // and its Redo possible (#2238, #2274).
       const atOf = (item: DeletedAgainRef) => {
         const time = Date.parse(item.deletedAt);
-        return time >= earliest && time <= nowMs ? item.deletedAt : current;
+        return time >= earliest + DELETE_AGAIN_MARGIN_MS && time <= nowMs
+          ? item.deletedAt
+          : current;
       };
       // Documents go back together, as their deletion did (#1349), before what came after them.
       const byTime = new Map<string, string[]>();
@@ -6179,6 +6481,9 @@ export function createCore(adapters: CoreAdapters): Core {
       return jevChanged();
     },
     testJevConnection: (input) => loggingTest("jev")(jev.test(input)),
+    listDecisionHosts: () => decisionHosts.list(),
+    setDecisionKey: async (input) => decisionsChanged(await decisionHosts.setKey(input)),
+    removeDecisionKey: async (host) => decisionsChanged(await decisionHosts.removeKey(host)),
 
     listConnectors: async () => connectors.list(),
     addConnector: async (input) => {
@@ -6271,7 +6576,31 @@ export function createCore(adapters: CoreAdapters): Core {
       return restored;
     },
 
-    previewMindExport: async (mindId, options) => mindExports.preview(mindId, options),
+    previewMindExport: async (mindId, options, folder) => {
+      // The same saved choices the export itself uses: a plan the card shows must be the plan it writes.
+      const effective = {
+        ...optionsFor(options.format, settings.get().user.exportOptions),
+        ...options,
+      };
+      const preview = mindExports.preview(mindId, effective);
+      if (!folder) return preview;
+      // The ask names the files as this folder will take them: the next free name where one is taken.
+      const taken = new Set<string>();
+      const free = async (name: string) => {
+        const chosen = await freeFileName(folder, name, taken);
+        taken.add(chosen);
+        return chosen;
+      };
+      const fileName = await free(preview.fileName);
+      const pictures: string[] = [];
+      for (const name of preview.pictures) {
+        // A picture the folder already holds is linked, not written (#1937).
+        if (await outputs.holdsMatching(folder, name, (bytes) => isPictureFile(name, bytes)))
+          continue;
+        pictures.push(await free(name));
+      }
+      return { ...preview, fileName, pictures };
+    },
     previewSharePage: (mindId, options) => mindExports.previewSharePage(mindId, options),
     setSharePageTextOnly: async (mindId, documentIds) => {
       if (!Array.isArray(documentIds) || documentIds.some((each) => typeof each !== "string")) {
@@ -6608,7 +6937,12 @@ export function createCore(adapters: CoreAdapters): Core {
     deleteMeetingAudio: async (meetingId) => meetings.deleteAudio(meetingId),
     retryTranscript: async (meetingId) => meetings.retryTranscript(meetingId),
     listTranscriptionServices: () => cloudTranscription.list(),
-    setTranscriptionKey: (input) => cloudTranscription.setKey(input),
+    setTranscriptionKey: async (input) => {
+      const listed = await cloudTranscription.setKey(input);
+      // A new key for the service a Meeting is sending to takes over from its next audio.
+      transcriptionGateChanged();
+      return listed;
+    },
     getTranscriptionModel: async () => transcriptionModel?.status() ?? null,
     getTranscriptionSpeed: async () => {
       const speed = settings.readDeviceValue(TRANSCRIPTION_SPEED);
@@ -6726,7 +7060,7 @@ export function createCore(adapters: CoreAdapters): Core {
       // the User's approval are denied, and Skill scripts running are stopped.
       answers.stopAll();
       void webSearch.close().catch((error: unknown) => console.error(error));
-      void pictureFetcher.close().catch((error: unknown) => console.error(error));
+      void publicFetcher.close().catch((error: unknown) => console.error(error));
       suggestions.stop();
       edits.stopAll();
       checks.stopAll();
@@ -6740,6 +7074,7 @@ export function createCore(adapters: CoreAdapters): Core {
       library.close();
       batches.close();
       skills.close();
+      modelSpend.close();
       stopTrackingUsage();
       consent.close();
       outputs.close();

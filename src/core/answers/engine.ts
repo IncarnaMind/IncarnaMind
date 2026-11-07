@@ -143,6 +143,7 @@ import {
 } from "./turnChecks";
 import { citeUnmarked, missingMarkerEvents, textEdits } from "./unmarkedQuotes";
 import { createWindowBudget, SEARCH_RESERVE_TOKENS, type WindowBudget } from "./window";
+import { wroteWorking } from "./workingText";
 
 /** One message of Question context. */
 export interface AnswerMessage {
@@ -204,6 +205,8 @@ export interface AnswerSearchOptions {
   properties?: true;
   /** The Library's own facts too: a check's search, for a sentence about the Library itself (#2525). */
   library?: true;
+  /** A search no one is waiting on (a writing suggestion): it never asks for consent. */
+  background?: boolean;
 }
 
 /** A page range, a Document opening, or the Passages around one already shown. */
@@ -427,6 +430,8 @@ export interface AnswerRequest {
    * read the Minds, and the search rewrite's notebook.
    */
   mindsLine?: { line: string; asked: string };
+  /** The scope lines the Answer added just before the Question, kept out of the search rewrite's context (#2529). */
+  scopeLine?: string;
   /** The model to answer with, from `Core.prepareChatModel`. */
   model: ChatLanguageModel;
   /**
@@ -460,6 +465,8 @@ export interface AnswerRequest {
   toolSet?: ToolSet;
   /** The output limit of each of its replies, when it writes more than an Answer. Absent: by `toolSet`. */
   outputKind?: ModelCallKind;
+  /** Framed Meeting facts with missing Citations are omitted, never repaired (#2306). */
+  meetingFacts?: true;
   /** What a search says of the Answer's language after its Passages (see `DocumentToolsHooks`). */
   languageNote?(): string | null;
   /**
@@ -742,6 +749,92 @@ export function searchToolDescription(languages: readonly DocumentLanguage[]): s
 /** A Citation marker ("[^1]") or a figure marker ("[=1]"): the Answer is being written. */
 const MARKER = /\[[\^=]\d{1,4}\]/;
 
+/** A part of a step's text: where it sits, and its own text. */
+interface TextPart {
+  from: number;
+  to: number;
+  text: string;
+}
+
+/** `text`'s paragraphs, trimmed, in order. */
+function paragraphsOf(text: string): TextPart[] {
+  const out: TextPart[] = [];
+  let from = 0;
+  for (const separator of [...text.matchAll(/\r?\n[ \t]*\r?\n/g), null]) {
+    const to = separator ? separator.index : text.length;
+    const slice = text.slice(from, to);
+    const start = from + slice.length - slice.trimStart().length;
+    const end = to - (slice.length - slice.trimEnd().length);
+    if (end > start) out.push({ from: start, to: end, text: text.slice(start, end) });
+    from = separator ? separator.index + separator[0].length : text.length;
+  }
+  return out;
+}
+
+/** `text`'s lines, trimmed, in order. */
+function linesOf(text: string): TextPart[] {
+  const out: TextPart[] = [];
+  let from = 0;
+  for (const separator of [...text.matchAll(/\r?\n/g), null]) {
+    const to = separator ? separator.index : text.length;
+    const slice = text.slice(from, to);
+    const start = from + slice.length - slice.trimStart().length;
+    const end = to - (slice.length - slice.trimEnd().length);
+    if (end > start) out.push({ from: start, to: end, text: text.slice(start, end) });
+    from = separator ? separator.index + separator[0].length : text.length;
+  }
+  return out;
+}
+
+/**
+ * The parts of a recorded step's text that may be the model's working on the call it is about to
+ * make (#2371): every paragraph without a marker; the last paragraph even with one when the step
+ * holds other text before it; and, where that last paragraph mixes marked and unmarked lines, its
+ * unmarked lines. A marked paragraph before the last is the Answer's, so a note can no longer hide
+ * between two of them. An Answer alone, written beside `cite` as one marked paragraph, has nothing
+ * to judge and costs no request. Text shaped like a Tool call is never judged: its records are read
+ * at the end (`takeToolText`), and dropping the block here would lose them.
+ */
+function workingCandidates(text: string): TextPart[] {
+  const paragraphs = paragraphsOf(text);
+  const out: TextPart[] = [];
+  for (const [index, paragraph] of paragraphs.entries()) {
+    if (takeToolText(paragraph.text, TOOL_TEXT_TAGS).text !== paragraph.text) continue;
+    const last = index === paragraphs.length - 1;
+    const marked = MARKER.test(paragraph.text);
+    if (marked && !last) continue;
+    if (marked && paragraph.text.includes("\n")) {
+      const unmarked = linesOf(paragraph.text).filter(
+        (line) =>
+          !MARKER.test(line.text) && takeToolText(line.text, TOOL_TEXT_TAGS).text === line.text,
+      );
+      for (const line of unmarked) {
+        out.push({
+          from: paragraph.from + line.from,
+          to: paragraph.from + line.to,
+          text: line.text,
+        });
+      }
+      if (unmarked.length > 0) continue;
+    }
+    if (marked && paragraphs.length === 1) continue;
+    out.push(paragraph);
+  }
+  return out;
+}
+
+/** `text` without `parts`, its blank runs closed up. */
+function withoutParts(text: string, parts: readonly { from: number; to: number }[]): string {
+  let out = "";
+  let at = 0;
+  for (const part of [...parts].sort((a, b) => a.from - b.from)) {
+    out += text.slice(at, part.from);
+    at = part.to;
+  }
+  out += text.slice(at);
+  return out.replace(/(?:\r?\n[ \t]*){3,}/g, "\n\n").trim();
+}
+
 /**
  * A backstop: a step before the last that has read the Documents and has written this much with no
  * Citation marker in it is a model running on, not an Answer (#1344). The last step may write an
@@ -904,7 +997,10 @@ async function searchQuery(
   small: () => Promise<SmallCallModel>,
 ): Promise<SmallCallResult<string>> {
   const { question, signal } = request;
-  const earlier = earlierContext(request.messages, question);
+  const earlier = earlierContext(request.messages, question, undefined, [
+    request.scopeLine ?? "",
+    request.mindsLine?.line ?? "",
+  ]);
   if (!earlier) return { value: question, usage: null };
   try {
     const { model, temperature } = await small();
@@ -1164,6 +1260,7 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
             messages: request.messages,
             question: request.question,
             mind: request.mind,
+            ...(request.meetingFacts && { requiredContext: true }),
           });
           if (!fit.ok) {
             yield { type: "failed", error: fit.error };
@@ -1337,6 +1434,18 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
               ),
             );
           } else {
+            if (budget && request.meetingFacts) {
+              const fit = budget.fit({
+                instructions: request.instructions(support, { passages: "" }),
+                messages: request.messages,
+                question: request.question,
+                requiredContext: true,
+              });
+              if (!fit.ok) {
+                yield { type: "failed", error: fit.error };
+                return;
+              }
+            }
             const found: SearchResultForModel = yield* searchOnce();
             if (signal.aborted) return;
             attempt = onePass(support, found);
@@ -1908,6 +2017,7 @@ async function* toolLoop(
       tools: definitions(tools),
       reserve: SEARCH_RESERVE_TOKENS,
       mind: request.mind,
+      ...(request.meetingFacts && { requiredContext: true }),
     });
     if (!fit.ok) {
       yield { type: "failed", error: fit.error };
@@ -2007,10 +2117,12 @@ async function* toolLoop(
         const figured = request.documents.citeFigures?.(keptText) ?? keptText;
         yield* textEdits(keptText, figured);
         keptText = figured;
-        const placed = yield* missingMarkerEvents(keptText, cited, request.documents);
-        yield* citeUnmarked(request, placed, temperature, budget, () =>
-          nudges.take("unmarked-quotes"),
-        );
+        if (!request.meetingFacts) {
+          const placed = yield* missingMarkerEvents(keptText, cited, request.documents);
+          yield* citeUnmarked(request, placed, temperature, budget, () =>
+            nudges.take("unmarked-quotes"),
+          );
+        }
       }
     }
     if (suffix) {
@@ -2191,8 +2303,50 @@ async function* toolLoop(
           if (recorded && !stepTools.some((each) => !recording(each)) && !again)
             setAside.push({ text: stepText, searched });
         } else {
-          keptText += stepText;
-          if (recorded && MARKER.test(stepText)) answered = true;
+          const candidates =
+            recorded && request.toolSet !== "check" ? workingCandidates(stepText) : [];
+          /** The candidates the judgement called the model's working. */
+          let working: TextPart[] = [];
+          if (candidates.length > 0) {
+            // The Answer before the first candidate tells the judgement what the parts are about.
+            const before = (keptText + stepText).slice(
+              0,
+              keptText.length + (candidates[0]?.from ?? 0),
+            );
+            const verdicts = await wroteWorking(
+              request,
+              before.trimEnd().slice(-800),
+              candidates.map((each) => each.text),
+              temperature,
+            );
+            if (verdicts)
+              working = candidates.filter((_, index) => verdicts.at(index) === "working");
+          }
+          if (working.length === 0) {
+            keptText += stepText;
+          } else {
+            // The text was streamed: take the parts back where they were shown, and re-stream the rest.
+            const all = keptText + stepText;
+            const shifted = working.map((each) => ({
+              from: each.from + keptText.length,
+              to: each.to + keptText.length,
+            }));
+            const shown = all.slice(0, released);
+            const shownAfter = withoutParts(
+              shown,
+              shifted
+                .filter((each) => each.from < shown.length)
+                .map((each) => ({ ...each, to: Math.min(each.to, shown.length) })),
+            );
+            yield* textEdits(shown, shownAfter);
+            released = shownAfter.length;
+            keptText = withoutParts(all, shifted);
+            setAside.push({
+              text: working.map((each) => stepText.slice(each.from, each.to)).join("\n\n"),
+              searched,
+            });
+          }
+          if (recorded && MARKER.test(keptText)) answered = true;
         }
         stepText = "";
         stepTools = [];
@@ -2420,11 +2574,14 @@ async function* structured(
   const worded = (text: string) => request.documents.setAsideInWords?.(text) ?? text;
   yield* emit(typeof answer === "string" ? worded(takeToolText(answer).text) : answer);
   if (typeof answer === "string") {
-    // A small model often gives the records but leaves their markers out.
-    const marked = yield* missingMarkerEvents(emitted, records, request.documents);
-    if (budget) yield* retryQuotes(request, marked, temperature, budget);
-    if (signal.aborted) return;
-    const placed = yield* citeUnmarked(request, marked, temperature, budget);
+    let placed = emitted;
+    if (!request.meetingFacts) {
+      // A small model often gives the records but leaves their markers out.
+      const marked = yield* missingMarkerEvents(emitted, records, request.documents);
+      if (budget) yield* retryQuotes(request, marked, temperature, budget);
+      if (signal.aborted) return;
+      placed = yield* citeUnmarked(request, marked, temperature, budget);
+    }
     if (signal.aborted) return;
     // Worked out once the quotes are as good as they will be, since figures read their numbers there.
     const calculations = givenList((value as { calculations?: unknown } | undefined)?.calculations);

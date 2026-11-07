@@ -11,8 +11,10 @@ import {
   checkCard,
   useLocalChatModel as connectLocalChatModel,
   createDataFolder,
+  cutALineAtFoot,
   dismissChatSetup,
   focusSettled,
+  footFadeOf,
   launchApp,
   mindWrittenBefore,
   motionSettled,
@@ -435,41 +437,42 @@ for (const language of ["en", "zh-CN"] as const) {
 
     // All the claims fit the height the card opened with: nothing is cut, so its edge is bare.
     const body = health.locator(".check-card-body");
-    const before = await body.evaluate((element) => ({
-      cut: element.scrollHeight > element.clientHeight + 1,
-      fade: element.classList.contains("scroll-fade"),
-    }));
-    expect(before.cut).toBe(false);
-    expect(before.fade).toBe(false);
+    const bare = await footFadeOf(body, "*");
+    expect(await body.evaluate((element) => element.scrollHeight > element.clientHeight + 1)).toBe(
+      false,
+    );
+    expect(bare.marked).toBe(false);
+    expect(bare.fade).toBe(0);
     await screenshotOf(body, `card-body-${language}-900-none`);
 
     await pointAndClick(window, press);
     await mindCheckFinished(window, 15);
     // The verdicts need more room than the body holds, so it scrolls: the Check stays in the
-    // card's fixed foot, never scrolled away with them, and the body's last 12px fade to the
-    // sheet so the cut line reads as more below.
+    // card's fixed foot, never scrolled away with them, and the body's last line and a half fade
+    // to the sheet, so a line the foot cuts fades out whole and reads as more below.
     expect(await inside(press, health)).toBe(true);
-    const fading = () => body.evaluate((element) => element.classList.contains("scroll-fade"));
+    const fading = () => body.evaluate((element) => element.hasAttribute("data-more-after"));
     await expect.poll(fading).toBe(true);
-    const after = await body.evaluate((element) => {
-      const edge = getComputedStyle(element, "::after");
-      return {
-        cut: element.scrollHeight > element.clientHeight + 1,
-        height: edge.height,
-        content: edge.content,
-        background: edge.backgroundImage,
-      };
+    await cutALineAtFoot(body, "*");
+    const edge = await body.evaluate((element) => {
+      const style = getComputedStyle(element, "::after");
+      return { content: style.content, background: style.backgroundImage };
     });
-    expect(after.cut).toBe(true);
-    expect(after.height).toBe("12px");
-    expect(after.content).toBe('""');
-    expect(after.background).toContain("linear-gradient");
+    expect(edge.content).toBe('""');
+    expect(edge.background).toContain("linear-gradient");
+    const shown = await footFadeOf(body, "*");
+    if (!shown.cut) throw new Error("The foot cut no line.");
+    expect(shown.position).toBe("sticky");
+    expect(shown.fadeBottom).toBeCloseTo(shown.foot, 0);
+    expect(shown.fade).toBeGreaterThanOrEqual(1.5 * shown.cut.lineHeight);
+    expect(shown.cut.top).toBeGreaterThanOrEqual(shown.foot - shown.fade - 0.5);
     await screenshotOf(body, `card-body-${language}-900-cut`);
     // At the scroll's end nothing is cut below, so the fade goes; at the top it is back.
     await body.evaluate((element) => {
       element.scrollTop = element.scrollHeight;
     });
     await expect.poll(fading).toBe(false);
+    expect((await footFadeOf(body, "*")).fade).toBe(0);
     await body.evaluate((element) => {
       element.scrollTop = 0;
     });
@@ -549,7 +552,8 @@ for (const language of ["en", "zh-CN"] as const) {
       const price = health.getByTestId("check-estimate");
       const line = health.getByTestId("card-foot-progress");
       const foot = health.getByTestId("check-card-foot");
-      await expect(price).toContainText(language === "en" ? "About $" : "约 $");
+      // The scripted cloud model's estimate is of nothing, which shows no amount: its tokens show.
+      await expect(price).toContainText(language === "en" ? "tokens" : "token");
       // At rest the row is Check's own: no progress line, no empty one.
       await expect(line).toHaveCount(0);
       await screenshot(window, `card-foot-${language}-${width}-open`);
@@ -629,7 +633,7 @@ for (const language of ["en", "zh-CN"] as const) {
       const press = health.getByTestId("badge-check-mind");
       const price = health.getByTestId("check-estimate");
       const line = health.getByTestId("card-foot-progress");
-      await expect(price).toContainText("约 $");
+      await expect(price).toContainText("token");
       await health.evaluate((element) => {
         (element as HTMLElement).style.width = "220px";
       });

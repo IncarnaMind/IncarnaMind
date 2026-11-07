@@ -24,6 +24,36 @@ const removed: CitationRecheck = {
 };
 
 describe("a Citation checked again where it lands", () => {
+  test("forwards a Transcript's stored cue Location without replacing its occurrence", async () => {
+    const location = { kind: "time", from: 7000, to: 10_000, speaker: "Dana" } as const;
+    const recheck = vi.fn(async () => ({
+      ...removed,
+      check: "found" as const,
+      checkReason: null,
+      contentHash: "v1",
+      location,
+    }));
+    const attrs = {
+      documentId: "doc",
+      quote: "We agreed to review the plan.",
+      pageFrom: 1,
+      pageTo: 1,
+      contentHash: "v1",
+      location,
+      check: "found",
+    };
+    const landed = await recheckCitations([block(attrs)], recheck);
+    expect(recheck).toHaveBeenCalledWith({
+      documentId: "doc",
+      quote: attrs.quote,
+      pageFrom: 1,
+      pageTo: 1,
+      contentHash: "v1",
+      location,
+    });
+    expect(citationOf(landed)).toMatchObject({ location, check: "found" });
+  });
+
   test("an area with no words keeps the check it was picked with, and isn't checked", async () => {
     const recheck = vi.fn(async () => removed);
     const attrs = {
@@ -86,6 +116,68 @@ describe("a Citation checked again where it lands", () => {
     expect(citationOf([landed as NodeJSON])).toMatchObject({
       check: "cant-check",
       checkReason: "document-removed",
+    });
+  });
+});
+
+// protects=a Citation added to a Note and checked again where it lands (#2504): pointed at another version or page, it says nothing of the next page the Answer's quoted words ran on to, which was the old place's, and keeps the words not found for a later check; checked in the version it quotes, or landed where it was cited, its place is the same, so the run-on page stays; fails_when=the run-on page outlives a re-point, or is lost where nothing moved, or a re-point drops the words not found, or the quoted version drops the page; no_claim=whether the words are on the new place's page.
+describe("what the check of the Answer's quoted words found, where a Citation lands", () => {
+  const runOn = { runsOnTo: { kind: "page", from: 2, to: 2 } };
+  const notFound = { answer: [{ text: "no fee at all", found: false }], closest: null };
+  const held = (quotedWords: unknown) =>
+    block({
+      documentId: "doc",
+      quote: "No fee is charged when goods are",
+      pageFrom: 1,
+      pageTo: 1,
+      location: { kind: "page", from: 1, to: 1 },
+      contentHash: "v1",
+      check: "found",
+      checkReason: null,
+      quotedWords,
+    });
+  const elsewhere: CitationRecheck = {
+    check: "found",
+    checkReason: null,
+    contentHash: "v2",
+    passageId: "passage",
+    pageFrom: 3,
+    pageTo: 3,
+    location: { kind: "page", from: 3, to: 3 },
+  };
+
+  test.each([
+    ["the page they ran on to goes", runOn, undefined],
+    ["the words not found stay", notFound, notFound],
+  ])("pointed at another place, %s", async (_, quotedWords, kept) => {
+    const [landed] = await recheckCitations([held(quotedWords)], async () => elsewhere);
+    const attrs = citationOf([landed as NodeJSON]);
+    expect(attrs).toMatchObject({ contentHash: "v2", pageFrom: 3 });
+    expect(attrs.quotedWords).toEqual(kept);
+  });
+
+  test("landed where it was cited, in the same version and page, the page they ran on to stays", async () => {
+    const [landed] = await recheckCitations([held(runOn)], async () => ({
+      ...elsewhere,
+      contentHash: "v1",
+      pageFrom: 1,
+      pageTo: 1,
+      location: { kind: "page", from: 1, to: 1 },
+    }));
+    expect(citationOf([landed as NodeJSON])).toMatchObject({
+      contentHash: "v1",
+      quotedWords: runOn,
+    });
+  });
+
+  test("checked in the version it quotes, the page they ran on to stays", async () => {
+    const [landed] = await recheckCitations([held(runOn)], async () => ({
+      ...elsewhere,
+      inQuotedVersion: { check: "found", checkReason: null },
+    }));
+    expect(citationOf([landed as NodeJSON])).toMatchObject({
+      contentHash: "v1",
+      quotedWords: runOn,
     });
   });
 });

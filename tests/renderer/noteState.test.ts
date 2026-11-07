@@ -5,6 +5,9 @@ import * as Y from "yjs";
 import {
   CLAIM_CHECK_MARK,
   type ClaimCheckAttributes,
+  type ConversationAnswer,
+  type MarkedCitation,
+  type MarkedFigure,
   MIND_CONTENT_FIELD,
   type SearchScope,
   type UnreadFile,
@@ -21,8 +24,12 @@ import {
   readNoteState,
   unreadForCard,
 } from "../../src/renderer/src/noteState";
+import { pageBlocks, withAnswerChecks } from "../../src/shared/answerBlocks";
+import type { NodeJSON } from "../../src/shared/blockJson";
 import { setOrigins } from "../../src/shared/blockOrigins";
+import type { LiveDocument } from "../../src/shared/citations";
 import { formatDateTime } from "../../src/shared/dates";
+import { FORMULA_VERSION } from "../../src/shared/formula";
 import { translate } from "../../src/shared/i18n";
 import { setMindScope } from "../../src/shared/mindScope";
 import { checkUnreadOf, recordCheckUnread } from "../../src/shared/unreadFiles";
@@ -918,5 +925,299 @@ describe("Reading a note's state from its Yjs document (Home and Export)", () =>
     });
     expect(read(doc).filedAnswers).toEqual(new Set(["answer-in-the-note"]));
     doc.destroy();
+  });
+});
+
+describe("A Note made from an Answer carries its judgement (#2313)", () => {
+  const sentence = "The launch is on the eighteenth of November.";
+  const citation: MarkedCitation = {
+    marker: 1,
+    passageId: "passage-1",
+    documentId: "plan",
+    documentName: "Plan.pdf",
+    contentHash: "hash-1",
+    pageFrom: 2,
+    pageTo: 2,
+    location: null,
+    quote: sentence,
+    check: "found",
+    checkReason: null,
+  };
+  const judged: MarkedCitation = { ...citation, judgedAt: CHECKED_AT };
+  const plan: LiveDocument = { id: "plan", contentHash: "hash-1", name: "Plan.pdf" };
+  const costsSheet: LiveDocument = { id: "costs", contentHash: "hash-2", name: "Costs.pdf" };
+  const costs: MarkedCitation = {
+    ...citation,
+    marker: 2,
+    passageId: "passage-2",
+    documentId: "costs",
+    documentName: "Costs.pdf",
+    contentHash: "hash-2",
+  };
+  const answerOf = (
+    id: string,
+    text: string,
+    citations: MarkedCitation[],
+    figures: MarkedFigure[] = [],
+  ): Pick<ConversationAnswer, "id" | "text" | "citations" | "figures" | "status" | "model"> => ({
+    id,
+    text,
+    citations,
+    figures,
+    status: "done",
+    model: { providerId: "provider", modelId: "model" },
+  });
+  const answer = (citations: MarkedCitation[]) =>
+    answerOf("answer-1", `${sentence} [^1]`, citations);
+  const carried = (
+    made: ReturnType<typeof answerOf>,
+    blocks: readonly NodeJSON[] = pageBlocks(made, ""),
+    scope: SearchScope | null = null,
+  ): JSONContent[] => withAnswerChecks(blocks, made, "", scope);
+  const blocksOf = (citations: MarkedCitation[], scope: SearchScope | null = null) =>
+    carried(answer(citations), undefined, scope);
+  const noteOf = (blocks: JSONContent[], documents: LiveDocument[] = [plan]) =>
+    readNoteState({
+      cellFigures: [],
+      doc: source(blocks),
+      documents,
+      keptCitationTexts: [],
+      folderId: null,
+    });
+  const carriedMarks = (blocks: readonly JSONContent[]) => {
+    const marks: Record<string, unknown>[] = [];
+    const collect = (nodes: readonly JSONContent[]) =>
+      nodes.forEach((node) => {
+        for (const mark of node.marks ?? []) {
+          if (mark.type === CLAIM_CHECK_MARK) marks.push(mark.attrs as Record<string, unknown>);
+        }
+        collect(node.content ?? []);
+      });
+    collect(blocks);
+    return marks;
+  };
+
+  test("a judged supported sentence makes its Note Checked, at the judgement's time", () => {
+    const state = noteOf(blocksOf([judged])).state;
+    expect(state).toMatchObject({ kind: "checked", checkedAt: CHECKED_AT, look: 0 });
+  });
+
+  test("a quote check alone is no judgement: its Note stays Not checked", () => {
+    const state = noteOf(blocksOf([citation])).state;
+    expect(state).toMatchObject({ kind: "not-checked", look: 0 });
+  });
+
+  test("a judged unsupported sentence makes its Note need a look, never Checked", () => {
+    const state = noteOf(
+      blocksOf([{ ...judged, check: "unsupported", verdict: "The plan says December." }]),
+    ).state;
+    expect(state).toMatchObject({ kind: "needs-look", look: 1 });
+  });
+
+  test("a Folder-scoped Answer's check names that Folder; a library-wide one says so; both name the Answer", () => {
+    const scope = { folderIds: ["folder-a"], tagIds: [], documentIds: [] };
+    expect(carriedMarks(blocksOf([judged], scope))[0]).toMatchObject({
+      scope: { folderId: "folder-a", widened: false, chosen: scope },
+      fromAnswer: "answer-1",
+    });
+    expect(carriedMarks(blocksOf([judged]))[0]).toMatchObject({
+      scope: { folderId: null, widened: true },
+    });
+  });
+
+  test("a Citation's own attributes, its verdict among them, reach the Note's copy", () => {
+    const made = answerOf("answer-verdict", `${sentence} [^1]`, [
+      { ...judged, check: "unsupported", verdict: "The plan says December." },
+    ]);
+    const nodes: JSONContent[] = pageBlocks(made, "");
+    const citations: Record<string, unknown>[] = [];
+    const collect = (list: readonly JSONContent[]) =>
+      list.forEach((node) => {
+        if (node.type === "citation") citations.push(node.attrs as Record<string, unknown>);
+        collect(node.content ?? []);
+      });
+    collect(nodes);
+    expect(citations[0]).toMatchObject({
+      check: "unsupported",
+      verdict: "The plan says December.",
+    });
+    expect(citations[0]).not.toHaveProperty("judgedAt");
+  });
+
+  test("the same words, quotes and version, judged differently, carry nothing: no one can say which sentence it is", () => {
+    const unsupported: MarkedCitation = {
+      ...judged,
+      marker: 2,
+      check: "unsupported",
+      verdict: "The plan says December.",
+    };
+    const made = answerOf("answer-ambiguous", `${sentence} [^1]\n\n${sentence} [^2]`, [
+      judged,
+      unsupported,
+    ]);
+    expect(carriedMarks(carried(made))).toHaveLength(0);
+  });
+
+  test("the same words, quotes and version, judged once and stopped before the other, carry nothing: a copy of either reads Not checked", () => {
+    // The Answer's limit stopped the judgement between two sentences that read alike.
+    const stopped: MarkedCitation = {
+      ...citation,
+      marker: 2,
+      check: "not-checked",
+      checkReason: "answer-limit",
+    };
+    const made = answerOf("answer-stopped", `${sentence} [^1]\n\n${sentence} [^2]`, [
+      judged,
+      stopped,
+    ]);
+    const full = pageBlocks(made, "");
+    for (const blocks of [full, full.slice(-1), full.slice(0, 1)]) {
+      const note = carried(made, blocks);
+      expect(carriedMarks(note)).toHaveLength(0);
+      expect(noteOf(note).state).toMatchObject({ kind: "not-checked" });
+    }
+  });
+
+  test("a marker with no Citation carries nothing", () => {
+    expect(
+      carriedMarks(carried(answerOf("answer-dead-marker", `${sentence} [^1]`, []))),
+    ).toHaveLength(0);
+  });
+
+  test("a negative judgement wins over a supported one in the same sentence", () => {
+    const made = answerOf("answer-negative", `${sentence} [^1][^2]`, [
+      judged,
+      { ...costs, check: "unsupported", judgedAt: CHECKED_AT, verdict: "The costs sheet says 8%." },
+    ]);
+    expect(carriedMarks(carried(made))[0]).toMatchObject({ state: "unsupported" });
+  });
+
+  test("a marker before its full stop still carries: the common model style", () => {
+    const made = answerOf("answer-marker-first", "Revenue rose 10% [^1].", [judged]);
+    expect(noteOf(carried(made)).state).toMatchObject({ kind: "checked" });
+  });
+
+  test("a selection of a repeated sentence takes its own Citation's verdict, never the first one's", () => {
+    // The same Passage and version, quoting different words: only the quote tells them apart.
+    const quotedCosts: MarkedCitation = {
+      ...judged,
+      marker: 2,
+      quote: "The costs sheet says 8%.",
+      check: "unsupported",
+      verdict: "The costs sheet says 8%.",
+    };
+    const made = answerOf("answer-repeated", `${sentence} [^1]\n\n${sentence} [^2]`, [
+      judged,
+      quotedCosts,
+    ]);
+    const note = carried(made, pageBlocks(made, "").slice(-1));
+    expect(noteOf(note, [plan, costsSheet]).state).toMatchObject({ kind: "needs-look" });
+  });
+
+  test("a Document changed after the judgement asks again", () => {
+    const made = answerOf("answer-two-documents", `${sentence} [^1][^2]`, [
+      judged,
+      { ...costs, judgedAt: CHECKED_AT },
+    ]);
+    const changed: LiveDocument = { ...costsSheet, contentHash: "hash-changed" };
+    expect(noteOf(carried(made), [plan, changed]).state).toMatchObject({ kind: "not-checked" });
+  });
+
+  test("a Document the judgement relied on, gone from the Library, asks again; with it there, the Note reads Checked", () => {
+    const made = answerOf("answer-removed-document", `${sentence} [^1][^2]`, [
+      judged,
+      { ...costs, judgedAt: CHECKED_AT },
+    ]);
+    const note = carried(made);
+    expect(noteOf(note, [plan, costsSheet]).state).toMatchObject({ kind: "checked" });
+    expect(noteOf(note, [plan]).state).toMatchObject({ kind: "not-checked" });
+  });
+
+  test("an old version of a Document cited beside its current one asks again; both current, the Note reads Checked", () => {
+    const current: MarkedCitation = {
+      ...judged,
+      marker: 2,
+      passageId: "passage-1b",
+      quote: "It opens to the public that day.",
+    };
+    const old: MarkedCitation = { ...judged, passageId: "passage-0", contentHash: "hash-0" };
+    const text = `${sentence} [^1][^2]`;
+    expect(
+      noteOf(carried(answerOf("answer-old-version", text, [old, current]))).state,
+    ).toMatchObject({
+      kind: "not-checked",
+    });
+    expect(
+      noteOf(carried(answerOf("answer-current", text, [judged, current]))).state,
+    ).toMatchObject({
+      kind: "checked",
+    });
+  });
+
+  test("a judgement of the User's own Note carries “Your note”; one of a Document doesn't", () => {
+    const fieldVisit: LiveDocument = {
+      id: "field-visit",
+      contentHash: "hash-note",
+      name: "Field visit",
+    };
+    const ownNote: MarkedCitation = {
+      ...judged,
+      passageId: "passage-note",
+      documentId: "field-visit",
+      documentName: "Field visit",
+      contentHash: "hash-note",
+      yourNoteAt: "2026-10-12T09:00:00.000Z",
+    };
+    const fromNote = noteOf(carried(answer([ownNote])), [fieldVisit]);
+    expect(fromNote.state).toMatchObject({ kind: "checked" });
+    expect(fromNote.health.ownNotes).toHaveLength(1);
+    expect(noteOf(carried(answer([judged]))).health.ownNotes).toHaveLength(0);
+  });
+
+  test("a sentence of a calculated figure carries nothing, though its Citation was judged in another sentence", () => {
+    // The figure has no Analysis behind it in this Answer, so the Note shows its value as words.
+    const figure: MarkedFigure = {
+      marker: 1,
+      label: "Launch budget",
+      formula: "",
+      inputs: [],
+      value: 300,
+      unit: { kind: "plain" },
+      approximate: false,
+      shown: "300",
+      show: { language: "en", as: "number", decimals: 0, scale: null },
+      literals: [],
+      engine: FORMULA_VERSION,
+      written: null,
+      analysis: { analysis: 1, result: "total" },
+    };
+    const made = answerOf(
+      "answer-calculated",
+      `${sentence} [^1]\n\nThe launch costs [=1] [^1].`,
+      [judged],
+      [figure],
+    );
+    const note = carried(made);
+    expect(
+      note
+        .at(-1)
+        ?.content?.map((node) => node.text ?? "")
+        .join(""),
+    ).toBe("The launch costs 300 .");
+    const marks = carriedMarks(note);
+    expect(marks).toHaveLength(1);
+    expect(String(marks[0]?.text)).toContain(sentence);
+    expect(noteOf(note).state).toMatchObject({ kind: "not-checked" });
+  });
+
+  test("a Folder-scoped Answer's Note reads Checked: the carried check doesn't depend on where the Note sits", () => {
+    const scope = { folderIds: ["folder-a"], tagIds: [], documentIds: [] };
+    const state = noteOf(blocksOf([judged], scope)).state;
+    expect(state).toMatchObject({ kind: "checked", checkedAt: CHECKED_AT });
+  });
+
+  test("a sentence the judgement didn't settle carries nothing", () => {
+    const state = noteOf(blocksOf([{ ...judged, check: "not-checked" }])).state;
+    expect(state).toMatchObject({ kind: "not-checked" });
   });
 });

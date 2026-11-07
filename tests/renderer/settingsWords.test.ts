@@ -82,9 +82,12 @@ const CONSENT_FACTS = [
   "connectors.directory.where.body",
   "connectors.form.sends",
   "connectors.import.sends",
+  "connectors.import.placeholder",
   "embeddingProviders.confirm.cloud",
   "embeddingProviders.settings.sendsTo",
   "privacy.flows.intro",
+  // What the AI use record sends while usage data is on (ADR-0014, #1993).
+  "privacy.aiUse.private",
   "privacy.skills.body",
   "privacy.usageData.tester",
   "providers.secrets.plainText.accept",

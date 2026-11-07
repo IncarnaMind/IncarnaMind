@@ -14,6 +14,8 @@ import { formatTime } from "../../../shared/dates";
 import type { MessageKey } from "../../../shared/i18n";
 import { supportsLibraryImages } from "../../../shared/libraryModels";
 import { core } from "../core";
+import { estimateText } from "../cost";
+import { useDecisionHosts } from "../decisionHosts";
 import { errorMessage } from "../errors";
 import { translateNow, useLanguage, useT } from "../i18n";
 import { useSettingsTarget } from "../settingsTarget";
@@ -55,11 +57,12 @@ const labelClass =
 const sameClassifier = (a: LibraryClassifier, b: LibraryClassifier) =>
   JSON.stringify(a) === JSON.stringify(b);
 
-/** About what 100 Documents cost, in plain words: rough, as tokenizers differ. */
+/** About what 100 Documents cost, in plain words: rough, as tokenizers differ. Null for nothing. */
 function costText(
   cost: TaggingCost,
   t: (key: MessageKey, params?: Record<string, string | number>) => string,
-): string {
+  language: Language,
+): string | null {
   switch (cost.kind) {
     case "free":
       return t("tagging.cost.free");
@@ -67,19 +70,10 @@ function costText(
       return t("tagging.cost.plan");
     case "unknown":
       return t("tagging.cost.unknown");
-    case "estimate":
-      if (cost.currency === "CNY") {
-        return cost.amount < 0.01
-          ? t("tagging.cost.underYuan")
-          : t("tagging.cost.yuan", { amount: cost.amount.toFixed(2) });
-      }
-      if (cost.amount < 0.01) return t("tagging.cost.underCent");
-      if (cost.amount < 1)
-        return t("tagging.cost.cents", { amount: Math.round(cost.amount * 100) });
-      return t("tagging.cost.dollars", {
-        amount: cost.amount.toFixed(2),
-        dollars: `$${cost.amount.toFixed(2)}`,
-      });
+    case "estimate": {
+      const about = estimateText(cost, null, t, language);
+      return about && t("tagging.cost.estimate", { cost: about });
+    }
   }
 }
 
@@ -121,6 +115,7 @@ export function TaggingSettings() {
       core.on("library.changed", reload),
       core.on("chatReadiness.changed", reload),
       core.on("jev.changed", reload),
+      core.on("decisions.changed", reload),
       core.on("embedding.changed", reload),
     ];
     return () => {
@@ -379,7 +374,7 @@ function ModelRow({
             option.goodForTagging && <span className={labelClass}>{t("tagging.label.good")}</span>
           )}
         </span>
-        <span className={choiceTextClass}>{costText(option.cost, t)}</span>
+        <span className={choiceTextClass}>{costText(option.cost, t, language)}</span>
         {provider && option.group !== "local" && (
           <span className={choiceTextClass} data-testid="tagging-option-sends">
             {t("setup.sorting.sends", { service: provider })}
@@ -404,6 +399,8 @@ function customName(
       return t("tagging.other.decision", { model: "Tev1, Clef-Flash" });
     case "jev":
       return "TypeSafe Jev";
+    case "decision":
+      return classifier.modelId;
   }
 }
 
@@ -416,18 +413,32 @@ function OtherModelForm({
   onSave(classifier: TaggingClassifier): void;
 }) {
   const t = useT();
+  const language = useLanguage();
+  const listId = useId();
   const [providers, setProviders] = useState<ChatProvider[]>([]);
-  // A saved provider's id, "ollama" for a decision model by name, or "auto" for them picked per Document.
+  const [decisionHosts] = useDecisionHosts();
+  const localMode = useAppStore((state) => state.embedding?.localOnly === true);
+  // Any model a host serves, by name: one it added since this copy was made included (#1907).
+  const hosts = localMode ? [] : (decisionHosts ?? []).filter((host) => host.ready);
+  // A saved provider's id, "ollama" for a decision model by name, "auto" for them picked per
+  // Document, or "decision:<host>" for a decision model host.
   const [where, setWhere] = useState(
-    current?.kind === "chat" ? current.choice.providerId : current ? current.kind : "",
+    current?.kind === "chat"
+      ? current.choice.providerId
+      : current?.kind === "decision"
+        ? `decision:${current.host}`
+        : current
+          ? current.kind
+          : "",
   );
   const [modelId, setModelId] = useState(
     current?.kind === "chat"
       ? current.choice.modelId
-      : current?.kind === "ollama"
+      : current?.kind === "ollama" || current?.kind === "decision"
         ? current.modelId
         : "",
   );
+  const host = hosts.find((each) => `decision:${each.host}` === where);
   const [baseUrl, setBaseUrl] = useState(
     current?.kind === "ollama" || current?.kind === "auto"
       ? current.baseUrl
@@ -437,7 +448,9 @@ function OtherModelForm({
     current?.kind === "ollama" && current.usePageImages === true,
   );
   const [error, setError] = useState<string | null>(null);
-  const service = providers.find((provider) => provider.id === where)?.service?.name ?? null;
+  const service = host
+    ? (host.service?.name ?? null)
+    : (providers.find((provider) => provider.id === where)?.service?.name ?? null);
   useEffect(() => {
     core.listChatProviders().then(
       (list) => {
@@ -459,6 +472,10 @@ function OtherModelForm({
         }
         const model = modelId.trim();
         if (!model) return;
+        if (host) {
+          onSave({ kind: "decision", host: host.host, modelId: model });
+          return;
+        }
         onSave(
           where === "ollama"
             ? {
@@ -485,6 +502,11 @@ function OtherModelForm({
               {provider.baseUrl ? ` · ${provider.baseUrl}` : ""}
             </option>
           ))}
+          {hosts.map((each) => (
+            <option key={each.host} value={`decision:${each.host}`}>
+              {each.name[language === "zh-CN" ? "zh" : "en"]}
+            </option>
+          ))}
           <option value="ollama">{t("library.ollama")}</option>
           <option value="auto">{t("tagging.other.auto")}</option>
         </select>
@@ -503,8 +525,19 @@ function OtherModelForm({
             maxLength={200}
             value={modelId}
             spellCheck={false}
+            list={host ? listId : undefined}
+            data-testid="tagging-other-model"
             onChange={(event) => setModelId(event.target.value)}
           />
+          {host && (
+            <datalist id={listId}>
+              {host.models.map((model) => (
+                <option key={model.id} value={model.id}>
+                  {model.maker ? `${model.name} · ${model.maker}` : model.name}
+                </option>
+              ))}
+            </datalist>
+          )}
         </label>
       )}
       {(where === "ollama" || where === "auto") && (

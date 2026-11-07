@@ -7,7 +7,8 @@ import { useT } from "./i18n";
 import { DELETED_NAMES, type ScopeLibrary, scopeCounts } from "./scope";
 import { type AppState, useAppStore } from "./store";
 
-const libraryOf = (state: AppState): ScopeLibrary => ({
+/** The Library as the window holds it, for what reads Folders, filings and walls. */
+export const libraryOf = (state: AppState): ScopeLibrary => ({
   folders: state.folders,
   groups: state.library?.groups,
   tags: state.tags,

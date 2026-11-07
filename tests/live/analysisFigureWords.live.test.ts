@@ -4,13 +4,15 @@
  * a scripted Answer runs the Analysis and writes the Note, the User accepts it (and, for a retyped
  * case, types the sentence's words around the figure), and Check judges it. Every surface is read:
  * the sentence's mark or the cell's own check, the figure's schedule row, the badge and Home, whose
- * reading the export's line shows too. A wrong name is never Supported on any of them.
+ * reading the export's line shows too. A wrong name is never Supported on any of them. The cases of
+ * `analysisFigureLists.ts` are lists (#2584), some in an Answer the User adds to a Note.
  *
- * INCARNAMIND_LIVE_SET=words runs it, with INCARNAMIND_LIVE_PROVIDER ("anthropic" or "deepseek"),
- * INCARNAMIND_LIVE_KEY and INCARNAMIND_LIVE_MODEL; INCARNAMIND_LIVE_JUDGE=scripted answers every
- * check with a consistent "same" instead, at no cost, to read what code alone holds and what the
- * Note says once written. INCARNAMIND_LIVE_REPORT appends a line per case, INCARNAMIND_LIVE_MAX_USD
- * stops starting cases past it, and INCARNAMIND_LIVE_SHARD ("2/4") runs every fourth.
+ * INCARNAMIND_LIVE_SET=words (or lists) runs it, with INCARNAMIND_LIVE_PROVIDER ("anthropic" or
+ * "deepseek"), INCARNAMIND_LIVE_KEY and INCARNAMIND_LIVE_MODEL; INCARNAMIND_LIVE_JUDGE=scripted
+ * answers every check with a consistent "same" instead, at no cost, to read what code alone holds
+ * and what the Note says once written. INCARNAMIND_LIVE_REPORT appends a line per case,
+ * INCARNAMIND_LIVE_MAX_USD stops starting cases past it, and INCARNAMIND_LIVE_SHARD ("2/4") runs
+ * every fourth.
  */
 import { randomUUID } from "node:crypto";
 import { appendFile, writeFile } from "node:fs/promises";
@@ -18,15 +20,18 @@ import { join } from "node:path";
 import { deflateRawSync } from "node:zlib";
 import { expect, test } from "vitest";
 import * as Y from "yjs";
+import type { Core } from "../../src/core";
 import { createFakeAnalysisRuntime, type FakeAnswer } from "../../src/core/analysis/fake";
 import { nodeOf, topLevelBlocks } from "../../src/core/answers/blocks";
 import {
   ANALYSIS_TABLE_ATTRIBUTE,
   CALCULATED_FIGURE_NODE,
   CLAIM_CHECK_MARK,
+  type ConversationAnswer,
   MIND_CONTENT_FIELD,
 } from "../../src/core/api";
 import { writeXlsx } from "../../src/core/exports/xlsx";
+import { messageReference } from "../../src/core/references";
 import { homeReading, readNoteState } from "../../src/renderer/src/noteState";
 import {
   type AnalysisCell,
@@ -34,14 +39,18 @@ import {
   type AnalysisValue,
   noAnalysisOutput,
 } from "../../src/shared/analysis";
+import { pageBlocks } from "../../src/shared/answerBlocks";
 import type { NodeJSON } from "../../src/shared/blockJson";
 import { readCalculatedFigureAttributes } from "../../src/shared/calculatedFigures";
 import { readClaimCheck } from "../../src/shared/claimChecks";
+import { figureRunsOfAnswer } from "../../src/shared/figureRuns";
+import { FIGURE_LISTS } from "../helpers/analysisFigureLists";
 import {
   FIGURE_WORDS,
   WORDS_DATASETS,
   type WordsCase,
   type WordsDataset,
+  type WordsFigure,
   wordsLabel,
 } from "../helpers/analysisFigureWords";
 import { askAssistant } from "../helpers/assistant";
@@ -58,7 +67,8 @@ import { buildPdf } from "../helpers/pdf";
 import { para, pptxOf, sp, txBody, xfrm } from "../helpers/pptx";
 import { escapeXml, paragraph, table, wordFile } from "../helpers/word";
 
-const RUNS = process.env.INCARNAMIND_LIVE_SET === "words";
+const SET = process.env.INCARNAMIND_LIVE_SET;
+const RUNS = SET === "words" || SET === "lists";
 const SCRIPTED = process.env.INCARNAMIND_LIVE_JUDGE === "scripted";
 const PROVIDER = process.env.INCARNAMIND_LIVE_PROVIDER === "deepseek" ? "deepseek" : "anthropic";
 const KEY = process.env.INCARNAMIND_LIVE_KEY;
@@ -70,7 +80,9 @@ const REPORT = process.env.INCARNAMIND_LIVE_REPORT;
 const { createChatModel: real, spent } = billedModels(MODEL, PROVIDER);
 
 const [part, parts] = (process.env.INCARNAMIND_LIVE_SHARD ?? "1/1").split("/").map(Number);
-const CASES = FIGURE_WORDS.filter((_, at) => at % (parts || 1) === (part || 1) - 1);
+const CASES = (SET === "lists" ? FIGURE_LISTS : FIGURE_WORDS).filter(
+  (_, at) => at % (parts || 1) === (part || 1) - 1,
+);
 
 /** The case's Document, written into a folder of its own, as the format it names. */
 async function writeDataset(set: WordsDataset, folder: string): Promise<string> {
@@ -152,30 +164,51 @@ const runsOf = (rows: readonly number[]) =>
 const numberOf = (cell: AnalysisCell | undefined) =>
   typeof cell === "number" ? cell : Number(String(cell ?? "").replaceAll(",", ""));
 
+/** The case's figures, [=1] first. */
+const figuresOf = (held: WordsCase): WordsFigure[] => [held.figure, ...(held.also ?? [])];
+
 /** The Analysis's results from its input as IncarnaMind read it, so each is worked out again to the same number. */
 function answerFor(held: WordsCase, job: AnalysisJob): FakeAnswer {
   const set: WordsDataset = WORDS_DATASETS[held.figure.dataset];
   const input = job.inputs.find((each) => each.kind === "table");
   if (input?.kind !== "table") throw new Error(`No table input: ${JSON.stringify(job.inputs)}`);
-  const at = (heading: string) => {
+  const columnAt = (heading: string) => {
     const found = input.columns.findIndex((each) => each.trim().toLowerCase() === heading);
     if (found < 0) throw new Error(`No ${heading} column in ${input.columns.join(", ")}`);
     return found;
   };
-  const keyAt = at(set.key);
-  const valueAt = at(held.figure.column);
+  const keyAt = columnAt(set.key);
   const [, , first = held.figure.column] = set.columns;
-  const firstAt = at(first);
+  const firstAt = columnAt(first);
   const rows = input.rows.map((cells, index) => ({
     cells,
     number: input.rowNumbers?.[index] ?? input.firstRow + index,
   }));
-  const kept = rows.filter((row) => String(row.cells[keyAt]).trim() === held.figure.group);
-  const values = kept.map((row) => numberOf(row.cells[valueAt]));
-  const total = values.reduce((sum, each) => sum + each, 0);
-  const { how } = held.figure;
-  const value =
-    how === "sum" ? total : how === "mean" ? total / values.length : Math.max(...values);
+  const figureOf = (each: WordsFigure, at: number): AnalysisValue => {
+    const valueAt = columnAt(each.column);
+    const kept = rows.filter((row) => String(row.cells[keyAt]).trim() === each.group);
+    const values = kept.map((row) => numberOf(row.cells[valueAt]));
+    const total = values.reduce((sum, value) => sum + value, 0);
+    return {
+      kind: "figure",
+      name: `figure_${at + 1}`,
+      label: wordsLabel(held.language, each),
+      unit: set.units[each.column] ?? "",
+      value:
+        each.how === "sum"
+          ? total
+          : each.how === "mean"
+            ? total / values.length
+            : Math.max(...values),
+      of: {
+        input: set.input,
+        columns: [input.columns[valueAt] ?? each.column],
+        rows: runsOf(kept.map((row) => row.number)),
+        count: kept.length,
+        how: each.how,
+      },
+    };
+  };
   const groups = [...new Set(rows.map((row) => String(row.cells[keyAt]).trim()))];
   const totals = groups.map((group) => [
     group,
@@ -183,20 +216,6 @@ function answerFor(held: WordsCase, job: AnalysisJob): FakeAnswer {
       .filter((row) => String(row.cells[keyAt]).trim() === group)
       .reduce((sum, row) => sum + numberOf(row.cells[firstAt]), 0),
   ]);
-  const figure: AnalysisValue = {
-    kind: "figure",
-    name: "figure_1",
-    label: wordsLabel(held.language, held.figure),
-    unit: set.units[held.figure.column] ?? "",
-    value,
-    of: {
-      input: set.input,
-      columns: [input.columns[valueAt] ?? held.figure.column],
-      rows: runsOf(kept.map((row) => row.number)),
-      count: kept.length,
-      how,
-    },
-  };
   return {
     output: {
       ...noAnalysisOutput(),
@@ -213,7 +232,7 @@ function answerFor(held: WordsCase, job: AnalysisJob): FakeAnswer {
             columnCount: 2,
           },
         },
-        figure,
+        ...figuresOf(held).map(figureOf),
       ],
     },
   };
@@ -226,7 +245,10 @@ function codeOf(held: WordsCase): string {
     `df = inputs["${set.input}"]`,
     `totals = df.groupby("${set.key}", as_index=False)["${first}"].sum()`,
     `result("totals", totals, "${set.title[held.language]}")`,
-    `figure("figure_1", df[df["${set.key}"] == "${held.figure.group}"]["${held.figure.column}"], "${held.figure.how}", "${wordsLabel(held.language, held.figure)}")`,
+    ...figuresOf(held).map(
+      (each, at) =>
+        `figure("figure_${at + 1}", df[df["${set.key}"] == "${each.group}"]["${each.column}"], "${each.how}", "${wordsLabel(held.language, each)}")`,
+    ),
   ].join("\n");
 }
 
@@ -247,11 +269,16 @@ function contentOf(held: WordsCase): string {
         return PLACEHOLDER[held.language];
       case "cell":
         return `${shape.caption}\n\n| ${shape.headings[0]} | ${shape.headings[1]} |\n| --- | --- |\n| ${shape.label} | ${sentence} |`;
+      case "list":
+        return sentence;
     }
   })();
   const set: WordsDataset = WORDS_DATASETS[held.figure.dataset];
   return [`# ${set.title[held.language]}`, "", "[=table 1]", "", body].join("\n");
 }
+
+/** A list the Answer gives in the assistant, for the User to add to a Note, rather than writing it into one. */
+const addedOf = (held: WordsCase) => held.shape.kind === "list" && held.shape.added === true;
 
 function answering(held: WordsCase) {
   const set: WordsDataset = WORDS_DATASETS[held.figure.dataset];
@@ -274,6 +301,7 @@ function answering(held: WordsCase) {
           ],
         };
       }
+      if (addedOf(held)) return { text: contentOf(held) };
       if (!call.results.some((result) => result.tool === "create_mind"))
         return { calls: [{ tool: "create_mind", input: { title, content: contentOf(held) } }] };
       return { text: held.language === "en" ? "Written into the note." : "已写入笔记。" };
@@ -324,6 +352,20 @@ function retype(client: MindClient, sentence: string): void {
     if (after) line.insert(figureAt + 1, [new Y.XmlText(after)]);
     if (said) line.insert(figureAt, [new Y.XmlText(said)]);
   });
+}
+
+/** Add to note on the whole Answer, as the assistant's button does it, into a Note of the User's own. */
+async function addedToNote(core: Core, answer: ConversationAnswer, question: string) {
+  const mind = await core.createMind({ title: "Added" });
+  const blocks = pageBlocks(answer, question);
+  await core.addToNote({
+    mindId: mind.id,
+    blocks,
+    figureRuns: figureRunsOfAnswer(answer, blocks),
+    origin: { from: messageReference(answer.conversationId, answer.id), question },
+    model: answer.model,
+  });
+  return mind.id;
 }
 
 interface Read {
@@ -391,17 +433,19 @@ test.skipIf(!RUNS || (!SCRIPTED && KEY === undefined)).each(CASES.map((held) => 
     if (saved.service) await core.allowDataFlow("chat", saved.service.id);
     if (held.language === "zh-CN") await core.updateSettings({ user: { language: "zh-CN" } });
     await addAndProcess(core, [await writeDataset(set, await createTempDataFolder())]);
+    const question =
+      held.language === "en"
+        ? `Summarise ${set.title.en} by ${set.key}${addedOf(held) ? "" : " and write a note"}.`
+        : `按${set.key}汇总${set.title["zh-CN"]}${addedOf(held) ? "" : "并写成笔记"}。`;
     const asked = await askAssistant(core, {
-      text:
-        held.language === "en"
-          ? `Summarise ${set.title.en} by ${set.key} and write a note.`
-          : `按${set.key}汇总${set.title["zh-CN"]}并写成笔记。`,
+      text: question,
       mindId: (await core.createMind({ title: "Questions" })).id,
       analyse: true,
     });
-    const made = asked.toolCalls.find(
-      (call) => call.tool === "create_mind" && call.status === "done",
-    )?.mindChange?.mindId;
+    const made = addedOf(held)
+      ? await addedToNote(core, asked, question)
+      : asked.toolCalls.find((call) => call.tool === "create_mind" && call.status === "done")
+          ?.mindChange?.mindId;
     if (!made) throw new Error(`No Note: ${JSON.stringify(asked.toolCalls).slice(0, 600)}`);
     const client = await connectToMind(core, made);
     await client.settled();
@@ -456,7 +500,7 @@ test.skipIf(!RUNS || (!SCRIPTED && KEY === undefined)).each(CASES.map((held) => 
     if (REPORT)
       await appendFile(
         REPORT,
-        `${JSON.stringify({ name: held.name, language: held.language, kind: held.kind, source: set.kind, shape: held.shape.kind, right: held.right, outcome, disagrees, sentence: read.sentence, rows, badge, home, written: read.written, said: held.sentence, heard, spent: Number(spent().toFixed(4)) })}\n`,
+        `${JSON.stringify({ name: held.name, language: held.language, kind: held.kind, source: set.kind, shape: held.shape.kind === "list" ? `${held.shape.added ? "added" : "list"} ${held.shape.form}` : held.shape.kind, right: held.right, outcome, disagrees, sentence: read.sentence, rows, badge, home, written: read.written, said: held.sentence, heard, spent: Number(spent().toFixed(4)) })}\n`,
       );
     // A Note whose figure no check reached would read "held" while testing nothing.
     expect(read.sentence).not.toBe("none");

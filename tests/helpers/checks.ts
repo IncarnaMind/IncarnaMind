@@ -45,6 +45,8 @@ export interface Plan {
   /** What its figure items say the number measures; none by default. */
   measure?: { sentence: string; quote: string | null; match: "same" | "differs" };
   says?: string;
+  /** Its Roles line after the verdict: the sentence's words, " / ", the Passage's, and same, differs or other. */
+  roles?: string;
   /** Its Absence line: no when left out, as the reply form asks of an ordinary sentence; null: no line. */
   absence?: boolean | null;
   /** Its reply instead, once it has searched; given the call, for one that names its figures. */
@@ -220,7 +222,7 @@ export function checkReply(call: ModelCall, plans: Record<string, Plan>): Script
       calls: [{ tool: "cite", input: { citations: [{ marker: 1, passage: passage?.id, quote }] } }],
     };
   }
-  const verdict = `Verdict: ${plan.verdict}${plan.absence === null ? "" : `\nAbsence: ${plan.absence ? "yes" : "no"}`}${plan.says ? `\n${plan.says} [^1]` : ""}`;
+  const verdict = `Verdict: ${plan.verdict}${plan.roles ? `\nRoles: ${plan.roles}` : ""}${plan.absence === null ? "" : `\nAbsence: ${plan.absence ? "yes" : "no"}`}${plan.says ? `\n${plan.says} [^1]` : ""}`;
   const figures = requestedFigures(call);
   if (figures.length === 0) return { text: verdict };
   // An Analysis's figure is never looked for in the Passages, as the check's instructions say.

@@ -23,12 +23,13 @@ import {
   type TranscriberRequest,
   type TranscriberResponse,
 } from "../../src/core/transcription/channel";
+import type { CloudConnect } from "../../src/core/transcription/cloud/socket";
 import {
   createFakeSpeechEngine,
   type FakeTranscriberOptions,
   failingOver,
 } from "../../src/core/transcription/fake";
-import { createFakeCloud } from "../../src/core/transcription/fakeCloud";
+import { createFakeCloud, createFakeCloudFetch } from "../../src/core/transcription/fakeCloud";
 import type { SpeechEngine } from "../../src/core/transcription/speech";
 import { createTempDataFolder, manualClock, startCore } from "./core";
 import { scriptedModels } from "./models";
@@ -89,6 +90,8 @@ export function inProcessTranscriber(
   options: FakeTranscriberOptions = {},
   engine: (model: TranscriptionModelFiles) => Promise<SpeechEngine> = async () =>
     createFakeSpeechEngine(options),
+  /** The cloud's connections, to watch them: the pretend service as `options.cloud` says by default. */
+  connect: CloudConnect = createFakeCloud(options.cloud),
 ) {
   let kill: (() => void) | null = null;
   let started = 0;
@@ -108,7 +111,8 @@ export function inProcessTranscriber(
         }),
     };
     serveTranscriber(engine, options.failover ? failingOver(port, options.failover) : port, {
-      connect: createFakeCloud(options.cloud),
+      connect,
+      fetch: createFakeCloudFetch(options.cloud),
       detectors: async () => createFakeSpeechEngine(options).detector,
     });
     kill = () => {
@@ -149,6 +153,7 @@ export async function transcribingCore(
     engine = {},
     model,
     createChatModel,
+    ollamaModels,
     loads,
     log,
     capture: captureOptions,
@@ -156,9 +161,17 @@ export async function transcribingCore(
     keychain,
     speakerSeparator,
     speakerModelSource = NO_SPEAKER_FILES,
+    transcriptionModelSource = NO_TRANSCRIPTION_FILES,
+    cloud,
+    systemLanguages,
+    answerPaths,
     examples,
   }: {
     engine?: FakeTranscriberOptions;
+    /** The cloud's connections, to watch them; the pretend service as `engine.cloud` says by default. */
+    cloud?: CloudConnect;
+    /** The computer's languages, "en-US" by default. */
+    systemLanguages?: readonly string[];
     /** What the fake capture does, e.g. the computer's sound denied. */
     capture?: FakeCaptureOptions;
     /** A capture instead of the fake one, for a start that fails after it heard audio. */
@@ -166,6 +179,7 @@ export async function transcribingCore(
     model?: Parameters<typeof scriptedModels>[0];
     /** Real chat models instead of a scripted one, for a live test. */
     createChatModel?: ChatModelFactory;
+    ollamaModels?: CoreAdapters["ollamaModels"];
     /** The engine starts once this resolves, as a model loading slowly does. */
     loads?: Promise<void>;
     log?: Logger;
@@ -174,28 +188,39 @@ export async function transcribingCore(
     speakerSeparator?: SpeakerSeparator;
     /** Where the speaker models come from: none to download by default. */
     speakerModelSource?: CoreAdapters["speakerModelSource"];
+    /** Where the speech models come from: none to download by default, and no streaming model. */
+    transcriptionModelSource?: CoreAdapters["transcriptionModelSource"];
+    /** Which models take the faster Answer paths, instead of the lists beside the catalog. */
+    answerPaths?: CoreAdapters["answerPaths"];
     /** The shipped examples' folder, for a core that makes them. */
     examples?: string;
   } = {},
 ) {
   const clock = manualClock();
   const capture = createFakeCapture({ now: () => clock.now().getTime(), ...captureOptions });
-  const engineHost = inProcessTranscriber(engine, async () => {
-    await loads;
-    return createFakeSpeechEngine(engine);
-  });
+  const engineHost = inProcessTranscriber(
+    engine,
+    async () => {
+      await loads;
+      return createFakeSpeechEngine(engine);
+    },
+    cloud ?? createFakeCloud(engine.cloud),
+  );
   const models = model ? scriptedModels(model) : undefined;
   const core = startCore(dataDir, {
     audioCapture: audioCapture ?? capture,
     transcriber: engineHost.transcriber,
-    transcriptionModelSource: NO_TRANSCRIPTION_FILES,
+    transcriptionModelSource,
     transcriptionKeyFetch: async () => new Response(null, { status: 200 }),
     now: clock.now,
     ...(models && { createChatModel: models.createChatModel }),
     ...(createChatModel && { createChatModel }),
+    ...(ollamaModels && { ollamaModels }),
     ...(log && { log }),
     ...(keychain && { keychain }),
     ...(speakerSeparator && { speakerSeparator, speakerModelSource }),
+    ...(systemLanguages && { systemLanguages: () => systemLanguages }),
+    ...(answerPaths && { answerPaths }),
     ...(examples && { paths: { dataDir, examples } }),
   });
   await core.updateSettings({ device: { meetingNoticeAccepted: true } });

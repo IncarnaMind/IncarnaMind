@@ -27,6 +27,12 @@ export const citationHandle: Handle<{
 /** The open Mind's find bar: what "Find next" and "Find previous" do. */
 export const findHandle: Handle<{ next(): void; previous(): void }> = { current: null };
 
+/**
+ * The command palette is open, or opening: its dialog takes the page's selection a frame after
+ * ⌘K, so a viewer keeps the words selected until it has.
+ */
+export const paletteOpen = { current: false };
+
 /** One version a Citation was made from, open in a viewer: what "Open the current version" opens (#2159). */
 export interface CitedVersionAction {
   openCurrent(): void;
@@ -99,10 +105,16 @@ export function useHandle<T>(handle: Handle<T>, value: T): void {
 
 /** The words or cells selected in a Document's viewer (#101, #118): what its menu does with them. */
 export interface ViewerAskActions {
+  /** Use as Citation, while a sentence waits for its Citation in this Document (#1554). */
+  cite?: () => void;
   /** Not offered while a Question waits for a model (#1789). */
   ask?: () => void;
   addToNote(): void;
   copy(): void;
+  /** Highlights the words in the colour last chosen (#327); absent for a range of cells. */
+  highlight?(): void;
+  /** Highlights the words, then opens their note ready to type (#327). */
+  note?(): void;
 }
 
 /** What a viewer offers the commands: by tab, so two viewers never take each other's (#118). */
@@ -110,7 +122,11 @@ interface ViewerActions {
   selection: ViewerAskActions;
   range: ViewerAskActions;
   slide: { ask?: () => void };
-  area: { select?: () => void };
+  area: {
+    select?: () => void;
+    /** Starts a pick whose release highlights the region (#327); absent where areas aren't picked. */
+    highlight?: () => void;
+  };
 }
 
 const viewerActions: { [K in keyof ViewerActions]: Map<string, ViewerActions[K]> } = {

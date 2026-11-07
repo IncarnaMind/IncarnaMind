@@ -48,10 +48,10 @@ export async function tunedSearch(
   const reranker = rerankDepth === "off" ? undefined : options.rerank;
   let rerankMs: number | null = null;
   const timed: Reranker | undefined = reranker
-    ? async (text, candidates, signal) => {
+    ? async (text, candidates, signal, background) => {
         const begun = performance.now();
         try {
-          return await reranker(text, candidates, signal);
+          return await reranker(text, candidates, signal, background);
         } finally {
           rerankMs = (rerankMs ?? 0) + (performance.now() - begun);
         }

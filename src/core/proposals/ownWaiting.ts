@@ -49,6 +49,12 @@ export interface OwnWaiting {
   requests: string[];
   /** What they hold as read, to tell whether they changed since. */
   fingerprint: string;
+  /** The changes waiting in the whole Mind, as the User is told. */
+  count: number;
+  /** The changes apply with Undo, not review. */
+  applies: boolean;
+  /** A Block the change takes out whole is in the stretch: there is no text of the assistant's left to rewrite (#2502). */
+  removesWhole?: true;
 }
 
 /**
@@ -57,11 +63,13 @@ export interface OwnWaiting {
  * ("mixed"); or changes the assistant can't revise ("other"). `count`: the
  * changes waiting in the whole Mind, as the User is told. `applies`: the
  * guarded same-turn requests apply with Undo, not review; false otherwise.
+ * `ownRemoval`: the changes waiting in the stretch are the assistant's own, and they take
+ * Blocks out whole, so no text of its own is there to revise.
  */
 export type WaitingIn =
   | { kind: "none" }
   | OwnWaiting
-  | { kind: "mixed" | "other"; count: number; applies: boolean };
+  | { kind: "mixed" | "other"; count: number; applies: boolean; ownRemoval?: true };
 
 interface Run {
   insert: unknown;
@@ -114,6 +122,20 @@ function requestsIn(nodes: readonly (Y.XmlElement | Y.XmlText | Y.XmlHook)[]): s
   visit(nodes);
   return [...requests];
 }
+
+/**
+ * The Blocks a whole-Block removal is set on: a paragraph or heading, or the list item, list or
+ * quote that held only it (`removedWith` in ./write). An inline node's own delete, a Citation's
+ * or a formula's inside removed words, leaves its paragraph to revise.
+ */
+const REMOVED_BLOCKS: ReadonlySet<string> = new Set([
+  "paragraph",
+  "heading",
+  "listItem",
+  "bulletList",
+  "orderedList",
+  "blockquote",
+]);
 
 const WRITTEN_ATOMS: ReadonlySet<string> = new Set([
   CITATION_NODE,
@@ -305,6 +327,19 @@ function rangeOf(blocks: Y.XmlFragment, from: TextPlace, to: TextPlace): Y.XmlEl
 const fingerprintOf = (elements: readonly Y.XmlElement[]) =>
   elements.map((element) => element.toString()).join("\n");
 
+/**
+ * Whether a change waiting in a Mind is the Answer's own: one the assistant wrote there, as
+ * against the User's own Edit with AI request (`requested` names only a change the User asked
+ * the assistant for), or someone's tracked change from a Word file.
+ */
+function answerRequest(doc: Y.Doc | null, request: string): boolean {
+  const made = doc ? proposalRequestOf(doc, request) : null;
+  return (
+    made?.source === "answer-added" ||
+    (made?.source === "edit-with-ai" && made.requested === "edit")
+  );
+}
+
 export function waitingIn(
   blocks: Y.XmlFragment,
   from: TextPlace,
@@ -323,8 +358,35 @@ export function waitingIn(
     requests.every((request) => inTurn.has(request) && askedFor(doc, request)) &&
     !waitsForUser(doc, currentHere);
   const own = range.filter(isOwn);
+  // An Answer's own change takes these Blocks out whole: once accepted there is no text of the
+  // assistant's left there to rewrite, so the revision that some later call would make has
+  // nowhere to go (#2502). A paragraph inside a list, quote or table cell carries the removal
+  // itself, the wrapper besides other Blocks staying (../proposals/write `removedWith`).
+  const isWholeRemoval = (element: Y.XmlElement) => {
+    const proposal = readProposalAttribute(element.getAttribute(PROPOSAL_ATTRIBUTE));
+    return proposal?.kind === "delete" && answerRequest(doc, proposal.request);
+  };
+  const removesWhole = range.some(
+    (element) =>
+      isWholeRemoval(element) ||
+      [
+        ...element.createTreeWalker(
+          (each) =>
+            each instanceof Y.XmlElement &&
+            REMOVED_BLOCKS.has(each.nodeName) &&
+            isWholeRemoval(each),
+        ),
+      ].length > 0,
+  );
+  const ownRemoval =
+    removesWhole && requests.length > 0 && requests.every((request) => answerRequest(doc, request));
   if (unsafeCurrentRevision(range, inTurn)) {
-    return { kind: own.length > 0 ? "mixed" : "other", count, applies };
+    return {
+      kind: own.length > 0 ? "mixed" : "other",
+      count,
+      applies,
+      ...(ownRemoval && { ownRemoval: true as const }),
+    };
   }
   const body = range.filter((element) => element.nodeName !== "heading");
   const thisTurn = range.every((element) => {
@@ -339,13 +401,22 @@ export function waitingIn(
     return requests.length > 0 && requests.every((request) => inTurn.has(request));
   });
   if (thisTurn || own.length === range.length) {
-    return { kind: "own", blockIds: range.map(idOf), requests, fingerprint: fingerprintOf(range) };
+    return {
+      kind: "own",
+      blockIds: range.map(idOf),
+      requests,
+      fingerprint: fingerprintOf(range),
+      count,
+      applies,
+      ...(removesWhole && { removesWhole: true as const }),
+    };
   }
   const others = range.filter((element) => !own.includes(element));
   return {
     kind: own.length > 0 && !holdsProposal(others) ? "mixed" : "other",
     count,
-    applies: false,
+    applies,
+    ...(ownRemoval && { ownRemoval: true as const }),
   };
 }
 

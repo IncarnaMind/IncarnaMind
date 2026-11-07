@@ -1,12 +1,18 @@
-import { type FormEvent, useState } from "react";
-import type { ConnectorClientInput, RemoteConnector } from "../../../../core/api";
+import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import type {
+  ConnectorClientInput,
+  RemoteConnector,
+  SecretStorageStatus,
+} from "../../../../core/api";
 import { core } from "../../core";
 import { errorMessage } from "../../errors";
 import { useT } from "../../i18n";
 import { useAppStore } from "../../store";
 import { DetailsLine } from "../DetailsLine";
 import { ProblemMark } from "../ProblemLine";
+import { SecretStorageNotice } from "../providers/ProviderForm";
 import { buttonStyle, fieldLabelClass, hintClass, inputClass, noticeClass } from "../ui";
+import { storageReady } from "./signInStorage";
 
 /** A text button inside a line, e.g. "Sign out". */
 const linkButtonClass =
@@ -30,7 +36,32 @@ export function RemoteSignIn({ connector }: { connector: RemoteConnector }) {
   const t = useT();
   const { id, state, signIn, clientId } = connector;
   const [editingClient, setEditingClient] = useState(false);
+  const [storage, setStorage] = useState<SecretStorageStatus | null>(null);
+  const [storageProblem, setStorageProblem] = useState<string | null>(null);
   const needsClient = signIn.error?.kind === "client-id-required";
+  const errorKind = storageProblem !== null ? "secret-storage" : signIn.error?.kind;
+  const storageRead = useRef(0);
+  const readStorage = useCallback(() => {
+    const read = ++storageRead.current;
+    setStorageProblem(null);
+    core.getSecretStorage().then(
+      (next) => {
+        if (read !== storageRead.current) return;
+        setStorage(next);
+        setStorageProblem(null);
+      },
+      (failure) => {
+        if (read !== storageRead.current) return;
+        // The old status can't stand for a failed read: the button waits on the next answer.
+        setStorage(null);
+        setStorageProblem(errorMessage(failure, t));
+      },
+    );
+  }, [t]);
+  useEffect(() => {
+    if (state !== "needs-sign-in") return;
+    readStorage();
+  }, [state, readStorage]);
 
   // The page's head shows the wait, with Cancel.
   if (state === "signing-in") return null;
@@ -68,16 +99,33 @@ export function RemoteSignIn({ connector }: { connector: RemoteConnector }) {
             ? t("remoteConnectors.signIn.expired")
             : t("remoteConnectors.signIn.required")}
         </p>
-        {signIn.error && (
+        {errorKind && (errorKind !== "secret-storage" || storage === null) && (
           <p role="alert" data-testid="connector-sign-in-error" className="mt-1 text-ink">
             <ProblemMark />
-            {t(`remoteConnectors.signIn.error.${signIn.error.kind}`)}
+            {storageProblem ?? t(`remoteConnectors.signIn.error.${errorKind}`)}
+            {storageProblem !== null && (
+              <>
+                {" "}
+                <button type="button" onClick={readStorage} className={linkButtonClass}>
+                  {t("remoteConnectors.storage.tryAgain")}
+                </button>
+              </>
+            )}
           </p>
+        )}
+        {storage && !storage.canSave && (
+          <SecretStorageNotice
+            status={storage}
+            onAccept={() =>
+              void act(async () => setStorage(await core.acceptPlainTextSecretStorage()))
+            }
+          />
         )}
         {needsClient || editingClient ? (
           <ClientForm
             initialClientId={connector.clientId ?? ""}
             submitLabel={t("remoteConnectors.client.save")}
+            canSubmit={storageReady(storage, storageProblem !== null)}
             onSubmit={async (client) => {
               await core.setConnectorClient(id, client);
               setEditingClient(false);
@@ -91,6 +139,7 @@ export function RemoteSignIn({ connector }: { connector: RemoteConnector }) {
               type="button"
               data-testid="connector-sign-in"
               onClick={() => void act(() => core.signInToConnector(id))}
+              disabled={!storageReady(storage, storageProblem !== null)}
               className={buttonStyle("primary", "sm")}
             >
               {signIn.expired ? t("remoteConnectors.signInAgain") : t("remoteConnectors.signIn")}
@@ -141,12 +190,15 @@ export function ClientForm({
   submitLabel,
   onSubmit,
   onCancel,
+  canSubmit = true,
 }: {
   initialClientId?: string;
   submitLabel: string;
   onSubmit(client: ConnectorClientInput): Promise<void>;
   /** Absent when the service can't be signed in to without one. */
   onCancel?: () => void;
+  /** Whether the keychain can keep what signing in will save; held until that is known. */
+  canSubmit?: boolean;
 }) {
   const t = useT();
   const [clientId, setClientId] = useState(initialClientId);
@@ -202,7 +254,7 @@ export function ClientForm({
         <button
           type="submit"
           data-testid="connector-client-submit"
-          disabled={busy || !clientId.trim()}
+          disabled={busy || !clientId.trim() || !canSubmit}
           className={buttonStyle("primary", "sm")}
         >
           {submitLabel}

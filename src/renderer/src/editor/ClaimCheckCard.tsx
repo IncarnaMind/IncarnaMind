@@ -5,7 +5,6 @@ import {
   useCallback,
   useContext,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -52,7 +51,7 @@ import { LineAction } from "../components/ProblemLine";
 import { rowActionButtonClass } from "../components/sidebarRows";
 import { askInAssistant } from "../conversations";
 import { applyCorrection, correctionsFor, type PartCorrection } from "../correctionFixes";
-import { reasonText } from "../cost";
+import { readRestText, reasonText } from "../cost";
 import { useEdits } from "../editWithAi";
 import { openFigureSchedule } from "../figures";
 import { useFindSources } from "../findSources";
@@ -61,6 +60,7 @@ import { groupsMerged } from "../layoutSlice";
 import { useNotices } from "../notices";
 import { citationStepOpen } from "../nudges";
 import { openCited } from "../openCited";
+import { offersRewrite, rewriteWithDocuments } from "../rewriteFix";
 import { useScopeName } from "../scopeDocuments";
 import { useAppStore } from "../store";
 import {
@@ -83,6 +83,7 @@ import {
 import { type CitationDecision, citationDecision, citationsOf } from "./alreadyCited";
 import { ChangedCitations } from "./ChangedSourceNotice";
 import { CheckedByLine } from "./CheckedByLine";
+import { ChooseCitationAction } from "./ChooseCitationAction";
 import { ClaimOutline } from "./ClaimOutline";
 import { ClaimPartRows, citesMore, type PartCitations } from "./ClaimPartRows";
 import { CorrectButton, CorrectionConflict } from "./CorrectionOffer";
@@ -95,7 +96,7 @@ import { claimPartRows, markOf, type ShownClaim } from "./claimChecks";
 import { DocumentCheckAction } from "./DocumentCheckAction";
 import { ClaimMarkIcon, type ClaimMarkState } from "./icons";
 import { LibrarySource } from "./LibrarySource";
-import { MindIdContext } from "./mindContext";
+import { MindIdContext, useCitedOrigin } from "./mindContext";
 import { checkOpinion, opinionChecks } from "./opinionChecks";
 import { Popover } from "./Popover";
 import { PropertySource } from "./PropertySource";
@@ -165,7 +166,9 @@ export function ClaimMark({
   const running = useChecks((store) => store.running[mindId] !== undefined);
   // Its old verdict stands until the read's comes, but the mark says what its card says.
   const reading = useChecks((store) => store.running[mindId]?.read?.checkId === claim.check.id);
-  const mark = reading ? "checking" : markOf(claim);
+  const rewriting = useChecks((store) => store.rewriting[mindId] === claim.check.id);
+  const rewritingAny = useChecks((store) => store.rewriting[mindId] !== undefined);
+  const mark = reading || rewriting ? "checking" : markOf(claim);
   // Supported by the User's own notes alone: a box, so shape says it as well as colour (#335).
   const ownNoteOnly = mark === "supported" && supportedByOwnNotesOnly(claim.check);
   // A sentence not checked yet has no mark on the page (D276): its button stays, unseen, as its card's anchor (#1941).
@@ -376,6 +379,11 @@ export function ClaimMark({
               fixes={offersFixes(editor, claim)}
               notFound={offersNotFound(editor, claim)}
               keep={offersKeepAsView(editor, claim)}
+              rewrite={!running && !editing && !rewritingAny && offersRewrite(editor, doc, claim)}
+              onRewrite={() => {
+                void rewriteWithDocuments(editor, mindId, doc, claim);
+                done();
+              }}
               corrections={corrections}
               editor={editor}
               decision={decision}
@@ -464,8 +472,9 @@ export function ClaimMark({
                 done();
               }}
               onCorrect={(span) => {
-                applyCorrection(editor, mindId, claim, span);
-                done(true);
+                applyCorrection(editor, mindId, doc, claim, span);
+                // A whole read is asked again in this card, which stays open for it.
+                if (claim.check.action !== "check-against-document") done(true);
               }}
               use={offersUseFigure(editor, claim)}
               onUse={() => {
@@ -542,6 +551,7 @@ function WorkingInput({
   documents: ReturnType<typeof useAppStore.getState>["documents"];
   onOpen(): void;
 }) {
+  const origin = useCitedOrigin();
   const t = useT();
   const quote = useReadableQuote(input.citation);
   const location = citationLocation(input.citation);
@@ -560,7 +570,7 @@ function WorkingInput({
       className="claim-card-input"
       title={quote}
       onClick={() => {
-        void openCited(input.citation, { check: "found", withQuote: true, label: where });
+        void openCited(input.citation, { origin, check: "found", withQuote: true, label: where });
         onOpen();
       }}
     >
@@ -606,6 +616,8 @@ export function ClaimCard({
   fixes,
   notFound,
   keep,
+  rewrite,
+  onRewrite,
   corrections,
   editor,
   decision,
@@ -642,6 +654,9 @@ export function ClaimCard({
   fixes: boolean;
   notFound: boolean;
   keep: boolean;
+  /** Rewrite with what the Documents say: a close Passage gives another value (#1554). */
+  rewrite: boolean;
+  onRewrite(): void;
   /** Each contradicted part's correction from the Documents, as `correctionsFor` finds them. */
   corrections: readonly PartCorrection[];
   editor: Editor;
@@ -667,6 +682,7 @@ export function ClaimCard({
   use: boolean;
   onUse(): void;
 }) {
+  const origin = useCitedOrigin();
   const t = useT();
   const mindId = useContext(MindIdContext);
   const language = useLanguage();
@@ -781,15 +797,9 @@ export function ClaimCard({
   // on those it did: Continue sizes what is left and asks again.
   const sentenceStopped = shown.state === "not-checked" && shown.reason === "read-budget";
   const stoppedPart = check.parts?.find(stoppedAtBudget);
+  const stopDetail = sentenceStopped ? check.detail : (stoppedPart?.detail ?? null);
   const stopLine =
-    sentenceStopped || stoppedPart
-      ? reasonText(
-          t,
-          language,
-          "read-budget",
-          sentenceStopped ? check.detail : (stoppedPart?.detail ?? null),
-        )
-      : null;
+    sentenceStopped || stoppedPart ? reasonText(t, language, "read-budget", stopDetail) : null;
   // Figures the check couldn't read open where they are, for the User to read them there.
   const unread =
     shown.state === "not-checked" && shown.reason === "figures-not-read"
@@ -815,10 +825,12 @@ export function ClaimCard({
   // to it as its parts load, even while the Note's other sentences are still checked.
   const [heldHeight, setHeldHeight] = useState<number | null>(null);
   const holdHeight = state === "checking" && !reading && !asking && Boolean(mindId);
-  useLayoutEffect(() => {
+  // Measured once the Popover holding the card has shown it: a layout effect here runs before the
+  // Popover's own, while the card is still a closed popover, and held a height of 0.
+  useEffect(() => {
     if (!holdHeight || heldHeight !== null) return;
-    const element = rootRef.current;
-    if (element) setHeldHeight(element.offsetHeight);
+    const height = rootRef.current?.offsetHeight ?? 0;
+    if (height > 0) setHeldHeight(height);
   }, [holdHeight, heldHeight, rootRef]);
   // Closing the card drops its question: opened again, it sizes the read afresh.
   useEffect(() => () => setDocumentAsk(check.id, null), [check.id]);
@@ -1160,12 +1172,13 @@ export function ClaimCard({
         <div className="citation-card-note">
           <MetaLine
             data-testid="claim-read-stopped"
+            className="claim-stop-line"
             parts={[
               stopLine,
               <LineAction
                 key="continue"
                 action={{
-                  label: t("claim.readBudget.continue"),
+                  label: readRestText(t, language, stopDetail),
                   testId: "claim-read-continue",
                   onClick: () => onCheckAgain(),
                 }}
@@ -1305,7 +1318,7 @@ export function ClaimCard({
             type="button"
             data-testid="claim-open"
             className={`citation-card-action ${
-              !sole && !use && (decision.kind === "none" || decision.kind === "already")
+              !sole && !use && !rewrite && (decision.kind === "none" || decision.kind === "already")
                 ? "citation-card-action--primary"
                 : ""
             }`}
@@ -1313,7 +1326,7 @@ export function ClaimCard({
               if (!evidence.documentId) return;
               void openCited(
                 { ...evidence, documentId: evidence.documentId },
-                { check: "found", withQuote: true, label: where },
+                { origin, check: "found", withQuote: true, label: where },
               );
               onOpen();
             }}
@@ -1330,6 +1343,7 @@ export function ClaimCard({
               void openCited(
                 { ...unread, quote: "" },
                 {
+                  origin,
                   check: "not-checked",
                   withQuote: false,
                   label: unreadLocation ? formatLocation(unreadLocation, t) : null,
@@ -1368,7 +1382,9 @@ export function ClaimCard({
             <button
               type="button"
               data-testid="claim-search-all"
-              className={`citation-card-action ${cuttable ? "" : "citation-card-action--primary"}`}
+              className={`citation-card-action ${
+                cuttable || rewrite ? "" : "citation-card-action--primary"
+              }`}
               onClick={() => onCheckAgain(true)}
             >
               {t("claim.searchAll")}
@@ -1382,6 +1398,19 @@ export function ClaimCard({
             claim={claim}
             offer={notFound}
           />
+        )}
+        {notFound && verified === null && mindId && (
+          <ChooseCitationAction mindId={mindId} claim={claim} onChosen={onOpen} />
+        )}
+        {rewrite && (
+          <button
+            type="button"
+            data-testid="claim-rewrite"
+            className="citation-card-action citation-card-action--primary"
+            onClick={onRewrite}
+          >
+            {t("claim.rewrite")}
+          </button>
         )}
         {notFound && verified === null && (
           <button

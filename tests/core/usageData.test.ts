@@ -1,15 +1,19 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { generateText } from "ai";
 import { describe, expect, test } from "vitest";
 import {
   COMMON_FIELDS,
+  createAiSdkChatModel,
   InvalidInputError,
   USAGE_EVENTS,
   type UsageDataSender,
   type UsageEventFields,
   type UsageEventMessage,
 } from "../../src/core";
+import { CLAIM_CHECK_INSTRUCTIONS } from "../../src/core/answers/claimedChanges";
 import { createEventHub } from "../../src/core/events";
+import { spendRange } from "../../src/core/modelSpend";
 import {
   BUILT_IN_SKILL_NAMES,
   InvalidUsageEventError,
@@ -21,14 +25,17 @@ import {
 } from "../../src/core/usageEvents";
 import { trackUsage } from "../../src/core/usageTracking";
 import { settingsPages } from "../../src/renderer/src/settingsPages";
+import { createFakeBrowser, startFakeOpenAI } from "../helpers/chatgpt";
 import {
+  answerEnded,
   askAndFinish,
   citingModel,
   type ShownPassage,
   setUpWithDocuments,
 } from "../helpers/citations";
-import { createTempDataFolder, nextEvent, startCore } from "../helpers/core";
+import { createTempDataFolder, manualClock, nextEvent, startCore } from "../helpers/core";
 import { linkAndProcess, writeSourceFile } from "../helpers/documents";
+import { scriptedModel } from "../helpers/models";
 import { buildPdf } from "../helpers/pdf";
 
 const root = join(__dirname, "../..");
@@ -433,7 +440,7 @@ describe("Usage data: the events", () => {
         expect(name, `${event}.${name}`).toMatch(/^[a-z_]+$/);
         if (field.kind === "one-of") {
           expect(field.values.length).toBeGreaterThan(0);
-          for (const value of field.values) expect(value).toMatch(/^[a-z0-9-]+$|^zh-CN$/);
+          for (const value of field.values) expect(value).toMatch(/^[a-z0-9_-]+$|^zh-CN$/);
         }
       }
     }
@@ -486,15 +493,20 @@ describe("Usage data: what the core derives from its events", () => {
     const events = createEventHub();
     const recorded: UsageEvent[] = [];
     let time = 1_000;
+    let questions = 0;
     trackUsage(events, (event) => recorded.push(event), {
       chatProvider: (id) => (id === "cloud" ? { kind: "anthropic", local: false } : null),
       connectorIsRemote: (id) => (id === "gone" ? null : id === "remote"),
       skillIsBuiltIn: (name) => name === "summarise-document",
       now: () => time,
+      answerStarted: () => {
+        questions++;
+      },
     });
     return {
       events,
       recorded,
+      questions: () => questions,
       advance: (ms: number) => {
         time += ms;
       },
@@ -513,7 +525,7 @@ describe("Usage data: what the core derives from its events", () => {
   });
 
   test("an Answer: its model's kind, how long it took, and each Connector and Skill once, never by the User's names", () => {
-    const { events, recorded, advance } = track();
+    const { events, recorded, questions, advance } = track();
     const ids = { mindId: "m", answerId: "a" };
     events.emit("answer.started", { ...ids, questionId: "q", model });
     for (const remote of ["remote", "remote", "local", "gone"]) {
@@ -581,6 +593,7 @@ describe("Usage data: what the core derives from its events", () => {
       },
     ]);
     expect(JSON.stringify(recorded)).not.toMatch(/Acme|my-client-letters|claude/);
+    expect(questions()).toBe(1);
   });
 
   test("errors, by kind only: a failed Answer, a Document that fails now, a Connector that goes wrong", () => {
@@ -618,5 +631,320 @@ describe("Usage data: what the core derives from its events", () => {
       { event: "error_occurred", fields: { area: "document", kind: "password-protected" } },
       { event: "error_occurred", fields: { area: "connector", kind: "timed-out" } },
     ]);
+  });
+});
+
+describe("Usage data: a week's model spend (#1993)", { timeout: 30_000 }, () => {
+  const HAIKU = "claude-haiku-5-5";
+  const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+  /** Tuesday, so a week added later lands in the next calendar week on any time zone. */
+  const TUESDAY = "2026-10-13T12:00:00.000Z";
+  const okModel = () =>
+    scriptedModel(() => ({ text: "OK" }), {
+      // The Answer's change-claim check reads a JSON verdict; "OK" would be logged as unreadable.
+      generate: (call) =>
+        call.system.includes(CLAIM_CHECK_INSTRUCTIONS) ? { text: '{"claims":[]}' } : { text: "OK" },
+      judgesItsAnswers: true,
+    });
+
+  test("an own key and a subscription sign-in: its range, route, provider kind and counts", async () => {
+    const clock = manualClock(TUESDAY);
+    const fake = await startFakeOpenAI({ now: () => clock.now().getTime() });
+    const dataDir = await createTempDataFolder();
+    const { sender } = fakeSender();
+    const core = startCore(dataDir, {
+      browser: createFakeBrowser(fake),
+      now: clock.now,
+      createChatModel: (spec) => (spec.kind === "chatgpt" ? createAiSdkChatModel(spec) : okModel()),
+      chatGptPlan: fake.endpoints,
+      usageData: sender,
+    });
+    core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
+    await core.updatePrivacySettings({ usageData: true });
+    expect((await core.signInToChatGpt()).ok).toBe(true);
+    const plan = await core.saveChatProvider({ kind: "chatgpt", modelId: "gpt-6-luna" });
+    const own = await core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-test",
+      modelId: HAIKU,
+    });
+    if (own.service) await core.allowDataFlow("chat", own.service.id);
+
+    for (const provider of [plan, own]) {
+      const { model } = await core.prepareChatModel({
+        providerId: provider.id,
+        modelId: provider.kind === "chatgpt" ? "gpt-6-luna" : HAIKU,
+      });
+      await generateText({ model, prompt: "What is attention?", maxRetries: 0 });
+    }
+    // The own key's Question (its Answer is sent to its default model) and two sentences checked.
+    const mind = await core.createMind({ title: "Tide notes" });
+    const asked = await core.askInConversation({
+      text: "When are spring tides?",
+      mindId: mind.id,
+    });
+    if (!asked.asked) throw new Error("The Question wasn't asked.");
+    await answerEnded(core, asked.answerId);
+    await core.recordAiUse([
+      { mindId: mind.id, kind: "sentence-checked", characters: 0 },
+      { mindId: mind.id, kind: "sentence-checked", characters: 0 },
+    ]);
+    core.close();
+
+    clock.advance(WEEK_MS);
+    const again = fakeSender();
+    startCore(dataDir, {
+      browser: createFakeBrowser(fake),
+      now: clock.now,
+      createChatModel: () => okModel(),
+      chatGptPlan: fake.endpoints,
+      usageData: again.sender,
+    });
+
+    const [week] = fieldsOf(again.sent, "model_spend_week");
+    expect(week).toEqual(
+      expect.objectContaining({
+        spend_range: "under_1",
+        route: "mixed",
+        provider_kind: "anthropic",
+        questions: 1,
+        checks: 2,
+      }),
+    );
+    // Its declared fields and the common ones, and nothing else.
+    expect(Object.keys(week ?? {}).sort()).toEqual(
+      [...Object.keys(USAGE_EVENTS.model_spend_week), ...Object.keys(COMMON_FIELDS)].sort(),
+    );
+  });
+
+  test("a model on this computer: the range is 0, the route local and the provider kind ollama", async () => {
+    const clock = manualClock(TUESDAY);
+    const dataDir = await createTempDataFolder();
+    const { sender } = fakeSender();
+    const core = startCore(dataDir, {
+      now: clock.now,
+      createChatModel: () => okModel(),
+      usageData: sender,
+    });
+    await core.updatePrivacySettings({ usageData: true });
+    const provider = await core.saveChatProvider({ kind: "ollama", modelId: "qwen3.5:4b" });
+    const { model } = await core.prepareChatModel({
+      providerId: provider.id,
+      modelId: "qwen3.5:4b",
+    });
+    await generateText({ model, prompt: "Hello", maxRetries: 0 });
+    core.close();
+
+    clock.advance(WEEK_MS);
+    const again = fakeSender();
+    startCore(dataDir, {
+      now: clock.now,
+      createChatModel: () => okModel(),
+      usageData: again.sender,
+    });
+
+    expect(fieldsOf(again.sent, "model_spend_week")).toEqual([
+      expect.objectContaining({
+        spend_range: "0",
+        route: "local",
+        provider_kind: "ollama",
+        questions: 0,
+        checks: 0,
+      }),
+    ]);
+  });
+
+  test("a week with no model call, or with usage data off, or in Local mode, sends nothing", async () => {
+    /** A fresh data folder, optionally with one local model call, started again a week later. */
+    const week = async (call: boolean, consent: "on" | "off", localMode: boolean) => {
+      const clock = manualClock(TUESDAY);
+      const dataDir = await createTempDataFolder();
+      const { sender } = fakeSender();
+      const core = startCore(dataDir, {
+        now: clock.now,
+        createChatModel: () => okModel(),
+        usageData: sender,
+      });
+      if (consent === "on") await core.updatePrivacySettings({ usageData: true });
+      if (localMode) await core.setLocalOnly(true);
+      if (call) {
+        const provider = await core.saveChatProvider({ kind: "ollama", modelId: "qwen3.5:4b" });
+        const { model } = await core.prepareChatModel({
+          providerId: provider.id,
+          modelId: "qwen3.5:4b",
+        });
+        await generateText({ model, prompt: "Hello", maxRetries: 0 });
+      }
+      core.close();
+
+      clock.advance(WEEK_MS);
+      const again = fakeSender();
+      startCore(dataDir, {
+        now: clock.now,
+        createChatModel: () => okModel(),
+        usageData: again.sender,
+      });
+      return again;
+    };
+
+    // No model call at all.
+    expect(fieldsOf((await week(false, "on", false)).sent, "model_spend_week")).toEqual([]);
+    // A model call, but the week is sent only while the User agrees.
+    expect(fieldsOf((await week(true, "off", false)).sent, "model_spend_week")).toEqual([]);
+    expect(fieldsOf((await week(true, "on", true)).sent, "model_spend_week")).toEqual([]);
+  });
+
+  test("turning usage data on after a week ended sends nothing from that week", async () => {
+    const clock = manualClock(TUESDAY);
+    const dataDir = await createTempDataFolder();
+    const { sender, sent } = fakeSender();
+    const core = startCore(dataDir, {
+      now: clock.now,
+      createChatModel: () => okModel(),
+      usageData: sender,
+    });
+
+    // One model call while usage data is off.
+    const provider = await core.saveChatProvider({ kind: "ollama", modelId: "qwen3.5:4b" });
+    const { model } = await core.prepareChatModel({
+      providerId: provider.id,
+      modelId: "qwen3.5:4b",
+    });
+    await generateText({ model, prompt: "Hello", maxRetries: 0 });
+
+    // The app stays open across the week boundary, and only then does the User agree.
+    clock.advance(WEEK_MS);
+    await core.updatePrivacySettings({ usageData: true });
+
+    // The first Question of the new week checks for a completed week: it must not send the one before.
+    const mind = await core.createMind({ title: "Tide notes" });
+    const asked = await core.askInConversation({ text: "Hello", mindId: mind.id });
+    if (!asked.asked) throw new Error("The Question wasn't asked.");
+    await answerEnded(core, asked.answerId);
+
+    // Usage data is flowing in the new week, so the empty week above is not an unwired test.
+    expect(sent.map((message) => message.event)).toContain("question_asked");
+    expect(fieldsOf(sent, "model_spend_week")).toEqual([]);
+  });
+
+  test("the week usage data is turned on in counts only from that moment", async () => {
+    const clock = manualClock("2026-10-13T11:00:00.000Z");
+    const dataDir = await createTempDataFolder();
+    const { sender } = fakeSender();
+    const core = startCore(dataDir, {
+      now: clock.now,
+      createChatModel: () => okModel(),
+      usageData: sender,
+    });
+    const mind = await core.createMind({ title: "Tide notes" });
+
+    // Two checks before the User agrees.
+    await core.recordAiUse([
+      { mindId: mind.id, kind: "sentence-checked", characters: 0 },
+      { mindId: mind.id, kind: "sentence-checked", characters: 0 },
+    ]);
+    clock.advance(60 * 60 * 1000);
+    await core.updatePrivacySettings({ usageData: true });
+
+    // One check and one model call after it.
+    await core.recordAiUse([{ mindId: mind.id, kind: "sentence-checked", characters: 0 }]);
+    const provider = await core.saveChatProvider({ kind: "ollama", modelId: "qwen3.5:4b" });
+    const { model } = await core.prepareChatModel({
+      providerId: provider.id,
+      modelId: "qwen3.5:4b",
+    });
+    await generateText({ model, prompt: "Hello", maxRetries: 0 });
+    core.close();
+
+    clock.advance(WEEK_MS);
+    const again = fakeSender();
+    startCore(dataDir, {
+      now: clock.now,
+      createChatModel: () => okModel(),
+      usageData: again.sender,
+    });
+
+    expect(fieldsOf(again.sent, "model_spend_week")).toEqual([
+      expect.objectContaining({ route: "local", checks: 1, questions: 0 }),
+    ]);
+  });
+
+  test("a cleared AI use record leaves no checks in the week's event", async () => {
+    const clock = manualClock(TUESDAY);
+    const dataDir = await createTempDataFolder();
+    const { sender } = fakeSender();
+    const core = startCore(dataDir, {
+      now: clock.now,
+      createChatModel: () => okModel(),
+      usageData: sender,
+    });
+    await core.updatePrivacySettings({ usageData: true });
+    const mind = await core.createMind({ title: "Tide notes" });
+    await core.recordAiUse([{ mindId: mind.id, kind: "sentence-checked", characters: 0 }]);
+    await core.clearAiUse();
+    const provider = await core.saveChatProvider({ kind: "ollama", modelId: "qwen3.5:4b" });
+    const { model } = await core.prepareChatModel({
+      providerId: provider.id,
+      modelId: "qwen3.5:4b",
+    });
+    await generateText({ model, prompt: "Hello", maxRetries: 0 });
+    core.close();
+
+    clock.advance(WEEK_MS);
+    const again = fakeSender();
+    startCore(dataDir, {
+      now: clock.now,
+      createChatModel: () => okModel(),
+      usageData: again.sender,
+    });
+
+    expect(fieldsOf(again.sent, "model_spend_week")).toEqual([
+      expect.objectContaining({ route: "local", checks: 0, questions: 0 }),
+    ]);
+  });
+
+  test("a week missed while the app was closed is not sent", async () => {
+    const clock = manualClock(TUESDAY);
+    const dataDir = await createTempDataFolder();
+    const { sender } = fakeSender();
+    const core = startCore(dataDir, {
+      now: clock.now,
+      createChatModel: () => okModel(),
+      usageData: sender,
+    });
+    await core.updatePrivacySettings({ usageData: true });
+    const provider = await core.saveChatProvider({ kind: "ollama", modelId: "qwen3.5:4b" });
+    const { model } = await core.prepareChatModel({
+      providerId: provider.id,
+      modelId: "qwen3.5:4b",
+    });
+    await generateText({ model, prompt: "Hello", maxRetries: 0 });
+    core.close();
+
+    // Closed for three weeks: only the last completed week is considered, and it had no call.
+    clock.advance(3 * WEEK_MS);
+    const again = fakeSender();
+    startCore(dataDir, {
+      now: clock.now,
+      createChatModel: () => okModel(),
+      usageData: again.sender,
+    });
+
+    expect(again.sent.map((message) => message.event)).toContain("app_opened");
+    expect(fieldsOf(again.sent, "model_spend_week")).toEqual([]);
+  });
+
+  test("the spend range's edges: exactly $1, $5, $20 and $50, and just under each", () => {
+    expect(spendRange(0)).toBe("0");
+    expect(spendRange(0.01)).toBe("under_1");
+    expect(spendRange(0.999999)).toBe("under_1");
+    expect(spendRange(1)).toBe("1_5");
+    expect(spendRange(4.999999)).toBe("1_5");
+    expect(spendRange(5)).toBe("5_20");
+    expect(spendRange(19.999999)).toBe("5_20");
+    expect(spendRange(20)).toBe("20_50");
+    expect(spendRange(49.999999)).toBe("20_50");
+    expect(spendRange(50)).toBe("over_50");
+    expect(spendRange(500)).toBe("over_50");
   });
 });

@@ -104,8 +104,8 @@ export function keyLines(
 
 /** The Folder the Library shows, if it shows one: where Find sources adds by default. */
 function shownFolder(): string | null {
-  const { libraryFilter, library } = useAppStore.getState();
-  return library?.groups.some((group) => group.id === libraryFilter) ? libraryFilter : null;
+  const { libraryFolderId, library } = useAppStore.getState();
+  return library?.groups.some((group) => group.id === libraryFolderId) ? libraryFolderId : null;
 }
 
 export const useFindSources = create<FindSourcesState>()((set, get) => ({
@@ -136,7 +136,7 @@ export const useFindSources = create<FindSourcesState>()((set, get) => ({
     const focus = used ?? null;
     set({ open: true, folderId, focus, ...fields });
     // The Library, as a tab, as it was: the User's Mind stays where it is.
-    app.openLibrary(app.libraryFilter);
+    app.openLibrary(app.libraryFolderId ?? app.libraryFilter);
     // Drug labels and trials start off: they are asked only when chosen, never with a search for papers.
     const startOff = (providers: SourceProviderInfo[]) =>
       providers

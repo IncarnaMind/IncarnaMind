@@ -31,8 +31,8 @@ import {
 } from "../../../shared/units";
 import { headingLevelOfStyleName } from "../../../shared/wordStyles";
 import { cellTable, headingRowsOf, isFigure, shiftedDigits } from "../tableCells";
-import { type Relationship, relationshipsOf } from "./docxPackage";
-import { ExtractionError } from "./errors";
+import { mainRootOf, OfficePackage, partOfType, type Relationships } from "./officePackage";
+import { readStyleTable } from "./wordStyleTable";
 import { child, elements, local, parseXml, type XmlElement } from "./xml";
 import { openPackage, type ZipArchive } from "./zip";
 
@@ -58,37 +58,26 @@ interface DocxStyles {
   raised: Set<string>;
 }
 
-function docxStyles(styles: XmlElement | undefined): DocxStyles {
+const setsRaised = (style: XmlElement): boolean => {
+  const rPr = child(style, "w:rPr");
+  const align = rPr && child(rPr, "w:vertAlign")?.attrs["w:val"];
+  const position = Number((rPr && child(rPr, "w:position")?.attrs["w:val"]) ?? 0);
+  return align === "superscript" || position > 0;
+};
+
+function docxStyles(root: XmlElement | undefined): DocxStyles {
+  const table = readStyleTable(root);
   const levels = new Map<string, number>();
-  const basedOn = new Map<string, string>();
-  const direct = new Set<string>();
-  if (!styles) return { levels, raised: direct };
-  for (const style of elements(styles)) {
-    if (style.name !== "w:style") continue;
-    const id = style.attrs["w:styleId"];
-    if (!id) continue;
-    if (style.attrs["w:type"] === "paragraph") {
-      const level = headingLevelOf(style);
-      if (level !== null) levels.set(id, level);
-    }
-    const parent = child(style, "w:basedOn")?.attrs["w:val"];
-    if (parent) basedOn.set(id, parent);
-    const rPr = child(style, "w:rPr");
-    const align = rPr && child(rPr, "w:vertAlign")?.attrs["w:val"];
-    const position = Number((rPr && child(rPr, "w:position")?.attrs["w:val"]) ?? 0);
-    if (align === "superscript" || position > 0) direct.add(id);
-  }
   const raised = new Set<string>();
-  const isRaised = (id: string, seen: Set<string>): boolean => {
-    if (raised.has(id)) return true;
-    if (seen.has(id)) return false;
-    seen.add(id);
-    const parent = basedOn.get(id);
-    if (!direct.has(id) && !(parent && isRaised(parent, seen))) return false;
-    raised.add(id);
-    return true;
-  };
-  for (const id of new Set([...direct, ...basedOn.keys()])) isRaised(id, new Set());
+  for (const style of table.styles) {
+    if (style.type === "paragraph") {
+      const level = headingLevelOf(style.element);
+      if (level !== null) levels.set(style.id, level);
+    }
+    if (table.chain(style.type, style.id).some((each) => setsRaised(each.element))) {
+      raised.add(style.id);
+    }
+  }
   return { levels, raised };
 }
 
@@ -318,7 +307,7 @@ interface DocxComment {
   text: string;
 }
 
-/** The Document's comments with text, by id, from word/comments.xml. */
+/** The Document's comments with text, by id, from its comments part. */
 function readComments(xml: string | undefined, styles: DocxStyles): Map<string, DocxComment> {
   const comments = new Map<string, DocxComment>();
   if (!xml) return comments;
@@ -377,17 +366,15 @@ function addComments(
 /**
  * The text of each Word section's headers and footers, in the order the sections run: the last
  * section's properties are the body's own. A section without a header or footer of a kind (first
- * page, even pages, the rest) keeps the one before it, as Word shows it. A header, footer or
- * relationships part that can't be parsed reads as empty: the body is read as without them.
+ * page, even pages, the rest) keeps the one before it, as Word shows it. A header or footer
+ * part that can't be parsed reads as empty: the body is read as without it.
  */
 async function runningTexts(
   zip: ZipArchive,
+  rels: Relationships,
   sections: readonly (XmlElement | undefined)[],
   styles: DocxStyles,
 ): Promise<string[]> {
-  const rels = await relationshipsOf(zip, "word/document.xml").catch(
-    () => new Map<string, Relationship>(),
-  );
   const parts = new Map<string, string>();
   const textOfPart = async (part: string) => {
     let text = parts.get(part);
@@ -482,23 +469,29 @@ export interface DocxResult {
   headings: DocxHeading[];
   /** The ids of the paragraph styles that are headings: the viewer finds headings by them. */
   headingStyles: string[];
+  /** Relationships parts that couldn't be read; the rest was read without what they name. */
+  unreadable: string[];
 }
 
 export async function extractDocx(bytes: Uint8Array): Promise<DocxResult> {
   const zip = openPackage(bytes);
-  const documentXml = await zip.readText("word/document.xml");
-  if (documentXml === undefined) {
-    throw new ExtractionError("unreadable", "Not a Word document: it has no word/document.xml.");
-  }
-  const stylesXml = await zip.readText("word/styles.xml");
+  const pkg = new OfficePackage(zip);
+  const main = await pkg.mainPart("word/document.xml");
+  const document = mainRootOf(await zip.readText(main), main, "document", "Not a Word document");
+  const rels = await pkg.relationships(main);
+  const stylesXml = await zip.readText(partOfType(rels, "/styles", "word/styles.xml"));
   const styles = docxStyles(stylesXml ? parseXml(stylesXml) : undefined);
-  const body = child(parseXml(documentXml), "w:body");
+  const body = child(document, "w:body");
   const paragraphs: Paragraph[] = [];
   if (body) readBlocks(body, styles, paragraphs);
-  const comments = readComments(await zip.readText("word/comments.xml"), styles);
+  const comments = readComments(
+    await zip.readText(partOfType(rels, "/comments", "word/comments.xml")),
+    styles,
+  );
   const anchors = commentAnchors(paragraphs);
   const running = await runningTexts(
     zip,
+    rels,
     [
       ...paragraphs.flatMap((paragraph) => (paragraph.sectionEnd ? [paragraph.sectionEnd] : [])),
       body && child(body, "w:sectPr"),
@@ -586,11 +579,11 @@ export async function extractDocx(bytes: Uint8Array): Promise<DocxResult> {
   // Footnotes and endnotes: one Unit at the end, each note anchored, then the comments in them.
   const notes = new UnitBuilder();
   const inNotes: Paragraph[] = [];
-  for (const [name, tag] of [
-    ["word/footnotes.xml", "w:footnote"],
-    ["word/endnotes.xml", "w:endnote"],
+  for (const [type, usual, tag] of [
+    ["/footnotes", "word/footnotes.xml", "w:footnote"],
+    ["/endnotes", "word/endnotes.xml", "w:endnote"],
   ] as const) {
-    const xml = await zip.readText(name);
+    const xml = await zip.readText(partOfType(rels, type, usual));
     if (!xml) continue;
     for (const note of elements(parseXml(xml)).filter((each) => each.name === tag)) {
       if (note.attrs["w:type"]) continue; // separators
@@ -623,5 +616,6 @@ export async function extractDocx(bytes: Uint8Array): Promise<DocxResult> {
     units,
     headings,
     headingStyles: [...styles.levels].filter(([, level]) => level > 0).map(([id]) => id),
+    unreadable: pkg.unreadable,
   };
 }

@@ -15,10 +15,11 @@ import {
 } from "../core/api";
 import type { NodeJSON } from "./blockJson";
 import { figureShownText, readCalculatedFigureAttributes } from "./calculatedFigures";
+import { parseQuotedWords, parseQuotedWordsCheck } from "./citations";
 import { parseLocation } from "./locations";
 
 /** At most this many Blocks go into a note at once, and this deep. */
-const MAX_BLOCKS = 2_000;
+export const MAX_BLOCKS = 2_000;
 const MAX_DEPTH = 24;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -112,17 +113,23 @@ async function recheckOne(node: NodeJSON, recheck: Recheck): Promise<NodeJSON> {
   const attrs = node.attrs ?? {};
   const { documentId, quote } = attrs;
   if (typeof documentId !== "string" || documentId === "") return node;
-  const area = parseLocation(attrs.location)?.area;
+  const location = parseLocation(attrs.location);
+  const area = location?.area;
   // An area over a picture has no words, by design (#118): its check stays where the User picked it.
   if (typeof quote !== "string" || (quote === "" && area !== undefined)) return node;
   try {
     const pageFrom = unit(attrs.pageFrom);
+    const pageTo = unit(attrs.pageTo) ?? pageFrom;
+    const contentHash = typeof attrs.contentHash === "string" ? attrs.contentHash : null;
+    const asked = parseQuotedWords(attrs.quotedWords);
     const checked = await recheck({
       documentId,
       quote,
       pageFrom,
-      pageTo: unit(attrs.pageTo) ?? pageFrom,
-      contentHash: typeof attrs.contentHash === "string" ? attrs.contentHash : null,
+      pageTo,
+      contentHash,
+      ...(asked && { quotedWords: asked }),
+      ...(location && { location }),
     });
     // Kept inside a wall the Note is outside, nothing was read: the check made when it was cited stands.
     if ("keptInside" in checked) return node;
@@ -138,11 +145,20 @@ async function recheckOne(node: NodeJSON, recheck: Recheck): Promise<NodeJSON> {
       if (quoted === null) return node;
       return { ...node, attrs: { ...attrs, check: quoted.check, checkReason: quoted.checkReason } };
     }
+    // The words not found stay for a later check; a next page they ran on to stays only while the
+    // Citation points where it did, in the version it quoted.
+    const { quotedWords, ...kept } = attrs;
+    const samePlace =
+      checked.contentHash === contentHash &&
+      checked.pageFrom === pageFrom &&
+      checked.pageTo === pageTo;
+    const words = samePlace ? parseQuotedWordsCheck(quotedWords) : parseQuotedWords(quotedWords);
     // A picked area keeps its region: the check finds where its words are, not the User's rectangle.
     return {
       ...node,
       attrs: {
-        ...attrs,
+        ...kept,
+        ...(words && { quotedWords: words }),
         check: checked.check,
         checkReason: checked.checkReason,
         contentHash: checked.contentHash,

@@ -11,6 +11,8 @@ import {
   messageReference,
   NotFoundError,
 } from "../../src/core";
+import { picturesBeside } from "../../src/core/exports/markdown";
+import type { Block, Inline } from "../../src/core/mindText";
 import { createTempDataFolder, manualClock, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { checkWellFormed, footnotesOf, paragraphsOf, part, textOf, unzip } from "../helpers/docx";
@@ -438,6 +440,7 @@ describe("exporting a Mind", () => {
 
     expect(await core.previewMindExport(mind.id, { format: "docx" })).toEqual({
       fileName: "Tides spring neap.docx",
+      pictures: [],
       citations: 3,
       citedDocuments: 1,
       numbered: true,
@@ -447,7 +450,7 @@ describe("exporting a Mind", () => {
       fromWord: false,
       theirChanges: 0,
       citationPlace: "footnotes",
-      markAiText: false,
+      markAiText: true,
       othersFile: false,
       othersComments: false,
       myComments: 0,
@@ -921,6 +924,56 @@ describe("exporting a Mind", () => {
     expect(document).toContain('<a:blip r:embed="rIdImage1"/>');
     // One pixel at 96 dpi.
     expect(document).toContain('<wp:extent cx="9525" cy="9525"/>');
+  });
+
+  test("a Markdown preview lists the picture files it writes beside the file, each once", async () => {
+    const { core, mind, client } = await setUp("");
+    client.doc.transact(() => {
+      client.blocks.push([
+        element("image", { src: PIXEL, alt: "A chart" }, []),
+        element("image", { src: PIXEL, alt: "The same chart again" }, []),
+      ]);
+    });
+    await client.settled();
+    expect(await core.previewMindExport(mind.id, { format: "markdown" })).toMatchObject({
+      pictures: ["picture-6b7fa434f92a.png"],
+    });
+
+    client.doc.transact(() => {
+      client.blocks.push([
+        element(
+          "image",
+          {
+            src: "https://example.test/chart.png",
+            alt: "A chart from the web",
+          },
+          [],
+        ),
+      ]);
+    });
+    await client.settled();
+    expect(await core.previewMindExport(mind.id, { format: "markdown" })).toMatchObject({
+      pictures: ["picture-6b7fa434f92a.png"],
+    });
+
+    // A format that keeps its pictures inside its one file writes none beside it.
+    expect(await core.previewMindExport(mind.id, { format: "docx" })).toMatchObject({
+      pictures: [],
+    });
+  });
+
+  test("a picture whose data isn't an image is skipped, and one in a footnote is counted", () => {
+    const invalid = {
+      kind: "image",
+      image: { src: "data:image/png;base64,%%%", alt: "Not a picture" },
+    } as Inline;
+    expect(picturesBeside([{ kind: "paragraph", content: [invalid] }])).toEqual([]);
+
+    const image = { kind: "image", image: { src: PIXEL, alt: "A chart" } } as Inline;
+    const blocks: Block[] = [
+      { kind: "paragraph", content: [{ kind: "footnote", content: [image] }] },
+    ];
+    expect(picturesBeside(blocks)).toEqual(["picture-6b7fa434f92a.png"]);
   });
 
   test("a WebP picture is embedded as a WebP, its type listed, at the size the Note shows it at", async () => {

@@ -20,6 +20,7 @@ import type { AnswerEngine } from "./answers/engine";
 import type {
   AudioSource,
   CopilotProfileId,
+  DecisionHost,
   EngineSwitchReason,
   ExternalService,
   SandboxLevel,
@@ -656,12 +657,13 @@ export const MEETING_SAMPLE_RATE = 16_000;
 
 /**
  * What a capture says about one source (see `AudioCapture`):
+ * - "waiting": the system's permission prompt is open, and nothing is captured until it is answered;
  * - "recording": its audio is coming in, again after a device change too;
  * - "denied": the OS or the User doesn't allow it;
  * - "unavailable": there is no such device, or this computer can't record it;
  * - "ended": it stopped and couldn't be started again.
  */
-export type CaptureState = "recording" | "denied" | "unavailable" | "ended";
+export type CaptureState = "waiting" | "recording" | "denied" | "unavailable" | "ended";
 
 /** Where a capture delivers what it hears. */
 export interface AudioSink {
@@ -727,16 +729,25 @@ export interface TranscriptionModelFiles {
   vad: string;
   /** How many threads decoding may use. */
   threads: number;
+  /**
+   * The streaming model that reads the live words as they are said (#2662), when there is one:
+   * which kind it is, and its files by what they are, absolute paths.
+   */
+  live?: { engine: string; files: Readonly<Record<string, string>> };
 }
 
 /**
  * Speech a `Transcriber` found in a stream and decoded. While the speaker
- * goes on, the speech so far is decoded again every few seconds (partial);
- * once they pause, the whole of it is decoded once more (final).
+ * goes on, its words so far are partial: read as they are said by a
+ * streaming model (#2662), or the speech so far decoded again every few
+ * seconds. Once they pause, the whole of it is decoded (final).
  */
 export interface SpeechSegment {
   stream: string;
-  /** From 1 in its stream: a partial and the final text of the same speech share it. */
+  /**
+   * From 1 in its stream: a partial and the final text of the same speech share it. A partial
+   * that goes on into the speech after, before its final text came, has its first speech's id.
+   */
   id: number;
   /** Where it starts and ends, in ms of its stream's audio. */
   startMs: number;
@@ -752,21 +763,31 @@ export interface SpeechSegment {
 }
 
 /**
- * A stream's audio sent to a cloud transcription service instead (#141), with the User's key.
- * OpenAI's live model needs our own voice activity detection: `vad` is Silero's file. Qwen's
- * address is the host of the key's region: a key works in no other.
+ * A stream's audio sent to a cloud transcription service instead (#141, #866), with the User's
+ * key. OpenAI's live model needs our own voice activity detection: `vad` is Silero's file. Qwen's
+ * address is the host of the key's region: a key works in no other. Deepgram's is the server the
+ * User gave (Deepgram's own, Cloudflare Workers AI or their own server); its key may be empty
+ * for their own server. Gladia is told the languages the User speaks that it transcribes, as its
+ * language detection needs a short list.
  */
 export type CloudStream =
   | { service: "openai"; model: string; apiKey: string; vad: string }
   | { service: "soniox"; model: string; apiKey: string }
-  | { service: "qwen"; model: string; apiKey: string; url: string };
+  | { service: "qwen"; model: string; apiKey: string; url: string }
+  | { service: "deepgram"; model: string; apiKey: string; url: string }
+  | { service: "assemblyai"; model: string; apiKey: string }
+  | { service: "gemini"; model: string; apiKey: string }
+  | { service: "elevenlabs"; model: string; apiKey: string }
+  | { service: "speechmatics"; model: string; apiKey: string }
+  | { service: "gladia"; model: string; apiKey: string; languages: string[] }
+  | { service: "xai"; model: string; apiKey: string };
 
 /**
- * Why a cloud stream ended before it was finished: the connection was lost ("dropped"), or the
- * service refused the key (Qwen: one made in the other region too) or the account has no credit
- * left ("refused").
+ * Why a cloud stream ended before it was finished: the connection was lost ("dropped"), the
+ * service refused the key (Qwen: one made in the other region too), or the account has no credit
+ * left ("credit").
  */
-export type CloudLoss = "dropped" | "refused";
+export type CloudLoss = "dropped" | "refused" | "credit";
 
 /**
  * Turns speech into text off the core's thread (#136): the desktop app runs
@@ -934,14 +955,16 @@ export interface CoreAdapters {
   /** How Linked folders are watched (see `LinkedFolderOptions`). */
   linkedFolders?: LinkedFolderOptions;
   /**
-   * How web pages are fetched (#261). Defaults to Node's fetch, within 20
-   * seconds and 10 MB; tests shorten the limits.
+   * How web pages are fetched (#261): through the public-internet fetcher by
+   * default, within 20 seconds and 10 MB. `fetch` stands another in for a
+   * test; tests shorten the limits.
    */
   webPages?: { fetch?: PageFetch; limits?: FetchLimits; pictureLimits?: PictureLimits };
   /**
-   * How web search's fetcher resolves host names and makes its connections
-   * (#128): the system's resolver and undici's by default. Tests stand a
-   * local server in for the web; the fetcher's guard still decides.
+   * How the fetcher a saved page and web search use resolves host names and
+   * makes its connections (#128): the system's resolver and undici's by
+   * default. Tests stand a local server in for the web; the fetcher's guard
+   * still decides.
    */
   web?: PublicFetchOptions;
   processes: ProcessLauncher;
@@ -1128,6 +1151,8 @@ export interface CoreAdapters {
    * still treats them as going to TypeSafe.
    */
   jevHostedUrl?: string;
+  /** Where each decision model host's requests go (#1907). Defaults to the hosts'; tests use a local fake. */
+  decisionOrigins?: Partial<Record<DecisionHost, string>>;
   /**
    * Where Look up (#286) and checking references ask Crossref's,
    * arXiv's and OpenAlex's APIs. Defaults to theirs; tests point them at a
@@ -1242,7 +1267,11 @@ export interface CoreAdapters {
    * Defaults to the pinned Hugging Face revisions; tests give no files for a
    * fake that needs none.
    */
-  transcriptionModelSource?: { model: EmbeddingModelSource; vad: EmbeddingModelSource };
+  transcriptionModelSource?: {
+    model: EmbeddingModelSource;
+    vad: EmbeddingModelSource;
+    live?: EmbeddingModelSource;
+  };
   /**
    * Asks a cloud transcription service whether it takes a key of its own (#141), before it is
    * kept. The global `fetch` by default; tests answer without the network.

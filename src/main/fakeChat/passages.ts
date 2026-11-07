@@ -21,9 +21,9 @@ export function passagesIn(result: string): ShownPassage[] {
   }));
 }
 
-/** A mark where a new Unit starts in a Passage: "[p. 4] ", "[slide 4] ", "[§ 2.1 Sensitivity] "… */
+/** A mark where a new Unit starts in a Passage: "[p. 4] ", "[slide 4] ", "[0:04 Them] "… */
 export const UNIT_MARK =
-  /^\[(p\. \d+|slides? [^\]]+|§[^\]]*|[^\]]*rows? [\d–-]+|lines? [\d–-]+)\] /;
+  /^\[(p\. \d+|slides? [^\]]+|§[^\]]*|[^\]]*rows? [\d–-]+|lines? [\d–-]+|\d{1,2}:\d{2}(?::\d{2})?(?: [^\]\n]+)?)\] /;
 /** Where a slide's speaker notes, or a Word comment, start in a Passage. */
 export const NOTES_MARK = /^\[(?:speaker notes|comment(?: by [^\]]+)?)\] /;
 

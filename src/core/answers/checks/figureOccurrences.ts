@@ -18,7 +18,9 @@ import {
   type FigureFacts,
   FiguresNotRead,
   figureFactsOf,
+  type HeaderRead,
   readFigures,
+  readHeader,
 } from "../../../shared/figures";
 import { perBlock } from "../../../shared/memo";
 import { targetHash } from "../../../shared/proposals";
@@ -69,7 +71,97 @@ export interface FigureOccurrence extends CheckFigure {
   };
 }
 
-function tableContext(element: Y.XmlElement, grids: Map<Y.XmlElement, SourceGrid>) {
+interface TableRowLayout {
+  rowLabel: string;
+  rowText: string;
+  /** The heading of each of the row's columns above it, by the column's place in the row. */
+  columnLabels: readonly string[];
+  /** The row's cells' columns, in order: the columns a rowspan doesn't continue. */
+  anchors: readonly number[];
+  /** A row above that only names a group ("Revenue:", its other cells empty), which heads this one. */
+  section: string;
+}
+
+export interface TableLayout {
+  grid: SourceGrid;
+  caption: string;
+  /** The caption's stated units, read once for the table (#2523). */
+  captionRead?: HeaderRead;
+  rows: TableRowLayout[];
+  rowIndex: Map<Y.XmlElement, number>;
+  headerReads: Map<string, HeaderRead>;
+}
+
+function tableLayout(table: Y.XmlElement, layouts: Map<Y.XmlElement, TableLayout>): TableLayout {
+  const known = layouts.get(table);
+  if (known) return known;
+  const grid = gridOfTable(nodeOf(table));
+  const rows = table.toArray().filter((each): each is Y.XmlElement => each instanceof Y.XmlElement);
+  const before = table.prevSibling;
+  const caption =
+    before instanceof Y.XmlElement && before.nodeName !== "table" ? plainText(before) : "";
+  const columns = grid.reduce((most, slots) => Math.max(most, slots.length), 0);
+  // Each cell's read counts this once, not once for each cell (#2523).
+  countFigureSteps(rows.length * (columns + 1) + caption.length);
+  const headings = Array.from({ length: columns }, () => ({ seen: new Set<string>(), text: "" }));
+  const layout: TableLayout = {
+    grid,
+    caption,
+    rows: [],
+    rowIndex: new Map(),
+    headerReads: new Map(),
+  };
+  let section = "";
+  for (const [index, row] of rows.entries()) {
+    const slots = grid[index] ?? [];
+    layout.rowIndex.set(row, index);
+    layout.rows.push({
+      rowLabel: slots[0]?.text ?? "",
+      rowText: slots.map((slot) => slot?.text ?? "").join(" | "),
+      columnLabels: headings.map((heading) => heading.text),
+      anchors: slots.flatMap((slot, column) => (slot && !slot.continued ? [column] : [])),
+      section,
+    });
+    // A row that only names a group ("Revenue:", its other cells empty) heads the rows below it, so
+    // a "Total" under it is that group's.
+    if (slots[0]?.text && !slots[0].header && slots.slice(1).every((slot) => !slot?.text))
+      section = slots[0].text;
+    for (const [column, slot] of slots.entries()) {
+      const heading = headings[column];
+      if (!heading || !slot?.header || !slot.text || heading.seen.has(slot.text)) continue;
+      heading.seen.add(slot.text);
+      heading.text = heading.text ? `${heading.text}\n${slot.text}` : slot.text;
+    }
+  }
+  layouts.set(table, layout);
+  return layout;
+}
+
+/**
+ * What a cell's header states, the caption read once for the table and the row's own headings once
+ * for the row: a table of many cells reads its caption once, not once for each cell (#2523).
+ */
+function tableHeaderRead(
+  layout: TableLayout,
+  rowHeader: string,
+  note: FigureContext,
+): HeaderRead | null {
+  if (!layout.caption) return rowHeader ? readHeader(rowHeader, note) : null;
+  const captionRead = layout.captionRead ?? readHeader(layout.caption, note);
+  layout.captionRead = captionRead;
+  if (!rowHeader) return captionRead;
+  const known = layout.headerReads.get(rowHeader);
+  if (known) return known;
+  const rowRead = readHeader(rowHeader, note);
+  const read: HeaderRead = {
+    statements: [...rowRead.statements, ...captionRead.statements],
+    periodColumns: rowRead.periodColumns || captionRead.periodColumns,
+  };
+  layout.headerReads.set(rowHeader, read);
+  return read;
+}
+
+function tableContext(element: Y.XmlElement, layouts: Map<Y.XmlElement, TableLayout>) {
   let cell: unknown = element.parent;
   while (
     cell instanceof Y.XmlElement &&
@@ -84,52 +176,36 @@ function tableContext(element: Y.XmlElement, grids: Map<Y.XmlElement, SourceGrid
     return null;
   const blockId = table.getAttribute("id");
   if (typeof blockId !== "string") return null;
-  const rows = table.toArray().filter((each): each is Y.XmlElement => each instanceof Y.XmlElement);
-  const rowIndex = rows.indexOf(row);
+  const layout = tableLayout(table, layouts);
+  const rowIndex = layout.rowIndex.get(row);
+  if (rowIndex === undefined) return null;
+  const placed = layout.rows[rowIndex];
+  if (!placed) return null;
   const cellIndex = row
     .toArray()
     .filter((each) => each instanceof Y.XmlElement)
     .indexOf(cell);
-  const grid = grids.get(table) ?? gridOfTable(nodeOf(table));
-  grids.set(table, grid);
-  const anchors = (grid[rowIndex] ?? []).flatMap((slot, column) =>
-    slot && !slot.continued ? [column] : [],
-  );
-  const column = anchors[cellIndex];
+  const column = placed.anchors[cellIndex];
   if (column === undefined) return null;
-  const columnLabel = [
-    ...new Set(
-      grid.slice(0, rowIndex).flatMap((slots) => {
-        const slot = slots[column];
-        return slot?.header && slot.text ? [slot.text] : [];
-      }),
-    ),
-  ].join("\n");
-  const rowLabel = grid[rowIndex]?.[0]?.text ?? "";
-  const rowText = (grid[rowIndex] ?? []).map((slot) => slot?.text ?? "").join(" | ");
-  // A row that only names a group ("Revenue:", its other cells empty) heads the rows below it, so
-  // a "Total" under it is that group's.
-  const section =
-    grid
-      .slice(0, rowIndex)
-      .reverse()
-      .find(
-        ([first, ...rest]) => first?.text && !first.header && rest.every((slot) => !slot?.text),
-      )?.[0]?.text ?? "";
-  const before = table.prevSibling;
-  const caption =
-    before instanceof Y.XmlElement && before.nodeName !== "table" ? plainText(before) : "";
+  const columnLabel = placed.columnLabels[column] ?? "";
+  const rowHeader = [columnLabel, placed.section, placed.rowText].filter(Boolean).join("\n");
   return {
     place: {
       blockId,
       row: rowIndex,
       column,
-      rowLabel,
+      rowLabel: placed.rowLabel,
       columnLabel,
       header: cell.nodeName === "tableHeader",
-      value: givesValue(grid, rowIndex, cellIndex),
+      value: givesValue(layout.grid, rowIndex, cellIndex),
     },
-    header: [columnLabel, section, rowText, caption].filter(Boolean).join("\n"),
+    header: layout.caption
+      ? rowHeader
+        ? `${rowHeader}\n${layout.caption}`
+        : layout.caption
+      : rowHeader,
+    rowHeader,
+    layout,
   };
 }
 
@@ -141,11 +217,11 @@ function tableContext(element: Y.XmlElement, grids: Map<Y.XmlElement, SourceGrid
  */
 function inSentence(
   sentence: SelectedSentence,
-  grids: Map<Y.XmlElement, SourceGrid>,
+  layouts: Map<Y.XmlElement, TableLayout>,
   note: FigureContext,
 ): FigureOccurrence[] {
   if (sentence.element.nodeName !== "paragraph") return [];
-  const table = tableContext(sentence.element, grids);
+  const table = tableContext(sentence.element, layouts);
   if (table?.place.header) return [];
   const raw = textOf(sentence.element);
   const parts = layout(sentence.element);
@@ -197,12 +273,22 @@ function inSentence(
     : {};
   // A court decision's citation ("512 S.W.3d 101 (Tex. 2017)") and a record cite ("Smith Dep.
   // 45:3–12", "Ex. 7 at 3") hold no figure to tie out: their numbers say where, not how much.
-  const citations = [...citedCases(raw), ...recordCiteSpans(raw)];
-  const found: FigureOccurrence[] = readFigures(raw, { ...note, header: table?.header ?? null })
+  const citations = [...citedCases(raw), ...recordCiteSpans(raw)].sort((a, b) => a.from - b.from);
+  countFigureSteps(citations.length);
+  // The readings come in order, so one place in the citations serves them all (#2523).
+  let citationAt = 0;
+  const inCitation = (start: number, end: number): boolean => {
+    while ((citations[citationAt]?.to ?? Number.POSITIVE_INFINITY) <= start) citationAt++;
+    const citation = citations[citationAt];
+    return citation !== undefined && citation.from < end;
+  };
+  const found: FigureOccurrence[] = readFigures(raw, {
+    ...note,
+    header: table?.header ?? null,
+    headerRead: table ? tableHeaderRead(table.layout, table.rowHeader, note) : null,
+  })
     .filter((reading) => reading.start >= sentence.from && reading.end <= sentence.to)
-    .filter(
-      (reading) => !citations.some((each) => reading.start < each.to && reading.end > each.from),
-    )
+    .filter((reading) => !inCitation(reading.start, reading.end))
     .map((reading) => {
       const { span, key, context, stretch } = around(reading.start, reading.end);
       return {
@@ -403,9 +489,9 @@ export function figuresInSentence(sentence: SelectedSentence): FigureOccurrence[
  */
 export function cellHeadings(
   element: Y.XmlElement,
-  grids: Map<Y.XmlElement, SourceGrid>,
+  layouts: Map<Y.XmlElement, TableLayout>,
 ): { row?: string; column?: string } {
-  const table = tableContext(element, grids);
+  const table = tableContext(element, layouts);
   if (!table?.place.value) return {};
   const row = table.place.column > 0 ? table.place.rowLabel : "";
   const column = table.place.columnLabel.split("\n").join(" · ");
@@ -523,7 +609,7 @@ function figuresOfBlock(
     return [];
   const read = readFiguresOf(block);
   if (read.readWith === key) return read.figures;
-  const grids = new Map<Y.XmlElement, SourceGrid>();
+  const layouts = new Map<Y.XmlElement, TableLayout>();
   const found: FigureOccurrence[] = [];
   for (const { element, busy } of textBlocksOf(block, { charts: true })) {
     if (busy) continue;
@@ -544,7 +630,7 @@ function figuresOfBlock(
             context: text,
             cited: [],
           },
-          grids,
+          layouts,
           note,
         );
         for (const figure of figures) found.push(figure);

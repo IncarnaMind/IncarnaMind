@@ -44,6 +44,8 @@ A Note is what the User writes in; your text is a Block the User writes. The cod
 | Conversation | 对话 | New chat is "新对话", History "历史对话", counted with 个: "3 个对话". As Doubao, Yuanbao, DeepSeek, Qwen, Feishu, Cherry Studio and Open WebUI show it. |
 | Your text | 你写的内容 | A Block the User writes, as opposed to one the assistant wrote. The strings say 你写的内容 for it ("你写的内容", "正在搜索你写的内容和文档…"); 笔记 means the Note. |
 | Block | 块 | "块选项". As Feishu does. |
+| Highlight | 高亮 | Words in a Document the User marked, kept with their Citation. Counted with 条: "3 条高亮". The feature is 高亮和批注 ("Highlights and comments"); never 标注. |
+| Comment | 批注 | The User's own words on a Highlight (⌥⌘M). Counted with 条: "1 条批注". Never 笔记, which is the Note, and never 评论. |
 | Question | 问题 | Ask: 提问. "就此文档提问". |
 | Answer | 回答 | Generate: 生成; Regenerate: 重新生成; Stop: 停止. |
 | Question context | 上下文 | |
@@ -165,7 +167,7 @@ A figure in an Answer is written as reports write it, with no space between the 
 | times (a multiple) | 倍 | "4.00倍". |
 | yes / no (what a comparison gives) | 是 / 否 | |
 | Tie out figures | 核对数字 | The command in ⌘K and the page menu: every figure in a Note against its source. |
-| Figure schedule | 数字核对表 | The tab beside the Note, and its export: "导出核对表…", "{name} – 数字核对表". Counts as the header does: "18 个数字 · 15 个有依据 · 3 个需要留意 · 0 个未核对". |
+| Figure schedule | 数字核对表 | The tab beside the Note, and its export: "导出核对表", "{name} – 数字核对表". Counts as the header does: "18 个数字 · 15 个有依据 · 3 个需要留意 · 0 个未核对". |
 | Source value | 来源数值 | The number as the source gives it. |
 | Difference | 差异 | The signed amount ("+£10m"), or "由 £4,979.6m 舍入" for a figure within its shown rounding. |
 | Doesn't add up (a total) | 合计不符 | Figures only: "合计不符：上面各行相加为 £4,850m". A total that agrees with its source says "与来源一致" too. |

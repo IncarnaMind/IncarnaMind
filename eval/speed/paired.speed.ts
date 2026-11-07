@@ -22,7 +22,9 @@ import { createLog } from "../lib/log";
 import { createWorkerCrossEncoder } from "../lib/rerank";
 import type { TimingRecorder } from "../lib/timing";
 import { armNamed, armSwitch } from "./arms";
+import { callHelpSet, rewrittenReplies } from "./callHelp";
 import { gradeAnswer } from "./judge";
+import { openLedger } from "./ledger";
 import {
   type ArmRun,
   cellsSet,
@@ -45,6 +47,7 @@ import {
   type PairedRow,
   pairedSection,
   seconds,
+  timeTable,
 } from "./pairedReport";
 import { percentile } from "./report";
 import { env, list, modelNamed, modelsAsked, spentUsd } from "./settings";
@@ -121,6 +124,8 @@ function groupsOf(set: SetId, cacheDir: string): PairedGroup[] {
       return cellsSet(ROOT, ANSWER_TIMEOUT_MS);
     case "written":
       return writtenSet();
+    case "call-help":
+      return callHelpSet();
   }
 }
 
@@ -179,6 +184,11 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
   const runs = Number(env("RUNS") ?? "1") || 1;
   const stopUsd = Number(env("STOP_USD") ?? "12");
   const margin = Number(env("MARGIN") ?? "0");
+  // A set whose replies differ by chance from run to run counts false Supported over the set
+  // instead of stopping at the first (eval/speed/gates/call-help.md).
+  const falseSupportedCounted = env("FALSE_SUPPORTED") === "counted";
+  const startedAt = new Date().toISOString();
+  const ledger = await openLedger(env("LEDGER"), `${startedAt} ${named.join(" against ")}`);
   const judge = judgeOf(models);
   const switches = [armSwitch(), armSwitch()] as const;
   switches[0].use(arms[0]);
@@ -224,7 +234,7 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
       // Two libraries processed differently would make every pair unequal.
       if (first !== second) {
         stopped = `Stopped at ${group.name}: the arms' libraries hold ${first} and ${second} Passages.`;
-        break run;
+        break;
       }
       const recorders = [recorderOf(opened[0].library), recorderOf(opened[1].library)] as const;
       for (const { library } of opened) {
@@ -260,8 +270,9 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
         for (const [index, item] of items.entries()) {
           for (let time = 1; time <= runs; time++) {
             const spent = spentBefore + (await spentInCores()) + judge.spent();
-            if (spent >= stopUsd) {
-              stopped = `Stopped at $${spent.toFixed(2)}, before ${name} · ${item.id}.`;
+            await ledger.record(spent);
+            if (ledger.before + spent >= stopUsd) {
+              stopped = `Stopped at $${(ledger.before + spent).toFixed(2)}${ledger.before > 0 ? `, the runs before it counted` : ""}, before ${name} · ${item.id}.`;
               break run;
             }
             loads.push(loadavg()[0] ?? 0);
@@ -274,6 +285,7 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
               await arm.prepare?.(library.core);
               done[which] = await runOnArm(item, {
                 library,
+                ...(opened[which].meeting && { meeting: opened[which].meeting }),
                 recorder: recorders[which],
                 choice: choices[which],
                 model: name,
@@ -303,7 +315,7 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
               stopped = `Stopped at ${name} · ${item.id}: ${refused.error}`;
               break run;
             }
-            if (newFalseSupported(row)) {
+            if (!falseSupportedCounted && newFalseSupported(row)) {
               stopped = `${arms[1].id} stopped at ${name} · ${item.id}: a false Supported that ${arms[0].id} didn't give.`;
               break run;
             }
@@ -320,6 +332,7 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
   }
 
   const spent = spentBefore + judge.spent();
+  await ledger.record(spent);
   const names: [string, string] = [arms[0].id, arms[1].id];
   const groups = [...new Set(rows.map((row) => `${row.model} · ${row.set}`))].map((title) => ({
     title,
@@ -330,15 +343,18 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
     return [
       `## ${group.title} (${group.rows.length} items)`,
       "",
-      pairedSection(group.rows, names, margin),
+      pairedSection(group.rows, names, margin, true, falseSupportedCounted),
       "",
+      ...(group.rows.some((row) => row.baseline.requests)
+        ? ["Where the time went:", "", timeTable(group.rows, names), ""]
+        : []),
       ...(languages.length > 1
         ? languages.flatMap((language) => {
             const ofLanguage = group.rows.filter((row) => row.language === language);
             return [
               `### ${group.title} · ${language} (${ofLanguage.length} items; reported only, the guards hold on both languages together)`,
               "",
-              pairedSection(ofLanguage, names, margin, false),
+              pairedSection(ofLanguage, names, margin, false, falseSupportedCounted),
               "",
             ];
           })
@@ -356,7 +372,7 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
     "",
     `${new Date().toISOString()} · commit ${commitOf(ROOT)} · ${arms[0].id}: ${arms[0].label}; ${arms[1].id}: ${arms[1].label}. Judge: ${judge.name}.`,
     "",
-    `This computer: ${cpus()[0]?.model ?? "unknown CPU"}, ${cpus().length} cores, ${Math.round(totalmem() / 2 ** 30)} GB; one-minute load ${loads.length ? `${Math.min(...loads).toFixed(1)} to ${Math.max(...loads).toFixed(1)}, median ${(percentile(loads, 0.5) ?? 0).toFixed(1)}` : "–"}. Spent: $${spent.toFixed(2)} (the judge $${judge.spent().toFixed(2)}).${stopped ? ` ${stopped}` : ""}`,
+    `This computer: ${cpus()[0]?.model ?? "unknown CPU"}, ${cpus().length} cores, ${Math.round(totalmem() / 2 ** 30)} GB; one-minute load ${loads.length ? `${Math.min(...loads).toFixed(1)} to ${Math.max(...loads).toFixed(1)}, median ${(percentile(loads, 0.5) ?? 0).toFixed(1)}` : "–"}. Spent: $${spent.toFixed(2)} (the judge $${judge.spent().toFixed(2)})${ledger.before > 0 ? `; with the runs before it, $${(ledger.before + spent).toFixed(2)} of $${stopUsd}` : ""}.${stopped ? ` ${stopped}` : ""}`,
     "",
     `Times are from the User's action, median / 90th percentile. A guard counts the items both arms finished; lost: right with the first arm and not the second, gained: the other way round. Cited, judged right and every Citation found hold with up to ${margin} fewer items in 30.`,
     "",
@@ -373,5 +389,7 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
   await mkdir(out, { recursive: true });
   await writeFile(join(out, "report.md"), report);
   await writeFile(join(out, "report.json"), JSON.stringify({ arms: names, rows }, null, 2));
+  if (rewrittenReplies.length > 0)
+    await writeFile(join(out, "rewrites.json"), JSON.stringify(rewrittenReplies, null, 2));
   log(`Report in ${out}`);
 });

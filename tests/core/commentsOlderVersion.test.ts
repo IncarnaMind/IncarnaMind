@@ -49,7 +49,7 @@ const versionOf = (state: Uint8Array): unknown => {
 };
 
 test("a Mind written before comments opens to edit, and opening it alone rewrites nothing", async () => {
-  expect(CONTENT_SCHEMA_VERSION).toBe(52);
+  expect(CONTENT_SCHEMA_VERSION).toBe(55);
   const dataDir = await createTempDataFolder();
   const core = startCore(dataDir);
   const mind = await core.createMind({ title: "Older" });
@@ -75,7 +75,7 @@ test("a change to an older Mind records this version", async () => {
   const updates = editInDocument(opened.state);
   await core.applyMindUpdate(mind.id, updates);
   const stored = await core.openMind(mind.id);
-  expect(versionOf(stored.state)).toBe(52);
+  expect(versionOf(stored.state)).toBe(55);
   core.close();
 });
 
