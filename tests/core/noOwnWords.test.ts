@@ -1,6 +1,9 @@
+import { randomUUID } from "node:crypto";
+import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
 import { askAssistant } from "../helpers/assistant";
 import { createTempDataFolder, startCore } from "../helpers/core";
+import { wholeMind } from "../helpers/editing";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
 import { heading, note, resolveChanges, shownWithChanges, writeMind } from "../helpers/minds";
 import {
@@ -95,6 +98,13 @@ const ADDED_BESIDE: readonly Shape[] = [
     reply: between(FEES_ZH, "税金按月支付。"),
     asked: "把第二行的税费改成税金。",
     after: beside(FEES_ZH, "税金按月支付。"),
+  },
+  {
+    case: "en, the line between written again in capitals",
+    lines: FEES,
+    reply: between(FEES, "RATES ARE MONTHLY."),
+    asked: "Add the rates line in capitals; keep the existing lines.",
+    after: beside(FEES, "RATES ARE MONTHLY."),
   },
   {
     case: "en, a few common words of the line between changed",
@@ -267,6 +277,24 @@ const KEPT_WHOLE: readonly Shape[] = [
     ],
   },
   {
+    case: "en, a line with a line break the reply writes as it was",
+    lines: ["Fees are monthly.", "Rates are<br>monthly.", "Fees and rates are monthly."],
+    reply: ["Fees are monthly.", "Rates are\nmonthly.", "Fees and rates are monthly, from May."],
+    asked: "Say the fees and rates line starts in May.",
+    after: [
+      "Fees are monthly.",
+      "Rates are\uFFFCmonthly.",
+      "Fees and rates are monthly, from May.",
+    ],
+  },
+  {
+    case: "zh, a line with a line break the reply writes as it was",
+    lines: ["费用按月支付。", "税费<br>按月支付。", "费用和税费按月支付。"],
+    reply: ["费用按月支付。", "税费\n按月支付。", "费用和税费从五月起按月支付。"],
+    asked: "把最后一行改成从五月起。",
+    after: ["费用按月支付。", "税费\uFFFC按月支付。", "费用和税费从五月起按月支付。"],
+  },
+  {
     case: "en, a new line that says every word of the line between",
     lines: FEES,
     reply: between(FEES, "Water rates are monthly."),
@@ -319,6 +347,76 @@ const KEPT_WHOLE: readonly Shape[] = [
   },
 ];
 
+const PARKING = [
+  "Rent is due on the first.",
+  "Parking spaces are allocated by the landlord.",
+  "Deposit is three months.",
+] as const;
+const PARKING_ZH = [
+  "房租每月一号交。",
+  "停车位由房东统一分配并登记。",
+  "押金为三个月房租。",
+] as const;
+
+/**
+ * A first line, or a line between two kept ones, that nothing in the reply says it rewrites. With
+ * nothing written yet, what is added goes after the selection's first, never in its place.
+ */
+const NO_EVIDENCE: readonly Shape[] = [
+  {
+    case: "en, the selection's first line renamed while the line after is kept",
+    lines: ["Rates are monthly.", "Fees and rates are monthly.", "Fees are monthly."],
+    reply: ["Taxes are monthly.", "Fees and rates are monthly.", "Fees are monthly."],
+    asked: "Say taxes instead of rates in the first line.",
+    after: [
+      "Rates are monthly.",
+      "Taxes are monthly.",
+      "Fees and rates are monthly.",
+      "Fees are monthly.",
+    ],
+  },
+  {
+    case: "zh, the selection's first line renamed while the line after is kept",
+    lines: ["税费按月支付。", "费用和税费按月支付。", "费用按月支付。"],
+    reply: ["税金按月支付。", "费用和税费按月支付。", "费用按月支付。"],
+    asked: "把第一行的税费改成税金。",
+    after: ["税费按月支付。", "税金按月支付。", "费用和税费按月支付。", "费用按月支付。"],
+  },
+  {
+    case: "en, a new first line before a kept one",
+    lines: ["Rates are monthly.", "Fees are monthly.", "Fees and rates are monthly."],
+    reply: ["Gym fees are monthly.", "Fees are monthly.", "Fees and rates are monthly."],
+    asked: "Add a line on gym fees at the top; keep the existing lines.",
+    after: [
+      "Rates are monthly.",
+      "Gym fees are monthly.",
+      "Fees are monthly.",
+      "Fees and rates are monthly.",
+    ],
+  },
+  {
+    case: "zh, a new first line before a kept one",
+    lines: ["税费按月支付。", "费用按月支付。", "费用和税费按月支付。"],
+    reply: ["保险费按月支付。", "费用按月支付。", "费用和税费按月支付。"],
+    asked: "在最上面加一行保险费，原有的各行都保留。",
+    after: ["税费按月支付。", "保险费按月支付。", "费用按月支付。", "费用和税费按月支付。"],
+  },
+  {
+    case: "en, a new line between two kept ones that says half of the line's own words",
+    lines: PARKING,
+    reply: between(PARKING, "Parking spaces are free on Sundays."),
+    asked: "Add that parking spaces are free on Sundays; keep the existing lines.",
+    after: beside(PARKING, "Parking spaces are free on Sundays."),
+  },
+  {
+    case: "zh, a new line between two kept ones that says half of the line's own words",
+    lines: PARKING_ZH,
+    reply: between(PARKING_ZH, "停车位由房东周日开放。"),
+    asked: "加一行：停车位由房东周日开放，原有的各行都保留。",
+    after: beside(PARKING_ZH, "停车位由房东周日开放。"),
+  },
+];
+
 const REPLACED: readonly Shape[] = [
   {
     case: "en, a line with words of its own rewritten",
@@ -349,25 +447,113 @@ const REPLACED: readonly Shape[] = [
     after: between(FEES_ZH, "税金按月支付。"),
   },
   {
-    case: "en, the selection's first line, which takes the reply's first",
-    lines: ["Rates are monthly.", "Fees and rates are monthly.", "Fees are monthly."],
-    reply: ["Taxes are monthly.", "Fees and rates are monthly.", "Fees are monthly."],
-    asked: "Say taxes instead of rates in the first line.",
-    after: ["Taxes are monthly.", "Fees and rates are monthly.", "Fees are monthly."],
+    case: "en, the selection's first line with words of its own rewritten, the rest kept",
+    lines: ["The harbour office opens early.", "Boats leave at high water.", "Both close at dusk."],
+    reply: ["The harbour office opens late.", "Boats leave at high water.", "Both close at dusk."],
+    asked: "Say late instead of early in the first line.",
+    after: ["The harbour office opens late.", "Boats leave at high water.", "Both close at dusk."],
   },
   {
-    case: "zh, the selection's first line, which takes the reply's first",
-    lines: ["税费按月支付。", "费用和税费按月支付。", "费用按月支付。"],
-    reply: ["税金按月支付。", "费用和税费按月支付。", "费用按月支付。"],
-    asked: "把第一行的税费改成税金。",
-    after: ["税金按月支付。", "费用和税费按月支付。", "费用按月支付。"],
+    case: "zh, the selection's first line with words of its own rewritten, the rest kept",
+    lines: ["港务办公室早上开门。", "船只在涨潮时出港。", "两处都在傍晚关门。"],
+    reply: ["港务办公室上午开门。", "船只在涨潮时出港。", "两处都在傍晚关门。"],
+    asked: "把第一行的早上改成上午。",
+    after: ["港务办公室上午开门。", "船只在涨潮时出港。", "两处都在傍晚关门。"],
+  },
+  {
+    case: "en, a line with words of its own between two kept ones, most of them said",
+    lines: PARKING,
+    reply: between(PARKING, "Parking spaces are assigned by the landlord."),
+    asked: "Say assigned instead of allocated in the parking line.",
+    after: between(PARKING, "Parking spaces are assigned by the landlord."),
+  },
+  {
+    case: "zh, a line with words of its own between two kept ones, most of them said",
+    lines: PARKING_ZH,
+    reply: between(PARKING_ZH, "停车位由房东统一分配并编号。"),
+    asked: "把停车那行的登记改成编号。",
+    after: between(PARKING_ZH, "停车位由房东统一分配并编号。"),
   },
 ];
 
-const SHAPES = [...ADDED_BESIDE, ...KEPT_WHOLE, ...REPLACED];
+const SHORT_PARKING = [
+  "Rent is due on the first.",
+  "Parking spaces are allocated.",
+  "Deposit is three months.",
+] as const;
+const SHORT_PARKING_ZH = ["房租每月一号交。", "停车位由房东分配。", "押金为三个月房租。"] as const;
+
+/**
+ * The known residue (#2589): a new line that says more than half of a line's own words takes its
+ * place, so a short line, or a Chinese one, can be written over by an addition that repeats most of
+ * it; so can the selection's first line, which keeps fix 6's test. Words alone can't tell these
+ * from a rewrite such as "assigned by the landlord"; names in the reply, or a decline, can. These
+ * rows pin what happens today, so a change to it shows.
+ */
+const RESIDUE: readonly Shape[] = [
+  {
+    case: "en, the known residue: a short line between two kept ones, most of its words repeated",
+    lines: SHORT_PARKING,
+    reply: between(SHORT_PARKING, "Parking spaces are free on Sundays."),
+    asked: "Add that parking spaces are free on Sundays; keep the existing lines.",
+    after: between(SHORT_PARKING, "Parking spaces are free on Sundays."),
+  },
+  {
+    case: "zh, the known residue: a short line between two kept ones, most of its words repeated",
+    lines: SHORT_PARKING_ZH,
+    reply: between(SHORT_PARKING_ZH, "停车位由房东周日开放。"),
+    asked: "加一行：停车位由房东周日开放，原有的各行都保留。",
+    after: between(SHORT_PARKING_ZH, "停车位由房东周日开放。"),
+  },
+  {
+    case: "zh, the known residue: a longer line between two kept ones, most of its words repeated",
+    lines: PARKING_ZH,
+    reply: between(PARKING_ZH, "停车位由房东统一周日开放。"),
+    asked: "加一行：停车位由房东统一周日开放，原有的各行都保留。",
+    after: between(PARKING_ZH, "停车位由房东统一周日开放。"),
+  },
+  {
+    case: "en, the known residue: the selection's first line, half of its words repeated",
+    lines: [
+      "Parking spaces are allocated by the landlord.",
+      "Rent is due on the first.",
+      "Deposit is three months.",
+    ],
+    reply: [
+      "Parking spaces are free on Sundays.",
+      "Rent is due on the first.",
+      "Deposit is three months.",
+    ],
+    asked: "Add that parking spaces are free on Sundays; keep the existing lines.",
+    after: [
+      "Parking spaces are free on Sundays.",
+      "Rent is due on the first.",
+      "Deposit is three months.",
+    ],
+  },
+  {
+    case: "zh, the known residue: the selection's first line, half of its words repeated",
+    lines: ["停车位由房东统一分配。", "房租每月一号交。", "押金为三个月房租。"],
+    reply: ["停车位由房东周日开放。", "房租每月一号交。", "押金为三个月房租。"],
+    asked: "加一行：停车位由房东周日开放，原有的各行都保留。",
+    after: ["停车位由房东周日开放。", "房租每月一号交。", "押金为三个月房租。"],
+  },
+];
+
+const SHAPES = [...ADDED_BESIDE, ...KEPT_WHOLE, ...NO_EVIDENCE, ...REPLACED, ...RESIDUE];
 
 const rewrite = (shape: Shape) =>
   `${"named" in shape.reply ? shape.reply.named : shape.reply.join("\n\n")}\n<why>Done.</why>`;
+
+/** A paragraph with a line break where the line has `<br>`, as the reply writes one. */
+function withBreak(line: string): JSONContent {
+  const [before, after] = line.split("<br>");
+  return {
+    type: "paragraph",
+    attrs: { id: randomUUID() },
+    content: [{ type: "text", text: before }, { type: "hardBreak" }, { type: "text", text: after }],
+  };
+}
 
 async function onNote(shape: Shape, reply: (call: ModelCall) => ScriptedReply) {
   const core = startCore(await createTempDataFolder(), {
@@ -377,7 +563,11 @@ async function onNote(shape: Shape, reply: (call: ModelCall) => ScriptedReply) {
   const mind = await core.createMind({ title: "Fees" });
   const client = await connectToMind(core, mind.id);
   const blocks = shape.lines.map((line) =>
-    line.startsWith("## ") ? heading(2, line.slice(3)) : note(line),
+    line.startsWith("## ")
+      ? heading(2, line.slice(3))
+      : line.includes("<br>")
+        ? withBreak(line)
+        : note(line),
   );
   writeMind(client, blocks);
   await client.settled();
@@ -410,20 +600,11 @@ describe("A paragraph with no words of its own is never written over by a namele
   });
 
   test.each(SHAPES)("$case, from Edit with AI", async (shape) => {
-    const { core, mind, client, blocks } = await onNote(shape, (call) =>
+    const { core, mind, client } = await onNote(shape, (call) =>
       /<passage>\n/.test(call.prompt) ? { text: rewrite(shape) } : { text: "Done." },
     );
-    const shown = shape.lines.map((line) => line.replace(/^## /, ""));
 
-    const edited = await core.editWithAi({
-      requestId: "edit-1",
-      mindId: mind.id,
-      from: { blockId: blocks[0]?.attrs?.id as string, offset: 0 },
-      to: { blockId: blocks.at(-1)?.attrs?.id as string, offset: shown.at(-1)?.length ?? 0 },
-      text: shown.join("\n"),
-      action: "instruction",
-      instruction: shape.asked,
-    });
+    const edited = await core.editWithAi(wholeMind(client, mind.id, shape.asked));
 
     expect(edited.kind).toBe("proposed");
     expect(await accepted(client, shape)).toEqual(expected(shape));

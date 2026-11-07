@@ -137,7 +137,7 @@ export const fetchReserves = (cacheDir: string, log: Log) =>
   fetchChecked(cacheDir, RESERVES, log, 0);
 
 export async function reports(): Promise<EvalDocument[]> {
-  const folder = join(ROOT, "data");
+  const folder = join(ROOT, "eval", "data");
   const realFolder = join(folder, "real");
   const pdfsIn = async (directory: string) =>
     (await readdir(directory))

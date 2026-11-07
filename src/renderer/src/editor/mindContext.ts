@@ -18,6 +18,13 @@ export const JudgedAnswerContext = createContext<{ id: string; conversationId: s
 );
 
 /**
+ * Whether an editor holds one Answer's Blocks alone, as the assistant's does:
+ * its pictures are that Answer's, whatever Block they are in (#2377). Null in
+ * a Mind, where a picture's own Answer around it decides.
+ */
+export const PictureSurfaceContext = createContext<"answer" | null>(null);
+
+/**
  * Where a Mind's composer is drawn: the assistant's composer slot, given only
  * to the Mind the assistant reads (see `MindTab`, `assistantTabOf`). Null for
  * every other Mind on screen, and until the slot is there.

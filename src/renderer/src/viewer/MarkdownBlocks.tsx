@@ -397,12 +397,21 @@ function MarkdownImage({ src, alt }: { src: string; alt: string }) {
 
   if (state.kind === "ready") {
     return (
-      <img
-        src={state.url}
-        alt={alt}
-        className="document-image"
-        data-testid="viewer-markdown-image"
-      />
+      <button
+        type="button"
+        data-picture-button=""
+        aria-label={alt || undefined}
+        className="my-1 inline-block max-w-full cursor-zoom-in border-0 bg-transparent p-0 align-middle"
+      >
+        <img
+          src={state.url}
+          alt={alt}
+          className="document-image"
+          data-testid="viewer-markdown-image"
+          data-picture-viewer=""
+          draggable={false}
+        />
+      </button>
     );
   }
   if (state.kind === "loading") return <span className="document-image-loading" />;

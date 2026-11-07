@@ -43,7 +43,7 @@ const SENTENCES = [
 
 const TEXTS = {
   en: {
-    entry: "Export check record…",
+    entry: "Export check record",
     found: (name: string, folder: string) => `Saved “${name}” and its CSV in ${folder}`,
     search: "csv",
     csvFile: "Check record – Tides.csv",
@@ -60,7 +60,7 @@ const TEXTS = {
     thisComputer: "On this computer",
   },
   "zh-CN": {
-    entry: "导出核对记录…",
+    entry: "导出核对记录",
     found: (name: string, folder: string) => `已保存“${name}”和 CSV 文件到“${folder}”`,
     search: "核对记录",
     csvFile: "核对记录 – Tides.csv",

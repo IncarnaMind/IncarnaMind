@@ -11,6 +11,7 @@ import type {
 } from "@ai-sdk/provider";
 import { type LanguageModelMiddleware, wrapLanguageModel } from "ai";
 import type { ChatModelFactory } from "../../src/core";
+import type { CrossEncoder } from "../../src/core/adapters";
 import {
   FIND_CLAIMS_INSTRUCTIONS,
   FIND_OWN_CLAIMS_INSTRUCTIONS,
@@ -134,6 +135,34 @@ const errorOf = (error: unknown) => {
   return `${status ?? ""} ${message.slice(0, 80)}`.trim();
 };
 
+/**
+ * Counts, for each flow, the scorings that repeat one already made in it: the same query over the
+ * same texts, in the same order. Only the counts are kept.
+ */
+export function repeatCounter(inner: CrossEncoder) {
+  let seen = new Set<string>();
+  let counts = { scored: 0, repeated: 0 };
+  const crossEncoder: CrossEncoder = {
+    load: (files) => inner.load(files),
+    score(query, texts) {
+      const key = JSON.stringify([query, texts]);
+      counts.scored++;
+      if (seen.has(key)) counts.repeated++;
+      else seen.add(key);
+      return inner.score(query, texts);
+    },
+    close: () => inner.close(),
+  };
+  return {
+    crossEncoder,
+    begin() {
+      seen = new Set();
+      counts = { scored: 0, repeated: 0 };
+    },
+    end: () => counts,
+  };
+}
+
 export function checkRecorder() {
   let origin = performance.now();
   let sentences: readonly string[] = [];
@@ -246,18 +275,35 @@ export interface Landed {
   sentence: number;
   ms: number;
   verdict: string;
+  /** Why a mark shows Not checked, as the mark says. */
+  reason?: string;
 }
 
 /**
  * What a sentence's mark shows, by the page's own rule: a cut sentence's mark, whose words are no
  * longer the sentence's, shows it needs checking again, whatever its stored verdict.
  */
+export const shownMark = (
+  check: ClaimCheckAttributes,
+  text: string,
+  versions: ReadonlyMap<string, string>,
+): Pick<Landed, "verdict" | "reason"> => {
+  const shown = claimCheckShown(check, {
+    text,
+    versions,
+    folderId: check.scope.folderId,
+    scope: null,
+  });
+  return shown.state === "not-checked"
+    ? { verdict: shown.state, reason: shown.reason }
+    : { verdict: shown.state };
+};
+
 export const shownState = (
   check: ClaimCheckAttributes,
   text: string,
   versions: ReadonlyMap<string, string>,
-): string =>
-  claimCheckShown(check, { text, versions, folderId: check.scope.folderId, scope: null }).state;
+): string => shownMark(check, text, versions).verdict;
 
 /** A mark that shows no verdict on the sentence: it couldn't be checked, or needs checking again. */
 const NO_VERDICT: ReadonlySet<string> = new Set([
@@ -277,6 +323,8 @@ export interface FlowTimes {
   language: string;
   run: number;
   load: number;
+  /** The machine's load over the last 15 minutes as the run began, which a timing run is held to. */
+  load15: number;
   /** When the check itself began: after the claims were named, for a Note's check. */
   checkStartMs: number;
   /** When the first mark reached the page, one that couldn't be checked included. */
@@ -287,6 +335,12 @@ export interface FlowTimes {
   requests: CheckRequest[];
   /** Each rerank of the flow: when it started and how long it took. */
   reranks: { startMs: number; ms: number }[];
+  /** Of the built-in reranker's scorings, those of a query over Passages it had already scored in this flow. */
+  rerankRepeats: { scored: number; repeated: number };
+  /** A search the User asked for during it (`SEARCH_DURING`): when, and how long it took. */
+  searchedDuring?: { atMs: number; ms: number };
+  /** For a Note's check: whether the Documents state each sentence, by its index. */
+  stated?: boolean[];
   spentUsd: number;
 }
 
@@ -321,6 +375,7 @@ export function perSentence(run: FlowTimes, count: number) {
       queuedMs: first === null ? null : first - run.checkStartMs,
       landedMs: landed?.ms ?? null,
       verdict: landed?.verdict ?? null,
+      reason: landed?.reason ?? null,
       requests: mine.length,
       byKind,
       searches: sum(mine.map((request) => request.searches)),
@@ -342,6 +397,29 @@ export function perSentence(run: FlowTimes, count: number) {
   });
 }
 
+/**
+ * A Note check's verdicts against what the Documents state: judged right is Supported for a
+ * sentence they state and anything else for one they don't; a false Supported is Supported for one
+ * they don't.
+ */
+export function judged(run: FlowTimes): {
+  right: number;
+  falseSupported: number;
+  notChecked: number;
+} {
+  const stated = run.stated ?? [];
+  let right = 0;
+  let falseSupported = 0;
+  let notChecked = 0;
+  stated.forEach((states, index) => {
+    const verdict = run.landed.find((each) => each.sentence === index)?.verdict ?? "not-checked";
+    if (NO_VERDICT.has(verdict)) notChecked++;
+    if (verdict === "supported" ? states : !states) right++;
+    if (verdict === "supported" && !states) falseSupported++;
+  });
+  return { right, falseSupported, notChecked };
+}
+
 /** The report's tables: each flow's first verdict and end, then where each sentence's time went. */
 export function checkTimesReport(runs: readonly FlowTimes[], counts: Map<string, number>): string {
   const lines: string[] = [];
@@ -351,8 +429,8 @@ export function checkTimesReport(runs: readonly FlowTimes[], counts: Map<string,
     groups.set(key, [...(groups.get(key) ?? []), run]);
   }
   lines.push(
-    "| Flow · model · language | Runs | Check starts | First mark | First verdict | Done | Requests | Per sentence: requests, searches | Model time / wait for first byte / thinking, per request | Reranks (median ms) | Load | Spent |",
-    "|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|",
+    "| Flow · model · language | Runs | Check starts | First mark | First verdict | Done | Requests | Per sentence: requests, searches | Model time / wait for first byte / thinking, per request | Reranks (median ms) | Reranks repeated | Load (1 / 15 min) | Spent |",
+    "|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|",
   );
   for (const [key, list] of groups) {
     const count = counts.get(list[0]?.flow ?? "") ?? 0;
@@ -365,8 +443,23 @@ export function checkTimesReport(runs: readonly FlowTimes[], counts: Map<string,
     const perRequest = (pick: (request: CheckRequest) => number) =>
       median(checkRequests.map(pick)) ?? 0;
     lines.push(
-      `| ${key} | ${list.length} | ${s(med((run) => run.checkStartMs))} | ${s(med((run) => run.firstMarkMs))} | ${s(med((run) => run.firstVerdictMs))} | ${s(med((run) => run.doneMs))} | ${(checkRequests.length / list.length).toFixed(1)} | ${(median(per.map((each) => each.requests)) ?? 0).toFixed(1)}, ${(median(per.map((each) => each.searches)) ?? 0).toFixed(1)} | ${s(perRequest((request) => (request.endMs ?? request.startMs) - request.startMs))} / ${s(perRequest((request) => (request.firstByteMs ?? request.startMs) - request.startMs))} / ${s(perRequest((request) => (request.firstReasoningMs !== null && request.firstAnswerMs !== null ? request.firstAnswerMs - request.firstReasoningMs : 0)))} | ${list.map((run) => run.reranks.length).join("/")} (${(median(list.flatMap((run) => run.reranks.map((each) => each.ms))) ?? 0).toFixed(0)}) | ${(median(list.map((run) => run.load)) ?? 0).toFixed(1)} | $${sum(list.map((run) => run.spentUsd)).toFixed(3)} |`,
+      `| ${key} | ${list.length} | ${s(med((run) => run.checkStartMs))} | ${s(med((run) => run.firstMarkMs))} | ${s(med((run) => run.firstVerdictMs))} | ${s(med((run) => run.doneMs))} | ${(checkRequests.length / list.length).toFixed(1)} | ${(median(per.map((each) => each.requests)) ?? 0).toFixed(1)}, ${(median(per.map((each) => each.searches)) ?? 0).toFixed(1)} | ${s(perRequest((request) => (request.endMs ?? request.startMs) - request.startMs))} / ${s(perRequest((request) => (request.firstByteMs ?? request.startMs) - request.startMs))} / ${s(perRequest((request) => (request.firstReasoningMs !== null && request.firstAnswerMs !== null ? request.firstAnswerMs - request.firstReasoningMs : 0)))} | ${list.map((run) => run.reranks.length).join("/")} (${(median(list.flatMap((run) => run.reranks.map((each) => each.ms))) ?? 0).toFixed(0)}) | ${sum(list.map((run) => run.rerankRepeats.repeated))} of ${sum(list.map((run) => run.rerankRepeats.scored))} | ${(median(list.map((run) => run.load)) ?? 0).toFixed(1)} / ${Math.max(...list.map((run) => run.load15)).toFixed(1)} | $${sum(list.map((run) => run.spentUsd)).toFixed(3)} |`,
     );
+  }
+  const checked = [...groups].filter(([, list]) => list.some((run) => run.stated));
+  if (checked.length > 0) {
+    lines.push(
+      "",
+      "| Note check · model · language | Judged right | False Supported | Not checked |",
+      "|---|--:|--:|--:|",
+    );
+    for (const [key, list] of checked) {
+      const each = list.map(judged);
+      const of = list.reduce((total, run) => total + (run.stated?.length ?? 0), 0);
+      lines.push(
+        `| ${key} | ${sum(each.map((one) => one.right))} of ${of} | ${sum(each.map((one) => one.falseSupported))} | ${sum(each.map((one) => one.notChecked))} |`,
+      );
+    }
   }
   for (const [key, list] of groups) {
     const count = counts.get(list[0]?.flow ?? "") ?? 0;
@@ -380,7 +473,7 @@ export function checkTimesReport(runs: readonly FlowTimes[], counts: Map<string,
     for (const run of list) {
       for (const each of perSentence(run, count)) {
         lines.push(
-          `| ${run.run} · ${each.index + 1} | ${each.verdict ?? "–"} | ${s(each.queuedMs)} | ${s(each.landedMs)} | ${each.requests} (${[...each.byKind].map(([kind, n]) => `${kind} ${n}`).join(", ")}) | ${each.searches} | ${each.nudges.join(", ") || "–"} | ${each.retries} | ${s(each.modelMs)} | ${s(each.waitFirstByteMs)} | ${s(each.thinkingMs)} | ${s(each.gapsMs)} |`,
+          `| ${run.run} · ${each.index + 1} | ${each.verdict ?? "–"}${each.reason ? ` (${each.reason})` : ""} | ${s(each.queuedMs)} | ${s(each.landedMs)} | ${each.requests} (${[...each.byKind].map(([kind, n]) => `${kind} ${n}`).join(", ")}) | ${each.searches} | ${each.nudges.join(", ") || "–"} | ${each.retries} | ${s(each.modelMs)} | ${s(each.waitFirstByteMs)} | ${s(each.thinkingMs)} | ${s(each.gapsMs)} |`,
         );
       }
       const unplaced = run.requests.filter((request) => request.sentences.length === 0);

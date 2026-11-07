@@ -679,13 +679,23 @@ export function enter(
 /**
  * Grows from what opened it (DESIGN.md: menus, popovers, the Citation card):
  * from the edge that faces it, 4px toward it at 0.96. `box`: where the
- * element is laid out, if it isn't showing yet to be measured.
+ * element is laid out, if it isn't showing yet to be measured. `spring`: the
+ * panel token for what grows as a whole, as the picture viewer does.
  */
-export function enterFrom(element: HTMLElement, source: Element | Box | null, box?: Box): void {
+export function enterFrom(
+  element: HTMLElement,
+  source: Element | Box | null,
+  box?: Box,
+  { spring: name = "snappy" }: { spring?: SpringName } = {},
+): void {
   if (mode === "off") return;
   const toward = towardSource(box ?? boxOf(element.getBoundingClientRect()), sourceBox(source));
   sources.set(element, toward);
-  enter(element, { x: toward.x, y: toward.y, scale: SOURCE_SCALE }, { origin: toward.origin });
+  enter(
+    element,
+    { x: toward.x, y: toward.y, scale: SOURCE_SCALE },
+    { origin: toward.origin, spring: name },
+  );
 }
 
 /**

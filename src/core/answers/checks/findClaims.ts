@@ -3,15 +3,16 @@
  * the model is shown them numbered, in batches, and decides each. The
  * sentences stay exactly as they are, so each claim is a sentence of the Mind.
  */
-import { generateText } from "ai";
+import { generateText, streamText, type TextStreamPart, type ToolSet } from "ai";
 import type { ClaimPartPlan, ProviderError } from "../../api";
 import type { PreparedChatModel } from "../../providers/chat";
 import { outputTokens } from "../../providers/outputLimits";
 import { classifyProviderError } from "../../providers/providerErrors";
-import { slots } from "../../runs/stop";
+import { type Slots, slots } from "../../runs/stop";
 import { answerTemperature } from "../engine";
 import {
   CLAIM_BATCH,
+  claimPartsReader,
   FIND_CLAIMS_INSTRUCTIONS,
   FIND_OWN_CLAIMS_INSTRUCTIONS,
   FIND_OWN_LIBRARY_CLAIMS_INSTRUCTIONS,
@@ -38,6 +39,36 @@ type Asked =
   | { kind: "unread" }
   | Exclude<ClaimsFound, { kind: "found" }>;
 
+/** How a sort is run with the checks of its sentences. */
+export interface SortAlong {
+  /** The limit on model requests at once that the sort shares with its sentences' checks. */
+  slots?: Slots;
+  /**
+   * Hears each sentence's parts, by its index in `texts`, as soon as the reply names them, for its
+   * check to start before the reply ends; the result, read from the whole reply, still decides.
+   */
+  named?(index: number, parts: readonly ClaimPartPlan[]): void;
+}
+
+/** A sorting reply, streamed: `named` hears each sentence's parts as its record closes. */
+async function streamedReply(
+  parts: AsyncIterable<TextStreamPart<ToolSet>>,
+  sentences: readonly { number: number; text: string }[],
+  named: (number: number, parts: readonly ClaimPartPlan[]) => void,
+  signal: AbortSignal,
+): Promise<string> {
+  const read = claimPartsReader(sentences);
+  let text = "";
+  for await (const part of parts) {
+    if (part.type === "text-delta") {
+      text += part.text;
+      for (const record of read(part.text)) named(record.number, record.parts);
+    } else if (part.type === "error") throw part.error;
+  }
+  signal.throwIfAborted();
+  return text;
+}
+
 /** Names the claims among `texts`: someone else's document's, or the User's own draft's, which leaves out their opinions. */
 export async function claimsAmong(
   prepared: PreparedChatModel,
@@ -46,6 +77,7 @@ export async function claimsAmong(
   signal: AbortSignal,
   /** Its sentences' checks may show the Library's facts, so it sorts as those checks do (#2525). */
   library = false,
+  along: SortAlong = {},
 ): Promise<ClaimsFound> {
   // A sort's reply repeats each part's words, so a batch takes as long as its words: batches go
   // at once, within the provider's limit, and the first that fails ends the rest.
@@ -55,7 +87,7 @@ export async function claimsAmong(
   const ask = async (batch: Batch, tries: number): Promise<Asked> => {
     for (let tried = 0; tried < tries; tried++) {
       try {
-        const { text } = await generateText({
+        const asked = {
           model: prepared.model,
           instructions:
             whose === "someone-else"
@@ -65,10 +97,22 @@ export async function claimsAmong(
                 : FIND_OWN_CLAIMS_INSTRUCTIONS,
           prompt: findClaimsPrompt(batch),
           temperature: answerTemperature(prepared.capabilities.facts.temperature),
-          maxOutputTokens: outputTokens("find-claims"),
           maxRetries: 1,
           abortSignal: sorting,
-        });
+        };
+        const named = along.named;
+        const text = named
+          ? await streamedReply(
+              streamText({
+                ...asked,
+                maxOutputTokens: outputTokens("find-claims"),
+                onError: () => undefined,
+              }).fullStream,
+              batch,
+              (number, parts) => named(number - 1, parts),
+              sorting,
+            )
+          : (await generateText({ ...asked, maxOutputTokens: outputTokens("find-claims") })).text;
         const parts = readClaimParts(text, batch);
         if (parts) return { kind: "read", parts };
       } catch (error) {
@@ -119,7 +163,7 @@ export async function claimsAmong(
         .map((sentence, index) => ({ number: start + index + 1, ...sentence })),
     );
   }
-  const limit = slots(claimsAtOnce(prepared));
+  const limit = along.slots ?? slots(claimsAtOnce(prepared));
   const sorted = await Promise.all(
     batches.map((batch) =>
       limit.run(async () => {

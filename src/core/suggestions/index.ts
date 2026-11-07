@@ -322,7 +322,8 @@ export function createSuggestions(options: SuggestionsOptions) {
     if ((await pausedFor(choice)) !== null || !choice || signal.aborted) return NONE;
 
     const query = queryOf(paragraph);
-    const found = (await citing.findPassages(query, documentIds, signal)).filter(
+    // A pause is background work: the search uses only flows already allowed, asking never.
+    const found = (await citing.findPassages(query, documentIds, signal, true)).filter(
       (passage) => !passage.notCited,
     );
     const best = found[0];

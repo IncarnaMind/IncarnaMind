@@ -204,6 +204,8 @@ export interface AnswerSearchOptions {
   properties?: true;
   /** The Library's own facts too: a check's search, for a sentence about the Library itself (#2525). */
   library?: true;
+  /** A search no one is waiting on (a writing suggestion): it never asks for consent. */
+  background?: boolean;
 }
 
 /** A page range, a Document opening, or the Passages around one already shown. */
@@ -427,6 +429,8 @@ export interface AnswerRequest {
    * read the Minds, and the search rewrite's notebook.
    */
   mindsLine?: { line: string; asked: string };
+  /** The scope lines the Answer added just before the Question, kept out of the search rewrite's context (#2529). */
+  scopeLine?: string;
   /** The model to answer with, from `Core.prepareChatModel`. */
   model: ChatLanguageModel;
   /**
@@ -904,7 +908,10 @@ async function searchQuery(
   small: () => Promise<SmallCallModel>,
 ): Promise<SmallCallResult<string>> {
   const { question, signal } = request;
-  const earlier = earlierContext(request.messages, question);
+  const earlier = earlierContext(request.messages, question, undefined, [
+    request.scopeLine ?? "",
+    request.mindsLine?.line ?? "",
+  ]);
   if (!earlier) return { value: question, usage: null };
   try {
     const { model, temperature } = await small();

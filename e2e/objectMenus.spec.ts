@@ -548,7 +548,7 @@ test("each item shows its shortcut as the system writes it, and the labels are i
     "作为来源使用",
     "导出…",
     "导出 AI 使用声明",
-    "导出核对记录…",
+    "导出核对记录",
     "历史版本",
     "核对",
     "核对数字",

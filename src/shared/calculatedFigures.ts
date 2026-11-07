@@ -14,7 +14,7 @@ import {
 } from "../core/api";
 import { isRecord } from "../core/errors";
 import type { NodeJSON } from "./blockJson";
-import { citationAttributesOf, parseQuotedWords } from "./citations";
+import { citationAttributesOf, parseQuotedWordsCheck } from "./citations";
 import { FORMULA_MAX_LENGTH, type ResultUnit, type ShowAs } from "./formula";
 import { parseLocation } from "./locations";
 import { parseCellRef } from "./units";
@@ -97,7 +97,7 @@ export function readFigureCitation(value: unknown): Citation | null {
     reason === undefined
   )
     return null;
-  const words = value.quotedWords == null ? null : parseQuotedWords(value.quotedWords);
+  const words = value.quotedWords == null ? null : parseQuotedWordsCheck(value.quotedWords);
   if (value.quotedWords != null && !words) return null;
   return {
     passageId: read.passageId,
@@ -111,10 +111,13 @@ export function readFigureCitation(value: unknown): Citation | null {
     check: read.check,
     checkReason: reason,
     ...(words && {
-      quotedWords: {
-        answer: words.answer.map(({ text, found }) => ({ text, found })),
-        closest: words.closest?.map(({ text, found }) => ({ text, found })) ?? null,
-      },
+      quotedWords:
+        "answer" in words
+          ? {
+              answer: words.answer.map(({ text, found }) => ({ text, found })),
+              closest: words.closest?.map(({ text, found }) => ({ text, found })) ?? null,
+            }
+          : words,
     }),
   };
 }

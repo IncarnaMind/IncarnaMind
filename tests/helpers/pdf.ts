@@ -2,7 +2,7 @@ import { deflateSync } from "node:zlib";
 
 /**
  * Builds tiny, valid PDFs for tests, so fixtures stay readable and small
- * instead of being committed as binaries. The sample PDFs in `data/` are built
+ * instead of being committed as binaries. The sample PDFs in `eval/data/` are built
  * with it too (`scripts/sampleDocuments`), so what the app reads is the same
  * kind of file the tests do.
  */
@@ -64,8 +64,8 @@ export interface PdfPage {
   invisibleText?: boolean;
   /** The degrees `printed` and `chineseLines` are set at, as a stamp up a margin is. */
   tilt?: number;
-  /** Text drawn where each says, in Helvetica at 10 points: a table's cells. */
-  placed?: readonly { text: string; x: number; y: number }[];
+  /** Text drawn where each says, in Helvetica (at 10 points unless given): a table's cells or a figure's footnote mark. */
+  placed?: readonly { text: string; x: number; y: number; size?: number }[];
   /** Rules and filled rectangles, drawn before the text. */
   drawn?: readonly PdfDrawing[];
   /** Draws a small greyscale image, like a scanned page. */
@@ -413,10 +413,10 @@ function contentStream(page: PdfPage, symbols: readonly PdfSymbol[]): string {
     parts.push(`BT /F1 11 Tf 72 ${y} Td (${escapeLatin(encode(line, symbols))}) Tj ET`);
     y -= LINE_HEIGHT;
   }
-  for (const { text, x, y: at } of page.placed ?? []) {
+  for (const { text, x, y: at, size = 10 } of page.placed ?? []) {
     const chinese = /\p{Script=Han}/u.test(text);
     const shown = chinese ? `<${toUcs2Hex(text)}>` : `(${escapeLatin(encode(text, symbols))})`;
-    parts.push(`BT /${chinese ? "F2" : "F1"} 10 Tf ${x} ${at} Td ${shown} Tj ET`);
+    parts.push(`BT /${chinese ? "F2" : "F1"} ${size} Tf ${x} ${at} Td ${shown} Tj ET`);
   }
   for (const line of page.chineseLines ?? []) {
     parts.push(`BT /F2 11 Tf ${place(72)} <${toUcs2Hex(line)}> Tj ET`);

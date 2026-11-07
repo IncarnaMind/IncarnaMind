@@ -167,6 +167,9 @@ async function supportOf(
     computed: [],
     inputs: [],
     citations: sentence.found.map((citation) => ({ citation, units: units(citation) })),
+    quotedWords: [
+      ...new Set(sentence.found.flatMap((citation) => citation.quotedWordsFound ?? [])),
+    ],
     confirm: async () => false,
   });
   return calculation ? null : { check: "found", verdict: null };

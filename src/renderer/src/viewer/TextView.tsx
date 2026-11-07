@@ -17,6 +17,7 @@ import { findQuote, type TextRange } from "../../../shared/quoteMatch";
 import { useAnnotations, useDocumentAnnotations } from "../annotations";
 import { DocumentFix } from "../components/DocumentFix";
 import { useT } from "../i18n";
+import { openDocumentPicture, pictureClickHandlers } from "../pictureViewer";
 import type { ViewerTarget } from "../store";
 import { AnnotationNoteLayer } from "./AnnotationNoteLayer";
 import { type AnnotationRange, annotationRangesIn } from "./annotationMarks";
@@ -293,6 +294,7 @@ function TextContent({
     return starts;
   }, [units]);
   const mark = quoteMarkOf(target.citation);
+  const pictureClick = useMemo(() => pictureClickHandlers(openDocumentPicture), []);
   const [markTop, setMarkTop] = useState<number | null>(null);
   const [markRoom, setMarkRoom] = useState(0);
 
@@ -403,7 +405,7 @@ function TextContent({
         className="viewer-backdrop viewer-text-backdrop min-h-0 min-w-0 flex-1 overflow-auto select-text"
       >
         <article className="viewer-page viewer-text-page" data-area-unit="">
-          <div ref={column} className="relative">
+          <div ref={column} className="relative" {...pictureClick}>
             {blocks && !source ? (
               <MarkdownBlocks
                 blocks={blocks}

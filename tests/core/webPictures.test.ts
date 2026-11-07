@@ -121,7 +121,7 @@ describe("A web page's pictures", { timeout: 30_000 }, () => {
     const dataDir = await createTempDataFolder();
     const core = startCore(dataDir, {
       ...web.adapters,
-      webPages: { pictureLimits: { ...PICTURE_LIMITS, maxCount: 1 } },
+      webPages: { fetch, pictureLimits: { ...PICTURE_LIMITS, maxCount: 1 } },
     });
 
     const page = await saved(core, `http://127.0.0.1:${web.port}/report`);
@@ -140,6 +140,7 @@ describe("A web page's pictures", { timeout: 30_000 }, () => {
     const strict = startCore(await createTempDataFolder(), {
       ...web.adapters,
       webPages: {
+        fetch,
         pictureLimits: {
           ...PICTURE_LIMITS,
           maxBytes: Math.min(CHART.byteLength, BERTH.byteLength),

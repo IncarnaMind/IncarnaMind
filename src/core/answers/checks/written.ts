@@ -74,6 +74,7 @@ import {
 import { MindReadOnlyError } from "../../errors";
 import type { PreparedChatModel } from "../../providers/chat";
 import type { RecordCitePlace } from "../../recordCites/referents";
+import { asCheckWork } from "../../reranking/order";
 import { type ItemOutcome, RunItemError, runItems, type Slots, slots } from "../../runs/stop";
 import { inStep } from "../../timing/flows";
 import { type MarkJSON, type NodeJSON, syncContent, topLevelBlocks } from "../blocks";
@@ -1012,45 +1013,52 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     };
     const { stop } = await runItems(
       waiting ? [] : sending,
-      async (sentence): Promise<Checked> => {
-        const read = reads.get(sentence) ?? { claim: sentence.text, context: sentence.context };
-        const first =
-          looked.get(sentence) ??
-          (quick &&
-            (await options.firstLook({
-              claim: read.claim,
-              figures: read.figures?.length ?? 0,
-              inCell: sentence.inCell,
-              place:
-                sentence.place.after.kind === "start" && beforeWrite
-                  ? { ...sentence.place, after: beforeWrite }
-                  : sentence.place,
-              paragraph: sentence.context,
-              citations: sentence.citations,
-              scope: scope.scope,
-              ask: (asked, until) => quickLook(quick, asked, until),
-              signal: AbortSignal.any([
-                signal,
-                AbortSignal.timeout(options.claimTimeLimitMs * FIRST_LOOK_SHARE),
-              ]),
-            })));
-        if (quick && first?.result) {
-          return { result: first.result, uncovered: null, nodes: null, by: quick, passedOn: null };
-        }
-        if (first) looked.set(sentence, first);
-        const result = await checkWithin(sentence, read, mindId, scope, prepared, limit, signal);
-        const failure = runFailureOf(result);
-        if (failure) throw new RunItemError(failure);
-        // Asked to cut what a cell's Citations don't state, Edit with AI rewrote its figure.
-        const uncovered =
-          result.verdict === "unsupported" && result.unsupported?.covered && !sentence.inCell
-            ? result.unsupported.uncovered
+      (sentence): Promise<Checked> =>
+        asCheckWork(async () => {
+          const read = reads.get(sentence) ?? { claim: sentence.text, context: sentence.context };
+          const first =
+            looked.get(sentence) ??
+            (quick &&
+              (await options.firstLook({
+                claim: read.claim,
+                figures: read.figures?.length ?? 0,
+                inCell: sentence.inCell,
+                place:
+                  sentence.place.after.kind === "start" && beforeWrite
+                    ? { ...sentence.place, after: beforeWrite }
+                    : sentence.place,
+                paragraph: sentence.context,
+                citations: sentence.citations,
+                scope: scope.scope,
+                ask: (asked, until) => quickLook(quick, asked, until),
+                signal: AbortSignal.any([
+                  signal,
+                  AbortSignal.timeout(options.claimTimeLimitMs * FIRST_LOOK_SHARE),
+                ]),
+              })));
+          if (quick && first?.result) {
+            return {
+              result: first.result,
+              uncovered: null,
+              nodes: null,
+              by: quick,
+              passedOn: null,
+            };
+          }
+          if (first) looked.set(sentence, first);
+          const result = await checkWithin(sentence, read, mindId, scope, prepared, limit, signal);
+          const failure = runFailureOf(result);
+          if (failure) throw new RunItemError(failure);
+          // Asked to cut what a cell's Citations don't state, Edit with AI rewrote its figure.
+          const uncovered =
+            result.verdict === "unsupported" && result.unsupported?.covered && !sentence.inCell
+              ? result.unsupported.uncovered
+              : null;
+          const nodes = uncovered
+            ? await cutOf(blocks, mindId, sentence, uncovered, prepared, scope, limit, signal)
             : null;
-        const nodes = uncovered
-          ? await cutOf(blocks, mindId, sentence, uncovered, prepared, scope, limit, signal)
-          : null;
-        return { result, uncovered, nodes, by: prepared, passedOn: first?.asked ? quick : null };
-      },
+          return { result, uncovered, nodes, by: prepared, passedOn: first?.asked ? quick : null };
+        }),
       {
         concurrency: claimsAtOnce(prepared),
         signal,

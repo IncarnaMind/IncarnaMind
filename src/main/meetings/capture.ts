@@ -43,6 +43,7 @@ const SETTINGS: Partial<Record<NodeJS.Platform, Record<AudioSource, string>>> = 
 };
 
 const CAPTURE_STATES: ReadonlySet<string> = new Set([
+  "waiting",
   "recording",
   "denied",
   "unavailable",
@@ -191,6 +192,13 @@ export function createElectronAudioCapture({
       });
 
       const begin = async () => {
+        // While the system's prompt is open nothing is captured, so the Meeting says it waits.
+        if (
+          process.platform === "darwin" &&
+          systemPreferences.getMediaAccessStatus("microphone") === "not-determined"
+        ) {
+          sink.state("microphone", "waiting");
+        }
         const microphone = await microphoneAllowed();
         if (!microphone) sink.state("microphone", "denied");
         await new Promise<void>((resolve, reject) => {

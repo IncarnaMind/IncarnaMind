@@ -1354,7 +1354,8 @@ export function createEdits(options: EditsOptions) {
         const waiting = content.read(input.mindId, (mind) =>
           waitingIn(mind, input.from, input.to, input.ownRequests),
         );
-        return waiting.kind === "own"
+        // A rewrite over its own waiting removal has no text left to rewrite (#2502).
+        return waiting.kind === "own" && !waiting.removesWhole
           ? await revise(input, waiting)
           : nothing({ kind: "has-proposals" });
       }

@@ -152,6 +152,13 @@ export interface AppState extends LayoutSlice {
   /** Most recently added first. */
   documents: Document[];
   /**
+   * The Documents the sidebar's tree may list while Document batches are still
+   * being added: those it listed when the first batch began, so no row moves
+   * down as each part of a batch lands (#1329). Null: nothing is being added.
+   * The Library's count still follows every Document.
+   */
+  heldDocuments: readonly string[] | null;
+  /**
    * The text kept of Documents unlinked with their Linked folder, so the
    * Citations that quote it can still be checked. Set once loaded, then follows the core's event.
    */
@@ -202,6 +209,8 @@ export interface AppState extends LayoutSlice {
    * again); or "starters", the starter Folders at its top.
    */
   libraryFilter: string;
+  /** The Folder the Library is open on, for a Question's Folder in front (#2529); null: none. */
+  libraryFolderId: string | null;
   refreshLibrary(): Promise<void>;
   /**
    * Shows the Library (one tab per window), at a Folder's section if given:
@@ -502,6 +511,12 @@ function moveLinkSteps(from: string, to: string): void {
 /** Puts a Linked folder in the list in place, if it's there. New ones arrive with the core's event. */
 const replaceLinked = (linkedFolders: LinkedFolder[], linked: LinkedFolder) =>
   linkedFolders.map((each) => (each.id === linked.id ? linked : each));
+
+/**
+ * The batches still being added, by id: while one is, the sidebar's tree holds the rows it had
+ * when the first batch began, so nothing moves down as the rest of a batch lands (#1329).
+ */
+const addingBatches = new Set<string>();
 
 /**
  * The core's per-Document events (status, Tags, moves, removals, Library
@@ -985,6 +1000,7 @@ export const useAppStore = create<AppState>()((set, get) => {
     settings: null,
     chatReadiness: null,
     documents: [],
+    heldDocuments: null,
     keptCitationTexts: [],
     skippedFiles: [],
     alreadyAdded: [],
@@ -1004,6 +1020,7 @@ export const useAppStore = create<AppState>()((set, get) => {
     tagsDialogOpen: false,
     library: null,
     libraryFilter: "all",
+    libraryFolderId: null,
     refreshLibrary: async () => {
       const ticket = ++libraryRequest;
       const library = await core.getLibrary();
@@ -1015,6 +1032,10 @@ export const useAppStore = create<AppState>()((set, get) => {
         ...(!["all", "unsorted", "starters", LIBRARY_DELETED].includes(get().libraryFilter) &&
         !library.groups.some((g) => g.id === get().libraryFilter)
           ? { libraryFilter: "all" }
+          : {}),
+        ...(get().libraryFolderId !== null &&
+        !library.groups.some((g) => g.id === get().libraryFolderId)
+          ? { libraryFolderId: null }
           : {}),
       });
     },
@@ -1039,7 +1060,8 @@ export const useAppStore = create<AppState>()((set, get) => {
       });
     },
     openLibrary: (filter = "all", options) => {
-      set({ libraryFilter: filter });
+      const folder = get().library?.groups.some((group) => group.id === filter) ?? false;
+      set({ libraryFilter: filter, libraryFolderId: folder ? filter : null });
       void get().changeLayout({
         type: "open",
         item: { kind: "library" },
@@ -2163,6 +2185,28 @@ core.on("document.status", (changed) => {
   documentUpdates.upsert([changed]);
   const state = useAppStore.getState();
   if (readOwnDocument(changed, state)) state.updateGettingStarted({ indexed: true });
+});
+
+// A batch of new Documents is landing: the sidebar's tree holds the rows it had until the last
+// batch has all been added, so they don't move down as each part of it arrives (#1329). The count
+// follows every Document meanwhile.
+core.on("documents.batch", (batch) => {
+  // A Linked folder's first scan can wait, paused or out of reach, for a long while: its Documents
+  // show as what the folder found, and are no reason to hold the tree (#1329).
+  if (batch.linkedFolderId !== null) return;
+  const wasAdding = addingBatches.size > 0;
+  if (batch.adding) addingBatches.add(batch.id);
+  else addingBatches.delete(batch.id);
+  const adding = addingBatches.size > 0;
+  if (!wasAdding && adding) {
+    const { documents } = useAppStore.getState();
+    useAppStore.setState({ heldDocuments: documents.map((each) => each.id) });
+  } else if (wasAdding && !adding) {
+    // The batch has all been added: apply what its last status events say now, before its
+    // Documents are listed, so they arrive with the rest instead of one by one above them.
+    documentUpdates.flush();
+    useAppStore.setState({ heldDocuments: null });
+  }
 });
 
 // The examples made, opened again or removed: their Mind and Linked folder show "Example".

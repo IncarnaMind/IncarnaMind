@@ -41,15 +41,12 @@ const COMPANY_ABBREVIATION = /(?:^|\s)(?:inc|ltd|co|corp)\.$/iu;
 const CITATION_SIGNAL =
   /\b(?:see|also|cf|accord|but|e\.g|compare|with|and|generally|contra)\b\.?,?/giu;
 
-/** Whether a sentence holds record cites and nothing else ("Smith Dep. 45:3–12.", "Id."). */
+/** Whether a sentence holds record cites and nothing else ("Smith Dep. 45:3–12.", "Id."), the cites it holds being `cites`. */
 function onlyRecordCites(text: string, from: number, to: number, cites: readonly SentenceSpan[]) {
-  const inside = cites
-    .filter((cite) => cite.from >= from && cite.to <= to)
-    .sort((a, b) => a.from - b.from);
-  if (inside.length === 0) return false;
+  if (cites.length === 0) return false;
   let rest = "";
   let at = from;
-  for (const cite of inside) {
+  for (const cite of cites) {
     rest += text.slice(at, Math.max(at, cite.from));
     at = Math.max(at, cite.to);
   }
@@ -74,8 +71,19 @@ export function sentenceSpans(text: string, figures: readonly number[] = []): Se
   }
   const decisions = citedCases(text);
   const records = recordCiteSpans(text);
-  const unbrokenCitations: SentenceSpan[] = [...decisions, ...records];
+  // The cites come in order, so each segment looks at the one place they have reached, not at all
+  // of them (#2523).
+  const unbrokenCitations: SentenceSpan[] = [...decisions, ...records].sort(
+    (a, b) => a.from - b.from,
+  );
+  const decisionStarts = new Set(decisions.map((each) => each.from));
   const spans: SentenceSpan[] = [];
+  let citationAt = 0;
+  const overlapsCitation = (previousTo: number, from: number): boolean => {
+    while ((unbrokenCitations[citationAt]?.to ?? Number.POSITIVE_INFINITY) <= from) citationAt++;
+    const citation = unbrokenCitations[citationAt];
+    return citation !== undefined && citation.from < previousTo;
+  };
   for (const { segment, index } of segmenter.segment(text)) {
     let from = index;
     let to = index + segment.length;
@@ -86,26 +94,39 @@ export function sentenceSpans(text: string, figures: readonly number[] = []): Se
     }
     while (to > from && isSpace(text[to - 1])) to--;
     const before = previous && text.slice(previous.from, previous.to);
-    const startsDecision = decisions.some((each) => each.from === from);
+    const startsDecision = decisionStarts.has(from);
     const joined =
       before !== undefined &&
       ((ABBREVIATION.test(before) && !(startsDecision && COMPANY_ABBREVIATION.test(before))) ||
         (PAGE_REFERENCE.test(before) && /^\d/u.test(text.slice(from, to))));
     if (previous && joined && from < to) previous.to = to;
-    else if (
-      previous &&
-      unbrokenCitations.some((each) => each.from < previous.to && each.to > from)
-    ) {
+    else if (previous && overlapsCitation(previous.to, from)) {
       previous.to = to;
     } else if (from < to && hasWords(text.slice(from, to))) spans.push({ from, to });
     else if (previous && from < to) previous.to = to;
   }
-  return spans.reduce<SentenceSpan[]>((kept, span) => {
+  const kept: SentenceSpan[] = [];
+  let recordAt = 0;
+  for (const span of spans) {
+    while ((records[recordAt]?.from ?? Number.POSITIVE_INFINITY) < span.from) recordAt++;
+    const inside: SentenceSpan[] = [];
+    let scan = recordAt;
+    let after: number | null = null;
+    while ((records[scan]?.from ?? Number.POSITIVE_INFINITY) <= span.to) {
+      const record = records[scan];
+      if (!record) break;
+      if (record.to <= span.to) inside.push(record);
+      // A cite that starts where this sentence ends may be inside the next one, which starts there
+      // too when no space stands between them.
+      else if (record.from === span.to && after === null) after = scan;
+      scan++;
+    }
+    recordAt = after ?? scan;
     const previous = kept.at(-1);
-    if (previous && onlyRecordCites(text, span.from, span.to, records)) previous.to = span.to;
+    if (previous && onlyRecordCites(text, span.from, span.to, inside)) previous.to = span.to;
     else kept.push(span);
-    return kept;
-  }, []);
+  }
+  return kept;
 }
 
 const SENTENCE_END = new RegExp(`[.!?。！？]["'”’)）\\]】${INLINE_NODE}\\s]*$`, "u");

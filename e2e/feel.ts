@@ -39,15 +39,6 @@ type Known = { flow: string; step: string; issue: number; sometimes?: true } & (
 const TIMES_FAIL = process.env.CI !== undefined;
 
 export const KNOWN: readonly Known[] = [
-  {
-    flow: "library-2000",
-    step: "add 2,000 Documents",
-    kind: "shift",
-    moved: ["library-row-count", "document-list-item"],
-    max: 0.0413,
-    sometimes: true,
-    issue: 1329,
-  },
   { flow: "library-2000", step: "show all 2,000", kind: "input", max: 2900, issue: 1313 },
   { flow: "library-2000", step: "show all 2,000", kind: "long-task", max: 2500, issue: 1313 },
   {
@@ -303,7 +294,7 @@ export interface Feel {
   /**
    * Records what is left and writes the report. `failing`: what no known entry excuses. `stale`:
    * shift and focus entries that didn't happen. `unseen`: the known times, and focus that depends
-   * on timing, that didn't happen this run, which CI lists without failing.
+   * on timing, that didn't happen this run, written beside the report without failing.
    */
   finish(): Promise<{ failing: string[]; stale: string[]; unseen: string[] }>;
 }

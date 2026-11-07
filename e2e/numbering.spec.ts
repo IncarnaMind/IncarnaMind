@@ -400,6 +400,112 @@ for (const { language, width, items: words } of SETTINGS) {
     await app.close();
   });
 
+  test(`a list in an Answer, a quote or a table cell doesn't change how a list beside it continues (${language}, ${width} px)`, async () => {
+    test.setTimeout(120_000);
+    const { app, window, editor } = await openMind(language, width);
+    const entry = (text: string) => ({
+      type: "listItem",
+      content: [{ type: "paragraph", content: [{ type: "text", text }] }],
+    });
+    const numbered = (attrs: Record<string, unknown>, ...texts: string[]) => ({
+      type: "orderedList",
+      attrs,
+      content: texts.map(entry),
+    });
+    const word = (name: string) => (language === "en" ? name : `条目${name}`);
+    await editor.evaluate(
+      (dom, content) => {
+        (dom as unknown as { editor: Editor }).editor.commands.insertContentAt(
+          (dom as unknown as { editor: Editor }).editor.state.doc.content.size,
+          content,
+        );
+      },
+      [
+        {
+          type: "blockquote",
+          content: [numbered({ numbering: "clauses" }, word("一"), word("二"))],
+        },
+        numbered({}, word("三")),
+        numbered({}, word("四"), word("五")),
+        {
+          type: "answer",
+          content: [numbered({ numbering: "clauses" }, word("六"), word("七"), word("八"))],
+        },
+        {
+          type: "blockquote",
+          content: [numbered({}, word("九"), word("十"), word("十一"), word("十二"))],
+        },
+        {
+          type: "table",
+          content: [
+            {
+              type: "tableRow",
+              content: [
+                {
+                  type: "tableCell",
+                  attrs: { colspan: 1, rowspan: 1 },
+                  content: [
+                    numbered(
+                      {},
+                      word("十三"),
+                      word("十四"),
+                      word("十五"),
+                      word("十六"),
+                      word("十七"),
+                    ),
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+        numbered({}, word("十八"), word("十九")),
+      ],
+    );
+    const itemOf = (text: string) => editor.locator("ol li").filter({ hasText: text }).first();
+    const expected = [
+      "(a)",
+      "(b)",
+      "1.",
+      "1.",
+      "2.",
+      "(a)",
+      "(b)",
+      "(c)",
+      "1.",
+      "2.",
+      "3.",
+      "4.",
+      "1.",
+      "2.",
+      "3.",
+      "4.",
+      "5.",
+      "1.",
+      "2.",
+    ];
+    await expect.poll(() => markers(editor)).toEqual(expected);
+
+    // Only numbered lists are above it, not one in the Answer, the quote or the table cell.
+    await pointAndClick(window, itemText(itemOf(word("三"))), { button: "right" });
+    const menu = window.getByTestId("list-item-menu");
+    await expect(menu).toBeVisible();
+    await expect(menu.getByTestId("numbering-continue")).toHaveAttribute("aria-disabled", "true");
+    await window.keyboard.press("Escape");
+    await expect(menu).toBeHidden();
+
+    await pointAndClick(window, itemText(itemOf(word("十八"))), { button: "right" });
+    await expect(menu.getByTestId("numbering-continue")).not.toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    await pointAndClick(window, menu.getByTestId("numbering-continue"));
+    await expect.poll(() => markers(editor)).toEqual([...expected.slice(0, -2), "3.", "4."]);
+    await window.keyboard.press(UNDO);
+    await expect.poll(() => markers(editor)).toEqual(expected);
+    await app.close();
+  });
+
   test(`one room for the whole list: a wide 十一、 widens it in 12px steps, and the short 一、 gets more space after it (${language}, ${width} px)`, async () => {
     const { app, window, editor } = await openMind(language, width);
     const left = await edge(editor);
