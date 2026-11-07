@@ -111,7 +111,6 @@ export async function runItems<I, T>(
   let limitedOut: ProviderError | null = null;
   let holding = 0;
 
-  /** An outcome, recorded; `hear` says it once outside the try that ran its item. */
   const settle = (index: number, outcome: ItemOutcome<T>) => {
     outcomes[index] = outcome;
   };
