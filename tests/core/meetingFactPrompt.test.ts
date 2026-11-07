@@ -34,7 +34,10 @@ test("heading meaning stays in the generation, not in a heading-name list", () =
   expect(prompt).toContain("whether or not the User typed lines under it");
   expect(prompt).toContain("never an ordinary paragraph");
   expect(prompt).toContain(
-    "Name every person as they introduced themselves or were named in the call",
+    "Write the User, who reads these notes, in the first person (I, my; 我 in Chinese), even when the call gave their name",
+  );
+  expect(prompt).toContain(
+    "Name everyone else as they introduced themselves or were named in the call",
   );
   expect(prompt).toContain(
     "The speaker marks (Me, Them and numbered voices, or their translations) are not names",
