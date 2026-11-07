@@ -88,6 +88,18 @@ export const ONE_SEARCH_PARAMETERS: Partial<SearchToolParameters> = {
   maxPassages: 12,
 };
 
+/**
+ * What a search of one Document hands a model that searches at once (src/core/providers/catalog
+ * /answerPaths): the one search's 12 Passages, from up to four places in it. With the Tool's own
+ * counts, a search of one Document gets two places, 6 Passages, since the cap per Document is for
+ * spreading a search across Documents; on a Question about what one Document says, DeepSeek V4.1
+ * Flash searched and read five rounds before writing.
+ */
+export const ONE_DOCUMENT_PARAMETERS: Partial<SearchToolParameters> = {
+  maxWindowsPerDocument: 4,
+  maxPassages: 12,
+};
+
 /** A hit from hybrid search, with its fused score (higher is better). */
 export interface SearchCandidate extends WindowedPassage {
   score: number;

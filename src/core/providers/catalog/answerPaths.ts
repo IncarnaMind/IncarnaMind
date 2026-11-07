@@ -52,6 +52,16 @@ const WRITES_THEN_CITES: readonly Admitted[] = [
  */
 const RETRIEVES_FIRST: readonly Admitted[] = [];
 
+/**
+ * Makes its searches at once (#2706): the instructions ask for every search in one step, and for
+ * a Question about what a Document says to be answered from what its searches find, not read page
+ * after page; a search the model makes in one Document hands the one search's 12 Passages from up
+ * to four places in it. On a Question about one report, DeepSeek V4.1 Flash searched and read in
+ * five rounds before it wrote, each search of the report handing two places in it. No model is
+ * listed until it passes eval/speed/gates/search-at-once.md.
+ */
+const SEARCHES_AT_ONCE: readonly Admitted[] = [];
+
 /** A model as an Answer runs it. */
 export interface ListedModel {
   catalogId: string | null;
@@ -62,6 +72,7 @@ export interface ListedModel {
 export interface AnswerPathsOverride {
   writesThenCites?(model: ListedModel): boolean | undefined;
   retrievesFirst?(model: ListedModel): boolean | undefined;
+  searchesAtOnce?(model: ListedModel): boolean | undefined;
 }
 
 const listed = (
@@ -86,3 +97,9 @@ export const retrievesFirst = (
   flow: AnswerFlow,
   override?: AnswerPathsOverride,
 ): boolean => override?.retrievesFirst?.(model) ?? listed(RETRIEVES_FIRST, model, flow);
+
+export const searchesAtOnce = (
+  model: ListedModel,
+  flow: AnswerFlow,
+  override?: AnswerPathsOverride,
+): boolean => override?.searchesAtOnce?.(model) ?? listed(SEARCHES_AT_ONCE, model, flow);

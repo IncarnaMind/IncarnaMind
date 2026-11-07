@@ -86,7 +86,11 @@ import type {
   ThirdPartyReason,
   UnreadFile,
 } from "../api";
-import { ONE_SEARCH_PARAMETERS, type SearchToolParameters } from "../documents/searchTool";
+import {
+  ONE_DOCUMENT_PARAMETERS,
+  ONE_SEARCH_PARAMETERS,
+  type SearchToolParameters,
+} from "../documents/searchTool";
 import { detectLanguage } from "../documents/textLanguage";
 import type { ChatLanguageModel, ContextWindow } from "../providers/models";
 import { type ModelCallKind, outputTokens } from "../providers/outputLimits";
@@ -484,6 +488,8 @@ export interface AnswerRequest {
    * answer from those Passages without searching; it searches on when they aren't enough.
    */
   retrieveFirst?: boolean;
+  /** In the Tool loop, a search of one Document hands more of it (`ONE_DOCUMENT_PARAMETERS`, #2706). */
+  searchAtOnce?: boolean;
   /** False: the model is known to give no structured output, so it isn't tried. */
   structuredOutput?: boolean;
   /**
@@ -1569,6 +1575,7 @@ export function documentTools(
   documents: AnswerTools,
   hooks: DocumentToolsHooks,
   toolSet: ToolSet = "answer",
+  oneDocument?: Partial<SearchToolParameters>,
 ): { search: Tool; read: Tool | null; cite: Tool; calculate: Tool | null } {
   const own = (name: string) => ({ name, provider: DOCUMENTS_PROVIDER, providerTool: name });
   const checking = toolSet === "check";
@@ -1625,7 +1632,8 @@ export function documentTools(
         try {
           found = await documents.searchDocuments(String(query ?? ""), signal, {
             rerank: false,
-            ...(typeof document === "string" && document !== "" && { document }),
+            ...(typeof document === "string" &&
+              document !== "" && { document, ...(oneDocument && { parameters: oneDocument }) }),
             ...(properties && asked === true && { properties: true }),
             ...(library && askedLibrary === true && { library: true }),
           });
@@ -1902,6 +1910,7 @@ async function* toolLoop(
             ...(request.languageNote && { languageNote: request.languageNote }),
           },
           request.toolSet,
+          request.searchAtOnce ? ONE_DOCUMENT_PARAMETERS : undefined,
         )
       : null;
   const search = documents?.search ?? null;

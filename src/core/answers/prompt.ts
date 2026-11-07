@@ -835,6 +835,13 @@ function addedLine(listed: number, library: number, scoped: boolean): string {
  * Tool loop writes the Answer, then cites it; `minds`: it is offered the Tools that write into Minds.
  * `library`: the Library's own count, when it holds more than `listed` (#1333).
  */
+/**
+ * For a model that searches at once (#2706): DeepSeek V4.1 Flash searched a report and read it
+ * page after page, five rounds, hunting figures its searches didn't show, before it wrote.
+ */
+const SEARCH_AT_ONCE =
+  "Make all the searches you need in one step, several queries at once. A Question about what a Document says on a topic is answered from the Passages its searches find: don't read page after page for a figure the searches didn't show.";
+
 export function documentInstructions(
   mode: CitationSupport | "no-documents",
   listed: ListedDocuments,
@@ -846,7 +853,8 @@ export function documentInstructions(
     writeFirst = false,
     minds = false,
     library = { total: listed.total },
-  }: { writeFirst?: boolean; minds?: boolean; library?: LibraryDocuments } = {},
+    atOnce = false,
+  }: { writeFirst?: boolean; minds?: boolean; library?: LibraryDocuments; atOnce?: boolean } = {},
 ): string {
   const dated = datedDocumentsNote(passages);
   const notes = [
@@ -863,7 +871,7 @@ export function documentInstructions(
       return "";
     case "tools":
       return [
-        `${added} Search them with search_documents whenever they may help; search again with other words if the Passages don't answer the Question.`,
+        `${added} Search them with search_documents whenever they may help; search again with other words if the Passages don't answer the Question.${atOnce ? ` ${SEARCH_AT_ONCE}` : ""}`,
         documentNames(listed),
         ...rest,
         "",

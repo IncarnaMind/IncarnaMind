@@ -30,6 +30,7 @@ export interface Arm {
   paths?: {
     writesThenCites?: boolean;
     retrievesFirst?: boolean;
+    searchesAtOnce?: boolean;
   };
   /** Whether the quick model looks first at every written sentence (#1667); unset: the list's. */
   checks?: { quickFirstLook?: boolean };
@@ -116,6 +117,12 @@ export const ARMS: readonly Arm[] = [
       "the Question searched before the first call, answered from those Passages unless it needs more (#1633)",
     paths: { retrievesFirst: true },
   },
+  {
+    id: "search-at-once",
+    label:
+      "every search in one step, a Question about a Document answered from what its searches find, and a search of one Document handing 12 Passages from up to four places (#2706)",
+    paths: { searchesAtOnce: true },
+  },
 ];
 
 export function armNamed(id: string): Arm {
@@ -138,6 +145,7 @@ export function armSwitch() {
   const answerPaths: AnswerPathsOverride = {
     writesThenCites: () => current?.paths?.writesThenCites,
     retrievesFirst: () => current?.paths?.retrievesFirst,
+    searchesAtOnce: () => current?.paths?.searchesAtOnce,
   };
   const checkPaths: CheckPathsOverride = {
     quickFirstLook: () => current?.checks?.quickFirstLook,

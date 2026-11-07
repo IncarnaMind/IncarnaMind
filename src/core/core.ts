@@ -292,7 +292,7 @@ import { nativePageSetup } from "./pageSetup";
 import { createPrivacy, type NetworkTrafficRegistry } from "./privacy";
 import { KeyCharacterError, storedApiKey } from "./providers/apiKey";
 import { readsImages } from "./providers/capabilities";
-import { retrievesFirst, writesThenCites } from "./providers/catalog/answerPaths";
+import { retrievesFirst, searchesAtOnce, writesThenCites } from "./providers/catalog/answerPaths";
 import {
   DECISION_HOST_ENTRIES,
   DECISION_HOSTS,
@@ -2189,6 +2189,8 @@ export function createCore(adapters: CoreAdapters): Core {
       writesThenCites({ catalogId: provider.catalogId, modelId }, flow, adapters.answerPaths),
     retrievesFirst: ({ provider, modelId }, flow) =>
       retrievesFirst({ catalogId: provider.catalogId, modelId }, flow, adapters.answerPaths),
+    searchesAtOnce: ({ provider, modelId }, flow) =>
+      searchesAtOnce({ catalogId: provider.catalogId, modelId }, flow, adapters.answerPaths),
     async prepareQuickModel(answers, prepared) {
       const quick = chat.quickTasksModel(answers);
       // An Answer on this computer keeps its small calls there too.
