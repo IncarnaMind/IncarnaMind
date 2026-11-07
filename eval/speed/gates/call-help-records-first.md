@@ -38,3 +38,18 @@ Both languages together:
 ## Reported, not gated
 
 The first sign and the first words, each a median over the runs and each run's own; where the time went (each request's first byte, first text and end); how often the step's arm answered in its one reply and how often it fell back to the loop; each case with a false Supported, on either arm, with its sentence.
+
+## Result, 2026-11-07: two lines missed; not listed
+
+The runs were made at 1e4c9d92b on a direct Anthropic key, judge Claude Opus 5.5, both arms on the fixed call rig, one-minute load 2.5 to 9.1 (median 5.3). They spent $4.17 (the judge $1.02). Medians over the three runs, today → the step; ranges are the runs' lowest and highest.
+
+| Sonnet 5.5 | First whole option | Done | Done, 90th percentile | False Supported | Cited | Judged right | Every Citation found |
+|---|---|---|---|---|---|---|---|
+| en | 4.47 → 2.31 s | 4.47 → 2.76 s | 5.78 → 3.28 s | 3–5 → 5–7 | 15–15 → 13–15 | 13–14 → 12–15 | **15–15 → 13–14** |
+| zh-CN | 4.55 → 2.50 s | 4.55 → 3.05 s | 7.05 → 3.60 s | 3–7 → 3–8 | 13–15 → 13–15 | 12–15 → 12–14 | 13–15 → 13–15 |
+
+- Done came sooner in every one of the 87 pairs both arms finished (paired median −1.60 s), and every press of the step was one request.
+- **Missed: every Citation found, in English.** en-want's readings quote the call's lines word for word, but four of its eight records named a time a line away; a transcript record with a time is never moved (`takeQuote` in `src/core/answers/citations.ts`), and one structured reply gets no word back from `cite` to fix it, so those quotes stayed not found.
+- **Missed: replies that showed nothing, 2 against 0.** Both en-answer-edition: Sonnet wrote the form's "★" and "→" inside the JSON as "β˜…" and "β†’", so the panel found no option. A check of that case gave the same once in two presses.
+- Failed to run: 1 on the step against 2 on today's path, all `cache_control cannot be set for empty text blocks` from the API (#2526's comment of 2026-11-07).
+- A next try needs both answered (the two form characters read back from that misencoding, and a transcript record's quote placed at the line that holds it, or a fallback to the loop) and a new run of this gate.
