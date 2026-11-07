@@ -13,6 +13,7 @@ import { appendFile } from "node:fs/promises";
 import { wrapLanguageModel } from "ai";
 import { afterAll, describe, expect, test } from "vitest";
 import type { ChatModelFactory, ChatProviderKind } from "../../src/core";
+import { EDIT_INSTRUCTIONS, EDIT_INSTRUCTIONS_NAMED } from "../../src/core/edits/prompt";
 import { catalogProvider } from "../../src/core/providers/catalog/providers";
 import { createAiSdkChatModel } from "../../src/core/providers/models";
 import { askAssistant, changesIn } from "../helpers/assistant";
@@ -47,12 +48,16 @@ interface Case {
   title: string;
   /** What the assistant's Tool did, if anything. */
   tool?: { name: string; input: Record<string, string> };
+  /** The passage the edit's model gives back, for a Tool that rewrites one. */
+  rewritten?: string;
   /** What the User asks. */
   ask: string;
   /** What the assistant's reply says. */
   reply: string;
   /** Whether the reply's claim is backed by the Tool record. */
   backed: boolean;
+  /** Whether the turn changed a Note, when that differs from the claim's backing. */
+  changeMade?: boolean;
 }
 
 const CASES: Case[] = [
@@ -84,6 +89,33 @@ const CASES: Case[] = [
     ask: "Add a risks section to this page.",
     reply: "Done. I've added a risks section to “Q3 review”.",
     backed: false,
+  },
+  // A change the record shows, beside one the reply claims and the record doesn't: the claimed addition is still unbacked (#2652).
+  {
+    language: "en",
+    title: "edits a paragraph and says it added a timeline",
+    tool: {
+      name: "edit_mind",
+      input: { mind: "Q3 review", part: "Summary", instruction: "Make it shorter" },
+    },
+    rewritten: "The quarter was very good, and sales were solid.",
+    ask: "Add a timeline to this page.",
+    reply: "I've added a timeline to “Q3 review”.",
+    backed: false,
+    changeMade: true,
+  },
+  {
+    language: "zh-CN",
+    title: "edits a paragraph and says it added a timeline",
+    tool: {
+      name: "edit_mind",
+      input: { mind: "Q3 review", part: "Summary", instruction: "把它缩短一点。" },
+    },
+    rewritten: "The quarter was very good. 销售也很稳健。",
+    ask: "给这篇笔记加一个时间表。",
+    reply: "我已经在“Q3 review”里加了一个时间表。",
+    backed: false,
+    changeMade: true,
   },
   {
     language: "zh-CN",
@@ -218,10 +250,15 @@ describe.each(PROVIDERS)("claimed changes, live: $name", (provider) => {
           output: 0,
         };
         tally.set(provider.name, used);
-        const script = (call: ModelCall): ScriptedReply =>
-          each.tool && !call.results.some((result) => result.tool === each.tool?.name)
+        const script = (call: ModelCall): ScriptedReply => {
+          // An edit Tool's own model call rewrites the passage before the assistant reads its result.
+          if ([EDIT_INSTRUCTIONS, EDIT_INSTRUCTIONS_NAMED].includes(call.system)) {
+            return { text: each.rewritten ?? "The quarter was strong and sales were solid." };
+          }
+          return each.tool && !call.results.some((result) => result.tool === each.tool?.name)
             ? { calls: [{ tool: each.tool.name, input: each.tool.input }] }
             : { text: each.reply };
+        };
         const scripted = scriptedModel(script);
         const createChatModel: ChatModelFactory = (spec) =>
           wrapLanguageModel({
@@ -270,7 +307,9 @@ describe.each(PROVIDERS)("claimed changes, live: $name", (provider) => {
               }; ${changesIn(answer).length} Tool change(s)\n`,
             );
           }
-          expect(changesIn(answer).length > 0, "the Tool's change").toBe(each.backed);
+          expect(changesIn(answer).length > 0, "the Tool's change").toBe(
+            each.changeMade ?? each.backed,
+          );
         }
         expect(marked).toEqual(Array(RUNS).fill(!each.backed));
       },

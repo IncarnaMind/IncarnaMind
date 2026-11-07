@@ -15,14 +15,13 @@ import {
 } from "../helpers/models";
 
 /**
- * A rewrite of a paragraph reports its result as well as the change: the
- * claim check judges whether the change was made, and the record not naming
- * the result's length, ratio or what kept, or wording the change differently,
- * doesn't turn it into a missing change (#2652). A claim of a change no call
- * made is still flagged.
+ * Plumbing for #2652: the scripted judge returns the result claim only when
+ * the instructions lack the rule, so this proves the rule reaches the judge
+ * and the core's path yields no status line, not that a real judge changes
+ * its verdict on a held-out reply. The live runs are the verdict's evidence.
  */
 
-/** The rule that keeps a result claim out of the change check; a scripted judge follows it as a real one should. */
+/** The rule the scripted judge keys on: present, it judges the change; absent, it reads the result claim as unbacked. */
 const RESULT_RULE = "this check judges only whether the change the sentence reports was made";
 
 const asked = ({ options }: ModelCall): string => {
@@ -53,9 +52,11 @@ const CASES: { language: string; text: string; reply: string }[] = [
   },
 ];
 
-describe("The claim check on a rewrite's result (#2652)", { timeout: 60_000 }, () => {
-  // protects=the judge is told a result claim is judged by whether the change was made, and that the record's wording or missing details don't make it unbacked; fails_when=the rule is dropped from the instructions.
-  test("the judge is told what a result claim is", () => {
+describe("The claim check's result rule reaches the judge (#2652 plumbing)", {
+  timeout: 60_000,
+}, () => {
+  // protects=the judge is sent the result rule, the negated-change caveat and the no-call override, in English and Chinese; fails_when=one is dropped from the instructions; no_claim=what a real judge decides, which the live runs carry.
+  test("the judge is sent the result rules (plumbing)", () => {
     expect(CLAIM_CHECK_INSTRUCTIONS).toContain(RESULT_RULE);
     expect(CLAIM_CHECK_INSTRUCTIONS).toContain(
       "nor because the record words the change differently",
@@ -63,14 +64,18 @@ describe("The claim check on a rewrite's result (#2652)", { timeout: 60_000 }, (
     expect(CLAIM_CHECK_INSTRUCTIONS).toContain(
       "不要因为记录没有给出这些细节、改动做到什么程度、或没达到用户的要求",
     );
+    expect(CLAIM_CHECK_INSTRUCTIONS).toContain("never return that negated change unbacked");
+    expect(CLAIM_CHECK_INSTRUCTIONS).toContain("is still a claim, judged as any other");
+    expect(CLAIM_CHECK_INSTRUCTIONS).toContain("不要把那处被否定的改动判为没有依据");
+    expect(CLAIM_CHECK_INSTRUCTIONS).toContain("同一句里的肯定部分仍是声称的改动，照常判断");
     expect(CLAIM_CHECK_INSTRUCTIONS).toContain(
-      "still waiting for the User is backed when the record shows that change not made",
+      "a result reported with no change to that Note — is unbacked",
     );
-    expect(CLAIM_CHECK_INSTRUCTIONS).toContain("不要返回没有依据");
+    expect(CLAIM_CHECK_INSTRUCTIONS).toContain("记录里那篇笔记没有改动而句子报告了结果");
   });
 
   test.each(CASES)(
-    "$language: a reply that made the change and gives its result stands",
+    "$language: the rule reaches the judge and the reply stands (plumbing)",
     async (each) => {
       const model = scriptedModel(
         (call): ScriptedReply => {
@@ -83,7 +88,7 @@ describe("The claim check on a rewrite's result (#2652)", { timeout: 60_000 }, (
           return { calls: [{ tool: "edit_mind", input: { content: LONGER } }] };
         },
         {
-          // Follows the rule as the real judge does: without it, this result claim reads as an unbacked change.
+          // Plumbing: the rule's presence decides the scripted verdict, so this tests the path, not the judge.
           generate: (call: GenerateCall) =>
             claimCheckReply(
               call,
@@ -122,8 +127,8 @@ describe("The claim check on a rewrite's result (#2652)", { timeout: 60_000 }, (
     },
   );
 
-  // protects=a reply that claims a change no call made is still asked about once and flagged, rule or no rule; fails_when=the result rule excuses an unmade change.
-  test("a change no call made is still flagged", async () => {
+  // protects=a reply that claims a change no call made is still asked about once and flagged, rule or no rule; fails_when=the result rule excuses an unmade change; no_claim=the judge's verdict on a held-out addition, which the live risk case carries.
+  test("a change no call made is still flagged (plumbing)", async () => {
     const claim = "I've added a risks section to “Q3 review”.";
     const model = scriptedModel(
       (call): ScriptedReply => {
