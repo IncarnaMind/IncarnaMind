@@ -3484,6 +3484,8 @@ export const zhCN = {
   "meetings.route.languages": "{provider}不支持转写{languages}，这些语言的内容可能缺失或有误。",
   "meetings.key.title": "{provider}密钥",
   "meetings.key.line": "保存在这台电脑上，不会再显示。",
+  "meetings.key.lineChecked":
+    "保存在这台电脑上，不会再显示。保存时会先请 {provider} 检查这个密钥，这次请求不会读取你的任何内容。",
   "meetings.key.get": "获取密钥",
   "meetings.key.placeholder": "粘贴密钥",
   "meetings.key.save": "保存",

@@ -3666,6 +3666,8 @@ export const en = {
     "{provider} doesn’t transcribe {languages}: what’s said in it may be missing or wrong.",
   "meetings.key.title": "{provider} key",
   "meetings.key.line": "Kept on this computer and never shown again.",
+  "meetings.key.lineChecked":
+    "Kept on this computer and never shown again. Saving it first checks it with {provider}, by a request that reads nothing of yours.",
   "meetings.key.get": "Get a key",
   "meetings.key.placeholder": "Paste the key",
   "meetings.key.save": "Save",

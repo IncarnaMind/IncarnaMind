@@ -13,6 +13,7 @@ import {
   removeDataFolder,
   setLanguage,
   setWindowSize,
+  showSettingsPage,
   useOutputLocation,
 } from "./app";
 
@@ -153,4 +154,39 @@ test("an AssemblyAI account out of credit is one line in the bar with Add credit
   await expect(credit).toContainText("提示此账户余额不足，正在这台电脑上转写。");
   await expect(credit.getByTestId("meeting-line-add-credit")).toHaveText("充值");
   await shot(window, "meeting-bar-assemblyai-credit-zh");
+});
+
+test("a meeting service's key row says Save checks the key with the service; in Local mode the key is kept, and the row says nothing was sent", async () => {
+  const { app, window } = await launchApp(dataDir);
+  await setWindowSize(app, window, 1600, 900);
+  await dismissChatSetup(window);
+  await acceptPlainTextKeys(window);
+
+  let settings = await openSettings(window, "meetings");
+  let row = settings.getByTestId("transcription-key-assemblyai");
+  await expect(row).toContainText(
+    "Kept on this computer and never shown again. Saving it first checks it with AssemblyAI, by a request that reads nothing of yours.",
+  );
+  await setLanguage(window, "zh-CN");
+  await expect(row).toContainText(
+    "保存在这台电脑上，不会再显示。保存时会先请 AssemblyAI 检查这个密钥，这次请求不会读取你的任何内容。",
+  );
+  await setLanguage(window, "en");
+
+  settings = await showSettingsPage(window, "privacy");
+  await settings.getByTestId("local-only").check();
+  settings = await showSettingsPage(window, "meetings");
+  row = settings.getByTestId("transcription-key-assemblyai");
+  await expect(row).toContainText("Kept on this computer and never shown again.");
+  await expect(row).not.toContainText("Saving it first checks it");
+  await row.getByTestId("transcription-key-add").click();
+  await row.getByTestId("transcription-key-input").fill("aai-test-key-0123456789");
+  await row.getByTestId("transcription-key-save").click();
+  await expect(row.getByTestId("transcription-key-saved")).toHaveText("Saved");
+  const unchecked = row.getByTestId("provider-key-not-checked");
+  await expect(unchecked).toHaveText("Saved, not checked: nothing was sent to AssemblyAI.");
+  await shot(window, "transcription-key-local-mode-en");
+  await setLanguage(window, "zh-CN");
+  await expect(unchecked).toHaveText("已保存，未验证：没有向 AssemblyAI 发送任何内容。");
+  await shot(window, "transcription-key-local-mode-zh");
 });

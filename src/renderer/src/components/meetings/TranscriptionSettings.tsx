@@ -13,7 +13,7 @@ import {
 } from "../../transcriptionServices";
 import { KeyCharacterLine } from "../KeyCharacterLine";
 import { ProblemLine } from "../ProblemLine";
-import { SecretStorageNotice } from "../providers/ProviderForm";
+import { KeyNotCheckedLine, SecretStorageNotice } from "../providers/ProviderForm";
 import { ReadProblem } from "../ReadProblem";
 import {
   buttonStyle,
@@ -178,9 +178,12 @@ function TranscriptionKeyRow({ service }: { service: TranscriptionServiceStatus 
   const { key: text, stray } = checkApiKey(key);
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
+  const localMode = useAppStore((state) => state.embedding?.localOnly === true);
+  const [notChecked, setNotChecked] = useState(false);
   const name = { provider: t(ROUTE_LABELS[service.route]) };
   const save = async () => {
     setSaving(true);
+    const unchecked = localMode && service.keyChecked && text !== "";
     const failed = await useTranscriptionServices
       .getState()
       .setKey(service.route, key, takesServer ? server : undefined);
@@ -189,6 +192,7 @@ function TranscriptionKeyRow({ service }: { service: TranscriptionServiceStatus 
     if (!failed) {
       setKey("");
       setOpen(false);
+      setNotChecked(unchecked);
     }
   };
   const close = () => {
@@ -204,7 +208,10 @@ function TranscriptionKeyRow({ service }: { service: TranscriptionServiceStatus 
           {t("meetings.key.title", name)}
         </label>
         <p className={rowTextClass}>
-          {t("meetings.key.line", name)}
+          {t(
+            service.keyChecked && !localMode ? "meetings.key.lineChecked" : "meetings.key.line",
+            name,
+          )}
           {service.keyUrl && (
             <>
               {" "}
@@ -297,6 +304,7 @@ function TranscriptionKeyRow({ service }: { service: TranscriptionServiceStatus 
         {open && storage && !storage.canSave && (
           <SecretStorageNotice status={storage} onAccept={() => void acceptPlainText()} />
         )}
+        {notChecked && !open && <KeyNotCheckedLine provider={name.provider} />}
         {problem && (
           <ProblemLine className="mt-1" testId="transcription-key-problem">
             {problem}
@@ -315,6 +323,7 @@ function TranscriptionKeyRow({ service }: { service: TranscriptionServiceStatus 
             data-testid="transcription-key-add"
             onClick={() => {
               setProblem(null);
+              setNotChecked(false);
               setServer(service.server ?? "");
               setOpen(true);
             }}

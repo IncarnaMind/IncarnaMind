@@ -3337,6 +3337,11 @@ export interface TranscriptionServiceStatus {
   server: string | null;
   /** Its key may be left out: a server of the User's own. */
   keyOptional: boolean;
+  /**
+   * Saving its key first sends it to the service to check it, except in Local mode; Deepgram's
+   * goes only to Deepgram's own server.
+   */
+  keyChecked: boolean;
   /** What it transcribes, as ISO 639 codes. */
   languages: string[];
   /** The languages the User speaks (the interface's and the computer's) that it doesn't transcribe. */

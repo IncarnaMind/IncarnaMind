@@ -330,6 +330,7 @@ export function createCloudTranscription(options: CloudTranscriptionOptions) {
           billingUrl: billingUrl(service.route, key),
           server,
           keyOptional: server !== null && !deepgramServer(server).needsKey,
+          keyChecked: service.route === "deepgram" || KEY_CHECKS[service.route] !== undefined,
           languages: [...service.languages],
           missingLanguages: spoken.filter((code) => !service.languages.includes(code)),
           chooseAgain: key !== null && moved === service.route,
@@ -501,7 +502,8 @@ export function createCloudTranscription(options: CloudTranscriptionOptions) {
       // Checked before the key goes to the service: one it can't keep shouldn't leave at all.
       const storage = secrets.status();
       if (apiKey && !storage.canSave) throw new SecretStorageError(storage.protection);
-      if (apiKey) await checkKey(route, apiKey, saved);
+      // Local mode sends nothing, so the key is kept unchecked; its service checks it at the first stream.
+      if (apiKey && !options.localOnly()) await checkKey(route, apiKey, saved);
       // The key is for its server alone: another server never gets the one kept before.
       if (apiKey) await secrets.set(keyName(route), apiKey);
       else await secrets.delete(keyName(route));

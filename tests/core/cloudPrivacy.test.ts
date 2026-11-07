@@ -550,3 +550,43 @@ describe("Nothing more goes to the cloud once the User says no", { timeout: 60_0
     expect(live.cloud).toBeNull();
   });
 });
+
+describe("A key saved for a meeting service", () => {
+  async function keyed() {
+    const asked: string[] = [];
+    const core = startCore(await createTempDataFolder(), {
+      transcriptionModelSource: NO_TRANSCRIPTION_FILES,
+      transcriptionKeyFetch: async (url) => {
+        asked.push(String(url));
+        return new Response(null, { status: 200 });
+      },
+      keychain: createMemoryKeychain(),
+    });
+    return { core, asked };
+  }
+
+  test("in Local mode, is kept with nothing sent to check it", async () => {
+    const { core, asked } = await keyed();
+    await core.setLocalOnly(true);
+    for (const route of OWN_KEYS) {
+      const listed = await core.setTranscriptionKey({ route, apiKey: `${route}-test-key` });
+      expect(listed.services.find((each) => each.route === route)).toMatchObject({
+        hasKey: true,
+        keyChecked: true,
+      });
+    }
+    expect(asked).toEqual([]);
+  });
+
+  test("out of Local mode, is checked with its service before it's kept", async () => {
+    const { core, asked } = await keyed();
+    for (const route of OWN_KEYS) {
+      await core.setTranscriptionKey({ route, apiKey: `${route}-test-key` });
+    }
+    expect(asked).toEqual([
+      "https://api.soniox.com/v1/models",
+      "https://api.deepgram.com/v1/projects",
+      "https://streaming.assemblyai.com/v3/token?expires_in_seconds=60",
+    ]);
+  });
+});
