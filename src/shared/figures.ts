@@ -1928,38 +1928,33 @@ function amountScaleIn(text: string, statement: StatedUnit, withOthers: boolean)
     !after.startsWith("每")
   )
     return true;
-  let others: StatedUnit[] | null = null;
-  const isOther = (from: number, to: number): boolean => {
-    others ??= readStatedUnits(text.slice(lineFrom, lineTo)).map((each) => ({
-      ...each,
-      start: each.start + lineFrom,
-      end: each.end + lineFrom,
-    }));
-    return others.some(
-      (other) =>
-        (other.start !== statement.start || other.end !== statement.end) &&
-        other.start < to &&
-        other.end > from &&
-        // Judged one level deep: the other statement's own neighbours include this one.
-        (withOthers
-          ? amountScaleIn(text, other, false)
-          : other.unit.kind === "plain" || other.unit.kind === "currency"),
-    );
-  };
+  // Another statement of amounts' scale is read from the clause alone, so a page a PDF joined
+  // into one line isn't read again for each of its statements.
+  const isOther = (clause: string, at: number): boolean =>
+    readStatedUnits(clause).some((found) => {
+      const other = { ...found, start: found.start + at, end: found.end + at };
+      if (other.start === statement.start && other.end === statement.end) return false;
+      // Judged one level deep: the other statement's own neighbours include this one.
+      return withOthers
+        ? amountScaleIn(text, other, false)
+        : other.unit.kind === "plain" || other.unit.kind === "currency";
+    });
   const besideOk = (part: string, at: number): boolean => {
+    const separators = part.matchAll(new RegExp(CLAUSE_SEPARATOR.source, "gu"));
     let from = 0;
-    for (const match of [...part.matchAll(new RegExp(CLAUSE_SEPARATOR.source, "gu")), null]) {
+    for (;;) {
+      const match = separators.next().value ?? null;
       const to = match ? match.index : part.length;
       const raw = part.slice(from, to);
       const start = at + from + (raw.length - raw.trimStart().length);
-      from = match ? match.index + match[0].length : part.length;
       const clause = raw.trim();
-      if (clause === "" || BESIDE_AMOUNT_SCALE.test(clause) || isPeriod(clause)) continue;
-      if (BESIDE_AMOUNT_SCALE_JOINED.test(clause)) return true;
-      if (isOther(start, start + clause.length)) continue;
-      return false;
+      if (clause !== "" && !BESIDE_AMOUNT_SCALE.test(clause) && !isPeriod(clause)) {
+        if (BESIDE_AMOUNT_SCALE_JOINED.test(clause)) return true;
+        if (!isOther(clause, start)) return false;
+      }
+      if (!match) return true;
+      from = match.index + match[0].length;
     }
-    return true;
   };
   if (!besideOk(after, statement.end)) return false;
   if (/^(?:金额|货币)?单位|^以/.test(simplified)) return true;
