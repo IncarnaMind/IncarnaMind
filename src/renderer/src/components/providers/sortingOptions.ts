@@ -134,6 +134,35 @@ export function sortingOptions(
       ];
 }
 
+/**
+ * Under Automatic, the row for what it sorts with now: never the best listed in its place, as
+ * Automatic starts no host by itself (#1907) and often tags with a model the list doesn't offer
+ * (the provider's quick model), which `listed` false says Settings must add. Null while it has none.
+ */
+export function automaticRow(
+  models: TaggingModels,
+  options: readonly SortingOption[],
+  language: Language,
+): { row: SortingOption | null; listed: boolean } {
+  const pick = models.automatic;
+  if (!pick) return { row: null, listed: false };
+  const listed = options.find(
+    (each) => sortingKey(each.classifier) === sortingKey(pick.classifier),
+  );
+  if (listed) return { row: listed, listed: true };
+  const provider = providerOf(pick, language);
+  return {
+    row: {
+      classifier: pick.classifier,
+      label: provider ? `${pick.name} · ${provider}` : pick.name,
+      provider: pick.group === "local" ? null : provider,
+      decisionModel: pick.classifier.kind !== "chat",
+      ...(pick.classifier.kind === "chat" && { modelName: pick.name }),
+    },
+    listed: false,
+  };
+}
+
 /** A row at the foot of the picker that sets a decision model up in place: Jev, or a host's. */
 export interface SetUpOffer {
   id: "jev" | DecisionHost;

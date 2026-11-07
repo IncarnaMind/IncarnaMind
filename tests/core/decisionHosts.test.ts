@@ -385,6 +385,40 @@ describe("Decision model hosts (#1907)", { timeout: 30_000 }, () => {
     }
   });
 
+  test("a Qwen key for another region than the workspace's sends nothing until the workspace is saved again", async () => {
+    const { core, hosts } = await startWithHosts();
+    await core.saveChatProvider({ ...PROVIDERS.qwen, keepDefault: true });
+    await core.setDecisionKey({ host: "alibaba", account: WORKSPACE });
+    const beijing = `https://${WORKSPACE}.cn-beijing.maas.aliyuncs.com`;
+    const beijingKey = (await core.listChatProviders()).find((each) => each.endpoint === "cn");
+    if (!beijingKey) throw new Error("No Beijing Qwen key.");
+    await core.deleteChatProvider(beijingKey.id);
+    await core.saveChatProvider({ ...PROVIDERS.qwen, endpoint: "intl", keepDefault: true });
+
+    // Consent and the Privacy page name Beijing: requests may not go to Singapore meanwhile.
+    expect(await status(core, "alibaba")).toMatchObject({
+      hasKey: true,
+      ready: false,
+      service: { id: beijing },
+    });
+    await chooseAndTurnOn(core, {
+      kind: "decision",
+      host: "alibaba",
+      modelId: "decision-model-preview",
+    });
+    const before = hosts.requests.length;
+    const document = await addDocument(core, "Attention.md", PAPER_TEXT);
+    // It waits, as with no key: nothing goes to either region.
+    await waitForTagging(core, [document.id], (each) => each.tagging === "waiting-for-provider");
+    expect(hosts.requests.length).toBe(before);
+
+    await core.setDecisionKey({ host: "alibaba", account: WORKSPACE });
+    expect(await status(core, "alibaba")).toMatchObject({
+      ready: true,
+      service: { id: `https://${WORKSPACE}.ap-southeast-1.maas.aliyuncs.com` },
+    });
+  });
+
   test("in Local mode no host is offered, and none takes a key", async () => {
     const { core, hosts } = await startWithHosts();
     await core.setDecisionKey({ host: "liquid", apiKey: KEYS.liquid });

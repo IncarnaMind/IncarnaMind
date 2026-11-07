@@ -224,7 +224,6 @@ export function decisionOrigin(host: DecisionHost, address: DecisionHostAddress)
     : null;
 }
 
-/** The service a host sends Document text to. */
 export function decisionService(
   host: DecisionHost,
   address: DecisionHostAddress,
@@ -263,12 +262,9 @@ export function decisionUrl(
   }
 }
 
-/** Cloudflare's account ID: 32 hexadecimal characters. */
 const CLOUDFLARE_ACCOUNT = /^[0-9a-f]{32}$/i;
-/** A Model Studio workspace, as its endpoint names it. */
 const ALIBABA_WORKSPACE = /^[a-z0-9][a-z0-9-]{0,62}$/i;
 
-/** Whether `value` is the account a host asks for, in the form it has. */
 export function validAccount(host: DecisionHost, value: string): boolean {
   const account = DECISION_HOST_ENTRIES[host].account;
   if (account === "cloudflare-account") return CLOUDFLARE_ACCOUNT.test(value);
@@ -276,7 +272,6 @@ export function validAccount(host: DecisionHost, value: string): boolean {
   return false;
 }
 
-/** A model a host offers, by id. */
 export const decisionModelOf = (host: DecisionHost, modelId: string): DecisionModel | undefined =>
   DECISION_HOST_ENTRIES[host].models.find((model) => model.id === modelId);
 

@@ -12,6 +12,7 @@ import { useAppStore } from "../../store";
 import { useRead } from "../../useRead";
 import { fieldClass } from "../ui";
 import {
+  automaticRow,
   hostSetUpOffers,
   jevStateOf,
   offersJevSetUp,
@@ -126,16 +127,17 @@ export function useSorting() {
     if (at >= 0) options[at] = told;
     else options.unshift(told);
   }
-  // Under Automatic, what it sorts with now: it never starts a host's flow by itself (#1907), so
-  // the best choice listed first may not be the one in use.
-  const automatic = models?.automatic?.classifier;
+  const best = options[0] ?? null;
+  // Under Automatic, what it sorts with now, which Turn on… allows (#1907).
+  const pick =
+    (!saved || saved.kind === "automatic") && models
+      ? automaticRow(models, options, language)
+      : null;
+  const unlisted = pick && !pick.listed ? pick.row : null;
   const current =
     saved && saved.kind !== "automatic"
       ? (options.find((each) => sortingKey(each.classifier) === sortingKey(saved)) ?? null)
-      : ((automatic &&
-          options.find((each) => sortingKey(each.classifier) === sortingKey(automatic))) ??
-        options[0] ??
-        null);
+      : (pick?.row ?? null);
   /**
    * Saves the choice. `turnOn`: the choice was made with its sends line on screen, so it is the
    * choice to tag and sort with it (#2308); otherwise the switch stays where it was.
@@ -181,7 +183,9 @@ export function useSorting() {
     options,
     current,
     /** The best the keys reach, preselected where the User is choosing (the setup card). */
-    best: options[0] ?? null,
+    best,
+    /** Settings' list: Automatic's own pick first where the list doesn't offer it. */
+    settingsOptions: unlisted ? [unlisted, ...options] : options,
     choose,
     known,
     loading: read.state === "loading",

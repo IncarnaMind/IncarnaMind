@@ -158,7 +158,6 @@ interface JevChoiceQuestion {
 
 type DecisionQuestion = JevNoulQuestion | JevChoiceQuestion;
 
-/** A yes-or-no question as a host that needs both criteria takes it. */
 const withBothCriteria = (question: DecisionQuestion): DecisionQuestion =>
   question.type === "noul"
     ? {
@@ -240,7 +239,6 @@ async function requestJev(
   );
   const size = endpoint.maxQuestions ?? entries.length;
   if (entries.length <= size) return postDecision(input, endpoint, entries);
-  // Several requests about the same state, one after another, their answers merged.
   const answers: Record<string, unknown> = {};
   let last: unknown = null;
   for (let at = 0; at < entries.length; at += size) {
@@ -317,7 +315,11 @@ async function postDecision(
       answer = await response.json();
     } catch {
       if (signal.aborted) throw signal.reason;
-      throw new JevRequestError("provider", "Jev's answer isn't valid JSON.", response.status);
+      throw new JevRequestError(
+        "provider",
+        "The decision model's answer isn't valid JSON.",
+        response.status,
+      );
     }
     return endpoint.protocol === "openai" ? fromOpenAi(answer) : unwrapped(answer);
   }
@@ -326,13 +328,14 @@ async function postDecision(
 /** Each question's `noul`, checked: a number from 0 to 1, for every question asked. */
 function probabilities(answer: unknown, ids: readonly string[]): Record<string, number> {
   const answers = isRecord(answer) && isRecord(answer.answers) ? answer.answers : null;
-  if (!answers) throw new JevRequestError("provider", "Jev's answer has no answers.");
+  if (!answers)
+    throw new JevRequestError("provider", "The decision model's answer has no answers.");
   const result: Record<string, number> = {};
   for (const id of ids) {
     const entry = answers[id];
     const noul = isRecord(entry) ? entry.noul : undefined;
     if (typeof noul !== "number" || !Number.isFinite(noul) || noul < 0 || noul > 1) {
-      throw new JevRequestError("provider", `Jev didn't answer question "${id}".`);
+      throw new JevRequestError("provider", `The decision model didn't answer question "${id}".`);
     }
     result[id] = noul;
   }

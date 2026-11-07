@@ -4985,7 +4985,9 @@ export function createCore(adapters: CoreAdapters): Core {
 
   const routeOf = (classifier: TaggingClassifier): TaggingRoute => {
     const service = tagging.service(classifier);
-    return service ? { where: "cloud", service } : { where: "local" };
+    if (service) return { where: "cloud", service };
+    // A host without its account yet sends nowhere; it isn't on this computer.
+    return classifier.kind === "decision" ? { where: "none" } : { where: "local" };
   };
   const taggingModels = async (): Promise<TaggingModels> => {
     const hadModel = tagsWith() !== null;

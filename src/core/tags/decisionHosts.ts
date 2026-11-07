@@ -33,6 +33,7 @@ import {
 } from "../providers/catalog/decisions";
 import { askJev, JevRequestError } from "../providers/jev";
 import { classifyProviderError } from "../providers/providerErrors";
+import { redactMessage } from "../redact";
 import type { Secrets } from "../secrets";
 import { createSendGate } from "../sendGate";
 import type { SettingsStore } from "../settings";
@@ -104,18 +105,30 @@ export function createDecisionHosts(options: DecisionHostsOptions) {
     return apiKey ? { apiKey, region: null } : null;
   }
 
-  /** Where a host's requests go: the account saved, at the region of the key it is used with. */
-  const addressOf = (host: DecisionHost, key: HostKey | null): DecisionHostAddress => ({
-    account: accountOf(host),
-    region: key?.region ?? null,
-  });
+  /**
+   * Where a host's requests go, as saved with its account: consent, the Privacy page and the
+   * requests all name this one address, whatever key is saved since.
+   */
+  const addressOf = (host: DecisionHost): DecisionHostAddress =>
+    saved()[host] ?? { account: null, region: null };
 
-  /** The service a host sends Document text to, as saved: no keychain read, for the checks that can't wait. */
+  /** The service a host sends Document text to: no keychain read, for the checks that can't wait. */
   const savedService = (host: DecisionHost): ExternalService | null =>
-    decisionService(host, saved()[host] ?? { account: null, region: null });
+    decisionService(host, addressOf(host));
+
+  /**
+   * A chat provider's key for another region than the account was saved with (another Qwen key)
+   * would be sent where consent doesn't name: the host waits until its account is saved again.
+   */
+  const keyFitsAccount = (host: DecisionHost, key: HostKey) =>
+    !DECISION_HOST_ENTRIES[host].account ||
+    DECISION_HOST_ENTRIES[host].key !== "provider" ||
+    addressOf(host).region === key.region;
 
   const isReady = (host: DecisionHost, key: HostKey | null) =>
-    key !== null && (!DECISION_HOST_ENTRIES[host].account || accountOf(host) !== null);
+    key !== null &&
+    (!DECISION_HOST_ENTRIES[host].account || accountOf(host) !== null) &&
+    keyFitsAccount(host, key);
 
   const endpointOf = (host: DecisionHost, model: string, address: DecisionHostAddress) =>
     decisionEndpoint(
@@ -128,7 +141,7 @@ export function createDecisionHosts(options: DecisionHostsOptions) {
   async function statusOf(host: DecisionHost): Promise<DecisionHostStatus> {
     const entry = DECISION_HOST_ENTRIES[host];
     const key = await keyOf(host);
-    const address = addressOf(host, key);
+    const address = addressOf(host);
     return {
       host,
       name: entry.name,
@@ -138,7 +151,7 @@ export function createDecisionHosts(options: DecisionHostsOptions) {
       hasKey: key !== null,
       ready: isReady(host, key),
       models: entry.models.map(({ id, name, maker }) => ({ id, name, maker })),
-      service: decisionService(host, address),
+      service: savedService(host),
       keyUrl: entry.keyUrl,
       pricingUrl: entry.pricingUrl,
     };
@@ -156,10 +169,16 @@ export function createDecisionHosts(options: DecisionHostsOptions) {
         values: { provider: entry.name.en },
       });
     }
-    const address = addressOf(host, key);
+    if (!decisionModelOf(host, modelId)) {
+      throw new TaggingNotReadyError({
+        key: "error.tagging.decisionModelGone",
+        values: { provider: entry.name.en, model: modelId },
+      });
+    }
+    const address = addressOf(host);
     const endpoint = endpointOf(host, modelId, address);
     const service = decisionService(host, address);
-    if (!endpoint || !service) {
+    if (!endpoint || !service || !keyFitsAccount(host, key)) {
       throw new TaggingNotReadyError({
         key: "error.tagging.decisionAccountMissing",
         values: { provider: entry.name.en },
@@ -194,7 +213,11 @@ export function createDecisionHosts(options: DecisionHostsOptions) {
         key: refused.kind === "auth" ? "error.decision.keyRefused" : "error.decision.checkFailed",
         values: {
           provider: DECISION_HOST_ENTRIES[host].name.en,
-          message: error instanceof JevRequestError ? error.message : refused.message,
+          // A host may echo what it was sent: the key never reaches the screen.
+          message: redactMessage(
+            error instanceof JevRequestError ? error.message : refused.message,
+            [apiKey],
+          ),
         },
       });
     }
@@ -263,9 +286,8 @@ export function createDecisionHosts(options: DecisionHostsOptions) {
 
     /** Whether a host can take a tagging request now: ready, its flow allowed. */
     async canRun(host: DecisionHost): Promise<boolean> {
-      const key = await keyOf(host);
-      if (!isReady(host, key)) return false;
-      const service = decisionService(host, addressOf(host, key));
+      if (!isReady(host, await keyOf(host))) return false;
+      const service = savedService(host);
       return service !== null && consent.status("tagging", service) === "accepted";
     },
 
@@ -310,7 +332,9 @@ export function createDecisionHosts(options: DecisionHostsOptions) {
       if (!permitted) await consent.ensure("classification", service);
       return decisionGroupClassifier({
         beforeSend: () => {
+          // A run's permit stands for the consent, never for Local mode turned on meanwhile.
           if (!permitted) gate.check("classification", service);
+          else if (options.localOnly()) throw new LocalModeError();
         },
         baseUrl: endpoint.url,
         endpoint,
@@ -320,8 +344,5 @@ export function createDecisionHosts(options: DecisionHostsOptions) {
         usePageImages: false,
       });
     },
-
-    /** Whether a host offers a model: a saved choice of one it no longer offers can't be used. */
-    offers: (host: DecisionHost, modelId: string) => decisionModelOf(host, modelId) !== undefined,
   };
 }

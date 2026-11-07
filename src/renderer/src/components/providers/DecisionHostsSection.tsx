@@ -2,7 +2,6 @@ import { useState } from "react";
 import type { DecisionHostStatus } from "../../../../core/api";
 import { catalogProvider } from "../../../../core/providers/catalog/providers";
 import { core } from "../../core";
-import { useDecisionHosts } from "../../decisionHosts";
 import { errorMessage } from "../../errors";
 import { useGap, useLanguage, useT } from "../../i18n";
 import { ProblemLine } from "../ProblemLine";
@@ -28,14 +27,17 @@ const NAMED = 3;
  * section under Advanced, with its server and review band.
  */
 export function DecisionHostsSection({
+  hosts,
+  onChanged,
   onAddProvider,
 }: {
+  hosts: readonly DecisionHostStatus[];
+  onChanged(hosts: DecisionHostStatus[]): void;
   /** Opens the page where a chat provider's key is added, by its catalog id. */
   onAddProvider(catalogId: string): void;
 }) {
   const t = useT();
-  const [hosts, setHosts] = useDecisionHosts();
-  if (!hosts) return null;
+  if (hosts.length === 0) return null;
   return (
     <section data-testid="decision-hosts" className="flex flex-col">
       <h4 className={sectionTitleClass}>{t("decisions.title")}</h4>
@@ -45,7 +47,7 @@ export function DecisionHostsSection({
           <DecisionHostRow
             key={host.host}
             host={host}
-            onChanged={setHosts}
+            onChanged={onChanged}
             onAddProvider={onAddProvider}
           />
         ))}

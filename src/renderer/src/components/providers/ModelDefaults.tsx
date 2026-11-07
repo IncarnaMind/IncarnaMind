@@ -143,7 +143,7 @@ function TranscriptionRow({ id, services }: { id: string; services: ServicesView
 function SortingRow({ id }: { id: string }) {
   const t = useT();
   const {
-    options,
+    settingsOptions: options,
     current,
     choose,
     read,

@@ -7,6 +7,7 @@ import type {
   TaggingModels,
 } from "../../src/core/api";
 import {
+  automaticRow,
   hostSetUpOffers,
   jevStateOf,
   offersJevSetUp,
@@ -222,5 +223,67 @@ describe("the sorting picker's hosts (#1907)", () => {
       { id: "alibaba", label: "Use alibaba best…" },
     ]);
     expect(hostSetUpOffers([status("perplexity")], true, () => "")).toEqual([]);
+  });
+});
+
+describe("Settings' row under Automatic (#1907)", () => {
+  const QUICK: TaggingModelOption = {
+    ...CHAT_OPTION,
+    classifier: { kind: "chat", choice: { providerId: "google-1", modelId: "gemini-flash-lite" } },
+    name: "Gemini Flash-Lite",
+    provider: { en: "Google", zh: "Google" },
+  };
+  const decider = hosted(
+    "openrouter",
+    "OpenRouter",
+    "perplexity/pplx-decider-v1.2",
+    "Decider v1.2",
+  );
+  const listed = (automatic: TaggingModels["automatic"], options: TaggingModelOption[]) => {
+    const all = { ...models(options), automatic };
+    return sortingOptions(all, {
+      chatModel: CHAT,
+      language: "en",
+      localMode: false,
+      jev: null,
+      chatLabel: "Use your AI model",
+      chatName: "Claude Haiku 5.5",
+    });
+  };
+
+  test("Automatic's pick, not the best listed, is the row: a host first in the list is not what sorts", () => {
+    const options = listed({ ...CHAT_OPTION, reason: "answers-model" }, [decider, CHAT_OPTION]);
+    const all = {
+      ...models([decider, CHAT_OPTION]),
+      automatic: { ...CHAT_OPTION, reason: "answers-model" as const },
+    };
+    expect(options[0]?.label).toBe("Decider v1.2 · OpenRouter");
+    expect(automaticRow(all, options, "en")).toMatchObject({
+      row: { label: "Use your AI model" },
+      listed: true,
+    });
+  });
+
+  test("a pick the list doesn't offer (the provider's quick model) is named with where it sends", () => {
+    const all = {
+      ...models([decider, CHAT_OPTION]),
+      automatic: { ...QUICK, reason: "quick-model" as const },
+    };
+    const options = listed(all.automatic, [decider, CHAT_OPTION]);
+    expect(automaticRow(all, options, "en")).toEqual({
+      row: {
+        classifier: QUICK.classifier,
+        label: "Gemini Flash-Lite · Google",
+        provider: "Google",
+        decisionModel: false,
+        modelName: "Gemini Flash-Lite",
+      },
+      listed: false,
+    });
+  });
+
+  test("with nothing Automatic can use, there is no row, whatever the list offers", () => {
+    const options = listed(null, [decider]);
+    expect(automaticRow(models([decider]), options, "en")).toEqual({ row: null, listed: false });
   });
 });

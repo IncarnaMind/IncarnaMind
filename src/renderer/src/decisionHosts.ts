@@ -4,7 +4,8 @@ import { core } from "./core";
 
 /**
  * The decision model hosts (#1907) as the core last said, read when a view mounts and kept live:
- * a key kept or forgotten anywhere updates every view. Null until the first answer.
+ * a key kept or forgotten anywhere updates every view. Null until the first answer; none when the
+ * core can't say, so a page that waits for them still opens.
  */
 export function useDecisionHosts(): [
   DecisionHostStatus[] | null,
@@ -14,6 +15,7 @@ export function useDecisionHosts(): [
   useEffect(() => {
     core.listDecisionHosts().then(setHosts, (failure: unknown) => {
       console.error("The decision model hosts couldn't be read.", failure);
+      setHosts([]);
     });
     return core.on("decisions.changed", setHosts);
   }, []);
