@@ -84,7 +84,7 @@ test("the Mind sits in a card 8px from the sidebar and the window's edges, with 
     expect(style).toBe("10px");
 
     // The band is the card's first 36px, so it ends level with the sidebar header's rule at y 44,
-    // and the tabs sit inside it, the first at the card's left edge.
+    // and the tabs sit inside it, the first at the band's start.
     const header = await boxOf(window.getByTestId("sidebar-header"));
     const band = await boxOf(window.getByTestId("tab-strip"));
     expect(band).toMatchObject({ x: card.x, y: 8, width: card.width, height: 36 });
