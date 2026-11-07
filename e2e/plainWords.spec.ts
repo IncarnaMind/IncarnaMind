@@ -161,16 +161,18 @@ for (const language of ["en", "zh-CN"] as const) {
       await setSidebarWidth(window, SIDEBAR_DEFAULT);
 
       // The sidebar's way to link: ⌘K's Link a folder asks the system for a folder and opens its
-      // dialog, which Escape closes with nothing linked.
+      // dialog, which Cancel closes with nothing linked.
       await answer({ canceled: false, filePaths: [folder] });
       await runCommand(window, "linkedFolder.add", link);
-      // ⌘K closes before the dialog takes Esc: a key pressed while it is still closing is its own.
       await expect(window.getByTestId("palette")).toBeHidden();
       await expect.poll(async () => (await asked()).length).toBe(1);
       await expect(dialog).toBeVisible();
       await expect(dialog.getByTestId("link-folder-files")).toBeVisible();
       expect((await asked()).at(-1)).toBe("openDirectory");
-      await window.keyboard.press("Escape");
+      // Cancel, not Esc: a dialog opened from ⌘K doesn't take Esc (#2752); the Library's below does.
+      await dialog
+        .getByRole("button", { name: translate(language, "linkedFolders.preview.cancel") })
+        .click();
       await expect(dialog).toBeHidden();
 
       // The sidebar's + menu adds files, and the file the sheet answers is added: the sidebar's
