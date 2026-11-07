@@ -24,11 +24,12 @@ import {
   DECISION_HOSTS,
   type DecisionHost,
   type DecisionHostAddress,
+  type DecisionModel,
   decisionEndpoint,
-  decisionModelOf,
   decisionOrigin,
   decisionService,
   isDecisionHost,
+  isDecisionModelId,
   validAccount,
 } from "../providers/catalog/decisions";
 import { askJev, JevRequestError } from "../providers/jev";
@@ -43,6 +44,10 @@ import { decisionsFromProbabilities, jevState, tagQuestions } from "./jev";
 /** A per-device value, outside `DeviceSettings`: the accounts the hosts ask for, by host. */
 const ACCOUNTS_KEY = "decisionHosts";
 const keyName = (host: DecisionHost) => `decision:${host}:api-key`;
+
+/** How long a host's list of models is kept before it is asked again. */
+const MODEL_LIST_TTL_MS = 6 * 60 * 60 * 1000;
+const MODEL_LIST_TIMEOUT_MS = 15_000;
 
 const TAGGING_RETRIES = 2;
 const TAGGING_TIMEOUT_MS = 60_000;
@@ -64,6 +69,30 @@ export interface DecisionHostsOptions {
   signal: AbortSignal;
   /** Where each host's requests go instead of its own origin (tests use a local fake). */
   origins?: Partial<Record<DecisionHost, string>>;
+  now?(): number;
+}
+
+/**
+ * OpenRouter's listing of its decision models (`data[].id`, `name` as "Maker: Model",
+ * `pricing.prompt` in dollars a token). A `:free` variant is left out: its daily cap would stop
+ * tagging part way.
+ */
+function listedModels(body: unknown): DecisionModel[] {
+  if (!isRecord(body) || !Array.isArray(body.data)) return [];
+  return body.data.flatMap((item: unknown): DecisionModel[] => {
+    if (!isRecord(item) || !isDecisionModelId(item.id) || item.id.endsWith(":free")) return [];
+    const label = typeof item.name === "string" ? item.name : item.id;
+    const [maker, name] = label.includes(": ") ? label.split(": ", 2) : ["", label];
+    const prompt = isRecord(item.pricing) ? Number(item.pricing.prompt) : Number.NaN;
+    return [
+      {
+        id: item.id,
+        name: name || item.id,
+        maker: maker || "",
+        inputPerMillion: Number.isFinite(prompt) ? prompt * 1e6 : null,
+      },
+    ];
+  });
 }
 
 export type DecisionHosts = ReturnType<typeof createDecisionHosts>;
@@ -71,6 +100,9 @@ export type DecisionHosts = ReturnType<typeof createDecisionHosts>;
 export function createDecisionHosts(options: DecisionHostsOptions) {
   const { settings, secrets, consent, signal } = options;
   const gate = createSendGate(consent, options.localOnly);
+  const now = options.now ?? Date.now;
+  /** A host's own listing, as last read. */
+  const listings = new Map<DecisionHost, { at: number; models: DecisionModel[] }>();
 
   /** The account each host asks for, with the region its key was for when it was saved. */
   const saved = (): Partial<Record<DecisionHost, DecisionHostAddress>> => {
@@ -138,6 +170,35 @@ export function createDecisionHosts(options: DecisionHostsOptions) {
       options.origins?.[host] ?? decisionOrigin(host, address),
     );
 
+  /**
+   * The models a host offers: the measured ones, best first, then any its own listing adds. The
+   * listing is read only with the host's key here and never in Local mode; it sends nothing of the
+   * User's. A listing that can't be read leaves the measured ones, and says so in the log.
+   */
+  async function modelsOf(host: DecisionHost, key: HostKey | null): Promise<DecisionModel[]> {
+    const entry = DECISION_HOST_ENTRIES[host];
+    if (!entry.listsModels || !key || options.localOnly()) return [...entry.models];
+    let listing = listings.get(host);
+    if (!listing || now() - listing.at > MODEL_LIST_TTL_MS) {
+      const origin = options.origins?.[host] ?? decisionOrigin(host, addressOf(host));
+      try {
+        const response = await fetch(`${origin}/api/v1/models?output_modalities=decisions`, {
+          headers: { accept: "application/json" },
+          signal: AbortSignal.any([signal, AbortSignal.timeout(MODEL_LIST_TIMEOUT_MS)]),
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        listing = { at: now(), models: listedModels(await response.json()) };
+        listings.set(host, listing);
+      } catch (error) {
+        if (signal.aborted) throw error;
+        console.error(`${entry.name.en}'s list of decision models couldn't be read.`, error);
+        return [...entry.models];
+      }
+    }
+    const measured = new Set(entry.models.map((model) => model.id));
+    return [...entry.models, ...listing.models.filter((model) => !measured.has(model.id))];
+  }
+
   async function statusOf(host: DecisionHost): Promise<DecisionHostStatus> {
     const entry = DECISION_HOST_ENTRIES[host];
     const key = await keyOf(host);
@@ -150,7 +211,7 @@ export function createDecisionHosts(options: DecisionHostsOptions) {
       account: entry.account ? { kind: entry.account, value: address.account } : null,
       hasKey: key !== null,
       ready: isReady(host, key),
-      models: entry.models.map(({ id, name, maker }) => ({ id, name, maker })),
+      models: (await modelsOf(host, key)).map(({ id, name, maker }) => ({ id, name, maker })),
       service: savedService(host),
       keyUrl: entry.keyUrl,
       pricingUrl: entry.pricingUrl,
@@ -169,11 +230,9 @@ export function createDecisionHosts(options: DecisionHostsOptions) {
         values: { provider: entry.name.en },
       });
     }
-    if (!decisionModelOf(host, modelId)) {
-      throw new TaggingNotReadyError({
-        key: "error.tagging.decisionModelGone",
-        values: { provider: entry.name.en, model: modelId },
-      });
+    // Any model the host serves can be chosen by name; one it doesn't serve, it refuses in words.
+    if (!isDecisionModelId(modelId)) {
+      throw new TaggingNotReadyError({ key: "error.library.classifierModel" });
     }
     const address = addressOf(host);
     const endpoint = endpointOf(host, modelId, address);
@@ -228,6 +287,9 @@ export function createDecisionHosts(options: DecisionHostsOptions) {
 
     /** The service a host sends Document text to; null while it can't be worked out (no account yet). */
     service: savedService,
+
+    /** The models a host offers now (see `modelsOf`). */
+    models: async (host: DecisionHost) => modelsOf(host, await keyOf(host)),
 
     /** The hosts that can take requests now, best first as the catalog orders them. */
     async ready(): Promise<DecisionHost[]> {

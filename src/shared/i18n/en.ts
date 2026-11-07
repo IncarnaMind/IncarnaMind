@@ -5866,7 +5866,6 @@ export const en = {
   "error.tagging.jevKeyUnreadable": "The Jev key can’t be read on this device.",
   "error.tagging.decisionKeyMissing": "Add your {provider} key to sort with it.",
   "error.tagging.decisionAccountMissing": "Enter your {provider} account details to sort with it.",
-  "error.tagging.decisionModelGone": "{provider} no longer offers {model}. Choose another model.",
   "error.decision.keyRefused": "{provider} didn’t accept this key: {message}",
   "error.decision.checkFailed": "Couldn’t check the key with {provider}: {message}",
   "error.decision.cloudflareAccount":

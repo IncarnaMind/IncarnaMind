@@ -56,6 +56,11 @@ export interface DecisionHostEntry {
   protocol: "systemone" | "openai";
   bothCriteria?: boolean;
   maxQuestions?: number;
+  /**
+   * The host lists its decision models (OpenRouter's `GET /api/v1/models?output_modalities=decisions`):
+   * a model it adds is offered the day it is listed, after the measured ones.
+   */
+  listsModels?: boolean;
   keyUrl: string;
   pricingUrl: string;
   /** Best first: the first is chosen when the host is set up from the sorting picker. */
@@ -74,6 +79,7 @@ export const DECISION_HOST_ENTRIES: Readonly<Record<DecisionHost, DecisionHostEn
     provider: "openrouter",
     protocol: "systemone",
     bothCriteria: true,
+    listsModels: true,
     keyUrl: "https://openrouter.ai/settings/keys",
     pricingUrl: "https://openrouter.ai/models?output_modalities=decisions",
     models: [
@@ -271,6 +277,13 @@ export function validAccount(host: DecisionHost, value: string): boolean {
   if (account === "alibaba-workspace") return ALIBABA_WORKSPACE.test(value);
   return false;
 }
+
+/**
+ * A model id as a host names its models ("d1-ultra", "perplexity/pplx-decider-v1.2",
+ * "~typesafe/jev-latest"): any the host serves can be chosen by name, a new one included.
+ */
+export const isDecisionModelId = (value: unknown): value is string =>
+  typeof value === "string" && /^[A-Za-z0-9~][A-Za-z0-9._:/~@-]{0,199}$/.test(value);
 
 export const decisionModelOf = (host: DecisionHost, modelId: string): DecisionModel | undefined =>
   DECISION_HOST_ENTRIES[host].models.find((model) => model.id === modelId);
