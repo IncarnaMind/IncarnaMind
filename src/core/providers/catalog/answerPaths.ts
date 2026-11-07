@@ -34,8 +34,9 @@ interface Admitted {
  * Sonnet 5.5 was measured and left out (2026-10-26): it still gave its records first, drafting
  * the Answer in its thinking, and came out slower (+1.2 s, 3.25 → 3.34 calls) with fewer
  * expected Passages cited on the gating set (62 → 59). A Meeting's notes were measured and left
- * out on Claude Haiku 5.5 (2026-11-07): their first case gave 10 sentences a found Citation that
- * didn't state them, against 1 citing first (#1624).
+ * out (2026-11-07, eval/speed/gates/write-then-cite-tasks.md): on Claude Haiku 5.5 their first
+ * case gave 10 sentences a found Citation that didn't state them, against 1 citing first; on
+ * DeepSeek Flash two of four replies ran out of output and the fourth gave a new false Supported.
  */
 const WRITES_THEN_CITES: readonly Admitted[] = [
   {
