@@ -35,6 +35,7 @@ import { isPackageKind, packageSizeError } from "./formats/zip";
 import { keywordText } from "./keywords";
 import { joinCjkLineWraps } from "./lineWrap";
 import { type BuiltPassage, buildPassages } from "./passages";
+import type { FileAnnotation } from "./pdfAnnotations";
 import { documentTitle } from "./title";
 import { unreadMessage } from "./unreadMessage";
 import type { PictureProblem } from "./web/pictures";
@@ -317,6 +318,8 @@ type Processed =
       unread: { pages: number[]; message: string; forms?: true; picture?: true } | null;
       /** What of it wasn't read when the rest was (#740); null when all was. */
       parts: UnreadParts | null;
+      /** PDFs: the highlights and notes the file itself holds (#327). */
+      fileAnnotations?: FileAnnotation[];
     }
   | { outcome: "no-text"; pageCount: number | null; parts: UnreadParts | null }
   | { outcome: "failed"; reason: DocumentFailureReason; message: string };
@@ -737,7 +740,15 @@ async function processBytes(
       return { processed, firstPages, unreadable };
     }
     return {
-      processed: { outcome: "ready", pageCount, passages, pages, unread, parts },
+      processed: {
+        outcome: "ready",
+        pageCount,
+        passages,
+        pages,
+        unread,
+        parts,
+        ...(extracted.fileAnnotations && { fileAnnotations: extracted.fileAnnotations }),
+      },
       firstPages,
       unreadable,
     };

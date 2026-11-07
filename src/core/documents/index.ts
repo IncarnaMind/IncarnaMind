@@ -95,6 +95,7 @@ import { keywordText } from "./keywords";
 import { createLibrary, type LibraryHooks } from "./library";
 import { joinCjkLineWraps, onlyCjkLineWrapChange } from "./lineWrap";
 import { laidOut, type PageText } from "./passages";
+import type { FileAnnotation } from "./pdfAnnotations";
 import {
   CURRENT_SINCE,
   type DocumentHead,
@@ -521,6 +522,11 @@ export interface DocumentsOptions {
   scansAtOnce?: number;
   /** The password kept for a locked PDF (./pdfPasswords, #763); undefined when none is. */
   pdfPassword?(documentId: string): Promise<string | undefined>;
+  /**
+   * A PDF's own highlights and notes, read with its text (#327): stored for the
+   * version they were read in, in place of an earlier one's.
+   */
+  fileAnnotations?(documentId: string, contentHash: string, found: readonly FileAnnotation[]): void;
   readingSpeed: Pick<ReadingMeterOptions, "read" | "write">;
   linkedFolders: {
     watch: WatchFolder;
@@ -1176,7 +1182,7 @@ export function createDocuments(options: DocumentsOptions) {
    */
   function record(job: ProcessingJob, result: ProcessingResult): Recorded | undefined {
     if (result.outcome === "stopped") return undefined;
-    return db.transaction(() => {
+    const recorded = db.transaction((): Recorded | undefined => {
       const row = find(job.documentId);
       if (row?.status !== "extracting") return undefined;
       indexName(row.id, row.name);
@@ -1358,6 +1364,11 @@ export function createDocuments(options: DocumentsOptions) {
       writeFileReference(db, job.documentId, result.reference, at);
       return { status, replaced: !unchanged };
     });
+    // After the row names this version, so each quote is cited against the pages it came with.
+    if (recorded && result.outcome === "ready" && result.fileAnnotations) {
+      options.fileAnnotations?.(job.documentId, result.contentHash, result.fileAnnotations);
+    }
+    return recorded;
   }
 
   // Set below, once the library exists: works out whether an unreadable file is gone.

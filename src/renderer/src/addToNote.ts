@@ -71,7 +71,7 @@ export interface AddedAnswer {
 }
 
 /** What an Undo that kept Blocks the User edited says, or null when it took everything back. */
-const undoKept = (kept: number): Words | null =>
+export const undoKept = (kept: number): Words | null =>
   kept === 0
     ? null
     : (t) => t(kept === 1 ? "answer.undoKept.one" : "answer.undoKept", { count: kept });

@@ -12,9 +12,10 @@ import { ACCEPT_SUGGESTIONS } from "../shared/commands";
 import { optionsFor } from "../shared/exportOptions";
 import { figureScheduleChange } from "../shared/figureSchedule";
 import { graphemeBoundary } from "../shared/graphemes";
+import type { MessageKey, MessageParams } from "../shared/i18n";
 import { translate } from "../shared/i18n";
 import { organizeModelOf, supportsLibraryImages } from "../shared/libraryModels";
-import { parseCitedArea } from "../shared/locations";
+import { formatLocation, parseCitedArea } from "../shared/locations";
 import { holdsOnlyItsTitle } from "../shared/madeMind";
 import {
   HEARD_FROM,
@@ -68,6 +69,7 @@ import { agentSocketPath, createAgents } from "./agents";
 import { createAgentSetup, skillInstalled } from "./agents/setup";
 import { createAiUse } from "./aiUse";
 import { createAiUseStatement } from "./aiUseStatement";
+import { createAnnotations } from "./annotations";
 import { createAiSdkAnswerEngine, createAnswers } from "./answers";
 import { createAskedChanges } from "./answers/applyAsked";
 import { createChecks } from "./answers/checks";
@@ -99,6 +101,7 @@ import type { LiveTranscript } from "./answers/liveTranscript";
 import { explicitWalledFolderScope } from "./answers/scopeLine";
 import {
   type AddDocumentsResult,
+  type AnnotationColour,
   type AnswerPlace,
   type ChatModelChoice,
   type ChatProviderKind,
@@ -994,6 +997,7 @@ export function createCore(adapters: CoreAdapters): Core {
   const background = createBackgroundQueue({ reportError: (error) => console.error(error) });
   let documents: ReturnType<typeof createDocuments>;
   let citedPages: CitedPages;
+  let annotations: ReturnType<typeof createAnnotations>;
   /** Set once created, so a failure after it can close it. */
   let createdDocuments: ReturnType<typeof createDocuments> | undefined;
   try {
@@ -1029,6 +1033,10 @@ export function createCore(adapters: CoreAdapters): Core {
         );
       },
       emitKept: (kept) => events.emit("keptCitationTexts.changed", kept),
+      fileAnnotations: (documentId, contentHash, found) => {
+        annotations.replaceFileAnnotations(documentId, contentHash, found);
+        events.emit("annotations.changed", { documentId });
+      },
       foldersChanged,
       linkedFoldersChanged: (list) => {
         events.emit("linkedFolders.changed", list);
@@ -1131,6 +1139,19 @@ export function createCore(adapters: CoreAdapters): Core {
     db.close();
     throw error;
   }
+  annotations = createAnnotations(db, now, {
+    currentVersion: (documentId) => documents.currentVersion(documentId),
+    cite: (documentId, anchor) =>
+      citeSelection(documents, {
+        documentId,
+        parts: anchor.parts,
+        ...(anchor.area && { area: anchor.area }),
+        unit: anchor.unit ?? null,
+        ...(anchor.around && { around: anchor.around }),
+      }),
+  });
+  const annotationsChanged = (documentId: string) =>
+    events.emit("annotations.changed", { documentId });
   // A saved page and its pictures are fetched only from the public internet: never this
   // computer or a local network, every redirect checked as an address is (#2553).
   const publicFetcher = createPublicFetch(adapters.web);
@@ -2181,6 +2202,23 @@ export function createCore(adapters: CoreAdapters): Core {
       reading: (documentIds) =>
         documents.reading(documentIds ?? undefined).map((each) => ({ name: each.name })),
       search: searchDocuments,
+      highlightText: (documentIds, query) => {
+        const wanted = documentIds === null ? null : new Set(documentIds);
+        const matches = annotations
+          .search(query, 8)
+          .filter((match) => wanted === null || wanted.has(match.documentId));
+        if (matches.length === 0) return "";
+        const lines = matches.map((match) => {
+          const where = match.location
+            ? formatLocation(match.location, (key: MessageKey, params?: MessageParams) =>
+                translate("en", key, params),
+              )
+            : "";
+          const note = match.note === null ? "" : ` — the User's note: ${match.note}`;
+          return `- ${match.documentName}${where ? `, ${where}` : ""}: “${match.excerpt}”${note}`;
+        });
+        return `The User's own highlights and notes on these words, already checked against the Documents:\n${lines.join("\n")}`;
+      },
       webAddress: (documentId) => documents.getMany([documentId])[0]?.web?.address ?? null,
       citationSource: (passageId) => documents.citationSource(passageId),
       pageTexts: (documentId, contentHash, from, to) =>
@@ -5621,6 +5659,111 @@ export function createCore(adapters: CoreAdapters): Core {
         unit,
         ...(around && { around }),
       });
+    },
+    createAnnotation: async (input) => {
+      if (!isRecord(input) || !Array.isArray(input.parts)) {
+        throw new InvalidInputError({ key: "error.selection.none" });
+      }
+      const parts = input.parts.map(parseSelectedPart);
+      const area = input.area === undefined ? undefined : selectionArea(input.area);
+      if (parts.every((part) => part.text.trim() === "") && area === undefined) {
+        throw new InvalidInputError({ key: "error.selection.none" });
+      }
+      const unit =
+        typeof input.unit === "number" && Number.isInteger(input.unit) && input.unit >= 1
+          ? input.unit
+          : null;
+      const around = parseAround(input.around);
+      const documentId = parseDocumentId(input.documentId);
+      const cited = citeSelection(documents, {
+        documentId,
+        parts,
+        ...(area && { area }),
+        unit,
+        ...(around && { around }),
+      });
+      const unsure = cited.check === "cant-check" && cited.checkReason === "unsure-word";
+      // A region of a picture is cited as a picture: there is nothing in it to check.
+      const pictured = area !== undefined && cited.checkReason === "picture";
+      // A picture's place is its page: a region on a Unit the Document doesn't have is refused.
+      if (pictured && cited.location === null) {
+        throw new InvalidInputError({ key: "error.annotation.refused" });
+      }
+      if (cited.check !== "found" && !unsure && !pictured) {
+        throw new InvalidInputError({
+          key:
+            cited.checkReason === "too-many-pages"
+              ? "error.annotation.refused.pages"
+              : cited.checkReason === "in-several-places"
+                ? "error.annotation.refused.places"
+                : cited.checkReason === "no-text"
+                  ? "error.annotation.refused.noText"
+                  : "error.annotation.refused",
+        });
+      }
+      const saved = annotations.create({
+        documentId,
+        parts,
+        colour: input.colour,
+        note: typeof input.note === "string" ? input.note : null,
+        ...(area && { area }),
+        unit,
+        ...(around && { around }),
+        ...cited,
+      });
+      annotationsChanged(documentId);
+      return saved;
+    },
+    listAnnotations: async (documentId) => annotations.list(parseDocumentId(documentId)),
+    annotationsIn: async (input) => {
+      if (!isRecord(input)) throw new InvalidInputError({ key: "error.annotation.collect" });
+      const colour = typeof input.colour === "string" ? input.colour : undefined;
+      return annotations.in({
+        ...(typeof input.documentId === "string" && { documentId: input.documentId }),
+        ...(typeof input.folderId === "string" && { folderId: input.folderId }),
+        ...(colour !== undefined && { colour: colour as AnnotationColour }),
+      });
+    },
+    annotationCounts: async () => annotations.counts(),
+    updateAnnotation: async (id, edit) => {
+      if (typeof id !== "string" || id === "")
+        throw new InvalidInputError({ key: "error.annotation.needed" });
+      if (!isRecord(edit)) throw new InvalidInputError({ key: "error.annotation.edit" });
+      const changed = annotations.update(id, {
+        ...(edit.note !== undefined && { note: edit.note as string | null }),
+        ...(edit.colour !== undefined && { colour: edit.colour as AnnotationColour }),
+      });
+      annotationsChanged(changed.documentId);
+      return changed;
+    },
+    deleteAnnotation: async (id) => {
+      if (typeof id !== "string" || id === "")
+        throw new InvalidInputError({ key: "error.annotation.needed" });
+      const removed = annotations.remove(id);
+      annotationsChanged(removed.documentId);
+      return removed;
+    },
+    restoreAnnotation: async (id) => {
+      if (typeof id !== "string" || id === "")
+        throw new InvalidInputError({ key: "error.annotation.needed" });
+      const restored = annotations.restore(id);
+      annotationsChanged(restored.documentId);
+      return restored;
+    },
+    searchAnnotations: async (query, options) => {
+      if (typeof query !== "string")
+        throw new InvalidInputError({ key: "error.annotation.search" });
+      const limit =
+        isRecord(options) && typeof options.limit === "number" && options.limit > 0
+          ? Math.min(Math.floor(options.limit), 200)
+          : 50;
+      return annotations.search(query, limit);
+    },
+    saveAnnotationsExport: async (documentId) => {
+      const id = parseDocumentId(documentId);
+      if (annotations.list(id).length === 0) return { status: "empty" };
+      const { name, text } = annotations.markdown(id, settings.get().language);
+      return saveExport(name, new TextEncoder().encode(text), null);
     },
     searchPassages: (query, options) => {
       const place = parsePassagePlace(isRecord(options) ? options.place : undefined);
