@@ -10,6 +10,7 @@ import { formatDate } from "../../shared/dates";
 import type { MessageKey, MessageParams } from "../../shared/i18n";
 import type { CitationCheck } from "../api";
 import { checkedByLine } from "../checkRecord/labels";
+import { CSV_BYTE_ORDER_MARK, csvRow } from "../csv";
 import type { Language } from "../language";
 import type { ComparisonCellReading, ComparisonReading } from "../mindText";
 import { type Block, type Footnote, footnotesIn, type Inline } from "../mindText";
@@ -113,8 +114,8 @@ export function blocksText(blocks: readonly Block[]): string {
   return lines.filter((line) => line.trim() !== "").join("\n");
 }
 
-const TABLE = "table";
-const SOURCES = "sources";
+export const TABLE_SHEET = "table";
+export const SOURCES_SHEET = "sources";
 const DOCUMENT_COLUMN = "document";
 /** Excel's default column, and how many pixels of the page one of its characters holds. */
 const DEFAULT_COLUMN_WIDTH = 36;
@@ -188,7 +189,7 @@ export function comparisonBook(input: ComparisonSheetInput): {
             {
               column: "cell",
               value: { kind: "text", text: `${row.name} · ${comparisonNameOf(question)}` },
-              link: { sheet: TABLE, row: rowId, column: question.id },
+              link: { sheet: TABLE_SHEET, row: rowId, column: question.id },
               wrap: true,
             },
             { column: "document", value: { kind: "text", text: facts.document }, wrap: true },
@@ -208,7 +209,7 @@ export function comparisonBook(input: ComparisonSheetInput): {
       cells.push({
         column: question.id,
         value: figure ? figure.value : { kind: "text", text },
-        ...(figure && { format: figure.format }),
+        ...(figure && { format: figure.format, shown: text }),
         ...(notes.length > 0 && { note: notes.join("\n\n") }),
         wrap: figure === null,
       });
@@ -220,7 +221,7 @@ export function comparisonBook(input: ComparisonSheetInput): {
     book: {
       sheets: [
         {
-          id: TABLE,
+          id: TABLE_SHEET,
           name: input.title,
           columns: [
             { id: DOCUMENT_COLUMN, width: 32 },
@@ -242,7 +243,7 @@ export function comparisonBook(input: ComparisonSheetInput): {
           frozen: { rows: 1, columns: 1 },
         },
         {
-          id: SOURCES,
+          id: SOURCES_SHEET,
           name: t("export.excel.sources"),
           columns: [
             { id: "cell", width: 40 },
@@ -266,4 +267,58 @@ export function comparisonBook(input: ComparisonSheetInput): {
       ],
     },
   };
+}
+
+const shownOf = (value: SheetCell["value"]): string =>
+  value.kind === "text"
+    ? value.text
+    : value.kind === "number"
+      ? String(value.number)
+      : value.kind === "date"
+        ? value.date
+        : "";
+
+/**
+ * The table's sheet as CSV (#1839), its rows and columns as the workbook shows them, and one
+ * Sources column at the end holding each row's Citations, as a copied table's does.
+ */
+export function comparisonCsv(book: SheetBook, sourcesHeading: string): string {
+  const sheet = (id: string) => book.sheets.find((each) => each.id === id);
+  const table = sheet(TABLE_SHEET);
+  if (!table) return "";
+  const rowCells = (row: SheetRow) => new Map(row.cells.map((cell) => [cell.column, cell]));
+  const columns = table.columns.map((column) => column.id);
+  const header = table.rows.find((row) => row.header);
+  const labels = rowCells(header ?? { id: "", cells: [] });
+  const cited = new Map<string, string[]>();
+  for (const row of sheet(SOURCES_SHEET)?.rows ?? []) {
+    if (row.header) continue;
+    const cells = rowCells(row);
+    const link = [...cells.values()].find((cell) => cell.link)?.link;
+    if (!link) continue;
+    const document = shownOf(cells.get("document")?.value ?? { kind: "empty" });
+    const location = shownOf(cells.get("location")?.value ?? { kind: "empty" });
+    const quote = shownOf(cells.get("quote")?.value ?? { kind: "empty" });
+    const label = labels.get(link.column);
+    const line = [
+      label ? `${shownOf(label.value)}: ` : "",
+      document,
+      location ? `, ${location}` : "",
+      quote ? ` · “${quote}”` : "",
+    ].join("");
+    const lines = cited.get(link.row) ?? [];
+    lines.push(line);
+    cited.set(link.row, lines);
+  }
+  const lines = table.rows.map((row) => {
+    const cells = rowCells(row);
+    const values = columns.map((column) => {
+      const cell = cells.get(column);
+      return cell ? (cell.shown ?? shownOf(cell.value)) : null;
+    });
+    return csvRow(
+      row.header ? [...values, sourcesHeading] : [...values, cited.get(row.id)?.join("; ") ?? ""],
+    );
+  });
+  return `${CSV_BYTE_ORDER_MARK}${lines.join("\r\n")}\r\n`;
 }

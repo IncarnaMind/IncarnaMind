@@ -9,6 +9,7 @@ import { useDismissOnEscape } from "../escapeDismiss";
 import { checkComments, myCommentsPart, trackedChanges, unmarkedChecks } from "../exportChecks";
 import { useExportDialog } from "../exportDialog";
 import {
+  COMPARISON_CSV,
   COMPARISON_EXCEL,
   canChangeExport,
   cancelChange,
@@ -155,11 +156,14 @@ function ResultBody({
     return () => clearTimeout(timer);
   }, [plain, held, dismiss]);
 
-  const saving = isWorkbook(result.format)
-    ? t("export.excel.saving")
-    : isCheckRecord(result.format)
-      ? t("checkRecord.saving")
-      : t("export.saving.line", { format: t(FORMAT_LABELS[result.format]) });
+  const saving =
+    result.format === COMPARISON_CSV
+      ? t("export.csv.saving")
+      : isWorkbook(result.format)
+        ? t("export.excel.saving")
+        : isCheckRecord(result.format)
+          ? t("checkRecord.saving")
+          : t("export.saving.line", { format: t(FORMAT_LABELS[result.format]) });
   const fix = (): ProblemAction | undefined => {
     if (result.state === "failed") {
       return {
@@ -391,8 +395,8 @@ function NeedsDetailsLine({ mindId, documentIds }: { mindId: string; documentIds
 /** A workbook the app writes from a note, the comparison or the figure schedule: not the note's own file. */
 const isWorkbook = (
   format: SavedResult["format"],
-): format is typeof COMPARISON_EXCEL | typeof FIGURE_SCHEDULE_EXCEL =>
-  format === COMPARISON_EXCEL || format === FIGURE_SCHEDULE_EXCEL;
+): format is typeof COMPARISON_EXCEL | typeof COMPARISON_CSV | typeof FIGURE_SCHEDULE_EXCEL =>
+  format === COMPARISON_EXCEL || format === COMPARISON_CSV || format === FIGURE_SCHEDULE_EXCEL;
 
 function useExportNoteState(mindId: string | null): NoteState | null {
   const mind = useAppStore((state) =>
