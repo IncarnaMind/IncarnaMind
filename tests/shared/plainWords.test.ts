@@ -55,8 +55,6 @@ describe("the empty states say what to do next, with the button that does it (#7
   test("the Library and the sidebar say No Documents yet, then the next step", () => {
     expect(said.en("library.none")).toBe("No Documents yet");
     expect(said.zh("library.none")).toBe("还没有文档");
-    expect(said.en("library.none.hint")).toBe("Add files or a folder.");
-    expect(said.zh("library.none.hint")).toBe("添加文件或文件夹。");
     expect(said.en("startGuide.documents.linkFolder")).toBe("Link a folder…");
     expect(said.zh("startGuide.documents.linkFolder")).toBe("添加关联文件夹…");
   });

@@ -91,10 +91,8 @@ function deleteFrom(row: HTMLElement | null, documentId: string): void {
   const ids = documentsToMove(documentId);
   const gone = new Set(ids);
   const grid = row?.closest('[role="grid"]');
-  // With every row gone, Add Documents: the focus stays in the Library, where ⌘Z still works.
-  const add = row
-    ?.closest('[data-testid="library"]')
-    ?.querySelector<HTMLElement>('[data-testid="library-add-documents"]');
+  // With every row gone, the one place to add: the focus stays in the Library, where ⌘Z still works.
+  const library = row?.closest('[data-testid="library"]');
   const rows = [...(grid?.querySelectorAll<HTMLElement>("[data-document-id]") ?? [])];
   const at = rows.findIndex((each) => each.dataset.documentId === documentId);
   const stays = (each: HTMLElement) => !gone.has(each.dataset.documentId ?? "");
@@ -108,12 +106,20 @@ function deleteFrom(row: HTMLElement | null, documentId: string): void {
     })
     .then(() => {
       if (!row || !focusStillWith(row)) return;
-      const target = nextId
-        ? grid?.querySelector<HTMLElement>(
-            `[data-document-id="${CSS.escape(nextId)}"] [data-row-main]`,
+      if (nextId) {
+        grid
+          ?.querySelector<HTMLElement>(`[data-document-id="${CSS.escape(nextId)}"] [data-row-main]`)
+          ?.focus();
+        return;
+      }
+      // The empty page draws its own Add in place of the header's.
+      requestAnimationFrame(() =>
+        library
+          ?.querySelector<HTMLElement>(
+            '[data-testid="library-empty-add-files"], [data-testid="library-add-documents"]',
           )
-        : add;
-      target?.focus();
+          ?.focus(),
+      );
     })
     .catch(useAppStore.getState().reportError);
 }

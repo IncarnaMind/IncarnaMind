@@ -21,6 +21,7 @@ export function LibraryHeader({
   organizeCount,
   onSortIntoFolders,
   sorting = false,
+  canAdd = true,
   search,
   onSearch,
   onDown,
@@ -39,6 +40,8 @@ export function LibraryHeader({
   onSortIntoFolders?: (() => void) | null;
   /** Organize is already reading or sorting them: the action waits. */
   sorting?: boolean;
+  /** Whether the header offers "Add Documents": not while the empty page holds the one place to add. */
+  canAdd?: boolean;
   search: string;
   onSearch(search: string): void;
   /** ↓ in the search field. */
@@ -96,7 +99,7 @@ export function LibraryHeader({
             {t("library.organizeCount", { count: formatCount(organizeCount, language) })}
           </button>
         )}
-        <AddDocumentsMenu secondary={!!onSortIntoFolders} />
+        {canAdd && <AddDocumentsMenu secondary={!!onSortIntoFolders} />}
       </div>
       <label
         title={t("library.search.hint")}

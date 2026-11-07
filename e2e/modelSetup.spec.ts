@@ -17,6 +17,7 @@ import {
   controlReads,
   createDataFolder,
   dismissChatSetup,
+  exampleRow,
   firstTranscriptLine,
   interceptOpenExternal,
   launchApp,
@@ -2051,7 +2052,7 @@ test("nothing at all: installing a model on this computer is offered, the exampl
     await expect.poll(() => urlsOpened(app)).toContain("https://ollama.com/download");
 
     // The example the app opens on is still there.
-    await expect(window.getByTestId("mind-list-item").getByTestId("example-chip")).toBeVisible();
+    await expect(exampleRow(window)).toBeVisible();
 
     await pointAndClick(window, card.getByTestId("setup-later"));
     await expect(card).toHaveCount(0);
@@ -2148,7 +2149,7 @@ test("with no key and no AI model, the Example still opens and Set up later retu
     await acceptPlainTextKeys(window);
     const card = await askFirstQuestion(window);
     await expect(card.getByTestId("setup-chatgpt")).toBeVisible();
-    await expect(window.getByTestId("mind-list-item").getByTestId("example-chip")).toBeVisible();
+    await expect(exampleRow(window)).toBeVisible();
     await pointAndClick(window, card.getByTestId("setup-later"));
     await expect(window.getByTestId("composer-input")).toHaveValue("What is in my Documents?");
   } finally {

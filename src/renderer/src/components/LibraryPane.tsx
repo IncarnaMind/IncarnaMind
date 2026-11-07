@@ -427,11 +427,10 @@ export function LibraryPane() {
     setFacetFilter({});
     useAppStore.getState().setTagFilter([]);
   };
+  const meetingHits = meetingHitsOf(inside.matches, allDocuments, minds);
+  const emptyLibrary = documents.length === 0 && meetingHits.length === 0;
   const nothingMatches =
-    narrowing &&
-    sections.length === 0 &&
-    !inside.waiting &&
-    meetingHitsOf(inside.matches, allDocuments, minds).length === 0;
+    narrowing && sections.length === 0 && !inside.waiting && meetingHits.length === 0;
   const query = search.trim();
   /** Nothing in the Library matches what was typed: ask the assistant about it instead (#763). */
   const askAbout =
@@ -470,6 +469,7 @@ export function LibraryPane() {
               organizeCount={looseOwn}
               onSortIntoFolders={sortIntoFolders}
               sorting={running}
+              canAdd={snapshot !== null && !emptyLibrary}
               search={search}
               onSearch={setSearch}
               onEnter={askAbout}
@@ -491,7 +491,7 @@ export function LibraryPane() {
               </p>
             ) : documents.length === 0 ? (
               // A Library of meetings alone still finds them by their words.
-              meetingHitsOf(inside.matches, allDocuments, minds).length > 0 ? (
+              meetingHits.length > 0 ? (
                 <MeetingHits matches={inside.matches} />
               ) : (
                 <LibraryEmpty />

@@ -6,19 +6,16 @@ import { buttonStyle } from "../ui";
 
 /**
  * The empty Library: what is missing and the two ways to add it, in place,
- * with the formats that can be added and that files stay where they are.
- * The whole window still takes a drop.
+ * with the formats that can be added and that files stay where they are. The
+ * one place to add: the page's header offers none until something is listed.
+ * The whole window takes a drop, and shows its target only while one is dragged over it.
  */
 export function LibraryEmpty() {
   const t = useT();
   return (
-    <div
-      data-testid="library-empty"
-      className="mt-6 rounded-[10px] border-[1.5px] border-dashed border-rule-strong px-6 py-12 text-center"
-    >
+    <div data-testid="library-empty" className="mt-12 px-6 py-12 text-center">
       <DropLineIcon className="mx-auto size-5 text-ink-meta" />
       <p className="mt-3 font-sans text-heading font-semibold text-ink">{t("library.none")}</p>
-      <p className="mt-1.5 text-[13px] text-ink-meta">{t("library.none.hint")}</p>
       <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
         <button
           type="button"

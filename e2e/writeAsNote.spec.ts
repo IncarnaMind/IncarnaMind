@@ -10,6 +10,7 @@ import {
   useLocalChatModel as connectLocalChatModel,
   createDataFolder,
   dismissChatSetup,
+  exampleRow,
   frontMind,
   frontMindName,
   launchApp,
@@ -370,10 +371,7 @@ for (const language of LANGUAGES) {
       await expect(guide).toContainText(w.startGuide);
       await expect(guide).toContainText(w.answerGuide);
       await expect(guide).toContainText(w.connectApp);
-      await pointAndClick(
-        window,
-        window.getByTestId("mind-list-item").filter({ has: window.getByTestId("example-chip") }),
-      );
+      await pointAndClick(window, exampleRow(window));
       await expect(window.getByTestId("first-open-steps")).toBeVisible();
       await pointAndClick(
         window,
