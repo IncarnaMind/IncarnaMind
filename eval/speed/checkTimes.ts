@@ -329,7 +329,8 @@ export interface FlowTimes {
   checkStartMs: number;
   /**
    * For a Note's check, its first sign in the window: a sentence shown as checking while the
-   * claims are still named (#1624), or else its first mark.
+   * claims are still named (#1624), or else its first mark. Not measured for a write or an
+   * Answer, whose row shows "–".
    */
   firstSignMs?: number;
   /** When the first mark reached the page, one that couldn't be checked included. */
@@ -448,7 +449,7 @@ export function checkTimesReport(runs: readonly FlowTimes[], counts: Map<string,
     const perRequest = (pick: (request: CheckRequest) => number) =>
       median(checkRequests.map(pick)) ?? 0;
     lines.push(
-      `| ${key} | ${list.length} | ${s(med((run) => run.firstSignMs ?? run.checkStartMs))} | ${s(med((run) => run.checkStartMs))} | ${s(med((run) => run.firstMarkMs))} | ${s(med((run) => run.firstVerdictMs))} | ${s(med((run) => run.doneMs))} | ${(checkRequests.length / list.length).toFixed(1)} | ${(median(per.map((each) => each.requests)) ?? 0).toFixed(1)}, ${(median(per.map((each) => each.searches)) ?? 0).toFixed(1)} | ${s(perRequest((request) => (request.endMs ?? request.startMs) - request.startMs))} / ${s(perRequest((request) => (request.firstByteMs ?? request.startMs) - request.startMs))} / ${s(perRequest((request) => (request.firstReasoningMs !== null && request.firstAnswerMs !== null ? request.firstAnswerMs - request.firstReasoningMs : 0)))} | ${list.map((run) => run.reranks.length).join("/")} (${(median(list.flatMap((run) => run.reranks.map((each) => each.ms))) ?? 0).toFixed(0)}) | ${sum(list.map((run) => run.rerankRepeats.repeated))} of ${sum(list.map((run) => run.rerankRepeats.scored))} | ${(median(list.map((run) => run.load)) ?? 0).toFixed(1)} / ${Math.max(...list.map((run) => run.load15)).toFixed(1)} | $${sum(list.map((run) => run.spentUsd)).toFixed(3)} |`,
+      `| ${key} | ${list.length} | ${s(med((run) => run.firstSignMs ?? null))} | ${s(med((run) => run.checkStartMs))} | ${s(med((run) => run.firstMarkMs))} | ${s(med((run) => run.firstVerdictMs))} | ${s(med((run) => run.doneMs))} | ${(checkRequests.length / list.length).toFixed(1)} | ${(median(per.map((each) => each.requests)) ?? 0).toFixed(1)}, ${(median(per.map((each) => each.searches)) ?? 0).toFixed(1)} | ${s(perRequest((request) => (request.endMs ?? request.startMs) - request.startMs))} / ${s(perRequest((request) => (request.firstByteMs ?? request.startMs) - request.startMs))} / ${s(perRequest((request) => (request.firstReasoningMs !== null && request.firstAnswerMs !== null ? request.firstAnswerMs - request.firstReasoningMs : 0)))} | ${list.map((run) => run.reranks.length).join("/")} (${(median(list.flatMap((run) => run.reranks.map((each) => each.ms))) ?? 0).toFixed(0)}) | ${sum(list.map((run) => run.rerankRepeats.repeated))} of ${sum(list.map((run) => run.rerankRepeats.scored))} | ${(median(list.map((run) => run.load)) ?? 0).toFixed(1)} / ${Math.max(...list.map((run) => run.load15)).toFixed(1)} | $${sum(list.map((run) => run.spentUsd)).toFixed(3)} |`,
     );
   }
   const checked = [...groups].filter(([, list]) => list.some((run) => run.stated));
