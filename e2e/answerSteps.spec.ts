@@ -22,6 +22,7 @@ import {
   removeDataFolder,
   setSilentWaitMs,
   setWindowSize,
+  showAssistant,
   sidebarFolder,
   sizeAssistant,
   slideToHandle,
@@ -616,13 +617,16 @@ test("the folded line opens by click, Enter and Space, at once, to the reasoning
   await expect(
     groups.first().getByTestId("mind-tab").filter({ hasText: "Lit review: tides" }),
   ).toHaveAttribute("aria-selected", "true");
+  // The page leaves the Note too little room at 1,440px: the assistant folds to its rail (#2270).
+  await expect(window.getByTestId("assistant")).toHaveAttribute("data-folded", "true");
 
-  // Read goes to that Mind's tab.
+  // Read goes to that Mind's tab, from the assistant brought back.
   await pointAndClick(
     window,
     window.getByTestId("mind-list-item").filter({ hasText: "Moon notes" }),
   );
   await expect(frontMindName(window)).toHaveText("Moon notes");
+  await showAssistant(window);
   await pointAndClick(window, timeline.getByTestId("answer-step-read"));
   await expect(frontMindName(window)).toHaveText("Lit review: tides");
   await app.close();

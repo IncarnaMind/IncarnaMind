@@ -24,6 +24,7 @@ import {
   removeDataFolder,
   setLanguage,
   setWindowSize,
+  showAssistant,
   welcomeStep as step,
   useLocalChatModel,
 } from "./app";
@@ -569,6 +570,9 @@ for (const { language, name, text, asks, question } of OWN_FILES) {
     const chip = answer.getByTestId("citation-chip").first();
     await expect(chip).toBeVisible();
     await pointAndClick(window, chip);
+    // Its page leaves the Note too little room at 1,440px: the assistant folds, the card inside (#2270).
+    await expect(window.getByTestId("assistant")).toHaveAttribute("data-folded", "true");
+    await showAssistant(window);
     await expect(
       window.getByTestId("citation-card").getByText(name.replace(/\.md$/, ""), { exact: true }),
     ).toBeVisible();
