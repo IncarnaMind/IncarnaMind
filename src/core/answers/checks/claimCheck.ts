@@ -417,9 +417,15 @@ function figuresReplied(
               judged && item.verdict === "contradicted" && item.source
                 ? readFigureSource(calculations, target, item.source)
                 : null;
-            return source && "input" in source && givesItsOwnNumber(target, source.input)
+            if (source && "input" in source && givesItsOwnNumber(target, source.input))
+              return [
+                `${target.reading.chars}: you call it contradicted, but its source gives the same number, ${source.input.number.chars}; give as source the number the Document gives for its own subject, period, column and unit, or the verdict that number gives.`,
+              ];
+            // Claude Haiku 5.5 left a case it could read undecided: it gave neither the number the
+            // Document states nor what differs, so its verdict rests on nothing a reader can see.
+            return item.source === null && item.calculation === null && item.says === null
               ? [
-                  `${target.reading.chars}: you call it contradicted, but its source gives the same number, ${source.input.number.chars}; give as source the number the Document gives for its own subject, period, column and unit, or the verdict that number gives.`,
+                  `${target.reading.chars}: you give neither the Document's number nor what differs; give as source the number the Document gives for its own subject, period, column and unit, with the reading its context takes where its readings offer one, or the verdict that number gives.`,
                 ]
               : [];
           }
@@ -846,6 +852,7 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
                   relation: fields.relation,
                 }),
                 costs: new Set(costs),
+                given: each,
               });
           }
           const result = figures.calculate(givenList(given), options);
@@ -904,6 +911,32 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
           return toldAtSize;
         },
       }),
+    };
+
+    /**
+     * A figure calculated before the `cite` beside it recorded its quote is worked out again once
+     * the quote is there: a turn's Tool calls run at once, and Claude Haiku 5.5 calls `calculate`
+     * and `cite` in one turn, so the calculation raced the record and left the check Not checked.
+     */
+    const retryPendingQuotes = () => {
+      for (const entry of [...pending.values()]) {
+        if (entry.given === undefined) continue;
+        const fields =
+          typeof entry.given === "object" && entry.given !== null
+            ? (entry.given as Record<string, unknown>)
+            : {};
+        const inputs = Array.isArray(fields.inputs) ? fields.inputs : [];
+        const markers = inputs.flatMap((input) => {
+          const marker =
+            typeof input === "object" && input !== null
+              ? whole((input as Record<string, unknown>).citation)
+              : null;
+          return marker === null ? [] : [marker];
+        });
+        if (markers.length === 0) continue;
+        if (markers.every((marker) => session.tools.hasRecord?.(marker) === true))
+          tools.calculate?.([entry.given]);
+      }
     };
 
     const unstatedUnit = (
@@ -1329,7 +1362,11 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
         })),
       );
       session.check();
-      if (invalidInput || pending.size > 0) return notChecked("no-evidence");
+      if (invalidInput || pending.size > 0) {
+        retryPendingQuotes();
+        session.check();
+        if (invalidInput || pending.size > 0) return notChecked("no-evidence");
+      }
       const judged = async (
         said: ReadVerdict,
         words: string,
@@ -2168,6 +2205,8 @@ interface StatedNumber {
   relation?: LimitRelation;
   /** The names of the inputs the model marked as a cost or deduction printed in brackets. */
   costs: ReadonlySet<string>;
+  /** The calculate item as the model gave it, to work out again once its quotes are recorded. */
+  given?: unknown;
 }
 
 /**

@@ -230,6 +230,8 @@ async function checkWith(options: {
   /** Its Document has no pages, as a whole TXT or Markdown file cited before Units. */
   pagesless?: boolean;
   calculations?: readonly unknown[];
+  /** It calls calculate in the turn before its cite, as a model's two Tool calls in one turn race. */
+  calculatesBeforeCite?: boolean;
   judgement?: string;
   failure?: { status: number; message: string };
   besideCite?: string;
@@ -272,6 +274,11 @@ async function checkWith(options: {
         !call.results.some((result) => result.tool === "cite")
       )
         return { text: sent(options.text) };
+      if (
+        options.calculatesBeforeCite &&
+        !call.results.some((result) => result.tool === "calculate")
+      )
+        return { calls: [{ tool: "calculate", input: { figures: options.calculations } }] };
       if (!options.neverCites && !call.results.some((result) => result.tool === "cite"))
         return {
           text: options.besideCite && sent(options.besideCite),
@@ -936,6 +943,68 @@ test("a Figures line naming a calculation the check never made is asked again, a
     askedAgain: { note: "wasn't worked out in this check", text: reply([item()]) },
   });
   expect(calls.filter((call) => call.prompt.includes("wasn't worked out"))).toHaveLength(1);
+  expect(result.figures?.[0]?.result.verdict).toBe("supported");
+});
+
+test("a figure left undecided with neither its source nor a reason is asked once, and the reply with its source binds", async () => {
+  const { result, calls } = await checkWith({
+    figures: [target("f1")],
+    text: reply([
+      { ...item(), verdict: "unsupported", topic: "not found", source: null, says: null },
+    ]),
+    askedAgain: {
+      note: "you give neither the Document's number nor what differs",
+      text: reply([item()]),
+    },
+  });
+  expect(
+    calls.filter((call) => call.prompt.includes("you give neither the Document's number")),
+  ).toHaveLength(1);
+  expect(result.figures?.[0]?.result.verdict).toBe("supported");
+});
+
+test("a source position that names another number than the one given is read as the number the quote writes once", async () => {
+  const body = "Revenue\t100\t120";
+  const units: UnitText[] = [
+    {
+      page: 1,
+      text: body,
+      kind: "rows",
+      label: { sheet: "Budget", from: 1, to: 1, rows: [1], column: 0 },
+    },
+  ];
+  const { result } = await checkWith({
+    figures: [target("f1", "120", "Revenue 2025")],
+    claim: "Revenue was 120.",
+    body,
+    units,
+    quotes: [body],
+    text: reply([
+      {
+        ...item(),
+        source: { citation: 1, number: "120", position: 1, reading: null, unitQuote: null },
+      },
+    ]),
+  });
+  expect(result.figures?.[0]?.result.verdict).toBe("supported");
+});
+
+test("a calculate that ran before the cite beside it recorded its quote is worked out again, and the reply's source binds", async () => {
+  const { result } = await checkWith({
+    figures: [target("f1")],
+    calculations: [
+      {
+        marker: 1,
+        label: "Revenue",
+        formula: "source",
+        stated: "£20",
+        relation: "equals",
+        inputs: [{ name: "source", label: "Revenue", citation: 1, position: 1 }],
+      },
+    ],
+    calculatesBeforeCite: true,
+    text: reply([item()]),
+  });
   expect(result.figures?.[0]?.result.verdict).toBe("supported");
 });
 
