@@ -3634,6 +3634,9 @@ export const en = {
   "meetings.route.openai": "OpenAI",
   "meetings.route.soniox": "Soniox",
   "meetings.route.qwen": "Qwen",
+  "meetings.route.deepgram": "Deepgram",
+  "meetings.route.assemblyai": "AssemblyAI",
+  "meetings.route.gemini": "Gemini",
   "meetings.route.here": "Transcribe on this computer",
   "meetings.route.hereLine": "Private and free",
   "meetings.route.otherWays": "Other ways…",
@@ -3658,8 +3661,13 @@ export const en = {
   "meetings.route.providerKey": "uses your {provider} key",
   "meetings.route.ownKey": "your {provider} key",
   "meetings.route.speakers": "names speakers live",
+  "meetings.route.ownServer": "on your own server",
+  "meetings.route.languages":
+    "{provider} doesn’t transcribe {languages}: what’s said in it may be missing or wrong.",
   "meetings.key.title": "{provider} key",
   "meetings.key.line": "Kept on this computer and never shown again.",
+  "meetings.key.lineChecked":
+    "Kept on this computer and never shown again. Saving it first checks it with {provider}, by a request that reads nothing of yours.",
   "meetings.key.get": "Get a key",
   "meetings.key.placeholder": "Paste the key",
   "meetings.key.save": "Save",
@@ -3668,6 +3676,11 @@ export const en = {
   "meetings.key.add": "Add a key",
   "meetings.key.replace": "Change key",
   "meetings.key.remove": "Remove",
+  "meetings.key.server": "Server",
+  "meetings.key.serverPlaceholder": "Deepgram’s own",
+  "meetings.key.serverTip":
+    "Leave it empty for Deepgram. For Cloudflare Workers AI, paste its Nova-3 address; or your own server’s.",
+  "meetings.key.serverSaved": "Sent to {server}",
   "settings.advanced": "Advanced",
   "models.removed": "Removed {provider}.",
   "models.removed.answers": "Removed {provider}. Answers now use {model}.",
@@ -5605,6 +5618,9 @@ export const en = {
     "{service} didn’t accept this key. Copy it again and paste it here.",
   "error.transcription.noOwnKey": "That transcription service uses the key you set in Models.",
   "error.transcription.unknownService": "That isn’t a transcription service.",
+  "error.transcription.serverScheme": "The server address must start with wss:// or https://.",
+  "error.transcription.serverEncrypted":
+    "Meeting audio goes to another computer only encrypted: use a wss:// or https:// address.",
   "error.meeting.template": "That isn’t a meeting template. Choose one from the template menu.",
   "error.comparison.noQuestion": "Add a Question to compare by.",
   "error.comparison.tooManyQuestions": "A comparison table has at most {max} Questions.",
@@ -6181,6 +6197,8 @@ export const en = {
   "meetings.line.cloudDropped": "Transcribing on this computer ({provider} dropped at {time})",
   "meetings.line.cloudCap": "Transcribing on this computer (the monthly cap was reached at {time})",
   "meetings.line.cloudRefused": "{provider} didn’t accept the key. Transcribing on this computer.",
+  "meetings.line.cloudCredit":
+    "{provider} says this account is out of credit. Transcribing on this computer.",
   "meetings.line.cloudRefusedRegion":
     "{provider} refused the key (wrong, expired or for another region). Check the key and its region in Settings › Models. Transcribing on this computer.",
   "meetings.line.cloudMoved":

@@ -4,6 +4,7 @@ import { describe, expect, test, vi } from "vitest";
 import {
   ChatNotReadyError,
   ConsentDeclinedError,
+  type ConsentRequest,
   type Core,
   DATABASE_FILE,
   type DataFlowId,
@@ -12,8 +13,11 @@ import {
   type SaveChatProviderInput,
   type TestChatConnectionInput,
 } from "../../src/core";
+import { createConsent } from "../../src/core/consent";
+import { ConsentNeededError } from "../../src/core/errors";
+import { createEventHub } from "../../src/core/events";
 import { CHAT_FLOW_SENDS } from "../../src/core/providers/chat";
-import { openDatabase } from "../../src/core/storage";
+import { migrate, openDatabase } from "../../src/core/storage";
 import {
   createMemoryKeychain,
   createTempDataFolder,
@@ -334,6 +338,42 @@ describe("Decisions made before choosing was the consent", () => {
 });
 
 describe("Data-flow consent", () => {
+  // protects=a call made as background work waits without asking, on a flow the User also uses by hand; the User's own call still asks; fails_when=background work raises a request, or the User's own call is refused; no_claim=none beyond protects.
+  test("background work never asks, even on a flow used by hand too", async () => {
+    const db = openDatabase(join(await createTempDataFolder(), "consent.db"));
+    try {
+      migrate(db);
+      const events = createEventHub();
+      const consent = createConsent(db, events, () => AT);
+      consent.registry.register({
+        id: "embeddings",
+        sends: ["document-text", "queries"],
+        services: async () => [OPENAI_SERVICE],
+      });
+      const asked = vi.fn();
+      events.on("consent.requested", asked);
+
+      await expect(
+        consent.ensure("embeddings", OPENAI_SERVICE, undefined, { background: true }),
+      ).rejects.toBeInstanceOf(ConsentNeededError);
+      expect(asked).not.toHaveBeenCalled();
+
+      // The User's own search asks, and their answer lets the call go.
+      let heard: (request: ConsentRequest) => void = () => {};
+      const requested = new Promise<ConsentRequest>((resolve) => {
+        heard = resolve;
+      });
+      events.on("consent.requested", heard);
+      const foreground = consent.ensure("embeddings", OPENAI_SERVICE);
+      const request = await requested;
+      expect(asked).toHaveBeenCalledTimes(1);
+      consent.respond(request.requestId, true);
+      await foreground;
+    } finally {
+      db.close();
+    }
+  });
+
   test("nothing is sent until the User accepts, and the dialog says what goes where", async () => {
     const { core, models } = await startWithModel();
     await saveProviderUnasked(core, OPENAI);

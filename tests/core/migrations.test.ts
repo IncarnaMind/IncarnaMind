@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { DataFromNewerVersionError } from "../../src/core/errors";
+import { wasIn } from "../../src/core/recentlyDeleted";
 import { type Database, migrate, openDatabase } from "../../src/core/storage";
 import { migrations } from "../../src/core/storage/migrations";
 import { createTempDataFolder } from "../helpers/core";
@@ -285,6 +286,37 @@ describe("Migrations", () => {
 
     expect(userVersion(db)).toBe(migrations.at(-1)?.version);
     expect(db.all("SELECT version FROM schema_migrations")).toHaveLength(migrations.length);
+    db.close();
+  });
+
+  test("the item index on deleted_folder_items is added to an existing database, and its lookup uses it", async () => {
+    const db = openDatabase(join(await createTempDataFolder(), "test.db"));
+    migrate(
+      db,
+      migrations.filter((migration) => migration.version < 131),
+    );
+    const at = "2026-10-01T00:00:00.000Z";
+    db.run(
+      `INSERT INTO deleted_folder_items
+         (id, folder_id, item_kind, item_id, suggested, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 0, ?, ?)`,
+      ["00000000-0000-4000-8000-000000000001", "folder-a", "document", "document-a", at, at],
+    );
+
+    migrate(db);
+
+    expect(userVersion(db)).toBe(migrations.at(-1)?.version);
+    expect(db.all("SELECT id FROM deleted_folder_items")).toEqual([
+      { id: "00000000-0000-4000-8000-000000000001" },
+    ]);
+    // The listing's own subquery, in the context its Documents query gives it.
+    const plan = db
+      .all<{ detail: string }>(
+        `EXPLAIN QUERY PLAN SELECT ${wasIn("document", "d")} AS folder_id FROM documents d`,
+      )
+      .map((row) => row.detail)
+      .join("\n");
+    expect(plan).toContain("deleted_folder_items_by_item");
     db.close();
   });
 

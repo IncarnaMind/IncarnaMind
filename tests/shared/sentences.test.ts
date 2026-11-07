@@ -90,6 +90,13 @@ describe("The sentences of a paragraph", () => {
     ]);
   });
 
+  test("a record cite with no space before it belongs to the sentence it supports", () => {
+    expect(sentences("原告中午离开。Ex. 7 at 3。下一句。")).toEqual([
+      "原告中午离开。Ex. 7 at 3。",
+      "下一句。",
+    ]);
+  });
+
   test("a sentence of record cites alone belongs to the sentence it supports", () => {
     expect(sentences("Plaintiff left at noon. Smith Dep. 45:3–12. The next fact.")).toEqual([
       "Plaintiff left at noon. Smith Dep. 45:3–12.",

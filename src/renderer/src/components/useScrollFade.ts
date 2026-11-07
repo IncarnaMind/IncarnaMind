@@ -12,7 +12,9 @@ export function useScrollFade(frame: RefObject<HTMLElement | null>, active = tru
     if (!active || !element) return;
     const mark = () => {
       const last = element.lastElementChild;
-      const foot = element.getBoundingClientRect().top + element.clientTop + element.clientHeight;
+      // The check card's body grows in scaled: its top moves with the scale and its height does
+      // not, so the foot is the rect's bottom, which both follow (#2622).
+      const foot = element.getBoundingClientRect().bottom;
       const end = last
         ? last.getBoundingClientRect().bottom -
           (Number.parseFloat(getComputedStyle(last).paddingBottom) || 0)

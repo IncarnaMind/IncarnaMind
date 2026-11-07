@@ -1,5 +1,5 @@
 /**
- * The fetcher web search saves pages with (#128): a `fetch` for
+ * The fetcher a saved page and web search use: a `fetch` for
  * `fetchPage` (../../documents/web/fetch) that reaches only the public
  * internet. #261's limits still apply (20 seconds, 10 MB, no cookies, the
  * page alone).

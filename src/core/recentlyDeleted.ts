@@ -57,9 +57,10 @@ const earliestRestorable = (now: string) =>
  * The Folder a deleted item was in, from the latest live record of a Folder's deletion that took
  * it out: the item's own row lost that Folder then. The record must not be older than the item's
  * own deletion; the same moment counts, since deleting several things takes the Documents before
- * their Folder (#2238).
+ * their Folder (#2238). Exported so the migration test checks the query plan of this SQL, not a
+ * copy of it, for the index on the item.
  */
-function wasIn(kind: DeletedKind, table: string): string {
+export function wasIn(kind: DeletedKind, table: string): string {
   return `(SELECT f.folder_id FROM deleted_folder_items f
     WHERE f.item_kind = '${kind}' AND f.item_id = ${table}.id AND f.deleted_at IS NULL
       AND f.created_at >= ${table}.deleted_at
