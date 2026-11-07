@@ -19,6 +19,12 @@
  * - a reference or footnote mark "[^36]" reads "[36]": models write a paper's
  *   reference "[36]" in the syntax of our own Citation markers. Only matching
  *   reads it so: the markers in an Answer's text are never touched;
+ * - a superscript digit directly after a figure reads as a footnote's mark, not
+ *   a digit, as the figure reader reads one: a quote that joins the mark to the
+ *   figure ("1,240.501") is not in "1,240.50¹", while a quote that keeps the
+ *   mark is found where a drawn page keeps the mark a digit ("1,240.50¹" in
+ *   "1,240.501", as a Word page draws one). A superscript elsewhere is no mark:
+ *   "x²", "Ca²⁺" and "2ⁿᵈ" read "x2", "Ca2+" and "2nd";
  * - a soft hyphen that ends a line is read as a hyphen, so the word split
  *   there is joined like any other ("inter\u00ad\nnational");
  * - a pipe that breaks a table's cells, a lone "|" with whitespace or a
@@ -84,7 +90,7 @@
  * and so quoted, in its number format ("Jun: 1,560") (#76). A quote found as
  * it is stays found, so a slide's other text is matched as before.
  */
-import { numberFormatting } from "./figures";
+import { FOOTNOTE_MARK_CHAR, isFootnoteAfterFigure, numberFormatting } from "./figures";
 import { SIMPLIFIED } from "./hanVariants";
 import { type NormalisedUnit, normaliseWithOffsets } from "./text";
 
@@ -263,10 +269,14 @@ function normaliseNumbers(units: NormalisedUnit[], text: string, spaces: GroupSp
  */
 function matchUnits(text: string, numbers?: GroupSpaces): NormalisedUnit[] {
   // Same length, so the offsets of the units still point into `text`.
-  const { units } = normaliseWithOffsets(
-    cellBreaksAsSpaces(text.replace(SOFT_HYPHEN_AT_LINE_END, "-")),
-  );
-  const folded = units.map((unit) => ({ ...unit, char: fold(unit.char) }));
+  const original = text.replace(SOFT_HYPHEN_AT_LINE_END, "-");
+  const { units } = normaliseWithOffsets(cellBreaksAsSpaces(original));
+  const folded = units.map((unit) => ({
+    ...unit,
+    char: isFootnoteAfterFigure(original, unit.start, unit.end)
+      ? FOOTNOTE_MARK_CHAR
+      : fold(unit.char),
+  }));
   for (let at = 0; at + 3 < folded.length; at++) {
     if (folded[at]?.char !== "[" || folded[at + 1]?.char !== "^") continue;
     let end = at + 2;
@@ -331,6 +341,14 @@ function wholeNumbers(units: readonly NormalisedUnit[]): Accept {
   };
 }
 
+/**
+ * Whether the text's `unit` is the `wanted` character: a footnote's mark in the
+ * quote is a digit where the drawn page keeps it one, as a Word page draws a
+ * superscript ("1,240.50¹" in "1,240.501"), so its highlight is found (#2474).
+ */
+const matches = (unit: string, wanted: string): boolean =>
+  unit === wanted || (wanted === FOOTNOTE_MARK_CHAR && DIGIT.test(unit));
+
 /** The index of the last unit of a match of `needle` starting at `first`, or -1. */
 function matchAt(units: readonly NormalisedUnit[], needle: string, first: number): number {
   let at = first;
@@ -341,7 +359,7 @@ function matchAt(units: readonly NormalisedUnit[], needle: string, first: number
     at++;
     if (unit.optional && needle[index] !== "-") continue; // skip a line-end hyphen
     if (!unit.optional && unit.removed) continue;
-    if (unit.char !== needle[index]) return -1;
+    if (!matches(unit.char, needle[index] as string)) return -1;
     last = at - 1;
     index++;
     // The line break after a line-end hyphen, copied as a space ("inter- national").
@@ -359,7 +377,7 @@ function findFrom(
 ): { first: number; last: number } | null {
   for (let first = from; first < units.length; first++) {
     const unit = units[first] as NormalisedUnit;
-    if (unit.removed || unit.char !== needle[0]) continue;
+    if (unit.removed || !matches(unit.char, needle[0] as string)) continue;
     const last = matchAt(units, needle, first);
     if (last >= 0 && (!accept || accept(needle, first, last))) return { first, last };
   }

@@ -715,10 +715,25 @@ export function quotedWordsRunOnTo(value: unknown): CitationLocation | null {
   return parseLocation((value as Record<string, unknown>).runsOnTo);
 }
 
-/** What a Citation stores of the check of its Answer's quoted words, either kind, checked; null if nothing. */
+/** The words a Citation's Answer quoted that are a cited Document's name (#2504); null if none. */
+export function quotedNameOf(value: unknown): string | null {
+  if (typeof value === "string") {
+    try {
+      return quotedNameOf(JSON.parse(value));
+    } catch {
+      return null;
+    }
+  }
+  if (typeof value !== "object" || value === null) return null;
+  const { name } = value as Record<string, unknown>;
+  return typeof name === "string" && name.trim() !== "" ? name : null;
+}
+
+/** What a Citation stores of the check of its Answer's quoted words, any kind, checked; null if nothing. */
 export function parseQuotedWordsCheck(value: unknown): QuotedWordsCheck | null {
   const runsOnTo = quotedWordsRunOnTo(value);
-  return parseQuotedWords(value) ?? (runsOnTo && { runsOnTo });
+  const name = quotedNameOf(value);
+  return parseQuotedWords(value) ?? (runsOnTo && { runsOnTo }) ?? (name !== null ? { name } : null);
 }
 
 /**

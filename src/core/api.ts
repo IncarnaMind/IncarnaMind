@@ -357,8 +357,15 @@ export interface CreateMindInput {
  *   its Replace, re-check and figure paths would carry the old page onto a
  *   new quote. So it opens these Notes read-only. Older content is version 52
  *   content as it is: a Citation without it says nothing of a next page.
+ * - 54: a Citation's `quotedWords` may instead record that words its Answer put
+ *   in quotation marks are a cited Document's name, or a part of it
+ *   (`{ name }`, #2504), so its card says they aren't a quote from its pages.
+ *   An older app's figure reader refuses a `quotedWords` it can't parse, and
+ *   its Replace, re-check and figure paths would carry the name onto another
+ *   quote, so it opens these Notes read-only. Older content is version 53
+ *   content as it is: a Citation without it says nothing of a name.
  */
-export const CONTENT_SCHEMA_VERSION = 53;
+export const CONTENT_SCHEMA_VERSION = 54;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -2644,11 +2651,16 @@ export interface QuotedWordsRunOn {
   runsOnTo: CitationLocation;
 }
 
+/** Words in quotation marks that are a cited Document's name, or a part of it: a name, not a quote (#2504). */
+export interface QuotedName {
+  name: string;
+}
+
 /**
  * What the check of the Answer's quoted words found, stored as one value, so whatever drops or
- * checks the words again drops the run-on page with them.
+ * checks the words again drops the run-on page or the name with them.
  */
-export type QuotedWordsCheck = QuotedWords | QuotedWordsRunOn;
+export type QuotedWordsCheck = QuotedWords | QuotedWordsRunOn | QuotedName;
 
 /**
  * A Citation's attributes, as stored on its node in the Mind's Yjs document.
@@ -3303,11 +3315,20 @@ export interface DeviceSettings {
 }
 
 /**
- * Where a Meeting's audio is turned into text: on this computer, or by a cloud service with the
- * User's own key (#141): OpenAI and Qwen (Alibaba Cloud Model Studio, for mainland China) with
- * the key of their provider in Settings › Models, Soniox with a key of its own.
+ * Where a Meeting's audio is turned into text: on this computer, or live by a cloud service with
+ * the User's own key (#141, #866): OpenAI, Qwen (Alibaba Cloud Model Studio, for mainland China)
+ * and Gemini with the key of their provider in Settings › Models; Soniox, Deepgram (also at
+ * Cloudflare Workers AI or a server of the User's own) and AssemblyAI with a key of their own.
  */
-export const TRANSCRIPTION_ROUTES = ["local", "openai", "soniox", "qwen"] as const;
+export const TRANSCRIPTION_ROUTES = [
+  "local",
+  "openai",
+  "soniox",
+  "qwen",
+  "deepgram",
+  "assemblyai",
+  "gemini",
+] as const;
 export type TranscriptionRoute = (typeof TRANSCRIPTION_ROUTES)[number];
 export type CloudTranscriptionRoute = Exclude<TranscriptionRoute, "local">;
 
@@ -3327,9 +3348,28 @@ export interface TranscriptionServiceStatus {
   hasKey: boolean;
   liveSpeakers: boolean;
   keyUrl: string | null;
+  /** Where credit is added to the account the key is for; null where none is known. */
+  billingUrl: string | null;
+  /**
+   * The server the audio goes to, where the User can give one (Deepgram's: Deepgram, Cloudflare
+   * Workers AI or their own); null for every other service, whose address is its own.
+   */
+  server: string | null;
+  /** Its key may be left out: a server of the User's own. */
+  keyOptional: boolean;
+  /**
+   * Saving its key first sends it to the service to check it, except in Local mode; a Deepgram
+   * key is checked only when the server saved is Deepgram's own.
+   */
+  keyChecked: boolean;
+  /** What it transcribes, as ISO 639 codes. */
+  languages: string[];
+  /** The languages the User speaks (the interface's and the computer's) that it doesn't transcribe. */
+  missingLanguages: string[];
   /**
    * It was chosen, and set back to this computer when its key began to send the audio somewhere
-   * the User hadn't chosen (a Qwen key for another region): choosing it again sends it there.
+   * the User hadn't chosen (a Qwen key for another region, another Deepgram server): choosing it
+   * again sends it there.
    */
   chooseAgain: boolean;
 }
@@ -3348,6 +3388,8 @@ export interface TranscriptionServices {
 export interface SetTranscriptionKeyInput {
   route: CloudTranscriptionRoute;
   apiKey: string;
+  /** Deepgram's server, where it isn't Deepgram's own: Cloudflare Workers AI's, or the User's. */
+  server?: string;
 }
 
 /**
@@ -11084,14 +11126,15 @@ export interface MeetingTranscript {
   /**
    * This computer took over from the cloud service the User chose, during this stretch of
    * recording: where, in the Meeting's time, and why. "dropped": the connection was lost;
-   * "refused": the service didn't accept the key; "cap": the month reached the cap;
-   * "local-mode": “Keep everything on this computer” is on; "moved": the key now sends the
-   * audio somewhere the User hasn't chosen (`TranscriptionServiceStatus.chooseAgain`). Null otherwise.
+   * "refused": the service didn't accept the key; "credit": the account has no credit left;
+   * "cap": the month reached the cap; "local-mode": “Keep everything on this computer” is on;
+   * "moved": the key now sends the audio somewhere the User hasn't chosen
+   * (`TranscriptionServiceStatus.chooseAgain`). Null otherwise.
    */
   fellBack: {
     route: CloudTranscriptionRoute;
     atMs: number;
-    reason: "dropped" | "refused" | "cap" | "local-mode" | "moved";
+    reason: "dropped" | "refused" | "credit" | "cap" | "local-mode" | "moved";
   } | null;
   /** Its own file in the data folder, once saved: kept for the Library, never shown as a path (#763). */
   savedPath: string | null;
@@ -13387,8 +13430,9 @@ export interface CoreApi {
   /** The cloud services that can transcribe meeting audio (#141), and whether each has a key. */
   listTranscriptionServices(): Promise<TranscriptionServices>;
   /**
-   * Keeps a transcription service's own key (Soniox), in the keychain, once the service accepts
-   * it. Throws `InvalidInputError` when it refuses the key.
+   * Keeps a transcription service's own key (Soniox, Deepgram, AssemblyAI), in the keychain, once
+   * the service accepts it, with Deepgram's server where it is another. Throws
+   * `InvalidInputError` when it refuses the key or the server's address isn't one.
    */
   setTranscriptionKey(input: SetTranscriptionKeyInput): Promise<TranscriptionServices>;
   /** Forgets a transcription service's own key; meeting audio is then transcribed on this computer. */
