@@ -163,6 +163,13 @@ test("a Citation retains its reason and quoted words through the shared readers"
   expect(readFigureCitation({ ...value, location: JSON.stringify(value.location) })).toEqual(value);
 });
 
+// protects=a figure's Citation keeps the next page its Answer's quoted words ran on to (#2504) with the rest of it, and a malformed one is no Citation; fails_when=the reader drops a found Citation whose quoted words ran on, or reads a broken run-on page as one; no_claim=how the card shows it.
+test("a Citation whose quoted words ran on to the next page reads back with that page", () => {
+  const value = { ...citation(), quotedWords: { runsOnTo: { kind: "page", from: 4, to: 4 } } };
+  expect(readFigureCitation(value)).toEqual(value);
+  expect(readFigureCitation({ ...value, quotedWords: { runsOnTo: { kind: "page" } } })).toBeNull();
+});
+
 test("missing nullable Citation fields normalize without inventing found evidence", () => {
   const {
     pageFrom: _from,

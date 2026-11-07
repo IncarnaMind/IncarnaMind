@@ -5,7 +5,6 @@ import {
   useCallback,
   useContext,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -816,10 +815,12 @@ export function ClaimCard({
   // to it as its parts load, even while the Note's other sentences are still checked.
   const [heldHeight, setHeldHeight] = useState<number | null>(null);
   const holdHeight = state === "checking" && !reading && !asking && Boolean(mindId);
-  useLayoutEffect(() => {
+  // Measured once the Popover holding the card has shown it: a layout effect here runs before the
+  // Popover's own, while the card is still a closed popover, and held a height of 0.
+  useEffect(() => {
     if (!holdHeight || heldHeight !== null) return;
-    const element = rootRef.current;
-    if (element) setHeldHeight(element.offsetHeight);
+    const height = rootRef.current?.offsetHeight ?? 0;
+    if (height > 0) setHeldHeight(height);
   }, [holdHeight, heldHeight, rootRef]);
   // Closing the card drops its question: opened again, it sizes the read afresh.
   useEffect(() => () => setDocumentAsk(check.id, null), [check.id]);

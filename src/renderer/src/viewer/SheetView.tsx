@@ -89,6 +89,9 @@ const readXlsx = async (bytes: Uint8Array, readHiddenSheets: boolean): Promise<L
     { shortDate: shortDatePattern(navigator.language) },
     readHiddenSheets,
   );
+  if (workbook.unreadable.length > 0) {
+    console.warn("viewer.xlsx.partsNotRead", workbook.unreadable.join(", "));
+  }
   // The workbook's fonts, loaded before text is measured to fit rows and spill over cells.
   const fonts = new Set(
     (workbook.layout?.styles ?? [])

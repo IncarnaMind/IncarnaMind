@@ -1,9 +1,10 @@
 /**
  * Words an Answer quotes from its Document are found when they run on from the cited page to the
- * next (#2504). A quote that changes a word or a number, takes a word from another line or leaves
+ * next (#2504), and the Citation names that page. A quote that changes a word or a number, takes a word from another line or leaves
  * words out still shows Quote not found.
  */
 import { describe, expect, test } from "vitest";
+import { parseQuotedWords } from "../../src/shared/citations";
 import {
   askAndFinish,
   citingModel,
@@ -39,25 +40,23 @@ async function checkOf({ file, query, question, quote }: Case, sentence: string)
 const FOUND = { check: "found", checkReason: null };
 const NOT_FOUND = { check: "not-found", checkReason: "quoted-words-not-on-pages" };
 
+const RUN_ON_PAGES = {
+  first: [
+    "Clause 26 Delivery of items",
+    "When a representative offers to drop items off, the reply card must say that there is no",
+    "obligation to grant an interview when items are",
+  ],
+  second: [
+    "delivered. Items can be returned without explanation.",
+    "The reply card must give the health professional a way to say no.",
+  ],
+};
+
 const RUN_ON = {
   en: {
     file: {
       name: "Code of Practice.pdf",
-      contents: buildPdf([
-        {
-          lines: [
-            "Clause 26 Delivery of items",
-            "When a representative offers to drop items off, the reply card must say that there is no",
-            "obligation to grant an interview when items are",
-          ],
-        },
-        {
-          lines: [
-            "delivered. Items can be returned without explanation.",
-            "The reply card must give the health professional a way to say no.",
-          ],
-        },
-      ]),
+      contents: buildPdf([{ lines: RUN_ON_PAGES.first }, { lines: RUN_ON_PAGES.second }]),
     },
     query: "reply card interview",
     question: "What must the reply card say?",
@@ -272,3 +271,67 @@ describe("Quoted words that run on, only from one cited page to the next", () =>
     ).toEqual(NOT_FOUND);
   });
 });
+
+/** The one Citation of an Answer whose sentence is `sentence`, citing `quote`. */
+async function citationOf({ file, query, question, quote }: Case, sentence: string) {
+  const model = citingModel({
+    query,
+    records: (passages: ShownPassage[]) => [{ marker: 1, passage: passages[0]?.id, quote }],
+    answer: sentence,
+  });
+  const { core, client, mind } = await setUpWithDocuments(model, [file]);
+  const { answerId } = await askAndFinish(core, client, mind.id, question);
+  return onlyCitation(client, answerId);
+}
+
+// protects=a Citation whose quoted words run on to the next page says where they continue (#2504), its card naming the next page; fails_when=the Citation says nothing of the page; no_claim=the card's wording.
+test.each(["en", "zh"] as const)(
+  "quoted words that run on to the next page: the Citation names that page (%s)",
+  async (language) => {
+    const runOn = RUN_ON[language];
+    const citation = await citationOf(runOn, runOn.found);
+    expect(citation).toMatchObject(FOUND);
+    expect(citation.quotedWords).toEqual({ runsOnTo: { kind: "page", from: 2, to: 2 } });
+  },
+);
+
+// protects=the next page is named as the Document prints it (#2504), as the Citation's own Location is, so a PDF that numbers its own pages says the printed one; fails_when=the card says the file's page number; no_claim=none beyond protects.
+test("the next page is named as the Document prints it", async () => {
+  const file = {
+    name: "Code of Practice.pdf",
+    contents: buildPdf(
+      [
+        { lines: RUN_ON_PAGES.first },
+        { lines: RUN_ON_PAGES.second },
+        { lines: ["A third page."] },
+        { lines: ["A fourth page."] },
+      ],
+      { pageLabels: [{ page: 1, style: "D", start: 11 }] },
+    ),
+  };
+  const citation = await citationOf({ ...RUN_ON.en, file }, RUN_ON.en.found);
+  expect(citation).toMatchObject(FOUND);
+  expect(citation.quotedWords).toMatchObject({
+    runsOnTo: { kind: "page", from: 2, printed: { from: "12" } },
+  });
+});
+
+const MADE_UP = "a refusal must be given in writing within ten days";
+const RUNS_ON = "no obligation to grant an interview when items are delivered";
+
+// protects=one stored value holds what the check of a sentence's quoted words found (#2504): words that aren't on the pages make the Citation not found, and its card shows them, though other quoted words of the sentence run on to the next page, whichever comes first; fails_when=the page they ran on to keeps the Citation found, or takes the place of the words not found; no_claim=none beyond protects.
+test.each([
+  ["the run-on words first", `The card must say “${RUNS_ON}” and “${MADE_UP}” [^1].`],
+  ["the words not on the pages first", `The card must say “${MADE_UP}” and “${RUNS_ON}” [^1].`],
+])(
+  "quoted words that run on, beside quoted words the pages don't have: not found, %s",
+  async (_, sentence) => {
+    const citation = await citationOf(RUN_ON.en, sentence);
+    expect(citation).toMatchObject(NOT_FOUND);
+    expect(
+      parseQuotedWords(citation.quotedWords)
+        ?.answer.map((piece) => piece.text)
+        .join(""),
+    ).toBe(MADE_UP);
+  },
+);

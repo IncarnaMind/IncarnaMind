@@ -698,7 +698,7 @@ export interface LibraryDocuments {
 }
 
 /** A Document name on one line of its own, and not too long. */
-function listedName(name: string): string {
+export function listedName(name: string): string {
   const line = name.replace(/\s+/g, " ").trim();
   return line.length > MAX_NAME_LENGTH ? `${line.slice(0, MAX_NAME_LENGTH - 1)}…` : line;
 }

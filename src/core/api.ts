@@ -349,8 +349,16 @@ export interface CreateMindInput {
  *   typed table, checked as one. A figure check of an Analysis's figure also
  *   records whether the claim judge read its sentence as naming it (`named`);
  *   one without it shows Not checked until the next Check.
+ * - 53: a Citation's `quotedWords` may instead record the page the Answer's
+ *   quoted words were found running on to past the one it cites
+ *   (`{ runsOnTo }`, #2504), as a Location, so its card says where the quote
+ *   continues. An older app would mishandle it: its figure reader refuses a
+ *   `quotedWords` it can't parse, so a figure's Citation would be lost, and
+ *   its Replace, re-check and figure paths would carry the old page onto a
+ *   new quote. So it opens these Notes read-only. Older content is version 52
+ *   content as it is: a Citation without it says nothing of a next page.
  */
-export const CONTENT_SCHEMA_VERSION = 52;
+export const CONTENT_SCHEMA_VERSION = 53;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -2622,6 +2630,18 @@ export interface QuotedWords {
   closest: QuotedPiece[] | null;
 }
 
+/** The Answer's quoted words, found where they run on past the page the Citation cites (#2504). */
+export interface QuotedWordsRunOn {
+  /** The page they run on to, as the Document prints it, for the card to name. */
+  runsOnTo: CitationLocation;
+}
+
+/**
+ * What the check of the Answer's quoted words found, stored as one value, so whatever drops or
+ * checks the words again drops the run-on page with them.
+ */
+export type QuotedWordsCheck = QuotedWords | QuotedWordsRunOn;
+
 /**
  * A Citation's attributes, as stored on its node in the Mind's Yjs document.
  * Everything a footnote or a message needs is stored here, so it still reads
@@ -2674,8 +2694,11 @@ export interface CitationAttributes {
   pageChecked?: boolean | null;
   /** One line on what the evidence says, when a claim check has one ("The agreement says 31 October 2026, p. 7"). */
   verdict?: string | null;
-  /** The Answer's quoted words the check didn't find, when that is why `check` is "not-found" (#483). */
-  quotedWords?: QuotedWords | null;
+  /**
+   * The Answer's quoted words the check didn't find, when that is why `check` is "not-found"
+   * (#483), or the page they were found running on to (#2504).
+   */
+  quotedWords?: QuotedWordsCheck | null;
   /**
    * The Document's version the User chose to keep citing the old one over (Keep citing the old
    * version, #99): while it is the current one, the Citation doesn't ask to be checked again.
@@ -2704,7 +2727,7 @@ export interface Citation {
   checkReason: CitationCheckReason | null;
   /** The unsure words of a scanned page the quote covers (#535). */
   unsure?: string[];
-  quotedWords?: QuotedWords;
+  quotedWords?: QuotedWordsCheck;
   /** "unsupported" and "contradicted": what the Documents say of its sentence, in one plain sentence. */
   verdict?: string | null;
 }
@@ -8108,6 +8131,12 @@ export interface AskInConversationInput {
   quotes?: AskedQuote[] | null;
   /** Its Search scope; none or null: every Document. */
   scope?: SearchScope | null;
+  /**
+   * The Folder the Library is open on, when the Question comes from the Library with no Note:
+   * what "this folder" means there (#2529). Checked against the walls as a Note's Folder is,
+   * and not kept with the Question.
+   */
+  folderInFrontId?: string | null;
   /** The model to answer with; none or null: the default. */
   model?: ChatModelChoice | null;
   /** A Skill to load up front, by name. */
@@ -8134,6 +8163,11 @@ export interface ConversationAnswerInput {
   clearScope?: boolean;
   /** Regenerating: the Documents open on screen now, as `AskInConversationInput.onScreen`. */
   onScreen?: string[] | null;
+  /**
+   * Regenerating: the Folder the Library is open on, as `AskInConversationInput.folderInFrontId`,
+   * so Try again means the same Folder as the first Answer did (#2529).
+   */
+  folderInFrontId?: string | null;
   /**
    * Regenerating: write it with this model, and keep the Question on it, as when the model it was
    * asked with failed and the User chose another (#1848). Absent: the Question's own.

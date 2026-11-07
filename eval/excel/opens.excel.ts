@@ -2,9 +2,8 @@
  * `npm run eval:excel` (#132): comparison tables exported to Excel, opened in
  * LibreOffice headless. The workbook opens; its single figures are numbers
  * that SUM and AVERAGE, added below the table, work out; and a table of 1,000
- * rows exports in seconds and opens too. CI runs it in a job that installs
- * LibreOffice; without LibreOffice it only exports, unless
- * INCARNAMIND_EXCEL_REQUIRE_LIBREOFFICE=1 makes that a failure.
+ * rows exports in seconds and opens too. Without LibreOffice it only exports,
+ * unless INCARNAMIND_EXCEL_REQUIRE_LIBREOFFICE=1 makes that a failure.
  * INCARNAMIND_EXCEL_OUT keeps the workbooks and LibreOffice's PDFs for a person.
  */
 import { copyFile, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
