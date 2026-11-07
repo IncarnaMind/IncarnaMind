@@ -2648,6 +2648,102 @@ export const migrations: readonly Migration[] = [
       END;
     `,
   },
+  {
+    version: 134,
+    description:
+      "Suggestions: what Organize and tagging propose waits here until the User confirms it (#1569, #2339)",
+    sql: `
+      -- One open row per Document. placement: 'folder' (group_id), 'newFolder' (folder_id),
+      -- 'leftOut' (left_out, a reason code, and left_out_detail) or 'unchanged' (Tags only).
+      -- state: 'open', 'confirmed' (confirmation_id) or 'discarded' (discard_id); an Undo opens
+      -- it again and keeps the id, which its Redo finds. filed: what Confirm's filing changed, as
+      -- JSON, for its Undo.
+      CREATE TABLE organize_review_items (
+        id TEXT PRIMARY KEY NOT NULL,
+        document_id TEXT NOT NULL,
+        placement TEXT NOT NULL,
+        group_id TEXT,
+        folder_id TEXT,
+        left_out TEXT,
+        left_out_detail TEXT,
+        ticked INTEGER NOT NULL DEFAULT 1,
+        origin TEXT NOT NULL,
+        run_id TEXT,
+        edited INTEGER NOT NULL DEFAULT 0,
+        content_hash TEXT,
+        state TEXT NOT NULL DEFAULT 'open',
+        confirmation_id TEXT,
+        discard_id TEXT,
+        filed TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      ) STRICT;
+      CREATE UNIQUE INDEX organize_review_items_open ON organize_review_items (document_id)
+        WHERE state = 'open' AND deleted_at IS NULL;
+      CREATE INDEX organize_review_items_by_confirmation ON organize_review_items (confirmation_id)
+        WHERE deleted_at IS NULL;
+      CREATE INDEX organize_review_items_by_discard ON organize_review_items (discard_id)
+        WHERE deleted_at IS NULL;
+
+      -- A Folder proposed by name. group_id is the Folder Confirm filed into, and made whether
+      -- Confirm made it, so its Undo sends only that one to Recently deleted.
+      CREATE TABLE organize_review_folders (
+        id TEXT PRIMARY KEY NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL,
+        parent_id TEXT,
+        group_id TEXT,
+        made INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      ) STRICT;
+
+      -- A Tag proposed for a row: the Library's (tag_id) or a new one by name, which Confirm makes
+      -- (made). link_before: the Document's link to it before Confirm added it, as JSON.
+      CREATE TABLE organize_review_tags (
+        id TEXT PRIMARY KEY NOT NULL,
+        item_id TEXT NOT NULL,
+        tag_id TEXT,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL,
+        added_by_user INTEGER NOT NULL DEFAULT 0,
+        made INTEGER NOT NULL DEFAULT 0,
+        link_before TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      ) STRICT;
+      CREATE INDEX organize_review_tags_by_item ON organize_review_tags (item_id)
+        WHERE deleted_at IS NULL;
+
+      -- What the User unticked or took off isn't proposed again for that Document until "until".
+      -- kind: 'folder' or 'tag'; target_id is null for one proposed by name.
+      CREATE TABLE organize_review_declines (
+        id TEXT PRIMARY KEY NOT NULL,
+        document_id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        target_id TEXT,
+        name TEXT NOT NULL,
+        until TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      ) STRICT;
+      CREATE INDEX organize_review_declines_by_document ON organize_review_declines (document_id)
+        WHERE deleted_at IS NULL;
+
+      CREATE TABLE organize_review_confirmations (
+        id TEXT PRIMARY KEY NOT NULL,
+        confirmed_at TEXT NOT NULL,
+        undone_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      ) STRICT;
+    `,
+  },
 ];
 
 /**

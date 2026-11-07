@@ -13,6 +13,13 @@ import type {
   TaggingModels,
   TaggingRoute,
 } from "./library/types";
+import type {
+  OrganizeReview,
+  OrganizeReviewChange,
+  OrganizeReviewConfirmation,
+  OrganizeReviewEdit,
+  OrganizeReviewRow,
+} from "./organizeReview/types";
 import type { DecisionHost } from "./providers/catalog/decisions";
 import type { Localized } from "./providers/catalog/types";
 import type { UiUsageEvent } from "./usageEvents";
@@ -39,6 +46,20 @@ export type {
   TaggingModels,
   TaggingRoute,
 } from "./library/types";
+export type {
+  OrganizeReview,
+  OrganizeReviewChange,
+  OrganizeReviewConfirmation,
+  OrganizeReviewEdit,
+  OrganizeReviewFolder,
+  OrganizeReviewItem,
+  OrganizeReviewLeftOut,
+  OrganizeReviewOrigin,
+  OrganizeReviewPlacement,
+  OrganizeReviewRow,
+  OrganizeReviewTag,
+  OrganizeReviewTarget,
+} from "./organizeReview/types";
 export type { DecisionHost } from "./providers/catalog/decisions";
 
 /**
@@ -11791,6 +11812,50 @@ export interface CoreApi {
   moveToFolder(move: FolderMoveInput): Promise<FolderMove>;
 
   /**
+   * Suggestions (CONTEXT.md): what Organize and tagging proposed that the User hasn't confirmed,
+   * each Document's row once, with the Folders proposed by name and how many wait. Nothing in it
+   * is in the Library yet (#1569).
+   */
+  getOrganizeReview(): Promise<OrganizeReview>;
+  /**
+   * One change the User makes to the Suggestions. Returns the rows it touched, before and after,
+   * for `restoreOrganizeReview`; none when nothing changed, as for a row confirmed meanwhile.
+   */
+  editOrganizeReview(edit: OrganizeReviewEdit): Promise<OrganizeReviewChange>;
+  /**
+   * Puts rows back as `before` has them, each only while it is still as `after` left it: a later
+   * run or edit wins. Returns the change it made, or null when it made none.
+   */
+  restoreOrganizeReview(
+    before: OrganizeReviewRow[],
+    after: OrganizeReviewRow[],
+  ): Promise<OrganizeReviewChange | null>;
+  /**
+   * Confirms the rows the User saw, all or none: makes the proposed Folders that a ticked row
+   * waits in (a live Folder of the same name is used instead), files each ticked Document there
+   * as the User's own choice, and adds its Tags as the User's, skipping a Tag the User took off
+   * it. Every row given closes, unticked ones too; one added since keeps waiting. Returns what
+   * it did, or null when none of them waits any more.
+   */
+  confirmOrganizeReview(itemIds: string[]): Promise<OrganizeReviewConfirmation | null>;
+  /**
+   * Takes a Confirm back: each filing and Tag still as it left them goes back, the Folders and
+   * Tags it made that hold nothing else go to Recently deleted, and its rows wait again.
+   */
+  undoOrganizeReviewConfirmation(confirmationId: string): Promise<void>;
+  /** Confirms again what its Undo put back. Null when nothing of it waits. */
+  redoOrganizeReviewConfirmation(
+    confirmationId: string,
+  ): Promise<OrganizeReviewConfirmation | null>;
+  /**
+   * Sets these rows aside. What the User unticked or took off stays declined. Returns the id
+   * `restoreDiscardedOrganizeReview` takes, or null when none of them waited.
+   */
+  discardOrganizeReview(itemIds: string[]): Promise<string | null>;
+  /** Brings back what a Discard set aside, but for a Document proposed again since. */
+  restoreDiscardedOrganizeReview(discardId: string): Promise<void>;
+
+  /**
    * Brings back deleted Minds with their content, conversations with their messages,
    * Documents with their Passages, text and Tags, Folders with the Minds, conversations and
    * Documents their deletion took out (those in no Folder since)
@@ -13983,6 +14048,8 @@ export interface CoreEvents {
    * or sorted, or its Suggested Folders changed. Carries the batch whole.
    */
   "documents.batch": DocumentBatch;
+  /** The Suggestions changed: how many Documents wait with something to confirm. */
+  "organizeReview.changed": { count: number };
   /**
    * Documents' Tags changed, or where automatic tagging is for them: the User
    * added or removed a Tag, automatic tagging started, waited, finished or
@@ -14379,6 +14446,14 @@ const methods: Record<CoreApiMethod, true> = {
   rejectAssignments: true,
   moveToFolder: true,
   restoreAssignment: true,
+  getOrganizeReview: true,
+  editOrganizeReview: true,
+  restoreOrganizeReview: true,
+  confirmOrganizeReview: true,
+  undoOrganizeReviewConfirmation: true,
+  redoOrganizeReviewConfirmation: true,
+  discardOrganizeReview: true,
+  restoreDiscardedOrganizeReview: true,
   restore: true,
   deleteAgain: true,
   undoCommands: true,

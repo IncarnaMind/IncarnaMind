@@ -49,6 +49,7 @@ const snapshot = (assignments: DocumentGroupAssignment[]): LibrarySnapshot => ({
     taggingStopped: [],
   },
   automaticDefault: false,
+  reviewCount: 0,
 });
 
 let useAppStore: typeof import("../../src/renderer/src/store").useAppStore;

@@ -89,6 +89,7 @@ describe("A Document a Note's sentence may take now", () => {
           taggingStopped: [],
         },
         automaticDefault: false,
+        reviewCount: 0,
       },
     });
     expect(readableNow("meeting", { kind: "document", id: "transcript" })).toBe(true);

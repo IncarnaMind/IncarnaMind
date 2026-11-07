@@ -396,6 +396,8 @@ export function createLibrary(options: {
   head?(id: string): Pick<OrganizeSource, "pageCount" | "passages" | "units"> | null;
   /** Local mode: nothing goes to a cloud service, so nothing waits to be allowed there. */
   localOnly?(): boolean;
+  /** How many Documents wait in Suggestions (`LibrarySnapshot.reviewCount`). */
+  reviewCount(): number;
 }) {
   const { db, now, settings, background, changed } = options;
   const lifetime = new AbortController();
@@ -1508,6 +1510,7 @@ export function createLibrary(options: {
         automaticDefault: defaultAutomatic(saved),
         automaticOffNotice: automaticOffNotice(),
         ...(waiting && { sortWaitsFor: waiting }),
+        reviewCount: options.reviewCount(),
       };
     },
     dismissAutomaticOffNotice(): void {

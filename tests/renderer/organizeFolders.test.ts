@@ -141,6 +141,7 @@ describe("the Documents a cause covers", () => {
           taggingStopped: [],
         },
         automaticDefault: false,
+        reviewCount: 0,
       } as LibrarySnapshot,
     });
     expect(documentsOfCause("credit")).toEqual(["unsorted-1", "unsorted-2", "suggested"]);

@@ -286,6 +286,7 @@ import { createModelSpend } from "./modelSpend";
 import { newestReads, readNewest } from "./newest";
 import { createNoteAdding, insertBlocks } from "./noteAdding";
 import { createNoteConversations } from "./noteConversations";
+import { createOrganizeReview, organizeReviewCount } from "./organizeReview";
 import { createOutputFiles, fileProblem, fingerprintOf } from "./outputFiles";
 import { PAPER as PAGE_PAPER } from "./pageDefaults";
 import { nativePageSetup } from "./pageSetup";
@@ -3657,6 +3658,7 @@ export function createCore(adapters: CoreAdapters): Core {
     isExampleDocument: (documentId) => isExampleDocument(documentId),
     head: (id) => documents.head(id),
     localOnly: () => embedding.localOnly(),
+    reviewCount: () => organizeReviewCount(db),
     changed: () => {
       events.emit("library.changed", null);
       batches.libraryChanged();
@@ -3957,6 +3959,31 @@ export function createCore(adapters: CoreAdapters): Core {
     conversationsChanged,
     tagsChanged,
     tagged: announceTagged,
+  });
+  const organizeReview = createOrganizeReview({
+    db,
+    now,
+    library,
+    tags,
+    removeFolder: (id, at) => {
+      removeFolder(id, at);
+    },
+    removeTag: (id, at) => removeTag(id, at),
+    restoreDeleted: (refs) => {
+      recentlyDeleted.restore(refs);
+    },
+    folderIsEmpty: (id) =>
+      library.allDocumentIds(id).length === 0 &&
+      library.subtree(id).length === 1 &&
+      !db.get("SELECT 1 FROM minds WHERE folder_id = ? AND deleted_at IS NULL", [id]) &&
+      !db.get("SELECT 1 FROM conversations WHERE folder_id = ? AND deleted_at IS NULL", [id]),
+    saved: ({ filed, folderIds, tagged, tagsMade }) => {
+      library.moved(filed);
+      for (const folderId of folderIds) checks.folderContentsChanged(folderId);
+      if (tagsMade) tagsChanged();
+      announceTagged(tagged);
+    },
+    changed: (count) => events.emit("organizeReview.changed", { count }),
   });
   try {
     recentlyDeleted.expire();
@@ -6360,6 +6387,14 @@ export function createCore(adapters: CoreAdapters): Core {
       return library.accept(ids, checked);
     },
     rejectAssignments: async (ids) => library.reject(ids),
+    getOrganizeReview: async () => organizeReview.get(),
+    editOrganizeReview: async (edit) => organizeReview.edit(edit),
+    restoreOrganizeReview: async (before, after) => organizeReview.restore(before, after),
+    confirmOrganizeReview: async (itemIds) => organizeReview.confirm(itemIds),
+    undoOrganizeReviewConfirmation: async (id) => organizeReview.undoConfirmation(id),
+    redoOrganizeReviewConfirmation: async (id) => organizeReview.redoConfirmation(id),
+    discardOrganizeReview: async (itemIds) => organizeReview.discard(itemIds),
+    restoreDiscardedOrganizeReview: async (id) => organizeReview.restoreDiscarded(id),
     moveToFolder: async (input) => {
       if (!isRecord(input)) throw new InvalidInputError("moveToFolder expects an object.");
       const folderId = parseFolderChoice(input.folderId);

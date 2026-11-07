@@ -255,6 +255,8 @@ export interface LibrarySnapshot {
    * for a model on this computer.
    */
   sortWaitsFor?: ExternalService;
+  /** How many Documents wait in Suggestions with something to confirm (#1569). */
+  reviewCount: number;
 }
 
 export interface LibraryGroupInput {
