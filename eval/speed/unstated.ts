@@ -52,6 +52,8 @@ function readUnstated(text: string): number[] | null {
 export async function falseSupportedIn(
   judge: LanguageModel,
   cited: readonly CitedSentence[],
+  /** Hears each sentence the judge listed, with its quotes, for reading by hand. */
+  flagged?: (sentences: readonly { sentence: string; quotes: readonly string[] }[]) => void,
 ): Promise<number | null> {
   // By place, not by words: two sentences that read the same are each judged on their own quotes.
   const bySentence = new Map<number, { sentence: string; quotes: string[] }>();
@@ -100,7 +102,14 @@ export async function falseSupportedIn(
     );
     return null;
   }
-  return new Set(read.filter((n) => n >= 1 && n <= sentences.length)).size;
+  const listed = [...new Set(read.filter((n) => n >= 1 && n <= sentences.length))];
+  flagged?.(
+    listed.flatMap((n) => {
+      const [sentence, quotes] = sentences[n - 1] ?? [];
+      return sentence === undefined || quotes === undefined ? [] : [{ sentence, quotes }];
+    }),
+  );
+  return listed.length;
 }
 
 /** The text as the page shows it, each Citation by its number, and the Citations in that order. */

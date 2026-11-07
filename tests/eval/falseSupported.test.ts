@@ -79,6 +79,14 @@ describe("False Supported in an Answer or a cell", () => {
     ).toBe(2);
   });
 
+  test("each sentence the judge lists is heard with its quotes, for reading by hand", async () => {
+    const heard: { sentence: string; quotes: readonly string[] }[] = [];
+    await falseSupportedIn(judging().model, [UNSTATED, STATED], (sentences) =>
+      heard.push(...sentences),
+    );
+    expect(heard).toEqual([{ sentence: UNSTATED.sentence, quotes: [UNSTATED.quote] }]);
+  });
+
   test("a Citation that wasn't found is never read, so it can't count", async () => {
     const { model, prompts } = judging();
 

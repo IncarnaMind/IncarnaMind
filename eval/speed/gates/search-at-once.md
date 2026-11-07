@@ -32,3 +32,7 @@ On the items both arms finished, `INCARNAMIND_EVAL_SPEED_MARGIN=1`, with the sam
 ## Reported, not gated
 
 Model calls, searches and Document reads per Answer, the times on both arms by language, the load during the runs, and the spend. The runs stop at $8, of the $12 this work has.
+
+## Before the first whole run (added on 2026-11-07)
+
+The first start of the held-out run was stopped after its first item, before anything was read from it. Each item now keeps the sentences the judge flags as false Supported, with their quotes, and every flag is read by hand on both arms. The arms are compared with each other, never against zero, and both the raw counts and the counts read by hand are reported. The held-out run is started again whole. Whether the run stops at a new false Supported is still decided by the judge's raw flag, as the bar says; a stop whose flag reads wrong by hand is reported as such, and the gate is read as written.
