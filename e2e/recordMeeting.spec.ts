@@ -241,7 +241,7 @@ for (const language of ["en", "zh-CN"] as const) {
               documentId: null,
               state: "preparing",
               lines: 0,
-              partial: null,
+              partials: [],
               model: null,
               cloud: null,
               fellBack: null,
