@@ -115,6 +115,8 @@ function groupsOf(set: SetId, cacheDir: string): PairedGroup[] {
   switch (set) {
     case "gating":
       return gatingSet(ROOT, ANSWER_TIMEOUT_MS);
+    case "search-at-once-held-out":
+      return gatingSet(ROOT, ANSWER_TIMEOUT_MS, set);
     case "hard":
       return hardSet(ROOT, cacheDir, ANSWER_TIMEOUT_MS);
     case "everyday":
