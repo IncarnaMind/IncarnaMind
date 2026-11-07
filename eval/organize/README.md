@@ -101,7 +101,7 @@ A Document is readable when processing found its text. The two image-only scans 
 |---|---|---|
 | Filed | Readable Documents in a Folder | ≥ 80% |
 | Smallest Folder | Documents in each Folder there is | every Folder ≥ 3 |
-| Same-label pairs | Of the readable Documents with a labelled Folder, the pairs with the same label that share a Folder | ≥ 90% |
+| Same-label pairs | Of the readable Documents with a labelled Folder, the pairs with the same label that are together. A label split by area counts as together: its filed Documents lie in exactly two Folders, each holding at least 3 readable Documents of which at least 90% carry the label, and the split isn't by kind. It is by kind when the kinds at least 80% of each part's Documents carry (by their labels) make two sets, neither empty, that differ (`splitByArea` in `lib/newUser.ts`). The report gives the count without the allowance too | ≥ 90% |
 | Different-label pairs | The pairs with different labels that share a Folder | ≤ 10% |
 | Kind Tag F1 | Each applied Tag's name mapped to a labelled kind (`kindOf` in `lib/newUser.ts`: the preset Tags' English and Chinese names, their plurals, and Meeting notes / 会议记录), micro-averaged over (Document, kind) on the readable Documents | ≥ 0.80 |
 | Topic Tags off-topic | Every other applied Tag on a readable Document is a topic Tag. The judge model is asked once for each, with the Document's excerpt as Organize reads it (`organizeExcerpt`): "Is this Document about '{tag}'? Answer yes or no." The share answered no | ≤ 5% |
