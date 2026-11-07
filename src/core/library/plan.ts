@@ -17,7 +17,8 @@
  *    most like it went elsewhere. The rest are asked of the model, `PLACE_BATCH` to a request.
  *    Only the model leaves a Document out.
  * 5. Three or more left out that no sample showed get a second look, which may find an area
- *    they share: a Folder for them, and every Document still left out is placed again.
+ *    they share: a Folder for them, and every Document still left out is placed again. A plan
+ *    already at its most Folders merges its two most alike to make room (`mergeClosest`).
  * 6. A new Folder left with fewer than `MIN_FOLDER` is dropped. A new Folder of more than
  *    `SPLIT_OVER` is split by its vectors into 2 to 5 subfolders of at least `MIN_SUBFOLDER`,
  *    which one more request names.
@@ -676,7 +677,7 @@ export async function finishPlan(local: LocalPlan, run: PlanCallbacks): Promise<
    * Has the model sort these, beside the Folders so far, and places them. Past `aim.most` new
    * Folders, the ones holding the fewest go; their Documents are returned to be placed again.
    */
-  const sortInto = async (shown: readonly number[]): Promise<number[]> => {
+  const sortInto = async (shown: readonly number[], room: number): Promise<number[]> => {
     const sorted = await model.sort(
       {
         documents: shown.map(excerpt),
@@ -689,7 +690,6 @@ export async function finishPlan(local: LocalPlan, run: PlanCallbacks): Promise<
     );
     requests++;
     const shownAt = new Map(shown.map((at) => [refOf(at), at]));
-    const room = aim.most - folders.length;
     const fresh = sorted.filter(
       (folder) => folder.id === null || placeOf(folder.id).kind === "none",
     );
@@ -743,7 +743,7 @@ export async function finishPlan(local: LocalPlan, run: PlanCallbacks): Promise<
     );
   };
 
-  const unclear = await sortInto(sample);
+  const unclear = await sortInto(sample, aim.most);
 
   // A cluster goes where its sampled Documents all went; a split cluster goes nowhere. Only the
   // model leaves a Document out.
@@ -803,19 +803,21 @@ export async function finishPlan(local: LocalPlan, run: PlanCallbacks): Promise<
   const leftOut = [...places]
     .filter(([at, place]) => place.kind === "none" && !place.unreachable && !seen.has(at))
     .map(([at]) => at);
-  if (leftOut.length >= MIN_FOLDER && folders.length < aim.most) {
+  if (leftOut.length >= MIN_FOLDER) {
     const byCluster = clustering.centres.map((_, cluster) =>
       leftOut.filter((at) => clustering.assignment[at] === cluster),
     );
     const second = spread(byCluster, SAMPLE);
     for (const at of second) places.delete(at);
     const before = folders.length;
-    const again = await sortInto(second);
+    // A plan already at its most still takes one more area, and makes room for it below.
+    const again = await sortInto(second, Math.max(1, aim.most - folders.length));
     // With a Folder more, every Document still left out is placed again, those sampled first too.
     const rest = [...places]
       .filter(([at, place]) => place.kind === "none" && !place.unreachable && !second.includes(at))
       .map(([at]) => at);
     await placeAll([...again, ...(folders.length > before ? rest : [])]);
+    mergeClosest(folders, places, vectors, aim.most);
   }
 
   // A new Folder with too few Documents isn't made: they are left out.
@@ -848,6 +850,51 @@ export async function finishPlan(local: LocalPlan, run: PlanCallbacks): Promise<
     placedByModel: askedOne.size,
     requests,
   };
+}
+
+/**
+ * Merges the two new top-level Folders most alike by their Documents' vectors, the smaller into
+ * the larger, until there are at most `most`. The closest pair rather than the smallest Folder:
+ * an area just found can be the smallest, and folding it away would leave it out again.
+ */
+export function mergeClosest(
+  folders: PlannedFolder[],
+  places: Map<number, PlanPlace>,
+  vectors: readonly Float32Array[],
+  most: number,
+): void {
+  const topLevel = () => folders.filter((folder) => folder.parentKey === null);
+  while (topLevel().length > most) {
+    const held = topLevel().map((folder) => ({
+      folder,
+      members: [...places]
+        .filter(([, place]) => place.kind === "new" && place.key === folder.key)
+        .map(([at]) => at),
+    }));
+    const centres = held.map(({ members }) =>
+      meanVector(members.map((at) => vectors[at] as Float32Array)),
+    );
+    let pair: [number, number] | null = null;
+    let closest = Number.NEGATIVE_INFINITY;
+    for (let a = 0; a < held.length; a++)
+      for (let b = a + 1; b < held.length; b++) {
+        const first = centres[a];
+        const second = centres[b];
+        const similarity = first && second ? dot(first, second) : Number.NEGATIVE_INFINITY;
+        if (similarity > closest) {
+          closest = similarity;
+          pair = [a, b];
+        }
+      }
+    if (!pair) return;
+    const [a, b] = pair.map((at) => held[at] as (typeof held)[number]) as [
+      (typeof held)[number],
+      (typeof held)[number],
+    ];
+    const [into, from] = a.members.length >= b.members.length ? [a, b] : [b, a];
+    for (const at of from.members) places.set(at, { kind: "new", key: into.folder.key });
+    folders.splice(folders.indexOf(from.folder), 1);
+  }
 }
 
 /** Step 6: subfolders for each new Folder of more than `SPLIT_OVER`, named in one request. */
