@@ -6,8 +6,9 @@
  *
  * Requests: { type: "load", id, model }, { type: "open", stream, cloud },
  * { type: "words", stream, words }, { type: "audio", stream, samples },
- * { type: "finish", id, stream } and { type: "drop", stream }. The other end
- * answers a load or a finish with { type: "done", id } or { type: "error", id,
+ * { type: "finish", id, stream }, { type: "drop", stream } and
+ * { type: "dropCloud", id, streams }. The other end answers a load, a finish or
+ * a dropCloud with { type: "done", id } or { type: "error", id,
  * message }, and reports { type: "segment", segment }, { type: "progress",
  * stream, doneMs }, { type: "failed", stream, message }, { type: "switched",
  * change }, { type: "lost", stream, loss } and { type: "opened", stream } as
@@ -51,7 +52,8 @@ export type TranscriberRequest =
   | { type: "words"; stream: string; words: readonly string[] }
   | { type: "audio"; stream: string; samples: Int16Array }
   | { type: "finish"; id: number; stream: string }
-  | { type: "drop"; stream: string };
+  | { type: "drop"; stream: string }
+  | { type: "dropCloud"; id: number; streams: readonly string[] };
 
 export type TranscriberResponse =
   | { type: "done"; id: number }
@@ -75,11 +77,31 @@ export interface TranscriberChannel {
 type Pending = { resolve(): void; reject(error: Error): void };
 
 /**
+ * How long the process has to confirm it dropped cloud streams before it is stopped (#2702). The
+ * confirm is one message each way and a socket's close, which waits on no network. On a loaded CI
+ * machine a few turns of the event loop once took over 300 ms, so this allows several times
+ * that, and still keeps a User who said no waiting only briefly.
+ */
+const DROP_CONFIRM_MS = 2000;
+
+/** Calls `late` once a confirm is overdue; what it returns calls that off. */
+export type ConfirmDeadline = (late: () => void) => () => void;
+
+const confirmWithin: ConfirmDeadline = (late) => {
+  const timer = setTimeout(late, DROP_CONFIRM_MS);
+  return () => clearTimeout(timer);
+};
+
+/**
  * The core's `Transcriber`, backed by a channel that `start` opens on the
  * first `load`. If the channel stops by itself, pending requests fail, the
- * listeners hear it, and the next `load` opens a new one.
+ * listeners hear it, and the next `load` opens a new one. A channel that
+ * doesn't confirm a `dropCloud` by `deadline` is stopped the same way.
  */
-export function createChannelTranscriber(start: () => TranscriberChannel): Transcriber {
+export function createChannelTranscriber(
+  start: () => TranscriberChannel,
+  deadline: ConfirmDeadline = confirmWithin,
+): Transcriber {
   let channel: TranscriberChannel | undefined;
   let loadedKey: string | undefined;
   let loading: { key: string; done: Promise<void> } | undefined;
@@ -123,18 +145,21 @@ export function createChannelTranscriber(start: () => TranscriberChannel): Trans
           return;
       }
     });
-    started.onExit((code) => {
-      if (channel !== started) return;
-      channel = undefined;
-      loadedKey = undefined;
-      clouds.clear();
-      const reason = `The transcription process stopped (exit code ${code}).`;
-      const error = new Error(reason);
-      for (const waiting of pending.values()) waiting.reject(error);
-      pending.clear();
-      for (const listener of listeners) listener.stopped(reason);
-    });
+    started.onExit((code) =>
+      gone(started, `The transcription process stopped (exit code ${code}).`),
+    );
     return started;
+  }
+
+  function gone(started: TranscriberChannel, reason: string): void {
+    if (channel !== started) return;
+    channel = undefined;
+    loadedKey = undefined;
+    clouds.clear();
+    const error = new Error(reason);
+    for (const waiting of pending.values()) waiting.reject(error);
+    pending.clear();
+    for (const listener of listeners) listener.stopped(reason);
   }
 
   function request(
@@ -193,6 +218,30 @@ export function createChannelTranscriber(start: () => TranscriberChannel): Trans
     drop(stream) {
       clouds.delete(stream);
       channel?.send({ type: "drop", stream });
+    },
+
+    dropCloud(streams) {
+      for (const stream of streams) clouds.delete(stream);
+      const target = channel;
+      if (!target || streams.length === 0) return Promise.resolve();
+      const id = nextId++;
+      return new Promise<void>((resolve) => {
+        const cancel = deadline(() => {
+          pending.delete(id);
+          gone(
+            target,
+            "The transcription process didn't confirm in time that it dropped its cloud streams, so it was stopped.",
+          );
+          target.stop();
+          resolve();
+        });
+        const settle = () => {
+          cancel();
+          resolve();
+        };
+        pending.set(id, { resolve: settle, reject: settle });
+        target.send({ type: "dropCloud", id, streams });
+      });
     },
 
     listen(listener) {
@@ -257,6 +306,35 @@ export function serveTranscriber(
    */
   const before = new Map<string, { audio: boolean; ended: boolean }>();
   const detectors = new Map<string, Promise<() => VoiceDetector>>();
+  /**
+   * Cloud audio received and not sent yet, by stream. It goes on a later turn, so a drop that
+   * arrives with it is handled first and none of it is sent (#2702).
+   */
+  const outbox = new Map<string, Int16Array[]>();
+  let sendQueued = false;
+
+  function sendHeld(stream: string): void {
+    const audio = outbox.get(stream);
+    outbox.delete(stream);
+    const handle = clouds.get(stream);
+    if (!audio || !handle) return;
+    void handle.then((each) => {
+      for (const samples of audio) each?.push(samples);
+    });
+  }
+
+  /** Forgets a cloud stream and its audio not sent: resolves once its socket is closed. */
+  function forgetCloud(stream: string): Promise<void> {
+    outbox.delete(stream);
+    const handle = clouds.get(stream);
+    clouds.delete(stream);
+    const early = before.get(stream);
+    if (early) early.ended = true;
+    const closed = handle ? handle.then((each) => each?.drop()) : Promise.resolve();
+    // One still being made, as while OpenAI's voice detector loads, sees `ended` and never
+    // connects: the confirm doesn't wait for it.
+    return early ? Promise.resolve() : closed;
+  }
 
   async function openCloud(stream: string, config: CloudStream): Promise<CloudStreamHandle | null> {
     const lost = (loss: CloudLoss) => {
@@ -323,24 +401,38 @@ export function serveTranscriber(
     if (handle) {
       const early = "stream" in request ? before.get(request.stream) : undefined;
       switch (request.type) {
-        case "audio":
+        case "audio": {
           if (early) early.audio = true;
-          void handle.then((each) => each?.push(request.samples));
+          const audio = outbox.get(request.stream);
+          if (audio) audio.push(request.samples);
+          else outbox.set(request.stream, [request.samples]);
+          if (!sendQueued) {
+            sendQueued = true;
+            setTimeout(() => {
+              sendQueued = false;
+              for (const stream of [...outbox.keys()]) sendHeld(stream);
+            }, 0);
+          }
           return;
+        }
         case "finish":
           if (early && !early.audio) early.ended = true;
+          sendHeld(request.stream);
           void handle
             .then((each) => each?.finish())
             .then(() => port.respond({ type: "done", id: request.id }));
           return;
         case "drop":
-          if (early) early.ended = true;
-          clouds.delete(request.stream);
-          void handle.then((each) => each?.drop());
+          void forgetCloud(request.stream);
           return;
       }
     }
     switch (request.type) {
+      case "dropCloud":
+        void Promise.all(request.streams.map(forgetCloud)).then(() =>
+          port.respond({ type: "done", id: request.id }),
+        );
+        return;
       case "open": {
         const { stream } = request;
         before.set(stream, { audio: false, ended: false });
