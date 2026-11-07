@@ -10,6 +10,7 @@ import {
   automaticRow,
   hostSetUpOffers,
   jevStateOf,
+  keyProviderOf,
   offersJevSetUp,
   sortingOptions,
 } from "../../src/renderer/src/components/providers/sortingOptions";
@@ -223,6 +224,52 @@ describe("the sorting picker's hosts (#1907)", () => {
       { id: "alibaba", label: "Use alibaba best…" },
     ]);
     expect(hostSetUpOffers([status("perplexity")], true, () => "")).toEqual([]);
+  });
+
+  test("Alibaba's row stays while the Qwen key is there, as its workspace is changed where it was entered", () => {
+    const alibaba = status("alibaba", {
+      key: "provider",
+      provider: "qwen",
+      hasKey: true,
+      ready: true,
+      account: { kind: "alibaba-workspace", value: "ws-1" },
+    });
+    const offers = hostSetUpOffers(
+      [alibaba, status("cloudflare", { hasKey: true, ready: true })],
+      false,
+      (host) => host.host,
+    );
+    expect(offers).toEqual([{ id: "alibaba", label: "alibaba" }]);
+    expect(
+      hostSetUpOffers([{ ...alibaba, hasKey: false, ready: false }], false, (host) => host.host),
+    ).toEqual([]);
+  });
+
+  test("the sorting row names the chat key a host uses, and no other", () => {
+    const hosts = [
+      status("openrouter", { key: "provider", provider: "openrouter", hasKey: true, ready: true }),
+      status("perplexity", { hasKey: true, ready: true }),
+    ];
+    const option = (host: DecisionHost) => ({
+      classifier: { kind: "decision" as const, host, modelId: `${host}-best` },
+      label: host,
+      provider: host,
+      decisionModel: true,
+    });
+    expect(keyProviderOf(option("openrouter"), hosts)).toBe("openrouter");
+    expect(keyProviderOf(option("perplexity"), hosts)).toBeNull();
+    expect(keyProviderOf(option("openrouter"), null)).toBeNull();
+    expect(
+      keyProviderOf(
+        {
+          classifier: { kind: "jev" },
+          label: "TypeSafe Jev",
+          provider: "TypeSafe",
+          decisionModel: true,
+        },
+        hosts,
+      ),
+    ).toBeNull();
   });
 });
 

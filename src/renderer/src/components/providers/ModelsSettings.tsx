@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { ChatModelGroup, ChatProvider } from "../../../../core/api";
+import type {
+  ChatModelGroup,
+  ChatProvider,
+  DecisionHostStatus,
+  JevSettings,
+} from "../../../../core/api";
 import { catalogProvider, endpointOf } from "../../../../core/providers/catalog/providers";
 import { changedFromDefaults } from "../../../../shared/libraryModels";
 import { useAnswers } from "../../answers";
@@ -25,12 +30,12 @@ import {
 } from "../ui";
 import { AddProvider } from "./AddProvider";
 import { ReadinessExplanation } from "./ChatReadinessNotice";
-import { DecisionHostsSection } from "./DecisionHostsSection";
 import { ModelDefaults } from "./ModelDefaults";
 import { PlansSettings } from "./PlansSettings";
 import { ProviderDirectory } from "./ProviderDirectory";
 import { logoIdOf, ProviderLogo } from "./ProviderLogo";
 import { ProviderPage, providerName, type RemovedProvider } from "./ProviderPage";
+import { SortingKeyRows } from "./SortingKeyRows";
 import { catalogIdOf, MODELS_UNDO_PLACE, regionFor, savedProviderFor } from "./shared";
 import { useJevSettings } from "./useJevSettings";
 
@@ -101,7 +106,7 @@ export function ModelsSettings() {
       !!state.library &&
       changedFromDefaults(state.library.settings, state.library.automaticDefault),
   );
-  const [jev] = useJevSettings();
+  const [jev, setJev] = useJevSettings();
   const jevEnabled = jev?.enabled === true;
   const toTagging = useAppStore((state) => state.settingsAt === "tagging");
   const [advanced, setAdvanced] = useState(false);
@@ -206,17 +211,14 @@ export function ModelsSettings() {
           <YourProviders
             providers={providers}
             groups={groups ?? []}
+            hosts={hosts}
+            jev={jev}
+            onHosts={setHosts}
+            onJev={setJev}
             onOpen={(provider) =>
               open({ page: "provider", providerId: provider.id }, `provider:${provider.id}`)
             }
             onAdd={() => open({ page: "directory" }, "add-provider")}
-          />
-          <DecisionHostsSection
-            hosts={hosts}
-            onChanged={setHosts}
-            onAddProvider={(catalogId) =>
-              open(pageFor(catalogId, null), `decision-provider:${catalogId}`)
-            }
           />
           <PlansSettings />
           <details
@@ -243,19 +245,29 @@ export function ModelsSettings() {
 function YourProviders({
   providers,
   groups,
+  hosts,
+  jev,
+  onHosts,
+  onJev,
   onOpen,
   onAdd,
 }: {
   providers: readonly ChatProvider[];
   groups: readonly ChatModelGroup[];
+  hosts: readonly DecisionHostStatus[];
+  jev: JevSettings | null;
+  onHosts(hosts: DecisionHostStatus[]): void;
+  onJev(jev: JevSettings): void;
   onOpen(provider: ChatProvider): void;
   onAdd(): void;
 }) {
   const t = useT();
+  const sortingKeys =
+    hosts.some((host) => host.key === "own" && host.hasKey) || (jev?.enabled && jev.hasApiKey);
   return (
     <section data-testid="your-providers" className="flex flex-col gap-2">
       <h4 className={sectionTitleClass}>{t("models.providers.title")}</h4>
-      {providers.length === 0 ? (
+      {providers.length === 0 && !sortingKeys ? (
         <p className={pageIntroClass}>{t("models.providers.none")}</p>
       ) : (
         <ul className={ruledListClass}>
@@ -267,6 +279,7 @@ function YourProviders({
               onOpen={() => onOpen(provider)}
             />
           ))}
+          <SortingKeyRows hosts={hosts} jev={jev} onHosts={onHosts} onJev={onJev} />
         </ul>
       )}
       <button

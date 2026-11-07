@@ -170,10 +170,11 @@ export interface SetUpOffer {
 }
 
 /**
- * The hosts the picker can set up in place, after Jev (#1907): one with a key of its own, or one
- * whose chat provider's key is there and that still asks for an account (Alibaba Cloud's
- * workspace). A host that uses a chat provider's key is set up where that key is added. None in
- * Local mode: each is a cloud service.
+ * The hosts the picker can set up in place, after Jev (#1907): one with a key of its own until it
+ * has one (its row in Your providers changes it then), and one whose chat provider's key is there
+ * and that asks for an account (Alibaba Cloud's workspace), which stays here to be changed. A host
+ * that uses a chat provider's key is set up where that key is added. None in Local mode: each is
+ * a cloud service.
  */
 export function hostSetUpOffers(
   hosts: readonly DecisionHostStatus[] | null,
@@ -182,8 +183,23 @@ export function hostSetUpOffers(
 ): SetUpOffer[] {
   if (!hosts || localMode) return [];
   return hosts
-    .filter((host) => !host.ready && (host.key === "own" || (host.hasKey && host.account)))
+    .filter((host) => (host.key === "own" ? !host.ready : host.hasKey && host.account !== null))
     .map((host) => ({ id: host.host, label: label(host) }));
+}
+
+/**
+ * The chat provider (a catalog id) whose key the chosen decision model uses: OpenRouter's,
+ * OpenAI's or the Qwen key (#1907). Your providers has no row of its own for it, so the sorting
+ * row names it. Null for any other choice.
+ */
+export function keyProviderOf(
+  option: SortingOption | null,
+  hosts: readonly DecisionHostStatus[] | null,
+): string | null {
+  const classifier = option?.classifier;
+  if (classifier?.kind !== "decision") return null;
+  const host = hosts?.find((each) => each.host === classifier.host);
+  return host?.key === "provider" ? host.provider : null;
 }
 
 /** Whether Jev can run here, set up with its key on this device, and whether its server is on this computer. */

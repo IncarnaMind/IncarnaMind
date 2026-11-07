@@ -284,23 +284,17 @@ for (const [language, width, height] of [
 }
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`Settings › Models sets a host up in place: a refused key, then a valid one makes its best model what sorts (${language}) (#1907)`, async () => {
+  test(`Settings › Models sets a host up in place: a refused key, then a valid one makes its best model what sorts and joins Your providers, and Remove key gives sorting back to Automatic (${language}) (#1907)`, async () => {
     const { app, window } = await launch("en", 900, 800);
     try {
       await setLocalChatModel(window);
       const settings = await openSettings(window, "models");
       await setLanguage(window, language);
-      const hosts = settings.getByTestId("decision-hosts");
-      for (const host of [
-        "openrouter",
-        "perplexity",
-        "liquid",
-        "cloudflare",
-        "openai",
-        "alibaba",
-      ]) {
-        await expect(hosts.getByTestId(`decision-host-${host}`)).toBeVisible();
-      }
+      // No list of hosts: the sorting row chooses, and Your providers holds the keys.
+      const providers = settings.getByTestId("your-providers");
+      await expect(providers.getByTestId("provider-row")).toHaveCount(1);
+      await expect(providers.getByTestId("sorting-key-row")).toHaveCount(0);
+      await expect(settings.getByTestId("decision-hosts")).toHaveCount(0);
       const row = settings.getByTestId("model-default-row-sorting");
       const picker = row.getByTestId("models-sorting");
       const liquid = translate(language, "decisions.setUp.row", {
@@ -344,15 +338,30 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(picker.locator("option", { hasText: liquid })).toHaveCount(0);
       // As for Jev, choosing here never turns tagging on: Turn on… does, with its line.
       await expect(row.getByTestId("models-tagging-off")).toBeVisible();
-      await expect(hosts.getByTestId("decision-host-liquid")).toContainText(
-        translate(language, "meetings.key.saved"),
-      );
+      const liquidKey = providers.locator('[data-testid="sorting-key-row"][data-host="liquid"]');
+      await expect(liquidKey).toContainText("Liquid AI");
+      await expect(liquidKey).toContainText(translate(language, "models.providers.forSorting"));
       expect((await library(window)).classifier).toEqual({
         kind: "decision",
         host: "liquid",
         modelId: "d1-ultra",
       });
       expect(typeSafe.requests).toEqual(["Bearer a-wrong-key", `Bearer ${JEV_KEY}`]);
+
+      // Change key opens its form in place; Esc puts it away.
+      await pointAndClick(window, liquidKey.getByTestId("sorting-key-change"));
+      const keyField = liquidKey.getByTestId("decision-key-input");
+      await expect(keyField).toBeFocused();
+      await keyField.press("Escape");
+      await expect(liquidKey.getByTestId("decision-key-form-liquid")).toHaveCount(0);
+
+      // Remove key: sorting goes back to Automatic's pick, and the host is offered again.
+      await pointAndClick(window, liquidKey.getByTestId("sorting-key-remove"));
+      await expect(liquidKey).toHaveCount(0);
+      await expect(picker.locator("option:checked")).toHaveText(chosen ?? "");
+      await expect(picker.locator("optgroup option", { hasText: liquid })).toHaveCount(1);
+      expect((await library(window)).classifier).toEqual({ kind: "automatic" });
+      expect(typeSafe.requests).toHaveLength(2);
     } finally {
       await app.close();
     }
