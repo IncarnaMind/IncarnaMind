@@ -269,11 +269,22 @@ test("help during the call: the panel folds to level bars that become Stop, ⌘K
   const panel = await panelOf(app);
   await expectLines(await pressIn(panel, "Sum up so far"));
 
-  // Folded to a pill: the level bars move with the voices, and pointed at or focused, are Stop.
+  // Folded to a pill: only the dot, the time, the level bars and expand show; the rest is in its
+  // name. The level bars move with the voices, and pointed at or focused, are Stop.
   await pointAndClick(panel, panel.getByTestId("panel-collapse"));
   const pill = panel.getByTestId("panel-pill");
   await expect(pill).toBeVisible();
-  await expect(pill.getByTestId("panel-keys")).toHaveText(mac ? "⌃⌥1–7" : "Ctrl+Alt+1–7");
+  const keys = mac ? "⌃⌥1–7" : "Ctrl\\+Alt\\+1–7";
+  await expect(pill).toHaveText(/^\d+:\d\d$/);
+  await expect(pill).toHaveAccessibleName(
+    new RegExp(`^Call help · Recording \\d+:\\d\\d · ${keys} for help$`),
+  );
+  await setLanguage(window, "zh-CN");
+  await expect(pill).toHaveAccessibleName(
+    new RegExp(`^通话助手 · 正在录制 \\d+:\\d\\d · ${keys} 获取帮助$`),
+  );
+  await expect(pill).toHaveText(/^\d+:\d\d$/);
+  await setLanguage(window, "en");
   const stop = pill.getByTestId("level-stop");
   await expect(stop.getByTestId("level-bar")).toHaveCount(5);
   await shot(panel, "help-panel-pill-en");

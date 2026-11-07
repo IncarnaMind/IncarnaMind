@@ -187,6 +187,43 @@ describe("The built-in reranking model", () => {
     { id: "d", documentName: "Cakes", text: "Cakes rise in the oven too." },
   ];
 
+  // protects=a search asked while warm() still loads the model waits for that load: the model behind the channel loads once, then scores (#2532); fails_when=the search starts a load of its own beside the one under way; no_claim=how long a real load takes.
+  test("a search asked while warm() is still loading waits for that load, and the model loads once", async () => {
+    const fake = createFakeCrossEncoder();
+    const held = Promise.withResolvers<void>();
+    const atModel: string[] = [];
+    const served: CrossEncoder = {
+      ...fake,
+      load: async (files) => {
+        atModel.push("load");
+        await held.promise;
+        return fake.load(files);
+      },
+      score: async (query, texts) => {
+        atModel.push("score");
+        return fake.score(query, texts);
+      },
+    };
+    const model = createRerankingModel({
+      definition: BUILT_IN_RERANKING_MODEL,
+      source: NO_MODEL_FILES,
+      dataDir: await createTempDataFolder(),
+      crossEncoder: createChannelCrossEncoder(linkedChannel(served).start),
+      emitStatus: () => {},
+    });
+
+    model.warm();
+    await vi.waitFor(() => expect(atModel).toEqual(["load"]));
+    const ranked = model.rerank("lighthouse ships", hits);
+    // A turn of the event loop: the search has asked for its load before this one ends.
+    await new Promise((turn) => setImmediate(turn));
+    held.resolve();
+
+    expect((await ranked)?.[0]?.id).toBe("b");
+    expect(atModel).toEqual(["load", "score"]);
+    model.close();
+  });
+
   test("orders hits by the model's score, from 0 to 1, keeping ties in their order", async () => {
     const dataDir = await createTempDataFolder();
     const statuses: string[] = [];

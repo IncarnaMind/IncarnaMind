@@ -10,6 +10,7 @@
 import "../src/fonts.css";
 import "./print.css";
 import { PAPER, PRINT_ENTRY, type PrintDocument } from "../../shared/printDocument";
+import { markPage, type PageMarks } from "./marks";
 import { apartAtBreaks } from "./pageBreaks";
 
 /** Room left at each page's foot, so rounding never pushes a page onto a second sheet. */
@@ -117,6 +118,7 @@ class Paginator {
     /** The height a page's body and notes share. */
     private readonly room: number,
     private readonly footer?: string,
+    private readonly marks: PageMarks = {},
   ) {
     this.page = this.newPage();
   }
@@ -236,10 +238,7 @@ class Paginator {
       this.pages.pop()?.remove();
     }
     this.pages.forEach((page, index) => {
-      const number = document.createElement("div");
-      number.className = "page-number";
-      number.textContent = String(index + 1);
-      page.append(number);
+      markPage(page, index, this.marks);
       if (this.footer) {
         const footer = document.createElement("div");
         footer.className = "page-footer";
@@ -455,7 +454,9 @@ async function print(printed: PrintDocument): Promise<number> {
   const container = document.createElement("main");
   container.className = "pages";
   document.body.append(container);
-  const pages = new Paginator(container, printed.notes, room, printed.footer).run(blocksOf(source));
+  const pages = new Paginator(container, printed.notes, room, printed.footer, printed).run(
+    blocksOf(source),
+  );
   numberCoverList(pages);
   source.remove();
   return pages.length;
