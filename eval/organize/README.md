@@ -1,6 +1,6 @@
 # Organize benchmark
 
-`npm run eval:organize` measures how well Organize (ADR-0012) puts each Document in the right Folder with the right Tags, per classifier route, on a labelled set of 80 Documents. Results are in [RESULTS.md](RESULTS.md).
+`npm run eval:organize` measures how well Organize (ADR-0012) puts each Document in the right Folder with the right Tags, per classifier route, on a labelled set of 80 Documents. Its new-User mode measures Organize as a new User meets it, with no Folders, through the app's own flow ([below](#as-a-new-user-meets-it)). Results are in [RESULTS.md](RESULTS.md).
 
 ## What it runs
 
@@ -49,6 +49,7 @@ Needs Ollama on `http://127.0.0.1:11434` with `tev1:4b`, `tev1:0.8b` and `clef-f
 
 | Variable | Default | |
 |---|---|---|
+| `INCARNAMIND_ORGANIZE_MODE` | `classifier` | `new-user` runs the [new-User mode](#as-a-new-user-meets-it) instead of the classifier routes. |
 | `INCARNAMIND_ORGANIZE_ROUTES` | `auto,tev-0.8b,clef-flash`, plus `chat` when a chat model is set | Comma-separated routes; `scripted` runs with no model. |
 | `INCARNAMIND_ORGANIZE_SPLIT` | `all` | `tune`, `heldout` or `all`. |
 | `INCARNAMIND_ORGANIZE_LANGUAGE` | `en` | The language of the Folder and Tag definitions: `en` or `zh-CN`. |
@@ -81,4 +82,39 @@ npm run eval:organize
 
 Each run writes `eval/results/organize/<start time>/` (ignored): `report.md`, `results.json` and `prepared.json` (what each classifier was given). Results are cached per route under `eval/results/organize/cache/`, keyed by the code, the set, the definitions and the model's digest, so a run that stopped resumes (a request that failed is asked again); change any of them and the route runs again. A route that gives each Tag a probability (`jev`, `decisions`) also reports the Tags' precision, recall and F1 if they applied from each probability.
 
-Tests of the scoring itself run with `npm test` (`tests/eval/organizeScoring.test.ts`).
+Tests of the scoring itself run with `npm test` (`tests/eval/organizeScoring.test.ts` and `tests/eval/organizeNewUser.test.ts`).
+
+## As a new User meets it
+
+`INCARNAMIND_ORGANIZE_MODE=new-user npm run eval:organize` measures Organize the way a new User meets it (#1569, #2339): no Folders yet, and Organize run through the app's own core flow on the User's real model, rather than one classifier call per Document with the starter Folders already there.
+
+1. A core on a temporary data folder, its system language English or Chinese (`INCARNAMIND_ORGANIZE_LANGUAGE`; the Folder names follow it), with the chat model of `INCARNAMIND_EVAL_CHAT_*` saved as a User saves one, and no Folders.
+2. The held-out half's Documents added and processed (`INCARNAMIND_ORGANIZE_SPLIT` and `_DOCUMENTS` choose others; `heldout` is this mode's default).
+3. Organize run as the Library's "Sort these into Folders" runs it (`organizeDocuments` in `src/renderer/src/organizeDocuments.ts`). With no model for Organize yet, the press asks for one, and "Use {company}" keeps the model Automatic offers (`getTaggingModels`, `saveLibrarySettings`), which is the consent for where it sends. Then `proposeFolders` makes Folders from what the Documents say, and `classifyDocuments` sorts each Document into them with its Tags.
+4. Once no Document is pending or being sorted, what Organize proposed is scored, before the User confirms anything: a Suggested Folder counts as placed.
+
+A Document is readable when processing found its text. The two image-only scans are not: the run has no text recognizer, and Organize leaves a scan's page images until the User allows them.
+
+| Bar | What is counted | Pass |
+|---|---|---|
+| Filed | Readable Documents in a Folder | ≥ 80% |
+| Smallest Folder | Documents in each Folder there is | every Folder ≥ 3 |
+| Same-label pairs | Of the readable Documents with a labelled Folder, the pairs with the same label that share a Folder | ≥ 90% |
+| Different-label pairs | The pairs with different labels that share a Folder | ≤ 10% |
+| Kind Tag F1 | Each applied Tag's name mapped to a labelled kind (`kindOf` in `lib/newUser.ts`: the preset Tags' English and Chinese names, their plurals, and Meeting notes / 会议记录), micro-averaged over (Document, kind) on the readable Documents | ≥ 0.80 |
+| Topic Tags off-topic | Every other applied Tag on a readable Document is a topic Tag. The judge model is asked once for each, with the Document's excerpt as Organize reads it (`organizeExcerpt`): "Is this Document about '{tag}'? Answer yes or no." The share answered no | ≤ 5% |
+| Distinct Tag names | Names among the Tags applied to the Documents | ≤ the kinds in the readable Documents' labels + 3 |
+
+The report also gives the time from the press to the Folders made, to the first Document placed and to the last one settled; the tokens and cost of the app's requests as its meter counted them, and of the judge's; and the Folders with the labels of what each holds. With `INCARNAMIND_ORGANIZE_SHOW_HELDOUT=1` it lists every mistake: a Document not filed, in a Folder mostly of another label, with a kind missing or not labelled, or with an off-topic Tag. Each run writes `eval/results/organize/new-user-<start time>/` (ignored): `report.md` and `results.json`. Nothing is cached, so each run asks the model again: about $0.02 for Claude Haiku 5.5 and $0.07 for Claude Sonnet 5.5 as the judge, a language.
+
+```sh
+INCARNAMIND_ORGANIZE_MODE=new-user \
+INCARNAMIND_ORGANIZE_LANGUAGE=zh-CN \
+INCARNAMIND_EVAL_CHAT_KIND=anthropic INCARNAMIND_EVAL_CHAT_MODEL=claude-haiku-5-5 \
+INCARNAMIND_EVAL_CHAT_KEY=sk-ant-... \
+INCARNAMIND_EVAL_JUDGE_KIND=anthropic INCARNAMIND_EVAL_JUDGE_MODEL=claude-sonnet-5-5 \
+INCARNAMIND_EVAL_JUDGE_KEY=sk-ant-... \
+npm run eval:organize
+```
+
+Without `INCARNAMIND_EVAL_JUDGE_*` the chat model judges. Setting the chat variables is the consent to send the Documents' names and excerpts to that model, as "Use {company}" is in the app; the judge gets the excerpts of the Documents that carry topic Tags.

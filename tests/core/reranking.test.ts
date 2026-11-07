@@ -1,4 +1,5 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { chmod, mkdir, readdir, readFile, stat, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Tokenizer } from "@huggingface/tokenizers";
 import { describe, expect, test, vi } from "vitest";
@@ -32,6 +33,7 @@ import { asCheckWork, createRerankQueue } from "../../src/core/reranking/order";
 import { createTempDataFolder, NO_MODEL_FILES } from "../helpers/core";
 import { startModelServer } from "../helpers/embedding";
 import { recordingLog } from "../helpers/log";
+import { onnxModel } from "../helpers/onnxModels";
 
 const FILES = { model: "m.onnx", tokenizer: "t.json", tokenizerConfig: "c.json", maxTokens: 512 };
 
@@ -678,7 +680,13 @@ interface FakeRun {
  * GPU after the check.
  */
 function fakeSessions(
-  options: { adapter?: boolean; gpuFails?: boolean; gpuBreaks?: boolean; gpuOffset?: number } = {},
+  options: {
+    adapter?: boolean;
+    gpuFails?: boolean;
+    gpuFailsFor?: RegExp;
+    gpuBreaks?: boolean;
+    gpuOffset?: number;
+  } = {},
 ) {
   const { adapter = true, gpuFails = false, gpuBreaks = false, gpuOffset = 0.02 } = options;
   const opened: string[] = [];
@@ -687,7 +695,8 @@ function fakeSessions(
   const createSession: PairSessionFactory = async (model, device) => {
     const name = `${typeof model === "string" ? model.split(/[/\\]/).at(-1) : "probe"} on ${device}`;
     if (device === "gpu" && !adapter) throw new Error("Failed to get a WebGPU adapter.");
-    if (device === "gpu" && gpuFails && typeof model === "string") {
+    const fails = gpuFails || (typeof model === "string" && options.gpuFailsFor?.test(model));
+    if (device === "gpu" && fails && typeof model === "string") {
       throw new Error("The WebGPU execution provider can't run this model.");
     }
     opened.push(name);
@@ -849,6 +858,174 @@ describe("The built-in reranking model on the GPU", () => {
   });
 });
 
+describe("A GPU file's copy for its WebGPU session", () => {
+  const EXPORTED = [{ op: "Neg" }, { op: "MemcpyFromHost" }, { op: "Neg" }];
+  const COPY = /^fp16\.webgpu-1-\d+-\d+\.onnx$/;
+
+  /** A GPU file as Optimum's O4 export keeps it, with its copies from host to GPU memory, and the files a load is given. */
+  async function exportedGpuFile() {
+    const folder = await createTempDataFolder();
+    const model = join(folder, "fp16.onnx");
+    await writeFile(model, onnxModel(EXPORTED));
+    return {
+      folder,
+      model,
+      files: { ...(await tinyModelFiles(folder)), gpu: { model, check: CHECK } },
+    };
+  }
+
+  const copiesIn = async (folder: string) =>
+    (await readdir(folder)).filter((name) => name.startsWith("fp16.webgpu-"));
+
+  // protects=a GPU session never opens a file that keeps a CUDA export's copies between host and GPU memory, each of which made the GPU drain once a layer (#2532); fails_when=the session opens the file as downloaded, the copy holds anything but those copies read as Identity, or it is written again at the next start; no_claim=what the copies cost on any one GPU.
+  test("opens a copy of its GPU file with its copies between host and GPU memory read as Identity, written once and kept", async () => {
+    const { folder, files } = await exportedGpuFile();
+    const first = fakeSessions({});
+
+    const device = await createOnnxCrossEncoder({ createSession: first.createSession }).load(files);
+
+    expect(device).toEqual({
+      device: "gpu",
+      copy: { opened: true, writtenMs: expect.any(Number) },
+    });
+    const [copy] = await copiesIn(folder);
+    expect(copy).toMatch(COPY);
+    expect(first.opened.at(-1)).toBe(`${copy} on gpu`);
+    const path = join(folder, copy ?? "");
+    expect(new Uint8Array(await readFile(path))).toEqual(
+      onnxModel([{ op: "Neg" }, { op: "Identity" }, { op: "Neg" }]),
+    );
+    const written = (await stat(path)).ino;
+
+    const next = fakeSessions({});
+    const again = await createOnnxCrossEncoder({ createSession: next.createSession }).load(files);
+
+    expect(again).toEqual({ device: "gpu", copy: { opened: true } });
+    expect(next.opened.at(-1)).toBe(`${copy} on gpu`);
+    expect((await stat(path)).ino).toBe(written);
+  });
+
+  test("writes a new copy for a file downloaded again, and removes the old one", async () => {
+    const { folder, model, files } = await exportedGpuFile();
+    await createOnnxCrossEncoder({ createSession: fakeSessions({}).createSession }).load(files);
+    const [old] = await copiesIn(folder);
+    const later = new Date(Date.now() + 60_000);
+    await utimes(model, later, later);
+    const sessions = fakeSessions({});
+
+    await createOnnxCrossEncoder({ createSession: sessions.createSession }).load(files);
+
+    const copies = await copiesIn(folder);
+    expect(copies).toHaveLength(1);
+    expect(copies[0]).not.toBe(old);
+    expect(sessions.opened.at(-1)).toBe(`${copies[0]} on gpu`);
+  });
+
+  test("removes a copy that won't open on the GPU, opens the file as downloaded and says why", async () => {
+    const { folder, files } = await exportedGpuFile();
+    const sessions = fakeSessions({ gpuFailsFor: /\.webgpu-/ });
+
+    const device = await createOnnxCrossEncoder({ createSession: sessions.createSession }).load(
+      files,
+    );
+
+    expect(device).toEqual({
+      device: "gpu",
+      copy: {
+        opened: false,
+        problem: expect.stringMatching(/^The copy failed .*it was removed\.$/),
+      },
+    });
+    expect(sessions.opened.at(-1)).toBe("fp16.onnx on gpu");
+    expect(await copiesIn(folder)).toEqual([]);
+  });
+
+  test("keeps the copy when the file as downloaded fails on the GPU too, so it isn't written again", async () => {
+    const { folder, files } = await exportedGpuFile();
+    const load = () =>
+      createOnnxCrossEncoder({
+        createSession: fakeSessions({ gpuFails: true }).createSession,
+      }).load(files);
+
+    await load();
+    const [copy] = await copiesIn(folder);
+    const written = (await stat(join(folder, copy ?? ""))).ino;
+    const again = await load();
+
+    expect(again).toEqual({
+      device: "cpu",
+      fallback: { reason: "session", message: expect.any(String) },
+      copy: {
+        opened: false,
+        problem: expect.stringMatching(/so did the file as downloaded; it was kept\.$/),
+      },
+    });
+    expect(await copiesIn(folder)).toEqual([copy]);
+    expect((await stat(join(folder, copy ?? ""))).ino).toBe(written);
+  });
+
+  test.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+    "opens the file as downloaded and says why when it can't be read for its copy",
+    async () => {
+      const { model, files } = await exportedGpuFile();
+      const sessions = fakeSessions({});
+      await chmod(model, 0o000);
+      try {
+        const device = await createOnnxCrossEncoder({ createSession: sessions.createSession }).load(
+          files,
+        );
+
+        expect(device).toEqual({
+          device: "gpu",
+          copy: { opened: false, problem: expect.stringMatching(/^The copy wasn't written: /) },
+        });
+        expect(sessions.opened.at(-1)).toBe("fp16.onnx on gpu");
+      } finally {
+        await chmod(model, 0o644);
+      }
+    },
+  );
+
+  // A folder without write permission stops a write only for a user other than root.
+  test.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+    "opens the file as downloaded and says why when the copy can't be written",
+    async () => {
+      const { folder, files } = await exportedGpuFile();
+      const sessions = fakeSessions({});
+      await chmod(folder, 0o555);
+      try {
+        const device = await createOnnxCrossEncoder({ createSession: sessions.createSession }).load(
+          files,
+        );
+
+        expect(device).toEqual({
+          device: "gpu",
+          copy: { opened: false, problem: expect.stringMatching(/^The copy wasn't written: /) },
+        });
+        expect(sessions.opened.at(-1)).toBe("fp16.onnx on gpu");
+      } finally {
+        await chmod(folder, 0o755);
+      }
+    },
+  );
+
+  test("removes the part of a copy a stopped write left, and keeps one another process may still be writing", async () => {
+    const { folder, files } = await exportedGpuFile();
+    const stopped = join(folder, "fp16.webgpu-1-1-1.onnx.stopped.part");
+    const writing = join(folder, "fp16.webgpu-1-1-1.onnx.writing.part");
+    await writeFile(stopped, "");
+    await writeFile(writing, "");
+    const hourAgo = new Date(Date.now() - 60 * 60_000);
+    await utimes(stopped, hourAgo, hourAgo);
+
+    await createOnnxCrossEncoder({ createSession: fakeSessions({}).createSession }).load(files);
+
+    const left = await copiesIn(folder);
+    expect(left).toContain("fp16.webgpu-1-1-1.onnx.writing.part");
+    expect(left).not.toContain("fp16.webgpu-1-1-1.onnx.stopped.part");
+  });
+});
+
 describe("The built-in reranking model's GPU file", () => {
   const HITS = TEXTS.map((text, index) => ({ id: `${index}`, documentName: "a", text }));
 
@@ -908,6 +1085,49 @@ describe("The built-in reranking model's GPU file", () => {
       },
       { level: "info", event: "reranking.device", fields: { device: "gpu" } },
     ]);
+    model.close();
+  });
+
+  test("logs the copy its GPU session opened, written without the GPU file's copies between host and GPU memory", async () => {
+    const dataDir = await createTempDataFolder();
+    const exported = onnxModel([{ op: "Neg" }, { op: "MemcpyFromHost" }, { op: "Neg" }]);
+    const file = {
+      path: "fp16.onnx",
+      size: exported.length,
+      sha256: createHash("sha256").update(exported).digest("hex"),
+    };
+    const gpuFolder = join(dataDir, "models", "tiny-gpu");
+    await mkdir(gpuFolder, { recursive: true });
+    await writeFile(join(gpuFolder, "fp16.onnx"), exported);
+    await writeFile(join(gpuFolder, "verified.json"), JSON.stringify({ files: [file] }));
+    await tinyModelFiles(join(dataDir, "models", "tiny"));
+    const { log, entries } = recordingLog();
+    const model = createRerankingModel({
+      definition: {
+        ...BUILT_IN_RERANKING_MODEL,
+        folder: "tiny",
+        files: {
+          model: "int8.onnx",
+          tokenizer: "tokenizer.json",
+          tokenizerConfig: "tokenizer_config.json",
+        },
+        gpu: { folder: "tiny-gpu", file, check: CHECK },
+      },
+      source: { baseUrl: "http://127.0.0.1:9/", files: [] },
+      dataDir,
+      crossEncoder: createOnnxCrossEncoder({ createSession: fakeSessions({}).createSession }),
+      emitStatus: () => {},
+      log,
+    });
+
+    await model.rerank("what is", HITS);
+
+    expect(model.device()).toBe("gpu");
+    expect(entries).toContainEqual({
+      level: "info",
+      event: "reranking.gpuCopy",
+      fields: { opened: true, writtenMs: expect.any(Number), problem: undefined },
+    });
     model.close();
   });
 

@@ -158,6 +158,10 @@ export function createRerankingModel(options: RerankingModelOptions): RerankingM
       reason: fallback?.reason,
       message: fallback?.message,
     });
+    if (found.copy) {
+      const { opened, writtenMs, problem } = found.copy;
+      log[problem ? "warn" : "info"]("reranking.gpuCopy", { opened, writtenMs, problem });
+    }
     if (fallback?.reason === "not-downloaded") gpuFile?.download();
     options.emitStatus(files.status());
   };
