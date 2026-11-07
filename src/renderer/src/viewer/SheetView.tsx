@@ -34,6 +34,7 @@ import type { CellStyle, FontStyle } from "../../../core/documents/formats/xlsxS
 import type { PageArea } from "../../../shared/citedPage";
 import { anchorsCovered, quoteInUnits } from "../../../shared/locations";
 import { columnName, parseCellRef, type TextUnit } from "../../../shared/units";
+import { usePickIn } from "../citationPick";
 import { useViewerHandle } from "../commands/handles";
 import { commands } from "../commands/registry";
 import { ProblemLine } from "../components/ProblemLine";
@@ -43,7 +44,7 @@ import { useAppStore, type ViewerTarget } from "../store";
 import { useCitedArea } from "./citedArea";
 import { FileStates } from "./FileStates";
 import { CitationMark, MARK_HEIGHT, quoteMarkOf, quoteTone, useMarkMeasure } from "./quoteMark";
-import { SheetSelectionMenu } from "./SelectionMenu";
+import { citeRangeAction, SheetSelectionMenu } from "./SelectionMenu";
 import { addRangeToNote, askAboutRange, copyRange } from "./selectionActions";
 import {
   Axis,
@@ -644,17 +645,19 @@ function Grid({
   const activeSize = activeRange ? rangeSize(activeRange, t).text : "";
   const pickRef = useRef(pick);
   pickRef.current = pick;
+  const citationPick = usePickIn(doc.id);
   // The range's actions stay in ⌘K while it is selected, whether its menu is open or not (#118).
   const rangeActions = useMemo(
     () =>
       rangeSelection
         ? {
+            ...citeRangeAction(rangeSelection, citationPick),
             ...(!settingUp && { ask: () => void askAboutRange(rangeSelection) }),
             addToNote: () => void addRangeToNote(rangeSelection),
             copy: () => void copyRange(rangeSelection),
           }
         : null,
-    [rangeSelection, settingUp],
+    [rangeSelection, settingUp, citationPick],
   );
   useViewerHandle("range", rangeActions);
 

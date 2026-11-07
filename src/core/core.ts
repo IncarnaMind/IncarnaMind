@@ -3012,6 +3012,7 @@ export function createCore(adapters: CoreAdapters): Core {
     engine: answerEngine,
     retention,
     editText,
+    recheckCitation: (citation) => recheckCitation(documents, citation),
     estimateRead(model, read) {
       const metered = chat.metered(model ?? undefined);
       return metered && meter.estimateRead(metered, read);
@@ -5586,8 +5587,18 @@ export function createCore(adapters: CoreAdapters): Core {
           ? input.unit
           : null;
       const around = parseAround(input.around);
+      const documentId = parseDocumentId(input.documentId);
+      if (input.mindId !== undefined) {
+        // One in Recently deleted is behind no wall `walledDocument` sees, so none may be cited.
+        if (documents.getMany([documentId]).length === 0) {
+          throw new NotFoundError({ key: "error.document.gone" });
+        }
+        if (walledDocument(documentId) !== walledFolder(parseMindId(input.mindId))) {
+          throw new InvalidInputError({ key: "error.folder.wall" });
+        }
+      }
       return citeSelection(documents, {
-        documentId: parseDocumentId(input.documentId),
+        documentId,
         parts,
         ...(area !== undefined && { area }),
         unit,
@@ -5892,6 +5903,8 @@ export function createCore(adapters: CoreAdapters): Core {
     planDocumentCheck: async (input) => checks.planDocumentCheck(input),
     cancelCheck: async (requestId) => checks.cancel(requestId),
     checkClaim: (input) => inFlow("check-claim", () => checks.checkClaim(input)),
+    rewriteFromDocuments: (input) =>
+      inFlow("check-claim", () => checks.rewriteFromDocuments(input)),
     chooseRecordCiteSource: (input) =>
       inFlow("check-claim", () => checks.chooseRecordCiteSource(input)),
     verifyDocument: (input) => inFlow("verify", () => checks.verifyDocument(input)),
@@ -6122,9 +6135,10 @@ export function createCore(adapters: CoreAdapters): Core {
       }
       return routeOf(classifier);
     },
-    proposeFolders: async (ids) => library.propose(ids, settings.get().language),
-    classifyDocuments: async (ids) => {
-      library.classify(ids);
+    proposeFolders: async (ids, options) =>
+      library.propose(ids, settings.get().language, undefined, options?.forService),
+    classifyDocuments: async (ids, options) => {
+      library.classify(ids, options?.forService);
       const classifier = organizeModelOf(library.settings());
       if (classifier) {
         usageData.record({

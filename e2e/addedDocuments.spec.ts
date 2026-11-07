@@ -244,7 +244,8 @@ for (const widened of [false, true]) {
         ? "Check this note’s claim against your Documents?"
         : "Check this note’s claim against this Folder’s Documents?",
     );
-    await expect(ask).toContainText("About $");
+    // The scripted cloud model's estimate is of nothing, which shows no amount: its tokens show.
+    await expect(ask).toContainText(/(?<![\d.,])0 tokens/);
     await motionSettled(window);
     await screenshot(window, widened ? "ask-all-en" : "ask-folder-en");
     if (widened) {

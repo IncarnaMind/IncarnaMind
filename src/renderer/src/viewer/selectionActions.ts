@@ -26,6 +26,7 @@ import { readableQuoteText } from "../../../shared/readableQuote";
 import { sourceText } from "../../../shared/sources";
 import { setTextOrigin } from "../../../shared/textOrigins";
 import { type AddTarget, addInEditor } from "../addToNote";
+import { citationAttributesOf } from "../citedSelection";
 import { focusComposer } from "../commands/assistant";
 import { readMindHandle } from "../commands/handles";
 import { holdsQuote, NO_MIND, useComposer } from "../composer";
@@ -56,8 +57,15 @@ const REFUSED: Partial<Record<CitationCheckReason, MessageKey>> = {
   "no-text": "viewer.selection.refused.noText",
 };
 
-async function citedSelection({ document, parts }: ViewerSelection): Promise<CitedSelection> {
-  const cited = await core.citeSelection({ documentId: document.id, parts });
+export async function citedSelection(
+  { document, parts }: ViewerSelection,
+  mindId?: string,
+): Promise<CitedSelection> {
+  const cited = await core.citeSelection({
+    documentId: document.id,
+    parts,
+    ...(mindId !== undefined && { mindId }),
+  });
   // Words a scan's reading may have misread are still where the User selected them: their Citation
   // asks for a look at the page, and goes in the note as it is (#535). Any other refused Citation
   // is not: its next check could find the same words somewhere else and move it there.
@@ -84,24 +92,6 @@ async function quoteOf(selection: ViewerSelection): Promise<NodeJSON> {
         ],
       },
     ],
-  };
-}
-
-/** The attributes a Citation of `cited` in `document` is stored with. */
-function citationAttributesOf(cited: CitedSelection, document: Document): CitationAttributes {
-  return {
-    passageId: cited.passageId,
-    documentId: document.id,
-    documentName: document.name,
-    contentHash: cited.contentHash,
-    pageFrom: cited.pageFrom,
-    pageTo: cited.pageTo,
-    location: cited.location,
-    quote: cited.quote,
-    check: cited.check,
-    checkReason: cited.checkReason,
-    ...(cited.yourNoteAt && { yourNoteAt: cited.yourNoteAt }),
-    ...(cited.unsure && cited.unsure.length > 0 && { unsure: cited.unsure }),
   };
 }
 
@@ -306,13 +296,17 @@ export interface RangeSelection {
 }
 
 /** The range's Citation, checked against its rows: found where the User selected them. */
-async function citeRange(selection: RangeSelection): Promise<CitedSelection> {
+export async function citeRange(
+  selection: RangeSelection,
+  mindId?: string,
+): Promise<CitedSelection> {
   if (selection.parts.length === 0) {
     throw new Error(translateNow("viewer.selection.emptyRange"));
   }
   const cited = await core.citeSelection({
     documentId: selection.document.id,
     parts: selection.parts,
+    ...(mindId !== undefined && { mindId }),
   });
   // The Citation rule's two Units are two blocks of a sheet's rows: the words for it are the cells', not pages'.
   if (cited.checkReason === "too-many-pages") {

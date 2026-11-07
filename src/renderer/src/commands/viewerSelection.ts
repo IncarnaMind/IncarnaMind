@@ -24,9 +24,22 @@ const rangeSelected = () => range() !== null;
 
 const rangeOffersAsk = () => range()?.ask !== undefined;
 
+const offersCite = () => (selection()?.cite ?? range()?.cite) !== undefined;
+
 /** The viewer's selection menu in ⌘K (#101), while text is selected in a Document, and its
  *  slide and area actions (#118). */
 export const viewerSelectionCommands: readonly Command[] = [
+  {
+    id: "viewer.selection.useAsCitation",
+    // It answers a sentence's card in the User's own window, words they selected there (#1554).
+    assistant: false,
+    label: "claim.useAsCitation",
+    group: "main",
+    // Undo, on its line, or ⌘Z in the Note, takes the Citation back with the check it had.
+    reversible: true,
+    when: offersCite,
+    run: () => (selection()?.cite ?? range()?.cite)?.(),
+  },
   {
     id: "viewer.slide.ask",
     assistant: false,

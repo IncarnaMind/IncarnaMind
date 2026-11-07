@@ -9,6 +9,7 @@ import { useAppStore, type ViewerTarget } from "../../store";
 import { AnnotationAreas } from "../../viewer/AnnotationAreas";
 import { AnnotationExportLine } from "../../viewer/AnnotationExportLine";
 import { AreaModeContext, AreaOverlay, RegionHighlight } from "../../viewer/areaSelection";
+import { CitationPickLine } from "../../viewer/CitationPickLine";
 import { CitedVersionView } from "../../viewer/CitedVersionView";
 import { DocumentView } from "../../viewer/DocumentView";
 import { type PlaceMemory, PlaceMemoryContext, type ViewPlace } from "../../viewer/place";
@@ -321,6 +322,7 @@ export function DocumentTab({ tab }: { tab: LayoutTab }) {
                   {document && areaAvailable && (
                     <AreaOverlay section={section} document={document} />
                   )}
+                  {document && <CitationPickLine documentId={document.id} />}
                   {document && (
                     <AnnotationAreas section={section} annotations={storedAnnotations} />
                   )}
