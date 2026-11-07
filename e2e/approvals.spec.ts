@@ -167,7 +167,7 @@ test("in a Mind holding imported text, a write the User always allows asks, says
   const why = card.getByTestId("approval-third-party");
   await expect(why).toHaveText("Asks first: this note has imported text.");
   await expect(why).toHaveAttribute("data-source", "imported");
-  // "Always allow" wouldn't cover this call, so it isn't offered: Allow once, then Deny.
+  // "Always allow" wouldn't cover this call, so it isn't offered: Deny, then Allow once.
   await expect(card.getByTestId("approval-always-allow")).toHaveCount(0);
   const allow = card.getByTestId("approval-allow-once");
   const deny = card.getByTestId("approval-deny");
@@ -175,7 +175,7 @@ test("in a Mind holding imported text, a write the User always allows asks, says
   await expect(deny).toBeVisible();
   const allowBox = await allow.boundingBox();
   const denyBox = await deny.boundingBox();
-  expect(allowBox && denyBox && allowBox.x < denyBox.x).toBe(true);
+  expect(allowBox && denyBox && denyBox.x < allowBox.x).toBe(true);
   await pointAndClick(window, allow);
   await expect(answer).toHaveAttribute("data-status", "done", { timeout: 15_000 });
   await expect(answer).toContainText("book_boat said: Booked a boat trip from Dover.");
