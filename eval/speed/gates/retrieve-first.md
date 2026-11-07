@@ -58,3 +58,13 @@ Retrieving first now searches a second time where the first Passages miss what t
 - **Order:** `retrieve-first-held-out`, then `gating`; the whole `hard` set only once both hold. One run decides each set: a set that fails is not run again to pass. If any fails, Haiku stays off and the numbers go on #1633.
 - **Everyday:** assistant turns never search first, so the unit test that every request of an assistant turn is the same with the list on and off decides it, as above; it isn't run again.
 - **Claude Sonnet 5.5** runs this same gate once the quote check's items it waits on are on main. Two are not yet: words that run on to the next page across a continued heading (#2504) and a bracketed gloss left out (#2568). Until then it isn't run.
+
+## DeepSeek V4.1 Flash 1017 (added on 2026-11-07, before its first run)
+
+Claude Haiku 5.5's three runs above finished on the direct Anthropic key before it ran out of credit; no Claude model can be paid for now. DeepSeek V4.1 Flash 1017 (`deepseek/deepseek-flash`, the API's name for it) is gated on retrieving first with the second search by the lines above, as written, but for these:
+
+- **The judge is DeepSeek V4 Pro** (`deepseek/deepseek-v4-pro`), on the DeepSeek key, because no Claude judge can be paid for. It isn't a model under test. It isn't the Claude Sonnet 5.5 that judged Haiku's runs either, so DeepSeek's numbers are read arm against arm only, never beside Haiku's.
+- **Its way of citing:** DeepSeek isn't on the write-then-cite list, so it gives its records first on both arms.
+- **Sets, in order:** `retrieve-first-held-out`, then `gating`, then the whole `hard` set only once both hold. One run each, `INCARNAMIND_EVAL_SPEED_MARGIN=1`, and sooner on `gating` and `hard`. The held-out set has been run once, by Haiku; nothing was changed on its account.
+- **Spend:** the runs stop at $4 for all three sets together.
+- It is listed for a Question's Answer only if every set holds.
