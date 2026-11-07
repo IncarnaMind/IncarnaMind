@@ -38,6 +38,12 @@ export const PLACE_BATCH = 25;
 export const MIN_FOLDER = 3;
 /** The most new Folders a plan proposes, subfolders aside: the top level stays glanceable. */
 export const MOST_NEW = 7;
+/** How many Folders a plan aims at, which Fewer Folders and More Folders move within 3 to 7. */
+export interface FolderAim {
+  least: number;
+  most: number;
+}
+export const AIM: FolderAim = { least: 3, most: MOST_NEW };
 export const SPLIT_OVER = 40;
 export const MIN_SUBFOLDER = 5;
 export const SUBFOLDERS = { min: 2, max: 5 } as const;
@@ -438,6 +444,7 @@ export interface SortRequest {
   language: Language;
   /** Organize This Folder: the Folder's name, whose subfolders these are. */
   within: string | null;
+  aim: FolderAim;
 }
 
 export interface SubfolderGroup {
@@ -477,6 +484,8 @@ export interface PlanInput {
   language: Language;
   /** Organize This Folder: the Folder's name. Its new Folders are subfolders of it. */
   within: string | null;
+  /** `AIM` when left out. */
+  aim?: FolderAim;
 }
 
 /** Where a Document goes: a Folder there is, a new Folder (by key), or none. */
@@ -644,6 +653,10 @@ export async function finishPlan(local: LocalPlan, run: PlanCallbacks): Promise<
   if (documents.length === 0)
     return { folders: [], places: new Map(), clusters: 0, sampled: 0, placedByModel: 0, requests };
 
+  const aim = {
+    least: Math.max(AIM.least, Math.min(input.aim?.least ?? AIM.least, MOST_NEW)),
+    most: Math.max(AIM.least, Math.min(input.aim?.most ?? AIM.most, MOST_NEW)),
+  };
   // The Folders there are go to the model as F1, F2…; new ones are N1, N2… in the plan.
   const known = input.folders.map((folder, at) => ({ ...folder, ref: `F${at + 1}` }));
   const folders: PlannedFolder[] = [];
@@ -660,7 +673,7 @@ export async function finishPlan(local: LocalPlan, run: PlanCallbacks): Promise<
   };
 
   /**
-   * Has the model sort these, beside the Folders so far, and places them. Past `MOST_NEW` new
+   * Has the model sort these, beside the Folders so far, and places them. Past `aim.most` new
    * Folders, the ones holding the fewest go; their Documents are returned to be placed again.
    */
   const sortInto = async (shown: readonly number[]): Promise<number[]> => {
@@ -670,12 +683,13 @@ export async function finishPlan(local: LocalPlan, run: PlanCallbacks): Promise<
         folders: choices(),
         language: input.language,
         within: input.within,
+        aim,
       },
       signal,
     );
     requests++;
     const shownAt = new Map(shown.map((at) => [refOf(at), at]));
-    const room = MOST_NEW - folders.length;
+    const room = aim.most - folders.length;
     const fresh = sorted.filter(
       (folder) => folder.id === null || placeOf(folder.id).kind === "none",
     );
@@ -789,7 +803,7 @@ export async function finishPlan(local: LocalPlan, run: PlanCallbacks): Promise<
   const leftOut = [...places]
     .filter(([at, place]) => place.kind === "none" && !place.unreachable && !seen.has(at))
     .map(([at]) => at);
-  if (leftOut.length >= MIN_FOLDER && folders.length < MOST_NEW) {
+  if (leftOut.length >= MIN_FOLDER && folders.length < aim.most) {
     const byCluster = clustering.centres.map((_, cluster) =>
       leftOut.filter((at) => clustering.assignment[at] === cluster),
     );

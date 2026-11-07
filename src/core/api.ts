@@ -6463,7 +6463,7 @@ export interface OrganizeLibraryInput {
 }
 
 export type OrganizeLibraryResult =
-  /** Estimated at more than $1: nothing was sent, and the User is asked first (D314's rule). */
+  /** Estimated at more than $1: nothing was sent, and the User is asked first. */
   | { status: "estimate"; estimate: RunEstimate }
   | {
       status: "done";

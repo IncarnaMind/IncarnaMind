@@ -21,6 +21,7 @@ import type { GroupClassifier } from "../../src/core/library/classifier";
 import { createLibraryOrganizer } from "../../src/core/library/organizeLibrary";
 import {
   bestClustering,
+  type FolderAim,
   finishPlan,
   type LibraryPlan,
   type PlanExcerpt,
@@ -139,6 +140,7 @@ function plan(
   model: PlanModel,
   folders: { id: string; name: string; description: string }[] = [],
   leavesOut = () => true,
+  aim?: FolderAim,
 ): Promise<LibraryPlan> {
   const local = planLocally({
     documents: named.map((each, at) => ({ id: `doc${at}`, vector: each.vector })),
@@ -150,6 +152,7 @@ function plan(
     folders,
     language: "en",
     within: null,
+    ...(aim && { aim }),
   });
   return finishPlan(local, {
     model,
@@ -232,7 +235,7 @@ describe("The plan's requests and places", () => {
     expect(placeOf(90)).toEqual({ kind: "new", key: alphaKey });
   });
 
-  test("a new Folder under 3 Documents isn't made, and at most 7 new ones are", async () => {
+  test("a new Folder under 3 Documents isn't made, and at most 7 new ones are, or fewer when asked", async () => {
     const { model } = letterModel();
     const { vectors } = groups(9, 4, 32);
     const named = namedGroups(vectors, 4, ["A", "B", "G", "D", "E", "Z", "H", "T", "I"]);
@@ -250,6 +253,11 @@ describe("The plan's requests and places", () => {
       );
       expect(held.length).toBeGreaterThanOrEqual(3);
     }
+
+    const fewer = await plan(reshaped, letterModel().model, [], () => true, { least: 3, most: 4 });
+    const top = fewer.folders.filter((folder) => folder.parentKey === null);
+    expect(top.length).toBeLessThanOrEqual(4);
+    expect(top.map((folder) => folder.name)).toContain("Alpha");
   });
 
   test("a new Folder of more than 40 is split into named subfolders of at least 5", async () => {

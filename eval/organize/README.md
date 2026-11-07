@@ -90,8 +90,10 @@ Tests of the scoring itself run with `npm test` (`tests/eval/organizeScoring.tes
 
 1. A core on a temporary data folder, its system language English or Chinese (`INCARNAMIND_ORGANIZE_LANGUAGE`; the Folder names follow it), with the chat model of `INCARNAMIND_EVAL_CHAT_*` saved as a User saves one, and no Folders.
 2. The held-out half's Documents added and processed (`INCARNAMIND_ORGANIZE_SPLIT` and `_DOCUMENTS` choose others; `heldout` is this mode's default).
-3. Organize run as the Library's "Sort these into Folders" runs it (`organizeDocuments` in `src/renderer/src/organizeDocuments.ts`). With no model for Organize yet, the press asks for one, and "Use {company}" keeps the model Automatic offers (`getTaggingModels`, `saveLibrarySettings`), which is the consent for where it sends. Then `proposeFolders` makes Folders from what the Documents say, and `classifyDocuments` sorts each Document into them with its Tags.
-4. Once no Document is pending or being sorted, what Organize proposed is scored, before the User confirms anything: a Suggested Folder counts as placed.
+3. Organize run as the Library's Organize runs it. With no model for Organize yet, the press asks for one, and "Use {company}" keeps the model Automatic offers (`getTaggingModels`, `saveLibrarySettings`), which is the consent for where it sends. Then, on the route `INCARNAMIND_ORGANIZE_ROUTE` names:
+   - `plan` (the default): `organizeLibrary` plans the whole set at once (`src/core/library/plan.ts`) and returns when its proposal is in the Review. A run estimated at more than $1 asks first; the eval goes on, as a User would.
+   - `classic`, the baseline: `proposeFolders` proposes Folders from what the first Documents say, and `classifyDocuments` sorts each Document into them with its Tags, one request each.
+4. Once the run ends, what Organize proposed is read from the Review and scored, before the User confirms anything. A subfolder counts as its top-level Folder.
 
 A Document is readable when processing found its text. The two image-only scans are not: the run has no text recognizer, and Organize leaves a scan's page images until the User allows them.
 
@@ -105,7 +107,11 @@ A Document is readable when processing found its text. The two image-only scans 
 | Topic Tags off-topic | Every other applied Tag on a readable Document is a topic Tag. The judge model is asked once for each, with the Document's excerpt as Organize reads it (`organizeExcerpt`): "Is this Document about '{tag}'? Answer yes or no." The share answered no | ≤ 5% |
 | Distinct Tag names | Names among the Tags applied to the Documents | ≤ the kinds in the readable Documents' labels + 3 |
 
-The report also gives the time from the press to the Folders made, to the first Document placed and to the last one settled; the tokens and cost of the app's requests as its meter counted them, and of the judge's; and the Folders with the labels of what each holds. With `INCARNAMIND_ORGANIZE_SHOW_HELDOUT=1` it lists every mistake: a Document not filed, in a Folder mostly of another label, with a kind missing or not labelled, or with an off-topic Tag. Each run writes `eval/results/organize/new-user-<start time>/` (ignored): `report.md` and `results.json`. Nothing is cached, so each run asks the model again: about $0.02 for Claude Haiku 5.5 and $0.07 for Claude Sonnet 5.5 as the judge, a language.
+The report also gives the time from the press to the Review (on the classic route: to the Folders proposed, the first Document placed and the last one settled); on the plan route its requests, how many Documents it asked the model about past its sample, the input tokens of each request, and each subfolder with how many of its Documents share its commonest template; the tokens and cost of the app's requests as its meter counted them, and of the judge's; and the Folders with the labels of what each holds. With `INCARNAMIND_ORGANIZE_SHOW_HELDOUT=1` it lists every mistake: a Document not filed, in a Folder mostly of another label, with a kind missing or not labelled, or with an off-topic Tag. Each run writes `eval/results/organize/new-user-<start time>/` (ignored): `report.md` and `results.json`. Nothing is cached, so each run asks the model again: about $0.02 for Claude Haiku 5.5 and $0.07 for Claude Sonnet 5.5 as the judge, a language.
+
+### At scale
+
+`INCARNAMIND_ORGANIZE_SCALE=500` runs it on a set of that many Documents instead, made at run time by the same generator (`make-fixtures.py --scale`) into a temporary folder: the five Folders and Unsorted, about 60% English, in every format, a few image-only scans, each labelled with its Folder, its kinds and `sub`, the template it was made from. `INCARNAMIND_ORGANIZE_SEED` (default 1) picks another set of the same make, and `INCARNAMIND_ORGANIZE_PYTHON` the Python with the generator's libraries (default `python3`; see the generator's own header). The time bar is the Review within 10 minutes for 1,000 Documents, 5 for 500.
 
 ```sh
 INCARNAMIND_ORGANIZE_MODE=new-user \
