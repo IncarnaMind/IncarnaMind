@@ -120,3 +120,40 @@ How the runs go:
 - **One at a time,** each started at a 15-minute load of 24 or less. Three runs of every case, the same arms, judges and keys as above.
 - **The bar** above holds on the fresh slice, per language, for a model to be listed. The 24 cases are a regression check: each of their lines is reported, and one that fails is said in the PR.
 - **Spend:** about $9 more, about $35 in all, within this work's $40.
+
+## Result, 2026-11-07: Claude Sonnet 5.5 listed; Haiku and DeepSeek left out
+
+The runs were made at 5680e53a0 (the step) with the sets at d2ee5e5a4. Each was run alone, at a one-minute load median of 5.8 to 8.9, all under 15. Medians are over the three runs, today → the step; ranges are the runs' lowest and highest. No press failed on either arm.
+
+**Fresh slice** (8 a language; this is what lists a model):
+
+| Model | Language | First whole option | Done | False Supported | Cited | Judged right | Every Citation found |
+|---|---|---|---|---|---|---|---|
+| Sonnet 5.5 | en | 4.12 → 1.48 s | 4.12 → 2.25 s | 2–2 → 2–4 | 8–8 → 7–8 | 8–8 → 7–8 | 8–8 → 7–8 |
+| | zh-CN | 4.38 → 1.65 s | 4.38 → 2.54 s | 3–4 → 3–4 | 8–8 → 8–8 | 7–8 → 7–7 | 8–8 → 8–8 |
+| Haiku 5.5 | en | **0.79 → 0.89 s** | 2.53 → 1.26 s | 1–3 → 1–3 | 6–7 → 7–8 | 6–8 → 6–7 | 7–8 → 7–8 |
+| | zh-CN | 0.95 → 0.89 s | 2.48 → 1.32 s | 0–2 → 0–4 | 5–6 → 6–7 | 5–6 → 5–6 | 7–8 → 8–8 |
+| DeepSeek V4.1 Flash | en | 1.43 → 1.04 s | 2.45 → 1.30 s | 1–2 → 1–3 | 4–8 → 7–8 | 6–6 → 6–7 | 8–8 → 8–8 |
+| | zh-CN | **1.12 → 1.21 s** | 2.55 → 1.45 s | 1–2 → 0–2 | 6–8 → 7–8 | 4–6 → 5–6 | 8–8 → 7–8 |
+
+**The 24 seen cases** (regression, 12 a language):
+
+| Model | Language | First whole option | Done | False Supported | Cited | Judged right | Every Citation found |
+|---|---|---|---|---|---|---|---|
+| Sonnet 5.5 | en | 4.70 → 1.72 s | 4.70 → 2.44 s | 4–5 → 4–6 | **12–12 → 10–11** | 12–12 → 11–12 | 12–12 → 12–12 |
+| | zh-CN | 4.88 → 1.75 s | 4.88 → 2.55 s | 3–4 → 1–5 | 12–12 → 12–12 | 10–11 → 11–12 | 12–12 → 12–12 |
+| Haiku 5.5 | en | **0.91 → 0.93 s** | 2.78 → 1.34 s | 4–8 → 5–5 | 9–12 → 9–11 | 7–9 → 7–9 | 11–12 → 12–12 |
+| | zh-CN | 1.00 → 0.94 s | 2.66 → 1.43 s | 4–6 → 4–6 | 10–11 → 11–11 | 7–10 → 8–9 | 11–12 → 11–12 |
+| DeepSeek V4.1 Flash | en | 1.34 → 1.14 s | 2.59 → 1.39 s | 4–5 → 2–3 | 9–12 → 10–11 | 5–8 → 7–9 | 12–12 → 12–12 |
+| | zh-CN | 1.35 → 1.19 s | 2.60 → 1.42 s | 0–4 → 1–3 | 10–11 → 10–12 | 9–11 → 9–11 | 11–12 → 12–12 |
+
+- **Sonnet 5.5 is listed.** It holds every line on the fresh slice. The reply is one call in 48 of 48 presses, and the first whole option comes about 2.7 s sooner.
+- **Sonnet's regression line.** On the 24 cases, English "cited" stayed below today's (10–11 against 12–12), all of it on en2-ask-store (three runs) and en2-answer-unknown (one).
+  - In two presses, Sonnet wrote no marker on the claim that rests on the connectors line.
+  - In two, one marker covered two facts, and the quote taken was the line most like the whole sentence (webhooks), not the connectors line.
+- **Haiku 5.5 isn't listed.** Its first English option came later on both sets, though by 0.10 s and 0.02 s, and every quality line held. Haiku already writes its reply in its first request on today's path; the step saves it the `cite` round trip, about 1.3 s to done.
+- **DeepSeek isn't listed.** Its first Chinese option came 0.09 s later on the fresh slice, as with step 4: it already writes its Chinese reply in its first request. Every other line held on both sets.
+- **False Supported on the step's arm,** read in its replies:
+  - a quote was taken from a line sharing only the Document's own name with the claim ("Driver app");
+  - a claim listing three facts got quotes for two of them.
+- **Spend:** these six runs, $6.02. With the first runs, the stopped ones and the probes, $10.24 for this gate; this work's ledger reads $31.64.
