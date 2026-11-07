@@ -28,3 +28,13 @@ export function showMeetingNoteView(tabId: string, mindId: string, view: Meeting
     return { views: { ...state.views, [tabId]: { mindId, view } } };
   });
 }
+
+/** Opening a Note shows its page: a tab showing the Note's Transcript goes back to its notes. */
+export function showNotesOf(mindId: string): void {
+  useMeetingNoteViews.setState((state) => {
+    const kept = Object.entries(state.views).filter(([, each]) => each.mindId !== mindId);
+    return kept.length === Object.keys(state.views).length
+      ? state
+      : { views: Object.fromEntries(kept) };
+  });
+}

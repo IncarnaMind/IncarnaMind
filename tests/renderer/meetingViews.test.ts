@@ -2,6 +2,7 @@ import { beforeEach, expect, test } from "vitest";
 import {
   meetingNoteViewFor,
   showMeetingNoteView,
+  showNotesOf,
   useMeetingNoteViews,
 } from "../../src/renderer/src/meetingViews";
 
@@ -37,4 +38,17 @@ test("choosing the current view changes no state and Notes clears only that tab"
   expect(useMeetingNoteViews.getState()).toBe(shown);
   showMeetingNoteView("tab", "note", "notes");
   expect(useMeetingNoteViews.getState().views).toEqual({});
+});
+
+test("opening a Note shows its notes in every tab that showed its Transcript, and no other Note's", () => {
+  showMeetingNoteView("left", "note", "transcript");
+  showMeetingNoteView("right", "note", "transcript");
+  showMeetingNoteView("other", "elsewhere", "transcript");
+  showNotesOf("note");
+  expect(meetingNoteViewFor("left", "note")).toBe("notes");
+  expect(meetingNoteViewFor("right", "note")).toBe("notes");
+  expect(meetingNoteViewFor("other", "elsewhere")).toBe("transcript");
+  const shown = useMeetingNoteViews.getState();
+  showNotesOf("note");
+  expect(useMeetingNoteViews.getState()).toBe(shown);
 });

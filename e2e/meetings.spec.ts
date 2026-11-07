@@ -989,11 +989,12 @@ test("a stopped Transcript has no row of its own: from its Note, Get info names 
   await expect(library.getByTestId("library-document")).toHaveCount(0);
   await pointAndClick(window, window.getByTestId("mind-tab").first());
   await pointAndClick(window, line.getByTestId("meeting-transcript-open"));
-  await expect(window.getByTestId("viewer")).toBeVisible();
+  // It opens in its Note's own tab, in place of the notes.
+  const shown = window.getByTestId("meeting-note-transcript");
+  await expect(shown).toBeVisible();
   // Opened, it has no "Open in default app": its file is IncarnaMind's, not the User's.
-  await expect(window.getByTestId("viewer-open-externally")).toHaveCount(0);
-  const header = window.getByTestId("viewer-header");
-  await pointAndClick(window, window.getByTestId("document-tab"));
+  await expect(shown.getByTestId("viewer-open-externally")).toHaveCount(0);
+  const header = shown.getByTestId("viewer-header");
   await pointAndClick(window, header.getByTestId("document-file-menu"));
   const menu = header.getByTestId("document-file-actions");
   await expect(menu.getByTestId("file.info")).toBeVisible();
@@ -1027,7 +1028,9 @@ test("a stopped Transcript has no row of its own: from its Note, Get info names 
   await expect(panel.getByTestId("info-open-meeting-note")).toHaveText(note ?? "");
   await expect(panel).not.toContainText("在资料库中");
   await expect(panel).not.toContainText(".vtt");
+  // Opening the Note from there shows its notes again.
   await pointAndClick(window, panel.getByTestId("info-open-meeting-note"));
+  await expect(shown).toHaveCount(0);
   await expect(window.getByTestId("mind-pane")).toBeVisible();
   await app.close();
 });
