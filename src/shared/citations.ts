@@ -457,7 +457,9 @@ export function needsRecheck(
  * Null when the current version holds nothing to cite in its place.
  */
 export function newVersionCitation(
-  attributes: Partial<Pick<CitationAttributes, "pageFrom" | "pageTo" | "location" | "quote">>,
+  attributes: Partial<
+    Pick<CitationAttributes, "pageFrom" | "pageTo" | "location" | "quote" | "quotedWords">
+  >,
   recheck: RecheckResult | "failed" | null,
 ): Partial<CitationAttributes> | null {
   if (recheck === null || recheck === "failed" || "keptInside" in recheck) return null;
@@ -468,6 +470,14 @@ export function newVersionCitation(
       ? { ...recheck, quote: attributes.quote ?? "" }
       : null);
   if (!now || now.contentHash === null) return null;
+  // The sentence keeps the words it quoted whether the quote moved or its words changed, and a
+  // rewrite to the changed words can fail or be refused: words not found stay not found unless the
+  // quote cited now has them (#2612). Their closest words were the old version's.
+  const asked = parseQuotedWords(attributes.quotedWords);
+  const notFound =
+    asked && now.check === "found" && !quotedWordsFoundIn(now.quote, asked)
+      ? { answer: asked.answer, closest: null }
+      : null;
   return {
     passageId: now.passageId,
     contentHash: now.contentHash,
@@ -475,14 +485,14 @@ export function newVersionCitation(
     pageTo: now.pageTo,
     location: now.location,
     quote: now.quote,
-    check: now.check,
-    checkReason: now.checkReason,
+    check: notFound ? "not-found" : now.check,
+    checkReason: notFound ? "quoted-words-not-on-pages" : now.checkReason,
     // The version it moves to has the date of that version of the User's note (#335).
     ...(now.yourNoteAt && { yourNoteAt: now.yourNoteAt }),
     // The confirmation was for the quote and page the User looked at, and those changed.
     pageChecked: null,
     unsure: now.unsure ?? null,
-    quotedWords: null,
+    quotedWords: notFound,
     verdict: null,
     keptOver: null,
   };
@@ -705,10 +715,25 @@ export function quotedWordsRunOnTo(value: unknown): CitationLocation | null {
   return parseLocation((value as Record<string, unknown>).runsOnTo);
 }
 
-/** What a Citation stores of the check of its Answer's quoted words, either kind, checked; null if nothing. */
+/** The words a Citation's Answer quoted that are a cited Document's name (#2504); null if none. */
+export function quotedNameOf(value: unknown): string | null {
+  if (typeof value === "string") {
+    try {
+      return quotedNameOf(JSON.parse(value));
+    } catch {
+      return null;
+    }
+  }
+  if (typeof value !== "object" || value === null) return null;
+  const { name } = value as Record<string, unknown>;
+  return typeof name === "string" && name.trim() !== "" ? name : null;
+}
+
+/** What a Citation stores of the check of its Answer's quoted words, any kind, checked; null if nothing. */
 export function parseQuotedWordsCheck(value: unknown): QuotedWordsCheck | null {
   const runsOnTo = quotedWordsRunOnTo(value);
-  return parseQuotedWords(value) ?? (runsOnTo && { runsOnTo });
+  const name = quotedNameOf(value);
+  return parseQuotedWords(value) ?? (runsOnTo && { runsOnTo }) ?? (name !== null ? { name } : null);
 }
 
 /**

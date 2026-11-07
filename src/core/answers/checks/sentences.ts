@@ -11,6 +11,7 @@ import { citationAttributesOf } from "../../../shared/citations";
 import { keptOn, readClaimCheck } from "../../../shared/claimChecks";
 import { partCitations, readClaimParts } from "../../../shared/claimParts";
 import { keptBinding } from "../../../shared/figureRuns";
+import { countFigureSteps } from "../../../shared/figures";
 import {
   type InlineTextPiece,
   type InlineTextProjection,
@@ -141,15 +142,34 @@ function inlinePieces(element: Y.XmlElement): InlineTextPiece[] {
   });
 }
 
+// A projection is never changed once made, so where its Citations start and end is worked out
+// once, and each sentence's words cost no more than its own length (#2523).
+const citationEdges = new WeakMap<
+  InlineTextProjection,
+  { starts: Set<number>; ends: Set<number> }
+>();
+
 function projectedRange(
   projection: InlineTextProjection,
   pieces: readonly InlineTextPiece[],
   from: number,
   to: number,
 ): InlineTextProjection | null {
-  const citations = pieces.filter((piece) => piece.kind === "citation");
-  while (citations.some((piece) => piece.from === from)) from++;
-  while (citations.some((piece) => piece.to === to)) to--;
+  let edges = citationEdges.get(projection);
+  if (!edges) {
+    const starts = new Set<number>();
+    const ends = new Set<number>();
+    for (const piece of pieces)
+      if (piece.kind === "citation") {
+        starts.add(piece.from);
+        ends.add(piece.to);
+      }
+    countFigureSteps(pieces.length);
+    edges = { starts, ends };
+    citationEdges.set(projection, edges);
+  }
+  while (edges.starts.has(from)) from++;
+  while (edges.ends.has(to)) to--;
   const span = inlineSpan(projection, from, to);
   return span ? sliceInlineText(projection, span.start, span.end) : null;
 }

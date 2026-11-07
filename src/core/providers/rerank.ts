@@ -194,11 +194,12 @@ export function createRerank(options: {
     query: string,
     candidates: readonly SearchCandidate[],
     abortSignal: AbortSignal | undefined,
+    background: boolean,
   ): Promise<SearchCandidate[]> => {
     const apiKey = await secrets.tryGet(KEY_NAME);
     if (!apiKey) return [...candidates];
     try {
-      await consent.ensure("rerank", RERANK_SERVICES[kind]);
+      await consent.ensure("rerank", RERANK_SERVICES[kind], undefined, { background });
       const { ranking } = await rerank({
         model: gate.rerankingModel(
           createModel({ kind, apiKey: readApiKey(apiKey), modelId }),
@@ -240,11 +241,18 @@ export function createRerank(options: {
    * isn't set up or is paused, while the built-in model isn't downloaded, and
    * when the User declines or the request fails.
    */
-  const reranker: Reranker = async (query, candidates, abortSignal) => {
+  const reranker: Reranker = async (query, candidates, abortSignal, background = false) => {
     const current = stored();
     if (!current || pausedNow(current) || candidates.length < 2) return [...candidates];
     if (!isService(current.kind)) return rerankBuiltIn(query, candidates, abortSignal);
-    return rerankWithService(current.kind, modelOf(current), query, candidates, abortSignal);
+    return rerankWithService(
+      current.kind,
+      modelOf(current),
+      query,
+      candidates,
+      abortSignal,
+      background,
+    );
   };
 
   return {

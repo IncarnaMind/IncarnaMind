@@ -120,7 +120,15 @@ async function recheckOne(node: NodeJSON, recheck: Recheck): Promise<NodeJSON> {
     const pageFrom = unit(attrs.pageFrom);
     const pageTo = unit(attrs.pageTo) ?? pageFrom;
     const contentHash = typeof attrs.contentHash === "string" ? attrs.contentHash : null;
-    const checked = await recheck({ documentId, quote, pageFrom, pageTo, contentHash });
+    const asked = parseQuotedWords(attrs.quotedWords);
+    const checked = await recheck({
+      documentId,
+      quote,
+      pageFrom,
+      pageTo,
+      contentHash,
+      ...(asked && { quotedWords: asked }),
+    });
     // Kept inside a wall the Note is outside, nothing was read: the check made when it was cited stands.
     if ("keptInside" in checked) return node;
     // A deleted Document: a Citation with words keeps the check it was given, as it always has; one

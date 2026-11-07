@@ -54,6 +54,26 @@ describe("finding a quote", () => {
     expect(findQuote(text, "value εls = 0.1 ^36. This")).toBeNull();
   });
 
+  test("reads a superscript digit as a footnote's mark, never as another digit of a figure (#2474)", () => {
+    const text = "Hollin Pumps was paid 1,240.50¹ on 2 April";
+    expect(covered(text, "Hollin Pumps was paid 1,240.50")).toBe("Hollin Pumps was paid 1,240.50");
+    expect(covered(text, "1,240.50¹ on 2 April")).toBe("1,240.50¹ on 2 April");
+    expect(findQuote(text, "Hollin Pumps was paid 1,240.501 on 2 April")).toBeNull();
+    // A drawn page, as a Word viewer draws it, keeps the mark a digit: the quote is still found.
+    expect(covered("Hollin Pumps was paid 1,240.501 on 2 April", "1,240.50¹ on 2 April")).toBe(
+      "1,240.501 on 2 April",
+    );
+    // A length's "²" is a power, not a mark: it still matches the digit a model writes.
+    expect(covered("The room is 12 m² in all", "12 m2 in all")).toBe("12 m² in all");
+  });
+
+  test("a superscript that isn't a mark after a figure is no mark (#2474)", () => {
+    expect(covered("see the note¹ here", "see the note1 here")).toBe("see the note¹ here");
+    expect(covered("the area is x² wide", "the area is x2 wide")).toBe("the area is x² wide");
+    expect(covered("Ca²⁺ ions", "Ca2+ ions")).toBe("Ca²⁺ ions");
+    expect(covered("the 2ⁿᵈ row", "the 2nd row")).toBe("the 2ⁿᵈ row");
+  });
+
   test("matches a line-end hyphen the quote keeps with a space after it", () => {
     const text = "if the initial hyper-\nstep sizes are too large";
     expect(covered(text, "initial hyper- step sizes")).toBe("initial hyper-\nstep sizes");
