@@ -322,7 +322,7 @@ function quoteInCues(
   matching: Matching & { unique?: boolean },
 ): TextRange[] | null {
   // Cue marks round down, so a named second includes cues that start within it.
-  const until = time.from === time.to ? time.from + 1000 : time.to;
+  const until = time.to + 1000;
   return quoteInCueWindow(
     units,
     quote,
@@ -619,11 +619,17 @@ type Rechecked = Pick<
   "documentId" | "quote" | "pageFrom" | "pageTo" | "location"
 >;
 
+/**
+ * The quote at a Transcript Citation's own time, said by its speaker when `speakerToo`. The
+ * current version can lose a speaker's label only to the speaker pass naming them (#138): then its
+ * time alone holds, and the location returned, rebuilt from the cue found, shows the new name.
+ */
 function quoteForRecheck(
   units: readonly PageText[],
   quote: string,
   matching: Matching,
   location: CitationLocation | null | undefined,
+  speakerToo: boolean,
 ): TextRange[] | null {
   if (!location || !units.some((unit) => unit.kind === "cues")) {
     return quoteInUnits(units, quote, matching);
@@ -635,7 +641,7 @@ function quoteForRecheck(
       at?.kind === "time" &&
       at.from === location.from &&
       at.to === location.to &&
-      (!location.speaker || at.speaker === location.speaker)
+      (!speakerToo || !location.speaker || at.speaker === location.speaker)
     );
   });
 }
@@ -735,7 +741,7 @@ function checkInVersion(
     lostLigatures: version.matching.lostLigatures ?? false,
   });
   return result.check === "found" &&
-    !quoteForRecheck(pages, quote, version.matching, input.location)
+    !quoteForRecheck(pages, quote, version.matching, input.location, true)
     ? NOT_ON_PAGES
     : result;
 }
@@ -754,7 +760,13 @@ function changedQuote(
 ): ChangedQuote | null {
   const before = versionOf(documents, input.documentId, version);
   const cited = before.inRange(input);
-  const found = quoteForRecheck(cited, cleanQuote(input.quote), before.matching, input.location);
+  const found = quoteForRecheck(
+    cited,
+    cleanQuote(input.quote),
+    before.matching,
+    input.location,
+    true,
+  );
   const start = found?.[0]?.start;
   const end = found?.at(-1)?.end;
   if (start === undefined || end === undefined) return null;
@@ -902,7 +914,11 @@ function recheckInCurrent(documents: RecheckDocuments, input: Rechecked): Citati
     (whole || (range.length <= MAX_CITED_PAGES && (!first || !second || sameRun(first, second)))) &&
     quote !== ""
   ) {
-    const found = quoteForRecheck(range, quote, matching, input.location);
+    const speaker = input.location?.kind === "time" ? input.location.speaker : undefined;
+    const renamed =
+      speaker !== undefined &&
+      !units.some((unit) => unit.kind === "cues" && unit.label?.speakers?.includes(speaker));
+    const found = quoteForRecheck(range, quote, matching, input.location, !renamed);
     if (found) {
       const unsure = unsureWordsCovered(range, found);
       return result(

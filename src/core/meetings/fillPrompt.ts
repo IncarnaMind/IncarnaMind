@@ -159,18 +159,17 @@ export const sectionOf = (marker: string): FillSection | null =>
 
 export const headingOf = (marker: string): string | null => / (H\d+)$/.exec(marker)?.[1] ?? null;
 
-const hasCitation = (node: NodeJSON, check?: "found"): boolean =>
-  (node.type === CITATION_NODE && (!check || node.attrs?.check === check)) ||
-  (node.content ?? []).some((child) => hasCitation(child, check));
+const hasCitation = (node: NodeJSON): boolean =>
+  node.type === CITATION_NODE || (node.content ?? []).some(hasCitation);
 
-/** Blocks with a Citation; `check` restricts the accepted Citation status. */
-export function citedOnly(blocks: readonly NodeJSON[], check?: "found"): NodeJSON[] {
+/** What of a reply goes into the notes: only what cites the Transcript, never a line uncited. */
+export function citedOnly(blocks: readonly NodeJSON[]): NodeJSON[] {
   return blocks.flatMap((block) => {
     if (block.type === "bulletList" || block.type === "orderedList") {
-      const items = (block.content ?? []).filter((item) => hasCitation(item, check));
+      const items = (block.content ?? []).filter(hasCitation);
       return items.length > 0 ? [{ ...block, content: items }] : [];
     }
-    return hasCitation(block, check) ? [block] : [];
+    return hasCitation(block) ? [block] : [];
   });
 }
 

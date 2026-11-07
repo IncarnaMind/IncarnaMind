@@ -233,6 +233,56 @@ for (const language of ["en", "zh-CN"] as const) {
     },
   );
 
+  test(`a cited cue whose speaker the speaker pass named since is still found, under its new name, ${language}`, async () => {
+    const { core, citations, documents } = await selectSecond();
+    const citation = citations[0];
+    const document = documents[0];
+    if (!citation || !document?.path) throw new Error("No Citation Document");
+    const named = language === "en" ? "Priya" : "陈静";
+    const transcript = readVtt(file.contents);
+    const contents = writeVtt({
+      ...transcript,
+      cues: transcript.cues.map((cue) =>
+        cue.speaker === second ? { ...cue, speaker: named } : cue,
+      ),
+    });
+    await writeFile(document.path, contents);
+    await core.reconcileDocuments();
+    await waitForDocuments(core, (listed) =>
+      expect(listed.find((each) => each.id === document.id)?.contentHash).toBe(sha256(contents)),
+    );
+    await waitForProcessing(core, [document.id]);
+    const checked = checkedResult(
+      await core.recheckCitation({
+        ...citation,
+        documentId: document.id,
+        quote: repeated,
+        mindId: null,
+      }),
+    );
+    expect(checked).toMatchObject({
+      check: "found",
+      contentHash: sha256(contents),
+      location: { kind: "time", from: 7000, to: 10_000, speaker: named },
+      inQuotedVersion: { check: "found" },
+    });
+  });
+
+  test(`a time range takes in the cue that starts within its last second, ${language}`, async () => {
+    const { citations } = await ask(
+      citingModel({
+        query: "Review",
+        records: (passages) => [
+          { marker: 1, passage: passages[0]?.id, location: "0:04–0:11", quote: estimate },
+        ],
+        answer,
+      }),
+    );
+    expect(citations).toMatchObject([
+      { check: "found", location: { kind: "time", from: 11_750, to: 13_000, speaker: second } },
+    ]);
+  });
+
   test(`unique Transcript quotes keep their cue time and stored speaker, ${language}`, async () => {
     const { core, citations } = await ask(
       citingModel({
