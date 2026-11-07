@@ -8,9 +8,9 @@
  * writes them again). Then one input is changed in memory and the figure
  * worked out again; LibreOffice opens a copy with that input's cell changed,
  * works every formula out and saves it, and the figure there is compared. The
- * file IncarnaMind read stays byte for byte as it was. CI runs it in the job
- * that installs LibreOffice; without LibreOffice it only works the what-ifs
- * out, unless INCARNAMIND_EXCEL_REQUIRE_LIBREOFFICE=1 makes that a failure.
+ * file IncarnaMind read stays byte for byte as it was. Without LibreOffice it
+ * only works the what-ifs out, unless INCARNAMIND_EXCEL_REQUIRE_LIBREOFFICE=1
+ * makes that a failure.
  */
 import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";

@@ -182,12 +182,6 @@ Keys are read from these variables only, never from `OPENAI_API_KEY` and the lik
 | `INCARNAMIND_EVAL_DUMP_SETS` | all | `npm run eval:dump` only: some of `gating`, `formats` and `hard`, separated by commas. `INCARNAMIND_EVAL_QUESTIONS` limits its Questions too. |
 | `INCARNAMIND_EVAL_KEEP_DATA` | off | `1` keeps the temporary data folders, for looking into a run. |
 
-### In GitHub Actions
-
-The **Evaluation** workflow (`.github/workflows/eval.yml`) runs `npm run eval` on demand only (Actions → Evaluation → Run workflow). It caches the model and uploads `eval/results/` as an artifact.
-
-Retrieval needs no secrets. For the Citation part, fill in the `chat_kind` and `chat_model` inputs and add the key as the `INCARNAMIND_EVAL_CHAT_KEY` repository secret.
-
 ## What it reports
 
 Each run writes a folder `eval/results/<start time>/` (gitignored) with:
