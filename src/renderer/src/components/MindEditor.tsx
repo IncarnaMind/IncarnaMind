@@ -23,7 +23,7 @@ import { writingTime } from "../../../shared/blockTimes";
 import type { CitationForm } from "../../../shared/citationStyles";
 import type { CitationLive } from "../../../shared/citations";
 import { figureRunsFor } from "../../../shared/figureRuns";
-import { translate } from "../../../shared/i18n";
+import { type MessageKey, translate } from "../../../shared/i18n";
 import { setMindScope } from "../../../shared/mindScope";
 import { chosenScope } from "../../../shared/searchScope";
 import { askedInThisWindow } from "../askedChanges";
@@ -104,6 +104,13 @@ import {
   PageSlotsContext,
   SignOffsContext,
 } from "../editor/mindContext";
+import {
+  MyNotes,
+  MyNotesHistory,
+  type MyNotesStep,
+  myNotesEmpty,
+  showMyNotes,
+} from "../editor/myNotes";
 import { ListMenu } from "../editor/NumberingMenu";
 import { NoteKeymap } from "../editor/noteKeymap";
 import { noteExtensions } from "../editor/noteSchema";
@@ -157,6 +164,7 @@ import { useFirstOpen } from "../firstOpen";
 import { translateNow, useT } from "../i18n";
 import { useKeptScope, useMindScope } from "../keptScope";
 import { markSelectionAsMine } from "../markAsMine";
+import { fillNextIn, fillStateIn } from "../meetingFillSteps";
 import { useMeetingOf, useMeetings } from "../meetings";
 import {
   focusTaken,
@@ -178,6 +186,7 @@ import { skillDescription, skillTitle } from "../skills";
 import { useAppStore } from "../store";
 import { askForSuggestion, describeSuggestion } from "../suggestions";
 import { resumeTabCloseFocus } from "../tabFocus";
+import { useUndo } from "../undo";
 import { keptInsideName } from "../walls";
 import { forgetReadMind, publishReadMindEmpty } from "./assistant/readMind";
 import { CompareSheet } from "./CompareSheet";
@@ -235,6 +244,13 @@ function rememberMindExplained(): void {
     // Without storage the sentence shows again next time, which does no harm.
   }
 }
+
+const MY_NOTES_SAID = {
+  fillUndo: "meetings.mine.fillUndo",
+  fillRedo: "meetings.mine.fillRedo",
+  undidHidden: "meetings.mine.undidHidden",
+  redidHidden: "meetings.mine.redidHidden",
+} as const satisfies Record<MyNotesStep, MessageKey>;
 
 /** The open Mind's Blocks, edited with Tiptap and saved through the core as they change. */
 export function MindEditor({ mindId }: { mindId: string }) {
@@ -383,11 +399,25 @@ function MindEditorView({
   const meetingKind = meeting?.kind;
   const tabId = useTabPlace()?.tabId;
   const noteView = useMeetingNoteView(tabId, mindId);
-  const showingNotes = meetingKind !== "meeting" || noteView === "notes";
+  const showingNotes = meetingKind !== "meeting" || noteView !== "transcript";
+  const myNotes = meetingKind === "meeting" && noteView === "mine";
   const revealEditor = useCallback(() => {
     if (tabId) flushSync(() => showMeetingNoteView(tabId, mindId, "notes"));
   }, [tabId, mindId]);
-  const notesFocus = useMeetingViewFocus(tabId, "notes");
+  /** What Undo and Redo say in My notes, in the page's line, with the way back to Notes. */
+  const tellMyNotes = useRef<(said: MyNotesStep) => void>(() => undefined);
+  tellMyNotes.current = (said) =>
+    useUndo.getState().tell({
+      says: (say) => say(MY_NOTES_SAID[said]),
+      action: {
+        label: (say) => say("meetings.views.showNotes"),
+        testId: "my-notes-show-notes",
+        run: revealEditor,
+      },
+    });
+  const notesAsked = useMeetingViewFocus(tabId, "notes");
+  const mineAsked = useMeetingViewFocus(tabId, "mine");
+  const notesFocus = notesAsked ?? mineAsked;
   // The example Mind invites a Question of one's own at its end.
   const [explained, setExplained] = useState(mindExplained);
   const hintText = (place: HintPlace): HintText => {
@@ -497,6 +527,12 @@ function MindEditorView({
         }),
         Collaboration.configure({ document: doc, field: MIND_CONTENT_FIELD }),
         RedoKeys,
+        MyNotes,
+        MyNotesHistory.configure({
+          fillNext: fillNextIn,
+          fillState: fillStateIn,
+          tell: (said) => tellMyNotes.current(said),
+        }),
         FigureEvidence.configure({ doc }),
         // Notes added from an Answer, with their links back to it (#201).
         BlockOrigins.configure({ doc }),
@@ -943,6 +979,11 @@ function MindEditorView({
     editor,
     selector: ({ editor: current }) => isEmptyMind(current.state.doc),
   });
+  const typedNone = useEditorState({
+    editor,
+    selector: ({ editor: current }) => myNotesEmpty(current.state),
+  });
+  useEffect(() => showMyNotes(editor, myNotes), [editor, myNotes]);
   useEffect(() => {
     if (reads) publishReadMindEmpty(mindId, empty);
   }, [reads, mindId, empty]);
@@ -1057,10 +1098,17 @@ function MindEditorView({
           {wordLook && <style>{wordLook.css}</style>}
           {wordLook && <WordTableFades frame={frame} />}
           {!readOnly && <ProposalBars editor={editor} mindId={mindId} />}
+          {typedNone && (
+            <p data-testid="my-notes-empty" className="my-notes-empty">
+              {t("meetings.mine.empty")}
+            </p>
+          )}
           <OpinionMenu editor={editor} mindId={mindId} doc={doc}>
             <EditorContent editor={editor} />
           </OpinionMenu>
-          {meeting?.kind === "meeting" && <MeetingFillAt editor={editor} meeting={meeting} />}
+          {meeting?.kind === "meeting" && (
+            <MeetingFillAt editor={editor} meeting={meeting} lineShown={!myNotes} />
+          )}
           {!readOnly && <EndHint editor={editor} text={hintText} onAsk={askOnLine} />}
           <MarginChecks editor={editor} mind={{ id: mindId, doc }} />
           <CommentLayer editor={editor} mindId={mindId} doc={doc} readOnly={readOnly} />
