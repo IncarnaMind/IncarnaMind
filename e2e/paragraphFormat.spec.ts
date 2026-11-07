@@ -14,10 +14,10 @@ import {
   newMind,
   pointAndClick,
   removeDataFolder,
+  runCommand,
   setLanguage,
   setWindowSize,
   slideSelect,
-  tabMenu,
 } from "./app";
 
 /** Set INCARNAMIND_SCREENSHOTS to a folder to also save screenshots. */
@@ -409,8 +409,7 @@ for (const { language, width, lineChanged } of SETTINGS) {
     test.setTimeout(120_000);
     const { window, editor, lines } = await writtenMind(language, width);
     const openStyle = async () => {
-      const menu = await tabMenu(window);
-      await pointAndClick(window, menu.getByTestId("mind.style"));
+      await runCommand(window, "mind.style", language === "en" ? "Style" : "样式");
       const panel = window.getByTestId("mind-style");
       await expect(panel).toBeVisible();
       await motionSettled(window);

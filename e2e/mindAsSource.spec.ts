@@ -13,6 +13,7 @@ import {
   launchApp,
   motionSettled,
   newMind,
+  openMoreMenu,
   openPageMenu,
   pointAndClick,
   removeDataFolder,
@@ -151,15 +152,20 @@ for (const language of ["en", "zh-CN"] as const) {
     // The menu before it is a source: Use as a source, and no source foot.
     const beforeMenu = await openPageMenu(window);
     await expect(beforeMenu.getByTestId("mind-source-foot")).toBeHidden();
-    await expect(beforeMenu.getByTestId("mind.useAsSource")).toBeVisible();
+    const beforeMore = await openMoreMenu(window, beforeMenu);
+    await expect(beforeMore.getByTestId("mind.useAsSource")).toBeVisible();
     await capture(window, `menu-before-source-${language}-1440`);
+    await window.keyboard.press("Escape");
     await window.keyboard.press("Escape");
     await expect(beforeMenu).toBeHidden();
 
     // The recorded flow: use it as a source, cite it, and read its Citation.
     const citeFlow = async () => {
       const menu = await openPageMenu(window);
-      await pointAndClick(window, menu.getByTestId("mind.useAsSource"));
+      await pointAndClick(
+        window,
+        (await openMoreMenu(window, menu)).getByTestId("mind.useAsSource"),
+      );
       await expect
         .poll(async () => (await snapshotOf(window, "Field visit"))?.status, { timeout: 60_000 })
         .toBe("ready");
@@ -179,9 +185,11 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(foot.getByTestId("mind-source-foot")).toHaveText(footText);
       // Only the items act: the foot's words are a paragraph, not a button.
       await expect(foot.getByTestId("mind-source-foot")).toHaveJSProperty("tagName", "P");
-      await expect(foot.getByTestId("mind.updateSourceSnapshot")).toHaveText(words.update);
-      await expect(foot.getByTestId("mind.removeAsSource")).toHaveText(words.remove);
+      const footMore = await openMoreMenu(window, foot);
+      await expect(footMore.getByTestId("mind.updateSourceSnapshot")).toHaveText(words.update);
+      await expect(footMore.getByTestId("mind.removeAsSource")).toHaveText(words.remove);
       await capture(window, `menu-source-${language}-1440`);
+      await window.keyboard.press("Escape");
       await window.keyboard.press("Escape");
       await capture(window, `after-source-${language}-1440`);
 
@@ -237,7 +245,10 @@ for (const language of ["en", "zh-CN"] as const) {
       .poll(() => snapshotText(window, source.id), { timeout: 60_000 })
       .not.toContain("Edited");
     const updateMenu = await openPageMenu(window);
-    await pointAndClick(window, updateMenu.getByTestId("mind.updateSourceSnapshot"));
+    await pointAndClick(
+      window,
+      (await openMoreMenu(window, updateMenu)).getByTestId("mind.updateSourceSnapshot"),
+    );
     await expect
       .poll(() => snapshotText(window, source.id), { timeout: 60_000 })
       .toContain("Edited");
@@ -269,7 +280,10 @@ for (const language of ["en", "zh-CN"] as const) {
     // The same Mind never supports itself: its sentence checked against its own snapshot.
     await mindWith(window, "Own record", OTHER);
     const ownMenu = await openPageMenu(window);
-    await pointAndClick(window, ownMenu.getByTestId("mind.useAsSource"));
+    await pointAndClick(
+      window,
+      (await openMoreMenu(window, ownMenu)).getByTestId("mind.useAsSource"),
+    );
     await expect
       .poll(async () => (await snapshotOf(window, "Own record"))?.status, { timeout: 60_000 })
       .toBe("ready");
@@ -292,10 +306,16 @@ for (const language of ["en", "zh-CN"] as const) {
     // Remove as a source: the snapshot waits in Recently deleted, and its Citation says so.
     await showMind(window, "Field visit");
     const removeMenu = await openPageMenu(window);
-    await pointAndClick(window, removeMenu.getByTestId("mind.removeAsSource"));
+    await pointAndClick(
+      window,
+      (await openMoreMenu(window, removeMenu)).getByTestId("mind.removeAsSource"),
+    );
     const afterRemove = await openPageMenu(window);
     await expect(afterRemove.getByTestId("mind-source-foot")).toBeHidden();
-    await expect(afterRemove.getByTestId("mind.useAsSource")).toBeVisible();
+    await expect(
+      (await openMoreMenu(window, afterRemove)).getByTestId("mind.useAsSource"),
+    ).toBeVisible();
+    await window.keyboard.press("Escape");
     await window.keyboard.press("Escape");
     await showMind(window, "Draft");
     await pointAndClick(window, window.getByTestId("citation").first());
@@ -315,7 +335,10 @@ for (const language of ["en", "zh-CN"] as const) {
     // Redo of Use as a source brings the same Document back, so its Citations read as they did.
     await mindWith(window, "Loop", OTHER);
     const loopMenu = await openPageMenu(window);
-    await pointAndClick(window, loopMenu.getByTestId("mind.useAsSource"));
+    await pointAndClick(
+      window,
+      (await openMoreMenu(window, loopMenu)).getByTestId("mind.useAsSource"),
+    );
     await expect
       .poll(async () => (await snapshotOf(window, "Loop"))?.status, { timeout: 60_000 })
       .toBe("ready");

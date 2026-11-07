@@ -34,7 +34,8 @@ export interface TestHooks {
    */
   registry(): {
     groups: readonly string[];
-    menus: Record<string, { id: string; section: number }[]>;
+    /** `more` marks a command the menu holds under More ›, not as a row of its own. */
+    menus: Record<string, { id: string; section: number; more?: true }[]>;
     commands: Record<
       string,
       { group: string; reversible: boolean; destructive: boolean; renames: boolean }

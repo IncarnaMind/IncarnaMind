@@ -21,9 +21,9 @@ import {
   launchApp,
   nameMind,
   newMind,
+  openExportMore,
   openExportOptions,
   pointAndClick,
-  pointAt,
   removeDataFolder,
   savedLine,
   setGroupBeside,
@@ -475,12 +475,9 @@ for (const language of ["en", "zh-CN"] as const) {
       }
 
       // The check record keeps the names for the User's own audit.
-      const mind = window.getByTestId("mind-row").filter({ hasText: "Harbour" });
-      await pointAt(window, mind);
-      await pointAndClick(window, mind.getByTestId("mind-menu"));
-      const menu = mind.getByTestId("mind-actions");
-      await expect(menu.getByTestId("mind.checkRecord")).toBeVisible();
-      await pointAndClick(window, menu.getByTestId("mind.checkRecord"));
+      const more = await openExportMore(window);
+      await expect(more.getByTestId("export-check-record")).toBeVisible();
+      await pointAndClick(window, more.getByTestId("export-check-record"));
       await expect(done).toContainText("Harbour", { timeout: 30_000 });
       await expect(done).toContainText(language === "en" ? "and its CSV" : "和 CSV 文件");
       const csvName = (await readdir(out)).find((name) => name.endsWith(".csv"));

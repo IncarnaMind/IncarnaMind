@@ -20,6 +20,7 @@ import {
   pointAndClick,
   removeDataFolder,
   renameInTab,
+  runCommand,
   setLanguage,
   setMotionSpeed,
   setWindowSize,
@@ -143,8 +144,7 @@ test("a line already showing follows a switch of language, in its words and its 
       async (core, mindId) => (await core.getMindStyle(mindId)).font,
       started,
     );
-  const menu = await tabMenu(window);
-  await pointAndClick(window, menu.getByTestId("mind.style"));
+  await runCommand(window, "mind.style", "Style");
   await pointAndClick(window, window.getByTestId("mind-style-font-serif"));
   await expect(undoMessage(window)).toHaveText("Font changed to Serif");
   await expect.poll(font).toBe("serif");

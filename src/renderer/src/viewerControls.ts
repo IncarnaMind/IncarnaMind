@@ -43,7 +43,16 @@ export function installTestHooks(): void {
     failPanel: (name) => usePanelFault.setState({ failing: name }),
     registry: () => ({
       groups: COMMAND_GROUPS,
-      menus: Object.fromEntries(menuKinds().map((kind) => [kind, [...menuEntries(kind)]])),
+      menus: Object.fromEntries(
+        menuKinds().map((kind) => [
+          kind,
+          menuEntries(kind).map(({ id, section, more }) => ({
+            id,
+            section,
+            ...(more && { more: true as const }),
+          })),
+        ]),
+      ),
       commands: Object.fromEntries(
         commands.all().map((command) => [
           command.id,

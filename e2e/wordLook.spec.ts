@@ -508,7 +508,7 @@ test("a Mind written in the app, beside a Word Mind, keeps the app's look and ha
   const nativeTab = second.getByRole("tab", { selected: true });
   await pointAndClick(window, nativeTab, { button: "right" });
   const nativeMenu = nativeTab.getByTestId("tab-actions");
-  await expect(nativeMenu.getByTestId("mind.outline")).toBeVisible();
+  await expect(nativeMenu.getByTestId("mind.duplicate")).toBeVisible();
   await expect(nativeMenu.locator('[data-testid^="mind.look"]')).toHaveCount(0);
   await window.keyboard.press("Escape");
   await expect(nativeMenu).toBeHidden();

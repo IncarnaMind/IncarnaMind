@@ -28,6 +28,7 @@ import {
   nameMind,
   newMind,
   openDocumentAt,
+  openMoreMenu,
   pointAndClick,
   pointAt,
   removeDataFolder,
@@ -288,6 +289,8 @@ async function menuByButton(window: Page, place: Place): Promise<string[]> {
 
 async function closeMenu(window: Page, place: Place): Promise<void> {
   await window.keyboard.press("Escape");
+  // With More › open, Esc closes only that.
+  if (await place.menu.isVisible()) await window.keyboard.press("Escape");
   await expect(place.menu).toBeHidden();
 }
 
@@ -298,14 +301,20 @@ async function closeMenu(window: Page, place: Place): Promise<void> {
 function menuOf(shown: readonly string[], registry: Registry, kind: ObjectKind): string[] {
   const registered = registry.menus[kind] ?? [];
   const groupOf = (id: string) => registry.groups.indexOf(registry.commands[id]?.group ?? "");
+  // The More › row is the last of the main group, in the section of what it holds.
+  const moreAt = registered.find((each) => each.more)?.section ?? 0;
   const placed = shown
     .filter((id) => id !== "—")
-    .map((id) => ({
-      id,
-      section: registered.find((each) => each.id === id)?.section ?? -1,
-      group: groupOf(id),
-      at: registered.findIndex((each) => each.id === id),
-    }))
+    .map((id) =>
+      id.endsWith("-more")
+        ? { id, section: moreAt, group: registry.groups.indexOf("main"), at: registered.length }
+        : {
+            id,
+            section: registered.find((each) => each.id === id)?.section ?? -1,
+            group: groupOf(id),
+            at: registered.findIndex((each) => each.id === id),
+          },
+    )
     .sort((a, b) => a.section - b.section || a.group - b.group || a.at - b.at);
   return placed.flatMap((each, index) => {
     const before = placed[index - 1];
@@ -402,8 +411,13 @@ async function checkCommand(
     await pointAndClick(window, item);
   } else {
     const shown = await menuByRightClick(window, place);
-    const item = place.menu.getByTestId(commandId);
-    if (!shown.includes(commandId) || (await item.getAttribute("aria-disabled")) === "true") {
+    // A command the menu holds under More › is found there.
+    const folded = registry.menus[kind]?.some((each) => each.id === commandId && each.more);
+    const hasMore = shown.some((id) => id.endsWith("-more"));
+    const holder = folded && hasMore ? await openMoreMenu(window, place.menu) : place.menu;
+    const item = holder.getByTestId(commandId);
+    const offered = folded ? (await item.count()) > 0 : shown.includes(commandId);
+    if (!offered || (await item.getAttribute("aria-disabled")) === "true") {
       await closeMenu(window, place);
       return "not offered";
     }
