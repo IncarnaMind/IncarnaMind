@@ -982,8 +982,10 @@ interface Written {
 interface WriteChecking {
   session: WrittenCheckSession;
   change: () => MindChange;
-  /** How many of its sentences are being checked, as its card says. */
+  /** How many of its sentences are being checked, as its card says once the call has all its input. */
   count: number;
+  /** The call has all its input: until then its card says it is writing. */
+  shown: boolean;
 }
 
 const withChecking = (change: MindChange, checking: WriteChecking | null | undefined) =>
@@ -1681,11 +1683,16 @@ export function mindTools(options: MindToolsOptions): {
     if (writer.written === 0) return;
     // Each paragraph in is checked as it lands, while the rest is still being written (#1635).
     const { created } = stream;
-    stream.checking ??= startChecking(toolCallId, writer.mind.id, options.signal, () =>
-      changeOf(writer, created),
+    stream.checking ??= startChecking(
+      toolCallId,
+      writer.mind.id,
+      options.signal,
+      () => changeOf(writer, created),
+      false,
+      false,
     );
     stream.checking.session.add(written, writer.ids);
-    options.changed(toolCallId, withChecking(changeOf(writer, created), stream.checking));
+    options.changed(toolCallId, changeOf(writer, created));
   };
 
   type Content = ReturnType<MindToolsOptions["blocksOf"]>;
@@ -1863,7 +1870,10 @@ export function mindTools(options: MindToolsOptions): {
       ...someTableNotes(notes),
       ...(drawn?.problem && { chartNotDrawn: drawn.problem }),
     };
-    if (checking) checking.change = () => change;
+    if (checking) {
+      checking.change = () => change;
+      checking.shown = true;
+    }
     options.changed(toolCallId, withChecking(change, checking));
     if (unrecorded > 0 && markdown !== null) {
       unsettled.set(toolCallId, {
@@ -2004,8 +2014,9 @@ export function mindTools(options: MindToolsOptions): {
       }
     });
 
-  // Not while markers `cite` hadn't recorded are still to get their Citations: `settle` writes the
-  // Blocks again, which takes off any mark that landed as they streamed in, and checks them then.
+  // Not while markers `cite` hadn't recorded are still to get their Citations: `settle` checks the
+  // Blocks once it has written them again (#2689); a mark that landed as they streamed in is taken
+  // off by that write, or, where the text no longer reads as its Blocks, is checked over.
   const checkWritten = (
     toolCallId: string,
     written: Written & { change: MindChange },
@@ -2073,8 +2084,9 @@ export function mindTools(options: MindToolsOptions): {
     signal: AbortSignal,
     change: () => MindChange,
     answerFailed = false,
+    shown = true,
   ): WriteChecking => {
-    const checking = { change, count: 0 };
+    const checking = { change, count: 0, shown };
     const session = minds.startWrittenCheck({
       mindId,
       prepared: options.prepared,
@@ -2082,7 +2094,7 @@ export function mindTools(options: MindToolsOptions): {
       signal,
       checking: (count) => {
         checking.count = count;
-        options.changed(toolCallId, { ...checking.change(), checking: count });
+        if (checking.shown) options.changed(toolCallId, { ...checking.change(), checking: count });
       },
       edit: (edit) => minds.edit(mindId, edit),
     });

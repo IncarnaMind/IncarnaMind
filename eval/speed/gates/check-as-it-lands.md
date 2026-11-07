@@ -43,3 +43,7 @@ The independent pre-review found the first version could check more of a write's
 - **Reported, not a bar:** written-check requests per write, each arm.
 
 The other bars are unchanged.
+
+## Amended a third time 2026-11-07, before any counted run
+
+A second review found the digit rule missed figures written without digits (Chinese numerals such as 百分之二十五, ², ½). DeepSeek's English cell had run on the version before; it is not counted, and every cell runs fresh. The step now holds back, until the whole write is in, any sentence whose read finds a figure, or that has a digit; a held sentence lands in its place in the write's order, as on `main`. While the call's input is still coming in, its row says it is writing, as on `main`; the count of sentences being checked shows once the input is whole. Bar 5 reads: a sentence with no figure and no digit sends what it sends on `main`, whenever it starts. The other bars are unchanged.

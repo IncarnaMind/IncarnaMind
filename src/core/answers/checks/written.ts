@@ -130,12 +130,9 @@ export interface WrittenCheckOptions {
   now(): Date;
 }
 
-export interface CheckWrittenInput {
+/** What a write's check is given as it begins; its Blocks come as they are written (`add`). */
+export interface WrittenCheckStart {
   mindId: string;
-  /** The Blocks as the assistant wrote them. */
-  blocks: readonly NodeJSON[];
-  /** The ids of the top-level Blocks they were written as, in their order. */
-  ids: readonly string[];
   prepared: PreparedChatModel;
   signal: AbortSignal;
   /**
@@ -148,9 +145,6 @@ export interface CheckWrittenInput {
   /** Changes the Mind's content, in one transaction. */
   edit(change: (blocks: Y.XmlFragment) => void): void;
 }
-
-/** A write's check begun before its Blocks are all in: what `startWrittenCheck` is given. */
-export type WrittenCheckStart = Omit<CheckWrittenInput, "blocks" | "ids">;
 
 /** A write's check as its Blocks come in (see `startWrittenCheck`). */
 export interface WrittenCheckSession {
@@ -520,8 +514,9 @@ function cutNodes(
 
 /** A write's check once it has begun (see `checkingOf`). */
 interface Checking {
-  send(batch: readonly Sentence[]): void;
-  /** Resolves once every check sent so far has ended. */
+  /** Checks these sentences, each with its place among the write's; `whole`: the write is all in. Gives back those that wait. */
+  send(batch: readonly { sentence: Sentence; rank: number }[], whole: boolean): Sentence[];
+  /** Takes no more sentences, and resolves once every check sent has ended. */
   idle(): Promise<unknown>;
   finish(checkable: readonly Sentence[]): Promise<WrittenCheck | null>;
 }
@@ -815,13 +810,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     };
   }
 
-  // Null when there was nothing to check, or it couldn't be checked here.
-  const checkWritten = (input: CheckWrittenInput): Promise<WrittenCheck | null> => {
-    const session = startWrittenCheck(input);
-    session.add(input.blocks, input.ids);
-    return session.done();
-  };
-  return Object.assign(checkWritten, { start: startWrittenCheck });
+  return startWrittenCheck;
 
   /**
    * A write's check as its Blocks come in (#1635): `add` starts checking the cited sentences of the
@@ -841,26 +830,29 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     let sent = Promise.resolve();
     let failure: { error: unknown } | null = null;
     const started = new Set<string>();
+    const keyOf = (sentence: Sentence) => `${sentence.path.join(".")}:${sentence.from}`;
     // The first `SENTENCES_CHECKED_AT_MOST` cited sentences in the write's order, read with the
     // Blocks before them for what comes just before each; the claims with no Citation are left to
-    // the one count and Check the rest (#1909). One with a digit waits for the whole write: a
-    // figure is read with the Note's own language and number separators, which its later
-    // paragraphs can change.
+    // the one count and Check the rest (#1909). Before the write is whole, one that holds a figure
+    // waits (`Checking.send`).
     const send = (whole: boolean) => {
       const batch = checkableSentences(blocks)
         .filter((sentence) => sentence.cited.length > 0)
         .slice(0, SENTENCES_CHECKED_AT_MOST)
-        .filter((sentence) => {
-          const key = `${sentence.path.join(".")}:${sentence.from}`;
-          if (started.has(key) || (!whole && /\p{Nd}/u.test(sentence.rawText))) return false;
+        .flatMap((sentence, rank) => {
+          const key = keyOf(sentence);
+          if (started.has(key)) return [];
           started.add(key);
-          return true;
+          return [{ sentence, rank }];
         });
       if (batch.length === 0 || signal.aborted) return;
       checking ??= inStep("written-check", () => checkingOf({ ...input, signal }, blocks, ids));
       const begun = checking;
       sent = sent
-        .then(async () => (await begun)?.send(batch))
+        .then(async () => {
+          const waiting = (await begun)?.send(batch, whole) ?? [];
+          for (const sentence of waiting) started.delete(keyOf(sentence));
+        })
         .catch((error: unknown) => {
           console.error(
             `What the assistant wrote in Mind ${input.mindId} couldn't be checked as it landed:`,
@@ -884,6 +876,8 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         if (blocks.length > from) send(false);
       },
       async done() {
+        // What waited for the whole write is sent once the sends before have settled.
+        await sent;
         send(true);
         await sent;
         const run = checking && (await checking);
@@ -920,6 +914,8 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     // Nothing is sent waiting for the User's OK, or once the Answer failed: its sentences land not checked.
     const holding = waiting || input.answerFailed === true;
     const sending: Sentence[] = [];
+    /** Each sentence's place among the write's cited sentences: what waits lands in that order. */
+    const ranks = new Map<Sentence, number>();
     const reads = new Map<
       Sentence,
       ReturnType<typeof readAsChecked> & { place?: RecordCitePlace }
@@ -987,7 +983,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     const landNow = (landing: Landing) => {
       const { sentence } = landing;
       if (sentence.inCell || ("nodes" in landing && landing.nodes !== null))
-        held.push({ index: sending.indexOf(sentence), landing });
+        held.push({ index: ranks.get(sentence) ?? sending.indexOf(sentence), landing });
       else landAll([landing]);
     };
     const cuts: { index: number; uncovered: string }[] = [];
@@ -1091,7 +1087,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         return;
       }
       if (nodes && uncovered) {
-        cuts.push({ index: sending.indexOf(sentence), uncovered });
+        cuts.push({ index: ranks.get(sentence) ?? sending.indexOf(sentence), uncovered });
         landNow({ sentence, nodes, mark });
         return;
       }
@@ -1149,7 +1145,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     const run = startItems(each, {
       concurrency: claimsAtOnce(prepared),
       signal,
-      // runItems hears an outcome inside its own try: a throw here would be filed as the
+      // The run hears an outcome inside its own try: a throw here would be filed as the
       // sentence's failure and heard again. The check fails once the rest have landed, so it
       // never counts a sentence whose mark isn't on the page.
       onOutcome(sentence, outcome) {
@@ -1169,23 +1165,35 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     };
     return {
       idle: () => close(),
-      send(batch) {
-        if (signal.aborted) return;
-        sending.push(...batch);
+      send(batch, whole) {
+        if (signal.aborted) return [];
+        // Before the write is whole, a sentence with a figure, or a digit, waits: a figure is read
+        // with the Note's own language and number separators, which its later paragraphs can change.
+        const now: Sentence[] = [];
+        const later: Sentence[] = [];
         options.read(mindId, (note) => {
           const figures = figuresByBlock(note);
-          for (const sentence of batch) {
+          for (const { sentence, rank } of batch) {
             const place = notePlace(note, ids, sentence);
             const read = readAsChecked(note, ids, sentence, figures);
+            if (!whole && ((read.figures?.length ?? 0) > 0 || /\p{Nd}/u.test(sentence.rawText))) {
+              later.push(sentence);
+              continue;
+            }
             reads.set(sentence, place ? { ...read, place } : read);
+            ranks.set(sentence, rank);
+            now.push(sentence);
           }
         });
-        if (holding) return;
+        if (now.length === 0) return later;
+        sending.push(...now);
+        if (holding) return later;
         input.checking(sending.length);
         inStep("written-check", () => {
-          run.push(batch);
+          run.push(now);
           return Promise.resolve();
         });
+        return later;
       },
       async finish(checkable) {
         const { stop } = await close();

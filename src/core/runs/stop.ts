@@ -213,12 +213,16 @@ export function startItems<I, T>(
       pool.push(
         worker().finally(() => {
           live--;
+          // An item pushed while this worker was leaving found no room: it takes this one.
+          grow();
         }),
       );
     }
   }
+  let closed = false;
   return {
     push(more) {
+      if (closed) throw new Error("Items were pushed into a run already closed.");
       for (const item of more) {
         queue.push(items.length);
         items.push(item);
@@ -228,6 +232,7 @@ export function startItems<I, T>(
       grow();
     },
     async close() {
+      closed = true;
       for (let index = 0; index < pool.length; index++) await pool[index];
       for (const index of queue) {
         settle(index, stop ? { status: "not-checked", stop } : { status: "stopped" });

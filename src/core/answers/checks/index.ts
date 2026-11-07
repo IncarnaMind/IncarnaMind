@@ -1598,7 +1598,7 @@ export function createChecks(options: ChecksOptions) {
     versionNow: (documentId) => options.documents.live([documentId])[0]?.contentHash ?? null,
   });
 
-  const checkWritten = createWrittenCheck({
+  const startWrittenCheck = createWrittenCheck({
     ...options,
     prepare: (answer) =>
       prepareQuietly({ providerId: answer.provider.id, modelId: answer.modelId }, WRITTEN_SENDS),
@@ -1685,10 +1685,8 @@ export function createChecks(options: ChecksOptions) {
   return {
     ...verify,
 
-    /** What the assistant wrote in a Mind, checked before it lands (./written). */
-    checkWritten,
-    /** The same check, begun as a write's first Blocks land and given the rest as they come (#1635). */
-    startWrittenCheck: checkWritten.start,
+    /** What the assistant writes in a Mind, checked as its Blocks land (./written, #1635). */
+    startWrittenCheck,
 
     /** An Answer's sentences with Citations, checked before it ends (./answerCheck). */
     checkAnswer: answerCheck.check,
