@@ -81,7 +81,7 @@ test("the page starts with its text; the ⋯ at its top right opens by click and
   await window.keyboard.type("The last line.");
   expect((await button.boundingBox())?.y).toBeCloseTo(at.y, 0);
 
-  // Its menu is the sidebar row's, in the same order, with Style as a submenu before Delete, then the counts.
+  // Its menu is the sidebar row's, in the same order, with Style as a submenu and Citation style before Delete, then the counts.
   const menu = await openPageMenu(window);
   const pageItems = await menuItemIds(menu);
   await window.keyboard.press("Escape");
@@ -92,9 +92,17 @@ test("the page starts with its text; the ⋯ at its top right opens by click and
   const rowItems = await menuItemIds(row.getByTestId("mind-actions"));
   await window.keyboard.press("Escape");
   expect(pageItems.length).toBeGreaterThan(5);
-  // Minus what only the row offers (opening a Mind that is open), with Style before Delete, which is last.
-  const shared = rowItems.filter((id) => !["mind.style", "mind.open", "mind.openTab"].includes(id));
-  expect(pageItems).toEqual([...shared.slice(0, -1), "page-style", "mind.delete"]);
+  // Minus what only the row offers (opening a Mind that is open), with Style and Citation style
+  // before Delete, which is last. The More row is the page's own.
+  const shared = rowItems
+    .filter((id) => !["mind.open", "mind.openTab"].includes(id))
+    .map((id) => (id === "mind-more" ? "page-more" : id));
+  expect(pageItems).toEqual([
+    ...shared.slice(0, -1),
+    "page-style",
+    "mind.citationStyle",
+    "mind.delete",
+  ]);
 
   // Its Rename names the Mind in its tab, and its text stays as it is.
   await pointAndClick(window, (await openPageMenu(window)).getByTestId("mind.rename"));
