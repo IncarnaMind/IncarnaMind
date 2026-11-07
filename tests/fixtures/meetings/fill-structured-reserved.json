@@ -1269,5 +1269,760 @@
         "said": [8]
       }
     ]
+  },
+  {
+    "id": "reserved-en-structured-g",
+    "language": "en",
+    "requireSections": true,
+    "openQuestions": true,
+    "sectionHeadings": {
+      "questions": "Questions left hanging"
+    },
+    "notes": [
+      {
+        "type": "heading",
+        "attrs": { "level": 2 },
+        "content": [{ "type": "text", "text": "Polytunnel for the north beds" }]
+      },
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "price + delivery" }]
+      },
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "beds cleared?" }]
+      },
+      {
+        "type": "heading",
+        "attrs": { "level": 2 },
+        "content": [{ "type": "text", "text": "Questions left hanging" }]
+      }
+    ],
+    "turns": [
+      {
+        "side": "me",
+        "text": "Hi, this is Callum from the Brookside allotment society. We need to choose the polytunnel for the north beds today."
+      },
+      {
+        "side": "them",
+        "text": "This is Freya from Greenspan Tunnels. You also asked about our glass greenhouse; that one is 4,900 euros."
+      },
+      {
+        "side": "me",
+        "text": "4,900 euros is far beyond our grant, so the glass greenhouse is out."
+      },
+      {
+        "side": "them",
+        "text": "Understood. Then it's the 6-metre polytunnel at 2,380 euros, delivered on April 22, 2027."
+      },
+      {
+        "side": "me",
+        "text": "Agreed, that's our final choice: the 6-metre polytunnel for 2,380 euros, delivered April 22, 2027."
+      },
+      {
+        "side": "them",
+        "text": "Great. I'll email you the assembly instructions by April 6."
+      },
+      {
+        "side": "me",
+        "text": "I'll send you the site plan with the gate measurements by March 24."
+      },
+      {
+        "side": "them",
+        "text": "Will the ground be ready for the delivery?"
+      },
+      {
+        "side": "me",
+        "text": "Hamish from our committee has agreed to clear the north beds by April 15. That job is his."
+      },
+      {
+        "side": "them",
+        "text": "Good. One thing I can't answer is whether a tunnel this size needs planning permission where you are."
+      },
+      {
+        "side": "me",
+        "text": "None of us knows either, so the planning permission question stays open."
+      }
+    ],
+    "facts": [
+      {
+        "name": "The 6-metre polytunnel for 2,380 euros, delivered April 22, 2027",
+        "kind": "decision",
+        "pattern": [
+          "\\b(?:poly)?tunnel\\b",
+          "(?:€\\s*2,?380(?:\\.00)?(?!\\d|[.,]\\d)|(?<![\\d.,])2,?380(?:\\.00)?\\s*(?:euros?|EUR)\\b|\\bEUR\\s*2,?380(?:\\.00)?(?!\\d|[.,]\\d))",
+          "(?:\\bApr(?:il)?\\.?\\s+22(?:st|nd|rd|th)?\\b|\\b22(?:st|nd|rd|th)?\\s+(?:of\\s+)?Apr(?:il)?\\b|\\b2027-04-22\\b)"
+        ],
+        "subject": "\\b(?:poly)?tunnel\\b",
+        "said": [3, 4],
+        "underLine": "price + delivery"
+      },
+      {
+        "name": "Callum sends the site plan",
+        "kind": "action",
+        "pattern": [
+          "site\\s+plan",
+          "(?<!(?:\\bme\\b)[\\s\\S]*)\\bCallum\\b(?![\\s\\S]*(?:\\bme\\b))",
+          "(?:\\bMar(?:ch)?\\.?\\s+24(?:st|nd|rd|th)?\\b|\\b24(?:st|nd|rd|th)?\\s+(?:of\\s+)?Mar(?:ch)?\\b|\\b2027-03-24\\b)"
+        ],
+        "subject": "site\\s+plan",
+        "said": [6]
+      },
+      {
+        "name": "Freya emails the assembly instructions",
+        "kind": "action",
+        "pattern": [
+          "assembly|instructions",
+          "\\bFreya\\b",
+          "(?:\\bApr(?:il)?\\.?\\s+6(?:st|nd|rd|th)?\\b|\\b6(?:st|nd|rd|th)?\\s+(?:of\\s+)?Apr(?:il)?\\b|\\b2027-04-06\\b)"
+        ],
+        "subject": "assembly|instructions",
+        "said": [5]
+      },
+      {
+        "name": "Hamish clears the north beds",
+        "kind": "action",
+        "pattern": [
+          "\\bbeds?\\b",
+          "\\bclear",
+          "\\bHamish\\b",
+          "(?:\\bApr(?:il)?\\.?\\s+15(?:st|nd|rd|th)?\\b|\\b15(?:st|nd|rd|th)?\\s+(?:of\\s+)?Apr(?:il)?\\b|\\b2027-04-15\\b)"
+        ],
+        "subject": "\\bbeds?\\b",
+        "said": [8],
+        "underLine": "beds cleared?"
+      }
+    ]
+  },
+  {
+    "id": "reserved-en-structured-h",
+    "language": "en",
+    "requireSections": true,
+    "openQuestions": true,
+    "sectionHeadings": {
+      "summary": "Gist of the call",
+      "actions": "Who does what, by when"
+    },
+    "notes": [
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "coach vs train" }]
+      },
+      {
+        "type": "heading",
+        "attrs": { "level": 2 },
+        "content": [{ "type": "text", "text": "Gist of the call" }]
+      },
+      {
+        "type": "heading",
+        "attrs": { "level": 2 },
+        "content": [{ "type": "text", "text": "Who does what, by when" }]
+      },
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "pick-up list" }]
+      }
+    ],
+    "turns": [
+      {
+        "side": "me",
+        "text": "Thanks for calling back. We need to get the robotics team to the regional final in Ashby, and I'd like the transport settled today."
+      },
+      {
+        "side": "them",
+        "text": "This is Desmond from Larkfield Coaches. I've priced the trip, and I know you also looked at the train."
+      },
+      {
+        "side": "me",
+        "text": "The train came to 1,690 dollars with two changes, so we're not taking the train. That option is out."
+      },
+      {
+        "side": "them",
+        "text": "Then a 52-seat coach from us is 1,240 dollars for the day, leaving at seven on May 8, 2027."
+      },
+      {
+        "side": "me",
+        "text": "Agreed, that's final: the 52-seat Larkfield coach for 1,240 dollars on May 8, 2027."
+      },
+      {
+        "side": "them",
+        "text": "Good. I'll send the booking confirmation by April 12. Someone else on our end will cover the driver details."
+      },
+      {
+        "side": "me",
+        "text": "Fine. I'll send you the pick-up list with the student count by April 20."
+      },
+      {
+        "side": "them",
+        "text": "Hi, that's me for the driver details. I'll email you the driver's mobile number by May 7."
+      },
+      {
+        "side": "me",
+        "text": "Ottilie, our science teacher, will collect the parents' consent forms by April 30. That one is hers."
+      },
+      {
+        "side": "them",
+        "text": "Noted. What none of us here knows is whether the venue in Ashby has room for the coach to park all day."
+      },
+      {
+        "side": "me",
+        "text": "We don't know either, so the parking question stays open."
+      }
+    ],
+    "facts": [
+      {
+        "name": "The 52-seat Larkfield coach for 1,240 dollars on May 8, 2027",
+        "kind": "decision",
+        "pattern": [
+          "\\bcoach\\b",
+          "(?<![\\d.,])52(?!\\d)|fifty-two",
+          "(?:(?:\\$|US\\$|USD\\s*)1,?240(?:\\.00)?(?!\\d|[.,]\\d)|(?<![\\d.,])1,?240(?:\\.00)?\\s*(?:dollars|USD)\\b)",
+          "(?:\\bMay\\.?\\s+8(?:st|nd|rd|th)?\\b|\\b8(?:st|nd|rd|th)?\\s+(?:of\\s+)?May\\b|\\b2027-05-08\\b)"
+        ],
+        "subject": "\\bcoach\\b|transport",
+        "said": [3, 4],
+        "underLine": "coach vs train"
+      },
+      {
+        "name": "The User sends the pick-up list, in the first person",
+        "kind": "action",
+        "pattern": [
+          "pick-?\\s?up\\s+list|student\\s+count",
+          "(?<!(?:\\bme\\b)[\\s\\S]*)\\bI\\b(?![./-])(?![\\s\\S]*(?:\\bme\\b))",
+          "(?:\\bApr(?:il)?\\.?\\s+20(?:st|nd|rd|th)?\\b|\\b20(?:st|nd|rd|th)?\\s+(?:of\\s+)?Apr(?:il)?\\b|\\b2027-04-20\\b)"
+        ],
+        "subject": "pick-?\\s?up\\s+list|student\\s+count",
+        "said": [6],
+        "underLine": "pick-up list"
+      },
+      {
+        "name": "Desmond sends the booking confirmation",
+        "kind": "action",
+        "pattern": [
+          "confirmation",
+          "\\bDesmond\\b",
+          "(?:\\bApr(?:il)?\\.?\\s+12(?:st|nd|rd|th)?\\b|\\b12(?:st|nd|rd|th)?\\s+(?:of\\s+)?Apr(?:il)?\\b|\\b2027-04-12\\b)"
+        ],
+        "subject": "confirmation",
+        "said": [5]
+      },
+      {
+        "name": "The other side's unnamed colleague emails the driver's number",
+        "kind": "action",
+        "pattern": [
+          "driver",
+          "(?<!(?:\\bthem\\b|\\bDesmond\\b(?!['’]s))[\\s\\S]*)\\bother side\\b(?![\\s\\S]*(?:\\bthem\\b|\\bDesmond\\b(?!['’]s)))",
+          "(?:\\bMay\\.?\\s+7(?:st|nd|rd|th)?\\b|\\b7(?:st|nd|rd|th)?\\s+(?:of\\s+)?May\\b|\\b2027-05-07\\b)"
+        ],
+        "subject": "driver",
+        "said": [7]
+      },
+      {
+        "name": "Ottilie collects the consent forms",
+        "kind": "action",
+        "pattern": [
+          "consent",
+          "\\bOttilie\\b",
+          "(?:\\bApr(?:il)?\\.?\\s+30(?:st|nd|rd|th)?\\b|\\b30(?:st|nd|rd|th)?\\s+(?:of\\s+)?Apr(?:il)?\\b|\\b2027-04-30\\b)"
+        ],
+        "subject": "consent",
+        "said": [8]
+      }
+    ]
+  },
+  {
+    "id": "reserved-en-structured-i",
+    "language": "en",
+    "requireSections": true,
+    "openQuestions": true,
+    "sectionHeadings": {
+      "decisions": "Agreed outcome"
+    },
+    "notes": [
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "loaner unit?" }]
+      },
+      {
+        "type": "heading",
+        "attrs": { "level": 2 },
+        "content": [{ "type": "text", "text": "Agreed outcome" }]
+      },
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "contract terms" }]
+      }
+    ],
+    "turns": [
+      {
+        "side": "me",
+        "text": "Hello, this is Rosalind, practice manager at Brackenford Vets. I'd like to settle the X-ray service contract today."
+      },
+      {
+        "side": "them",
+        "text": "This is Anton from Clearview Imaging. Our standard three-year contract is 7,200 dollars a year."
+      },
+      {
+        "side": "me",
+        "text": "What would weekend call-outs add to that?"
+      },
+      {
+        "side": "them",
+        "text": "If you added weekend call-outs, it would be 9,800 dollars a year. That's only if you want them."
+      },
+      {
+        "side": "me",
+        "text": "We don't, so weekends stay out. Final decision: the three-year contract at 7,200 dollars a year, starting June 1, 2027."
+      },
+      {
+        "side": "them",
+        "text": "Confirmed: the three-year contract, 7,200 dollars a year, from June 1, 2027, with no weekend cover."
+      },
+      {
+        "side": "me",
+        "text": "I'll return the signed contract to you by May 14."
+      },
+      {
+        "side": "them",
+        "text": "And I'll book a loaner X-ray unit for the changeover by May 20."
+      },
+      {
+        "side": "me",
+        "text": "Bettina, our head nurse, will draw up the staff training rota by May 27. Put that down for her."
+      },
+      {
+        "side": "them",
+        "text": "Will do. I can't tell you yet whether our depot can recycle your old X-ray tube; they haven't said."
+      },
+      {
+        "side": "me",
+        "text": "Then the recycling question stays open. Nobody here can answer it."
+      }
+    ],
+    "facts": [
+      {
+        "name": "Three-year contract at 7,200 dollars a year from June 1, 2027",
+        "kind": "decision",
+        "pattern": [
+          "\\b(?:three|3)[- ]years?\\b",
+          "(?:(?:\\$|US\\$|USD\\s*)7,?200(?:\\.00)?(?!\\d|[.,]\\d)|(?<![\\d.,])7,?200(?:\\.00)?\\s*(?:dollars|USD)\\b)",
+          "(?:\\bJune?\\.?\\s+1(?:st|nd|rd|th)?\\b|\\b1(?:st|nd|rd|th)?\\s+(?:of\\s+)?June?\\b|\\b2027-06-01\\b)"
+        ],
+        "subject": "contract|service",
+        "said": [4, 5],
+        "underLine": "contract terms"
+      },
+      {
+        "name": "Rosalind returns the signed contract",
+        "kind": "action",
+        "pattern": [
+          "contract",
+          "\\bsign|\\breturn",
+          "(?<!(?:\\bme\\b)[\\s\\S]*)\\bRosalind\\b(?![\\s\\S]*(?:\\bme\\b))",
+          "(?:\\bMay\\.?\\s+14(?:st|nd|rd|th)?\\b|\\b14(?:st|nd|rd|th)?\\s+(?:of\\s+)?May\\b|\\b2027-05-14\\b)"
+        ],
+        "subject": "contract",
+        "said": [6]
+      },
+      {
+        "name": "Anton books a loaner X-ray unit",
+        "kind": "action",
+        "pattern": [
+          "\\bloan(?:er)?\\b",
+          "\\bAnton\\b",
+          "(?:\\bMay\\.?\\s+20(?:st|nd|rd|th)?\\b|\\b20(?:st|nd|rd|th)?\\s+(?:of\\s+)?May\\b|\\b2027-05-20\\b)"
+        ],
+        "subject": "\\bloan(?:er)?\\b",
+        "said": [7],
+        "underLine": "loaner unit?"
+      },
+      {
+        "name": "Bettina draws up the training rota",
+        "kind": "action",
+        "pattern": [
+          "\\brota\\b|training",
+          "\\bBettina\\b",
+          "(?:\\bMay\\.?\\s+27(?:st|nd|rd|th)?\\b|\\b27(?:st|nd|rd|th)?\\s+(?:of\\s+)?May\\b|\\b2027-05-27\\b)"
+        ],
+        "subject": "\\brota\\b|training",
+        "said": [8]
+      }
+    ]
+  },
+  {
+    "id": "reserved-zh-structured-g",
+    "language": "zh-CN",
+    "requireSections": true,
+    "openQuestions": true,
+    "sectionHeadings": {
+      "summary": "通话梗概",
+      "decisions": "最终定论"
+    },
+    "notes": [
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "号码布" }]
+      },
+      {
+        "type": "heading",
+        "attrs": { "level": 2 },
+        "content": [{ "type": "text", "text": "通话梗概" }]
+      },
+      {
+        "type": "heading",
+        "attrs": { "level": 2 },
+        "content": [{ "type": "text", "text": "最终定论" }]
+      },
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "名额和报名费" }]
+      }
+    ],
+    "turns": [
+      {
+        "side": "me",
+        "text": "你好，我们跑团想报今年的城市半程马拉松，今天把团体名额和费用定下来。"
+      },
+      {
+        "side": "them",
+        "text": "我是滕悦，在组委会负责团体报名。报六十个名额可以打九折，你们考虑吗？"
+      },
+      {
+        "side": "me",
+        "text": "六十个人我们凑不齐，九折那个方案就不要了。"
+      },
+      {
+        "side": "them",
+        "text": "那就报四十个名额，每人一百六十元，比赛在二〇二七年五月十八日。"
+      },
+      {
+        "side": "me",
+        "text": "好，就这么定：四十个名额，每人一百六十元，五月十八日比赛。"
+      },
+      {
+        "side": "them",
+        "text": "我四月二十五日前把缴费链接发给你。"
+      },
+      {
+        "side": "me",
+        "text": "我四月二十日前把四十个人的名单发给你。"
+      },
+      {
+        "side": "them",
+        "text": "号码布到时候怎么领？"
+      },
+      {
+        "side": "me",
+        "text": "号码布交给小鞠了，她答应五月十二日前去组委会领回来。"
+      },
+      {
+        "side": "them",
+        "text": "好。终点有没有寄存行李的地方，我这儿也还不清楚。"
+      },
+      {
+        "side": "me",
+        "text": "我们也不知道，行李寄存的事先放着，没人答得上来。"
+      }
+    ],
+    "facts": [
+      {
+        "name": "四十个名额，每人一百六十元，五月十八日比赛",
+        "kind": "decision",
+        "pattern": [
+          "(?:(?<![\\d一二三四五六七八九十百])(?:四十|40)(?!\\d)\\s*(?:个|名|位|人)|名额\\D{0,4}(?<![\\d一二三四五六七八九十百])(?:四十|40)(?!\\d))",
+          "(?<![\\d.一二三四五六七八九十百千万]|\\d[,，])(?:一百六十|一百六|160)(?!\\d)\\s*(?:元|块)",
+          "(?:(?<![\\d十])(?:5|05|五)\\s*月\\s*(?:18|十八)\\s*[日号]|2027[-/.]0?5[-/.]0?18(?!\\d))"
+        ],
+        "subject": "名额|报名|马拉松",
+        "said": [3, 4],
+        "underLine": "名额和报名费"
+      },
+      {
+        "name": "用户以第一人称发名单",
+        "kind": "action",
+        "pattern": [
+          "名单",
+          "(?<!(?:\\bme\\b)[\\s\\S]*)我(?![们方])(?![\\s\\S]*(?:\\bme\\b))",
+          "(?:(?<![\\d十])(?:4|04|四)\\s*月\\s*(?:20|二十|廿)\\s*[日号]|2027[-/.]0?4[-/.]0?20(?!\\d))"
+        ],
+        "subject": "名单",
+        "said": [6]
+      },
+      {
+        "name": "滕悦发缴费链接",
+        "kind": "action",
+        "pattern": [
+          "链接",
+          "滕悦",
+          "(?:(?<![\\d十])(?:4|04|四)\\s*月\\s*(?:25|二十五|廿五)\\s*[日号]|2027[-/.]0?4[-/.]0?25(?!\\d))"
+        ],
+        "subject": "缴费|链接|付款",
+        "said": [5]
+      },
+      {
+        "name": "小鞠领号码布",
+        "kind": "action",
+        "pattern": [
+          "号码布",
+          "小鞠",
+          "(?:(?<![\\d十])(?:5|05|五)\\s*月\\s*(?:12|十二)\\s*[日号]|2027[-/.]0?5[-/.]0?12(?!\\d))"
+        ],
+        "subject": "号码布",
+        "said": [8],
+        "underLine": "号码布"
+      }
+    ]
+  },
+  {
+    "id": "reserved-zh-structured-h",
+    "language": "zh-CN",
+    "requireSections": true,
+    "openQuestions": true,
+    "sectionHeadings": {
+      "actions": "谁做什么、何时完成"
+    },
+    "notes": [
+      {
+        "type": "heading",
+        "attrs": { "level": 2 },
+        "content": [{ "type": "text", "text": "樱桃供货" }]
+      },
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "价格和发货" }]
+      },
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "冷链车" }]
+      },
+      {
+        "type": "heading",
+        "attrs": { "level": 2 },
+        "content": [{ "type": "text", "text": "谁做什么、何时完成" }]
+      }
+    ],
+    "turns": [
+      {
+        "side": "me",
+        "text": "我是郁岚，岭南果园这边的。今天想把首批樱桃的价格和发货日期定下来。"
+      },
+      {
+        "side": "them",
+        "text": "我是武家明，鲜达超市负责采购。你们之前报的每箱一百四十元，我们接受不了。"
+      },
+      {
+        "side": "me",
+        "text": "明白，每箱一百四十元那个报价我们撤回。"
+      },
+      {
+        "side": "them",
+        "text": "那首批六百箱，每箱一百二十元，五月二十六日发货，可以吗？"
+      },
+      {
+        "side": "me",
+        "text": "可以，就这么定：首批六百箱，每箱一百二十元，二〇二七年五月二十六日发货。"
+      },
+      {
+        "side": "them",
+        "text": "我五月十五日前把采购合同发给你。"
+      },
+      {
+        "side": "me",
+        "text": "我五月十日前把农残检测报告寄给你们。"
+      },
+      {
+        "side": "them",
+        "text": "运输怎么安排？"
+      },
+      {
+        "side": "me",
+        "text": "冷链车交给老詹了，他答应五月二十日前订好冷链车。"
+      },
+      {
+        "side": "them",
+        "text": "好。包装箱上要不要印我们超市的标志，我也拿不准。"
+      },
+      {
+        "side": "me",
+        "text": "这个我也定不了，包装印标志的事先放一放，没人能答。"
+      }
+    ],
+    "facts": [
+      {
+        "name": "首批六百箱，每箱一百二十元，五月二十六日发货",
+        "kind": "decision",
+        "pattern": [
+          "(?<![\\d一二三四五六七八九十百千])(?:六百|600)(?!\\d)\\s*箱",
+          "(?<![\\d.一二三四五六七八九十百千万]|\\d[,，])(?:一百二十|一百二|120)(?!\\d)\\s*(?:元|块)",
+          "(?:(?<![\\d十])(?:5|05|五)\\s*月\\s*(?:26|二十六|廿六)\\s*[日号]|2027[-/.]0?5[-/.]0?26(?!\\d))"
+        ],
+        "subject": "樱桃|供货|发货|首批",
+        "said": [3, 4],
+        "underLine": "价格和发货"
+      },
+      {
+        "name": "郁岚寄农残检测报告",
+        "kind": "action",
+        "pattern": [
+          "检测报告|农残",
+          "(?<!(?:\\bme\\b)[\\s\\S]*)郁岚(?![\\s\\S]*(?:\\bme\\b))",
+          "(?:(?<![\\d十])(?:5|05|五)\\s*月\\s*(?:10|十)\\s*[日号]|2027[-/.]0?5[-/.]0?10(?!\\d))"
+        ],
+        "subject": "检测报告|农残|检测",
+        "said": [6]
+      },
+      {
+        "name": "武家明发采购合同",
+        "kind": "action",
+        "pattern": [
+          "合同",
+          "武家明",
+          "(?:(?<![\\d十])(?:5|05|五)\\s*月\\s*(?:15|十五)\\s*[日号]|2027[-/.]0?5[-/.]0?15(?!\\d))"
+        ],
+        "subject": "合同",
+        "said": [5]
+      },
+      {
+        "name": "老詹订冷链车",
+        "kind": "action",
+        "pattern": [
+          "冷链",
+          "老詹",
+          "(?:(?<![\\d十])(?:5|05|五)\\s*月\\s*(?:20|二十|廿)\\s*[日号]|2027[-/.]0?5[-/.]0?20(?!\\d))"
+        ],
+        "subject": "冷链",
+        "said": [8],
+        "underLine": "冷链车"
+      }
+    ]
+  },
+  {
+    "id": "reserved-zh-structured-i",
+    "language": "zh-CN",
+    "requireSections": true,
+    "openQuestions": true,
+    "sectionHeadings": {
+      "questions": "没弄清的地方"
+    },
+    "notes": [
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "棚期和价格" }]
+      },
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "小样" }]
+      },
+      {
+        "type": "heading",
+        "attrs": { "level": 2 },
+        "content": [{ "type": "text", "text": "没弄清的地方" }]
+      }
+    ],
+    "turns": [
+      {
+        "side": "me",
+        "text": "你好，我们乐队想订六月的录音棚，今天把天数和价格定下来。"
+      },
+      {
+        "side": "them",
+        "text": "我是聂响，回声录音棚的经理。你们之前也问过城东那家吧？"
+      },
+      {
+        "side": "me",
+        "text": "城东那家每天一千八百元，便宜，但没有三角钢琴，我们不考虑了。"
+      },
+      {
+        "side": "them",
+        "text": "那我们录音棚包三天给你们，每天两千四百元，从二〇二七年六月九日开始。"
+      },
+      {
+        "side": "me",
+        "text": "好，定了：录音棚包三天，每天两千四百元，六月九日开始。"
+      },
+      {
+        "side": "them",
+        "text": "我五月二十八日前把合同发给你。乐器那部分由我这边另一位同事来跟。"
+      },
+      {
+        "side": "me",
+        "text": "行。我六月一日前把歌曲小样发给你们。"
+      },
+      {
+        "side": "them",
+        "text": "你好，乐器由我来跟。我五月三十日前把棚里的乐器清单发给你们。"
+      },
+      {
+        "side": "me",
+        "text": "我们的鼓手小蒙答应六月五日前把军鼓送到棚里。"
+      },
+      {
+        "side": "them",
+        "text": "好。混音要不要也放在我们这儿做，现在还说不好。"
+      },
+      {
+        "side": "me",
+        "text": "我们也定不下来，混音的事先挂着，没人答得上来。"
+      }
+    ],
+    "facts": [
+      {
+        "name": "包三天，每天两千四百元，六月九日开始",
+        "kind": "decision",
+        "pattern": [
+          "(?<![\\d一二三四五六七八九十])(?:三|3)\\s*天",
+          "(?<![\\d.一二三四五六七八九十百千万]|\\d[,，])(?:[两二]千四(?:百)?|2[,，]?400)(?!\\d)",
+          "(?:(?<![\\d十])(?:6|06|六)\\s*月\\s*(?:9|09|九)\\s*[日号]|2027[-/.]0?6[-/.]0?9(?!\\d))"
+        ],
+        "subject": "录音棚|棚期|包棚|录音",
+        "said": [3, 4],
+        "underLine": "棚期和价格"
+      },
+      {
+        "name": "用户以第一人称发歌曲小样",
+        "kind": "action",
+        "pattern": [
+          "小样",
+          "(?<!(?:\\bme\\b)[\\s\\S]*)我(?![们方])(?![\\s\\S]*(?:\\bme\\b))",
+          "(?:(?<![\\d十])(?:6|06|六)\\s*月\\s*(?:1|01|一)\\s*[日号]|2027[-/.]0?6[-/.]0?1(?!\\d))"
+        ],
+        "subject": "小样",
+        "said": [6],
+        "underLine": "小样"
+      },
+      {
+        "name": "聂响发合同",
+        "kind": "action",
+        "pattern": [
+          "合同",
+          "聂响",
+          "(?:(?<![\\d十])(?:5|05|五)\\s*月\\s*(?:28|二十八|廿八)\\s*[日号]|2027[-/.]0?5[-/.]0?28(?!\\d))"
+        ],
+        "subject": "合同",
+        "said": [5]
+      },
+      {
+        "name": "对方未具名的同事发乐器清单",
+        "kind": "action",
+        "pattern": [
+          "乐器",
+          "(?<!(?:聂响(?!的))[\\s\\S]*)对方(?![\\s\\S]*(?:聂响(?!的)))",
+          "(?:(?<![\\d十])(?:5|05|五)\\s*月\\s*(?:30|三十|卅)\\s*[日号]|2027[-/.]0?5[-/.]0?30(?!\\d))"
+        ],
+        "subject": "乐器",
+        "said": [7]
+      },
+      {
+        "name": "小蒙把军鼓送到棚里",
+        "kind": "action",
+        "pattern": [
+          "鼓",
+          "小蒙",
+          "(?:(?<![\\d十])(?:6|06|六)\\s*月\\s*(?:5|05|五)\\s*[日号]|2027[-/.]0?6[-/.]0?5(?!\\d))"
+        ],
+        "subject": "鼓",
+        "said": [8]
+      }
+    ]
   }
 ]
