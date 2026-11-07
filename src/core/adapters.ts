@@ -930,14 +930,16 @@ export interface CoreAdapters {
   /** How Linked folders are watched (see `LinkedFolderOptions`). */
   linkedFolders?: LinkedFolderOptions;
   /**
-   * How web pages are fetched (#261). Defaults to Node's fetch, within 20
-   * seconds and 10 MB; tests shorten the limits.
+   * How web pages are fetched (#261): through the public-internet fetcher by
+   * default, within 20 seconds and 10 MB. `fetch` stands another in for a
+   * test; tests shorten the limits.
    */
   webPages?: { fetch?: PageFetch; limits?: FetchLimits; pictureLimits?: PictureLimits };
   /**
-   * How web search's fetcher resolves host names and makes its connections
-   * (#128): the system's resolver and undici's by default. Tests stand a
-   * local server in for the web; the fetcher's guard still decides.
+   * How the fetcher a saved page and web search use resolves host names and
+   * makes its connections (#128): the system's resolver and undici's by
+   * default. Tests stand a local server in for the web; the fetcher's guard
+   * still decides.
    */
   web?: PublicFetchOptions;
   processes: ProcessLauncher;

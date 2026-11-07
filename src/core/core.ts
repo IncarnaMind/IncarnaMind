@@ -1109,8 +1109,9 @@ export function createCore(adapters: CoreAdapters): Core {
     db.close();
     throw error;
   }
-  // A saved page's pictures may come from any host: only the public internet is reached (#756).
-  const pictureFetcher = createPublicFetch(adapters.web);
+  // A saved page and its pictures are fetched only from the public internet: never this
+  // computer or a local network, every redirect checked as an address is (#2553).
+  const publicFetcher = createPublicFetch(adapters.web);
   const webPages = createWebPages({
     db,
     dataDir,
@@ -1118,7 +1119,8 @@ export function createCore(adapters: CoreAdapters): Core {
     documents,
     languages: () =>
       settings.get().language === "zh-CN" ? ["zh-CN", "zh;q=0.9", "en;q=0.8"] : ["en", "*;q=0.5"],
-    pictureFetch: pictureFetcher.fetch,
+    fetch: publicFetcher.fetch,
+    pictureFetch: publicFetcher.fetch,
     ...(adapters.pageLook ? { look: adapters.pageLook } : {}),
     keepLookByDefault: () => settings.get().user.keepWebPageLook,
     localOnly: () => embedding.localOnly(),
@@ -1503,24 +1505,25 @@ export function createCore(adapters: CoreAdapters): Core {
   /** The User's Documents searched as an Answer searches them: the search Tool, reranked as the User chose unless `rerank` is false. */
   const timedRerank = (reranker: Reranker | undefined): Reranker | undefined =>
     reranker &&
-    ((query, candidates, signal) =>
+    ((query, candidates, signal, background) =>
       timings.local(
         "rerank",
         rerank.usesBuiltIn() ? BUILT_IN_RERANKING_MODEL.name : "rerank service",
-        () => reranker(query, candidates, signal),
+        () => reranker(query, candidates, signal, background),
         () => candidates.length,
       ));
   const searchDocuments = (
     query: string,
     documentIds: readonly string[] | null,
     signal?: AbortSignal,
-    { rerank: reranking = true, parameters }: AnswerSearchOptions = {},
+    { rerank: reranking = true, parameters, background }: AnswerSearchOptions = {},
   ) => {
     const options = {
       signal,
       rerank: reranking ? timedRerank(adapters.reranker ?? rerank.active()) : undefined,
       documentIds: documentIds ?? undefined,
       ...(parameters && { parameters }),
+      ...(background === true && { background }),
     };
     const tuning = adapters.answerSearch;
     return tuning
@@ -2551,7 +2554,8 @@ export function createCore(adapters: CoreAdapters): Core {
 
   // Suggest as I write (#282): Passages found and quotes checked as Answers do (see ./answers/citing).
   const citing = createCiting({
-    search: searchDocuments,
+    search: (query, documentIds, signal, background) =>
+      searchDocuments(query, documentIds, signal, { background }),
     citationSource: (passageId) => documents.citationSource(passageId),
     pageTexts: (documentId, contentHash, from, to) =>
       documents.pageTexts(documentId, contentHash, from, to),
@@ -5872,7 +5876,9 @@ export function createCore(adapters: CoreAdapters): Core {
     listDataFlows: () => consent.list(),
     listConsentRequests: async () => consent.requests(),
     respondToConsent: async (requestId, accept) => {
-      consent.respond(requestId, accept);
+      const answered = consent.respond(requestId, accept);
+      // Accepting the embeddings dialog is the User allowing it: Documents waiting carry on.
+      if (accept === true && answered?.flow.id === "embeddings") embedding.retry();
       await readinessChanged();
     },
     revokeConsent: async (flowId, serviceId) => {
@@ -5888,6 +5894,8 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     restoreConsent: async (flowId, serviceId, revokedAt) => {
       consent.restore(flowId, serviceId, revokedAt);
+      // Undo may bring back the choice that let embeddings run: Documents waiting carry on.
+      if (flowId === "embeddings") embedding.retry();
       connectors.consentChanged();
       transcriptionGateChanged();
       settingsChanged();
@@ -5896,6 +5904,8 @@ export function createCore(adapters: CoreAdapters): Core {
     listRegisteredDataFlows: () => consent.listRegistered(),
     allowDataFlow: async (flowId, serviceId) => {
       await consent.allow(flowId, serviceId);
+      // Documents waiting for embeddings carry on now that the User allowed it.
+      if (flowId === "embeddings") embedding.retry();
       connectors.consentChanged();
       await dataFlowsChanged();
     },
@@ -6760,7 +6770,7 @@ export function createCore(adapters: CoreAdapters): Core {
       // the User's approval are denied, and Skill scripts running are stopped.
       answers.stopAll();
       void webSearch.close().catch((error: unknown) => console.error(error));
-      void pictureFetcher.close().catch((error: unknown) => console.error(error));
+      void publicFetcher.close().catch((error: unknown) => console.error(error));
       suggestions.stop();
       edits.stopAll();
       checks.stopAll();

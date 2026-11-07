@@ -4203,9 +4203,9 @@ export type WebPageLookFailure =
  * - "not-a-page": the address is a file (a PDF, an image), not a web page.
  * - "video": the page is a video, with little text to read.
  * - "not-text": the page has too little text to read, such as an app.
- * - "not-public": web search's fetcher refused it: the address is on this
- *   computer or a local network, or redirects there (#128).
- * - "too-many-redirects": it redirected more than web search's fetcher follows.
+ * - "not-public": the fetcher that reaches only the public internet refused
+ *   it: the address is on this computer or a local network, or redirects there.
+ * - "too-many-redirects": it redirected more than that fetcher follows.
  * - "not-from-search": web search fetches only the pages its search returned
  *   in the same Answer, and this wasn't one.
  * - "local-mode": "Keep everything on this computer" is on, so nothing was
@@ -12119,8 +12119,9 @@ export interface CoreApi {
    * only one that differs; an arXiv number on arXiv. Calling it is the
    * consent to the "reference-check" flow (ADR-0022); in local mode every
    * entry is "not-checked". One check of a Mind at a time. Answers are kept:
-   * a found record for good, a miss for seven days; `again` asks about every
-   * miss again.
+   * a found record for good, and a miss or a failure too, so an ordinary
+   * check sends nothing more; `again` asks about every kept miss and failure
+   * again.
    */
   checkReferences(mindId: string, options?: { again?: boolean }): Promise<CheckReferencesResult>;
   /** Stops a Mind's `checkReferences`: it gives "cancelled". Stopping none does nothing. */
