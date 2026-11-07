@@ -178,6 +178,17 @@ export const FLOWS: readonly Flow[] = [
     ),
   },
   {
+    id: "assistant-write-long",
+    label: "Ask the assistant to write eight paragraphs into the page",
+    run: asked(
+      {
+        en: "Write an eight-paragraph summary of the ESG report into my notes",
+        "zh-CN": "把 ESG 报告写成八段总结放进我的笔记",
+      },
+      (language) => [NOTES[language]],
+    ),
+  },
+  {
     id: "assistant-edit",
     label: "Ask the assistant to edit a paragraph",
     run: asked(

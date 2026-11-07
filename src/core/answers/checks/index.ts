@@ -1687,6 +1687,8 @@ export function createChecks(options: ChecksOptions) {
 
     /** What the assistant wrote in a Mind, checked before it lands (./written). */
     checkWritten,
+    /** The same check, begun as a write's first Blocks land and given the rest as they come (#1635). */
+    startWrittenCheck: checkWritten.start,
 
     /** An Answer's sentences with Citations, checked before it ends (./answerCheck). */
     checkAnswer: answerCheck.check,

@@ -166,6 +166,8 @@ interface Writing {
   record?: { name: string; contents: string | Uint8Array; quote: string; query: string };
   /** Hears each request that isn't streamed, answered as `PLANS` says. */
   generated?: (call: GenerateCall) => void;
+  /** The write's input streams in, held once `after(input)` of its characters are out until `until` resolves. */
+  streamed?: { after: (input: string) => number; until: () => Promise<void> };
 }
 
 const RECORD_FILE: NonNullable<Writing["record"]> = {
@@ -193,6 +195,7 @@ function writingModel(
     cut = "Spring tides come at new and full moon [1].",
     record,
     generated,
+    streamed,
   }: Writing,
   calls: ModelCall[],
   coreOf: () => Core | null,
@@ -230,7 +233,11 @@ function writingModel(
       const refused = writes.length === 1 && writes[0]?.text.includes("content has no Citation");
       if (writes.length === 0 || refused) {
         const input = into ? { content } : { title: "Tide notes", content };
-        return { calls: [{ tool, input }] };
+        if (!streamed) return { calls: [{ tool, input }] };
+        return {
+          calls: [{ tool, input, streamInput: true }],
+          pause: { after: streamed.after(JSON.stringify(input)), until: streamed.until() },
+        };
       }
       return { text: "Wrote it from your Documents." };
     },
@@ -1550,6 +1557,68 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
       outcome: "supported",
       location: { kind: "page", from: 2, to: 2 },
     });
+  });
+
+  // protects=a paragraph's cited sentences are checked as it lands, while the rest of the write is still coming in, so a long write's checks start sooner (#1635); fails_when=no check starts until the whole text is in; no_claim=how much sooner on a real model.
+  test("a paragraph is checked as it lands, while the rest of the write still streams in", async () => {
+    let calls: readonly ModelCall[] = [];
+    let checkedWhileWriting = false;
+    const second = "Neap tides come between them";
+    const { change, client, core } = await write(
+      {
+        content: `## Tides\n\nSpring tides come at new and full moon [^1].\n\n${second} [^1].`,
+        // Held once the first paragraph is whole and the second has begun.
+        streamed: {
+          after: (input) => input.indexOf(second) + 4,
+          until: () =>
+            vi
+              .waitFor(() => expect(calls.some(isCheckRun)).toBe(true), {
+                timeout: 10_000,
+                interval: 5,
+              })
+              .then(
+                () => {
+                  checkedWhileWriting = true;
+                },
+                () => undefined,
+              ),
+        },
+      },
+      (started) => {
+        calls = started.calls;
+      },
+    );
+
+    expect(checkedWhileWriting).toBe(true);
+    expect(change?.selfCheck).toMatchObject({ cited: 2, sent: 2, checked: 2, failed: 0 });
+    const marks = await marksIn(core, client);
+    expect(marks.map(({ sentence, shown }) => [sentence, shown.state])).toEqual([
+      ["Spring tides come at new and full moon .", "supported"],
+      ["Neap tides come between them .", "unsupported"],
+    ]);
+  });
+
+  // protects=a write checked as its paragraphs land still checks only its first sentences, in its order, under one request; fails_when=more than the cap are sent, the rest don't land not checked, or the paragraphs' marks fall under several requests; no_claim=none beyond protects.
+  test("paragraphs checked as they land keep one cap, in order, under one request", async () => {
+    const lines = Array.from({ length: SENTENCES_CHECKED_AT_MOST + 2 }, (_, index) =>
+      index === 0 ? "Spring tides come at new and full moon" : `${UNBACKED} ${index}`,
+    );
+    const { change, client, core } = await write({
+      content: `## Tides\n\n${lines.map((line) => `${line} [^1].`).join("\n\n")}`,
+      streamed: { after: () => Number.POSITIVE_INFINITY, until: () => Promise.resolve() },
+    });
+
+    expect(change?.selfCheck).toMatchObject({
+      cited: SENTENCES_CHECKED_AT_MOST + 2,
+      sent: SENTENCES_CHECKED_AT_MOST,
+    });
+    const marks = await marksIn(core, client);
+    expect(marks).toHaveLength(SENTENCES_CHECKED_AT_MOST + 2);
+    expect(marks.slice(SENTENCES_CHECKED_AT_MOST).map(({ check }) => check.reason)).toEqual([
+      "too-many",
+      "too-many",
+    ]);
+    expect(new Set(marks.map(({ check }) => check.request)).size).toBe(1);
   });
 
   // protects=a sentence with no Citation isn't checked as it lands (#1909: it is left to the one count and the one Check), as its Citations are what the written check reads; fails_when=a check Run is made for it, or it lands marked; no_claim=none beyond protects.

@@ -81,7 +81,12 @@ import {
   syncContent,
   topLevelBlocks,
 } from "../../answers/blocks";
-import type { CheckWrittenInput, WrittenCheck } from "../../answers/checks/written";
+import type {
+  CheckWrittenInput,
+  WrittenCheck,
+  WrittenCheckSession,
+  WrittenCheckStart,
+} from "../../answers/checks/written";
 import type { ContextCitations } from "../../answers/contextCitations";
 import type { ParagraphAsked } from "../../answers/paragraphAsked";
 import { withoutPointersBack } from "../../answers/pointersBack";
@@ -220,6 +225,8 @@ export interface MindsForTools {
   }>;
   /** Checks the cited sentences a call wrote before they land (../../answers/checks/written). */
   checkWritten(input: CheckWrittenInput): Promise<WrittenCheck | null>;
+  /** The same check, begun as a call's first Blocks are written and given the rest as they come. */
+  startWrittenCheck(input: WrittenCheckStart): WrittenCheckSession;
 }
 
 export interface MindToolsOptions {
@@ -959,6 +966,8 @@ const droppedSaid = (dropped: number) =>
     : [];
 
 interface Written {
+  /** The check begun as its Blocks streamed in; absent: none began. */
+  checking?: WriteChecking | null;
   notFound: number;
   unrecorded: number;
   searchTalk: number;
@@ -968,6 +977,17 @@ interface Written {
   /** `ids` in the order of `blocks`. */
   blocks: { mindId: string; ids: readonly string[]; blocks: readonly NodeJSON[] };
 }
+
+/** A call's write being checked as its Blocks come in, and the change its card shows meanwhile. */
+interface WriteChecking {
+  session: WrittenCheckSession;
+  change: () => MindChange;
+  /** How many of its sentences are being checked, as its card says. */
+  count: number;
+}
+
+const withChecking = (change: MindChange, checking: WriteChecking | null | undefined) =>
+  checking && checking.count > 0 ? { ...change, checking: checking.count } : change;
 
 const sentencesWord = (count: number) => (count === 1 ? "1 sentence" : `${count} sentences`);
 
@@ -1569,6 +1589,8 @@ export function mindTools(options: MindToolsOptions): {
       copy: Repeat | null;
       /** It writes sources as text: nothing more goes in until all of it is in, as it may be refused. */
       uncited: boolean;
+      /** Its Blocks' check, begun with the first of them in (#1635). */
+      checking: WriteChecking | null;
     }
   >();
   /**
@@ -1600,7 +1622,14 @@ export function mindTools(options: MindToolsOptions): {
     if (!content) return;
     let stream = streams.get(toolCallId);
     if (!stream) {
-      stream = { writer: null, created: false, breaks: 0, copy: null, uncited: false };
+      stream = {
+        writer: null,
+        created: false,
+        breaks: 0,
+        copy: null,
+        uncited: false,
+        checking: null,
+      };
       streams.set(toolCallId, stream);
     }
     // Only once a paragraph has ended is there a Block more to write.
@@ -1639,14 +1668,23 @@ export function mindTools(options: MindToolsOptions): {
     );
     stream.copy = repeatIn(writer, ready);
     if (stream.copy !== null) {
+      stream.checking?.session.drop();
       withdraw(writer);
       minds.writing(writer.mind.id, null);
       return;
     }
     const unmade = ready.findIndex(unmadeTable);
-    writeMore(writer, unmade < 0 ? ready : ready.slice(0, unmade));
+    const written = unmade < 0 ? ready : ready.slice(0, unmade);
+    writeMore(writer, written);
     minds.writing(writer.mind.id, { after: writer.anchor });
-    if (writer.written > 0) options.changed(toolCallId, changeOf(writer, stream.created));
+    if (writer.written === 0) return;
+    // Each paragraph in is checked as it lands, while the rest is still being written (#1635).
+    const { created } = stream;
+    stream.checking ??= startChecking(toolCallId, writer.mind.id, options.signal, () =>
+      changeOf(writer, created),
+    );
+    stream.checking.session.add(written, writer.ids);
+    options.changed(toolCallId, withChecking(changeOf(writer, created), stream.checking));
   };
 
   type Content = ReturnType<MindToolsOptions["blocksOf"]>;
@@ -1768,6 +1806,7 @@ export function mindTools(options: MindToolsOptions): {
     // Each chart's marker asks for its chart, beneath its table, as `chart` does (#2378).
     const charts = chartGiven ? [chartGiven] : [...(chartsPlaced ?? [])];
     let writer = stream?.writer ?? null;
+    let checking = stream?.checking ?? null;
     const unmade = blocks.some(unmadeTable);
     const again = made ? "call create_mind again" : "call add_to_mind again";
     const uncited = unmade
@@ -1783,6 +1822,8 @@ export function mindTools(options: MindToolsOptions): {
         writer.mind.id !== mind.id ||
         writer.named !== after)
     ) {
+      checking?.session.drop();
+      checking = null;
       withdraw(writer);
       minds.writing(writer.mind.id, null);
       writer = null;
@@ -1795,6 +1836,7 @@ export function mindTools(options: MindToolsOptions): {
     const twice =
       copy === null ? tableTwiceIn(writer.mind.id, writer.ids, blocks, analysisTables) : null;
     if (copy !== null || twice !== null) {
+      checking?.session.drop();
       withdraw(writer);
       minds.writing(writer.mind.id, null);
       if (copy !== null) throw repeatRefusal(mind, copy);
@@ -1820,7 +1862,8 @@ export function mindTools(options: MindToolsOptions): {
       ...someTableNotes(notes),
       ...(drawn?.problem && { chartNotDrawn: drawn.problem }),
     };
-    options.changed(toolCallId, change);
+    if (checking) checking.change = () => change;
+    options.changed(toolCallId, withChecking(change, checking));
     if (unrecorded > 0 && markdown !== null) {
       unsettled.set(toolCallId, {
         mindId: writer.mind.id,
@@ -1836,6 +1879,7 @@ export function mindTools(options: MindToolsOptions): {
       : (drawn?.said ?? null);
     return {
       change,
+      checking,
       notFound,
       unrecorded,
       searchTalk,
@@ -1966,22 +2010,18 @@ export function mindTools(options: MindToolsOptions): {
     signal: AbortSignal,
   ): Promise<WrittenCheck | null> => {
     const { mindId, ids, blocks } = written.blocks;
-    if (written.unrecorded > 0 || ids.length !== blocks.length) return null;
-    let reported = false;
+    if (written.unrecorded > 0 || ids.length !== blocks.length) {
+      // What streamed in was checked as it came, and its marks stand; the card counts no check.
+      written.checking?.session.drop();
+      return null;
+    }
+    const checking =
+      written.checking ?? startChecking(toolCallId, mindId, signal, () => written.change);
+    checking.change = () => written.change;
     let checked: WrittenCheck | null = null;
     try {
-      checked = await minds.checkWritten({
-        mindId,
-        blocks,
-        ids,
-        prepared: options.prepared,
-        signal,
-        checking: (count) => {
-          reported = true;
-          options.changed(toolCallId, { ...written.change, checking: count });
-        },
-        edit: (change) => minds.edit(mindId, change),
-      });
+      checking.session.add(blocks, ids);
+      checked = await checking.session.done();
     } catch (error) {
       // A check that fails never takes back what the call wrote: it stands, unchecked.
       console.error(
@@ -2007,8 +2047,29 @@ export function mindTools(options: MindToolsOptions): {
         },
       };
     }
-    if (reported || checked) options.changed(toolCallId, written.change);
+    if (checking.count > 0 || checked) options.changed(toolCallId, written.change);
     return checked;
+  };
+
+  /** A check of what a call writes, begun as its first Blocks are in; its card counts what it sends. */
+  const startChecking = (
+    toolCallId: string,
+    mindId: string,
+    signal: AbortSignal,
+    change: () => MindChange,
+  ): WriteChecking => {
+    const checking = { change, count: 0 };
+    const session = minds.startWrittenCheck({
+      mindId,
+      prepared: options.prepared,
+      signal,
+      checking: (count) => {
+        checking.count = count;
+        options.changed(toolCallId, { ...checking.change(), checking: count });
+      },
+      edit: (edit) => minds.edit(mindId, edit),
+    });
+    return Object.assign(checking, { session });
   };
 
   /** By call: text written with markers `cite` hadn't recorded yet. */
@@ -2029,6 +2090,7 @@ export function mindTools(options: MindToolsOptions): {
     for (const [toolCallId, stream] of streams) {
       const { writer } = stream;
       if (!writer) continue;
+      stream.checking?.session.drop();
       withdraw(writer);
       minds.writing(writer.mind.id, null);
       if (stream.created) minds.discard(writer.mind.id);
