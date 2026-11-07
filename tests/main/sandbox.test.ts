@@ -384,7 +384,13 @@ describe.skipIf(process.platform === "win32")("the sized bubblewrap script", () 
   });
 
   test("a bubblewrap that can't size a tmpfs runs as it is, not as missing", async () => {
-    const { temp } = await theirBwrap("echo '    --tmpfs DEST                 Mount new tmpfs'");
+    // As bubblewrap 0.6 answers --help.
+    const { temp } = await theirBwrap(
+      [
+        "echo 'usage: bwrap [OPTIONS...] [--] COMMAND [ARGS...]'",
+        "echo '    --tmpfs DEST                 Mount new tmpfs'",
+      ].join("\n"),
+    );
 
     expect(await sizedBwrap(temp)).toEqual({ kind: "unsized" });
   });
@@ -393,6 +399,37 @@ describe.skipIf(process.platform === "win32")("the sized bubblewrap script", () 
     const { temp } = await theirBwrap("exit 1");
 
     await expect(sizedBwrap(temp)).rejects.toThrow(/bwrap/);
+  });
+
+  test("a probe that dies with an error is reported, not taken for an old bubblewrap", async () => {
+    const { temp } = await theirBwrap(
+      "echo 'bwrap: error while loading shared libraries: libcap.so.2: cannot open shared object file' >&2\nexit 127",
+    );
+
+    await expect(sizedBwrap(temp)).rejects.toThrow(/libcap/);
+  });
+
+  test("help that comes with a nonzero exit is still help", async () => {
+    const { temp } = await theirBwrap(
+      [
+        "echo 'usage: bwrap [OPTIONS...] [--] COMMAND [ARGS...]' >&2",
+        "echo '    --tmpfs DEST                 Mount new tmpfs' >&2",
+        "exit 1",
+      ].join("\n"),
+    );
+
+    expect(await sizedBwrap(temp)).toEqual({ kind: "unsized" });
+  });
+
+  test("a rename that fails removes its own .new file", async () => {
+    const { temp } = await theirBwrap(
+      "echo 'usage: bwrap [OPTIONS...] [COMMAND]'\necho '    --size BYTES'",
+    );
+    const folder = join(temp, `incarnamind-bwrap-${process.getuid?.() ?? 0}`);
+    await mkdir(join(folder, "bwrap"), { recursive: true, mode: 0o700 });
+
+    await expect(sizedBwrap(temp)).rejects.toThrow(/bwrap/);
+    expect(await readdir(folder)).toEqual(["bwrap"]);
   });
 
   test("no bubblewrap on the PATH is told apart from a failing probe", async () => {

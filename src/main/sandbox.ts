@@ -284,9 +284,11 @@ export async function sizedBwrap(tempFolder: string): Promise<SizedBwrap> {
     help = `${stdout}\n${stderr}`;
   } catch (error) {
     const { stdout, stderr } = error as { stdout?: string; stderr?: string };
-    // Only silence means the probe itself failed: help can come with a nonzero exit.
-    if (!stdout && !stderr) throw error;
-    help = `${stdout ?? ""}\n${stderr ?? ""}`;
+    const said = `${stdout ?? ""}\n${stderr ?? ""}`;
+    // Help can come with a nonzero exit; any other words are a probe that failed, not an old
+    // bubblewrap.
+    if (!/^\s*usage:/m.test(said)) throw error;
+    help = said;
   }
   if (!bwrapSizesTmpfs(help)) return { kind: "unsized" };
   const folder = join(tempFolder, `incarnamind-bwrap-${process.getuid?.() ?? 0}`);
@@ -299,8 +301,14 @@ export async function sizedBwrap(tempFolder: string): Promise<SizedBwrap> {
   // A name of this process's own, renamed into place: another copy starting at the same moment
   // writes its own file, and a rename over an existing `bwrap` is atomic (#2599).
   const writing = join(folder, `bwrap.${process.pid}.${randomUUID()}.new`);
-  await writeFile(writing, bwrapScript(real), { mode: 0o700 });
-  await rename(writing, script);
+  try {
+    await writeFile(writing, bwrapScript(real), { mode: 0o700 });
+    await rename(writing, script);
+  } catch (error) {
+    // A leftover file must not hide the failure that explains it.
+    await rm(writing, { force: true }).catch(() => {});
+    throw error;
+  }
   return { kind: "sized", script };
 }
 
