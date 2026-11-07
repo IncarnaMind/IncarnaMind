@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { QuotedWords } from "../../core/api";
+import type { CitationParagraph, QuotedWords } from "../../core/api";
 import {
   type PlaceToCite,
   type QuotedWordsOnPage,
@@ -7,7 +7,12 @@ import {
 } from "../../shared/citations";
 import { core } from "./core";
 
-const keyOf = (words: QuotedWords, cited: PlaceToCite, mindId: string | null): string =>
+const keyOf = (
+  words: QuotedWords,
+  cited: PlaceToCite,
+  paragraph: CitationParagraph | null,
+  mindId: string | null,
+): string =>
   JSON.stringify([
     mindId,
     words.answer.map((piece) => piece.text).join(""),
@@ -17,6 +22,7 @@ const keyOf = (words: QuotedWords, cited: PlaceToCite, mindId: string | null): s
     cited.pageTo ?? null,
     cited.location ?? null,
     cited.quote ?? null,
+    paragraph,
   ]);
 
 /**
@@ -25,7 +31,7 @@ const keyOf = (words: QuotedWords, cited: PlaceToCite, mindId: string | null): s
  * judge the words on the cited page as every other check does.
  */
 export function useQuotedWordsOnPage(
-  asks: readonly { words: QuotedWords; cited: PlaceToCite }[],
+  asks: readonly { words: QuotedWords; cited: PlaceToCite; paragraph: CitationParagraph | null }[],
   mindId: string | null,
 ): QuotedWordsOnPage {
   const [verdicts, setVerdicts] = useState<ReadonlyMap<string, boolean | null>>(new Map());
@@ -37,7 +43,7 @@ export function useQuotedWordsOnPage(
       mounted.current = false;
     };
   }, []);
-  const wanted = asks.map(({ words, cited }) => keyOf(words, cited, mindId));
+  const wanted = asks.map(({ words, cited, paragraph }) => keyOf(words, cited, paragraph, mindId));
   const wantedKeys = wanted.join("\n");
   // biome-ignore lint/correctness/useExhaustiveDependencies: each place is asked again only when the places asked for change.
   useEffect(() => {
@@ -52,6 +58,7 @@ export function useQuotedWordsOnPage(
         (input) => core.recheckCitation({ ...input, mindId }),
         ask.cited,
         ask.words,
+        ask.paragraph,
       ).then(settle, (failure: unknown) => {
         console.error(
           "A Citation's quoted words couldn't be looked for on its cited page.",
@@ -62,7 +69,7 @@ export function useQuotedWordsOnPage(
     }
   }, [wantedKeys]);
   return useCallback(
-    (words, cited) => verdicts.get(keyOf(words, cited, mindId)),
+    (words, cited, paragraph) => verdicts.get(keyOf(words, cited, paragraph, mindId)),
     [verdicts, mindId],
   );
 }

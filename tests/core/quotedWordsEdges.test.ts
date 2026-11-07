@@ -267,7 +267,11 @@ describe("Quoted words, at the edges", { timeout: 30_000 }, () => {
 
     test("stays not found while the Document's current version lacks the words, though it has the quote", () => {
       expect(
-        recheckKept(documentsWith("Safety training: coverage reached 98% of site staff."), kept),
+        recheckKept(
+          documentsWith("Safety training: coverage reached 98% of site staff."),
+          kept,
+          null,
+        ),
       ).toBeNull();
     });
 
@@ -275,6 +279,7 @@ describe("Quoted words, at the edges", { timeout: 30_000 }, () => {
       const now = recheckKept(
         documentsWith("Our training coverage reached 98% of site staff."),
         kept,
+        null,
       );
 
       expect(now).toMatchObject({ check: "found", checkReason: null });
@@ -290,6 +295,7 @@ describe("Quoted words, at the edges", { timeout: 30_000 }, () => {
           checkReason: null,
           quotedWords: { runsOnTo: { kind: "page", from: 2, to: 2 } },
         },
+        null,
       );
 
       expect(now).toMatchObject({ check: "found", contentHash: "v2" });

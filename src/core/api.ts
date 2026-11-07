@@ -2321,6 +2321,31 @@ export interface CitationToRecheck {
    * Units have them (#2612).
    */
   quotedWords?: QuotedWordsCheck | null;
+  /**
+   * The paragraph the Citation is in, whose sentence's Citations its quoted words are checked
+   * with, as an Answer's are (#2712). Without it, words in another language than its page can't
+   * be told from a translation, so they stay not found.
+   */
+  paragraph?: CitationParagraph | null;
+}
+
+/** A paragraph, as the check of a Citation's quoted words reads it for the Citations of its sentence. */
+export interface CitationParagraph {
+  /** Its text as checks read a paragraph: each inline node one U+FFFC, a line break "\n". */
+  text: string;
+  /** Its Citations in order: where each one's node is in `text`, and what it cites. */
+  citations: ParagraphCitation[];
+  /** Which of `citations` is the one checked. */
+  self: number;
+}
+
+export interface ParagraphCitation
+  extends Pick<
+    CitationToRecheck,
+    "documentId" | "contentHash" | "pageFrom" | "pageTo" | "location"
+  > {
+  /** Its node's offset in the paragraph's text. */
+  at: number;
 }
 
 /** Where a Question is asked: its Note, else its conversation; null for none. */

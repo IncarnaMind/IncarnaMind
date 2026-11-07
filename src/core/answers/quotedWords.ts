@@ -14,7 +14,7 @@ import { documentWordingIn } from "../../shared/quoteMarks";
 import { findQuote, type TextRange } from "../../shared/quoteMatch";
 import { INLINE_NODE, sentenceSpans } from "../../shared/sentences";
 import { CJK as CJK_SCRIPTS } from "../../shared/text";
-import type { QuotedWords } from "../api";
+import type { CitationParagraph, ParagraphCitation, QuotedWords } from "../api";
 import { holdsFigure } from "../documents/formats/grid";
 import type { PageText } from "../documents/passages";
 import { writtenInCjk } from "../documents/textLanguage";
@@ -101,26 +101,41 @@ function spansOf(text: string): Span[] {
   return spans;
 }
 
+/** What may stand after a sentence's last mark: closing marks and brackets, emphasis, spaces and Citations. */
+const AFTER_THE_MARK = /["'”’)\]）】」』»*_~\s￼]/u;
+/** Whether a full stop, "!" or "?" ends a sentence: a space or the end follows it, past Citations and closing marks. */
+const ENDS_BEFORE_SPACE = /^￼*["'”’)\]]*(?:\s|$)/u;
+
+/**
+ * Whether a sentence the shared splitter ends at `end` (the next starting at `next`) ends there
+ * for quoted words too: at a line break, or at a full stop, "!" or "?" outside quotation marks
+ * and before a space (or a "。", "！" or "？"), past its closing marks and Citations. So a quote
+ * keeps its sentence across a mark inside it, whatever closes it (`.”)`, `。”）`).
+ */
+function endsAt(read: string, spans: readonly Span[], end: number, next: number): boolean {
+  if (spans.some((span) => span.start < end && span.end > end)) return false;
+  if (read.slice(end, next).includes("\n")) return true;
+  let at = end - 1;
+  for (; at >= 0 && AFTER_THE_MARK.test(read[at] ?? ""); at--) if (read[at] === "\n") return true;
+  if (spans.some((span) => at >= span.start && at < span.end)) return false;
+  const mark = read[at] ?? "";
+  return (
+    "。！？".includes(mark) || (".!?".includes(mark) && ENDS_BEFORE_SPACE.test(read.slice(at + 1)))
+  );
+}
+
 /**
  * The sentences of a block of text, as the shared splitter reads a paragraph (#2712), each
- * Citation marker read as the node it becomes: "Mr. Smith" and "Fig. 2" end none. Quotation
- * marks hold their words in one sentence with what follows them, as a full stop or a line break
- * inside them, or at the mark that closes them, ends no sentence.
+ * Citation marker read as the node it becomes: "Mr. Smith" and "Fig. 2" end none. One ends only
+ * where `endsAt` says it does too, so quotation marks hold their words in one sentence with what
+ * follows them, as before.
  */
 function sentencesOf(text: string, spans: readonly Span[]): Span[] {
   const read = text.replace(MARKER, (marker) => INLINE_NODE.repeat(marker.length));
   const sentences: Span[] = [];
   for (const { from, to } of sentenceSpans(read)) {
     const previous = sentences.at(-1);
-    const held =
-      previous !== undefined &&
-      spans.some(
-        (span) =>
-          span.start < previous.end &&
-          (span.end > previous.end ||
-            (span.end === previous.end && !text.slice(previous.end, from).includes("\n"))),
-      );
-    if (previous && held) previous.end = to;
+    if (previous && !endsAt(read, spans, previous.end, from)) previous.end = to;
     else sentences.push({ start: from, end: to });
   }
   return sentences;
@@ -153,6 +168,25 @@ function quotedSpansIn(text: string): QuotedSpan[] {
     }
   }
   return found;
+}
+
+/**
+ * The Citations of a paragraph in the sentence of the one checked, that one first, as the
+ * sentences quoted words are read in split it (#2712).
+ */
+export function sentenceCitations(paragraph: CitationParagraph): ParagraphCitation[] {
+  const self = paragraph.citations[paragraph.self];
+  if (!self) return [];
+  const sentence = sentencesOf(paragraph.text, spansOf(paragraph.text)).find(
+    ({ start, end }) => self.at >= start && self.at < end,
+  );
+  if (!sentence) return [self];
+  return [
+    self,
+    ...paragraph.citations.filter(
+      ({ at }, index) => index !== paragraph.self && at >= sentence.start && at < sentence.end,
+    ),
+  ];
 }
 
 const FENCE = /^\s*(?:```|~~~)/;

@@ -2,6 +2,7 @@ import type { EditorState } from "@tiptap/pm/state";
 import type {
   CitationAttributes,
   CitationCheck,
+  CitationParagraph,
   ClaimCheckPart,
   QuotedWords,
 } from "../../../core/api";
@@ -9,6 +10,7 @@ import { continuesCitation, overlapsCitation } from "../../../shared/citationOve
 import { parseQuotedWords, type QuotedWordsOnPage, quotedWordsAt } from "../../../shared/citations";
 import { citationLocation } from "../../../shared/locations";
 import { type NumberedCitation, numberedCitations } from "./citationNumbers";
+import { citationParagraphAt } from "./citationParagraph";
 import type { ShownClaim } from "./claimChecks";
 
 /** The Citations a check's sentence holds, with their numbers in the Mind. */
@@ -25,17 +27,18 @@ export const citationsOf = (state: EditorState, claim: ShownClaim): NumberedCita
 export function quotedWordsAsks(
   state: EditorState,
   claim: ShownClaim,
-): { words: QuotedWords; cited: CitationAttributes }[] {
+): { words: QuotedWords; cited: CitationAttributes; paragraph: CitationParagraph | null }[] {
   const found = [
     claim.check.evidence,
     ...(claim.check.parts ?? []).flatMap((part) => part.evidence),
   ].filter((evidence): evidence is CitationAttributes => evidence?.check === "found");
-  return citationsOf(state, claim).flatMap(({ attributes }) => {
+  return citationsOf(state, claim).flatMap(({ attributes, pos }) => {
     const words = parseQuotedWords(attributes.quotedWords);
     if (!words || attributes.documentId === null) return [];
+    const paragraph = citationParagraphAt(state.doc, pos);
     return found
       .filter((evidence) => evidence.documentId === attributes.documentId)
-      .map((cited) => ({ words, cited }));
+      .map((cited) => ({ words, cited, paragraph }));
   });
 }
 
@@ -108,8 +111,12 @@ function decisionFor(
   // Replace may write "found" only where the words the sentence put in quotation marks are on
   // the Passage's page too, or the Citation's card would say they are found when nothing looked
   // for them (#483, #1808, #2712).
-  const replaceable = ({ attributes }: NumberedCitation) =>
-    quotedWordsAt(attributes.quotedWords, evidence, onPage);
+  const replaceable = ({ attributes, pos }: NumberedCitation) =>
+    quotedWordsAt(
+      attributes.quotedWords,
+      evidence,
+      onPage && { onPage, paragraph: citationParagraphAt(state.doc, pos) },
+    );
   const overlapping = cited.filter(({ attributes }) => overlapsCitation(attributes, evidence));
   const valid = overlapping.filter(({ attributes }) => !DOESNT_HOLD.has(attributes.check));
   // A Citation whose own check says it doesn't hold is replaced, never widened: it is broken, not

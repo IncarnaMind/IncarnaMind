@@ -9,19 +9,23 @@ import { type Editor, getSchema, type JSONContent } from "@tiptap/core";
 import { EditorState, type Transaction } from "@tiptap/pm/state";
 import { describe, expect, test, vi } from "vitest";
 import type { Core } from "../../src/core";
-import type { CitationAttributes, CitationToRecheck, QuotedWords } from "../../src/core/api";
+import type {
+  CitationAttributes,
+  CitationParagraph,
+  CitationToRecheck,
+  QuotedWords,
+} from "../../src/core/api";
 import { citationDecision } from "../../src/renderer/src/editor/alreadyCited";
 import {
   citationNumbersPlugin,
   numberedCitations,
 } from "../../src/renderer/src/editor/citationNumbers";
+import { citationParagraphAt } from "../../src/renderer/src/editor/citationParagraph";
 import type { ShownClaim } from "../../src/renderer/src/editor/claimChecks";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
-import {
-  newVersionCitation,
-  type QuotedWordsOnPage,
-  quotedWordsOnPage,
-} from "../../src/shared/citations";
+import type { NodeJSON } from "../../src/shared/blockJson";
+import { newVersionCitation, quotedWordsOnPage } from "../../src/shared/citations";
+import { paragraphOf } from "../../src/shared/noteBlocks";
 import { askAssistant, changesIn } from "../helpers/assistant";
 import { checkReply, isCheckRun } from "../helpers/checks";
 import {
@@ -49,17 +53,19 @@ interface Case {
   pages: PdfPage[];
   /** The next version: the Citation's quote changed by a word, the quoted words where they were. */
   changed: PdfPage[];
+  /** A second Document, which the sentence cites with "[^2]". */
+  also?: { name: string; contents: string; quote: string };
   query: string;
   question: string;
   /** The page the Citation cites and its quote, which is on it. */
   page: number;
   quote: string;
   changedQuote: string;
-  /** The sentence, its marker where the Citation is. */
+  /** The sentence, its markers where its Citations are. */
   sentence(words: string): string;
-  /** Words the cited page holds by the rule, and words it doesn't. */
-  onPage: string;
-  notOnPage: string;
+  /** Words the rule finds for the first Citation, and words it doesn't. */
+  found: string;
+  notFound: string;
 }
 
 const CASES: Record<string, Record<"en" | "zh", Case>> = {
@@ -84,8 +90,8 @@ const CASES: Record<string, Record<"en" | "zh", Case>> = {
       quote: "Members agreed that the committee will meet on",
       changedQuote: "Members voted that the committee will meet on",
       sentence: (words) => `The minutes say “${words}” [^1].`,
-      onPage: "the committee will meet on the first Monday of each month",
-      notOnPage: "the committee will meet on the first Friday of each month",
+      found: "the committee will meet on the first Monday of each month",
+      notFound: "the committee will meet on the first Friday of each month",
     },
     zh: {
       name: "董事会纪要.pdf",
@@ -103,8 +109,8 @@ const CASES: Record<string, Record<"en" | "zh", Case>> = {
       quote: "成员同意委员会将于每月的",
       changedQuote: "成员一致同意委员会将于每月的",
       sentence: (words) => `纪要写道“${words}”[^1]。`,
-      onPage: "委员会将于每月的第一个星期一举行会议",
-      notOnPage: "委员会将于每月的第一个星期五举行会议",
+      found: "委员会将于每月的第一个星期一举行会议",
+      notFound: "委员会将于每月的第一个星期五举行会议",
     },
   },
   "words elsewhere on the cited page than its quote": {
@@ -136,8 +142,8 @@ const CASES: Record<string, Record<"en" | "zh", Case>> = {
       quote: "The committee approved the budget on 4 May.",
       changedQuote: "The committee approved the budget on 5 May.",
       sentence: (words) => `The budget says “${words}” [^1].`,
-      onPage: "Spending will rise by a third next year",
-      notOnPage: "Spending will rise by a half next year",
+      found: "Spending will rise by a third next year",
+      notFound: "Spending will rise by a half next year",
     },
     zh: {
       name: "预算.pdf",
@@ -157,8 +163,8 @@ const CASES: Record<string, Record<"en" | "zh", Case>> = {
       quote: "委员会于5月4日批准了预算。",
       changedQuote: "委员会于5月5日批准了预算。",
       sentence: (words) => `预算写道“${words}”[^1]。`,
-      onPage: "明年支出将增加三分之一",
-      notOnPage: "明年支出将增加一半",
+      found: "明年支出将增加三分之一",
+      notFound: "明年支出将增加一半",
     },
   },
   "words before an abbreviation, or a full stop inside the quotation marks": {
@@ -178,8 +184,8 @@ const CASES: Record<string, Record<"en" | "zh", Case>> = {
       quote: "after the grace period of ten days",
       changedQuote: "after the grace period of twelve days",
       sentence: (words) => `The schedule says "${words}," said Mr. Smith[^1].`,
-      onPage: "The fee is 3% per week",
-      notOnPage: "The fee is 5% per week",
+      found: "The fee is 3% per week",
+      notFound: "The fee is 5% per week",
     },
     zh: {
       name: "收费表.pdf",
@@ -191,8 +197,8 @@ const CASES: Record<string, Record<"en" | "zh", Case>> = {
       quote: "宽限期为十天",
       changedQuote: "宽限期为十二天",
       sentence: (words) => `收费表写道“${words}。”史密斯先生如是说[^1]。`,
-      onPage: "逾期每周收取3%的费用",
-      notOnPage: "逾期每周收取5%的费用",
+      found: "逾期每周收取3%的费用",
+      notFound: "逾期每周收取5%的费用",
     },
   },
   "words the Document holds or doesn't": {
@@ -226,8 +232,8 @@ const CASES: Record<string, Record<"en" | "zh", Case>> = {
       quote: "Spring tides happen just after a new moon or a full moon.",
       changedQuote: "Spring tides come just after a new moon or a full moon.",
       sentence: (words) => `The guide says “${words}” [^1].`,
-      onPage: "just after a new moon or a full moon",
-      notOnPage: "spring tides happen only at a full moon",
+      found: "just after a new moon or a full moon",
+      notFound: "spring tides happen only at a full moon",
     },
     zh: {
       name: "潮汐.pdf",
@@ -245,8 +251,96 @@ const CASES: Record<string, Record<"en" | "zh", Case>> = {
       quote: "大潮出现在新月或满月之后不久。",
       changedQuote: "大潮发生在新月或满月之后不久。",
       sentence: (words) => `指南写道“${words}”[^1]。`,
-      onPage: "在新月或满月之后不久",
-      notOnPage: "大潮只在满月时出现",
+      found: "在新月或满月之后不久",
+      notFound: "大潮只在满月时出现",
+    },
+  },
+  "a sentence citing a Document in each language": {
+    en: {
+      name: "Minutes.pdf",
+      pages: [{ lines: ["Minutes", "The committee will meet on the first Monday of each month."] }],
+      changed: [
+        { lines: ["Minutes", "The committee will meet on the first Tuesday of each month."] },
+      ],
+      also: {
+        name: "预算.md",
+        contents: "# 预算\n\n明年支出将增加三分之一，主要用于设备采购。\n",
+        quote: "明年支出将增加三分之一",
+      },
+      query: "committee meet 支出",
+      question: "What did the committee decide?",
+      page: 1,
+      quote: "The committee will meet on the first Monday of each month.",
+      changedQuote: "The committee will meet on the first Tuesday of each month.",
+      sentence: (words) => `纪要写道“${words}”[^1][^2]。`,
+      found: "明年支出将增加三分之一",
+      notFound: "董事会批准了新的薪酬方案",
+    },
+    zh: {
+      name: "纪要.pdf",
+      pages: [{ chineseLines: ["会议纪要", "委员会将于每月的第一个星期一开会。"] }],
+      changed: [{ chineseLines: ["会议纪要", "委员会将于每月的第一个星期二开会。"] }],
+      also: {
+        name: "Budget.md",
+        contents: "# Budget\n\nSpending will rise by a third next year, mostly on equipment.\n",
+        quote: "Spending will rise by a third next year",
+      },
+      query: "委员会 spending",
+      question: "委员会决定了什么？",
+      page: 1,
+      quote: "委员会将于每月的第一个星期一开会。",
+      changedQuote: "委员会将于每月的第一个星期二开会。",
+      sentence: (words) => `The minutes say “${words}” [^1][^2].`,
+      found: "Spending will rise by a third next year",
+      notFound: "the board approved a new pay scheme",
+    },
+  },
+  "a quote in the other language than its one page": {
+    en: {
+      name: "Tides.pdf",
+      pages: [
+        {
+          lines: [
+            "Spring and neap tides",
+            "Spring tides happen just after a new moon or a full moon.",
+          ],
+        },
+      ],
+      changed: [
+        {
+          lines: [
+            "Spring and neap tides",
+            "Spring tides come just after a new moon or a full moon.",
+          ],
+        },
+      ],
+      query: "spring tides",
+      question: "When are spring tides?",
+      page: 1,
+      quote: "Spring tides happen just after a new moon or a full moon.",
+      changedQuote: "Spring tides come just after a new moon or a full moon.",
+      sentence: (words) =>
+        /\p{Script=Han}/u.test(words)
+          ? `指南写道“${words}”[^1]。`
+          : `The guide says “${words}” [^1].`,
+      found: "大潮出现在新月或满月之后不久",
+      notFound: "spring tides happen only at a full moon",
+    },
+    zh: {
+      name: "潮汐.pdf",
+      pages: [{ chineseLines: ["大潮与小潮", "大潮出现在新月或满月之后不久。"] }],
+      changed: [{ chineseLines: ["大潮与小潮", "大潮发生在新月或满月之后不久。"] }],
+      query: "大潮",
+      question: "大潮在什么时候出现？",
+      page: 1,
+      quote: "大潮出现在新月或满月之后不久。",
+      changedQuote: "大潮发生在新月或满月之后不久。",
+      sentence: (words) =>
+        /\p{Script=Han}/u.test(words)
+          ? `指南写道“${words}”[^1]。`
+          : `The guide says “${words}” [^1].`,
+      found: "spring tides happen just after a new or a full moon",
+      notFound: "大潮只在满月时出现",
     },
   },
 };
@@ -254,20 +348,31 @@ const CASES: Record<string, Record<"en" | "zh", Case>> = {
 const WRITE = { en: "Write this into a new note.", zh: "把这写进一篇新笔记。" } as const;
 const SHORTER = { en: "In short: ", zh: "简言之：" } as const;
 
+const bare = (name: string) => name.replace(/\.[a-z]+$/u, "");
+
 /**
  * One model for every path: it answers by searching, citing the page and writing `sentence`;
  * asked to write a note, it writes the sentence into a new one; asked to edit, it keeps the
- * passage's words and its Citation.
+ * passage's words and its Citations.
  */
 function modelFor(wanted: Case, language: "en" | "zh", sentence: string) {
   const records = (passages: ShownPassage[]) => [
     {
       marker: 1,
-      passage: passages[0]?.id,
+      passage: passages.find((each) => each.document === bare(wanted.name))?.id,
       pageFrom: wanted.page,
       pageTo: wanted.page,
       quote: wanted.quote,
     },
+    ...(wanted.also
+      ? [
+          {
+            marker: 2,
+            passage: passages.find((each) => each.document === bare(wanted.also?.name ?? ""))?.id,
+            quote: wanted.also.quote,
+          },
+        ]
+      : []),
   ];
   return scriptedModel(
     (call: ModelCall): ScriptedReply => {
@@ -297,26 +402,28 @@ const asked = (words: string): QuotedWords => ({
   closest: null,
 });
 
-/** The sentence as a Note holds it: its words, and the Citation where its marker is. */
-function paragraph(sentence: string, citation: CitationAttributes, id?: string): JSONContent {
-  const [before = "", after = ""] = sentence.split("[^1]");
-  return {
-    type: "paragraph",
-    ...(id && { attrs: { id } }),
-    content: [
-      { type: "text", text: before },
-      { type: "citation", attrs: citation },
-      ...(after ? [{ type: "text", text: after }] : []),
-    ],
-  };
+/** The sentence as a Note holds it: its words, and each Citation where its marker is. */
+function paragraph(
+  sentence: string,
+  citations: readonly CitationAttributes[],
+  id?: string,
+): JSONContent {
+  const content: JSONContent[] = [];
+  for (const piece of sentence.split(/(\[\^\d\])/u)) {
+    const marker = /^\[\^(\d)\]$/u.exec(piece);
+    const citation = marker ? citations[Number(marker[1]) - 1] : undefined;
+    if (citation) content.push({ type: "citation", attrs: citation });
+    else if (piece !== "") content.push({ type: "text", text: piece });
+  }
+  return { type: "paragraph", ...(id && { attrs: { id } }), content };
 }
 
 const schema = getSchema(noteExtensions());
 
-/** An editor holding the sentence, and the card of its check, which found the Citation's page. */
-function cardOf(sentence: string, citation: CitationAttributes) {
+/** An editor holding the sentence, and the card of its check, which found the first Citation's page. */
+function cardOf(sentence: string, citations: readonly CitationAttributes[]) {
   let state = EditorState.create({
-    doc: schema.nodeFromJSON({ type: "doc", content: [paragraph(sentence, citation)] }),
+    doc: schema.nodeFromJSON({ type: "doc", content: [paragraph(sentence, citations)] }),
     plugins: [citationNumbersPlugin()],
   });
   const editor = {
@@ -330,12 +437,17 @@ function cardOf(sentence: string, citation: CitationAttributes) {
     },
   } as unknown as Editor;
   const text = state.doc.textContent;
-  const evidence = { ...citation, check: "found", checkReason: null, quotedWords: null } as const;
+  const evidence = {
+    ...citations[0],
+    check: "found",
+    checkReason: null,
+    quotedWords: null,
+  } as CitationAttributes;
   const claim = {
     check: { id: "check-1", state: "supported", evidence, calculation: null },
     from: 1,
-    to: 1 + text.length + 1,
-    sentence: { from: 1, to: 1 + text.length + 1, text },
+    to: 1 + text.length + citations.length,
+    sentence: { from: 1, to: 1 + text.length + citations.length, text },
     shown: { state: "supported" },
   } as unknown as ShownClaim;
   return { editor, claim, evidence };
@@ -354,13 +466,14 @@ async function rewrite(
   await waitForProcessing(core, [document.id]);
 }
 
-/** The verdict of each path on the sentence quoting `words`. */
+/** The verdict of each path on the first Citation of the sentence quoting `words`. */
 async function verdicts(wanted: Case, language: "en" | "zh", words: string) {
   const sentence = wanted.sentence(words);
   const { core, documents, mind } = await setUpWithDocuments(modelFor(wanted, language, sentence), [
     { name: wanted.name, contents: buildPdf(wanted.pages) },
+    ...(wanted.also ? [{ name: wanted.also.name, contents: wanted.also.contents }] : []),
   ]);
-  const [document] = documents;
+  const document = documents.find((each) => bare(each.name) === bare(wanted.name));
   if (!document) throw new Error("No Document.");
   const found: Record<string, string | undefined> = {};
 
@@ -373,22 +486,31 @@ async function verdicts(wanted: Case, language: "en" | "zh", words: string) {
     mindCitations(await connectToMind(core, made?.mindId ?? "")),
   );
 
-  // The Citation as an earlier check left it: not found for the words its sentence quoted.
-  const [citation] = answer.citations;
+  // The first Citation as an earlier check left it: not found for the words its sentence quoted.
+  const [citation, ...others] = answer.citations;
   if (!citation) throw new Error("No Citation.");
+  const attributesOf = (each: typeof citation): CitationAttributes => ({
+    passageId: each.passageId,
+    documentId: each.documentId,
+    documentName: each.documentName,
+    contentHash: each.contentHash,
+    pageFrom: each.pageFrom,
+    pageTo: each.pageTo,
+    location: each.location,
+    quote: each.quote,
+    check: each.check,
+    checkReason: each.checkReason,
+  });
   const cited: CitationAttributes = {
-    passageId: citation.passageId,
-    documentId: citation.documentId,
-    documentName: citation.documentName,
-    contentHash: citation.contentHash,
-    pageFrom: citation.pageFrom,
-    pageTo: citation.pageTo,
-    location: citation.location,
-    quote: citation.quote,
+    ...attributesOf(citation),
     check: "not-found",
     checkReason: "quoted-words-not-on-pages",
     quotedWords: asked(words),
   };
+  const citations = [cited, ...others.map(attributesOf)];
+  const inNote = paragraph(sentence, citations);
+  const firstAt = inNote.content?.findIndex((each) => each.type === "citation") ?? -1;
+  const inParagraph: CitationParagraph | null = paragraphOf(inNote as NodeJSON, firstAt);
   const recheck = (input: CitationToRecheck) => core.recheckCitation({ ...input, mindId: null });
   const again: CitationToRecheck = {
     documentId: citation.documentId,
@@ -400,19 +522,16 @@ async function verdicts(wanted: Case, language: "en" | "zh", words: string) {
   };
 
   const landing = await core.createMind({ title: "Landing" });
-  await core.addToNote({
-    mindId: landing.id,
-    blocks: [paragraph(sentence, cited)],
-    origin: null,
-    model: null,
-  });
+  await core.addToNote({ mindId: landing.id, blocks: [inNote], origin: null, model: null });
   found["a landing in a Note"] = checkOf(mindCitations(await connectToMind(core, landing.id)));
 
-  found.Recheck = checkedResult(await recheck({ ...again, quotedWords: asked(words) })).check;
+  found.Recheck = checkedResult(
+    await recheck({ ...again, quotedWords: asked(words), paragraph: inParagraph }),
+  ).check;
 
   const edited = await core.createMind({ title: "Edited" });
   const client = await connectToMind(core, edited.id);
-  writeMind(client, [paragraph(sentence, cited, "quoted")]);
+  writeMind(client, [paragraph(sentence, citations, "quoted")]);
   await client.settled();
   expect(
     await core.editWithAi(wholeParagraph(client, edited.id, "quoted", "shorten")),
@@ -420,13 +539,14 @@ async function verdicts(wanted: Case, language: "en" | "zh", words: string) {
   await resolveChanges(client, "accept");
   found["Edit with AI"] = checkOf(mindCitations(client));
 
-  const card = cardOf(sentence, cited);
-  const verdict = await quotedWordsOnPage(recheck, card.evidence, asked(words));
-  const onPage: QuotedWordsOnPage = () => verdict;
-  const decision = citationDecision(card.editor.state, card.claim, onPage);
-  found['"already cited"'] = { replace: "found", already: "not-found" }[decision.kind as string];
+  const card = cardOf(sentence, citations);
   const [numbered] = numberedCitations(card.editor.state);
   if (!numbered) throw new Error("No Citation in the card's sentence.");
+  const inCard = citationParagraphAt(card.editor.state.doc, numbered.pos);
+  const verdict = await quotedWordsOnPage(recheck, card.evidence, asked(words), inCard);
+  const onPage = () => verdict;
+  const decision = citationDecision(card.editor.state, card.claim, onPage);
+  found['"already cited"'] = { replace: "found", already: "not-found" }[decision.kind as string];
   replaceCitation(card.editor, { citation: numbered, evidence: card.evidence }, onPage);
   found.Replace = checkOf(numberedCitations(card.editor.state).map((each) => each.attributes));
 
@@ -438,8 +558,12 @@ async function verdicts(wanted: Case, language: "en" | "zh", words: string) {
     recheck,
     { ...target, documentId: cited.documentId },
     asked(words),
+    inParagraph,
   );
-  found["Update the sentence…"] = newVersionCitation(cited, looked, () => updated)?.check;
+  found["Update the sentence…"] = newVersionCitation(cited, looked, {
+    onPage: () => updated,
+    paragraph: inParagraph,
+  })?.check;
   return found;
 }
 
@@ -461,14 +585,152 @@ describe.each(Object.keys(CASES))("%s", { timeout: 60_000 }, (name) => {
   describe.each(["en", "zh"] as const)("(%s)", (language) => {
     const wanted = CASES[name]?.[language] as Case;
 
-    // protects=words the cited page holds by the Answer's rule read found through every path that checks the Citation (#2712); fails_when=a path reads them on the quote alone, or the cited Units alone, and calls them not found; no_claim=how the card words it.
-    test("words the page holds: found everywhere", async () => {
-      expect(await verdicts(wanted, language, wanted.onPage)).toEqual(every("found"));
+    // protects=words the Answer's rule finds for the Citation (on its page, running on, stated by another Citation of the sentence, or a translation) read found through every path that checks it (#2712); fails_when=a path reads them on the quote alone, the cited Units alone, or without the sentence's other Citations, and calls them not found; no_claim=how the card words it.
+    test("words the rule finds: found everywhere", async () => {
+      expect(await verdicts(wanted, language, wanted.found)).toEqual(every("found"));
     });
 
-    // protects=the negative beside it: words the cited page doesn't hold read not found through every path, the assistant's writing into a Note included (#2712); fails_when=a path reads them found, or never checks them; no_claim=none beyond protects.
-    test("words it doesn't hold: not found everywhere", async () => {
-      expect(await verdicts(wanted, language, wanted.notOnPage)).toEqual(every("not-found"));
+    // protects=the negative beside it: words no page of the sentence holds read not found through every path, the assistant's writing into a Note included, and a sentence citing a page in each language is never taken for a translation (#2712); fails_when=a path reads them found, or never checks them; no_claim=none beyond protects.
+    test("words it doesn't find: not found everywhere", async () => {
+      expect(await verdicts(wanted, language, wanted.notFound)).toEqual(every("not-found"));
     });
   });
 });
+
+const FEES = {
+  en: {
+    name: "Fee schedule.pdf",
+    pages: [
+      { lines: ["Fee schedule", "The fee is 3% per week after the grace period of ten days."] },
+    ],
+    query: "fee per week grace period",
+    question: "What does the schedule say?",
+    quote: "after the grace period of ten days",
+  },
+  zh: {
+    name: "收费表.pdf",
+    pages: [{ chineseLines: ["收费表", "逾期每周收取3%的费用，宽限期为十天。"] }],
+    query: "费用 宽限期",
+    question: "收费表怎么写？",
+    quote: "宽限期为十天",
+  },
+} as const;
+
+/** The check of the one Citation of an Answer about the fee schedule whose text is `answer`. */
+async function answerCheck(language: "en" | "zh", answer: string) {
+  const fees = FEES[language];
+  const model = scriptedModel(
+    (call: ModelCall): ScriptedReply => {
+      const search = call.results.filter((result) => result.tool === "search_documents").at(-1);
+      if (!search) return { calls: [{ tool: "search_documents", input: { query: fees.query } }] };
+      if (!call.results.some((result) => result.tool === "cite")) {
+        const [passage] = shownPassages(search.text);
+        const record = { marker: 1, passage: passage?.id, quote: fees.quote };
+        return { calls: [{ tool: "cite", input: { citations: [record] } }] };
+      }
+      return { text: answer };
+    },
+    { judgesItsAnswers: true },
+  );
+  const { core } = await setUpWithDocuments(model, [
+    { name: fees.name, contents: buildPdf([...fees.pages]) },
+  ]);
+  const [citation] = (await askAssistant(core, { text: fees.question })).citations;
+  return citation?.check;
+}
+
+// protects=the quoted-words check ends a sentence only where the shared splitter does and a full stop, "!" or "?" outside quotation marks before a space, or a line break, says so too, so a quote keeps its sentence's Citation whatever closes it (#2712); fails_when=a bracket, an ellipsis, a line break before the marker or a list item cuts the quote off from its Citation, which then reads found though the page says 3%; no_claim=sentences the claim checks read.
+describe.each([
+  [
+    "en",
+    "a closing bracket",
+    (fee: string) =>
+      `(“The fee is ${fee} per week after the grace period.”) The schedule sets it[^1].`,
+  ],
+  [
+    "en",
+    "a square bracket and an exclamation mark",
+    (fee: string) => `[“The fee is ${fee} per week!”] The schedule sets it[^1].`,
+  ],
+  [
+    "en",
+    "an ellipsis",
+    (fee: string) =>
+      `The schedule says “The fee is ${fee} per week…” And it applies after the grace period [^1].`,
+  ],
+  [
+    "en",
+    "the quote at a line's end, its Citation on the next line",
+    (fee: string) =>
+      `The schedule says “The fee is ${fee} per week.”\n[^1] It applies after the grace period.`,
+  ],
+  [
+    "en",
+    "a list item",
+    (fee: string) => `- “The fee is ${fee} per week.” The schedule sets it [^1].`,
+  ],
+  [
+    "zh",
+    "a closing bracket",
+    (fee: string) => `（“逾期每周收取${fee}的费用。”）收费表如此规定[^1]。`,
+  ],
+  [
+    "zh",
+    "an ellipsis",
+    (fee: string) => `收费表写道“逾期每周收取${fee}的费用……”宽限期为十天[^1]。`,
+  ],
+  [
+    "zh",
+    "the quote at a line's end, its Citation on the next line",
+    (fee: string) => `收费表写道“逾期每周收取${fee}的费用。”\n[^1]宽限期另计。`,
+  ],
+  [
+    "zh",
+    "a list item",
+    (fee: string) => `- 收费表写道“逾期每周收取${fee}的费用。”宽限期另计[^1]。`,
+  ],
+] as const)("in %s, quoted words before %s", { timeout: 30_000 }, (language, _, sentence) => {
+  test("that the page doesn't hold: not found", async () => {
+    expect(await answerCheck(language, sentence("5%"))).toBe("not-found");
+  });
+
+  test("that the page holds: found", async () => {
+    expect(await answerCheck(language, sentence("3%"))).toBe("found");
+  });
+});
+
+// protects=a recheck that knows only its own Citation can't tell a translation from words in another language than its page, so it keeps them not found; given the paragraph, whose sentence cites that page alone, they are a translation and read found, as in the Answer (#2712); fails_when=a recheck with no paragraph clears them as a translation, or one with it refuses a translation; no_claim=a sentence of several Citations, the table above.
+test.each(["en", "zh"] as const)(
+  "in %s, a recheck reads words in another language than its page as a translation only with its paragraph",
+  { timeout: 30_000 },
+  async (language) => {
+    const wanted = CASES["a quote in the other language than its one page"]?.[language] as Case;
+    const sentence = wanted.sentence(wanted.found);
+    const { core } = await setUpWithDocuments(modelFor(wanted, language, sentence), [
+      { name: wanted.name, contents: buildPdf(wanted.pages) },
+    ]);
+    const [citation] = (await askAssistant(core, { text: wanted.question })).citations;
+    if (!citation) throw new Error("No Citation.");
+    const again = {
+      documentId: citation.documentId,
+      quote: citation.quote,
+      pageFrom: citation.pageFrom,
+      pageTo: citation.pageTo,
+      contentHash: citation.contentHash,
+      quotedWords: asked(wanted.found),
+      mindId: null,
+    };
+    const inNote = paragraph(sentence, [{ ...citation, quotedWords: asked(wanted.found) }]);
+    const at = inNote.content?.findIndex((each) => each.type === "citation") ?? -1;
+
+    expect(checkedResult(await core.recheckCitation(again))).toMatchObject({
+      check: "not-found",
+      checkReason: "quoted-words-not-on-pages",
+    });
+    expect(
+      checkedResult(
+        await core.recheckCitation({ ...again, paragraph: paragraphOf(inNote as NodeJSON, at) }),
+      ),
+    ).toMatchObject({ check: "found", checkReason: null });
+  },
+);

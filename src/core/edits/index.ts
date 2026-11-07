@@ -30,6 +30,7 @@
 import { randomUUID } from "node:crypto";
 import { streamText } from "ai";
 import type * as Y from "yjs";
+import { paragraphCitationOf } from "../../shared/noteBlocks";
 import {
   outOfDateProposals,
   pendingProposals,
@@ -39,6 +40,7 @@ import {
   resolveProposals,
   waitingChanges,
 } from "../../shared/proposals";
+import { INLINE_NODE } from "../../shared/sentences";
 import { topLevelBlocks } from "../answers/blocks";
 import { estimateTokens } from "../answers/context";
 import { createWindowBudget } from "../answers/window";
@@ -46,6 +48,7 @@ import {
   BLOCK_ID_ATTRIBUTE,
   type ChatModelChoice,
   type ChatReadiness,
+  type CitationParagraph,
   type EditAction,
   type EditPart,
   type EditWithAiResult,
@@ -53,6 +56,7 @@ import {
   editActions,
   type LeftOutPart,
   MIND_CONTENT_FIELD,
+  type ParagraphCitation,
   type ProposalRequest,
   type RequestedChange,
   type RunEstimate,
@@ -172,8 +176,11 @@ export interface EditsOptions {
   consent: Consent;
   /** Local mode: only models on this computer. */
   localOnly(): boolean;
-  /** A Citation's attributes checked again now, or null when its check comes out the same. */
-  recheck(attributes: Attributes): Attributes | null;
+  /**
+   * A Citation's attributes checked again now, or null when its check comes out the same:
+   * with the paragraph the selection is, when it is whole paragraphs (`CitationParagraph`).
+   */
+  recheck(attributes: Attributes, paragraph: CitationParagraph | null): Attributes | null;
   /**
    * Says where a request writes next in a Mind as its changes come in (#202); null once it has
    * stopped. `part`: a long selection edited in parts says which of how many is written now (#2348).
@@ -351,11 +358,31 @@ function freshCitations(
       if (checked.has(marker)) continue;
       checked.add(marker);
       const attributes = selection.citations[marker - 1];
-      const again = attributes ? recheck(attributes) : null;
+      const again = attributes ? recheck(attributes, paragraphOf(selection, marker)) : null;
       if (again) fresh.set(marker, again);
     }
     return fresh;
   };
+}
+
+/**
+ * The selection as the check of a kept Citation's quoted words reads the paragraph it is in, the
+ * Citation of `marker` checked (#2712): null when it is part of a paragraph, whose sentence may
+ * go on outside it.
+ */
+function paragraphOf(selection: Selection, marker: number): CitationParagraph | null {
+  if (selection.before !== "" || selection.after !== "") return null;
+  const citations: ParagraphCitation[] = [];
+  let self = -1;
+  const text = selection.text.replace(/\[(\d+)\]/g, (written, number: string, at: number) => {
+    const cited = paragraphCitationOf(selection.citations[Number(number) - 1] ?? {}, at);
+    if (cited) {
+      if (Number(number) === marker) self = citations.length;
+      citations.push(cited);
+    }
+    return INLINE_NODE.repeat(written.length);
+  });
+  return self < 0 ? null : { text, citations, self };
 }
 
 /** Where a stream writes next, as the editor finds it: by the paragraph's id. */
