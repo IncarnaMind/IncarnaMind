@@ -85,6 +85,7 @@ export const rerankText = (hit: Rerankable) =>
 const sigmoid = (logit: number) => 1 / (1 + Math.exp(-logit));
 
 const modifiedMs = (path: string) => statSync(path, { throwIfNoEntry: false })?.mtimeMs;
+const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 /**
  * A model's GPU file, from `baseUrl` into its own folder: downloaded once asked, then kept, with
@@ -125,10 +126,10 @@ function createGpuFile(
       copy = "written";
     } catch (error) {
       copy = "none";
-      await rm(part, { force: true });
-      log.warn("reranking.gpuCopyFailed", {
-        message: error instanceof Error ? error.message : String(error),
-      });
+      log.warn("reranking.gpuCopyFailed", { message: messageOf(error) });
+      await rm(part, { force: true }).catch((left: unknown) =>
+        log.warn("reranking.gpuCopyLeft", { message: messageOf(left) }),
+      );
     }
   }
 

@@ -893,9 +893,10 @@ describe("The built-in reranking model's GPU file", () => {
     return join(gpuFolder, "fp16.webgpu.onnx");
   }
 
-  /** The model as IncarnaMind starts it, over that data folder. */
+  /** The model as IncarnaMind starts it, over that data folder, and the log it writes. */
   function startGpuModel(dataDir: string) {
     const sessions = fakeSessions({});
+    const { log, entries } = recordingLog();
     const model = createRerankingModel({
       definition: {
         ...BUILT_IN_RERANKING_MODEL,
@@ -911,8 +912,9 @@ describe("The built-in reranking model's GPU file", () => {
       dataDir,
       crossEncoder: createOnnxCrossEncoder({ createSession: sessions.createSession }),
       emitStatus: () => {},
+      log,
     });
-    return { model, sessions };
+    return { model, sessions, entries };
   }
 
   // protects=a GPU session never opens a file that keeps a CUDA export's copies between host and GPU memory, each of which made the GPU drain once a layer (#2532); fails_when=the session opens the file as downloaded, the copy holds anything but those copies read as Identity, or it is written again at each start; no_claim=what the copies cost on any one GPU.
@@ -936,6 +938,19 @@ describe("The built-in reranking model's GPU file", () => {
     expect(next.sessions.opened.at(-1)).toBe("fp16.webgpu.onnx on gpu");
     expect((await stat(copy)).mtimeMs).toBe(written);
     next.model.close();
+  });
+
+  test("opens the GPU file as downloaded, and logs why, when its copy can't be written", async () => {
+    const dataDir = await createTempDataFolder();
+    const copy = await downloadGpuFile(dataDir);
+    await mkdir(`${copy}.part`);
+    const { model, sessions, entries } = startGpuModel(dataDir);
+
+    await model.rerank("what is", HITS);
+
+    expect(sessions.opened.at(-1)).toBe("fp16.onnx on gpu");
+    expect(entries.map((entry) => entry.event)).toContain("reranking.gpuCopyFailed");
+    model.close();
   });
 
   test("with no GPU adapter, downloads nothing and logs why it reranks on the CPU", async () => {
