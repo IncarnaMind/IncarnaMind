@@ -321,6 +321,13 @@ const namesWithCount = (text: string, { name, count }: { name: string; count: nu
 const SAYS_IT_WAITS =
   /nothing (?:has )?(?:been )?moved|nothing (?:will )?moves?|(?:not|n[’']t) (?:been |be )?moved?|until you (?:review|confirm|approve)|没有(?:被)?移动|未(?:被)?移动|不会(?:被)?移动|还没(?:有)?(?:被)?(?:移动|动)|审阅|审核|确认/i;
 
+/**
+ * How a reply says the Documents were filed, which they weren't: "went into", "were filed there",
+ * "已被归入", "已把…归到". A reply that says so and then that they wait still tells the User both.
+ */
+const SAYS_IT_MOVED =
+  /(?<!nothing |not |n[’']t )\b(?:has|have) been (?:filed|moved|put)\b|\b(?:were|was) (?:filed|moved|put) (?:in|into|there)\b|\bwent into\b|\b(?:it|I|Organize) (?:put|filed|moved) \d|\bare (?:now )?in the new\b|已(?:经)?被?(?:归入|放入|放到|移入|移到|归到|归档到)|已(?:经)?把[^，。！？：]{0,30}(?:归入|放入|放到|移入|移到|归到|归档到)/i;
+
 const organizeRuns = (seen: Seen) =>
   ran(seen).filter((done) => done.command === "documents.organize");
 
@@ -361,8 +368,8 @@ const proposedBy = ({ before, after }: Pick<Seen, "before" | "after">) =>
 /**
  * "Re organise the files": Organize runs and only proposes (#1569). No Folder is made and nothing
  * is filed, the proposals wait in Suggestions, and the reply, in the model's own words, names each
- * Folder proposed there with its count and says nothing moves until the User reviews them. Nothing
- * it says is flagged.
+ * Folder proposed there with its count, says nothing moves until the User reviews them, and never
+ * says they moved. Nothing it says is flagged.
  */
 const organized: Check = (seen) => {
   expect(organizeRuns(seen).length).toBeGreaterThan(0);
@@ -375,6 +382,7 @@ const organized: Check = (seen) => {
     expect(namesWithCount(text, folder), folder.name).toBe(true);
   }
   expect(text).toMatch(SAYS_IT_WAITS);
+  expect(text).not.toMatch(SAYS_IT_MOVED);
   expect(seen.answer.steps?.unbackedCommands ?? []).toEqual([]);
   expect(seen.answer.steps?.unbackedClaims ?? []).toEqual([]);
 };
