@@ -16,16 +16,16 @@ function planFor(changed: string[] | "all") {
     { encoding: "utf8", input: changed === "all" ? "" : changed.join("\n") },
   );
   expect(result.status, result.stderr).toBe(0);
-  const lines = Object.fromEntries(
-    result.stdout
-      .trim()
-      .split("\n")
-      .map((line) => [line.slice(0, line.indexOf("=")), line.slice(line.indexOf("=") + 1)]),
+  const [specs, count, shards] = result.stdout.trim().split("\n");
+  expect(specs).toMatch(/^specs=/);
+  expect(count).toMatch(/^count=\d+$/);
+  expect(shards).toMatch(/^shards=\[/);
+  const shardCount = Number(count?.slice("count=".length));
+  expect(JSON.parse(shards?.slice("shards=".length) ?? "")).toEqual(
+    Array.from({ length: shardCount }, (_, index) => index + 1),
   );
-  expect(JSON.parse(lines.shards)).toEqual(
-    Array.from({ length: Number(lines.count) }, (_, index) => index + 1),
-  );
-  return { specs: lines.specs ? lines.specs.split(" ") : [], count: Number(lines.count) };
+  const named = specs?.slice("specs=".length) ?? "";
+  return { specs: named ? named.split(" ") : [], count: shardCount };
 }
 
 function shardOf(specs: string[], current: number, total: number): string[] {
