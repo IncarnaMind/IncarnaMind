@@ -303,7 +303,7 @@ export interface Feel {
   /**
    * Records what is left and writes the report. `failing`: what no known entry excuses. `stale`:
    * shift and focus entries that didn't happen. `unseen`: the known times, and focus that depends
-   * on timing, that didn't happen this run, which CI lists without failing.
+   * on timing, that didn't happen this run, written beside the report without failing.
    */
   finish(): Promise<{ failing: string[]; stale: string[]; unseen: string[] }>;
 }

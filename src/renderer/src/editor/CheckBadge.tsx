@@ -18,6 +18,7 @@ import { setCheckCardOpen, stopCheck, useChecks } from "../checks";
 import { MetaLine } from "../components/MetaLine";
 import { useTabPlace } from "../components/tabs/tabItems";
 import { buttonStyle } from "../components/ui";
+import { useScrollFade } from "../components/useScrollFade";
 import { useContradictions } from "../contradictions";
 import { correctableCount, correctContradictions } from "../correctionFixes";
 import type { EstimateLine } from "../cost";
@@ -461,30 +462,7 @@ function BadgeFrame({
     const element = body.current;
     if (element) setHeldHeight(element.offsetHeight);
   }, [open, heldHeight]);
-  // Its cut edge fades while there is more under it, and not when everything fits or the body
-  // has been scrolled to its end.
-  const [cut, setCut] = useState(false);
-  const content = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => {
-    const element = body.current;
-    const inner = content.current;
-    if (!open || !element || !inner) {
-      setCut(false);
-      return;
-    }
-    const measure = () =>
-      setCut(element.scrollHeight - element.scrollTop - element.clientHeight > 1);
-    measure();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(measure);
-    observer.observe(element);
-    observer.observe(inner);
-    element.addEventListener("scroll", measure, { passive: true });
-    return () => {
-      observer.disconnect();
-      element.removeEventListener("scroll", measure);
-    };
-  }, [open]);
+  useScrollFade(body, open && anchor !== null);
   useEffect(() => {
     if (ask && front) setCheckCardOpen(place, true);
   }, [ask, front, place]);
@@ -539,10 +517,10 @@ function BadgeFrame({
         >
           <div
             ref={body}
-            className={cut ? "check-card-body scroll-fade" : "check-card-body"}
+            className="check-card-body scroll-fade"
             style={heldHeight !== null ? { height: heldHeight, overflowY: "auto" } : undefined}
           >
-            <div ref={content}>
+            <div>
               {children}
               {foot && (
                 <>

@@ -4,6 +4,7 @@ import { originMaps } from "../../shared/blockOrigins";
 import { fingerprintOfMind, transitionOfMind } from "../../shared/mindState";
 import {
   aiUseOfAccepted,
+  decisionsOn,
   outOfDateProposals,
   pendingProposals,
   type ResolvedProposal,
@@ -121,7 +122,12 @@ export function createAskedChanges(content: MindContent, options: AskedChangesOp
           const stale = outOfDateProposals(blocks);
           if (!pending.some((ref) => requests.has(ref.request) && !stale.has(ref.id))) return null;
           const picked = (ref: { request: string }) => requests.has(ref.request);
-          if (waitsForUser(doc, requests)) {
+          // Once the User has decided one of them, the rest is theirs to decide too (#2356).
+          const decided = [...requests].some((request) => {
+            const { accepted: yes, rejected: no } = decisionsOn(doc, request);
+            return yes + no > 0;
+          });
+          if (decided || waitsForUser(doc, requests)) {
             return {
               undoId,
               reviewBefore: new Uint8Array(),

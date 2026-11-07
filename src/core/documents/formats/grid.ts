@@ -84,6 +84,8 @@ export interface Workbook {
   layout?: WorkbookLayout;
   /** What its formulas need beyond its cells (#2347). */
   facts?: WorkbookFacts;
+  /** Relationships parts that couldn't be read; the rest was read without what they name. */
+  unreadable: string[];
 }
 
 const NUMERIC = /^[-+(]?[£$€¥]?\d[\d,.]*%?\)?$/;

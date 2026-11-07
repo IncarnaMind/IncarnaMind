@@ -699,6 +699,43 @@ export function textAround(
   return { before: lines(false), after: lines(true) };
 }
 
+/**
+ * The words of the parts a rewrite left out and kept (`LeftOutPart`), a line to a part, as they
+ * were: what stays because the text didn't speak of it, not what the text's own words leave out.
+ */
+export function leftOutText(
+  blocks: Y.XmlFragment,
+  parts: readonly LeftOutPart[],
+  request: string,
+): string {
+  const elements = new Map(
+    textBlocks(blocks).map(({ element }) => [element.getAttribute(BLOCK_ID_ATTRIBUTE), element]),
+  );
+  return parts
+    .map(({ blockId, from, to }) => {
+      const element = elements.get(blockId);
+      if (!element) return "";
+      let text = "";
+      let at = 0;
+      for (const { node, size } of layout(element)) {
+        if (!(node instanceof Y.XmlText)) {
+          at += size;
+          continue;
+        }
+        for (const run of node.toDelta() as Run[]) {
+          if (typeof run.insert !== "string") continue;
+          if (readProposalRef(run.attributes?.[PROPOSAL_INSERT_MARK])?.request === request)
+            continue;
+          const end = at + run.insert.length;
+          text += run.insert.slice(Math.max(0, from - at), Math.max(0, to - at));
+          at = end;
+        }
+      }
+      return text;
+    })
+    .join("\n");
+}
+
 /** About this many characters of the words around a selection are shown to the model. */
 const NEAR_CHARACTERS = 80;
 
@@ -2063,6 +2100,42 @@ const NEARLY_ALL = 0.9;
  */
 const TELLING_WORDS = 4;
 
+/** The share of the words only one paragraph has that a new one must say, or be made of, to read as it by likeness. */
+const HALF_ITS_OWN = 0.5;
+
+/**
+ * A word with a digit or a Chinese numeral, or a number written out: an amount, a date, a time
+ * or a number that names a line ("Room 102"). It says how much or which, not what a line is
+ * about. A pair of Chinese characters with a numeral in it is one ("月三", "十元").
+ */
+const isAmount = (word: string) =>
+  /[\d零〇一二三四五六七八九十百千万亿两]/u.test(word) ||
+  /^(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|billion)(?:-[a-z]+)?$/.test(
+    word,
+  );
+
+/**
+ * Whether a new paragraph says the same words as `segment` but other numbers: "Room 103 is
+ * booked." for "Room 102 is booked.", "2026 revenue…" for "2025 revenue…". Whether it rewrites
+ * that line or is a new one beside it can't be told, so a reply without names over several
+ * paragraphs adds it (#2356).
+ */
+function onlyNumbersDiffer(segment: Segment, paragraph: NewParagraph): boolean {
+  const old = wordsOf(segment.tokens);
+  const now = wordsOf(paragraph.tokens);
+  const rest = (words: readonly string[]) => words.filter((word) => !isAmount(word)).join("\n");
+  return old.join("\n") !== now.join("\n") && rest(old) === rest(now);
+}
+
+/** A paragraph's text as it reads: its spaces kept, as one between words, so "Now here." is not "Nowhere.". */
+function readText(tokens: readonly { text?: string }[]): string {
+  return tokens
+    .map((token) => token.text ?? "")
+    .join("")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 /** A paragraph's words and signs as compared with a quote: no spaces, any case, each character where it is in its Block. */
 function charsOf(tokens: readonly OldToken[]): { chars: string; at: number[] } {
   let chars = "";
@@ -2250,9 +2323,12 @@ export function proposeRewrite(
   request: string,
   newId: () => string,
   fresh: ReadonlyMap<number, Attributes> = new Map(),
-  { named = false }: { named?: boolean } = {},
+  { named = false, removesOnly = false }: { named?: boolean; removesOnly?: boolean } = {},
 ): Written {
-  const rewrite = createRewriteStream(selection, request, newId, () => fresh, { named });
+  const rewrite = createRewriteStream(selection, request, newId, () => fresh, {
+    named,
+    removesOnly,
+  });
   rewrite.write(text, true);
   rewrite.finish();
   const written = rewrite.written();
@@ -2330,7 +2406,13 @@ export function createRewriteStream(
   {
     leftOut: onLeftOut = "remove",
     named = false,
-  }: { leftOut?: "keep" | "remove"; named?: boolean } = {},
+    removesOnly = false,
+  }: {
+    leftOut?: "keep" | "remove";
+    named?: boolean;
+    /** The request asks only for text to go (#2356). */
+    removesOnly?: boolean;
+  } = {},
 ) {
   const { proposals, next } = proposalsOf(request, newId);
   const notes = notesOf();
@@ -2353,27 +2435,71 @@ export function createRewriteStream(
     ]),
   );
   const indexOf = new Map(segments.map((segment, index) => [segment, index]));
+  /** Over one paragraph, a new line that differs from it only in its numbers can only mean that one. */
+  const numbersOnly = (segment: Segment, paragraph: NewParagraph) =>
+    segments.length > 1 && onlyNumbersDiffer(segment, paragraph);
   const sameAs = segments.map((segment) => charsOf(segment.tokens).chars);
+  const texts = segments.map((segment) => readText(segment.tokens));
   /**
    * How alike a new paragraph is to each of the selection's, whether it says words of that one's
-   * own, how much of it is that one's words, and how many words it has.
+   * own, what share of them (1 for one with none) and what share of its own words they are, how
+   * much of it is that one's words, and how many words it has.
    */
   const nearness = new WeakMap<
     NewParagraph,
-    { alike: number[]; own: boolean[]; cover: number[]; words: number }
+    {
+      alike: number[];
+      own: boolean[];
+      ownShare: number[];
+      ofOwn: number[];
+      cover: number[];
+      words: number;
+    }
   >();
   const nearnessOf = (paragraph: NewParagraph) => {
     const known = nearness.get(paragraph);
     if (known) return known;
     const words = wordsOf(paragraph.tokens);
+    const telling = new Set(words.filter((word) => !isAmount(word)));
+    const ownSaid = segments.map((segment) => {
+      const own = [...(ownWords.get(segment) ?? [])].filter((word) => !isAmount(word));
+      return { said: own.filter((word) => telling.has(word)).length, of: own.length };
+    });
     const found = {
       alike: segments.map((segment) => placeLikeness(segment, paragraph)),
       own: segments.map((segment) => words.some((word) => ownWords.get(segment)?.has(word))),
+      ownShare: ownSaid.map(({ said, of }) => (of === 0 ? 1 : said / of)),
+      ofOwn: ownSaid.map(({ said }) => (telling.size === 0 ? 0 : said / telling.size)),
       cover: segments.map((segment) => covered(paragraph.tokens, segment.tokens)),
       words: words.length,
     };
     nearness.set(paragraph, found);
     return found;
+  };
+  /**
+   * Says more than half of the words only this paragraph has, or is made at least half of them,
+   * amounts left out of both (Chinese words as pairs of characters, as `wordsOf` reads them).
+   */
+  const saysItsOwn = (segment: Segment, paragraph: NewParagraph) => {
+    const { ownShare, ofOwn } = nearnessOf(paragraph);
+    const index = indexOf.get(segment) ?? -1;
+    return (ownShare[index] ?? 0) > HALF_ITS_OWN || (ofOwn[index] ?? 0) >= HALF_ITS_OWN;
+  };
+  /**
+   * Whether anything can say a new paragraph is this one of the selection's rather than one added
+   * beside it: this is the selection's first, which takes the text's first (#2333); it has words
+   * no other has, amounts left out; or the new one reads as it, word for word. One with none, each
+   * of its words also in another's, can't be told from a line added there, however alike, or
+   * however much of it the line says (#2356). Every rule that lets a new paragraph take one of the
+   * selection's places, or read as one moved, asks this first.
+   */
+  const mayTakePlace = (segment: Segment, paragraph: NewParagraph) => {
+    const index = indexOf.get(segment) ?? -1;
+    return (
+      index === 0 ||
+      [...(ownWords.get(segment) ?? [])].some((word) => !isAmount(word)) ||
+      readText(paragraph.tokens) === texts[index]
+    );
   };
   /** Much like one of the selection's paragraphs, whichever it is. */
   const resembles = (paragraph: NewParagraph) =>
@@ -2384,13 +2510,23 @@ export function createRewriteStream(
    * rewrite of the paragraph); or, as a summary of it is, made of nearly all its words and of no
    * other's, in at least `TELLING_WORDS` of them (#2333). One that would `standIn` for a Block
    * of another kind, which it can't pair with, must also say no word only another paragraph has:
-   * a summary, or a table, that names several takes none of them out.
+   * a summary, or a table, that names several takes none of them out. Read as it by likeness, it
+   * must also say more than half of the words only that one has, or be at least half made of them,
+   * as a short summary of a long paragraph is, amounts left out of both: a new line on the others'
+   * pattern shares their shape and maybe an amount, not what they are about. "网费每月30元。"
+   * shares only "费每" and "30" with "水费每月30元。" (#2356). A name is checked against likeness
+   * alone (`ownWords: false`): refusing fails closed.
    */
   const readsAs = (
     segment: Segment,
     paragraph: NewParagraph,
-    { standIn = false, least = MOVED_LIKENESS }: { standIn?: boolean; least?: number } = {},
+    {
+      standIn = false,
+      least = MOVED_LIKENESS,
+      ownWords: saysOwn = true,
+    }: { standIn?: boolean; least?: number; ownWords?: boolean } = {},
   ) => {
+    if (saysOwn && !mayTakePlace(segment, paragraph)) return false;
     const { alike, own, cover, words } = nearnessOf(paragraph);
     const index = indexOf.get(segment) ?? -1;
     const mine = alike[index] ?? 0;
@@ -2403,7 +2539,9 @@ export function createRewriteStream(
           (beaten(at) && (!standIn || own[at] !== true)),
       );
     return (
-      (mine >= least && rivals((at) => (alike[at] ?? 0) <= mine - CLEARLY_MORE)) ||
+      (mine >= least &&
+        (!saysOwn || saysItsOwn(segment, paragraph)) &&
+        rivals((at) => (alike[at] ?? 0) <= mine - CLEARLY_MORE)) ||
       (words >= TELLING_WORDS &&
         (cover[index] ?? 0) >= NEARLY_ALL &&
         rivals((at) => (cover[at] ?? 0) < NEARLY_ALL))
@@ -2423,6 +2561,8 @@ export function createRewriteStream(
   let anchored = false;
   /** How many of the new text's paragraphs were paired with the selection's. */
   let pairedSoFar = 0;
+  /** Each new paragraph the text wrote in a paragraph's place, with that paragraph. */
+  const inPlaceOf: { segment: Segment; paragraph: NewParagraph }[] = [];
   /** A new paragraph was written, paired or added: where the next goes follows it. */
   let placedAny = false;
   /** Paragraphs like none of the selection's at all, before any was much like one. */
@@ -2430,6 +2570,8 @@ export function createRewriteStream(
   /** Two were like none: the text is written anew, and each pairs in order. */
   let anew = false;
   const kept: Segment[] = [];
+  /** Kept paragraphs a quote took words out of: the text spoke of them, so none is left out. */
+  const quotedOutOf = new Set<Segment>();
   /** Of the selection's paragraphs, those new ones stand in for: they go, even when left-out ones are kept. */
   const replaced = new Set<Segment>();
   /** The new text's finished paragraphs so far. */
@@ -2517,6 +2659,11 @@ export function createRewriteStream(
   const pairWith = (paragraph: NewParagraph, index: number) => {
     const segment = segments[index];
     if (!segment || droppedTypedTag) return;
+    // A new line that differs from this one only in its numbers is added, paired by likeness or by place.
+    if (keeps && numbersOnly(segment, paragraph)) {
+      addNew(paragraph);
+      return;
+    }
     if (dropsTypedTag(segment, paragraph)) {
       droppedTypedTag = true;
       return;
@@ -2530,6 +2677,7 @@ export function createRewriteStream(
     at = index + 1;
     pairedSoFar++;
     placedAny = true;
+    inPlaceOf.push({ segment, paragraph });
   };
 
   const addNew = (paragraph: NewParagraph) => {
@@ -2565,8 +2713,9 @@ export function createRewriteStream(
     // (#2333). A place says which paragraph a new one is only in a stretch of as many new ones as
     // old, each written as their kind. Between two places the text holds, where it pairs with
     // the selection's paragraphs or starts as the selection does, that is one in the place of
-    // one, or several each more than half like the one in its place, since a stray line such as
-    // "Changed to:" beside a new one names none. After the last (a partial text stops early, so
+    // one that says more than half of that one's own words, or several each more than half like
+    // the one in its place, since a stray line such as "Changed to:" beside a new one names none,
+    // and a new line on the pattern of the two around it says nothing of the one between (#2356). After the last (a partial text stops early, so
     // its end holds no place), each must also say in its words which it is: `TELLING_WORDS` of
     // them, somewhat like it and clearly more than like any other. So does a text that rewrites
     // every paragraph, none of its own much like one of the selection's (a translation). Any
@@ -2575,11 +2724,14 @@ export function createRewriteStream(
       held.length === between.length &&
       held.every((paragraph) => !paragraph.asOther) &&
       (bounded
-        ? held.length === 1 ||
-          held.every(
-            (paragraph, index) =>
-              placeLikeness(between[index] as Segment, paragraph) > MOVED_LIKENESS,
-          )
+        ? held.length === 1
+          ? mayTakePlace(between[0] as Segment, held[0] as NewParagraph) &&
+            saysItsOwn(between[0] as Segment, held[0] as NewParagraph)
+          : held.every(
+              (paragraph, index) =>
+                mayTakePlace(between[index] as Segment, paragraph) &&
+                placeLikeness(between[index] as Segment, paragraph) > MOVED_LIKENESS,
+            )
         : held.every(
             (paragraph, index) =>
               nearnessOf(paragraph).words >= TELLING_WORDS &&
@@ -2706,7 +2858,7 @@ export function createRewriteStream(
       (other, at) =>
         at !== index &&
         !namedSoFar.has(at) &&
-        readsAs(other, paragraph, { least: COUNTERPART_LIKENESS }),
+        readsAs(other, paragraph, { least: COUNTERPART_LIKENESS, ownWords: false }),
     );
 
   /** A heading named and written as something else: a model's own sentence about it, as "¶1 is a heading…" (#2356). */
@@ -2795,6 +2947,22 @@ export function createRewriteStream(
     if (!moved) lastInPlace = index;
   };
 
+  const partsOf = (chosen: readonly Segment[]): LeftOutPart[] =>
+    chosen.flatMap((segment) => {
+      const blockId = segment.element.getAttribute(BLOCK_ID_ATTRIBUTE);
+      return typeof blockId === "string"
+        ? [
+            {
+              blockId,
+              from: segment.start,
+              to: segment.end,
+              whole: segment.whole,
+              kind: kindOf(segment.element),
+            },
+          ]
+        : [];
+    });
+
   /** New paragraphs that came before any the text names, when it names none: after the selection's last. */
   const placeComingFirst = () => {
     const last = segments.at(-1);
@@ -2819,7 +2987,9 @@ export function createRewriteStream(
         (paragraph) =>
           (paragraph.kind === null || paragraph.kind === segment.kind) &&
           placeLikeness(segment, paragraph) >= MOVED_LIKENESS &&
-          covered(segment.tokens, paragraph.tokens) >= NEARLY_ALL,
+          covered(segment.tokens, paragraph.tokens) >= NEARLY_ALL &&
+          !numbersOnly(segment, paragraph) &&
+          mayTakePlace(segment, paragraph),
       );
       if (again < 0) continue;
       const [movedTo] = said.splice(again, 1);
@@ -2873,8 +3043,10 @@ export function createRewriteStream(
         while (taken[end]) end++;
         const from = at[first] ?? segment.start;
         const part = partOf(segment, from, (at[end - 1] ?? from) + 1);
-        if (part) removePart(segment, part);
-        else {
+        if (part) {
+          removePart(segment, part);
+          quotedOutOf.add(segment);
+        } else {
           const start = first;
           unplaced.push(
             ...places
@@ -3137,6 +3309,28 @@ export function createRewriteStream(
           onlyAside = true;
           aside.push(...addedAnew.map((paragraph) => plainWords(paragraph.tokens)));
         }
+        // Asked only to take text out, a text that names none and writes in paragraphs' places
+        // without saying their own words is talking too: a removal never writes mostly new text,
+        // so "The sentence isn't in the passage." is its words, never the Note's (#2356).
+        const talksOverRemoval =
+          !talks &&
+          removesOnly &&
+          named &&
+          byName === false &&
+          quotes.length === 0 &&
+          inPlaceOf.length > 0 &&
+          inPlaceOf.every(
+            ({ segment, paragraph }) => isPlain(paragraph) && !saysItsOwn(segment, paragraph),
+          ) &&
+          addedAnew.every(isPlain);
+        if (talksOverRemoval) {
+          onlyAside = true;
+          aside.push(
+            ...[...inPlaceOf.map(({ paragraph }) => paragraph), ...addedAnew].map((paragraph) =>
+              plainWords(paragraph.tokens),
+            ),
+          );
+        }
       }),
 
     /** The Proposals written so far. */
@@ -3159,22 +3353,22 @@ export function createRewriteStream(
       added: notes.characters.added,
     }),
 
-    /** The paragraphs the text left out and are kept; none for a text that names its own, which leaves the others as they are. */
+    /**
+     * The paragraphs the text left out and are kept; none for a text that names its own, which
+     * leaves the others as they are, nor for one that only quotes what goes (#2356).
+     */
     leftOut: (): LeftOutPart[] =>
-      (byName ? [] : kept).flatMap((segment) => {
-        const blockId = segment.element.getAttribute(BLOCK_ID_ATTRIBUTE);
-        return typeof blockId === "string"
-          ? [
-              {
-                blockId,
-                from: segment.start,
-                to: segment.end,
-                whole: segment.whole,
-                kind: kindOf(segment.element),
-              },
-            ]
-          : [];
-      }),
+      partsOf(
+        byName || seen.length === 0 ? [] : kept.filter((segment) => !quotedOutOf.has(segment)),
+      ),
+
+    /** The paragraphs a text that names its own didn't name or quote, which stay as they were. */
+    unnamed: (): LeftOutPart[] =>
+      partsOf(
+        byName
+          ? kept.filter((segment) => !quotedOutOf.has(segment) && !unchangedNamed.has(segment))
+          : [],
+      ),
 
     /** Where the next paragraph goes; null with no place for any. */
     writingAt(): RewritePlace | null {

@@ -94,6 +94,7 @@ import { createCiting } from "./answers/citing";
 import { readMind } from "./answers/context";
 import type { AnswerSearchOptions } from "./answers/engine";
 import type { LiveTranscript } from "./answers/liveTranscript";
+import { explicitWalledFolderScope } from "./answers/scopeLine";
 import {
   type AddDocumentsResult,
   type AnswerPlace,
@@ -1528,18 +1529,9 @@ export function createCore(adapters: CoreAdapters): Core {
     const walled = library.folders().filter((folder) => folder.keepInside);
     const own = mindId !== null && mindExists(mindId) ? minds.get(mindId).folderId : null;
     const ownWall = own === null ? null : library.wallOf(own);
-    const wallIds = new Set(
-      wanted.folderIds.flatMap((id) => {
-        const wall = library.wallOf(id);
-        return wall === null ? [] : [wall];
-      }),
+    const explicitFolderScope = explicitWalledFolderScope(wanted, mindId, (id) =>
+      id === null ? null : library.wallOf(id),
     );
-    const explicitFolderScope =
-      mindId === null &&
-      wallIds.size === 1 &&
-      wanted.folderIds.every((id) => library.wallOf(id) !== null) &&
-      wanted.tagIds.length === 0 &&
-      wanted.documentIds.length === 0;
     if (ownWall !== null || explicitFolderScope) {
       return resolveSearchScope(ownWall !== null ? constrainedScope(wanted, mindId) : wanted, {
         folderTree: (folderId) => folders.subtree(folderId),
@@ -2308,9 +2300,13 @@ export function createCore(adapters: CoreAdapters): Core {
         if (question) events.emit("conversation.message", question);
         return question;
       },
-      restartAnswer: (answerId, answerModel, read, emit = true) => {
-        const turn = conversations.restartAnswer(answerId, answerModel, read);
-        if (emit) events.emit("conversation.message", turn.answer);
+      restartAnswer: (answerId, answerModel, read, emit = true, origin) => {
+        const turn = conversations.restartAnswer(answerId, answerModel, read, origin);
+        if (emit) {
+          // An origin and the Answer it resets were written together: both changed at once.
+          if (origin) events.emit("conversation.message", turn.question);
+          events.emit("conversation.message", turn.answer);
+        }
         return turn;
       },
       writeAnswer: (answerId, write) => {
@@ -2334,6 +2330,13 @@ export function createCore(adapters: CoreAdapters): Core {
     workingCopyOf: (mindId) => wordImports.importedAsOf(mindId),
     searchedScope,
     mindFolder: (mindId) => (mindExists(mindId) ? minds.get(mindId).folderId : null),
+    scopeItemName,
+    libraryFolders: () =>
+      library.folders().map((folder) => ({
+        id: folder.id,
+        name: folder.name,
+        keepInside: folder.keepInside,
+      })),
     walledFolder,
     walledFolderId,
     walledDocuments,
@@ -5112,6 +5115,7 @@ export function createCore(adapters: CoreAdapters): Core {
           mind: { id: mindId, folderId: minds.get(mindId).folderId },
           focus: null,
           scope: null,
+          folderInFront: null,
           model: null,
           forcedSkill: null,
           analyse: false,

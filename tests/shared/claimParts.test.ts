@@ -83,6 +83,18 @@ const mark = (parts?: ClaimCheckPart[]): ClaimCheckAttributes => ({
 });
 
 describe("ordered claim part codec", () => {
+  // protects=a part's evidence keeps the next page its Answer's quoted words ran on to (#2504), as the Citation it copies does, through the mark's codec; fails_when=the codec drops it, or reads a part with it as broken; no_claim=how the card shows it.
+  test("keeps the page a supported part's quoted words ran on to", () => {
+    const evidence: Citation = {
+      ...source(),
+      quotedWords: { runsOnTo: { kind: "page", from: 2, to: 2 } },
+    };
+    const kept = partWithResult(plan, { ...result(), evidence });
+    const read = readClaimParts(JSON.parse(JSON.stringify([kept])), "Revenue rose.");
+    expect(read).toEqual([kept]);
+    expect(read?.[0]).toMatchObject({ evidence: [{ quotedWords: evidence.quotedWords }] });
+  });
+
   // protects=a supported part keeps the card's line naming the Document clause that says which dollar it is, through the mark's codec and into the sentence's result (#2226); fails_when=the line is dropped or read from a non-string; no_claim=the card's wording.
   test("keeps the line that says which dollar a supported part is in", () => {
     const clause =
