@@ -326,6 +326,26 @@ describe("Which text is tool-call text", () => {
       expect(takeToolText(kept).text).toBe(kept);
   });
 
+  // protects=a cite tag whose attribute holds the records is a block, its records come back whichever quote it uses, and a tag whose attribute holds no JSON stays; fails_when=the records are lost and every sentence they back reads as uncited (a meeting fill then drops every item), or prose with a tag loses words; no_claim=none beyond protects.
+  test("a tag whose attribute holds the records is a block too", () => {
+    const records = [
+      { marker: 1, passage: "P1", location: "0:05", quote: "这样的话，一年两万八千八百元。" },
+      { marker: 2, passage: "P1", location: "0:09", quote: "It's agreed." },
+    ];
+    const written = [
+      "电梯维保一年两万八千八百元[^1]。",
+      "",
+      `<cite citations='${JSON.stringify(records)}'></cite>`,
+    ].join("\n");
+    expect(takeToolText(written)).toEqual({ text: "电梯维保一年两万八千八百元[^1]。", records });
+    const escaped = `So it is [^2]. <cite records="${JSON.stringify(records).replace(/"/g, "&quot;")}" /> Done.`;
+    expect(takeToolText(escaped)).toEqual({ text: "So it is [^2]. Done.", records });
+    const doubled = `A [^2].\n\n<cite citations="${JSON.stringify(records)}">\n</cite>`;
+    expect(takeToolText(doubled)).toEqual({ text: "A [^2].", records });
+    for (const kept of ['Use <cite title="a">words</cite> here.', "The <cite id='x'> tag."])
+      expect(takeToolText(kept).text).toBe(kept);
+  });
+
   // protects=two blocks side by side on a line leave the line and paragraph breaks after them; fails_when=the next line is joined to the sentence; no_claim=none beyond protects.
   test("blocks side by side keep the breaks after them", () => {
     expect(takeToolText('S.<cite>[{"a":1}]</cite><cite>[{"a":2}]</cite>\n- item').text).toBe(
@@ -372,6 +392,14 @@ describe("Which text is tool-call text", () => {
     expect(heldBackFrom('```\n<tool_call>{"name": "x"')).toBe(
       '```\n<tool_call>{"name": "x"'.length,
     );
+  });
+
+  // protects=a cite tag still being written, or one whose attribute is starting its records, is held back while the reply streams; fails_when=the tag shows for a moment; no_claim=none beyond protects.
+  test("held back from a tag whose attributes are still being written", () => {
+    expect(heldBackFrom("Price [^1]. <cite citat")).toBe(12);
+    expect(heldBackFrom("Price [^1]. <cite citations='[{\"mar")).toBe(12);
+    expect(heldBackFrom("价格[^1]。<cite citations=")).toBe(7);
+    expect(heldBackFrom("Use the <cite element.\nMore.")).toBe(28);
   });
 });
 

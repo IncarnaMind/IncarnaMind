@@ -121,3 +121,31 @@ test("the log learns why each item was left out, and the missing overview, never
   expect(ledger.omittedReasons(true)).toEqual({ citationNotFound: 2, overview: 1 });
   expect(ledger.omittedReasons(false)).toEqual({ citationNotFound: 2 });
 });
+
+test("a fact may replace one written after it in the same reply", () => {
+  const ledger = createFactLedger();
+  const decision = fact("P1_F1", "最终定一位摄影师全天跟拍，九千八百元。", ["P1_F2"]);
+  const proposal = fact("P1_F2", "对方先推荐两位摄影师的方案，一万五千八百元。");
+  ledger.accept(reply([decision, proposal]));
+  expect(ledger.facts).toEqual([decision]);
+  expect(ledger.omitted(false)).toBe(0);
+  ledger.accept(reply([proposal]));
+  expect(ledger.facts).toEqual([decision]);
+});
+
+test("a fact replacing one left out for its Citation is kept", () => {
+  const ledger = createFactLedger();
+  const decision = fact("P1_F1", "The final price is 13 dollars a box.", ["P1_F2"]);
+  ledger.accept(reply([decision], ["P1_F2"]));
+  expect(ledger.facts).toEqual([decision]);
+  expect(ledger.omitted(false)).toBe(0);
+});
+
+test("a fact naming an id no reply has given is still left out", () => {
+  const ledger = createFactLedger();
+  const decision = fact("P1_F1", "The final price is 13 dollars a box.", ["P1_F9"]);
+  const other = fact("P1_F2", "Dev photographs the boxes by 9 March.");
+  ledger.accept(reply([decision, other]));
+  expect(ledger.facts).toEqual([other]);
+  expect(ledger.omittedReasons(false)).toEqual({ supersedes: 1 });
+});

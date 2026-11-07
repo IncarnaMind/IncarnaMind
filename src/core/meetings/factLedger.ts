@@ -32,24 +32,33 @@ export function createFactLedger() {
       }
       invalidFrames += reply.invalidFrames;
       overview ??= reply.overview;
-      for (const fact of reply.facts) {
+      const fresh = reply.facts.filter((fact) => {
         const before = accepted.get(fact.id);
-        if (before) {
-          if (facts.has(fact.id) && JSON.stringify(before) !== JSON.stringify(fact))
-            omitted.set(fact.id, "changed");
-          continue;
-        }
-        if (fact.supersedes.some((id) => id === fact.id || !facts.has(id))) {
-          omitted.set(fact.id, "supersedes");
-          continue;
-        }
-        for (const id of fact.supersedes) {
-          facts.delete(id);
-          omitted.delete(id);
-        }
+        if (before && facts.has(fact.id) && JSON.stringify(before) !== JSON.stringify(fact))
+          omitted.set(fact.id, "changed");
+        return !before;
+      });
+      // A fact may replace one written after it in the same reply, or one left out: the ids are
+      // read whole, before any fact is kept.
+      const known = (id: string) =>
+        accepted.has(id) ||
+        omitted.has(id) ||
+        fresh.some((fact) => fact.id === id) ||
+        reply.omittedIds.includes(id);
+      const kept = fresh.filter((fact) => {
+        if (fact.supersedes.every((id) => id !== fact.id && known(id))) return true;
+        omitted.set(fact.id, "supersedes");
+        return false;
+      });
+      const replaced = new Set(kept.flatMap((fact) => fact.supersedes));
+      for (const fact of kept) {
         accepted.set(fact.id, fact);
-        facts.set(fact.id, fact);
+        if (!replaced.has(fact.id)) facts.set(fact.id, fact);
         omitted.delete(fact.id);
+      }
+      for (const id of replaced) {
+        facts.delete(id);
+        omitted.delete(id);
       }
     },
   };
