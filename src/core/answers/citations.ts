@@ -523,30 +523,36 @@ function versionOf(documents: RecheckDocuments, documentId: string, contentHash:
 type Rechecked = Pick<CitationToRecheck, "documentId" | "quote" | "pageFrom" | "pageTo">;
 
 /**
- * Words in quotation marks read for comparing with a Document's name (#2504), in lower case. A mark
- * a file name can't hold or leaves out reads as a space between words, and none beside CJK, which
- * writes none. A figure keeps its marks and words keep their spaces: "-5%" is never "5%", "€12.5"
- * never "£12.5", "12.5" never "125" and "now here" never "nowhere".
+ * Words in quotation marks read for comparing with a Document's name (#2504), in lower case, so
+ * that no other figure or words ever equal the name. Letters, digits and symbols stay, and so does
+ * a mark a digit reaches through other marks: "-5%", "<5%", ".25", "30°" and "(1,250)" keep theirs,
+ * and a minus spaced from its figure is closed up. Any other mark, one a file name can't hold or
+ * leaves out, reads as a space between words, and none is kept beside CJK, which writes none.
  */
 const nameWords = (text: string) =>
   text
     .normalize("NFKC")
     .toLowerCase()
     .replace(/[\p{Pd}\u2212]/gu, "-")
+    .replace(/[‘’]/gu, "'")
     .replace(NO_FIGURE_MARK, " ")
     .replace(/ +/gu, " ")
+    .replace(/- (?=\p{N})/gu, "-")
     .replace(BESIDE_CJK, "")
     .trim();
+// A sentence's stop joins a figure only before a digit, a dash only as a minus before one, and "_",
+// a file name's space, never.
 const NO_FIGURE_MARK =
-  /(?<!\p{N})[.,:/'’٫٬]|[.,:/'’٫٬](?!\p{N})|-(?!\p{N})|[^\p{L}\p{M}\p{N}\p{Sc}%‰‱±+.,:/'’٫٬-]/gu;
+  /_|[.,:;!?。、](?!\p{N})|-(?! ?\p{N})|(?<!\p{N}[\p{P}\p{S}]*)(?![.,:;!?。、_%‰‱-])\p{P}(?![\p{P}\p{S}]*\p{N})|[^\p{L}\p{M}\p{N}\p{S}\p{P}]/gu;
 const BESIDE_CJK = new RegExp(`(?<=[${CJK}]) | (?=[${CJK}])`, "gu");
 
 /**
  * The ways a Document's name, as the app shows it, is read for a name in quotation marks (#2504):
  * whole, and each whole part at a separator. An extension the app adds files by is taken off,
  * and it splits at " - ", " – ", " — ", "|", "｜", "－", "—", "―" and "_", and at "-" or "–" next
- * to a CJK character, never inside a Latin word ("Cooling-off"). A middle dot doesn't split: it
- * joins a name ("安娜·米勒").
+ * to a CJK character, never inside a Latin word ("Cooling-off") and never at a dash a digit
+ * follows, which is a minus sign ("同比-5%"). A middle dot doesn't split: it joins a name
+ * ("安娜·米勒").
  */
 function nameKeys(name: string): Set<string> {
   const extension = name.match(/\.([A-Za-z0-9]+)$/u)?.[1]?.toLowerCase();
@@ -558,7 +564,7 @@ function nameKeys(name: string): Set<string> {
   return new Set([name, bare, ...parts].map(nameWords).filter((key) => key !== ""));
 }
 const NAME_SEPARATOR = new RegExp(
-  `\\s[-–—―]\\s|[|｜－—―_]|(?<=[${CJK}])[-–]|[-–](?=[${CJK}])`,
+  `\\s[-–—―]\\s|[|｜_]|[－—―](?!\\p{N})|(?<=[${CJK}])[-–](?!\\p{N})|[-–](?=[${CJK}])`,
   "u",
 );
 

@@ -157,7 +157,7 @@ describe.each(Object.keys(CASES) as Language[])(
 const quoting = (language: Language, words: string) =>
   language === "en" ? `The record says “${words}” [^1].` : `记录写道“${words}”[^1]。`;
 
-// protects=a name is compared with its figures' marks and its words' spaces kept, and only an extension files are added with is cut, so quoted words that differ from the name only in a figure's mark or a space are quoted words the page lacks, not a name (#2504); fails_when=a decimal point, a thousands comma, a sign, a currency, a per-mille sign or a space between words is dropped, or a ".5" is taken for an extension, and the words read as the name; no_claim=the same figure written another way, which reads not found too.
+// protects=a name is compared with its figures' marks and its words' spaces kept, and only an extension files are added with is cut, so quoted words that differ from the name only in a figure's mark or a space are quoted words the page lacks, not a name (#2504); fails_when=a decimal point (before a digit too), a thousands comma, a sign (spaced too), a currency, a comparison, a degree, a per-mille sign or a space between words is dropped, or a ".5" is taken for an extension, and the words read as the name; no_claim=the same figure written another way, which reads not found too.
 test.each([
   ["en", "Revenue grew 12.5 percent.pdf", "revenue grew 125 percent"],
   ["en", "Margin rose to 3,500 tonnes.pdf", "margin rose to 3500 tonnes"],
@@ -166,6 +166,11 @@ test.each([
   ["en", "Budget of €12.5 million approved.pdf", "Budget of £12.5 million approved"],
   ["en", "Default rate 1.5‰ in 2024.pdf", "Default rate 1.5% in 2024"],
   ["en", "The water is now here - Audited.pdf", "The water is nowhere"],
+  ["en", "Fed cuts rates by .25 points - Briefing.pdf", "Fed cuts rates by 25 points"],
+  ["en", "Defect rate <5% in every plant.pdf", "Defect rate >5% in every plant"],
+  ["en", "Defect rate ≤5% in every plant.pdf", "Defect rate ≥5% in every plant"],
+  ["en", "Water heated to 30° in the tank.pdf", "Water heated to 30 in the tank"],
+  ["en", "Margin fell − 5% in 2024.pdf", "Margin fell 5% in 2024"],
   ["zh", "营业收入增长12.5%.pdf", "营业收入增长125%"],
   ["zh", "全年销量达到3,500吨.pdf", "全年销量达到3500吨"],
   ["zh", "全年营业收入增长12.5.pdf", "全年营业收入增长12"],
@@ -173,6 +178,11 @@ test.each([
   ["zh", "年度预算为￥12.5万元.pdf", "年度预算为$12.5万元"],
   ["zh", "全年违约率为1.5‰.pdf", "全年违约率为1.5%"],
   ["zh", "系统记录显示 now here 两个词－Audited.pdf", "系统记录显示 nowhere 两个词"],
+  ["zh", "央行降息.25个百分点.pdf", "央行降息25个百分点"],
+  ["zh", "各工厂缺陷率<5%.pdf", "各工厂缺陷率>5%"],
+  ["zh", "各工厂缺陷率≤5%.pdf", "各工厂缺陷率≥5%"],
+  ["zh", "储水罐水温加热到30°.pdf", "储水罐水温加热到30"],
+  ["zh", "全年营业利润率下降− 5%.pdf", "全年营业利润率下降5%"],
 ] as const)(
   "a name with figures or words (%s, %s): other figures or words in quotation marks are not the name",
   async (language, name, words) => {
@@ -181,19 +191,29 @@ test.each([
   },
 );
 
-// protects=the positive beside them: the same name with the same figures is a name, and so is a title whose colon or full-width colon its file name leaves out (#2504); fails_when=a name's figure marks or a mark a file name can't hold make it quoted words the page lacks; no_claim=none beyond protects.
+// protects=the positive beside them: the same name with the same figures is a name, a sign spaced or not, and so is a title whose colon or full-width colon its file name leaves out (#2504); fails_when=a name's figure marks or a mark a file name can't hold make it quoted words the page lacks; no_claim=none beyond protects.
 test.each([
   ["en", "Q3 results - Operating margin fell -5% in 2024.pdf", "Operating margin fell -5% in 2024"],
   ["en", "Harbour review 2024 The final word.pdf", "Harbour review 2024: the final word"],
+  ["en", "Fed cuts rates by .25 points - Briefing.pdf", "Fed cuts rates by .25 points"],
+  ["en", "Defect rate <5% in every plant.pdf", "Defect rate <5% in every plant"],
+  ["en", "Water heated to 30° in the tank.pdf", "Water heated to 30° in the tank"],
+  ["en", "Margin fell − 5% in 2024.pdf", "Margin fell −5% in 2024"],
+  ["en", "Operating margin year on year—5%.pdf", "Operating margin year on year—5%"],
   ["zh", "营业利润率同比+5%.pdf", "营业利润率同比+5%"],
   ["zh", "港务局年度报告 第二部分.pdf", "港务局年度报告：第二部分"],
+  ["zh", "央行降息.25个百分点.pdf", "央行降息.25个百分点"],
+  ["zh", "各工厂缺陷率≤5%.pdf", "各工厂缺陷率≤5%"],
+  ["zh", "储水罐水温加热到30°.pdf", "储水罐水温加热到30°"],
+  ["zh", "全年营业利润率下降− 5%.pdf", "全年营业利润率下降−5%"],
+  ["zh", "营业利润率同比-5%.pdf", "营业利润率同比-5%"],
 ] as const)("the same name (%s, %s): a name", async (language, name, words) => {
   const citation = await citationOf(caseOf(language, name), quoting(language, words));
   expect(citation).toMatchObject(FOUND);
   expect(citation.quotedWords).toEqual({ name: words });
 });
 
-// protects=a part of a name is a name only as a whole part at a separator, never a piece of one (#2504); fails_when=a piece of a part, or of a name that doesn't split inside a Latin word, reads as the name; no_claim=none beyond protects.
+// protects=a part of a name is a name only as a whole part at a separator, never a piece of one, and a dash a digit follows is a minus sign, not a separator (#2504); fails_when=a piece of a part, of a name that doesn't split inside a Latin word, or the words before a figure's sign read as the name; no_claim=none beyond protects.
 test.each([
   [
     "en",
@@ -202,6 +222,8 @@ test.each([
   ],
   ["en", "Cooling-off notice for harbour tenants.pdf", "notice for harbour tenants"],
   ["zh", "港务局二〇二四年年度报告－定稿.pdf", "港务局二〇二四年年度"],
+  ["en", "Operating margin year on year—5%.pdf", "Operating margin year on year"],
+  ["zh", "营业利润率同比-5%.pdf", "营业利润率同比"],
 ] as const)(
   "a piece of a name (%s, %s): quoted words the page lacks, not a name",
   async (language, name, words) => {
