@@ -114,6 +114,7 @@ export function TaggingSettings() {
       core.on("library.changed", reload),
       core.on("chatReadiness.changed", reload),
       core.on("jev.changed", reload),
+      core.on("decisions.changed", reload),
       core.on("embedding.changed", reload),
     ];
     return () => {
@@ -397,6 +398,8 @@ function customName(
       return t("tagging.other.decision", { model: "Tev1, Clef-Flash" });
     case "jev":
       return "TypeSafe Jev";
+    case "decision":
+      return classifier.modelId;
   }
 }
 

@@ -13,6 +13,7 @@ import type {
   TaggingModels,
   TaggingRoute,
 } from "./library/types";
+import type { DecisionHost } from "./providers/catalog/decisions";
 import type { Localized } from "./providers/catalog/types";
 import type { UiUsageEvent } from "./usageEvents";
 
@@ -38,6 +39,7 @@ export type {
   TaggingModels,
   TaggingRoute,
 } from "./library/types";
+export type { DecisionHost } from "./providers/catalog/decisions";
 
 /**
  * The core's public interface: the only API the UI uses.
@@ -3406,6 +3408,34 @@ export interface TranscriptionServiceStatus {
 export interface TranscriptionServices {
   revision: number;
   services: TranscriptionServiceStatus[];
+}
+
+/** A host of decision models other than TypeSafe's Jev, as Settings › Models and the sorting picker list it (#1907). */
+export interface DecisionHostStatus {
+  host: DecisionHost;
+  name: Localized;
+  /** "provider": it uses the key of the chat provider `provider` (a catalog id); "own": a key of its own. */
+  key: "provider" | "own";
+  provider: string | null;
+  /** What else it asks for, and what is saved: Cloudflare's account ID, or the Model Studio workspace. */
+  account: { kind: "cloudflare-account" | "alibaba-workspace"; value: string | null } | null;
+  hasKey: boolean;
+  /** Its key and account are there: its models can be chosen. */
+  ready: boolean;
+  /** Best first. */
+  models: { id: string; name: string; maker: string }[];
+  /** Where Document text goes, once its account is known. */
+  service: ExternalService | null;
+  keyUrl: string;
+  pricingUrl: string;
+}
+
+export interface SetDecisionKeyInput {
+  host: DecisionHost;
+  /** A new key, for a host with its own; left out to keep the saved one. */
+  apiKey?: string;
+  /** Cloudflare's account ID or the Model Studio workspace; left out to keep the saved one. */
+  account?: string;
 }
 
 export interface SetTranscriptionKeyInput {
@@ -13131,6 +13161,17 @@ export interface CoreApi {
    */
   testJevConnection(input?: TestJevConnectionInput): Promise<ConnectionTestResult>;
 
+  /** The hosts of decision models other than Jev (#1907), and whether each can be used here. */
+  listDecisionHosts(): Promise<DecisionHostStatus[]>;
+  /**
+   * Keeps a decision model host's own key, and the account it asks for, once a question about a
+   * fixed text (nothing of the User's) shows the host accepts them. Throws `InvalidInputError` when
+   * it refuses them, and `LocalModeError` in Local mode; nothing is kept then.
+   */
+  setDecisionKey(input: SetDecisionKeyInput): Promise<DecisionHostStatus[]>;
+  /** Forgets what a decision model host keeps on this device: its own key and its account. */
+  removeDecisionKey(host: DecisionHost): Promise<DecisionHostStatus[]>;
+
   /** Connectors that are not deleted, in name order (ignoring case), each with its state. */
   listConnectors(): Promise<Connector[]>;
   /**
@@ -13761,6 +13802,8 @@ export interface CoreEvents {
   "copilot.changed": CopilotStatus;
   /** Jev was set up, changed or removed on this device. */
   "jev.changed": JevSettings;
+  /** A decision model host's key or account was kept or forgotten: the list as `listDecisionHosts` returns it. */
+  "decisions.changed": DecisionHostStatus[];
   /**
    * Skills were imported, duplicated, turned on or off, removed or restored:
    * the list as `listSkills` now returns it.
@@ -14143,6 +14186,9 @@ const methods: Record<CoreApiMethod, true> = {
   saveJevSettings: true,
   removeJevSettings: true,
   testJevConnection: true,
+  listDecisionHosts: true,
+  setDecisionKey: true,
+  removeDecisionKey: true,
   listConnectors: true,
   addConnector: true,
   getExamples: true,

@@ -112,6 +112,7 @@ import {
   type CoreEventSource,
   DEFAULT_MIND_KIND,
   DELETED_KINDS,
+  type DecisionHostStatus,
   type DeletedAgainRef,
   type DeletedItem,
   type Document,
@@ -337,6 +338,7 @@ import { migrate, openDatabase } from "./storage";
 import { createSuggestions } from "./suggestions";
 import { createTags, tagsOfDocument } from "./tags";
 import { chatClassifier, type TagClassifier } from "./tags/classify";
+import { createDecisionHosts } from "./tags/decisionHosts";
 import { mayBackgroundSend } from "./tags/held";
 import { createJevTagging, decisionModelTagger } from "./tags/jev";
 import { createRateLimitPause } from "./tags/rateLimit";
@@ -3370,6 +3372,16 @@ export function createCore(adapters: CoreAdapters): Core {
     signal: lifetime.signal,
     localOnly: () => embedding.localOnly(),
   });
+  // Decision models on other hosts (#1907): the same flows and consent as Jev, per host.
+  const decisionHosts = createDecisionHosts({
+    settings,
+    secrets,
+    consent,
+    providerKey: (catalogId) => chat.apiKeyOf(catalogId),
+    localOnly: () => embedding.localOnly(),
+    signal: lifetime.signal,
+    ...(adapters.decisionOrigins && { origins: adapters.decisionOrigins }),
+  });
   // Tagging on a plan goes gently, and waits while the plan's limit holds.
   const planPaceFor = (plan: Plan) =>
     createPlanPace({
@@ -3404,6 +3416,7 @@ export function createCore(adapters: CoreAdapters): Core {
       quickTasksModel: (answers) => chat.quickTasksModel(answers),
     },
     jev,
+    decisions: decisionHosts,
     localOnly: () => embedding.localOnly(),
     ollamaUrl: adapters.ollamaUrl ?? defaultOllamaUrl(),
     localModels: adapters.localModels ?? installedOllamaModels,
@@ -3476,6 +3489,8 @@ export function createCore(adapters: CoreAdapters): Core {
     switch (classifier.kind) {
       case "jev":
         return jev.prepare();
+      case "decision":
+        return decisionHosts.prepare(classifier.host, classifier.modelId);
       case "auto": {
         const model = await tagging.textDecisionModel(classifier.baseUrl);
         if (!model)
@@ -3519,6 +3534,7 @@ export function createCore(adapters: CoreAdapters): Core {
       const classifier = await tagging.resolve();
       if (!classifier) return false;
       if (classifier.kind === "jev") return jev.canRun();
+      if (classifier.kind === "decision") return decisionHosts.canRun(classifier.host);
       if (classifier.kind === "chat") {
         const readiness = await chat.readiness(classifier.choice, "tagging");
         return readiness.ready && readiness.consent !== "needed";
@@ -3530,6 +3546,7 @@ export function createCore(adapters: CoreAdapters): Core {
       if (!classifier || decisionModelElsewhere(classifier)) return false;
       if (embedding.localOnly() && tagging.service(classifier)) return false;
       if (classifier.kind === "jev") return jev.mightBeReady();
+      if (classifier.kind === "decision") return decisionHosts.mightBeReady(classifier.host);
       if (classifier.kind === "chat") return chat.mightBeReady("tagging", classifier.choice);
       return true;
     },
@@ -3583,6 +3600,7 @@ export function createCore(adapters: CoreAdapters): Core {
         case "ollama":
           return supportsLibraryImages(classifier.modelId) && classifier.usePageImages === true;
         case "jev":
+        case "decision":
           return false;
         case "chat": {
           const reader = chat.imageModel(classifier.choice);
@@ -3663,6 +3681,11 @@ export function createCore(adapters: CoreAdapters): Core {
         if (embedding.localOnly() && !prepared.local)
           throw new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
         return prepared;
+      }
+      if (classifier.kind === "decision") {
+        if (embedding.localOnly())
+          throw new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
+        return decisionHosts.prepareGroups(classifier.host, classifier.modelId, permit);
       }
       const { choice } = classifier;
       const ready = await chat.readiness(choice, "classification");
@@ -3896,6 +3919,14 @@ export function createCore(adapters: CoreAdapters): Core {
   };
   let lastAutomatic = library.settings().automatic;
 
+  /** A decision model host's key or account was kept or forgotten: say so, and Documents waiting may go on. */
+  const decisionsChanged = async (hosts: DecisionHostStatus[]) => {
+    if (lifetime.signal.aborted) return hosts;
+    events.emit("decisions.changed", hosts);
+    await dataFlowsChanged();
+    await taggingChanged();
+    return hosts;
+  };
   /** Jev was set up, changed or removed: say so, and Documents waiting may go on. */
   const jevChanged = async () => {
     const status = await jev.status();
@@ -4974,7 +5005,9 @@ export function createCore(adapters: CoreAdapters): Core {
 
   const routeOf = (classifier: TaggingClassifier): TaggingRoute => {
     const service = tagging.service(classifier);
-    return service ? { where: "cloud", service } : { where: "local" };
+    if (service) return { where: "cloud", service };
+    // A host without its account yet sends nowhere; it isn't on this computer.
+    return classifier.kind === "decision" ? { where: "none" } : { where: "local" };
   };
   const taggingModels = async (): Promise<TaggingModels> => {
     const hadModel = tagsWith() !== null;
@@ -6260,6 +6293,9 @@ export function createCore(adapters: CoreAdapters): Core {
       return jevChanged();
     },
     testJevConnection: (input) => loggingTest("jev")(jev.test(input)),
+    listDecisionHosts: () => decisionHosts.list(),
+    setDecisionKey: async (input) => decisionsChanged(await decisionHosts.setKey(input)),
+    removeDecisionKey: async (host) => decisionsChanged(await decisionHosts.removeKey(host)),
 
     listConnectors: async () => connectors.list(),
     addConnector: async (input) => {
