@@ -49,6 +49,7 @@ const QUOTES: readonly DocQuote[] = [
   },
   { page: "check", key: "citation.badge.cantCheck" },
   { page: "check", key: "citation.badge.pictureNotChecked" },
+  { page: "check", key: "citation.badge.checkPage" },
   { page: "check", key: "citation.quotedName" },
   { page: "check", key: "citation.meaning" },
   { page: "check", key: "aiStatement.citations.notFound" },
