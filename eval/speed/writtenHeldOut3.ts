@@ -36,7 +36,7 @@ const EN_TERMS = [
       "Changes and goods left behind",
       "Quillhaven may change these terms with written notice.",
       "Notwithstanding the rule on food, the Customer may store sealed tinned food in the unit.",
-      "Quillhaven may sell goods left in the unit after the licence ends, but only once it has written to the Customer twice.",
+      "Quillhaven may sell goods left behind, but only once it has written to the Customer twice.",
       "These terms are governed by the law of Scotland.",
     ],
   },
@@ -44,7 +44,7 @@ const EN_TERMS = [
 
 const ZH_TERMS = [
   {
-    lines: [
+    chineseLines: [
       "澄枫仓储储物单元许可条款",
       "本条款适用于澄枫仓储（澄枫）与储物单元许可证上所列人员（客户）。",
       "使用储物单元",
@@ -62,7 +62,7 @@ const ZH_TERMS = [
     ],
   },
   {
-    lines: [
+    chineseLines: [
       "变更与遗留物品",
       "澄枫可以书面通知变更本条款。",
       "尽管有关于食品的规定，客户可以在储物单元内存放密封罐头食品。",
@@ -170,9 +170,9 @@ const EN: readonly Third[] = [
     id: "w3-en-condition-sell",
     language: "en",
     kind: "condition",
-    sentence: "Quillhaven may sell goods left in the unit after the licence ends.",
+    sentence: "Quillhaven may sell goods the Customer leaves behind.",
     quote:
-      "Quillhaven may sell goods left in the unit after the licence ends, but only once it has written to the Customer twice.",
+      "Quillhaven may sell goods left behind, but only once it has written to the Customer twice.",
     expected: "not stated",
   },
   {
