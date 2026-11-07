@@ -629,6 +629,7 @@ export function createCore(adapters: CoreAdapters): Core {
     throw error;
   }
   const events = createEventHub();
+
   const knownSecrets = new Set<string>();
   // Logs what happens from here on, from the events: never the User's content.
   const activity = logActivity(events, adapters.log ?? silentLogger, knownSecrets);
@@ -2822,6 +2823,23 @@ export function createCore(adapters: CoreAdapters): Core {
 
   const checks = createChecks({
     language: () => settings.get().language,
+    // What a check reads of the Documents as it runs: their words, names and whether it may use
+    // them. Its scope, their Folders and Tags are taken when the run starts (#2532).
+    libraryState: () =>
+      JSON.stringify(
+        documents
+          .list()
+          .map((document) => [
+            document.id,
+            document.name,
+            document.title,
+            document.contentHash,
+            document.status,
+            document.notCited,
+            document.ownFile,
+            document.readHiddenSheets,
+          ]),
+      ),
     content,
     requireMind: (mindId) => {
       writableMind(mindId);
