@@ -15,6 +15,8 @@ Every flagged line of both arms in both runs is read by hand against its quotes.
 - If `today`'s real false-Supported rate is above `default-effort`'s in both runs, by more than either arm's own difference between its two runs, Haiku's cells go back to the provider's default effort in a pull request named for #2720.
 - If not, the numbers go on #2720 and low effort stays.
 
+*Read on 2026-11-07: `default-effort` 6 of 81 found Citations (7.4%) and 4 of 81 (4.9%); `today` 3 of 80 (3.8%) and 6 of 79 (7.6%). Low effort is lower in one run and higher in the other, within either arm's own difference between its runs (2.5 and 3.8 points), so the decision's line isn't met and low effort stays. The judge was wrong on 2 of the 29 flags, and 8 were borderline. Reported: expected Passages cited 65 → 64 and 64 → 64, judged right 57 → 55 and 59 → 58 (2 fewer allowed), every Citation found 65 and 65 on both arms, no duplicates and no item failed; the end 0.7 s and 0.8 s sooner at low effort (paired medians).*
+
 The other lines of #1631's gate (expected Passages cited, judged right, every Citation found, duplicates, items failing to run) and the times are reported.
 
 ## Spend
