@@ -14,7 +14,7 @@ import type { JSONContent } from "@tiptap/core";
 import { type Core, type Document, messageReference } from "../../src/core";
 import { pageBlocks } from "../../src/shared/answerBlocks";
 import { connectToMind } from "../../tests/helpers/mindClient";
-import { note, writeMind } from "../../tests/helpers/minds";
+import { note, readMind, writeMind } from "../../tests/helpers/minds";
 import { ask } from "../everyday/asking";
 import { LIBRARY_FLOWS } from "./libraryFlows";
 import { type Flow, type FlowContext, type Language, timed, wordsAtEnd } from "./signs";
@@ -179,6 +179,8 @@ export const FLOWS: readonly Flow[] = [
     label: "Ask the assistant to make a summary it added to the page longer",
     async run({ core, language }) {
       const { mindId } = await mindWith(core, language, [NOTES[language]]);
+      const client = await connectToMind(core, mindId);
+      const before = readMind(client).childCount;
       const question = SUMMARISE[language];
       const summary = await ask(core, {
         text: question,
@@ -186,14 +188,17 @@ export const FLOWS: readonly Flow[] = [
         conversationId: null,
         focus: null,
       });
-      await core.addToNote({
-        mindId,
-        blocks: pageBlocks(summary, question),
-        origin: { from: messageReference(summary.conversationId, summary.id), question },
-        model: summary.model,
-      });
-      const client = await connectToMind(core, mindId);
       await client.settled();
+      // The assistant may write the summary into the page itself; added again, the page holds two.
+      if (readMind(client).childCount === before) {
+        await core.addToNote({
+          mindId,
+          blocks: pageBlocks(summary, question),
+          origin: { from: messageReference(summary.conversationId, summary.id), question },
+          model: summary.model,
+        });
+        await client.settled();
+      }
       return timed(core, mindId, () =>
         ask(core, {
           text: LONGER[language],
