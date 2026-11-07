@@ -2,6 +2,7 @@ import { writeFile } from "node:fs/promises";
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test, vi } from "vitest";
 import type { ClaimCheckAction, ClaimCheckAttributes, Core, Document } from "../../src/core";
+import { verdictBesideCite } from "../../src/core/providers/catalog/checkPaths";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { noteStateParts, readNoteState } from "../../src/renderer/src/noteState";
 import { claimCheckShown } from "../../src/shared/claimChecks";
@@ -848,6 +849,19 @@ describe("One claim check", () => {
       expect(model.doStreamCalls.every((call) => JSON.stringify(call).includes(told))).toBe(listed);
     },
   );
+
+  test("DeepSeek V4.1 Flash writes its verdict beside cite by the list; Claude Haiku 5.5, Sonnet 5.5 and models outside the catalog don't", () => {
+    expect(verdictBesideCite({ catalogId: "deepseek", modelId: "deepseek-flash" })).toBe(true);
+    expect(verdictBesideCite({ catalogId: "anthropic", modelId: "claude-haiku-5-5" })).toBe(false);
+    expect(verdictBesideCite({ catalogId: "anthropic", modelId: "claude-sonnet-5-5" })).toBe(false);
+    expect(verdictBesideCite({ catalogId: null, modelId: "deepseek-flash" })).toBe(false);
+    expect(
+      verdictBesideCite(
+        { catalogId: "deepseek", modelId: "deepseek-flash" },
+        { verdictBesideCite: () => false },
+      ),
+    ).toBe(false);
+  });
 
   test("the quotes a sentence cites name their Document as it is now, and as cited once it is gone", async () => {
     const calls: ModelCall[] = [];
