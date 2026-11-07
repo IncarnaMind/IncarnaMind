@@ -23,8 +23,14 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # A pull request runs only its own smoke specs, so a release first runs every check on the
+  # tagged commit, and nothing is built from a red one.
+  checks:
+    uses: ./.github/workflows/ci.yml
+
   draft:
     name: Create the draft release
+    needs: checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7

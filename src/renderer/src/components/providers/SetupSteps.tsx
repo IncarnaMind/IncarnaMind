@@ -1,5 +1,6 @@
 import { type ReactNode, useId, useLayoutEffect, useRef, useState } from "react";
 import type { TranscriptionRoute } from "../../../../core/api";
+import { JEV_SERVICE } from "../../../../core/providers/jev";
 import { useT } from "../../i18n";
 import { finishSetupStep, openSetupStep, useModelSetup } from "../../modelSetup";
 import { useAppStore } from "../../store";
@@ -10,6 +11,7 @@ import { TranscriptionRouteConsent } from "../meetings/TranscriptionSettings";
 import { ReadProblem } from "../ReadProblem";
 import { STEP_BUTTON_CLASS, StepNumber } from "../StepNumber";
 import { buttonStyle, fieldClass, hintClass } from "../ui";
+import { JevSortingSetUp } from "./JevSortingSetUp";
 import { SortingLine, SortingSelect, useSorting } from "./SortingChoice";
 
 const linkClass =
@@ -264,8 +266,10 @@ function TranscriptionStep({ onDone }: { onDone(choice: string): void }) {
 /** What sorts Tags and Folders and names meeting hints, the best the keys reach picked first. */
 function SortingStep({ onDone }: { onDone(choice: string): void }) {
   const t = useT();
-  const { options, current, choose, known, loading, read } = useSorting();
+  const { options, current, choose, known, loading, read, jevSetUp, jevSettings, reread } =
+    useSorting();
   const [picked, setPicked] = useState<SortingOptionLike | null>(null);
+  const [settingUpJev, setSettingUpJev] = useState(false);
   const chosen = picked ?? current;
   const use = async () => {
     if (chosen && !(await choose(chosen, { turnOn: true }))) return;
@@ -294,15 +298,67 @@ function SortingStep({ onDone }: { onDone(choice: string): void }) {
         autoFocus
         options={options}
         current={chosen}
-        onChange={setPicked}
+        setUp={{
+          offered: jevSetUp,
+          open: settingUpJev,
+          onChoose: () => setSettingUpJev(true),
+        }}
+        onChange={(option) => {
+          setSettingUpJev(false);
+          setPicked(option);
+        }}
       />
+      {settingUpJev && jevSettings ? (
+        <JevSortingSetUp
+          jev={jevSettings}
+          choosing
+          choose={async () => {
+            const chosenJev = await choose({ classifier: { kind: "jev" } }, { turnOn: true });
+            reread();
+            return chosenJev;
+          }}
+          onChosen={() => onDone(JEV_SERVICE.name)}
+          onCancel={() => {
+            setSettingUpJev(false);
+            document.getElementById("setup-sorting")?.focus();
+          }}
+        />
+      ) : (
+        <SortingChoiceButtons
+          chosen={chosen}
+          known={known}
+          loading={loading}
+          onUse={() => void use()}
+          onSkip={() => onDone(t("setup.step.skipped"))}
+        />
+      )}
+    </>
+  );
+}
+
+function SortingChoiceButtons({
+  chosen,
+  known,
+  loading,
+  onUse,
+  onSkip,
+}: {
+  chosen: SortingOptionLike | null;
+  known: SortingOptionLike | null;
+  loading: boolean;
+  onUse(): void;
+  onSkip(): void;
+}) {
+  const t = useT();
+  return (
+    <>
       <SortingLine option={chosen} holds={known} reading={loading && chosen === null} />
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <button
           type="button"
           data-testid="setup-sorting-use"
           disabled={chosen === null || chosen.unresolved === true}
-          onClick={() => void use()}
+          onClick={onUse}
           className={buttonStyle("primary", "sm")}
         >
           {t("setup.step.useThis")}
@@ -310,7 +366,7 @@ function SortingStep({ onDone }: { onDone(choice: string): void }) {
         <button
           type="button"
           data-testid="setup-sorting-skip"
-          onClick={() => onDone(t("setup.step.skipped"))}
+          onClick={onSkip}
           className={linkClass}
         >
           {t("setup.step.skip")}

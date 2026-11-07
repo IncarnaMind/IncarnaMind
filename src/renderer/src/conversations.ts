@@ -446,6 +446,8 @@ export async function regenerateAnswer(
 ): Promise<void> {
   const conversationId = useConversations.getState().openId;
   if (!conversationId) return;
+  const { layout, libraryFolderId } = useAppStore.getState();
+  const folderInFrontId = currentTabOf(layout)?.item.kind === "library" ? libraryFolderId : null;
   settleAsk(answerId, null);
   try {
     const askedFromItem = currentTabOf(useAppStore.getState().layout)?.item ?? null;
@@ -461,6 +463,7 @@ export async function regenerateAnswer(
       ...(clearScope && { clearScope }),
       ...(model && { model }),
       onScreen: documentsOnScreen(),
+      ...(folderInFrontId !== null && { folderInFrontId }),
       commands: offeredCommands(askedFrom(answerId)),
       clientId,
     });

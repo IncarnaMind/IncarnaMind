@@ -24,7 +24,7 @@ import {
   type SearchScope,
 } from "../../core/api";
 import { overlapsCitation } from "../../shared/citationOverlap";
-import { quotedWordsFoundIn } from "../../shared/citations";
+import { parseQuotedWords, quotedWordsFoundIn } from "../../shared/citations";
 import { core } from "./core";
 import { citationDecision, partDecisions } from "./editor/alreadyCited";
 import type { NumberedCitation } from "./editor/citationNumbers";
@@ -618,6 +618,7 @@ export function replaceCitation(
     check: "found",
     checkReason: null,
     verdict: evidence.verdict ?? null,
-    quotedWords: evidence.quotedWords ?? citation.attributes.quotedWords ?? null,
+    // The words not found stay for the core's re-check; a next page they ran on to was the old quote's.
+    quotedWords: evidence.quotedWords ?? parseQuotedWords(citation.attributes.quotedWords),
   });
 }

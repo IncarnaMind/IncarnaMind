@@ -18,7 +18,9 @@ import type {
   PageTabStop,
 } from "../../api";
 import { HEADER_AND_FOOTER_DISTANCE, MARGIN, PAPER } from "../../pageDefaults";
-import { type Relationship, relationshipsOf, type WordPackage } from "./docxPackage";
+import type { WordPackage } from "./docxPackage";
+import { type Relationship, relationshipOfType, relationshipsOf } from "./officePackage";
+import { readStyleTable, type WordStyleTable } from "./wordStyleTable";
 import { child, elements, onOff, ordinalsOf, parseXml, textOf, walk, type XmlElement } from "./xml";
 
 const FORMATS: Readonly<Record<string, PageNumberFormat>> = {
@@ -92,50 +94,38 @@ export interface PageDefaults {
 }
 
 interface ParagraphStyle {
-  basedOn: string | null;
   align: Align | undefined;
   tabs: XmlElement | undefined;
 }
 
 interface Styles {
+  table: WordStyleTable;
   paragraph: ReadonlyMap<string, ParagraphStyle>;
   defaultId: string | null;
   /** From `w:docDefaults`, below every style. */
   align: Align | undefined;
 }
 
-const MAX_STYLE_DEPTH = 20;
-
 async function stylesOf(
   pkg: WordPackage,
   relationships: ReadonlyMap<string, Relationship>,
 ): Promise<Styles> {
-  const paragraph = new Map<string, ParagraphStyle>();
-  const styles: Styles = { paragraph, defaultId: null, align: undefined };
-  const part = [...relationships.values()].find(
-    (rel) => !rel.external && rel.type.endsWith("/styles"),
-  );
+  const part = relationshipOfType(relationships, "/styles");
   const xml = part && pkg.zip.has(part.target) ? await pkg.zip.readText(part.target) : undefined;
-  if (!xml) return styles;
-  for (const element of elements(parseXml(xml))) {
-    if (element.name === "w:docDefaults") {
-      const pPr = child(child(element, "w:pPrDefault") ?? element, "w:pPr");
-      styles.align = alignOf(pPr);
-    }
-    if (element.name !== "w:style" || element.attrs["w:type"] !== "paragraph") continue;
-    const id = element.attrs["w:styleId"];
-    if (!id) continue;
-    if (element.attrs["w:default"] === "1" || element.attrs["w:default"] === "true") {
-      styles.defaultId = id;
-    }
-    const pPr = child(element, "w:pPr");
-    paragraph.set(id, {
-      basedOn: child(element, "w:basedOn")?.attrs["w:val"] ?? null,
-      align: alignOf(pPr),
-      tabs: pPr && child(pPr, "w:tabs"),
-    });
+  const table = readStyleTable(xml ? parseXml(xml) : undefined);
+  const paragraph = new Map<string, ParagraphStyle>();
+  for (const style of table.styles) {
+    if (style.type !== "paragraph") continue;
+    const pPr = child(style.element, "w:pPr");
+    paragraph.set(style.id, { align: alignOf(pPr), tabs: pPr && child(pPr, "w:tabs") });
   }
-  return styles;
+  const defaults = table.docDefaults;
+  return {
+    table,
+    paragraph,
+    defaultId: table.defaultOf("paragraph"),
+    align: alignOf(defaults && child(child(defaults, "w:pPrDefault") ?? defaults, "w:pPr")),
+  };
 }
 
 const alignOf = (pPr: XmlElement | undefined): Align | undefined => {
@@ -143,18 +133,8 @@ const alignOf = (pPr: XmlElement | undefined): Align | undefined => {
   return jc === undefined ? undefined : (own(ALIGNS, jc) ?? "left");
 };
 
-function styleChain(styles: Styles, id: string | null): ParagraphStyle[] {
-  const chain: ParagraphStyle[] = [];
-  const seen = new Set<string>();
-  for (let at = id; at && !seen.has(at) && chain.length < MAX_STYLE_DEPTH; ) {
-    seen.add(at);
-    const style = styles.paragraph.get(at);
-    if (!style) break;
-    chain.push(style);
-    at = style.basedOn;
-  }
-  return chain;
-}
+const styleChain = (styles: Styles, id: string | null): ParagraphStyle[] =>
+  styles.table.chain("paragraph", id).flatMap((style) => styles.paragraph.get(style.id) ?? []);
 
 function paragraphLayout(
   styles: Styles,
@@ -436,7 +416,7 @@ export async function readPageSetup(
   const relationships = await relationshipsOf(pkg.zip, pkg.part);
   const furniture = new Furniture(pkg, relationships, await stylesOf(pkg, relationships));
 
-  const settings = [...relationships.values()].find((rel) => rel.type.endsWith("/settings"));
+  const settings = relationshipOfType(relationships, "/settings");
   const settingsXml =
     settings && pkg.zip.has(settings.target) ? await pkg.zip.readText(settings.target) : undefined;
   const oddAndEven = settingsXml

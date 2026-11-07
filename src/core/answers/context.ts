@@ -31,13 +31,14 @@ import {
 } from "../api";
 import { keywordTerms, keywordText } from "../documents/keywords";
 import { type ReviewReading, reviewReading } from "../mindText";
+import { asData } from "../promptData";
 import type { RunPicture } from "../runs/engine";
 import { attribute, contentMarkdown, textAttribute, toMarkdown } from "./blocks";
 import { eachCitation } from "./citedVersions";
 import type { ContextCitations } from "./contextCitations";
 import { answerMarkdown } from "./contextText";
 import type { AnswerMessage } from "./engine";
-import { askedAbout, onScreenLine } from "./prompt";
+import { askedAbout, CALL_TAGS, onScreenLine } from "./prompt";
 import {
   type ChangeStates,
   type MindNames,
@@ -358,9 +359,10 @@ const xmlAttribute = (text: string) =>
 
 /** A Block as the Mind's text reads it: a Note as it is, and an earlier Question or Answer marked as one. */
 function readText(block: Y.XmlElement, piece: Piece): string {
-  if (block.nodeName === QUESTION_BLOCK) return `<question>${piece.text}</question>`;
-  if (block.nodeName === ANSWER_BLOCK) return `<answer>\n${piece.text}\n</answer>`;
-  return piece.text;
+  const text = asData(piece.text, CALL_TAGS);
+  if (block.nodeName === QUESTION_BLOCK) return `<question>${text}</question>`;
+  if (block.nodeName === ANSWER_BLOCK) return `<answer>\n${text}\n</answer>`;
+  return text;
 }
 
 /**
@@ -539,7 +541,8 @@ function cutMind(
   const { read, focused, selection, pictures } = mind;
   const wrap = (body: string) =>
     `<mind name="${xmlAttribute(mind.name)}">\n${body}${body ? "\n" : ""}</mind>`;
-  const selected = (text: string) => (text ? `<selection>\n${text}\n</selection>` : "");
+  const selected = (text: string) =>
+    text ? `<selection>\n${asData(text, CALL_TAGS)}\n</selection>` : "";
   /** What `selected` adds to a request: the blank line before the Question too. */
   const selectedTokens = (text: string) => (text ? estimateTokens(`${selected(text)}\n\n`) : 0);
   const total = read.reduce((sum, block) => sum + estimateTokens(block.text), 0);
@@ -675,6 +678,8 @@ interface ConversationContextOptions {
   changeStates?: ChangeStates;
   /** The names of the Documents open on screen, the focused group's first. */
   onScreen?: readonly string[];
+  /** What the Question's Search scope and the Folder in front are named, just before the Question (#2529). */
+  scopeLine?: string;
   ids?: ContextCitations;
   /** The pictures the User picked on pages to ask about (#118), sent with the Question. */
   pictures?: readonly AskedPicture[];
@@ -697,6 +702,7 @@ export function conversationContextOf(
     mindNames = () => null,
     changeStates,
     onScreen = [],
+    scopeLine = "",
     ids,
     pictures = [],
   }: ConversationContextOptions = {},
@@ -734,7 +740,7 @@ export function conversationContextOf(
       ...recorded,
     ];
   });
-  const asked = askedText(onScreen, mind?.selection ?? "", question);
+  const asked = askedText(onScreen, mind?.selection ?? "", question, scopeLine);
   const kept = keptWithinBudget(pieces.reverse(), budget - estimateTokens(asked));
   const withPictures = [...(mind?.pictures ?? []), ...pictures];
   return {
@@ -752,16 +758,19 @@ export function conversationContextOf(
 }
 
 /**
- * The end of the Question's message: the Documents on screen, the selection, then the Question.
- * With the Question, not the Mind: opening another Document then never changes what a prompt
- * cache keeps.
+ * The end of the Question's message: the Documents on screen, the selection, the Search scope,
+ * then the Question. With the Question, not the Mind: opening another Document then never
+ * changes what a prompt cache keeps.
  */
 export function askedText(
   onScreen: readonly string[],
   selection: string,
   question: string,
+  scopeLine = "",
 ): string {
-  return [onScreenLine(onScreen), selection, question].filter((part) => part !== "").join("\n\n");
+  return [onScreenLine(onScreen), selection, scopeLine, question]
+    .filter((part) => part !== "")
+    .join("\n\n");
 }
 
 /**
@@ -1009,6 +1018,7 @@ export function earlierContext(
   messages: readonly AnswerMessage[],
   question: string,
   budget = SEARCH_QUERY_CONTEXT_TOKEN_BUDGET,
+  generated: readonly string[] = [],
 ): string {
   const pieces: Piece[] = messages.map((message) => ({
     role: message.role,
@@ -1018,6 +1028,16 @@ export function earlierContext(
   const last = pieces.at(-1);
   if (last?.role === "user" && last.text.endsWith(question)) {
     last.text = last.text.slice(0, last.text.length - question.length).trim();
+  }
+  // The lines the Answer adds just before the Question are removed by their exact text, so a
+  // Note's own paragraph that reads like one stays (#2529).
+  if (last?.role === "user") {
+    for (const line of generated) {
+      if (line && last.text.endsWith(`\n\n${line}`)) {
+        last.text = last.text.slice(0, -(line.length + 2));
+      }
+    }
+    last.text = last.text.trim();
   }
   const kept: string[] = [];
   let remaining = budget;

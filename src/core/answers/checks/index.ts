@@ -122,6 +122,7 @@ import type { PreparedChatModel } from "../../providers/chat";
 import { type RecordCiteSource, recordCiteLibrary } from "../../recordCites/documents";
 import { parseRecordCite, recordCiteTokens } from "../../recordCites/parser";
 import { recordCiteChoiceAlias, resolveChosenRecordCite } from "../../recordCites/resolver";
+import { asCheckWork } from "../../reranking/order";
 import { currentTask } from "../../runs/current";
 import { parseSearchScope } from "../../scope";
 import type { AnswerEngine } from "../engine";
@@ -233,6 +234,8 @@ export interface ChecksOptions
   > {
   /** The interface language: what a check's sentence is written in. */
   language(): Language;
+  /** What a check reads of the Library as it runs, as text that differs whenever that does. */
+  libraryState(): string;
   content: Pick<MindContent, "read" | "edit" | "readSettings" | "editSettings">;
   /** What contradiction watch needs besides (#112). */
   watch: Pick<
@@ -820,10 +823,15 @@ export function createChecks(options: ChecksOptions) {
   };
   const withCites = (check: ReturnType<typeof createClaimCheck>) =>
     withRecordCites(check, { language: options.language, documents: recordCiteDocuments });
-  const claimCheck = withCites(createPartCheck(options));
-  const atomicCheck = createClaimCheck(options);
+  // Every check is one piece of rerank work, whichever flow asks for it (../../reranking/order).
+  const asCheck =
+    (check: (request: ClaimCheckRequest) => Promise<ClaimCheckResult>) =>
+    (request: ClaimCheckRequest) =>
+      asCheckWork(() => check(request));
+  const claimCheck = asCheck(withCites(createPartCheck(options)));
+  const atomicCheck = asCheck(createClaimCheck(options));
   // The background watch only adds a Contradicted with its quote: it checks each sentence whole.
-  const wholeCheck = withCites(createClaimCheck(options));
+  const wholeCheck = asCheck(withCites(createClaimCheck(options)));
 
   const services = async () => {
     const service = chat.defaultService();
