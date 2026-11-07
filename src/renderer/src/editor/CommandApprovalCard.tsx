@@ -1,4 +1,4 @@
-import { useId } from "react";
+import { useEffect, useId, useState } from "react";
 import {
   COMMAND_AT_ONCE,
   type CommandApprovalRequest,
@@ -77,19 +77,30 @@ function wordsOf(
   t: Translate,
   ask: CommandAsk,
   gap: (before: string, after: string) => string,
-): { title: string; why: string; path: string | null; names: string[] } {
+): { title: string; why: string; path: string | null; names: string[]; fresh: string[] } {
   switch (ask.kind) {
-    case "export":
+    case "export": {
+      const names = [ask.fileName, ...ask.pictures];
+      const earlier = new Set(
+        ask.previous ? [ask.previous.fileName, ...ask.previous.pictures] : [],
+      );
       return {
-        title: t("commands.ask.export.title", {
-          mind: ask.mind.name,
-          format: t(FORMAT_LABELS[ask.format]),
-          folder: folderName(ask.folder),
-        }),
-        why: t("commands.ask.export.text"),
+        title: ask.previous
+          ? t("commands.ask.export.changed")
+          : t("commands.ask.export.title", {
+              mind: ask.mind.name,
+              format: t(FORMAT_LABELS[ask.format]),
+              folder: folderName(ask.folder),
+            }),
+        why: t(
+          ask.pictures.length > 0 ? "commands.ask.export.why.files" : "commands.ask.export.text",
+          { count: ask.pictures.length + 1 },
+        ),
         path: ask.folder,
-        names: [ask.fileName],
+        names,
+        fresh: ask.previous ? names.filter((name) => !earlier.has(name)) : [],
       };
+    }
     case "add":
       return {
         title:
@@ -102,6 +113,7 @@ function wordsOf(
         why: t("commands.ask.add.text"),
         path: ask.folder,
         names: ask.files,
+        fresh: [],
       };
     case "final":
       return {
@@ -109,6 +121,7 @@ function wordsOf(
         why: t("commands.ask.final.text"),
         path: null,
         names: ask.items.map((item) => itemLine(t, item)),
+        fresh: [],
       };
     case "listen":
       return {
@@ -116,6 +129,7 @@ function wordsOf(
         why: t("commands.ask.listen.text"),
         path: null,
         names: [],
+        fresh: [],
       };
     case "output":
       return {
@@ -123,6 +137,7 @@ function wordsOf(
         why: t("commands.ask.output.text"),
         path: ask.folder,
         names: [],
+        fresh: [],
       };
     case "change": {
       const [many, one] = CHANGE[ask.command] ?? [
@@ -155,6 +170,7 @@ function wordsOf(
                 ...ask.items.map((item) => itemLine(t, item)),
                 ...(more > 0 ? [t("commands.more", { count: more })] : []),
               ],
+        fresh: [],
       };
     }
   }
@@ -180,7 +196,18 @@ export function CommandApprovalCard({
   const respond = useApprovals((state) => state.respond);
   const titleId = useId();
   const { ask } = request;
-  const { title, why, path, names } = wordsOf(t, ask, gap);
+  const { title, why, path, names, fresh } = wordsOf(t, ask, gap);
+  const refreshed = ask.kind === "export" && ask.previous !== undefined;
+  const [ready, setReady] = useState(!refreshed);
+  useEffect(() => {
+    if (!refreshed) {
+      setReady(true);
+      return;
+    }
+    setReady(false);
+    const timer = setTimeout(() => setReady(true), 1_000);
+    return () => clearTimeout(timer);
+  }, [refreshed]);
   const deletes = ask.kind === "change" && ask.reason === "delete";
   const merges = ask.kind === "change" && ask.reason === "merge";
   const allow = t(
@@ -233,6 +260,14 @@ export function CommandApprovalCard({
               // biome-ignore lint/suspicious/noArrayIndexKey: two Documents may have the same name.
               <li key={index} data-testid="approval-file">
                 {name}
+                {fresh.includes(name) && (
+                  <span
+                    data-testid="approval-file-new"
+                    className="ml-2 font-semibold text-ink-meta"
+                  >
+                    {t("commands.ask.export.new")}
+                  </span>
+                )}
               </li>
             ))}
           </ul>
@@ -243,6 +278,7 @@ export function CommandApprovalCard({
           type="button"
           data-testid="approval-allow-once"
           onClick={() => respond(request.requestId, "allow-once")}
+          disabled={!ready}
           className="approval-button approval-button--primary"
           {...withShortcut(allow, keys)}
         >

@@ -217,16 +217,16 @@ import {
 import { type AnyEventListener, createEventHub } from "./events";
 import { createExamples, type ExampleReadyState } from "./examples";
 import { createLocalExecutor } from "./execution";
-import { createExports, type ExportsDependencies } from "./exports";
+import { createExports, ExportChangedError, type ExportsDependencies } from "./exports";
 import { createComparisonExport } from "./exports/comparisonExport";
 import { figureScheduleBook } from "./exports/figureScheduleBook";
 import { exportLabels } from "./exports/labels";
-import { renderMarkdown } from "./exports/markdown";
+import { isPictureFile, renderMarkdown } from "./exports/markdown";
 import { setTextOnlyDocuments, textOnlyDocuments } from "./exports/sharedPictures";
 import { writeXlsx } from "./exports/xlsx";
 import { figureSchedule } from "./figureSchedule";
 import { createFileLock } from "./fileLock";
-import { safeFileName, writeNewFile } from "./fileNames";
+import { freeFileName, safeFileName, writeNewFile } from "./fileNames";
 import { createFolders } from "./folders";
 import { LANGUAGES, systemRegion } from "./language";
 import { createLayouts } from "./layout";
@@ -2028,7 +2028,7 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     outputFolder: async () => outputs.settings().location,
     window: (request, signal, ended) => windowCommands.run(request, signal, ended),
-    exportMind: async (mindId, format, folder, approved, marking) => {
+    exportMind: async (mindId, format, folder, approved, marking, approvedFiles) => {
       const options = optionsFor(format, settings.get().user.exportOptions);
       let written = options;
       let settled: MarkingSettled | null = null;
@@ -2049,18 +2049,22 @@ export function createCore(adapters: CoreAdapters): Core {
       if (exported.word && exported.word.notKept.length > 0) {
         throw new InvalidInputError({ key: "error.commands.wordLoses" });
       }
+      if (approvedFiles && baseNameOf(approvedFiles.fileName) !== exported.fileName)
+        throw new ExportChangedError();
       const file = await outputs.save({
-        name: exported.fileName,
+        name: approvedFiles?.fileName ?? exported.fileName,
         data: exported.data,
         ownFile: ownFileOf(written),
         fromFolder: folderOfNote(mindId),
         ...(folder !== null && { folder, approved }),
+        ...(approvedFiles !== undefined && { exact: true }),
       });
       try {
         await saveExportFiles(
           exported.files,
           folder ?? file.folder,
           typeof mindId === "string" ? mindId : null,
+          approvedFiles?.pictures,
         );
       } catch (error) {
         // A file that would link pictures none can see is taken back: the export didn't happen.
@@ -3262,20 +3266,36 @@ export function createCore(adapters: CoreAdapters): Core {
     files: readonly ExportFile[] | undefined,
     folder: string,
     from: string | null,
+    /** The names the User allowed, in the order the pictures to write were listed (#2514). */
+    approvedNames?: readonly string[],
   ): Promise<void> => {
+    let next = 0;
     for (const file of files ?? []) {
       // A picture named after its content: the file there already holds these bytes, so it is
       // linked, not copied again as "picture-… 2.png" (#1937).
       if (await outputs.holds(folder, file.name, file.data)) continue;
+      const name = approvedNames?.[next];
+      if (approvedNames) {
+        // A picture changed since the card, or the list did: nothing is written under a new name.
+        if (name === undefined || baseNameOf(name) !== file.name) throw new ExportChangedError();
+        next++;
+      }
       await outputs.save({
-        name: file.name,
+        name: name ?? file.name,
         data: file.data,
         ownFile: "export",
         fromFolder: folderOfNote(from),
         folder,
         approved: true,
+        exact: approvedNames !== undefined,
       });
     }
+    if (approvedNames && next !== approvedNames.length) throw new ExportChangedError();
+  };
+  /** A name a save takes, without the number a taken name adds: "Tides 2.md" is "Tides.md" (#2514). */
+  const baseNameOf = (name: string): string => {
+    const extension = extname(name);
+    return `${name.slice(0, name.length - extension.length).replace(/ \d+$/, "")}${extension}`;
   };
   /**
    * Saves an export in the Output location, as the window's save: what went wrong is a result, not
@@ -6275,7 +6295,31 @@ export function createCore(adapters: CoreAdapters): Core {
       return restored;
     },
 
-    previewMindExport: async (mindId, options) => mindExports.preview(mindId, options),
+    previewMindExport: async (mindId, options, folder) => {
+      // The same saved choices the export itself uses: a plan the card shows must be the plan it writes.
+      const effective = {
+        ...optionsFor(options.format, settings.get().user.exportOptions),
+        ...options,
+      };
+      const preview = mindExports.preview(mindId, effective);
+      if (!folder) return preview;
+      // The ask names the files as this folder will take them: the next free name where one is taken.
+      const taken = new Set<string>();
+      const free = async (name: string) => {
+        const chosen = await freeFileName(folder, name, taken);
+        taken.add(chosen);
+        return chosen;
+      };
+      const fileName = await free(preview.fileName);
+      const pictures: string[] = [];
+      for (const name of preview.pictures) {
+        // A picture the folder already holds is linked, not written (#1937).
+        if (await outputs.holdsMatching(folder, name, (bytes) => isPictureFile(name, bytes)))
+          continue;
+        pictures.push(await free(name));
+      }
+      return { ...preview, fileName, pictures };
+    },
     previewSharePage: (mindId, options) => mindExports.previewSharePage(mindId, options),
     setSharePageTextOnly: async (mindId, documentIds) => {
       if (!Array.isArray(documentIds) || documentIds.some((each) => typeof each !== "string")) {

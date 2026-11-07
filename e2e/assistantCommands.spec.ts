@@ -286,6 +286,37 @@ test("export as Word saves into the Output location at once; to another folder i
   await app.close();
 });
 
+test("a file that appears while the export card waits refreshes it, marks the new name, and writes only after a second Allow", async () => {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await useLocalChatModel(window);
+  await setUp(app, window);
+  await useOutputLocation(window, out);
+
+  const card = await askAndWait(window, `Export this Mind as Word to ${elsewhere}`);
+  await expect(card.getByTestId("approval-file")).toHaveText(["Deal notes.docx"]);
+  await writeFile(
+    join(elsewhere, "Deal notes.docx"),
+    "A file that appeared while the card waited.",
+  );
+  await pointAndClick(window, card.getByTestId("approval-allow-once"));
+
+  const refreshed = window.getByTestId("approval-card").last();
+  await expect(refreshed).toContainText("The files changed since you looked. Allow these instead?");
+  await expect(refreshed.getByTestId("approval-file")).toContainText("Deal notes 2.docx");
+  await expect(refreshed.getByTestId("approval-file-new")).toHaveText("New");
+  await expect(refreshed.getByTestId("approval-allow-once")).toBeDisabled();
+  expect(await readdir(elsewhere)).toEqual(["Deal notes.docx"]);
+  await screenshot(window, "commands-export-changed");
+  await expect(refreshed.getByTestId("approval-allow-once")).toBeEnabled({ timeout: 3_000 });
+  await pointAndClick(window, refreshed.getByTestId("approval-allow-once"));
+
+  const allowed = assistantAnswers(window).last();
+  await expect(allowed).toHaveAttribute("data-status", "done", { timeout: 15_000 });
+  await expect.poll(() => readdir(elsewhere)).toEqual(["Deal notes 2.docx", "Deal notes.docx"]);
+  await app.close();
+});
+
 test("adding the PDFs in a folder lists them and waits for Allow, then adds them, and one Undo takes them out", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
