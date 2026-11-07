@@ -327,6 +327,67 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     core.close();
   });
 
+  // protects=the fill reaches the window as one update named for its meeting, so the editor showing the Note takes it as one step of its own Undo and ⌘Z there takes back the fill, not the User's earlier typing (#2527); fails_when=the fill's update has no cause, another update carries it, or it comes in more than one; no_claim=the editor's own history, which the window test covers.
+  test("the fill comes to the window as one update with its meeting's cause", async () => {
+    const model = fillingModel(
+      [
+        "HEADINGS: H1=NONE H2=NONE",
+        lineFact("L1", "pricing", "The enterprise price is 45 dollars a seat [^1]."),
+      ].join("\n\n"),
+      { 1: MY_LINES[0] as string },
+    );
+    const updates: { mindId: string; cause: string | null }[] = [];
+    const { core, meeting } = await recorded(model, NOTES, async (listening) => {
+      listening.on("mind.update", (event) => {
+        updates.push({ mindId: event.mindId, cause: event.cause?.requestId ?? null });
+      });
+    });
+    expect(await settledFill(core, meeting)).toMatchObject({ state: "filled" });
+    const causes = updates.filter((each) => each.mindId === meeting.mindId && each.cause !== null);
+    expect(causes.map((each) => each.cause)).toEqual([`meeting-fill:${meeting.id}`]);
+    core.close();
+  });
+
+  // protects=a fill the editor took back with its own Undo is recorded as undone, so Try again fills anew and a reopened Note offers it; its Redo makes it filled again with the same Blocks, and the Note itself is never touched by either (#2527); fails_when=the state stays filled after the editor's Undo, Redo loses the Blocks, or following changes the Note; no_claim=the editor's history, which the window test covers.
+  test("an Undo or Redo of the fill in the editor is followed by its state, and nothing in the Note changes", async () => {
+    const model = fillingModel(
+      [
+        "HEADINGS: H1=NONE H2=NONE",
+        lineFact("L1", "pricing", "The enterprise price is 45 dollars a seat [^1]."),
+      ].join("\n\n"),
+      { 1: MY_LINES[0] as string },
+    );
+    const { core, meeting, client } = await recorded(model, NOTES);
+    const filled = await settledFill(core, meeting);
+    expect(filled).toMatchObject({ state: "filled" });
+    await vi.waitFor(() => expect(shown(client).some((line) => line.includes("«"))).toBe(true));
+    const withFill = shown(client);
+
+    const undone = await core.followMeetingFillUndo({ meetingId: meeting.id, undone: true });
+    expect(undone.fill).toMatchObject({ state: "undone", addedBlockIds: filled.addedBlockIds });
+    expect(shown(client)).toEqual(withFill);
+    // Taken back in the editor, the core's own Undo has nothing left to do.
+    expect((await core.undoMeetingFill(meeting.id)).fill?.state).toBe("undone");
+
+    const redone = await core.followMeetingFillUndo({ meetingId: meeting.id, undone: false });
+    expect(redone.fill).toMatchObject({ state: "filled", addedBlockIds: filled.addedBlockIds });
+    expect(shown(client)).toEqual(withFill);
+
+    // Only true or false is followed: a string "false" would have marked it taken back.
+    const asked = (input: unknown) =>
+      core.followMeetingFillUndo(input as Parameters<typeof core.followMeetingFillUndo>[0]);
+    await expect(asked({ meetingId: meeting.id, undone: "false" })).rejects.toThrow(
+      "The fill-in can only be taken back or put back.",
+    );
+    await expect(asked(meeting.id)).rejects.toThrow(
+      "The fill-in can only be taken back or put back.",
+    );
+    expect((await core.listMeetings()).find((each) => each.id === meeting.id)?.fill?.state).toBe(
+      "filled",
+    );
+    core.close();
+  });
+
   // protects=with no notes, the sections are filled in, each citing the Transcript, and "Said in the call, not in your Documents" keeps only the claims the User's Documents don't support; fails_when=a section is missing, uncited, or a supported claim is listed; no_claim=the template's sections (#688).
   test("with no notes, the sections, and only the claims the Documents don't support", async () => {
     const supported = "The enterprise price is 45 dollars a seat.";

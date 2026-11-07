@@ -513,7 +513,9 @@ export async function expectBarOneRow(bar: Locator): Promise<void> {
               each.getBoundingClientRect().right <= frame.right + 1,
           ),
           kept:
-            ["meeting-dot", "meeting-time", "meeting-mic", "meeting-stop"].every(shown) &&
+            ["meeting-dot", "meeting-time", "meeting-mic", "meeting-stop", "meeting-views"].every(
+              shown,
+            ) &&
             (shown("meeting-pause") || shown("meeting-resume")),
           fits: element.scrollWidth <= element.clientWidth + 1,
           cut: buttons.some((button) =>
@@ -522,12 +524,8 @@ export async function expectBarOneRow(bar: Locator): Promise<void> {
             ),
           ),
           foldedHaveMore:
-            [
-              "meeting-mark",
-              "meeting-call-help",
-              "meeting-transcript-toggle",
-              "meeting-details-toggle",
-            ].every(shown) || shown("meeting-more"),
+            ["meeting-mark", "meeting-call-help", "meeting-details-toggle"].every(shown) ||
+            shown("meeting-more"),
         };
       }),
     )
@@ -1128,6 +1126,65 @@ export async function recordMeetingNow(window: Page): Promise<Locator> {
   const bar = window.getByTestId("meeting-bar");
   await expect(bar).toHaveAttribute("data-status", "recording");
   return bar;
+}
+
+/** Waits until a recording meeting's Transcript has its first finished line. */
+export async function firstTranscriptLine(window: Page, timeout = 20_000): Promise<void> {
+  await expect
+    .poll(
+      () =>
+        window.evaluate(async () =>
+          (
+            await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.listMeetings()
+          ).some((each) => each.status !== "stopped" && (each.transcript?.lines ?? 0) > 0),
+        ),
+      { timeout },
+    )
+    .toBe(true);
+}
+
+/**
+ * After the first fill on a computer, the stopped call's chip opens its popover by itself, once,
+ * leaving the focus where it was (#2527): Esc closes it.
+ */
+export async function closeFirstFillPopover(window: Page): Promise<void> {
+  const menu = window.getByTestId("meeting-view-menu");
+  await expect(menu).toBeVisible();
+  await window.keyboard.press("Escape");
+  await expect(menu).toBeHidden();
+}
+
+/** Waits until a stopped meeting's Transcript is saved: its page says nothing of it (#2527). */
+export async function transcriptSaved(window: Page, timeout = 30_000): Promise<void> {
+  await expect
+    .poll(
+      () =>
+        window.evaluate(async () =>
+          (
+            await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.listMeetings()
+          ).some((each) => each.status === "stopped" && each.transcript?.state === "saved"),
+        ),
+      { timeout },
+    )
+    .toBe(true);
+}
+
+/**
+ * The recording bar's Transcript view, then its "Open beside" once the Transcript has a line: the
+ * live Transcript in a tab of the next group, and the meeting's page back on its notes (#138).
+ */
+export async function openTranscriptBeside(
+  window: Page,
+  bar: Locator,
+  timeout = 20_000,
+): Promise<void> {
+  await firstTranscriptLine(window, timeout);
+  await pointAndClick(window, bar.getByTestId("meeting-views").locator("label").nth(1));
+  const beside = window.getByTestId("meeting-transcript-beside");
+  await expect(beside).toBeEnabled();
+  await pointAndClick(window, beside);
+  await expect(window.getByTestId("meeting-note-transcript")).toHaveCount(0);
+  await expect(window.getByTestId("viewer-transcript")).toBeVisible();
 }
 
 /** Starts recording from the start block; the first time, through the one-time notice. */

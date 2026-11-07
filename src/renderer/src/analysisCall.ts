@@ -44,6 +44,8 @@ export function analysisCallText(
       });
     case "out-of-memory":
       return t("analysis.call.outOfMemory");
+    case "disk-unmeasured":
+      return t("analysis.call.diskUnmeasured");
     case "stopped":
       return t("analysis.call.stopped");
     case "crashed":

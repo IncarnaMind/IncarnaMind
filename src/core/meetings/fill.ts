@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
 import type { NodeJSON } from "../../shared/blockJson";
 import { type MessageKey, translate } from "../../shared/i18n";
+import { meetingFillCause } from "../../shared/meetingFill";
 import type { Logger } from "../adapters";
 import type { CellAnswer } from "../answers";
 import { createElement } from "../answers/blocks";
@@ -742,7 +743,12 @@ export function createMeetingFill(options: MeetingFillOptions) {
           : await notes(meeting, transcriptId, route, controller.signal);
       if (controller.signal.aborted) throw new FillProblemError({ kind: "stopped", message: "" });
       options.checkpoint(meeting.mindId);
-      const added = content.edit(meeting.mindId, written.place);
+      const added = content.edit(
+        meeting.mindId,
+        written.place,
+        undefined,
+        meetingFillCause(meetingId),
+      );
       const done = set(meetingId, {
         state: "filled",
         mode: written.mode,
@@ -879,6 +885,19 @@ export function createMeetingFill(options: MeetingFillOptions) {
         }
       });
       return set(meetingId, { state: "undone", omitted: 0, unfinishedParts: 0, blocks: [] });
+    },
+
+    /**
+     * The editor took the fill back with its own Undo, or put it back: only its state follows, so
+     * Try again fills anew after one, and its Blocks are still the fill's after the other.
+     */
+    followUndo(meetingId: string, undone: boolean): Meeting {
+      const fill = meetings.storedFill(meetingId);
+      if (undone && fill?.state === "filled") return set(meetingId, { state: "undone" });
+      if (!undone && fill?.state === "undone" && fill.blocks.length > 0) {
+        return set(meetingId, { state: "filled" });
+      }
+      return meetings.get(meetingId);
     },
 
     /** At start: a fill a quit cut short wrote nothing, and says so; one waiting starts now. */

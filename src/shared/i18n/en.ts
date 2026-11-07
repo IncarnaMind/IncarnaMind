@@ -4663,6 +4663,8 @@ export const en = {
   "scripts.call.missingPackage.model":
     "{problem} Installing it on this computer won’t help: IncarnaMind runs Skills on its own Python.",
   "scripts.call.timedOut": "{script} ({skill}) ran too long and was stopped",
+  "scripts.call.diskUnmeasured":
+    "{script} ({skill}) was stopped because its disk use couldn’t be measured",
   "scripts.call.exited": "Ran {script} ({skill}): exit code {code}",
   "scripts.call.stopped": "{script} ({skill}) was stopped",
   "scripts.call.details": "Its arguments and what it wrote",
@@ -5773,6 +5775,7 @@ export const en = {
   "error.meeting.helpButton": "That isn’t one of this meeting’s help buttons.",
   "error.meeting.memoHelp": "A voice memo has no call help.",
   "error.meeting.microphone": "The microphone can only be paused or resumed.",
+  "error.meeting.fillUndo": "The fill-in can only be taken back or put back.",
   "error.transcription.localMode":
     "Meeting audio can’t go to a cloud service: “Keep everything on this computer” is on.",
   "error.transcription.noKey": "Add a {service} key first.",
@@ -6418,8 +6421,6 @@ export const en = {
   "meetings.leftApart.other":
     "{count} meetings left apart from their Transcripts, since each Folder keeps its work inside it",
   "meetings.leftApart.show": "Show",
-  "meetings.bar.showTranscript": "Show transcript",
-  "meetings.bar.hideTranscript": "Hide transcript",
   "meetings.bar.transcriptSoon": "The transcript appears with its first line",
   "meetings.transcript.downloading":
     "Downloading the speech model: {percent}% of {size}. Still recording.",
@@ -6454,7 +6455,7 @@ export const en = {
   "meetings.fill.waiting": "The note is filled in once the transcript is saved…",
   "meetings.fill.filling": "Filling in the note…",
   "meetings.fill.fillingLocal": "Filling in the note on this computer…",
-  "meetings.fill.filled": "Note filled in",
+  "meetings.fill.filled": "Note filled in from the call",
   "meetings.fill.partial": "Note partly filled in",
   "meetings.fill.noAdditions": "No notes added",
   "meetings.fill.omitted.one": "{count} item couldn’t be added",
@@ -6465,6 +6466,10 @@ export const en = {
   "meetings.views.label": "Meeting views",
   "meetings.views.notes": "Notes",
   "meetings.views.transcript": "Transcript",
+  "meetings.views.switch": "Switch views ({keys})",
+  "meetings.views.showNotes": "Show notes",
+  "meetings.views.showTranscript": "Show the Transcript",
+  "meetings.views.besideCommand": "Open the Transcript in a split on the right",
   "meetings.fill.undo": "Undo",
   "meetings.fill.show": "Show",
   "meetings.fill.undone": "Fill-in undone",
@@ -6517,7 +6522,7 @@ export const en = {
   "transcript.recording": "Recording…",
   "transcript.lines.one": "{count} line",
   "transcript.lines.other": "{count} lines",
-  "transcript.waiting": "Lines appear here a few seconds after they’re said.",
+  "transcript.waiting": "Lines appear here as people speak.",
   "transcript.none": "Nothing was transcribed.",
   "transcript.gap": "{duration} not transcribed: {reason}",
   "transcript.gap.restarted": "transcription restarted",
@@ -6538,6 +6543,8 @@ export const en = {
   "meetings.audio.keptUntil": "Audio stays on this computer until {time}",
   "meetings.audio.keptWhile": "Audio stays on this computer until a day after the meeting.",
   "meetings.audio.delete": "Delete audio now",
+  "meetings.audio.keptUntilShort": "Audio kept until {time}",
+  "meetings.audio.deleteNow": "Delete now",
   "meetings.audio.confirm": "Delete this meeting’s audio for good? The note stays.",
   "meetings.audio.deleteConfirm": "Delete audio",
   "meetings.audio.keep": "Keep it",
@@ -7704,6 +7711,8 @@ export const en = {
   "analysis.call.error.none": "The analysis stopped with an error",
   "analysis.call.timedOut": "The analysis took longer than {seconds} s and was stopped",
   "analysis.call.outOfMemory": "The analysis ran out of memory and was stopped",
+  "analysis.call.diskUnmeasured":
+    "The analysis was stopped because its disk use couldn’t be measured",
   "analysis.call.stopped": "Stopped the analysis",
   "analysis.table.more": "{count} more rows are in the Analysis.",
   "analysis.table.more.one": "1 more row is in the Analysis.",

@@ -6,6 +6,7 @@ import {
   dismissChatSetup,
   launchApp,
   openSettings,
+  openTranscriptBeside,
   pointAndClick,
   recordMeeting,
   removeDataFolder,
@@ -148,9 +149,7 @@ test("⌘K opens Words to know with its field ready, and a word told there is wr
   await closeSettings(window);
 
   const bar = await startRecording(window, await recordMeeting(window), { notice: true });
-  const toggle = bar.getByTestId("meeting-transcript-toggle");
-  await expect(toggle).toBeEnabled({ timeout: 20_000 });
-  await pointAndClick(window, toggle);
+  await openTranscriptBeside(window, bar);
   const transcript = window.getByTestId("viewer-transcript");
   // The other side's third line names Dana, whom the engine hears as Donna unless told.
   await expect(transcript.getByText("Dana is joining us from the Leeds office.")).toBeVisible({

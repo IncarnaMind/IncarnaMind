@@ -2,8 +2,10 @@ import type { Meeting, MeetingFillProblem } from "../../../core/api";
 import type { MessageKey } from "../../../shared/i18n";
 import { isPartialMeetingFill } from "../../../shared/meetingFill";
 import { useT } from "../i18n";
+import { useFillStep } from "../meetingFillSteps";
 import { useMeetings } from "../meetings";
 import { showMeetingNoteView } from "../meetingViews";
+import { CheckLineIcon } from "./lineIcons";
 import { type ProblemAction, ProblemLine } from "./ProblemLine";
 import { useTabPlace } from "./tabs/tabItems";
 
@@ -43,13 +45,22 @@ const WORDS = {
  * Where filling the notes in from the Transcript is (#142), one line under a stopped Meeting:
  * waiting for the Transcript, filling in (on this computer, where it is), "Notes filled in ·
  * Undo", or why they weren't, with Try again. A voice memo's says its note was written, or that
- * its Transcript went in as it is, and why.
+ * its Transcript went in as it is, and why. `editor`: the one it shows in, whose own Undo may
+ * hold the fill. What the User asked of it and couldn't be done says so in its place.
  */
-export function MeetingFillLine({ meeting }: { meeting: Meeting }) {
+export function MeetingFillLine({ meeting, editor }: { meeting: Meeting; editor?: object }) {
   const t = useT();
   const place = useTabPlace();
-  const { fill } = meeting;
-  if (!fill) return null;
+  const step = useFillStep(meeting.id, editor);
+  const problem = useMeetings((state) => state.problems[meeting.id]);
+  if (!meeting.fill) return null;
+  // The editor holding the fill on its own Undo is ahead of the core, which follows it.
+  const fill =
+    step === "undone" && meeting.fill.state === "filled"
+      ? { ...meeting.fill, state: "undone" as const }
+      : step === "top" && meeting.fill.state === "undone"
+        ? { ...meeting.fill, state: "filled" as const }
+        : meeting.fill;
   const words = WORDS[meeting.kind];
   const again = (label: string): ProblemAction => ({
     label,
@@ -59,7 +70,7 @@ export function MeetingFillLine({ meeting }: { meeting: Meeting }) {
   const undo: ProblemAction = {
     label: t("meetings.fill.undo"),
     testId: "meeting-fill-undo",
-    onClick: () => void useMeetings.getState().undoFill(meeting.id),
+    onClick: () => void useMeetings.getState().undoFill(meeting.id, editor),
   };
   // Said in the interface's words now; a model's own words show on hover.
   const reasonOf = (problem: MeetingFillProblem | null) =>
@@ -70,6 +81,22 @@ export function MeetingFillLine({ meeting }: { meeting: Meeting }) {
       { service: problem?.service ?? "" },
     );
 
+  if (problem && fill.state !== "waiting" && fill.state !== "filling") {
+    return (
+      <ProblemLine
+        testId="meeting-fill-line"
+        role="alert"
+        className=""
+        action={
+          fill.state === "filled"
+            ? undo
+            : again(t(fill.state === "undone" ? words.again : "meetings.fill.tryAgain"))
+        }
+      >
+        {problem}
+      </ProblemLine>
+    );
+  }
   if (fill.state === "waiting" || fill.state === "filling") {
     const text =
       fill.state === "waiting"
@@ -77,7 +104,7 @@ export function MeetingFillLine({ meeting }: { meeting: Meeting }) {
         : t(fill.local ? words.fillingLocal : words.filling);
     return (
       <ProblemLine testId="meeting-fill-line" role="status" className="">
-        {text}
+        <span className={fill.state === "filling" ? "answer-writing" : undefined}>{text}</span>
       </ProblemLine>
     );
   }
@@ -119,7 +146,8 @@ export function MeetingFillLine({ meeting }: { meeting: Meeting }) {
             ? {
                 label: t("meetings.fill.viewTranscript"),
                 testId: "meeting-fill-transcript",
-                onClick: () => showMeetingNoteView(place.tabId, meeting.mindId, "transcript"),
+                onClick: () =>
+                  showMeetingNoteView(place.tabId, meeting.mindId, "transcript", { focus: true }),
               }
             : undefined
         }
@@ -130,11 +158,20 @@ export function MeetingFillLine({ meeting }: { meeting: Meeting }) {
     );
   }
   if (fill.state === "filled") {
+    // A call's note fills in as any AI edit applies: its line goes once the User types (#2527).
+    if (meeting.kind === "meeting" && step !== "top") return null;
     return (
       <ProblemLine testId="meeting-fill-line" role="status" className="" action={undo}>
-        {fill.mode === "transcript"
-          ? t("memos.fill.asIs", { reason: reasonOf(fill.problem) })
-          : t(words.filled)}
+        {fill.mode === "transcript" ? (
+          t("memos.fill.asIs", { reason: reasonOf(fill.problem) })
+        ) : (
+          <>
+            {meeting.kind === "meeting" && (
+              <CheckLineIcon className="mr-1 inline size-3.5 align-[-2px]" />
+            )}
+            {t(words.filled)}
+          </>
+        )}
       </ProblemLine>
     );
   }

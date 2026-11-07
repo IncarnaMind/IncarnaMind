@@ -1,6 +1,6 @@
-import type { KeyboardEvent } from "react";
+import type { KeyboardEvent, ReactNode } from "react";
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { Document } from "../../../core/api";
+import type { Document, Meeting } from "../../../core/api";
 import {
   type Cue,
   type GapReason,
@@ -19,7 +19,7 @@ import { MetaLine } from "../components/MetaLine";
 import { LineAction } from "../components/ProblemLine";
 import { useDismissOnEscape } from "../escapeDismiss";
 import { useT } from "../i18n";
-import { useMeetings } from "../meetings";
+import { isLive, useMeetings } from "../meetings";
 import { durationLabel } from "../meetingTime";
 import type { ViewerTarget } from "../store";
 import { addLineToNote, type LineAdded } from "../transcriptNotes";
@@ -30,6 +30,7 @@ import { FileStates } from "./FileStates";
 import { CitationMark, marginRoom, markTopFor, quoteMarkOf, quoteTone } from "./quoteMark";
 import type { LoadedFile } from "./useDocumentFile";
 import { ViewerHeader } from "./ViewerHeader";
+import { ViewerMessage } from "./ViewerMessage";
 
 /** Within this of the bottom, the view follows new lines as they come. */
 const FOLLOW_PX = 48;
@@ -47,18 +48,24 @@ const GAP_REASONS: Record<Exclude<GapReason, "muted">, MessageKey> = {
 
 const read = (bytes: Uint8Array): Transcript => readVtt(new TextDecoder().decode(bytes));
 
+const NO_LINES: Transcript = { cues: [], gaps: [] };
+
 /**
  * The Transcript's file, read again whenever `version` changes, the last read
- * kept on screen meanwhile: a Meeting's lines arrive every few seconds.
+ * kept on screen meanwhile: a Meeting's lines arrive every few seconds. Before
+ * its first line there is no file, and it has no lines.
  */
 function useTranscriptFile(
-  documentId: string,
+  documentId: string | null,
   version: string,
 ): { loaded: LoadedFile<Transcript>; reload(): void } {
-  const [loaded, setLoaded] = useState<LoadedFile<Transcript>>({ kind: "loading" });
+  const [loaded, setLoaded] = useState<LoadedFile<Transcript>>(
+    documentId ? { kind: "loading" } : { kind: "ready", value: NO_LINES },
+  );
   const [attempt, setAttempt] = useState(0);
   // biome-ignore lint/correctness/useExhaustiveDependencies: `version` says when to read again
   useEffect(() => {
+    if (!documentId) return;
     const controller = new AbortController();
     loadDocumentBytes(documentId, controller.signal)
       .then((bytes) => {
@@ -82,8 +89,8 @@ function useTranscriptFile(
  * A Transcript (#136): its lines, each with its time, and its speaker once
  * speakers are told apart (#140). While its Meeting records, lines arrive a
  * few seconds behind, the speech being transcribed shows greyed at the end,
- * and the view follows them unless the User has scrolled up. Opened at a
- * Citation, the quote is washed in the line it was said in.
+ * each side's at once, and the view follows them unless the User has scrolled
+ * up. Opened at a Citation, the quote is washed in the line it was said in.
  */
 export function TranscriptView({ document, target }: { document: Document; target: ViewerTarget }) {
   const meeting = useMeetings((state) =>
@@ -111,6 +118,60 @@ export function TranscriptView({ document, target }: { document: Document; targe
   );
 }
 
+/**
+ * A Meeting's Transcript in its Note's page (#138): its words from the first one said, before
+ * the Transcript's Document is made with its first finished line, then its lines as they come.
+ * `aside`: the page's own control at the header's end ("Open beside").
+ */
+export function MeetingTranscriptView({
+  meeting,
+  document,
+  target,
+  aside,
+}: {
+  meeting: Meeting;
+  document: Document | undefined;
+  target: ViewerTarget;
+  aside?: ReactNode;
+}) {
+  const t = useT();
+  const documentId = meeting.transcript?.documentId ?? null;
+  const { loaded, reload } = useTranscriptFile(
+    document ? document.id : null,
+    `${document?.contentHash ?? ""}:${meeting.transcript?.lines ?? 0}`,
+  );
+  const content = (transcript: Transcript) => (
+    <TranscriptContent
+      document={document ?? null}
+      transcript={transcript}
+      target={target}
+      meetingId={meeting.id}
+      aside={aside}
+    />
+  );
+  // While the call records, the words being said stay in view as its first line is filed.
+  if (!document && documentId && !isLive(meeting)) {
+    return (
+      <>
+        <ViewerHeader />
+        <ViewerMessage>{t("viewer.loading")}</ViewerMessage>
+      </>
+    );
+  }
+  if (!document || loaded.kind === "ready") {
+    return content(loaded.kind === "ready" ? loaded.value : NO_LINES);
+  }
+  return (
+    <FileStates
+      document={document}
+      loaded={loaded}
+      quote={target.quote}
+      reload={reload}
+      ready={content}
+    />
+  );
+}
+
 type Row =
   | { kind: "cue"; cue: Cue }
   | { kind: "gap"; gap: TranscriptGap }
@@ -132,22 +193,26 @@ function lineBeside(from: Element, direction: "next" | "previous"): HTMLElement 
   return null;
 }
 
+const NOT_SAID: NonNullable<Meeting["transcript"]>["partials"] = [];
+
 function TranscriptContent({
   document,
   transcript,
   target,
   meetingId,
+  aside,
 }: {
-  document: Document;
+  document: Document | null;
   transcript: Transcript;
   target: ViewerTarget;
   meetingId: string | null;
+  aside?: ReactNode;
 }) {
   const t = useT();
   const meeting = useMeetings((state) => state.meetings.find((each) => each.id === meetingId));
   const live = meeting?.status === "recording";
   const state = meeting?.transcript?.state;
-  const partial = live && state === "live" ? (meeting?.transcript?.partial ?? null) : null;
+  const partials = (live && state === "live" && meeting?.transcript?.partials) || NOT_SAID;
   const scroller = useRef<HTMLDivElement>(null);
   const column = useRef<HTMLDivElement>(null);
   const list = useRef<HTMLOListElement>(null);
@@ -220,7 +285,7 @@ function TranscriptContent({
 
   const addLine = useCallback(
     async (cue: Cue) => {
-      if (!meetingId) return;
+      if (!meetingId || !document) return;
       const unit = units.find(
         ({ label }) =>
           label?.from !== undefined &&
@@ -306,7 +371,7 @@ function TranscriptContent({
   useLayoutEffect(() => {
     const container = scroller.current;
     if (container && following.current) container.scrollTop = container.scrollHeight;
-  }, [rows.length, partial?.text]);
+  }, [rows.length, partials]);
 
   useLayoutEffect(() => {
     const element = column.current;
@@ -365,6 +430,7 @@ function TranscriptContent({
             count: transcript.cues.length,
           })}
         </span>
+        {aside}
       </ViewerHeader>
       <div className="relative flex min-h-0 flex-1">
         <div
@@ -376,7 +442,7 @@ function TranscriptContent({
         >
           <article className="viewer-page viewer-text-page transcript-page">
             <div ref={column} className="relative">
-              {rows.length === 0 && !partial && (
+              {rows.length === 0 && partials.length === 0 && (
                 <p data-testid="transcript-empty" className="transcript-empty">
                   {t(live ? "transcript.waiting" : "transcript.none")}
                 </p>
@@ -435,11 +501,12 @@ function TranscriptContent({
                             time: clockTime(row.cue.startMs),
                             text: row.cue.text,
                           })}
+                          title={t("transcript.addToNote")}
                           onClick={() => void addLine(row.cue)}
                           className="transcript-add"
                         >
                           <PlusLineIcon className="size-3.5" />
-                          {t("transcript.addToNote")}
+                          <span className="transcript-add-word">{t("transcript.addToNote")}</span>
                         </button>
                       )}
                     </li>
@@ -499,8 +566,9 @@ function TranscriptContent({
                     </li>
                   ),
                 )}
-                {partial && (
+                {partials.map((partial) => (
                   <li
+                    key={`p${partial.startMs}:${partial.speaker ?? ""}`}
                     data-testid="transcript-partial"
                     data-quote-skip=""
                     aria-live="polite"
@@ -516,7 +584,7 @@ function TranscriptContent({
                       <p className="transcript-text">{partial.text}</p>
                     </div>
                   </li>
-                )}
+                ))}
               </ol>
               {mark && markTop !== null && (
                 <CitationMark

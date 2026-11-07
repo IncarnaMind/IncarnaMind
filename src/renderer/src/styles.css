@@ -1262,6 +1262,7 @@
     color: var(--color-danger);
   }
 
+  /* On the sheet, so the notes scrolled under it don't show through its chip and buttons. */
   .mind-menu-slot {
     position: absolute;
     top: 16px;
@@ -1269,6 +1270,8 @@
     display: flex;
     align-items: center;
     gap: 4px;
+    border-radius: 6px;
+    background: var(--color-sheet);
   }
 
   /*
@@ -1565,6 +1568,10 @@
       height: 100px;
       background: linear-gradient(to top, var(--color-sheet) 44px, transparent);
     }
+  }
+  /* Above the Ask pill's 20px and 40px, when it may stand at this group's foot. */
+  .mind-foot-slot--over-pill {
+    padding-bottom: 68px;
   }
   .mind-foot-count {
     position: relative;
@@ -2445,6 +2452,9 @@
     visibility: hidden;
     pointer-events: none;
   }
+  .meeting-bar-space {
+    margin-bottom: 24px;
+  }
   /* Hangs in the 24px the bar keeps below it; notes scrolled under the bar pass behind it, not through it. */
   .meeting-bar .meeting-line-over {
     position: absolute;
@@ -2557,35 +2567,65 @@
     width: 24px;
     padding: 0;
   }
-  /* Show transcript, at the bar's far end; its words give way first in a narrow Mind. */
-  .meeting-button--end {
-    flex-shrink: 1;
-    min-width: 0;
+  /* Notes | Transcript, at the bar's far end; the Transcript carries the level bars (#138). */
+  .meeting-views {
     margin-left: auto;
-
-    &:disabled {
-      color: var(--color-ink-placeholder);
-      background: none;
-    }
+  }
+  .meeting-view {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
   }
   .meeting-button-label {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
   }
+  /*
+   * The meeting's Transcript in its Note's page, while it records: the bar stands where it stands
+   * over the notes, so switching moves nothing but the page under it.
+   */
+  .meeting-note-transcript-top {
+    flex-shrink: 0;
+    padding-bottom: 0;
+    overflow: hidden;
+    scrollbar-gutter: stable;
+  }
+  .meeting-beside {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 4px;
+    height: 24px;
+    margin-left: auto;
+    padding: 0 6px;
+    border-radius: 6px;
+    white-space: nowrap;
+    color: var(--color-ink-secondary);
+
+    &:hover:not(:disabled) {
+      background: var(--color-hover);
+      color: var(--color-ink);
+    }
+    &:disabled {
+      color: var(--color-ink-placeholder);
+    }
+  }
   .meeting-more {
     display: none;
   }
   /*
    * As the bar narrows its buttons give up their words and keep their icons (their names and
-   * keys are in their tooltips), then Mark, then Call help, then the transcript and details
-   * buttons fold into the ⋯. The state and timer, Pause my mic, Pause and Stop stay. By the
-   * bar's own width, so nothing is measured and nothing moves while the window is dragged. A
-   * row needs, in English, which needs most: 567px with words, 334px with icons, 308px without
-   * Call help (Mark is folded for the same width the ⋯ takes) and 256px with only the four that
-   * stay and the ⋯; each query below leaves 12px over that.
+   * keys are in their tooltips), then Mark and Call help, then the details button fold into the
+   * ⋯; then "Recording" leaves the dot and the timer, and the Transcript its level bars. The
+   * state and timer, Pause my mic, Pause, Stop and Notes | Transcript stay. By the bar's own
+   * width, so nothing is measured and nothing moves while the window is dragged. A row needs, in
+   * English: 585px with words, 439px with icons, 413px without Mark and Call help (the ⋯ takes
+   * Mark's place), 387px without details, 317px without "Recording" and 291px without the level
+   * bars; in Chinese, whose words are shorter, 395px, 369px, 343px, 287px and 261px. Each query
+   * is the width that still fits.
    */
-  @container meeting-bar (width < 580px) {
+  @container meeting-bar (width < 586px) {
     .meeting-button--words {
       justify-content: center;
       width: 24px;
@@ -2596,26 +2636,66 @@
       display: none;
     }
   }
-  @container meeting-bar (width < 346px) {
-    .meeting-more {
-      display: inline-flex;
+  @container meeting-bar (width < 440px) {
+    :root:not(:lang(zh)) {
+      & .meeting-more {
+        display: inline-flex;
+      }
+      & [data-fold="mark"],
+      & [data-fold="help"] {
+        display: none;
+      }
     }
-    [data-fold="mark"] {
+  }
+  @container meeting-bar (width < 396px) {
+    :root:lang(zh) {
+      & .meeting-more {
+        display: inline-flex;
+      }
+      & [data-fold="mark"],
+      & [data-fold="help"] {
+        display: none;
+      }
+    }
+  }
+  @container meeting-bar (width < 414px) {
+    :root:not(:lang(zh)) [data-fold="details"] {
       display: none;
     }
   }
-  @container meeting-bar (width < 340px) {
-    [data-fold="help"] {
+  @container meeting-bar (width < 370px) {
+    :root:lang(zh) [data-fold="details"] {
       display: none;
     }
   }
-  @container meeting-bar (width < 320px) {
-    [data-fold="transcript"],
-    [data-fold="details"] {
+  @container meeting-bar (width < 388px) {
+    :root:not(:lang(zh)) .meeting-bar[data-kind="meeting"] .meeting-state-word {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+  }
+  @container meeting-bar (width < 344px) {
+    :root:lang(zh) .meeting-bar[data-kind="meeting"] .meeting-state-word {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+  }
+  @container meeting-bar (width < 318px) {
+    :root:not(:lang(zh)) .meeting-views .level-meter {
       display: none;
     }
-    .meeting-more {
-      margin-left: auto;
+  }
+  @container meeting-bar (width < 288px) {
+    :root:lang(zh) .meeting-views .level-meter {
+      display: none;
     }
   }
   /* A quiet 22px chip: no fill until pointed at (the model, "All Documents"). */
