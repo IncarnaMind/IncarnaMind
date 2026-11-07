@@ -219,6 +219,7 @@ function readCheckBasis(value: unknown): ClaimCheckBasis | null {
     checkedAt: text(value.checkedAt) ?? "",
     ...(value.kept === true && { kept: true }),
     ...(read && { read }),
+    ...(text(value.fromAnswer) !== null && { fromAnswer: text(value.fromAnswer) as string }),
   };
   if (value.parts !== undefined && value.parts !== null) {
     const parts = readClaimParts(value.parts, check.text, check.state);
@@ -646,7 +647,11 @@ function basisShown(check: ClaimCheckBasis, now: ClaimCheckNow): ClaimCheckShown
         continue;
       }
       // A Document only read, gone, takes nothing from the result: an example's, swapped for the interface language, among them (#962).
-      if (current === undefined && relied.has(version.documentId)) {
+      // A carried check relied on every Citation its Answer judged, not only the one that decided.
+      if (
+        current === undefined &&
+        (relied.has(version.documentId) || check.fromAnswer !== undefined)
+      ) {
         return { state: "needs-recheck", why: "document-removed" };
       }
       if (current !== undefined && current !== version.contentHash) {
@@ -671,6 +676,9 @@ function basisShown(check: ClaimCheckBasis, now: ClaimCheckNow): ClaimCheckShown
     !check.scope.widened &&
     check.action !== "contradiction-watch" &&
     check.action !== "check-against-document" &&
+    // A carried check searched the Answer's Question, not this Note's scope: moving the Note
+    // changes nothing it read (#2313).
+    check.fromAnswer === undefined &&
     scopeChanged(check.scope, now)
   ) {
     return { state: "needs-recheck", why: "search-scope" };

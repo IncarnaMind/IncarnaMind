@@ -65,6 +65,8 @@ export interface NewFile {
   folder?: string;
   /** The User allowed `folder` for this one file (#1110): it may be anywhere. */
   approved?: boolean;
+  /** Save it under `name` exactly: a name the User allowed is never written under another. */
+  exact?: boolean;
 }
 
 export interface OutputFilesOptions {
@@ -441,6 +443,23 @@ export function createOutputFiles(options: OutputFilesOptions) {
     },
 
     /**
+     * Whether the file of this name in the folder holds bytes `matches` accepts: a picture
+     * named after its content is linked rather than written (#1937).
+     */
+    async holdsMatching(
+      folder: string,
+      name: string,
+      matches: (bytes: Uint8Array) => boolean,
+    ): Promise<boolean> {
+      try {
+        const path = join(await realFolder(folder), fileNameOf(name));
+        return matches(new Uint8Array(await readFile(path)));
+      } catch {
+        return false;
+      }
+    },
+
+    /**
      * Saves a new file: in the Output location (the default the first time),
      * or in `folder`, asking first where the User hasn't answered yet. Throws
      * `FileWriteCancelledError` if the default couldn't take it and they
@@ -462,7 +481,7 @@ export function createOutputFiles(options: OutputFilesOptions) {
         if (file.ownFile) options.recordOwnFile(file.data, file.ownFile, file.fromFolder);
         let used: string;
         try {
-          used = await writeNewFile(folder, name, file.data);
+          used = await writeNewFile(folder, name, file.data, file.exact === true);
         } catch (error) {
           // macOS can refuse Documents only when a file is made in it, after the folder looked fine.
           if (!defaulted || !isRefused(error)) throw error;

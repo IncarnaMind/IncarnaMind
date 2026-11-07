@@ -2,9 +2,12 @@ import { renderAsync } from "docx-preview";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Document } from "../../../core/api";
 import { type DocxResult, extractDocx } from "../../../core/documents/formats/docx";
+import { highlightsOf, useAnnotations, useDocumentAnnotations } from "../annotations";
 import { ProblemMark } from "../components/ProblemLine";
-import { useT } from "../i18n";
+import { translateNow, useT } from "../i18n";
 import type { ViewerTarget } from "../store";
+import { AnnotationNoteLayer } from "./AnnotationNoteLayer";
+import { markAnnotationsInDom, unmarkAnnotationsInDom } from "./annotationMarks";
 import { useCitedArea, useCitedAreaFailure } from "./citedArea";
 import {
   type DocxComment,
@@ -93,7 +96,7 @@ export function DocxView({ document, target }: { document: Document; target: Vie
       loaded={loaded}
       quote={target.quote}
       reload={reload}
-      ready={(value) => <DocxPages loaded={value} target={target} />}
+      ready={(value) => <DocxPages document={document} loaded={value} target={target} />}
     />
   );
 }
@@ -120,7 +123,15 @@ interface MarkPlace {
   room: number;
 }
 
-function DocxPages({ loaded, target }: { loaded: Loaded; target: ViewerTarget }) {
+function DocxPages({
+  document,
+  loaded,
+  target,
+}: {
+  document: Document;
+  loaded: Loaded;
+  target: ViewerTarget;
+}) {
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const host = useRef<HTMLDivElement>(null);
@@ -364,6 +375,22 @@ function DocxPages({ loaded, target }: { loaded: Loaded; target: ViewerTarget })
     } else container.scrollTop = 0;
   }, [rendered, citedSection, target.request, target.quote, target.wordPlace, placed]);
 
+  // The Document's highlights (#327), after the Citation's wash, so both read.
+  const stored = useDocumentAnnotations(document.id);
+  const loadAnnotations = useAnnotations((state) => state.load);
+  useEffect(() => {
+    void loadAnnotations(document.id);
+  }, [loadAnnotations, document.id]);
+  useEffect(() => {
+    const body = host.current;
+    if (!body || rendered !== "yes") return;
+    unmarkAnnotationsInDom(body);
+    markAnnotationsInDom(body, highlightsOf(stored), (annotation) =>
+      translateNow(annotation.note === null ? "annotations.addNote" : "annotations.menu.editNote"),
+    );
+    return () => unmarkAnnotationsInDom(body);
+  }, [rendered, stored]);
+
   // The Citation's mark: in the page's right margin, level with the quote's first line; for a
   // quote in a comment's note, in the margin between the page's text and the note (#76).
   // biome-ignore lint/correctness/useExhaustiveDependencies: placed again when the pages zoom
@@ -467,6 +494,11 @@ function DocxPages({ loaded, target }: { loaded: Loaded; target: ViewerTarget })
           <div ref={content} className="relative">
             <div ref={styles} />
             <div ref={host} className="docx-view" style={{ zoom }} />
+            <AnnotationNoteLayer
+              container={scroller}
+              documentId={document.id}
+              annotations={stored ?? []}
+            />
             {mark && place && (
               <CitationMark
                 mark={mark}

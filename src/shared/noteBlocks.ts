@@ -19,7 +19,7 @@ import { parseQuotedWords, parseQuotedWordsCheck } from "./citations";
 import { parseLocation } from "./locations";
 
 /** At most this many Blocks go into a note at once, and this deep. */
-const MAX_BLOCKS = 2_000;
+export const MAX_BLOCKS = 2_000;
 const MAX_DEPTH = 24;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -113,7 +113,8 @@ async function recheckOne(node: NodeJSON, recheck: Recheck): Promise<NodeJSON> {
   const attrs = node.attrs ?? {};
   const { documentId, quote } = attrs;
   if (typeof documentId !== "string" || documentId === "") return node;
-  const area = parseLocation(attrs.location)?.area;
+  const location = parseLocation(attrs.location);
+  const area = location?.area;
   // An area over a picture has no words, by design (#118): its check stays where the User picked it.
   if (typeof quote !== "string" || (quote === "" && area !== undefined)) return node;
   try {
@@ -128,6 +129,7 @@ async function recheckOne(node: NodeJSON, recheck: Recheck): Promise<NodeJSON> {
       pageTo,
       contentHash,
       ...(asked && { quotedWords: asked }),
+      ...(location && { location }),
     });
     // Kept inside a wall the Note is outside, nothing was read: the check made when it was cited stands.
     if ("keptInside" in checked) return node;

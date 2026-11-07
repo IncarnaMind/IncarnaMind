@@ -1,7 +1,7 @@
 /**
  * After Stop, a Meeting's notes filled in from its Transcript (#142), with no question first,
- * and a voice memo's note written from it (#1568, ./memo). Nothing is written until all of it is
- * ready, then in one write after a Checkpoint, so a failure or a quit leaves the Mind as it was.
+ * and a voice memo's note written from it (#1568, ./memo). Checked items go in together after a
+ * Checkpoint, with omissions reported separately. A quit or cancellation writes nothing.
  */
 import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
@@ -27,21 +27,21 @@ import type { Language } from "../language";
 import type { MindContent } from "../mindContent";
 import { inFlow } from "../timing/flows";
 import type { StoredFill } from ".";
+import { createFactLedger } from "./factLedger";
+import { placeFacts } from "./factPlacement";
+import { type MeetingFact, parseFactReply } from "./factProtocol";
 import {
-  citedOnly,
   claimsIn,
   FILL_SECTIONS,
   type FillLine,
   type FillSection,
   lineMarker,
   notesContext,
-  partsOf,
   SECTION_TITLES,
-  sectionNamed,
-  sectionOf,
   sectionsContext,
   textOf,
 } from "./fillPrompt";
+import { headingRoutes } from "./headingRoutes";
 import {
   asItIs,
   type MemoCue,
@@ -51,7 +51,6 @@ import {
   tidiedNote,
   wordsAdded,
 } from "./memo";
-import { withoutRepeats } from "./repeats";
 
 /** The most of a Transcript one Run reads: about two hours of talk. */
 export const FILL_PART_TOKENS = 24_000;
@@ -71,6 +70,8 @@ interface Written {
   problem: MeetingFillProblem | null;
   /** How many parts of the Transcript the model read. */
   parts: number;
+  omitted?: number;
+  unfinishedParts?: number;
   place(blocks: Y.XmlFragment): string[];
 }
 
@@ -129,6 +130,8 @@ class FillProblemError extends Error {
 interface UserLine extends FillLine {
   id: string;
   headingId: string | null;
+  position: Uint8Array;
+  ancestors: string[];
 }
 
 const LINE_TYPES = new Set(["paragraph", "heading"]);
@@ -154,35 +157,48 @@ function readLine(element: Y.XmlElement): { text: string; generated: boolean } {
   return { text: text.trim(), generated };
 }
 
-function linesIn(parent: Y.XmlFragment | Y.XmlElement, found: Y.XmlElement[] = []): Y.XmlElement[] {
+function linesIn(
+  parent: Y.XmlFragment | Y.XmlElement,
+  allHeadings: boolean,
+  found: Y.XmlElement[] = [],
+): Y.XmlElement[] {
   for (const child of parent.toArray()) {
     if (!(child instanceof Y.XmlElement) || NOT_NOTES.has(child.nodeName)) continue;
     if (LINE_TYPES.has(child.nodeName)) {
       const { text, generated } = readLine(child);
-      if (text !== "" && !generated) found.push(child);
-    } else linesIn(child, found);
+      if ((allHeadings && child.nodeName === "heading") || (text !== "" && !generated))
+        found.push(child);
+    } else linesIn(child, allHeadings, found);
   }
   return found;
 }
 
-// Each line gets an id if it had none, so it can be found once filled in.
-function userLines(blocks: Y.XmlFragment): UserLine[] {
+function userLines(blocks: Y.XmlFragment, allHeadings = false): UserLine[] {
   const lines: UserLine[] = [];
-  let headingId: string | null = null;
+  const ancestors: { id: string; marker: string; level: number }[] = [];
   let filled = 0;
-  for (const element of linesIn(blocks)) {
-    let id = element.getAttribute(BLOCK_ID_ATTRIBUTE);
-    if (typeof id !== "string" || id === "") {
-      id = randomUUID();
-      element.setAttribute(BLOCK_ID_ATTRIBUTE, id);
-    }
+  let headings = 0;
+  for (const element of linesIn(blocks, allHeadings)) {
+    const ownId = element.getAttribute(BLOCK_ID_ATTRIBUTE);
+    const id = typeof ownId === "string" ? ownId : "";
     const heading = element.nodeName === "heading";
     const { text } = readLine(element);
-    const section = sectionNamed(text);
-    const marker = heading || section ? "" : lineMarker(filled);
-    lines.push({ id, text, heading, section, headingId, marker });
-    if (heading) headingId = id;
-    else if (!section) filled++;
+    const marker = heading ? `H${++headings}` : lineMarker(filled++);
+    const level = Number(element.getAttribute("level") ?? 2);
+    if (heading) {
+      while (ancestors.length > 0 && (ancestors.at(-1)?.level ?? 0) >= level) ancestors.pop();
+    }
+    lines.push({
+      id,
+      text,
+      heading,
+      headingId: ancestors.at(-1)?.id ?? null,
+      marker,
+      ancestors: ancestors.map((line) => line.marker),
+      // A deleted line's parent slot can resolve to its neighbor (#2306).
+      position: Y.encodeRelativePosition(Y.createRelativePositionFromTypeIndex(element, 0, -1)),
+    });
+    if (heading) ancestors.push({ id, marker, level });
   }
   return lines;
 }
@@ -195,6 +211,25 @@ function findById(parent: Y.XmlFragment | Y.XmlElement, id: string): Y.XmlElemen
     if (inside) return inside;
   }
   return null;
+}
+
+function findLine(blocks: Y.XmlFragment, line: UserLine): Y.XmlElement | null {
+  let found = line.id ? findById(blocks, line.id) : null;
+  if (!line.id && blocks.doc) {
+    const at = Y.createAbsolutePositionFromRelativePosition(
+      Y.decodeRelativePosition(line.position),
+      blocks.doc,
+    );
+    const candidate = at?.type;
+    if (candidate instanceof Y.XmlElement && linesIn(blocks, true).includes(candidate)) {
+      found = candidate;
+    }
+  }
+  return found &&
+    found.nodeName === (line.heading ? "heading" : "paragraph") &&
+    readLine(found).text === line.text
+    ? found
+    : null;
 }
 
 function endOfHeadingPart(blocks: Y.XmlFragment, heading: Y.XmlElement): number {
@@ -243,7 +278,7 @@ function placeUnderLines(
   for (const line of lines) {
     const nodes = line.marker === "" ? undefined : additions.get(line.marker);
     if (!nodes || nodes.length === 0) continue;
-    const element = findById(blocks, line.id);
+    const element = findLine(blocks, line);
     const under = element && placeUnder(blocks, element, nodes);
     if (under) {
       added.push(...under);
@@ -258,20 +293,20 @@ function placeUnderLines(
   return added;
 }
 
-/** Each section under the User's line that names it, else at the end under its title. */
+/** Sections not placed under the User's headings follow under their own titles. */
 function placeSections(
   blocks: Y.XmlFragment,
   sections: ReadonlyMap<FillSection, NodeJSON[]>,
-  lines: readonly UserLine[],
+  headings: ReadonlyMap<FillSection, UserLine>,
   language: Language,
 ): string[] {
-  const added: string[] = [];
   const atEnd: NodeJSON[] = [];
+  const added: string[] = [];
   for (const section of FILL_SECTIONS) {
     const nodes = sections.get(section);
     if (!nodes || nodes.length === 0) continue;
-    const named = lines.find((line) => line.section === section);
-    const element = named ? findById(blocks, named.id) : null;
+    const heading = headings.get(section);
+    const element = heading ? findLine(blocks, heading) : null;
     const under = element && placeUnder(blocks, element, nodes);
     if (under) {
       added.push(...under);
@@ -287,7 +322,7 @@ function placeSections(
       ...nodes,
     );
   }
-  return [...added, ...placeAtEnd(blocks, atEnd)];
+  return [...added, ...placeAtEnd(blocks, atEnd, true)];
 }
 
 const blank = (child: unknown) =>
@@ -300,8 +335,16 @@ const blank = (child: unknown) =>
  * After what the User wrote; in place of a Mind with nothing written in it yet, so it doesn't
  * open on blank lines (#2305) and a voice memo's title line names the Mind.
  */
-function placeAtEnd(blocks: Y.XmlFragment, nodes: readonly NodeJSON[]): string[] {
+function placeAtEnd(
+  blocks: Y.XmlFragment,
+  nodes: readonly NodeJSON[],
+  preserveBlank = false,
+): string[] {
   const placed = withIds(nodes);
+  if (preserveBlank && blocks.toArray().every(blank)) {
+    blocks.insert(0, placed.map(createElement));
+    return placed.map(idOf);
+  }
   if (blocks.toArray().every(blank)) blocks.delete(0, blocks.length);
   blocks.insert(blocks.length, placed.map(createElement));
   return placed.map(idOf);
@@ -397,7 +440,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
     if (answer.status === "stopped" || signal.aborted) {
       throw new FillProblemError({ kind: "stopped", message: "" });
     }
-    if (answer.status === "failed") {
+    if (answer.status === "failed" && !context.meetingFacts) {
       throw new FillProblemError({
         kind: "model",
         message: answer.error?.message ?? words("meetings.fill.problem.model"),
@@ -437,50 +480,161 @@ export function createMeetingFill(options: MeetingFillOptions) {
     route: Routed,
     signal: AbortSignal,
   ): Promise<Written> {
-    // Lines get an id if they had none, before the model reads them: an attribute, not text.
-    const lines = content.edit(meeting.mindId, (blocks) => userLines(blocks));
-    const mode = lines.some((line) => !line.heading || line.section) ? "notes" : "sections";
-    set(meeting.id, { state: "filling", mode, local: route.local, problem: null, blocks: [] });
+    const lines = content.read(meeting.mindId, (blocks) => userLines(blocks));
+    const mode = lines.length > 0 ? "notes" : "sections";
+    set(meeting.id, {
+      state: "filling",
+      mode,
+      local: route.local,
+      problem: null,
+      omitted: 0,
+      unfinishedParts: 0,
+      blocks: [],
+    });
     const passages = await passagesOf(transcriptId);
     const parts = partsFor(passages, route);
     const question = words(
       mode === "notes" ? "meetings.fill.question.notes" : "meetings.fill.question.sections",
     );
-    const context = mode === "notes" ? notesContext(lines, question) : sectionsContext(question);
-    const gathered = new Map<string, NodeJSON[]>();
-    for (const part of parts) {
-      const answer = await ask(context, part, transcriptId, route, signal);
-      for (const [marker, blocks] of partsOf(answer.blocks)) {
-        const cited = citedOnly(blocks);
-        if (cited.length > 0) gathered.set(marker, [...(gathered.get(marker) ?? []), ...cited]);
+    const ledger = createFactLedger();
+    let unfinishedParts = 0;
+    let problem: MeetingFillProblem | null = null;
+    const destinations = new Map<FillSection, string>();
+    for (const [index, part] of parts.entries()) {
+      const history = {
+        part: index + 1,
+        facts: ledger.facts.map((fact) => ({
+          id: fact.id,
+          topic: fact.topic,
+          text: textOf(fact.body),
+          lines: fact.lines,
+          sections: fact.sections,
+        })),
+      };
+      const context =
+        mode === "notes"
+          ? notesContext(lines, question, history)
+          : sectionsContext(question, history);
+      let answer: CellAnswer;
+      try {
+        answer = await ask(context, part, transcriptId, route, signal);
+      } catch (error) {
+        if (signal.aborted || (ledger.facts.length === 0 && ledger.overview === null)) throw error;
+        if (error instanceof FillProblemError && error.problem.kind === "stopped") throw error;
+        unfinishedParts = parts.length - index;
+        problem =
+          error instanceof FillProblemError
+            ? error.problem
+            : { kind: "model", message: words("meetings.fill.problem.model") };
+        log.warn("meeting.fillPartFailed", { meetingId: meeting.id, parts: unfinishedParts });
+        break;
+      }
+      const parsed = parseFactReply(answer);
+      ledger.accept(parsed);
+      const markers = [
+        "SUMMARY",
+        ...parsed.facts.flatMap((fact) => fact.sections.map((section) => section.toUpperCase())),
+        ...(parsed.facts.some((fact) => fact.claim) ? ["CLAIMS"] : []),
+      ];
+      const routed = headingRoutes(answer.markdown, markers, lines);
+      if (routed === null) {
+        problem ??= { kind: "model", message: words("meetings.fill.problem.model") };
+        log.warn("meeting.fillRoutingFailed", { meetingId: meeting.id });
+      }
+      for (const [section, heading] of routed ?? []) {
+        const conflicts =
+          (destinations.has(section) && destinations.get(section) !== heading) ||
+          [...destinations].some(([other, target]) => other !== section && target === heading);
+        if (conflicts) {
+          problem ??= { kind: "model", message: words("meetings.fill.problem.model") };
+          log.warn("meeting.fillRoutingFailed", { meetingId: meeting.id });
+        } else destinations.set(section, heading);
+      }
+      if (answer.status === "failed") {
+        unfinishedParts = parts.length - index;
+        problem = {
+          kind: "model",
+          message: answer.error?.message ?? words("meetings.fill.problem.model"),
+        };
+        log.warn("meeting.fillPartFailed", { meetingId: meeting.id, parts: unfinishedParts });
+        break;
       }
     }
-    if (gathered.size === 0) {
-      throw new FillProblemError({ kind: "model", message: words("meetings.fill.problem.empty") });
+    if (ledger.invalidFrames > 0) {
+      problem ??= { kind: "model", message: words("meetings.fill.problem.model") };
+      log.warn("meeting.fillInvalidFrames", {
+        meetingId: meeting.id,
+        frames: ledger.invalidFrames,
+      });
     }
-    const written = new Map<FillSection, NodeJSON[]>();
-    const lineParts: NodeJSON[] = [];
-    for (const [marker, blocks] of gathered) {
-      const section = sectionOf(marker);
-      if (section) written.set(section, blocks);
-      else lineParts.push(...blocks);
+    const { overview } = ledger;
+    const omitted = ledger.omitted(unfinishedParts === 0);
+    if (omitted > 0) {
+      log.warn("meeting.fillItemsOmitted", {
+        meetingId: meeting.id,
+        items: omitted,
+        ...ledger.omittedReasons(unfinishedParts === 0),
+      });
     }
-    const sections = mode === "notes" ? withoutRepeats(lineParts, written) : written;
-    const claims = sections.get("claims");
-    if (claims) {
-      const unsupported = await notSupported(claims, meeting.mindId, transcriptId, route);
-      if (signal.aborted) throw new FillProblemError({ kind: "stopped", message: "" });
-      if (unsupported.length > 0) sections.set("claims", unsupported);
-      else sections.delete("claims");
+    set(meeting.id, { omitted, unfinishedParts });
+    if (ledger.facts.length === 0 && overview === null) {
+      throw new FillProblemError(
+        problem ?? { kind: "model", message: words("meetings.fill.problem.empty") },
+      );
     }
+    const retained = ledger.facts;
+    const claims = await unsupportedFacts(retained, meeting.mindId, transcriptId, route);
+    if (signal.aborted) throw new FillProblemError({ kind: "stopped", message: "" });
     return {
       mode,
-      problem: null,
+      problem,
+      omitted,
+      unfinishedParts,
       parts: parts.length,
-      place: (blocks) => [
-        ...(mode === "notes" ? placeUnderLines(blocks, lines, gathered) : []),
-        ...placeSections(blocks, sections, lines, options.language()),
-      ],
+      place: (blocks) => {
+        const matched = lines.map((line) => ({ line, element: findLine(blocks, line) }));
+        const current = userLines(blocks, true);
+        const addresses = new Map<string, string>();
+        for (const line of current) {
+          const element = findLine(blocks, line);
+          const original = matched.find(
+            (each) => each.element !== null && each.element === element,
+          );
+          if (original) addresses.set(line.marker, original.line.marker);
+        }
+        const currentAddress = (marker: string) => addresses.get(marker) ?? `current-${marker}`;
+        const present = current.map((line) => ({
+          ...line,
+          marker: currentAddress(line.marker),
+          ancestors: line.ancestors.map(currentAddress),
+        }));
+        const routes = new Map(
+          [...destinations].filter(([, marker]) =>
+            present.some((line) => line.heading && line.marker === marker),
+          ),
+        );
+        const planned = placeFacts({
+          facts: retained,
+          overview,
+          lines: present,
+          headings: routes,
+          claims,
+          reference: (topic, direction) =>
+            translate(options.language(), `meetings.fill.reference.${direction}`, { topic }),
+        });
+        if (planned.unplaced > 0) {
+          log.warn("meeting.fillLineMoved", { meetingId: meeting.id, facts: planned.unplaced });
+        }
+        const headings = new Map<FillSection, UserLine>();
+        for (const [section, marker] of routes) {
+          const line = present.find((line) => line.heading && line.marker === marker);
+          if (line) headings.set(section, line);
+        }
+        return [
+          ...placeUnderLines(blocks, present, planned.lines),
+          ...placeSections(blocks, planned.sections, headings, options.language()),
+        ];
+      },
     };
   }
 
@@ -586,6 +740,8 @@ export function createMeetingFill(options: MeetingFillOptions) {
         state: "filled",
         mode: written.mode,
         problem: written.problem,
+        omitted: written.omitted ?? 0,
+        unfinishedParts: written.unfinishedParts ?? 0,
         blocks: added,
       });
       log.info("meeting.filled", {
@@ -612,16 +768,21 @@ export function createMeetingFill(options: MeetingFillOptions) {
     }
   }
 
-  async function notSupported(
-    blocks: readonly NodeJSON[],
+  async function unsupportedFacts(
+    facts: readonly MeetingFact[],
     mindId: string,
     transcriptId: string,
     route: Routed,
-  ): Promise<NodeJSON[]> {
-    const claims = claimsIn(blocks);
+  ): Promise<Set<string>> {
+    const claims = facts.filter((fact) => fact.claim);
     const supported = await inTurns(claims, route.local ? 1 : CLAIMS_AT_ONCE, (claim) =>
       options
-        .supports({ claim: claim.text, mindId, transcriptId, model: route.model })
+        .supports({
+          claim: claimsIn([claim.body])[0]?.text ?? textOf(claim.body),
+          mindId,
+          transcriptId,
+          model: route.model,
+        })
         .catch((error: unknown) => {
           // Not checked is not supported: it stays on the list.
           log.warn("meeting.claimNotChecked", {
@@ -630,12 +791,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
           return false;
         }),
     );
-    const items = claims
-      .filter((_, index) => !supported[index])
-      .map(({ block }) =>
-        block.type === "listItem" ? block : { type: "listItem", content: [block] },
-      );
-    return items.length > 0 ? [{ type: "bulletList", content: items }] : [];
+    return new Set(claims.filter((_, index) => !supported[index]).map((fact) => fact.id));
   }
 
   /** A fill asked for but not yet running: `running` is set only after the route is awaited. */
@@ -715,7 +871,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
           }
         }
       });
-      return set(meetingId, { state: "undone", blocks: [] });
+      return set(meetingId, { state: "undone", omitted: 0, unfinishedParts: 0, blocks: [] });
     },
 
     /** At start: a fill a quit cut short wrote nothing, and says so; one waiting starts now. */

@@ -10,6 +10,8 @@ import {
 } from "../../editor/mindContext";
 import { useT } from "../../i18n";
 import { assistantTabOf } from "../../layoutSlice";
+import { useMeetingOf } from "../../meetings";
+import { useMeetingNoteView } from "../../meetingViews";
 import { useWritingProperties } from "../../mindStyles";
 import { useQuietAssistant } from "../../quietAssistant";
 import { useReviewPanes, useRoomBeside } from "../../reviewPane";
@@ -23,6 +25,8 @@ import { useIsExample } from "../GettingStarted";
 import { PlusLineIcon } from "../lineIcons";
 import { MakeSkillCard } from "../MakeSkillCard";
 import { MeetingInMind } from "../MeetingInMind";
+import { MeetingTranscriptInNote } from "../MeetingTranscriptInNote";
+import { MeetingViewChip } from "../MeetingViewChip";
 import { MindEditor } from "../MindEditor";
 import { ChatReadinessNotice } from "../providers/ChatReadinessNotice";
 import { dropIntoClass } from "../sidebarRows";
@@ -46,6 +50,11 @@ export function MindTab({ mindId }: { mindId: string }) {
   const assistantSlot = useContext(ComposerDockContext);
   const place = useTabPlace();
   const tabId = place?.tabId;
+  const meeting = useMeetingOf(mindId);
+  const view = useMeetingNoteView(tabId, mindId);
+  const hasViews =
+    meeting?.kind === "meeting" && meeting.status === "stopped" && !!meeting.transcript?.documentId;
+  const transcriptShown = hasViews && !!tabId && view === "transcript";
   const band = useUndoPillBands((state) => undoBandFor(state.bands, place?.groupId));
   const merged = useGroupsMerged();
   const read = useAppStore((state) => assistantTabOf(state.layout, merged)?.id === tabId);
@@ -53,13 +62,14 @@ export function MindTab({ mindId }: { mindId: string }) {
   const writing = useWritingProperties(mindId);
   const pill = useQuietAssistant();
   const review = useReviewShown(mindId);
+  const reviewShown = transcriptShown ? "closed" : review.shown;
   if (!mind) return null;
 
   return (
     <div className="relative flex min-h-0 flex-grow flex-col">
       <div
         ref={review.setRow}
-        data-review={review.shown}
+        data-review={reviewShown}
         className="mind-tab-row relative flex min-h-0 flex-grow"
       >
         <div className="mind-tab-page relative flex min-h-0 min-w-0 flex-grow flex-col">
@@ -71,7 +81,10 @@ export function MindTab({ mindId }: { mindId: string }) {
             onDragOverCapture={wordDrop.props.onDragOver}
             onDragLeave={wordDrop.props.onDragLeave}
             onDropCapture={wordDrop.props.onDrop}
-            style={band > 0 ? { marginBottom: band } : undefined}
+            style={{
+              ...(band > 0 && { marginBottom: band }),
+              ...(transcriptShown && { display: "none" }),
+            }}
             className={`mind-scroller min-h-0 flex-grow overflow-auto ${wordDrop.over ? `rounded-lg ${dropIntoClass}` : ""}`}
           >
             {/* Every text in it starts at one edge (styles.css, `.mind-column`). */}
@@ -95,7 +108,7 @@ export function MindTab({ mindId }: { mindId: string }) {
                       count,
                       badge,
                       review: review.slot,
-                      reviewShown: review.shown,
+                      reviewShown,
                     }}
                   >
                     <CompareSheetSlotContext.Provider value={sheetSlot}>
@@ -110,17 +123,27 @@ export function MindTab({ mindId }: { mindId: string }) {
               <div aria-hidden="true" data-testid="ask-pill-fade" className="ask-pill-fade" />
             )}
           </div>
-          <div ref={setMenu} className="mind-menu-slot" />
-          <div className="mind-foot-slot">
+          {transcriptShown && <MeetingTranscriptInNote meeting={meeting} tabId={tabId} />}
+          <div className="mind-menu-slot">
+            {hasViews && tabId && <MeetingViewChip meeting={meeting} tabId={tabId} />}
+            <div ref={setMenu} className="flex items-center gap-1" />
+          </div>
+          <div className="mind-foot-slot" style={transcriptShown ? { display: "none" } : undefined}>
             <div ref={setCount} className="mind-foot-count" />
             <div ref={setBadge} className="mind-foot-badge" />
           </div>
         </div>
-        <div ref={review.setSlot} data-shown={review.shown} className="review-slot" />
+        <div ref={review.setSlot} data-shown={reviewShown} className="review-slot" />
       </div>
       {/* The Compare Documents sheet docks here, in the column's measure, below the note. */}
-      <div ref={setSheetSlot} className="compare-sheet-dock" />
-      <ExportResultLine mindId={mind.id} />
+      <div
+        ref={setSheetSlot}
+        className="compare-sheet-dock"
+        style={transcriptShown ? { display: "none" } : undefined}
+      />
+      <div className="contents" style={transcriptShown ? { display: "none" } : undefined}>
+        <ExportResultLine mindId={mind.id} />
+      </div>
     </div>
   );
 }

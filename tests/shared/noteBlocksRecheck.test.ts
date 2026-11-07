@@ -24,6 +24,36 @@ const removed: CitationRecheck = {
 };
 
 describe("a Citation checked again where it lands", () => {
+  test("forwards a Transcript's stored cue Location without replacing its occurrence", async () => {
+    const location = { kind: "time", from: 7000, to: 10_000, speaker: "Dana" } as const;
+    const recheck = vi.fn(async () => ({
+      ...removed,
+      check: "found" as const,
+      checkReason: null,
+      contentHash: "v1",
+      location,
+    }));
+    const attrs = {
+      documentId: "doc",
+      quote: "We agreed to review the plan.",
+      pageFrom: 1,
+      pageTo: 1,
+      contentHash: "v1",
+      location,
+      check: "found",
+    };
+    const landed = await recheckCitations([block(attrs)], recheck);
+    expect(recheck).toHaveBeenCalledWith({
+      documentId: "doc",
+      quote: attrs.quote,
+      pageFrom: 1,
+      pageTo: 1,
+      contentHash: "v1",
+      location,
+    });
+    expect(citationOf(landed)).toMatchObject({ location, check: "found" });
+  });
+
   test("an area with no words keeps the check it was picked with, and isn't checked", async () => {
     const recheck = vi.fn(async () => removed);
     const attrs = {

@@ -1,7 +1,7 @@
 import { type ReactNode, useId, useLayoutEffect, useRef, useState } from "react";
 import type { TranscriptionRoute } from "../../../../core/api";
 import { JEV_SERVICE } from "../../../../core/providers/jev";
-import { useT } from "../../i18n";
+import { useLanguage, useT } from "../../i18n";
 import { finishSetupStep, openSetupStep, useModelSetup } from "../../modelSetup";
 import { useAppStore } from "../../store";
 import { ROUTE_LABELS, useTranscriptionServicesRead } from "../../transcriptionServices";
@@ -11,8 +11,10 @@ import { TranscriptionRouteConsent } from "../meetings/TranscriptionSettings";
 import { ReadProblem } from "../ReadProblem";
 import { STEP_BUTTON_CLASS, StepNumber } from "../StepNumber";
 import { buttonStyle, fieldClass, hintClass } from "../ui";
+import { DecisionSortingSetUp, firstModelOf, hostName } from "./DecisionKeyForm";
 import { JevSortingSetUp } from "./JevSortingSetUp";
 import { SortingLine, SortingSelect, useSorting } from "./SortingChoice";
+import type { SetUpOffer } from "./sortingOptions";
 
 const linkClass =
   "text-[13px] leading-5 font-semibold text-accent underline-offset-2 hover:underline";
@@ -266,11 +268,30 @@ function TranscriptionStep({ onDone }: { onDone(choice: string): void }) {
 /** What sorts Tags and Folders and names meeting hints, the best the keys reach picked first. */
 function SortingStep({ onDone }: { onDone(choice: string): void }) {
   const t = useT();
-  const { options, current, choose, known, loading, read, jevSetUp, jevSettings, reread } =
-    useSorting();
+  const language = useLanguage();
+  const {
+    options,
+    current,
+    best,
+    library,
+    choose,
+    known,
+    loading,
+    read,
+    setUpOffers,
+    jevSettings,
+    decisionHosts,
+    reread,
+  } = useSorting();
   const [picked, setPicked] = useState<SortingOptionLike | null>(null);
-  const [settingUpJev, setSettingUpJev] = useState(false);
-  const chosen = picked ?? current;
+  const [settingUp, setSettingUp] = useState<SetUpOffer["id"] | null>(null);
+  const host = decisionHosts?.find((each) => each.host === settingUp);
+  const backToPicker = () => {
+    setSettingUp(null);
+    document.getElementById("setup-sorting")?.focus();
+  };
+  // A choice the User made stands; under Automatic the best is preselected, and Use this chooses it.
+  const chosen = picked ?? (library?.settings.classifier.kind === "automatic" ? best : current);
   const use = async () => {
     if (chosen && !(await choose(chosen, { turnOn: true }))) return;
     onDone(chosen?.label ?? t("setup.step.skipped"));
@@ -298,17 +319,13 @@ function SortingStep({ onDone }: { onDone(choice: string): void }) {
         autoFocus
         options={options}
         current={chosen}
-        setUp={{
-          offered: jevSetUp,
-          open: settingUpJev,
-          onChoose: () => setSettingUpJev(true),
-        }}
+        setUp={{ offers: setUpOffers, open: settingUp, onChoose: setSettingUp }}
         onChange={(option) => {
-          setSettingUpJev(false);
+          setSettingUp(null);
           setPicked(option);
         }}
       />
-      {settingUpJev && jevSettings ? (
+      {settingUp === "jev" && jevSettings ? (
         <JevSortingSetUp
           jev={jevSettings}
           choosing
@@ -318,10 +335,20 @@ function SortingStep({ onDone }: { onDone(choice: string): void }) {
             return chosenJev;
           }}
           onChosen={() => onDone(JEV_SERVICE.name)}
-          onCancel={() => {
-            setSettingUpJev(false);
-            document.getElementById("setup-sorting")?.focus();
+          onCancel={backToPicker}
+        />
+      ) : host ? (
+        <DecisionSortingSetUp
+          key={host.host}
+          host={host}
+          choosing
+          choose={async () => {
+            const chosen = await choose({ classifier: firstModelOf(host) }, { turnOn: true });
+            reread();
+            return chosen;
           }}
+          onChosen={() => onDone(`${host.models[0]?.name ?? ""} · ${hostName(host, language)}`)}
+          onCancel={backToPicker}
         />
       ) : (
         <SortingChoiceButtons

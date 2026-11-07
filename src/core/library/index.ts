@@ -29,6 +29,7 @@ import {
   TaggingNotReadyError,
 } from "../errors";
 import type { Language } from "../language";
+import { decisionModelOf, isDecisionHost } from "../providers/catalog/decisions";
 import { normalizeBaseUrl, serviceForUrl } from "../providers/kinds";
 import { classifyProviderError } from "../providers/providerErrors";
 import { redactMessage } from "../redact";
@@ -75,6 +76,10 @@ function taggingClassifierOf(value: unknown): TaggingClassifier | null {
   if (!isRecord(value)) return null;
   const { kind, baseUrl, modelId } = value;
   if (kind === "jev") return { kind };
+  if (kind === "decision") {
+    const { host } = value;
+    return isDecisionHost(host) && typeof modelId === "string" ? { kind, host, modelId } : null;
+  }
   if (kind === "chat")
     return isChatModelChoice(value.choice) ? { kind, choice: value.choice } : null;
   if (typeof baseUrl !== "string") return null;
@@ -540,6 +545,13 @@ export function createLibrary(options: {
       selected.baseUrl = normalizeBaseUrl(selected.baseUrl);
       if (serviceForUrl(selected.baseUrl as string))
         throw new InvalidInputError({ key: "error.library.ollamaNotLocal" });
+    } else if (selected.kind === "decision") {
+      if (
+        !isDecisionHost(selected.host) ||
+        typeof selected.modelId !== "string" ||
+        !decisionModelOf(selected.host, selected.modelId)
+      )
+        throw new InvalidInputError({ key: "error.library.classifierModel" });
     } else if (selected.kind !== "jev")
       throw new InvalidInputError("Choose a supported classifier.");
   };

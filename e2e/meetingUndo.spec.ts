@@ -115,11 +115,34 @@ async function stoppedLines(window: Page, language: keyof typeof WORDS) {
 }
 
 /** The Transcript opens from its line, with the lines said in it. */
-async function opensTranscript(window: Page, saved: Locator): Promise<void> {
-  await pointAndClick(window, saved.getByTestId("meeting-transcript-open"));
-  await expect(
-    window.getByTestId("viewer-transcript").getByTestId("transcript-line").first(),
-  ).toBeVisible();
+async function opensTranscript(window: Page, saved: Locator, mindId: string): Promise<void> {
+  const tab = window.locator(`[data-testid="mind-tab"][data-mind-id="${mindId}"]`);
+  await expect(tab).toHaveAttribute("aria-selected", "true");
+  const tabId = await tab.getAttribute("data-tab-id");
+  const panelId = await tab.getAttribute("aria-controls");
+  if (!tabId || !panelId) throw new Error("Expected the restored Note's tab and panel");
+  const panel = window.locator(`[id="${panelId}"]`);
+  const editor = panel.getByTestId("mind-editor");
+  const retained = await editor.elementHandle();
+  if (!retained) throw new Error("Expected the restored Note's editor");
+  const documentTabs = await window.getByTestId("document-tab").count();
+  try {
+    await pointAndClick(window, saved.getByTestId("meeting-transcript-open"));
+    await expect(
+      panel
+        .getByTestId("meeting-note-transcript")
+        .getByTestId("viewer-transcript")
+        .getByTestId("transcript-line")
+        .first(),
+    ).toBeVisible();
+    await expect(tab).toHaveAttribute("aria-selected", "true");
+    await expect(tab).toHaveAttribute("data-tab-id", tabId);
+    await expect(window.getByTestId("document-tab")).toHaveCount(documentTabs);
+    await expect(editor).toBeHidden();
+    expect(await retained.evaluate((element) => element.isConnected)).toBe(true);
+  } finally {
+    await retained.dispose();
+  }
 }
 
 for (const language of ["en", "zh-CN"] as const) {
@@ -151,7 +174,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(audio).toHaveText(audioLine);
     await expect(undoMessage(window)).toHaveCount(0);
     expect(partsOf(meeting.id)).toEqual(parts);
-    await opensTranscript(window, saved);
+    await opensTranscript(window, saved, meeting.mindId);
     await app.close();
   });
 
@@ -199,7 +222,7 @@ for (const language of ["en", "zh-CN"] as const) {
     const { saved } = await stoppedLines(window, language);
     expect((await meetings(window))[0]).toMatchObject({ id: meeting.id, status: "stopped" });
     expect(partsOf(meeting.id).length).toBeGreaterThan(0);
-    await opensTranscript(window, saved);
+    await opensTranscript(window, saved, meeting.mindId);
     await app.close();
   });
 

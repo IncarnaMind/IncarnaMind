@@ -2,7 +2,7 @@ import { Fragment, useEffect, useLayoutEffect, useState } from "react";
 import type { LayoutGroup } from "../../../../core/api";
 import { useExportDialog } from "../../exportDialog";
 import { useT } from "../../i18n";
-import { activeTabOf, focusedGroupOf } from "../../layoutSlice";
+import { activeTabOf, focusedGroupOf, GROUP_MIN_WIDTH } from "../../layoutSlice";
 import { useAppStore } from "../../store";
 import { forgetTabCloseFocus, resumeTabCloseFocus } from "../../tabFocus";
 import { useGroupsMerged } from "../../useWindowWidth";
@@ -16,12 +16,6 @@ import { MindTab, NoTabOpen } from "./MindTab";
 import { TabStrip } from "./TabStrip";
 import { TabPlaceContext } from "./tabItems";
 import { type DropTarget, type TabDrag, useTabDrag } from "./useTabDrag";
-
-/**
- * A group is never dragged narrower than this: 220px, and the 10px a tab list now keeps before its
- * first tab. Narrower, the shown tab at its least width is too short for its own icon and ✕.
- */
-const GROUP_MIN_PX = 230;
 
 /**
  * The card's content: up to three groups side by side, each with its tab
@@ -151,7 +145,7 @@ function GroupDivider({
   };
   const pairPx = Math.round(pair * room);
   // Two groups too narrow for their minimum each keep half.
-  const min = Math.min(GROUP_MIN_PX, Math.floor(pairPx / 2));
+  const min = Math.min(GROUP_MIN_WIDTH, Math.floor(pairPx / 2));
   return (
     <ResizeRod
       testId="group-divider"
@@ -197,6 +191,10 @@ function TabGroup({
       className="tab-group"
       style={{ flexGrow: share }}
       onPointerDownCapture={() => {
+        if (!focused)
+          void useAppStore.getState().changeLayout({ type: "focus", groupId: group.id });
+      }}
+      onFocusCapture={() => {
         if (!focused)
           void useAppStore.getState().changeLayout({ type: "focus", groupId: group.id });
       }}

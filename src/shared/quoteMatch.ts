@@ -167,6 +167,8 @@ function cellBreaksAsSpaces(text: string): string {
 export interface MatchOptions {
   /** Refuse a quote with more than one matching place, including overlapping matches. */
   unique?: boolean;
+  /** Keep only complete matches accepted at their original UTF-16 ranges, before uniqueness. */
+  acceptMatch?: (ranges: readonly TextRange[]) => boolean;
   /**
    * Normalise number formatting in the quote and the text: always for
    * spreadsheets (true); for slides, only when the quote isn't found as it
@@ -399,6 +401,7 @@ function findNeedle(
   needle: string,
   accept?: Accept,
   unique = false,
+  acceptMatch?: MatchOptions["acceptMatch"],
 ): TextRange[] | "ambiguous" | null {
   if (!needle) return null;
   // With numbers, a match takes in the formatting around its figures: "£", ")" and ".00".
@@ -415,15 +418,47 @@ function findNeedle(
   };
 
   const whole = findFrom(units, needle, 0, accept);
-  if (whole)
+  if (whole && !acceptMatch)
     return unique && findFrom(units, needle, whole.first + 1, accept)
       ? "ambiguous"
       : [range(whole)];
-  if (!ELLIPSIS.test(needle)) return null;
+  if (!whole && !ELLIPSIS.test(needle)) return null;
 
-  const parts = needle.split(ELLIPSIS).filter((part) => part !== "");
+  const parts = whole ? [needle] : needle.split(ELLIPSIS).filter((part) => part !== "");
   if (parts.length === 0) return null;
-  if (parts.length > 1 && !parts.every(longEnough)) return null;
+  if (!whole && parts.length > 1 && !parts.every(longEnough)) return null;
+  if (acceptMatch) {
+    const matches: { first: number; last: number }[] = [];
+    let kept: TextRange[] | null = null;
+    let index = 0;
+    let from = 0;
+    while (index >= 0) {
+      const part = parts[index];
+      if (part === undefined) break;
+      const match = findFrom(units, part, from, accept);
+      if (!match) {
+        index--;
+        const previous = matches[index];
+        if (!previous) break;
+        from = previous.first + 1;
+        continue;
+      }
+      matches[index] = match;
+      if (index < parts.length - 1) {
+        index++;
+        from = match.last + 1;
+        continue;
+      }
+      const candidate = matches.map(range);
+      if (acceptMatch(candidate)) {
+        if (kept) return "ambiguous";
+        kept = candidate;
+        if (!unique) return kept;
+      }
+      from = match.first + 1;
+    }
+    return kept;
+  }
   const found: TextRange[] = [];
   const starts: number[] = [];
   let from = 0;
@@ -462,12 +497,37 @@ export function findQuote(
   const readings = options.numbers === "if-needed" ? [false, true] : [options.numbers === true];
   for (const numbers of readings) {
     const found =
-      findRead(text, quote, numbers, false, options.unique) ??
-      (options.lostLigatures ? findRead(text, quote, numbers, true, options.unique) : null);
+      findRead(text, quote, numbers, false, options.unique, options.acceptMatch) ??
+      (options.lostLigatures
+        ? findRead(text, quote, numbers, true, options.unique, options.acceptMatch)
+        : null);
     if (found === "ambiguous") return null;
     if (found) return found;
   }
   return null;
+}
+
+/**
+ * Every place `quote` is in `text`, not only the first: a highlight's mark is
+ * drawn at the place its selection's words around it fit, which is not always
+ * the first of the same words.
+ */
+export function findQuoteOccurrences(text: string, quote: string): TextRange[] {
+  const units = matchUnits(text);
+  const needle = needleOf(quote);
+  if (!needle) return [];
+  const found: TextRange[] = [];
+  let from = 0;
+  for (;;) {
+    const match = findFrom(units, needle, from);
+    if (!match) break;
+    const first = units[match.first];
+    const last = units[match.last];
+    if (!first || !last) break;
+    found.push({ start: first.start, end: last.end });
+    from = match.last + 1;
+  }
+  return found;
 }
 
 /**
@@ -480,18 +540,25 @@ function findRead(
   numbers: boolean,
   withoutLigatureLetters: boolean,
   unique = false,
+  acceptMatch?: MatchOptions["acceptMatch"],
 ): TextRange[] | "ambiguous" | null {
   const shape = withoutLigatureLetters ? withoutLigatures : (needle: string) => needle;
   const read = withoutLigatureLetters ? unitsWithoutLigatures : (units: NormalisedUnit[]) => units;
   if (!numbers)
-    return findNeedle(read(matchUnits(text)), shape(needleOf(quote)), undefined, unique);
+    return findNeedle(
+      read(matchUnits(text)),
+      shape(needleOf(quote)),
+      undefined,
+      unique,
+      acceptMatch,
+    );
   const units = read(matchUnits(text, "text"));
   const accept = wholeNumbers(units);
   const grouped = shape(needleOf(quote, "all"));
-  const found = findNeedle(units, grouped, accept, unique);
+  const found = findNeedle(units, grouped, accept, unique, acceptMatch);
   if (found) return found;
   const spaced = shape(needleOf(quote, "none"));
-  return spaced === grouped ? null : findNeedle(units, spaced, accept, unique);
+  return spaced === grouped ? null : findNeedle(units, spaced, accept, unique, acceptMatch);
 }
 
 /**

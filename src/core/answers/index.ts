@@ -49,7 +49,13 @@ import {
   countBoundTables,
   withAnalysisTables,
 } from "../../shared/analysisTables";
-import { hasText, markersIn, pageBlocks, withCalculatedFigures } from "../../shared/answerBlocks";
+import {
+  hasText,
+  markersIn,
+  pageBlocks,
+  withAnswerChecks,
+  withCalculatedFigures,
+} from "../../shared/answerBlocks";
 import { ANSWER_CHECKING_LIMIT } from "../../shared/answerChecking";
 import { runsByDefault } from "../../shared/approvalRules";
 import { appliedAsAsked, appliedRequests } from "../../shared/askedChanges";
@@ -590,7 +596,12 @@ function lastAnswerOf(
   // does one of something in the app that wasn't done (#2407).
   const said = (key: MessageKey, params?: MessageParams) => translate(language, key, params);
   const blocks = [
-    ...pageBlocks(answer, question?.text ?? ""),
+    ...withAnswerChecks(
+      pageBlocks(answer, question?.text ?? ""),
+      answer,
+      question?.text ?? "",
+      question?.scope ?? null,
+    ),
     ...unrunToolNotes(said, answer.steps),
     ...unbackedCommandNotes(said, answer.steps),
   ];
@@ -895,6 +906,8 @@ export interface DocumentsForAnswers
   searchableHasSheets(documentIds: readonly string[] | null, workbooksOnly?: boolean): boolean;
   /** Whether a Document to search has a table of figures in a PDF, Word file or deck (#448). */
   searchableHasTables(documentIds: readonly string[] | null): boolean;
+  /** The User's highlights and notes among these Documents (null: every one) that hold the words (#327), as lines for the model. */
+  highlightText(documentIds: readonly string[] | null, query: string): string;
   passage(passageId: string): WindowedPassage | null;
   /** The live Passages of a live Document at positions `from` to `to`, in reading order. */
   passagesBetween(documentId: string, from: number, to: number): WindowedPassage[];
@@ -954,6 +967,7 @@ function inScope(
     passagesCovering: (documentId, from, to, overlapping) =>
       documents.passagesCovering(documentId, from, to, overlapping),
     documentNamed: (name) => documentNamedAmong(documents.searchableBySize(documentIds), name),
+    annotationText: (query, within) => documents.highlightText(within ?? documentIds, query),
   };
 }
 
@@ -1154,6 +1168,7 @@ export function createAnswers(options: AnswersOptions) {
           ...citation,
           check: result.check,
           checkReason: null,
+          judgedAt: new Date().toISOString(),
           ...(result.verdict && { verdict: result.verdict }),
         };
       });
@@ -1260,7 +1275,7 @@ export function createAnswers(options: AnswersOptions) {
     listening?: () => Promise<LiveTranscript | null>;
     /**
      * A Meeting's saved Transcript to fill its notes in from (#142): shown with the Question as
-     * `listening` is, as much of it as fits half the model's window.
+     * `listening` is; tagged facts require the whole part, other requests keep half the window.
      */
     transcript?: WindowedPassage[];
     /** Words the User selected in Documents to ask about (#101), right before the Question. */
@@ -2014,6 +2029,8 @@ export function createAnswers(options: AnswersOptions) {
     const commandsFound = new Map<string, CommandsFound>();
     const commandsDone = new Map<string, CommandDone>();
     const commandProblems = new Map<string, CommandProblem>();
+    /** A command's approval as it first asked, for asking again when its files changed (#2514). */
+    const commandApprovals = new Map<string, Extract<ToolCallToApprove, { tool: "run_command" }>>();
     /** The questions `ask_user` asked, by call, as they stand: for its card while it waits, and once it ends. */
     const userQuestions = new Map<string, UserQuestion>();
     /** Keeps how a script's run went on its card. */
@@ -2187,21 +2204,20 @@ export function createAnswers(options: AnswersOptions) {
           readTitles,
         } = await commands.check(toolCallId, input, tainted || transcripts.size > 0);
         if (!asked) return null;
-        const denied = await ask(
-          {
-            ...place,
-            answerId,
-            toolCallId,
-            subject: { kind: "command", command: checked.command },
-            tool: COMMAND_TOOLS.run,
-            ask: asked,
-            effects: checked.effects,
-            tainted: tainted || readTitles.length > 0,
-            ...readReasons(thirdParty),
-            ...readText(thirdParty, readTitles),
-          },
-          card,
-        );
+        const approval: Extract<ToolCallToApprove, { tool: "run_command" }> = {
+          ...place,
+          answerId,
+          toolCallId,
+          subject: { kind: "command", command: checked.command },
+          tool: COMMAND_TOOLS.run,
+          ask: asked,
+          effects: checked.effects,
+          tainted: tainted || readTitles.length > 0,
+          ...readReasons(thirdParty),
+          ...readText(thirdParty, readTitles),
+        };
+        commandApprovals.set(toolCallId, approval);
+        const denied = await ask(approval, card);
         if (denied === null) commands.allowed(toolCallId);
         else commands.drop(toolCallId);
         return denied;
@@ -2508,10 +2524,12 @@ export function createAnswers(options: AnswersOptions) {
         }
       }
       if (input.transcript) {
-        const kept = newestWithin(
-          input.transcript,
-          prepared.window ? Math.floor(prepared.window.tokens / 2) : Number.MAX_SAFE_INTEGER,
-        );
+        const kept = context.meetingFacts
+          ? input.transcript
+          : newestWithin(
+              input.transcript,
+              prepared.window ? Math.floor(prepared.window.tokens / 2) : Number.MAX_SAFE_INTEGER,
+            );
         if (kept.length > 0) {
           messages = withTranscript(messages, session.show(kept));
           for (const passage of kept) transcripts.add(passage.documentId);
@@ -2913,6 +2931,11 @@ export function createAnswers(options: AnswersOptions) {
               language: answerLanguage(context.question),
               steps: commands.steps,
               ...(askInTray && { ask: askInTray }),
+              reask: async (toolCallId, changed) => {
+                const first = commandApprovals.get(toolCallId);
+                if (!first) return false;
+                return options.approvals.request({ ...first, ask: changed }, controller.signal);
+              },
               found: (toolCallId, found) => commandsFound.set(toolCallId, found),
               ran: (toolCallId, done) => {
                 commandsDone.set(toolCallId, done);
@@ -3468,6 +3491,7 @@ export function createAnswers(options: AnswersOptions) {
           : messages,
         ...(mindRequest && { mind: mindRequest }),
         question: context.question,
+        ...(context.meetingFacts && { meetingFacts: context.meetingFacts }),
         ...(input.mindsLine && { mindsLine: input.mindsLine }),
         model: prepared.model,
         ...(prepareQuick && { quickModel: () => prepareQuick(model, prepared) }),

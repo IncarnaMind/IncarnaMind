@@ -70,15 +70,20 @@ let served: Uint8Array = new Uint8Array();
 let decoded: Uint8Array | null = null;
 let root: Root | null = null;
 let container: HTMLElement;
+const recheckCitation = vi.fn();
 
 beforeEach(async () => {
-  const dom = new DOMParser().parseFromString("<html><body></body></html>", "text/html");
+  recheckCitation.mockReset();
+  const dom = new DOMParser().parseFromString(
+    "<!doctype html><html><body></body></html>",
+    "text/html",
+  );
   const window = dom.defaultView;
   const bridge = new Proxy(
-    { on: () => () => undefined, readScannedText: async () => ({ pages: [] }) },
+    { on: () => () => undefined, readScannedText: async () => ({ pages: [] }), recheckCitation },
     {
       get: (each, name) => {
-        if (name === "on" || name === "readScannedText") {
+        if (name === "on" || name === "readScannedText" || name === "recheckCitation") {
           return (each as Record<string, unknown>)[name as string];
         }
         // The two lists the approvals and questions stores ask for as they load.
@@ -107,6 +112,7 @@ beforeEach(async () => {
     },
     cancelAnimationFrame: () => undefined,
     navigator: { platform: "Linux", languages: ["en"] },
+    localStorage: { getItem: () => null, setItem: () => undefined, removeItem: () => undefined },
     XMLHttpRequest: BytesRequest,
     ResizeObserver: class {
       observe() {}
@@ -175,6 +181,60 @@ async function show(
 }
 
 describe("A viewer refuses what its reader refuses (#762)", () => {
+  test("a changed Transcript's header forwards the stored cue Location to recheck", async () => {
+    const location = { kind: "time", from: 7000, to: 10_000, speaker: "Dana" } as const;
+    const document = documentOf({ id: "review", kind: "transcript", contentHash: "v2", tags: [] });
+    const quote = "We agreed to review the plan.";
+    recheckCitation.mockResolvedValue({
+      check: "found",
+      checkReason: null,
+      contentHash: "v2",
+      passageId: "p1",
+      pageFrom: 1,
+      pageTo: 1,
+      location,
+    });
+    const { useAppStore } = await import("../../src/renderer/src/store");
+    useAppStore.setState({ status: { kind: "ready" }, documents: [document] });
+    const headerPath = "../../src/renderer/src/viewer/ViewerHeader.tsx";
+    const { ViewerHeader, ViewerFrameContext } = await import(headerPath);
+    const citedTarget: ViewerTarget = {
+      documentId: document.id,
+      request: 1,
+      quote,
+      citation: { check: "found", contentHash: "v1", pageFrom: 1, pageTo: 1, location },
+    };
+    await act(() =>
+      root?.render(
+        createElement(
+          ViewerFrameContext.Provider,
+          {
+            value: {
+              document,
+              target: citedTarget,
+              tabId: "review",
+              preview: false,
+              keep: () => undefined,
+            },
+          },
+          createElement(ViewerHeader),
+        ),
+      ),
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(recheckCitation).toHaveBeenCalledWith({
+      documentId: document.id,
+      contentHash: "v1",
+      pageFrom: 1,
+      pageTo: 1,
+      quote,
+      mindId: null,
+      location,
+    });
+  });
+
   test("an oversized picture is refused, never drawn, and the line is not wrapped twice", async () => {
     await show(
       "image",

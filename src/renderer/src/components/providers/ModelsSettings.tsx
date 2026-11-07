@@ -5,6 +5,7 @@ import { changedFromDefaults } from "../../../../shared/libraryModels";
 import { useAnswers } from "../../answers";
 import { core } from "../../core";
 import { joinMeta } from "../../cost";
+import { useDecisionHosts } from "../../decisionHosts";
 import { useLanguage, useT } from "../../i18n";
 import { useKeyRefusals } from "../../keyRefusals";
 import { clearModelFailure } from "../../modelHealth";
@@ -24,6 +25,7 @@ import {
 } from "../ui";
 import { AddProvider } from "./AddProvider";
 import { ReadinessExplanation } from "./ChatReadinessNotice";
+import { DecisionHostsSection } from "./DecisionHostsSection";
 import { ModelDefaults } from "./ModelDefaults";
 import { PlansSettings } from "./PlansSettings";
 import { ProviderDirectory } from "./ProviderDirectory";
@@ -53,6 +55,10 @@ export function ModelsSettings() {
   const section = useRef<HTMLDivElement>(null);
   const opener = useRef<string | null>(null);
   const refused = useKeyRefusals((state) => state.showing);
+  // Read with the providers, so the page lays out once: a section landing later would move the
+  // one a link scrolled to (Plans, Advanced) out of view.
+  const [hosts, setHosts] = useDecisionHosts();
+  const laidOut = providers !== null && hosts !== null;
 
   const refresh = useCallback(() => {
     core.listChatProviders().then(setProviders, (failure: unknown) => {
@@ -83,11 +89,11 @@ export function ModelsSettings() {
     );
   }, [refused, providers]);
 
-  const answers = useSettingsTarget<HTMLDivElement>(ANSWERS_TARGET, providers !== null, () => {
+  const answers = useSettingsTarget<HTMLDivElement>(ANSWERS_TARGET, laidOut, () => {
     setView({ page: "list" });
     answers.current?.querySelector<HTMLSelectElement>("select")?.focus();
   });
-  useSettingsTarget<HTMLDivElement>(DIRECTORY_TARGET, providers !== null, () =>
+  useSettingsTarget<HTMLDivElement>(DIRECTORY_TARGET, laidOut, () =>
     setView({ page: "directory" }),
   );
   const changed = useAppStore(
@@ -114,7 +120,7 @@ export function ModelsSettings() {
     }
   }, [view.page]);
 
-  if (!providers) return null;
+  if (!providers || !hosts) return null;
 
   const open = (next: View, from: string) => {
     opener.current = from;
@@ -204,6 +210,13 @@ export function ModelsSettings() {
               open({ page: "provider", providerId: provider.id }, `provider:${provider.id}`)
             }
             onAdd={() => open({ page: "directory" }, "add-provider")}
+          />
+          <DecisionHostsSection
+            hosts={hosts}
+            onChanged={setHosts}
+            onAddProvider={(catalogId) =>
+              open(pageFor(catalogId, null), `decision-provider:${catalogId}`)
+            }
           />
           <PlansSettings />
           <details

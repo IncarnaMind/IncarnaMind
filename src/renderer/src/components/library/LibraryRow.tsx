@@ -2,6 +2,7 @@ import { type KeyboardEvent, memo, type Ref, useId, useRef, useState } from "rea
 import type { Document, ReferenceField, ReferenceRecord } from "../../../../core/api";
 import { displayName, sourceOf } from "../../../../shared/documentNames";
 import { missingDetails, needsCheck } from "../../../../shared/references";
+import { useAnnotationCount } from "../../annotations";
 import { commands } from "../../commands/registry";
 import { nameWithPlace, useDocumentPlace } from "../../documentPlaces";
 import { useDraggedRef, useDragSource } from "../../dragDrop";
@@ -25,7 +26,7 @@ import { DocumentFix } from "../DocumentFix";
 import { DocumentStatusLabel, NotCitedLabel, YourNoteLabel } from "../DocumentsSection";
 import { InlineName } from "../InlineName";
 import { LibrarySelectBox } from "../LibrarySelection";
-import { ChevronDownLineIcon, DocumentLineIcon, FolderLineIcon } from "../lineIcons";
+import { ChevronDownLineIcon, DocumentLineIcon, FolderLineIcon, NoteLineIcon } from "../lineIcons";
 import { Marked } from "../Marked";
 import { ObjectMenu, useObjectMenu } from "../ObjectMenu";
 import { draggedRowClass, rowActionButtonClass } from "../sidebarRows";
@@ -191,6 +192,7 @@ export const LibraryRow = memo(function LibraryRow({
 }) {
   const t = useT();
   const language = useLanguage();
+  const annotationCount = useAnnotationCount(doc.id);
   const place = useTabPlace();
   const name = displayName(doc);
   const where = useDocumentPlace(doc.id);
@@ -353,6 +355,20 @@ export const LibraryRow = memo(function LibraryRow({
                   className="shrink-0 text-[12px] text-ink-meta"
                 >
                   {foundAt}
+                </span>
+              )}
+              {annotationCount > 0 && (
+                <span
+                  data-testid="library-annotation-count"
+                  title={
+                    annotationCount === 1
+                      ? t("annotations.count.one")
+                      : t("annotations.count", { count: annotationCount })
+                  }
+                  className="inline-flex shrink-0 items-center gap-1 text-[12px] text-ink-meta"
+                >
+                  <NoteLineIcon className="size-3" />
+                  {annotationCount}
                 </span>
               )}
               <span className="contents">
