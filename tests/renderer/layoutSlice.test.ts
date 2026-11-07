@@ -156,28 +156,3 @@ describe("a read of the layout", () => {
     expect(store.getState().layout).toEqual(layoutOf(400, ["a"]));
   });
 });
-
-describe("resizing the groups", () => {
-  test("shows the shares at once, before the core answers, and keeps its answer", async () => {
-    const two = layoutOf(320, ["a"]);
-    const pair: WindowLayout = {
-      ...two,
-      groups: [
-        { ...(two.groups[0] as WindowLayout["groups"][number]), width: 0.5 },
-        { ...(two.groups[0] as WindowLayout["groups"][number]), id: "page", width: 0.5 },
-      ],
-    };
-    store.setState({ layout: pair });
-    const resizing = store.getState().resizeGroups([0.56, 0.44]);
-
-    expect(store.getState().layout?.groups.map((group) => group.width)).toEqual([0.56, 0.44]);
-    expect(asked[0]?.change).toEqual({ type: "resize", widths: [0.56, 0.44] });
-    const kept: WindowLayout = {
-      ...pair,
-      groups: pair.groups.map((group, index) => ({ ...group, width: [0.56, 0.44][index] ?? 0 })),
-    };
-    answer(0, kept);
-    await resizing;
-    expect(store.getState().layout).toEqual(kept);
-  });
-});

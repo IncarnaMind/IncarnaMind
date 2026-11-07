@@ -23,8 +23,8 @@ import {
  * The assistant yields to a Citation's page opened from the Note (#2270): at 1,440px the Note
  * and the page cannot keep their even split beside the open assistant, so it folds to its rail
  * and comes back when the page closes; at 1,600px it stays open. A Citation clicked inside the
- * assistant leaves it open, and the page takes the narrower share. The User's own fold or unfold
- * wins, and unfolding it while the page is open gives the page the narrower share too. Set
+ * assistant leaves it open, and the Note and the page share what is left. The User's own fold or
+ * unfold wins, and unfolding it while the page is open gives the page the narrower share. Set
  * INCARNAMIND_SCREENSHOTS to a folder to also save screenshots there.
  */
 
@@ -125,7 +125,7 @@ for (const language of ["en", "zh-CN"] as const) {
     });
   }
 
-  test(`a Citation clicked in the assistant at 1440px leaves it open, its Answer in view, and the page narrower (${language})`, async () => {
+  test(`a Citation clicked in the assistant at 1440px leaves it open, its Answer in view, beside the Note and the page (${language})`, async () => {
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
     await dismissChatSetup(window);
     await useLocalChatModel(window);
@@ -140,18 +140,11 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(
       window.getByTestId("viewer").locator("[data-quote-highlight]").first(),
     ).toBeVisible();
-    // The page takes the narrower share, so the Note keeps the width it is written at.
-    await expect
-      .poll(async () => {
-        const split = await splitOf(window);
-        return split.note - split.page;
-      })
-      .toBeGreaterThan(20);
-    const split = await splitOf(window);
-    expect(split.note).toBeGreaterThanOrEqual(480);
-    expect(split.page).toBeLessThan(split.note);
-    // The User is reading in the assistant: it stays open, with the Answer and its Citation's card.
+    // The User is reading in the assistant: it stays open, with the Answer and its Citation's card,
+    // and the Note and the page share what is left evenly.
     await expect(assistantOf(window)).not.toHaveAttribute("data-folded");
+    const split = await splitOf(window);
+    expect(Math.abs(split.note - split.page)).toBeLessThanOrEqual(2);
     await expect(answer).toBeInViewport();
     await expect(window.getByTestId("citation-card")).toBeVisible();
     await motionSettled(window);

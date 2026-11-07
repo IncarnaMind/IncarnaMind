@@ -59,11 +59,6 @@ export interface LayoutSlice {
    * through the core (and put back as the core has it if it refuses).
    */
   placeAssistant(place: Partial<AssistantPlace>): Promise<void>;
-  /**
-   * Gives the groups these shares of the card: shown at once, then kept through
-   * the core (and put back as the core has it if it refuses).
-   */
-  resizeGroups(widths: number[]): Promise<void>;
   /** Starts typing a tab's name in it, or stops (null). */
   renameTab(tabId: string | null): void;
 }
@@ -121,21 +116,6 @@ export function createLayoutSlice(
         report(error);
         if (placing === placings) await get().loadLayout().catch(report);
       }
-    },
-    async resizeGroups(widths) {
-      const layout = get().layout;
-      if (!layout || widths.length !== layout.groups.length) return;
-      set({
-        layout: {
-          ...layout,
-          groups: layout.groups.map((group, index) => ({
-            ...group,
-            width: widths[index] ?? group.width,
-          })),
-        },
-      });
-      const kept = await get().changeLayout({ type: "resize", widths });
-      if (kept === null) await get().loadLayout().catch(report);
     },
     renameTab(tabId) {
       set({ renamingTabId: tabId });
