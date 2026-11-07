@@ -10,6 +10,7 @@ import type * as Y from "yjs";
 import { create } from "zustand";
 import type { DocumentPlace, FindClaimsResult, VerifyClaimsResult } from "../../core/api";
 import { core, files } from "./core";
+import type { VerifyPhase } from "./editor/verifyPhase";
 import { translateNow } from "./i18n";
 import { currentMindIdOf } from "./layoutSlice";
 import { modelInUseOf } from "./modelInUse";
@@ -25,7 +26,7 @@ export type VerifyOutcome =
 
 interface VerifyState {
   /** The run going: in which Mind, and whether it finds or checks the claims. */
-  running: { mindId: string; requestId: string; phase: "finding" | "checking" } | null;
+  running: { mindId: string; requestId: string; phase: VerifyPhase } | null;
   /** By Mind: how its last run ended. */
   outcomes: Readonly<Record<string, VerifyOutcome>>;
 }
@@ -54,7 +55,7 @@ function showMind(mindId: string) {
  */
 async function runStep<R extends FindClaimsResult | VerifyClaimsResult>(
   mindId: string,
-  phase: "finding" | "checking",
+  phase: VerifyPhase,
   step: (requestId: string) => Promise<R>,
 ): Promise<void> {
   const going = useVerify.getState().running;
