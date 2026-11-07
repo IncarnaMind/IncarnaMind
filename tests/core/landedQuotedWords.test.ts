@@ -4,9 +4,14 @@ import type { ConversationAnswer, Core } from "../../src/core";
 import { messageReference } from "../../src/core";
 import { answerBlocks } from "../../src/shared/answerBlocks";
 import type { NodeJSON } from "../../src/shared/blockJson";
-import { parseQuotedWords } from "../../src/shared/citations";
+import {
+  citationAttributesOf,
+  newVersionCitation,
+  parseQuotedWords,
+  parseQuotedWordsCheck,
+} from "../../src/shared/citations";
 import { recheckCitations } from "../../src/shared/noteBlocks";
-import { answerEnded, citingModel, setUpWithDocuments } from "../helpers/citations";
+import { answerEnded, checkedResult, citingModel, setUpWithDocuments } from "../helpers/citations";
 import { waitForProcessing } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
 import { readMind } from "../helpers/minds";
@@ -35,6 +40,18 @@ const CASES = {
     quote: "Spring tides happen just after a new moon or a full moon.",
     madeUp: "spring tides happen only at a full moon",
     onPage: "happen just after a new moon or a full moon",
+    otherPage: "The Moon's gravity raises two tidal bulges on the Earth",
+    changed: buildPdf([
+      { lines: ["Tides and the Moon", "The Moon's gravity raises two tidal bulges on the Earth."] },
+      {
+        lines: [
+          "Spring and neap tides",
+          "Spring tides happen soon after a new moon or a full moon.",
+        ],
+      },
+    ]),
+    changedQuote: "Spring tides happen soon after a new moon or a full moon.",
+    changedTo: "happen soon after a new moon or a full moon",
     sentence: (words: string) => `The guide says “${words}” [^1].`,
   },
   zh: {
@@ -48,6 +65,13 @@ const CASES = {
     quote: "大潮出现在新月或满月之后不久。",
     madeUp: "大潮只在满月时出现",
     onPage: "大潮出现在新月或满月之后不久",
+    otherPage: "月球的引力在地球上形成两个潮汐隆起",
+    changed: buildPdf([
+      { chineseLines: ["潮汐与月球", "月球的引力在地球上形成两个潮汐隆起。"] },
+      { chineseLines: ["大潮与小潮", "大潮发生在新月或满月之后不久。"] },
+    ]),
+    changedQuote: "大潮发生在新月或满月之后不久。",
+    changedTo: "大潮发生在新月或满月之后不久",
     sentence: (words: string) => `指南写道“${words}”[^1]。`,
   },
 } as const;
@@ -135,6 +159,19 @@ const words = (attributes: Record<string, unknown>) =>
     ?.answer.map((piece) => piece.text)
     .join("");
 
+const asked = (text: string) => ({ answer: [{ text, found: false }], closest: null });
+
+async function rewrite(
+  core: Core,
+  document: { id: string; path?: string | null },
+  pdf: Uint8Array,
+) {
+  if (!document.path) throw new Error("No Document.");
+  await writeFile(document.path, pdf);
+  await core.reconcileDocuments();
+  await waitForProcessing(core, [document.id]);
+}
+
 describe.each(Object.keys(CASES) as Language[])(
   "An Answer's Citation landing in a Note (%s)",
   (language) => {
@@ -170,7 +207,7 @@ describe.each(Object.keys(CASES) as Language[])(
   },
 );
 
-// protects=the core's recheck takes the words a Citation couldn't find with its quote (#2612): not on the cited page, not found; on it, found; fails_when=the recheck reads the quote alone, or never lets the words be found; no_claim=which version a landing checks, ADR-0017's amendment.
+// protects=the core's recheck takes the words a Citation couldn't find with its quote (#2612): not on the cited page, not found, though another page of the Document has them; on it, found; fails_when=the recheck reads the quote alone, looks for the words outside the cited Units, or never lets the words be found; no_claim=which version a landing checks, ADR-0017's amendment.
 test("checked again with the words the Answer quoted, a Citation is found only where its page has them", async () => {
   const { core, answer } = await answerQuoting("en", CASES.en.madeUp);
   const [citation] = answer.citations;
@@ -183,10 +220,15 @@ test("checked again with the words the Answer quoted, a Citation is found only w
     contentHash: citation.contentHash,
     mindId: null,
   };
-  const asked = (text: string) => ({ answer: [{ text, found: false }], closest: null });
 
   expect(
     await core.recheckCitation({ ...input, quotedWords: asked(CASES.en.madeUp) }),
+  ).toMatchObject({
+    check: "not-found",
+    checkReason: "quoted-words-not-on-pages",
+  });
+  expect(
+    await core.recheckCitation({ ...input, quotedWords: asked(CASES.en.otherPage) }),
   ).toMatchObject({
     check: "not-found",
     checkReason: "quoted-words-not-on-pages",
@@ -199,20 +241,89 @@ test("checked again with the words the Answer quoted, a Citation is found only w
   });
 });
 
-// protects=after its Document changed, a landing checks a Citation in the version it quotes (ADR-0017's amendment), and the words the Answer quoted are looked for there too (#2612); fails_when=the quoted version's check reads the quote alone; no_claim=none beyond protects.
+// protects=after its Document changed, a landing checks a Citation in the version it quotes (ADR-0017's amendment), and the words the Answer quoted are looked for there too (#2612): not found when that version lacks them, found when it has them; fails_when=the quoted version's check reads the quote alone, or never lets the words be found; no_claim=none beyond protects.
 test("after its Document changed, a Citation not found for its quoted words lands not found", async () => {
   const { core, answer, question, document } = await answerQuoting("en", CASES.en.madeUp);
-  if (!document?.path) throw new Error("No Document.");
-  await writeFile(
-    document.path,
+  if (!document) throw new Error("No Document.");
+  await rewrite(
+    core,
+    document,
     buildPdf([
       { lines: ["Tides and the Moon", "The Moon raises two tidal bulges on the Earth."] },
       { lines: ["Spring and neap tides", CASES.en.quote, "Neap tides come at the quarter moons."] },
     ]),
   );
-  await core.reconcileDocuments();
-  await waitForProcessing(core, [document.id]);
 
   const [landed] = await LANDINGS["Add to note"](core, answer, question);
   expect(landed).toMatchObject({ check: "not-found", checkReason: "quoted-words-not-on-pages" });
+
+  const [citation] = answer.citations;
+  if (!citation) throw new Error("No Citation.");
+  expect(
+    await core.recheckCitation({
+      documentId: citation.documentId,
+      quote: citation.quote,
+      pageFrom: citation.pageFrom,
+      pageTo: citation.pageTo,
+      contentHash: citation.contentHash,
+      quotedWords: asked(CASES.en.onPage),
+      mindId: null,
+    }),
+  ).toMatchObject({ inQuotedVersion: { check: "found", checkReason: null } });
 });
+
+describe.each(Object.keys(CASES) as Language[])(
+  "Update the sentence… once the cited words changed (%s)",
+  (language) => {
+    const wanted = CASES[language];
+    /** The landed Citation of an Answer quoting `quoted`, updated to the Document's changed words as its card does it, whose check sends no quoted words. */
+    const updated = async (quoted: string) => {
+      const { core, answer, question, document } = await answerQuoting(language, quoted);
+      if (!document) throw new Error("No Document.");
+      const [landed] = await LANDINGS["Add to note"](core, answer, question);
+      expect(landed).toMatchObject({
+        check: "not-found",
+        checkReason: "quoted-words-not-on-pages",
+      });
+      await rewrite(core, document, wanted.changed);
+      const cited = {
+        ...citationAttributesOf(landed ?? {}),
+        quotedWords: parseQuotedWordsCheck(landed?.quotedWords),
+      };
+      const recheck = checkedResult(
+        await core.recheckCitation({
+          documentId: document.id,
+          quote: cited.quote ?? "",
+          pageFrom: cited.pageFrom ?? null,
+          pageTo: cited.pageTo ?? null,
+          contentHash: cited.contentHash ?? null,
+          mindId: null,
+        }),
+      );
+      expect(recheck.changed?.now).toMatchObject({ quote: wanted.changedQuote, check: "found" });
+      return newVersionCitation(cited, recheck);
+    };
+
+    // protects=Update the sentence… cites the words the Document changed to, but the sentence keeps the words it quoted until it is rewritten, and the rewrite can fail or be refused: a Citation not found for them stays not found, with them for its card (#2612); fails_when=the update reads found, or drops the words; no_claim=the rewrite through Edit with AI.
+    test("words the changed page doesn't have either: still not found, with them", async () => {
+      const update = await updated(wanted.madeUp);
+      expect(update).toMatchObject({
+        quote: wanted.changedQuote,
+        check: "not-found",
+        checkReason: "quoted-words-not-on-pages",
+        quotedWords: { closest: null },
+      });
+      expect(words(update ?? {})).toBe(wanted.madeUp);
+    });
+
+    // protects=the positive beside it: words the Answer quoted that the Document changed to are in the quote the Citation now cites, so it reads found (#2612); fails_when=every update of a Citation with words not found reads not found; no_claim=none beyond protects.
+    test("the words the page changed to: found", async () => {
+      expect(await updated(wanted.changedTo)).toMatchObject({
+        quote: wanted.changedQuote,
+        check: "found",
+        checkReason: null,
+        quotedWords: null,
+      });
+    });
+  },
+);

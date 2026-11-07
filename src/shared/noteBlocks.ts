@@ -120,7 +120,6 @@ async function recheckOne(node: NodeJSON, recheck: Recheck): Promise<NodeJSON> {
     const pageFrom = unit(attrs.pageFrom);
     const pageTo = unit(attrs.pageTo) ?? pageFrom;
     const contentHash = typeof attrs.contentHash === "string" ? attrs.contentHash : null;
-    // The words the Answer quoted that weren't found are looked for with the quote (#2612).
     const asked = parseQuotedWords(attrs.quotedWords);
     const checked = await recheck({
       documentId,

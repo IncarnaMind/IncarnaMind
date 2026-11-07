@@ -470,10 +470,14 @@ export function newVersionCitation(
       ? { ...recheck, quote: attributes.quote ?? "" }
       : null);
   if (!now || now.contentHash === null) return null;
-  // Followed to where its quote moved, the sentence keeps its words: those the page didn't have
-  // stay not found (#2612). Changed words are cited anew, with the sentence rewritten to them.
-  const asked = recheck.changed?.now ? null : parseQuotedWords(attributes.quotedWords);
-  const stays = asked !== null && now.check === "found";
+  // The sentence keeps the words it quoted whether the quote moved or its words changed, and a
+  // rewrite to the changed words can fail or be refused: words not found stay not found unless the
+  // quote cited now has them (#2612). Their closest words were the old version's.
+  const asked = parseQuotedWords(attributes.quotedWords);
+  const notFound =
+    asked && now.check === "found" && !quotedWordsFoundIn(now.quote, asked)
+      ? { answer: asked.answer, closest: null }
+      : null;
   return {
     passageId: now.passageId,
     contentHash: now.contentHash,
@@ -481,14 +485,14 @@ export function newVersionCitation(
     pageTo: now.pageTo,
     location: now.location,
     quote: now.quote,
-    check: stays ? "not-found" : now.check,
-    checkReason: stays ? "quoted-words-not-on-pages" : now.checkReason,
+    check: notFound ? "not-found" : now.check,
+    checkReason: notFound ? "quoted-words-not-on-pages" : now.checkReason,
     // The version it moves to has the date of that version of the User's note (#335).
     ...(now.yourNoteAt && { yourNoteAt: now.yourNoteAt }),
     // The confirmation was for the quote and page the User looked at, and those changed.
     pageChecked: null,
     unsure: now.unsure ?? null,
-    quotedWords: stays ? asked : null,
+    quotedWords: notFound,
     verdict: null,
     keptOver: null,
   };
