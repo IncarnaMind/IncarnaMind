@@ -1073,3 +1073,24 @@ describe("a quote after “i.e.”", { timeout: 30_000 }, () => {
     ).toBe("found");
   });
 });
+
+// protects=a quote after a full stop keeps to its own sentence's Citation when the stop's Citation stands between them, after it or before it, in English and Chinese (#2712); fails_when=the quote takes the previous sentence's Citation, and the Board's reads found for words only the Schedule holds; no_claim=the claim checks, whose sentences are the splitter's.
+describe.each([
+  ["en", (words: string) => `Revenue rose.[^1] “${words}” said the board[^2].`],
+  ["en", (words: string) => `Revenue rose. [^1] “${words}” said the board[^2].`],
+  ["en", (words: string) => `Revenue rose (in 2026).[^1] “${words}” said the board[^2].`],
+  ["zh", (words: string) => `收入增长了[^1]。“${words}”董事会说[^2]。`],
+  ["zh", (words: string) => `收入增长了。[^1]“${words}”董事会说[^2]。`],
+] as const)(
+  "in %s, a quote after the stop's Citation: %s",
+  { timeout: 30_000 },
+  (language, sentence) => {
+    test("words only the previous sentence's Document holds: not found", async () => {
+      expect(await boardCheck(language, sentence(REVENUE[language].notFound))).toBe("not-found");
+    });
+
+    test("words its own Citation's Document holds: found", async () => {
+      expect(await boardCheck(language, sentence(REVENUE[language].found))).toBe("found");
+    });
+  },
+);

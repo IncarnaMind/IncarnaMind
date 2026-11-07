@@ -8,7 +8,7 @@ import { sentenceSpans } from "../../src/shared/sentences";
  * stop inside quotation marks ends none. Every other cut is the splitter's, as every check reads it.
  */
 describe("the Citations a quote is checked with", () => {
-  // protects=an opening quotation mark after a full stop and a space starts the quote's sentence though a lowercase word follows, and one the splitter leaves after "。" goes with the sentence it opens, so the quote is checked with its own sentence's Citation only (#2712); fails_when=the quote takes the previous sentence's Citation; no_claim=the claim checks, whose sentences are the splitter's.
+  // protects=an opening quotation mark after a full stop and a space starts the quote's sentence though a lowercase word follows and the stop's Citations stand between, and one the splitter leaves after "。" goes with the sentence it opens, so the quote is checked with its own sentence's Citation only (#2712); fails_when=the quote takes the previous sentence's Citation; no_claim=the claim checks, whose sentences are the splitter's.
   test.each([
     [
       "Revenue rose[^1]. “the fee is 5% per week” said the board[^2].",
@@ -20,7 +20,23 @@ describe("the Citations a quote is checked with", () => {
       "the fee is 5% per week",
       [2],
     ],
+    [
+      "Revenue rose.[^1] “the fee is 5% per week” said the board[^2].",
+      "the fee is 5% per week",
+      [2],
+    ],
+    [
+      "Revenue rose. [^1] “the fee is 5% per week” said the board[^2].",
+      "the fee is 5% per week",
+      [2],
+    ],
+    [
+      "Revenue rose (in 2026).[^1] “the fee is 5% per week” said the board[^2].",
+      "the fee is 5% per week",
+      [2],
+    ],
     ["收入增长了[^1]。“每周收取5%的费用”董事会说[^2]。", "每周收取5%的费用", [2]],
+    ["收入增长了。[^1]“每周收取5%的费用”董事会说[^2]。", "每周收取5%的费用", [2]],
     ["收入增长了[^1]。「每周收取5%的费用」董事会说[^2]。", "每周收取5%的费用", [2]],
     [
       "The clause does not cover affiliates, i.e. “any entity controlled by the parent”[^1].",
@@ -31,11 +47,18 @@ describe("the Citations a quote is checked with", () => {
     expect(quotedWordsIn(answer)).toEqual([{ words, markers }]);
   });
 
-  // protects=the positive beside it: a stop the splitter reads on past ("Mr.") keeps the quote in its sentence, and a stop inside quotation marks still ends no sentence, so a quote before another keeps the Citation after both, as on main (#2712); fails_when=the cut takes the quote away from its sentence's Citation; no_claim=none beyond protects.
+  // protects=the positive beside it: a stop the splitter reads on past ("Mr.") keeps the quote in its sentence, a stop inside quotation marks still ends no sentence, and the Citations after a stop stay with the sentence before, as on main (#2712); fails_when=the cut takes a quote away from its sentence's Citation; no_claim=none beyond protects.
   test.each([
     [
       "The fee was set by Mr. “the board of the parent company” in May[^1].",
       [{ words: "the board of the parent company", markers: [1] }],
+    ],
+    [
+      "It says “revenue rose by a third”.[^1] “the fee is 5% per week” said the board[^2].",
+      [
+        { words: "revenue rose by a third", markers: [1] },
+        { words: "the fee is 5% per week", markers: [2] },
+      ],
     ],
     [
       "It says “The fee rose by a third.” “the fee is 5% per week” said the board[^2].",

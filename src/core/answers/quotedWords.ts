@@ -103,8 +103,8 @@ function spansOf(text: string): Span[] {
 
 /** What may stand between a quote's closing mark and the end of its sentence: closing marks and brackets, emphasis, spaces and Citations. */
 const AFTER_THE_QUOTE = /^["'”’)\]）】」』»*_~\s￼]*$/u;
-/** A full stop, past its closing marks and a space, before an opening quotation mark. */
-const STOP_BEFORE_QUOTE = /\.["'”’)\]）」』»]*\s+(?=["'“‘「『«„‹])/gu;
+/** A full stop, past its closing marks, Citations and at least one space, before an opening quotation mark. */
+const STOP_BEFORE_QUOTE = /\.["'”’)\]）」』»￼]*\s["'”’)\]）」』»￼\s]*?(?=["'“‘「『«„‹])/gu;
 /** Opening quotation marks the splitter leaves at the end of a sentence ("增长了。“"). */
 const OPENING_AT_END = /[“‘「『«„‹]+$/u;
 
@@ -113,9 +113,10 @@ const readsOnPast = (text: string) => (sentenceSpans(`${text} 1`).at(-1)?.from ?
 
 /**
  * The shared splitter's sentences cut again before each opening quotation mark: after a full
- * stop and a space, though a lowercase word follows ("rose. “the fee…”"), unless the splitter
- * reads on past the stop ("Mr. “…”"); and where the splitter leaves the mark at the end of the
- * sentence before ("增长了。“").
+ * stop and a space, though a lowercase word follows ("rose. “the fee…”") and the stop's
+ * Citations stand between ("rose.[^1] “…”"), which stay with the sentence before, unless the
+ * splitter reads on past the stop ("Mr. “…”"); and where the splitter leaves the mark at the end
+ * of the sentence before ("增长了。“").
  */
 function cutBeforeQuotes(read: string): Span[] {
   const pieces: Span[] = [];
@@ -124,7 +125,7 @@ function cutBeforeQuotes(read: string): Span[] {
     for (const stop of read.slice(from, to).matchAll(STOP_BEFORE_QUOTE)) {
       const at = from + stop.index;
       if (readsOnPast(read.slice(start, at + 1))) continue;
-      pieces.push({ start, end: at + 1 });
+      pieces.push({ start, end: at + stop[0].length });
       start = at + stop[0].length;
     }
     const opening = OPENING_AT_END.exec(read.slice(start, to))?.[0].length ?? 0;
