@@ -206,7 +206,9 @@ export const FOOTNOTE_MARK_CHAR = "\ue000";
 const NBSP = "\u00a0";
 
 const LINE_BREAK = /[\n\r\v\f\u0085\u2028\u2029]/;
-const SUPERSCRIPT_CHARS = "\\u00b2\\u00b3\\u00b9\\u2070-\\u207f\\u2460-\\u24ff\\u2776-\\u2793";
+/** Circled numbers and letters ("①", "ⓐ"): NFKC would write each as a digit or a letter. */
+const CIRCLED_CHARS = "\\u2460-\\u24ff\\u2776-\\u2793";
+const SUPERSCRIPT_CHARS = `\\u00b2\\u00b3\\u00b9\\u2070-\\u207f${CIRCLED_CHARS}`;
 const SUPERSCRIPT = new RegExp(`^[${SUPERSCRIPT_CHARS}]$`, "u");
 const SPACE_LIKE = /^[\u00a0\u2007\u2009\u202f]$/;
 const FULL_WIDTH_DIGIT = /^[\uff10-\uff19]$/;
@@ -219,18 +221,18 @@ const isFootnoteMark = (text: string, start: number, end: number): boolean =>
   SUPERSCRIPT.test(text.slice(start, end)) &&
   !POWER_AFTER.test(text.slice(Math.max(0, start - 3), start));
 
-/** The superscript digits NFKC writes as digits ("¹²³", "⁰", "⁴" to "⁹"). */
-const SUPERSCRIPT_DIGIT = /^[¹²³⁰⁴-⁹]$/u;
+/** A footnote's mark after a figure: a superscript digit ("¹") or a circled mark ("①"). */
+const MARK_AFTER_FIGURE = new RegExp(`^[¹²³⁰⁴-⁹${CIRCLED_CHARS}]$`, "u");
 /** What a figure ends in: a digit, a closing bracket, or a percent. */
 const ENDS_FIGURE = /[\p{Nd})）%]$/u;
 
 /**
  * Whether `text` at `start`–`end` is a footnote's mark directly after a
- * figure ("1,240.50¹"): not a power or a unit's sign elsewhere ("x²",
- * "Ca²⁺", "2ⁿᵈ", "see note¹").
+ * figure ("1,240.50¹", "1,240.50①"): not a power or a unit's sign elsewhere
+ * ("x²", "Ca²⁺", "2ⁿᵈ", "see note¹").
  */
 export const isFootnoteAfterFigure = (text: string, start: number, end: number): boolean =>
-  SUPERSCRIPT_DIGIT.test(text.slice(start, end)) &&
+  MARK_AFTER_FIGURE.test(text.slice(start, end)) &&
   ENDS_FIGURE.test(text.slice(Math.max(0, start - 1), start));
 
 /** `text` with each footnote's mark read as `FOOTNOTE_MARK_CHAR`, which NFKC keeps apart from the figure ("1,240.50¹"). */
