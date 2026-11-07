@@ -11,6 +11,7 @@ import {
   motionSettled,
   nameMind,
   newMind,
+  openMoreMenu,
   pointAndClick,
   removeDataFolder,
   setLanguage,
@@ -487,7 +488,9 @@ test("a Mind's ⋯ makes a Folder with that Mind in it, and ⌘Z puts it back", 
     const mind = window.getByTestId("mind-row").filter({ hasText: "Plan" });
     await mind.hover();
     await pointAndClick(window, mind.getByTestId("mind-menu"));
-    const entry = window.getByTestId("folder.newWith");
+    const entry = (await openMoreMenu(window, mind.getByTestId("mind-actions"))).getByTestId(
+      "folder.newWith",
+    );
     await expect(entry).toHaveText(/New Folder with this note/);
     await pointAndClick(window, entry);
     const field = nameField(window);

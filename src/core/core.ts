@@ -282,6 +282,7 @@ import {
 } from "./minds";
 import { firstLineOf, readBlocks, textStart, theirChangesReading } from "./mindText";
 import { createModelRuntimeFolderNotice } from "./modelRuntimeFolder";
+import { createModelSpend } from "./modelSpend";
 import { newestReads, readNewest } from "./newest";
 import { createNoteAdding, insertBlocks } from "./noteAdding";
 import { createNoteConversations } from "./noteConversations";
@@ -920,6 +921,13 @@ export function createCore(adapters: CoreAdapters): Core {
     settings,
     sender: adapters.usageData,
     localOnly: () => embedding.localOnly(),
+  });
+  const modelSpend = createModelSpend({
+    db,
+    settings,
+    now: () => adapters.now?.() ?? new Date(),
+    sending: () => usageData.status().enabled,
+    record: (event) => usageData.record(event),
   });
   const privacy = createPrivacy({ settings, crashReporter: adapters.crashReporter, usageData });
   const privacyChanged = () => events.emit("privacy.changed", privacy.status());
@@ -4270,8 +4278,10 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     skillIsBuiltIn: (name) => skills.list().some((skill) => skill.name === name && skill.builtIn),
     now: () => (adapters.now?.() ?? new Date()).getTime(),
+    answerStarted: () => modelSpend.answerStarted(),
   });
   usageData.record({ event: "app_opened", fields: { language: settings.get().language } });
+  modelSpend.start();
   const dataFlowsRead = newestReads();
   /** After the User allows or revokes a flow: the flows as they are now, and what that changes. */
   const dataFlowsChanged = async () => {
@@ -6158,8 +6168,12 @@ export function createCore(adapters: CoreAdapters): Core {
     getModelRuntimeFolder: () => modelRuntimeFolder.present(),
     showModelRuntimeFolder: () => modelRuntimeFolder.show(),
     updatePrivacySettings: async (patch) => {
+      const before = privacy.status();
       const { changed, settings: updated } = privacy.update(patch);
       if (changed) privacyChanged();
+      // Turning usage data on never sends a completed week from before the User agreed, and
+      // the week it happens in counts only from then.
+      if (!before.usageData.enabled && updated.usageData.enabled) modelSpend.consentStarted();
       return updated;
     },
     recordUsage: async (event) => usageData.recordFromUi(event),
@@ -7067,6 +7081,7 @@ export function createCore(adapters: CoreAdapters): Core {
       library.close();
       batches.close();
       skills.close();
+      modelSpend.close();
       stopTrackingUsage();
       consent.close();
       outputs.close();

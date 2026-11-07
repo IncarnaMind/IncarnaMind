@@ -7,7 +7,8 @@ import { asOneStep, offerEditorUndo } from "./editorUndo";
 const isSpace = (char: string | undefined) =>
   char === " " || char === "\t" || char === "\n" || char === undefined;
 
-const isHan = (char: string) => /\p{Script=Han}/u.test(char);
+const HAN = /\p{Script=Han}/u;
+const isHan = (char: string) => HAN.test(char);
 const isWord = (char: string) => /[A-Za-z0-9]/u.test(char);
 
 /** A space at the selection's own edge, where the text outside it is of the other script. */
@@ -53,6 +54,15 @@ interface Run {
   start: number;
   end: number;
   tidied: string;
+}
+
+/** Whether the selection, or with none the whole Note, has Chinese text for `tidyNote` to tidy. */
+export function hasChineseText(editor: Editor): boolean {
+  const { doc, selection } = editor.state;
+  const whole = selection.empty;
+  const from = whole ? 0 : selection.from;
+  const to = whole ? doc.content.size : selection.to;
+  return HAN.test(doc.textBetween(from, to, " "));
 }
 
 /**

@@ -80,9 +80,12 @@ import type { PictureProblem } from "./web/pictures";
  * #2620 (a Word file's, a deck's and a workbook's parts are read where its
  * package's relationships say they are, not only at their usual names). 26:
  * #2474 (a PDF page's raised footnote digit after an amount stays apart from
- * the amount, written as Unicode's superscript digit).
+ * the amount, written as Unicode's superscript digit). 27: #2365 (a scale
+ * marker reads a bracket's currency with its tail's scale and a Chinese
+ * bracket's currency and scale, and a heading that only looks like a scale
+ * states none).
  */
-export const PROCESSING_VERSION = 26;
+export const PROCESSING_VERSION = 27;
 
 /**
  * Per kind, the oldest version whose Passages and Units are still what this
@@ -128,15 +131,17 @@ export const PROCESSING_VERSION = 26;
  * failed or lost its headings before; one with the usual names comes out as
  * it was, its Passages and embeddings too (#2620). Version 26 only PDFs': a
  * page's raised footnote digit after an amount keeps apart from it, so its
- * Passages come out as they are now (#2474).
+ * Passages come out as they are now (#2474). Version 27 PDFs', Word files',
+ * decks' and workbooks': their scale markers read the forms #2365 adds; their
+ * text, Passages and embeddings come out as they were.
  */
 export const CURRENT_SINCE: Readonly<Record<DocumentKind, number>> = {
-  pdf: 26,
+  pdf: 27,
   text: 5,
   markdown: 5,
-  docx: 25,
-  pptx: 25,
-  xlsx: 25,
+  docx: 27,
+  pptx: 27,
+  xlsx: 27,
   csv: 5,
   image: 22,
   rtf: 22,

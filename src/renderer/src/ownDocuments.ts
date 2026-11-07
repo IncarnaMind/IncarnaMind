@@ -2,7 +2,14 @@ import { useMemo } from "react";
 import type { Document } from "../../core/api";
 import { useFirstOpen } from "./firstOpen";
 import { isListedDocument } from "./meetingTranscript";
-import { type AppState, allExamples, exampleMindIds, isOwnDocument, useAppStore } from "./store";
+import {
+  type AppState,
+  allExamples,
+  exampleMindIds,
+  isExampleDocument,
+  isOwnDocument,
+  useAppStore,
+} from "./store";
 
 /** How many of the User's own loose Documents there may be before a Folder is offered (#1942). */
 export const DAY_ONE_DOCUMENTS = 8;
@@ -16,6 +23,20 @@ export function useOwnDocuments(): readonly Document[] {
     () => documents.filter((each) => isOwnDocument(each, allExamples({ examples, otherExamples }))),
     [documents, examples, otherExamples],
   );
+}
+
+/** Whether a Document, by id, belongs to an example. */
+export function useIsExampleDocument(): (documentId: string) => boolean {
+  const documents = useAppStore((state) => state.documents);
+  const examples = useAppStore((state) => state.examples);
+  const otherExamples = useAppStore((state) => state.otherExamples);
+  return useMemo(() => {
+    const made = allExamples({ examples, otherExamples });
+    const ids = new Set(
+      documents.filter((each) => isExampleDocument(each, made)).map((each) => each.id),
+    );
+    return (documentId) => ids.has(documentId);
+  }, [documents, examples, otherExamples]);
 }
 
 /**

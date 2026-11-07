@@ -14,6 +14,7 @@ import {
   mindNode,
   motionSettled,
   newMind,
+  openMoreMenu,
   openPageMenu,
   paletteOffers,
   pointAndClick,
@@ -336,15 +337,17 @@ test("a table of contents from the slash menu follows the headings as they chang
   await window.keyboard.type("!");
   await expect(editor.locator("h2")).toHaveText("!Neap tides");
 
-  // ⌘K reaches the TOC, Print and Tidy; the Note's menu has Duplicate and Tidy.
+  // ⌘K reaches the TOC and Print, and the Note's menu has Duplicate. Tidy Chinese text has
+  // nothing to do in a Note with no Chinese text, so neither lists it.
   expect(await paletteOffers(window, "mind.tableOfContents", "table of contents")).toBe(1);
   expect(await paletteOffers(window, "mind.print", "Print")).toBe(1);
-  expect(await paletteOffers(window, "mind.tidy", "Tidy Chinese text")).toBe(1);
+  expect(await paletteOffers(window, "mind.tidy", "Tidy Chinese text")).toBe(0);
   const menu = await openPageMenu(window);
   await motionSettled(window);
   await screenshot(window, "note-page-menu-en");
-  await expect(menu.getByTestId("mind.tidy")).toBeVisible();
   await expect(menu.getByTestId("mind.duplicate")).toBeVisible();
+  await expect((await openMoreMenu(window, menu)).getByTestId("mind.tidy")).toHaveCount(0);
+  await window.keyboard.press("Escape");
   await window.keyboard.press("Escape");
 
   // In Chinese the block, its landmark and its entries speak Chinese.
@@ -401,6 +404,8 @@ for (const language of ["en", "zh-CN"] as const) {
 
 test("Tidy Chinese text sets spaces and full-width punctuation in the whole Note or the selection, with a line and Undo", async () => {
   const { window, editor } = await startMind("zh-CN");
+  // An empty Note has no Chinese text to tidy, so ⌘K doesn't list it yet.
+  expect(await paletteOffers(window, "mind.tidy", "整理中文排版")).toBe(0);
   const line = "导出为Word文件,你好。";
   await window.keyboard.type(line);
   const paragraph = editor.locator("p").first();
@@ -409,7 +414,7 @@ test("Tidy Chinese text sets spaces and full-width punctuation in the whole Note
   // On the selection only: "Word文件" gets its space, the comma after it stays.
   await slideSelect(window, paragraph, "Word文件");
   const menu = await openPageMenu(window);
-  await pointAndClick(window, menu.getByTestId("mind.tidy"));
+  await pointAndClick(window, (await openMoreMenu(window, menu)).getByTestId("mind.tidy"));
   await expect(paragraph).toHaveText("导出为 Word 文件,你好。");
   await expect(window.getByTestId("undo-line")).toContainText("已整理 1 处 · 撤销");
   await motionSettled(window);

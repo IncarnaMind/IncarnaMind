@@ -180,6 +180,8 @@ export interface TaggingOptions {
     /** The hosts whose key (and account) are there, in the catalog's order. */
     ready(): Promise<DecisionHost[]>;
     service(host: DecisionHost): ExternalService | null;
+    /** The models a host offers now: the measured ones first, then any its listing adds. */
+    models(host: DecisionHost): Promise<DecisionModel[]>;
   };
   localOnly(): boolean;
   /** Where Ollama is when no Ollama provider is saved. */
@@ -366,8 +368,11 @@ export function createTagging(options: TaggingOptions) {
   };
 
   /** A model on a decision model host as the Tagging section lists it. */
-  const hostOption = (host: DecisionHost, modelId: string): TaggingModelOption => {
-    const model = decisionModelOf(host, modelId);
+  const hostOption = (
+    host: DecisionHost,
+    modelId: string,
+    model: DecisionModel | undefined = decisionModelOf(host, modelId),
+  ): TaggingModelOption => {
     return {
       classifier: { kind: "decision", host, modelId },
       group: "keys",
@@ -415,11 +420,7 @@ export function createTagging(options: TaggingOptions) {
       return { kind: "unknown" };
     }
     if (classifier.kind === "jev" && !jev.enabled()) return { kind: "unknown" };
-    if (
-      classifier.kind === "decision" &&
-      (!readyHosts.includes(classifier.host) ||
-        !decisionModelOf(classifier.host, classifier.modelId))
-    ) {
+    if (classifier.kind === "decision" && !readyHosts.includes(classifier.host)) {
       return { kind: "unknown" };
     }
     const service = serviceOf(classifier);
@@ -467,7 +468,7 @@ export function createTagging(options: TaggingOptions) {
       const readyHosts = await decisions.ready();
       if (!options.localOnly()) {
         for (const host of readyHosts) {
-          for (const model of DECISION_HOST_ENTRIES[host].models) add(hostOption(host, model.id));
+          for (const model of await decisions.models(host)) add(hostOption(host, model.id, model));
         }
       }
       for (const provider of providers) {

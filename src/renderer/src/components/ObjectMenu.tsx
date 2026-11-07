@@ -9,7 +9,14 @@ import {
 import type { CommandId } from "../../../shared/commands";
 import { showPlace } from "../commands/here";
 import { menuKeysLabel } from "../commands/keymap";
-import { buildMenu, buildMixedMenu, type MenuEntry, type MenuItem } from "../commands/menus";
+import {
+  buildMenu,
+  buildMixedMenu,
+  isMenuItem,
+  isMoreEntry,
+  type MenuEntry,
+  type MenuItem,
+} from "../commands/menus";
 import {
   type CommandContext,
   commands,
@@ -21,7 +28,7 @@ import { useT } from "../i18n";
 import type { ObjectKind, ObjectRef } from "../objects";
 import { useSelection } from "../selection";
 import { useAppStore } from "../store";
-import { CheckLineIcon, MoreLineIcon } from "./lineIcons";
+import { CheckLineIcon, ChevronRightLineIcon, MoreLineIcon } from "./lineIcons";
 import { rowActionButtonClass } from "./sidebarRows";
 import {
   menuClass,
@@ -30,7 +37,7 @@ import {
   menuRuleClass,
   tallMenuItemClass,
 } from "./ui";
-import { openMenuFromRightClick, usePopoverMenu } from "./usePopoverMenu";
+import { openMenuFromRightClick, usePopoverMenu, useSubmenu } from "./usePopoverMenu";
 
 const TEST_ID_PREFIX: Record<ObjectKind, string> = {
   mind: "mind",
@@ -157,7 +164,7 @@ const surfaceOf = (element: Element | null): Surface => {
 
 function dangerStart(entries: readonly MenuEntry[]): number {
   const last = entries.at(-1);
-  if (!last || last === "rule" || last.command.group !== "danger") return entries.length;
+  if (!last || !isMenuItem(last) || last.command.group !== "danger") return entries.length;
   const rule = entries.lastIndexOf("rule");
   return rule === -1 ? 0 : rule;
 }
@@ -210,6 +217,7 @@ export function ObjectMenu({
   const { kind, id } = target;
   // The first item, though a switch at its foot is checked.
   const menu = usePopoverMenu({ focus: "first", ...(align && { align }) });
+  const fold = useSubmenu();
   const { buttonProps } = useObjectMenu(target);
   const prefix = testId ?? TEST_ID_PREFIX[target.kind];
   const button = menu.buttonProps.ref;
@@ -254,11 +262,9 @@ export function ObjectMenu({
   };
 
   const dangerAt = dangerStart(entries);
-  const itemOf = (entry: MenuEntry, index: number) => {
-    if (entry === "rule") {
-      return <div key={`rule-${index}`} className={menuRuleClass} />;
-    }
-    const { command, enabled } = entry;
+  const folded = entries.find(isMoreEntry);
+  const commandItem = (item: MenuItem) => {
+    const { command, enabled } = item;
     const control = controls?.[command.id];
     if (control) return <Fragment key={command.id}>{control(menu.close)}</Fragment>;
     const checked = command.checked?.(ctx);
@@ -277,7 +283,7 @@ export function ObjectMenu({
         aria-disabled={enabled === true ? undefined : true}
         aria-description={hint}
         title={reason ?? hint}
-        onClick={() => run(entry)}
+        onClick={() => run(item)}
         className={`${long ? tallMenuItemClass : menuItemClass} ${menuItemUnavailableClass} pl-2`}
       >
         {checked !== undefined && (
@@ -289,6 +295,26 @@ export function ObjectMenu({
         {keys && <span className="pl-4 text-[13px] text-ink-meta">{keys}</span>}
       </button>
     );
+  };
+  const itemOf = (entry: MenuEntry, index: number) => {
+    if (entry === "rule") {
+      return <div key={`rule-${index}`} className={menuRuleClass} />;
+    }
+    if (isMoreEntry(entry)) {
+      return (
+        <button
+          {...fold.itemProps}
+          key="more"
+          type="button"
+          data-testid={`${prefix}-more`}
+          className={`${menuItemClass} pl-2 aria-expanded:bg-hover`}
+        >
+          <span className="flex-1">{t("menu.more")}</span>
+          <ChevronRightLineIcon className="size-3.5 shrink-0 text-ink-meta" />
+        </button>
+      );
+    }
+    return commandItem(entry);
   };
 
   return (
@@ -334,6 +360,17 @@ export function ObjectMenu({
           </div>
         )}
       </div>
+      {menu.open && folded && (
+        <div
+          {...fold.menuProps}
+          role="menu"
+          aria-label={t("menu.more")}
+          data-testid={`${prefix}-more-menu`}
+          className={menuClass}
+        >
+          {folded.more.map((item) => commandItem(item))}
+        </div>
+      )}
       {menu.open && aside?.(menu.close)}
     </>
   );

@@ -580,7 +580,14 @@ export function createMeetingFill(options: MeetingFillOptions) {
     set(meeting.id, { omitted, unfinishedParts });
     if (ledger.facts.length === 0 && overview === null) {
       throw new FillProblemError(
-        problem ?? { kind: "model", message: words("meetings.fill.problem.empty") },
+        problem ?? {
+          kind: "model",
+          message: words(
+            ledger.omitted(false) > 0
+              ? "meetings.fill.problem.unchecked"
+              : "meetings.fill.problem.empty",
+          ),
+        },
       );
     }
     const retained = ledger.facts;

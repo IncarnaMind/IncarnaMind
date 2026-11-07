@@ -471,7 +471,7 @@ for (const language of ["en", "zh-CN"] as const) {
         const divider = window.getByTestId("group-divider").nth(index);
         await divider.focus();
         for (let press = 0; press < 30; press++) await window.keyboard.press("Shift+ArrowLeft");
-        await expect.poll(() => divider.getAttribute("aria-valuenow")).toBe("220");
+        await expect.poll(() => divider.getAttribute("aria-valuenow")).toBe("230");
       }
 
       const second = groups.nth(1);

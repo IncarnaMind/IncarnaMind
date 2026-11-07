@@ -29,7 +29,7 @@ import {
   TaggingNotReadyError,
 } from "../errors";
 import type { Language } from "../language";
-import { decisionModelOf, isDecisionHost } from "../providers/catalog/decisions";
+import { isDecisionHost, isDecisionModelId } from "../providers/catalog/decisions";
 import { normalizeBaseUrl, serviceForUrl } from "../providers/kinds";
 import { classifyProviderError } from "../providers/providerErrors";
 import { redactMessage } from "../redact";
@@ -546,11 +546,7 @@ export function createLibrary(options: {
       if (serviceForUrl(selected.baseUrl as string))
         throw new InvalidInputError({ key: "error.library.ollamaNotLocal" });
     } else if (selected.kind === "decision") {
-      if (
-        !isDecisionHost(selected.host) ||
-        typeof selected.modelId !== "string" ||
-        !decisionModelOf(selected.host, selected.modelId)
-      )
+      if (!isDecisionHost(selected.host) || !isDecisionModelId(selected.modelId))
         throw new InvalidInputError({ key: "error.library.classifierModel" });
     } else if (selected.kind !== "jev")
       throw new InvalidInputError("Choose a supported classifier.");

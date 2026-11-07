@@ -261,3 +261,94 @@ test("a Note inside the wall reads the work kept inside it, and not the outside 
     await app.close();
   }
 });
+
+const NORTHWIND_LEASE = "Northwind's lease for the Harbour Road flat ends on 30 June 2027.";
+const NORTHWIND_QUESTION = "Where does the Northwind lease for the Harbour Road flat say it ends?";
+
+/** The Question typed in the Note that is open, with no model set: the setup card comes up. */
+async function askInOpenNote(window: Page, question: string): Promise<void> {
+  await window.getByTestId("mind-editor").focus();
+  await window.keyboard.press("ControlOrMeta+j");
+  await window.keyboard.type(question);
+  await window.keyboard.press("Enter");
+  await expect(window.getByTestId("model-setup")).toBeVisible();
+}
+
+/** The example's Documents, read, and the User's one added beside them. */
+async function addOwnBesideExamples(window: Page, path: string): Promise<void> {
+  await expect
+    .poll(
+      () =>
+        window.evaluate(async () => {
+          const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+          const { linkedFolderId } = await core.getExamples();
+          const read = await core.listDocuments({ linkedFolderId: linkedFolderId ?? "" });
+          return read.filter((each) => each.status === "ready").length;
+        }),
+      { timeout: 60_000 },
+    )
+    .toBe(2);
+  await addDocuments(window, [path]);
+}
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`with no model, the passages found from the example's Note name its Documents as examples (${language})`, async () => {
+    test.setTimeout(180_000);
+    const path = join(sources, "Harbour lease.txt");
+    await writeFile(path, NORTHWIND_LEASE);
+    const { app, window } = await launchApp(dataDir, {
+      examples: true,
+      fakeChat: true,
+      home: sources,
+      ollama: "http://127.0.0.1:9",
+    });
+    try {
+      await setWindowSize(app, window, 900, 700);
+      await setLanguage(window, language);
+      await expect(window.getByTestId("mind-editor")).toContainText(
+        language === "en" ? "Draft: credit committee paper" : "授信委员会报告（草稿）",
+      );
+      await addOwnBesideExamples(window, path);
+
+      await askInOpenNote(window, NORTHWIND_QUESTION);
+      const passages = window.getByTestId("found-passage");
+      const mine = passages.filter({ hasText: "Harbour lease" });
+      await expect(mine.first()).toBeVisible();
+      await expect(mine.getByTestId("found-passage-example")).toHaveCount(0);
+      const examples = passages.filter({ hasText: "Northwind Retail" });
+      await expect(examples.first()).toBeVisible();
+      await expect(examples.first().getByTestId("found-passage-example")).toHaveText(
+        language === "en" ? " · Example" : " · 示例",
+      );
+      await shot(window, `waiting-example-${language}-900`);
+    } finally {
+      await app.close();
+    }
+  });
+
+  test(`with no model, the passages found from the User's own Note leave the example's Documents out (${language})`, async () => {
+    test.setTimeout(180_000);
+    const path = join(sources, "Harbour lease.txt");
+    await writeFile(path, NORTHWIND_LEASE);
+    const { app, window } = await launchApp(dataDir, {
+      examples: true,
+      fakeChat: true,
+      home: sources,
+      ollama: "http://127.0.0.1:9",
+    });
+    try {
+      await setWindowSize(app, window, 900, 700);
+      await setLanguage(window, language);
+      await addOwnBesideExamples(window, path);
+      await newMind(window);
+
+      await askInOpenNote(window, NORTHWIND_QUESTION);
+      const passages = window.getByTestId("found-passage");
+      await expect(passages.filter({ hasText: "Harbour lease" }).first()).toBeVisible();
+      await expect(passages.filter({ hasText: "Northwind Retail" })).toHaveCount(0);
+      await expect(window.getByTestId("found-passage-example")).toHaveCount(0);
+    } finally {
+      await app.close();
+    }
+  });
+}
