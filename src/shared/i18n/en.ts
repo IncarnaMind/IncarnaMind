@@ -6216,7 +6216,7 @@ export const en = {
   "meetings.notice.microphone": "IncarnaMind records your microphone.",
   "meetings.notice.tell": "Tell everyone you’re recording: in many places it’s the law.",
   "meetings.notice.model": "Transcribed on this computer.",
-  "meetings.notice.modelSize": "The speech model is about 1 GB.",
+  "meetings.notice.modelSize": "The speech models are about 1.2 GB.",
   "meetings.start.downloadAndStart": "Download and start",
   "meetings.notice.cancel": "Cancel",
   "meetings.bar.label": "Meeting recording",

@@ -5886,7 +5886,7 @@ export const zhCN = {
   "meetings.notice.microphone": "IncarnaMind 会录制你的麦克风。",
   "meetings.notice.tell": "开始前告诉所有人你在录制：很多地方法律有此要求。",
   "meetings.notice.model": "在这台电脑上转写。",
-  "meetings.notice.modelSize": "语音模型约 1 GB。",
+  "meetings.notice.modelSize": "语音模型约 1.2 GB。",
   "meetings.start.downloadAndStart": "下载并开始",
   "meetings.notice.cancel": "取消",
   "meetings.bar.label": "会议录制",

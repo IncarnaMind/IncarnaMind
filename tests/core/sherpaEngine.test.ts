@@ -35,13 +35,18 @@ vi.mock("sherpa-onnx-node", () => ({
         },
       }),
     },
+    OnlineRecognizer: class {},
     Vad: class {},
     OfflineSpeakerDiarization: class {},
     SpeakerEmbeddingExtractor: class {},
   },
 }));
 vi.mock("sherpa-onnx-node/addon.js", () => ({
-  default: { getOfflineStreamResultAsJson: latest, offlineStreamSetOption: () => {} },
+  default: {
+    getOfflineStreamResultAsJson: latest,
+    getOnlineStreamResultAsJson: () => "",
+    offlineStreamSetOption: () => {},
+  },
 }));
 
 const { createSherpaEngine } = await import("../../src/core/transcription/sherpa");

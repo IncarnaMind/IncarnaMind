@@ -724,16 +724,25 @@ export interface TranscriptionModelFiles {
   vad: string;
   /** How many threads decoding may use. */
   threads: number;
+  /**
+   * The streaming model that reads the live words as they are said (#2662), when there is one:
+   * which kind it is, and its files by what they are, absolute paths.
+   */
+  live?: { engine: string; files: Readonly<Record<string, string>> };
 }
 
 /**
  * Speech a `Transcriber` found in a stream and decoded. While the speaker
- * goes on, the speech so far is decoded again every few seconds (partial);
- * once they pause, the whole of it is decoded once more (final).
+ * goes on, its words so far are partial: read as they are said by a
+ * streaming model (#2662), or the speech so far decoded again every few
+ * seconds. Once they pause, the whole of it is decoded (final).
  */
 export interface SpeechSegment {
   stream: string;
-  /** From 1 in its stream: a partial and the final text of the same speech share it. */
+  /**
+   * From 1 in its stream: a partial and the final text of the same speech share it. A partial
+   * that goes on into the speech after, before its final text came, has its first speech's id.
+   */
   id: number;
   /** Where it starts and ends, in ms of its stream's audio. */
   startMs: number;

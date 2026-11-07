@@ -8,11 +8,17 @@
  * Which model: the best one this computer has the memory for, and that kept
  * up the last time it ran here (the speed probe: how long decoding took for
  * the audio it decoded, measured as a Meeting is transcribed). Qwen3-ASR-0.6B
- * int8 is the only one yet; #137 adds Whisper's sizes beside it.
+ * int8 is the only one yet; #137 adds Whisper's sizes beside it. A small
+ * streaming model comes with it, for the live words (#2662, ADR-0027).
  */
 import { availableParallelism, freemem, totalmem } from "node:os";
 import { join } from "node:path";
-import type { EmbeddingModelSource, Transcriber, TranscriptionModelFiles } from "../adapters";
+import type {
+  EmbeddingModelSource,
+  Logger,
+  Transcriber,
+  TranscriptionModelFiles,
+} from "../adapters";
 import type { EmbeddingModelError, EmbeddingModelStatus } from "../api";
 import {
   downloadModel,
@@ -21,13 +27,10 @@ import {
   progressReporter,
 } from "../embedding/download";
 import type { ModelSources } from "../embedding/modelSources";
-import { QWEN3_ASR } from "./sherpa";
+import { QWEN3_ASR, STREAMING_TRANSDUCER } from "./sherpa";
 
-export interface TranscriptionModelDefinition {
-  /** Stable: the speed probe is kept by it. */
-  id: string;
-  /** What the User sees. */
-  name: string;
+/** A model's files and where they come from. */
+export interface SpeechModelFiles {
   engine: string;
   /** The model's folder under `models/` in the data folder. */
   folder: string;
@@ -38,9 +41,62 @@ export interface TranscriptionModelDefinition {
   memoryBytes: number;
 }
 
+export interface TranscriptionModelDefinition extends SpeechModelFiles {
+  /** Stable: the speed probe is kept by it. */
+  id: string;
+  /** What the User sees. */
+  name: string;
+  /** The streaming model that reads the live words, downloaded with it. */
+  live?: SpeechModelFiles;
+}
+
 /** Pinned revisions, so the files never change under their recorded sizes and hashes. */
 const QWEN3_ASR_REVISION = "68818b2313fe77bd06f6a7c5068ff3ef59d02b8a";
 const VAD_REVISION = "fba88cd2e921609e7675c3aaf51e0b9b295da4bc";
+const LIVE_REVISION = "98590b7ed6443e77b714204da2757d75e1a642f4";
+
+/**
+ * The streaming Zipformer transducer for Chinese and English (Apache-2.0), int8, as sherpa-onnx's
+ * authors exported it (2023-02-20): it reads a stretch as it is said, Chinese and English in one
+ * sentence alike. The live words only: Qwen3-ASR still writes each finished line (ADR-0027).
+ */
+export const STREAMING_ZIPFORMER_ZH_EN: SpeechModelFiles = {
+  engine: STREAMING_TRANSDUCER,
+  folder: "streaming-zipformer-zh-en-int8",
+  files: {
+    encoder: "encoder-epoch-99-avg-1.int8.onnx",
+    decoder: "decoder-epoch-99-avg-1.onnx",
+    joiner: "joiner-epoch-99-avg-1.int8.onnx",
+    tokens: "tokens.txt",
+  },
+  source: {
+    baseUrl: `https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20/resolve/${LIVE_REVISION}/`,
+    files: [
+      {
+        path: "encoder-epoch-99-avg-1.int8.onnx",
+        size: 181_895_032,
+        sha256: "8fa764187a261844f859d7143ebaa563af5d10adfece4c18a8f414c88cba2a9b",
+      },
+      {
+        path: "decoder-epoch-99-avg-1.onnx",
+        size: 13_876_452,
+        sha256: "2e3b5ec371f8899ee6acd829fd753ba45772df57a91bdf37cde3136354e7db7d",
+      },
+      {
+        path: "joiner-epoch-99-avg-1.int8.onnx",
+        size: 3_228_404,
+        sha256: "1ed689c5ed19dbaa725d9d191bb4822b5f4855a39e1ffd28cbc1f340d25b2ee0",
+      },
+      {
+        path: "tokens.txt",
+        size: 56_317,
+        sha256: "a8e0e4ec53810e433789b54a5c0134a7eaa2ffca595a6334d54c00da858841d3",
+      },
+    ],
+  },
+  // Measured: about 220 MB once loaded.
+  memoryBytes: 300_000_000,
+};
 
 /** Qwen3-ASR-0.6B (Apache-2.0), int8, as sherpa-onnx's authors exported it (2026-03-25). */
 export const QWEN3_ASR_0_6B: TranscriptionModelDefinition = {
@@ -91,6 +147,7 @@ export const QWEN3_ASR_0_6B: TranscriptionModelDefinition = {
   },
   // Measured: about 1.1 GB once loaded, 1.7 GB while decoding.
   memoryBytes: 2_000_000_000,
+  live: STREAMING_ZIPFORMER_ZH_EN,
 };
 
 /** The models, best first. */
@@ -130,7 +187,9 @@ export function chooseModel(
 ): TranscriptionModelDefinition {
   // Free memory alone undercounts what macOS would give back; a quarter of all of it is a floor.
   const available = Math.max(memory.freeBytes, memory.totalBytes / 4);
-  const fits = models.filter((model) => model.memoryBytes <= available);
+  const fits = models.filter(
+    (model) => model.memoryBytes + (model.live?.memoryBytes ?? 0) <= available,
+  );
   const fast = fits.filter((model) => (speed[model.id] ?? 0) <= KEEPS_UP);
   return fast[0] ?? fits.at(-1) ?? (models.at(-1) as TranscriptionModelDefinition);
 }
@@ -140,23 +199,29 @@ export function transcriptionModelFiles(
   dataDir: string,
   definition: TranscriptionModelDefinition,
 ): TranscriptionModelFiles {
-  const folder = join(dataDir, "models", definition.folder);
+  const filesOf = (model: SpeechModelFiles) => {
+    const folder = join(dataDir, "models", model.folder);
+    return Object.fromEntries(
+      Object.entries(model.files).map(([role, path]) => [role, join(folder, path)]),
+    );
+  };
   return {
     engine: definition.engine,
-    files: Object.fromEntries(
-      Object.entries(definition.files).map(([role, path]) => [role, join(folder, path)]),
-    ),
+    files: filesOf(definition),
     vad: join(dataDir, "models", SILERO_VAD.folder, SILERO_VAD.file),
     // Leaves cores for the app, the capture and the rest of the computer.
     threads: Math.max(1, Math.min(4, availableParallelism() - 2)),
+    ...(definition.live && {
+      live: { engine: definition.live.engine, files: filesOf(definition.live) },
+    }),
   };
 }
 
 export interface TranscriptionModelOptions {
   dataDir: string;
   transcriber: Transcriber;
-  /** Overrides where the files come from (tests: none at all). */
-  source?: { model: EmbeddingModelSource; vad: EmbeddingModelSource };
+  /** Overrides where the files come from (tests: none at all; no streaming model unless given). */
+  source?: { model: EmbeddingModelSource; vad: EmbeddingModelSource; live?: EmbeddingModelSource };
   /** Where else the files may come from (#1578). */
   sources?: ModelSources;
   /** The speed probe kept on this device, by model id. */
@@ -164,22 +229,37 @@ export interface TranscriptionModelOptions {
   emitStatus(status: EmbeddingModelStatus): void;
   /** Overrides this computer's memory (tests). */
   memory?: () => { freeBytes: number; totalBytes: number };
+  log: Logger;
 }
 
 export function createTranscriptionModel(options: TranscriptionModelOptions) {
   const memory = options.memory ?? (() => ({ freeBytes: freemem(), totalBytes: totalmem() }));
-  const definition = chooseModel(TRANSCRIPTION_MODELS, memory(), options.speed());
+  const chosen = chooseModel(TRANSCRIPTION_MODELS, memory(), options.speed());
+  const liveSource = options.source ? options.source.live : chosen.live?.source;
+  const { live, ...alone } = chosen;
+  const definition: TranscriptionModelDefinition =
+    live && liveSource ? { ...alone, live: { ...live, source: liveSource } } : alone;
   const modelSource = options.source?.model ?? definition.source;
   const vadSource = options.source?.vad ?? SILERO_VAD.source;
   const modelFolder = join(options.dataDir, "models", definition.folder);
   const vadFolder = join(options.dataDir, "models", SILERO_VAD.folder);
-  const totalBytes = [...modelSource.files, ...vadSource.files].reduce(
-    (sum, file) => sum + file.size,
-    0,
-  );
-  const downloaded = () =>
-    isModelDownloaded(modelFolder, modelSource.files) &&
-    isModelDownloaded(vadFolder, vadSource.files);
+  const livePart = definition.live && {
+    directory: join(options.dataDir, "models", definition.live.folder),
+    source: definition.live.source,
+  };
+  // The streaming model downloads with the speech model, its size told with the rest. Where the
+  // speech model is here already, from before it (#2662), it comes on its own, after.
+  const speechParts = [
+    { directory: vadFolder, source: vadSource },
+    { directory: modelFolder, source: modelSource },
+  ];
+  const parts = livePart ? [...speechParts, livePart] : speechParts;
+  const totalBytes = parts
+    .flatMap((part) => part.source.files)
+    .reduce((sum, file) => sum + file.size, 0);
+  const here = (part: { directory: string; source: EmbeddingModelSource }) =>
+    isModelDownloaded(part.directory, part.source.files);
+  const downloaded = () => speechParts.every(here);
 
   let status: EmbeddingModelStatus = {
     name: definition.name,
@@ -193,6 +273,7 @@ export function createTranscriptionModel(options: TranscriptionModelOptions) {
   const lifetime = new AbortController();
   const readyListeners = new Set<() => void>();
   let downloading = false;
+  let fetchingLive = false;
 
   const update = (patch: Partial<EmbeddingModelStatus>) => {
     status = { ...status, ...patch };
@@ -207,21 +288,16 @@ export function createTranscriptionModel(options: TranscriptionModelOptions) {
       status = { ...status, downloadedBytes: base + bytes };
       report();
     };
-    await downloadModel({
-      directory: vadFolder,
-      source: vadSource,
-      ...(options.sources && { sources: options.sources }),
-      signal: lifetime.signal,
-      onProgress: progress,
-    });
-    base = vadSource.files.reduce((sum, file) => sum + file.size, 0);
-    await downloadModel({
-      directory: modelFolder,
-      source: modelSource,
-      ...(options.sources && { sources: options.sources }),
-      signal: lifetime.signal,
-      onProgress: progress,
-    });
+    for (const part of parts) {
+      await downloadModel({
+        directory: part.directory,
+        source: part.source,
+        ...(options.sources && { sources: options.sources }),
+        signal: lifetime.signal,
+        onProgress: progress,
+      });
+      base += part.source.files.reduce((sum, file) => sum + file.size, 0);
+    }
   }
 
   function start(): void {
@@ -253,7 +329,34 @@ export function createTranscriptionModel(options: TranscriptionModelOptions) {
     );
   }
 
-  const files = () => transcriptionModelFiles(options.dataDir, definition);
+  /** The streaming model alone, once the speech model is here: transcription goes on without it meanwhile. */
+  function fetchLive(): void {
+    if (!livePart || fetchingLive || downloading || here(livePart) || lifetime.signal.aborted)
+      return;
+    fetchingLive = true;
+    downloadModel({
+      ...livePart,
+      ...(options.sources && { sources: options.sources }),
+      signal: lifetime.signal,
+      onProgress: () => {},
+    })
+      .catch((error: unknown) => {
+        if (lifetime.signal.aborted) return;
+        // Asked for again at the next Meeting; live text is read again meanwhile, as before it.
+        options.log.warn("transcription.liveModelDownload", {
+          message: error instanceof Error ? error.message : String(error),
+        });
+      })
+      .finally(() => {
+        fetchingLive = false;
+      });
+  }
+
+  /** The files the engine loads: the streaming model's only once it is all here. */
+  const files = (): TranscriptionModelFiles => {
+    const { live, ...speech } = transcriptionModelFiles(options.dataDir, definition);
+    return live && livePart && here(livePart) ? { ...speech, live } : speech;
+  };
 
   return {
     definition,
@@ -265,6 +368,8 @@ export function createTranscriptionModel(options: TranscriptionModelOptions) {
         (status.state === "failed" && status.error?.kind !== "load")
       ) {
         start();
+      } else if (status.state === "ready") {
+        fetchLive();
       }
     },
     /** Starts the download again after any failure, a failed load included: the files are checked again. */

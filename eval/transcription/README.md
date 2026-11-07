@@ -66,3 +66,40 @@ It checks that each route works in both languages, not which is best: 8 clips pe
 | This computer, Qwen3-ASR 0.6B | 12.8% (18 of 141) | 1.3% (3 of 231) | 4.0% (15 of 372) |
 
 The Qwen rows remain pending until a real key is available; no cloud result is inferred from the fixtures.
+
+## Live words on this computer (#2662)
+
+`live.transcription.ts` measures how soon the live words come and how often they change, at the pace speech is said, through the transcription process's own code. It runs the English clips, the Chinese clips and the two taking turns, one stream after the other. It runs with the streaming model, or with `INCARNAMIND_EVAL_LIVE=off` without it, as before ADR-0027: then the speech so far is decoded again every 2.5 s. Run each in a process of its own, so its memory is its own:
+
+```sh
+INCARNAMIND_EVAL_LIVE=off INCARNAMIND_EVAL_CLIPS=~/.cache/incarnamind-eval/fleurs npx vitest run --config eval/transcription/vitest.config.ts eval/transcription/live.transcription.ts
+INCARNAMIND_EVAL_CLIPS=~/.cache/incarnamind-eval/fleurs npx vitest run --config eval/transcription/vitest.config.ts eval/transcription/live.transcription.ts
+```
+
+Each clip's speech starts at its first 10 ms louder than a tenth of its peak, and ends at its last such 10 ms. The run reports:
+
+- **First words:** when the clip's first live words are reported, after its speech starts. With no live words yet, its first line counts instead.
+- **Updates:** how often the clip's live words change while it is said.
+- **Finished:** when its line is final, after its last sound.
+- **Errors:** the error of the finished lines, and of the streaming model's own words for each stretch, which is what streaming alone would give.
+- **Cost:** the process's CPU time over the audio's length, and its largest memory.
+
+The times are where the transcription process reports the words. The window then shows unfinished words at most every 0.5 s (`PARTIAL_EVERY_MS` in `src/core/meetings/transcript.ts`).
+
+2026-11-07, Apple M2 Max (12 cores, 32 GB). Qwen3-ASR has 4 threads and the streaming model 1. The machine was busy: load average 16–18 for the run before and 10–14 for the run after. Medians of 8 clips are the upper middle one.
+
+| Language | | First words (median, p90) | Live words change every (median, p90) | Line finished after its last sound (median, p90) | Finished lines | Live words alone | CPU s per audio s |
+|---|---|---|---|---|---|---|---|
+| English | before | 3.68 s, 6.18 s | 3.62 s, 3.62 s | 2.94 s, 4.71 s | WER 11.3% (16 of 141) | – | 1.19 |
+| English | after | 1.79 s, 6.60 s | 0.30 s, 0.40 s | 1.43 s, 2.23 s | WER 11.3% (16 of 141) | WER 42.6% | 0.37 |
+| Chinese | before | 3.13 s, 3.33 s | 6.13 s, 6.13 s | 1.44 s, 4.84 s | CER 2.6% (6 of 231) | – | 0.59 |
+| Chinese | after | 0.51 s, 0.80 s | 0.30 s, 0.60 s | 1.39 s, 2.03 s | CER 2.6% (6 of 231) | CER 5.2% | 0.28 |
+| Both taking turns | before | 3.34 s, 4.21 s | 3.07 s, 7.08 s | 1.76 s, 3.66 s | 4.6% (17 of 372) | – | 0.82 |
+| Both taking turns | after | 0.75 s, 2.35 s | 0.30 s, 0.60 s | 1.32 s, 1.90 s | 4.6% (17 of 372) | 16.1% | 0.30 |
+
+- **English first words**, clip by clip, after: 0.47, 0.50, 0.78, 0.98, 1.79, 2.09, 4.0 and 6.6 s.
+  - The streaming model writes nothing for the first words of some English sentences.
+  - Fed alone, the same clips start their words at times that depend on how much audio comes before the speech, by up to 1 s either way. It is the model's English, not the pipeline.
+  - Every Chinese clip had words within 0.8 s.
+- **Finished lines:** the same, word for word.
+- **Memory:** the process had 1.11 GB before and 1.49 GB after once loaded, and at most 2.27 GB before and 2.65 GB after.

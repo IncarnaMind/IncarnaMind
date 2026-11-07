@@ -14,6 +14,8 @@ const LOAD = `
   console.log(JSON.stringify({
     createAsync: typeof sherpa.OfflineRecognizer?.createAsync,
     streamOption: typeof addon.offlineStreamSetOption,
+    streaming: typeof sherpa.OnlineRecognizer?.prototype.decode,
+    streamingResult: typeof addon.getOnlineStreamResultAsJson,
     vad: typeof sherpa.Vad,
     diarization: typeof sherpa.OfflineSpeakerDiarization?.prototype.process,
     voiceprint: typeof sherpa.SpeakerEmbeddingExtractor?.prototype.compute,
@@ -21,7 +23,7 @@ const LOAD = `
   }));
 `;
 
-test("the engine modules find sherpa-onnx-node's recognizer, its streams' options, voice detector and speaker diarization when Node imports them", {
+test("the engine modules find sherpa-onnx-node's recognizer, its streams' options, its streaming recognizer for live words (#2662), voice detector and speaker diarization when Node imports them", {
   timeout: 60_000,
 }, () => {
   const output = execFileSync(
@@ -39,6 +41,8 @@ test("the engine modules find sherpa-onnx-node's recognizer, its streams' option
   expect(JSON.parse(output.trim().split("\n").at(-1) ?? "{}")).toEqual({
     createAsync: "function",
     streamOption: "function",
+    streaming: "function",
+    streamingResult: "function",
     vad: "function",
     diarization: "function",
     voiceprint: "function",
