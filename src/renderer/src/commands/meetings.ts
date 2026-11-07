@@ -87,7 +87,6 @@ const whileAudioKept = (ctx: CommandContext) => {
   } as const;
 };
 
-/** The meeting Note in the tab in view, while it has views: the tab, its group and its Meeting. */
 function meetingPageInView(ctx: CommandContext) {
   const layout = useAppStore.getState().layout;
   const tab = currentTabOf(layout);

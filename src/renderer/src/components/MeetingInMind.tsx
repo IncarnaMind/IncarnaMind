@@ -72,7 +72,6 @@ export function MeetingInMind({ mindId }: { mindId: string }) {
   );
 }
 
-/** The recording bar of a Meeting that records or is paused, with its lines. */
 export function LiveMeetingBar({ meeting, ref }: { meeting: Meeting; ref?: Ref<HTMLElement> }) {
   return (
     <MeetingBar meeting={meeting} ref={ref}>

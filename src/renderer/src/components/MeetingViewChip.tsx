@@ -29,7 +29,7 @@ const LABELS = {
   transcript: "meetings.views.transcript",
 } as const satisfies Record<MeetingNoteView, string>;
 
-/** Whether the chip's popover has opened by itself, once in this window's life, for a fill. */
+/** Two tabs of one Note have a chip each: the popover opens by itself in one. */
 let shownForFill = false;
 
 /**

@@ -60,7 +60,7 @@ export function MindTab({ mindId }: { mindId: string }) {
   const wordDrop = useWordFileDrop();
   const writing = useWritingProperties(mindId);
   const pill = useQuietAssistant();
-  // The Ask pill stands at the middle of all the groups, where a group's foot may be (#2527 walk).
+  // The Ask pill stands at the middle of all the groups, where a group's foot may be (#2527).
   const besidePill = useAppStore(
     (state) => pill && !merged && (state.layout?.groups.length ?? 0) > 1,
   );

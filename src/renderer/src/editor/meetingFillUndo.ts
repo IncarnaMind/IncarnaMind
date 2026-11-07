@@ -14,7 +14,6 @@ import { pageUndoPlace } from "../undo";
 import { asOneStep, followSteps, offerEditorUndo, undoStackOf } from "./editorUndo";
 import { editorDoc } from "./proposalReview";
 
-/** While the editor shows the Meeting's Note, the fill it writes is one step of its Undo. */
 export function takeFillInEditor(editor: Editor, meetingId: string): () => void {
   const doc = editorDoc(editor);
   const stack = undoStackOf(editor);
