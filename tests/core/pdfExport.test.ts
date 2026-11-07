@@ -392,6 +392,9 @@ describe("exporting a Mind to PDF", () => {
       const list = document.querySelector("ol");
       expect(list?.localName).toBe("ol");
       expect([...(list?.children ?? [])].map((child) => child.localName)).toEqual(["li", "li"]);
+      const firstItem = list?.querySelector(":scope > li");
+      expect(firstItem?.firstElementChild?.className).toBe("list-marker");
+      expect(firstItem?.firstElementChild?.textContent).toBe("1.");
     });
   }
 });

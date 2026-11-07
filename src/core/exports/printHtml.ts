@@ -330,7 +330,11 @@ class PrintWriter {
           .map((item, at) => {
             const marker = markers[at];
             const drawn = marker === undefined ? "" : ` data-marker="${escapeHtml(marker)}"`;
-            return `<li${drawn}>${this.blocks(item)}</li>`;
+            const label =
+              marker === undefined
+                ? ""
+                : `<span class="list-marker" aria-hidden="true">${escapeHtml(marker)}</span>`;
+            return `<li${drawn}>${label}${this.blocks(item)}</li>`;
           })
           .join("");
         if (!block.ordered) return `<ul>${items}</ul>`;

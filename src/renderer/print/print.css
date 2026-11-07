@@ -269,20 +269,15 @@ ol.numbered {
   list-style: none;
 }
 
-ol.numbered > li {
-  position: relative;
-}
-
-ol.numbered > li::before {
-  content: attr(data-marker);
-  position: absolute;
-  right: 100%;
+ol.numbered > li > .list-marker {
+  display: block;
+  float: left;
+  width: max-content;
+  min-width: 16pt;
+  margin-left: -20pt;
   margin-right: 4pt;
+  text-align: right;
   white-space: nowrap;
-}
-
-ol.numbered > li.continued::before {
-  content: none;
 }
 
 li.continued {

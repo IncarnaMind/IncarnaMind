@@ -301,6 +301,10 @@ class Paginator {
     }
     // What didn't fit stays in `block`, which goes on to the next page.
     if (rest) block.prepend(rest);
+    if (partial && block.localName === "li") {
+      // Its marker was placed with the first part; do not print it again on the next page.
+      block.querySelector(":scope > .list-marker")?.remove();
+    }
     if (placed === 0) {
       first.remove();
       return block;
