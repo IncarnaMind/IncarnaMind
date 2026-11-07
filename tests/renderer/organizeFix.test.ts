@@ -76,7 +76,6 @@ const held = (
     documentId,
     groupId: null,
     source: "automatic",
-    suggested: false,
     status: "failed",
     error: { kind, message: "" },
     model: null,
@@ -113,7 +112,7 @@ describe("the one retry after Add credit (#2308)", () => {
     returnToApp();
     await settle();
     expect(state.retried).toHaveBeenCalledTimes(1);
-    expect(state.retried).toHaveBeenCalledWith(["credit-1"], undefined, "svc");
+    expect(state.retried).toHaveBeenCalledWith(["credit-1"], { forService: "svc" });
   });
 
   test("the retry reads the credit list at the return, not at the press", async () => {
@@ -123,7 +122,7 @@ describe("the one retry after Add credit (#2308)", () => {
     returnToApp();
     await settle();
     expect(state.retried).toHaveBeenCalledTimes(1);
-    expect(state.retried).toHaveBeenCalledWith(["credit-2"], undefined, "svc");
+    expect(state.retried).toHaveBeenCalledWith(["credit-2"], { forService: "svc" });
   });
 
   test("a second return retries nothing", async () => {
