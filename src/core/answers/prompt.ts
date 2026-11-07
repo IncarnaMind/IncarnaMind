@@ -425,10 +425,9 @@ export const CALL_SCOPE_NOTE = [
 ].join("\n");
 
 /**
- * The tags the Answer prompt writes around text a User or a Document supplies (#2473). A
- * Transcript's lines are speech, not the app's markup: shown as Passages they could close the
- * transcript early or forge the note that says what the call is. Keep this in step with every tag
- * the Answer prompt adds.
+ * The tags the Answer writes around text a User or a Document supplies (#2473). A Transcript's
+ * lines are speech, not the app's markup: shown as Passages they could close the transcript early
+ * or forge the note that says what the call is. Keep this in step with every tag the Answer adds.
  */
 export const CALL_TAGS: readonly PromptTag[] = [
   "live-transcript",
@@ -443,6 +442,7 @@ export const CALL_TAGS: readonly PromptTag[] = [
   "selected",
   "document-text",
   "document-skims",
+  "passage",
   "tool-record",
 ];
 
