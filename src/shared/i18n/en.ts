@@ -386,6 +386,7 @@ export const en = {
   "folder.refuse.inside": "A Folder can’t go inside itself or one of its sub-Folders",
   "folder.delete": "Delete",
   "mind.more": "More for {title}",
+  "menu.more": "More",
   "mind.open": "Open",
   "mind.count": "{count} notes",
   "mind.moveTo": "Move to…",

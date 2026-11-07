@@ -72,7 +72,7 @@
       {
         "name": "The User sends the allergen sheet to the printer, in the first person",
         "kind": "action",
-        "pattern": "^(?![\\s\\S]*\\b[Cc]ora\\b)(?=[\\s\\S]*[Aa]llergen\\s+(?:[Ss]heet|[Ii]nformation|[Dd]etails))(?=[\\s\\S]*[Pp]rinter)(?=[\\s\\S]*(?:[Ee]mail|[Ss]end|[Ff]orward))(?=[\\s\\S]*(?:\\bI\\b(?![./-])|\\b[Mm]y\\b))(?=[\\s\\S]*(?:\\b[Mm]ar(?:ch)?\\.?\\s+8(?:th)?,?\\s+2027\\b|\\b8(?:th)?\\s+[Mm]ar(?:ch)?\\.?\\s+2027\\b|\\b2027[-/]0?3[-/]0?8\\b))[\\s\\S]+",
+        "pattern": "^(?![\\s\\S]*\\b(?:[Mm]e|[Tt]hey|other\\s+side)\\b)(?![\\s\\S]*\\b[Cc]ora\\b)(?=[\\s\\S]*[Aa]llergen\\s+(?:[Ss]heet|[Ii]nformation|[Dd]etails))(?=[\\s\\S]*[Pp]rinter)(?=[\\s\\S]*(?:[Ee]mail|[Ss]end|[Ff]orward))(?=[\\s\\S]*\\bI\\b(?![./-]))(?=[\\s\\S]*(?:\\b[Mm]ar(?:ch)?\\.?\\s+8(?:th)?,?\\s+2027\\b|\\b8(?:th)?\\s+[Mm]ar(?:ch)?\\.?\\s+2027\\b|\\b2027[-/]0?3[-/]0?8\\b))[\\s\\S]+",
         "subject": "[Aa]llergen\\s+(?:[Ss]heet|[Ii]nformation|[Dd]etails)",
         "said": [4]
       },
@@ -165,7 +165,7 @@
       {
         "name": "用户以第一人称把过敏原信息表发给印刷商",
         "kind": "action",
-        "pattern": "^(?![\\s\\S]*柯拉)(?=[\\s\\S]*(?:过敏原|致敏原)(?:信息表|清单|说明表|说明|表))(?=[\\s\\S]*印刷(?:商|方|厂))(?=[\\s\\S]*(?:发送|发给|发往|寄给|交给|电邮|邮件))(?=[\\s\\S]*我(?![们方]))(?=[\\s\\S]*(?:2027\\s*年\\s*3\\s*月\\s*8\\s*[日号]|2027[-/]0?3[-/]0?8\\b))[\\s\\S]+",
+        "pattern": "^(?![\\s\\S]*柯拉)(?=[\\s\\S]*(?:过敏原|致敏原)(?:信息表|清单|说明表|说明|表))(?=[\\s\\S]*印刷(?:商|方|厂))(?=[\\s\\S]*(?:发送|发给|发往|寄给|交给|电邮|邮件))(?=[\\s\\S]*(?<!(?:给|向|跟|和|让|替|对|帮|找|告诉|发|交|寄|传|转|审核|通知))我(?![们方])(?!的))(?=[\\s\\S]*(?:2027\\s*年\\s*3\\s*月\\s*8\\s*[日号]|2027[-/]0?3[-/]0?8\\b))[\\s\\S]+",
         "subject": "(?:过敏原|致敏原)(?:信息表|清单|说明表|说明|表)",
         "said": [4]
       },
@@ -263,7 +263,7 @@
       {
         "name": "The User runs the restore drill, in the first person",
         "kind": "action",
-        "pattern": "^(?![\\s\\S]*\\b[Hh]ugo\\b)(?=[\\s\\S]*[Rr]estore\\s+(?:[Dd]rill|[Tt]est|[Ee]xercise))(?=[\\s\\S]*(?:[Rr]un|[Cc]onduct|[Pp]erform))(?=[\\s\\S]*(?:\\bI\\b(?![./-])|\\b[Mm]y\\b))(?=[\\s\\S]*(?:\\b[Aa]pr(?:il)?\\.?\\s+7(?:th)?,?\\s+2027\\b|\\b7(?:th)?\\s+[Aa]pr(?:il)?\\.?\\s+2027\\b|\\b2027[-/]0?4[-/]0?7\\b))[\\s\\S]+",
+        "pattern": "^(?![\\s\\S]*\\b(?:[Mm]e|[Tt]hey|other\\s+side)\\b)(?![\\s\\S]*\\b[Hh]ugo\\b)(?=[\\s\\S]*[Rr]estore\\s+(?:[Dd]rill|[Tt]est|[Ee]xercise))(?=[\\s\\S]*(?:[Rr]un|[Cc]onduct|[Pp]erform))(?=[\\s\\S]*\\bI\\b(?![./-]))(?=[\\s\\S]*(?:\\b[Aa]pr(?:il)?\\.?\\s+7(?:th)?,?\\s+2027\\b|\\b7(?:th)?\\s+[Aa]pr(?:il)?\\.?\\s+2027\\b|\\b2027[-/]0?4[-/]0?7\\b))[\\s\\S]+",
         "subject": "[Rr]estore\\s+(?:[Dd]rill|[Tt]est|[Ee]xercise)",
         "said": [4]
       },
@@ -354,7 +354,7 @@
       {
         "name": "用户以第一人称进行恢复演练",
         "kind": "action",
-        "pattern": "^(?![\\s\\S]*雨果)(?=[\\s\\S]*恢复(?:演练|测试|试验))(?=[\\s\\S]*(?:进行|执行|开展|完成|做))(?=[\\s\\S]*我(?![们方]))(?=[\\s\\S]*(?:2027\\s*年\\s*4\\s*月\\s*7\\s*[日号]|2027[-/]0?4[-/]0?7\\b))[\\s\\S]+",
+        "pattern": "^(?![\\s\\S]*雨果)(?=[\\s\\S]*恢复(?:演练|测试|试验))(?=[\\s\\S]*(?:进行|执行|开展|完成|做))(?=[\\s\\S]*(?<!(?:给|向|跟|和|让|替|对|帮|找|告诉|发|交|寄|传|转|审核|通知))我(?![们方])(?!的))(?=[\\s\\S]*(?:2027\\s*年\\s*4\\s*月\\s*7\\s*[日号]|2027[-/]0?4[-/]0?7\\b))[\\s\\S]+",
         "subject": "恢复(?:演练|测试|试验)",
         "said": [4]
       },
@@ -441,7 +441,7 @@
       {
         "name": "The User orders cork samples, in the first person",
         "kind": "action",
-        "pattern": "^(?![\\s\\S]*\\b[Pp]riya\\b)(?=[\\s\\S]*[Cc]ork\\s+[Ss]amples?)(?=[\\s\\S]*(?:[Oo]rder|[Pp]urchas|[Bb]uy))(?=[\\s\\S]*(?:\\bI\\b(?![./-])|\\b[Mm]y\\b))(?=[\\s\\S]*(?:\\b[Mm]ay\\s+5(?:th)?,?\\s+2027\\b|\\b5(?:th)?\\s+[Mm]ay\\s+2027\\b|\\b2027[-/]0?5[-/]0?5\\b))[\\s\\S]+",
+        "pattern": "^(?![\\s\\S]*\\b(?:[Mm]e|[Tt]hey|other\\s+side)\\b)(?![\\s\\S]*\\b[Pp]riya\\b)(?=[\\s\\S]*[Cc]ork\\s+[Ss]amples?)(?=[\\s\\S]*(?:[Oo]rder|[Pp]urchas|[Bb]uy))(?=[\\s\\S]*\\bI\\b(?![./-]))(?=[\\s\\S]*(?:\\b[Mm]ay\\s+5(?:th)?,?\\s+2027\\b|\\b5(?:th)?\\s+[Mm]ay\\s+2027\\b|\\b2027[-/]0?5[-/]0?5\\b))[\\s\\S]+",
         "subject": "[Cc]ork\\s+[Ss]amples?",
         "said": [4],
         "underLine": "Apartment acoustic panels: material choice and division of work"
@@ -525,7 +525,7 @@
       {
         "name": "用户以第一人称订购软木样品",
         "kind": "action",
-        "pattern": "^(?![\\s\\S]*普莉娅)(?=[\\s\\S]*软木样(?:品|本))(?=[\\s\\S]*(?:订购|采购|购买|下单))(?=[\\s\\S]*我(?![们方]))(?=[\\s\\S]*(?:2027\\s*年\\s*5\\s*月\\s*5\\s*[日号]|2027[-/]0?5[-/]0?5\\b))[\\s\\S]+",
+        "pattern": "^(?![\\s\\S]*普莉娅)(?=[\\s\\S]*软木样(?:品|本))(?=[\\s\\S]*(?:订购|采购|购买|下单))(?=[\\s\\S]*(?<!(?:给|向|跟|和|让|替|对|帮|找|告诉|发|交|寄|传|转|审核|通知))我(?![们方])(?!的))(?=[\\s\\S]*(?:2027\\s*年\\s*5\\s*月\\s*5\\s*[日号]|2027[-/]0?5[-/]0?5\\b))[\\s\\S]+",
         "subject": "软木样(?:品|本)",
         "said": [4],
         "underLine": "公寓吸音板：材料选择与工作分工"
@@ -644,7 +644,7 @@
         "pattern": [
           "booking\\s+(?:form|paperwork)|signed\\s+form",
           "(?:\\bMar(?:ch)?\\.?\\s+5(?:st|nd|rd|th)?\\b|\\b5(?:st|nd|rd|th)?\\s+(?:of\\s+)?Mar(?:ch)?\\b|\\b2027-03-05\\b)",
-          "(?<!\\bMaren\\b[\\s\\S]*)(?:\\bI\\b(?![./-])|\\bmy\\b)(?![\\s\\S]*\\bMaren\\b)"
+          "(?<!\\b(?:Maren|me|they|other\\s+side)\\b[\\s\\S]*)\\bI\\b(?![./-])(?![\\s\\S]*\\b(?:Maren|me|they|other\\s+side)\\b)"
         ],
         "subject": "booking\\s+(?:form|paperwork)|signed\\s+form",
         "said": [6]
@@ -768,7 +768,7 @@
           "\\blease\\b",
           "\\bsign",
           "(?:\\bMar(?:ch)?\\.?\\s+3(?:st|nd|rd|th)?\\b|\\b3(?:st|nd|rd|th)?\\s+(?:of\\s+)?Mar(?:ch)?\\b|\\b2027-03-03\\b)",
-          "(?<!\\bme\\b[\\s\\S]*)\\bI\\b(?![./-])(?![\\s\\S]*\\bme\\b)"
+          "(?<!\\b(?:me|they|other\\s+side)\\b[\\s\\S]*)\\bI\\b(?![./-])(?![\\s\\S]*\\b(?:me|they|other\\s+side)\\b)"
         ],
         "subject": "\\blease\\b",
         "said": [6],
@@ -877,7 +877,7 @@
         "kind": "action",
         "pattern": [
           "\\bcover\\b",
-          "(?<!\\bLeona\\b[\\s\\S]*)(?:\\bI\\b(?![./-])|\\bmy\\b)(?![\\s\\S]*\\bLeona\\b)",
+          "(?<!\\b(?:Leona|me|they|other\\s+side)\\b[\\s\\S]*)\\bI\\b(?![./-])(?![\\s\\S]*\\b(?:Leona|me|they|other\\s+side)\\b)",
           "(?:\\bApr(?:il)?\\.?\\s+2(?:st|nd|rd|th)?\\b|\\b2(?:st|nd|rd|th)?\\s+(?:of\\s+)?Apr(?:il)?\\b|\\b2027-04-02\\b)"
         ],
         "subject": "\\bcover\\b",
@@ -1002,7 +1002,7 @@
         "pattern": [
           "租约|租赁合同|合同",
           "(?:(?<![\\d十])(?:3|03|三)\\s*月\\s*(?:10|十)\\s*[日号]|2027[-/.]0?3[-/.]0?10(?!\\d))",
-          "(?<!\\bme\\b[\\s\\S]*)我(?![们方])(?![\\s\\S]*\\bme\\b)"
+          "(?<!\\bme\\b[\\s\\S]*)(?<!(?:给|向|跟|和|让|替|对|帮|找|告诉|发|交|寄|传|转|审核|通知))我(?![们方])(?!的)(?![\\s\\S]*\\bme\\b)"
         ],
         "subject": "租约|租赁合同|合同",
         "said": [6]
@@ -1130,7 +1130,7 @@
         "kind": "action",
         "pattern": [
           "合同",
-          "(?<!苏晴[\\s\\S]*)我(?![们方])(?![\\s\\S]*苏晴)",
+          "(?<!苏晴[\\s\\S]*)(?<!(?:给|向|跟|和|让|替|对|帮|找|告诉|发|交|寄|传|转|审核|通知))我(?![们方])(?!的)(?![\\s\\S]*苏晴)",
           "(?:(?<![\\d十])(?:4|04|四)\\s*月\\s*(?:1|01|一)\\s*[日号]|2027[-/.]0?4[-/.]0?1(?!\\d))"
         ],
         "subject": "合同",
@@ -1239,7 +1239,7 @@
         "kind": "action",
         "pattern": [
           "瓷砖",
-          "(?<!\\bme\\b[\\s\\S]*)我(?![们方])(?![\\s\\S]*\\bme\\b)",
+          "(?<!\\bme\\b[\\s\\S]*)(?<!(?:给|向|跟|和|让|替|对|帮|找|告诉|发|交|寄|传|转|审核|通知))我(?![们方])(?!的)(?![\\s\\S]*\\bme\\b)",
           "(?:(?<![\\d十])(?:4|04|四)\\s*月\\s*(?:3|03|三)\\s*[日号]|2027[-/.]0?4[-/.]0?3(?!\\d))"
         ],
         "subject": "瓷砖",
@@ -1362,7 +1362,7 @@
         "kind": "action",
         "pattern": [
           "site\\s+plan",
-          "(?<!\\bCallum\\b[\\s\\S]*)(?:\\bI\\b(?![./-])|\\bmy\\b)(?![\\s\\S]*\\bCallum\\b)",
+          "(?<!\\b(?:Callum|me|they|other\\s+side)\\b[\\s\\S]*)\\bI\\b(?![./-])(?![\\s\\S]*\\b(?:Callum|me|they|other\\s+side)\\b)",
           "(?:\\bMar(?:ch)?\\.?\\s+24(?:st|nd|rd|th)?\\b|\\b24(?:st|nd|rd|th)?\\s+(?:of\\s+)?Mar(?:ch)?\\b|\\b2027-03-24\\b)"
         ],
         "subject": "site\\s+plan",
@@ -1488,7 +1488,7 @@
         "kind": "action",
         "pattern": [
           "pick-?\\s?up\\s+list|student\\s+count",
-          "(?<!(?:\\bme\\b)[\\s\\S]*)\\bI\\b(?![./-])(?![\\s\\S]*(?:\\bme\\b))",
+          "(?<!\\b(?:me|they|other\\s+side)\\b[\\s\\S]*)\\bI\\b(?![./-])(?![\\s\\S]*\\b(?:me|they|other\\s+side)\\b)",
           "(?:\\bApr(?:il)?\\.?\\s+20(?:st|nd|rd|th)?\\b|\\b20(?:st|nd|rd|th)?\\s+(?:of\\s+)?Apr(?:il)?\\b|\\b2027-04-20\\b)"
         ],
         "subject": "pick-?\\s?up\\s+list|student\\s+count",
@@ -1618,7 +1618,7 @@
         "pattern": [
           "contract",
           "\\bsign|\\breturn",
-          "(?<!\\bRosalind\\b[\\s\\S]*)(?:\\bI\\b(?![./-])|\\bmy\\b)(?![\\s\\S]*\\bRosalind\\b)",
+          "(?<!\\b(?:Rosalind|me|they|other\\s+side)\\b[\\s\\S]*)\\bI\\b(?![./-])(?![\\s\\S]*\\b(?:Rosalind|me|they|other\\s+side)\\b)",
           "(?:\\bMay\\.?\\s+14(?:st|nd|rd|th)?\\b|\\b14(?:st|nd|rd|th)?\\s+(?:of\\s+)?May\\b|\\b2027-05-14\\b)"
         ],
         "subject": "contract",
@@ -1742,7 +1742,7 @@
         "kind": "action",
         "pattern": [
           "名单",
-          "(?<!(?:\\bme\\b)[\\s\\S]*)我(?![们方])(?![\\s\\S]*(?:\\bme\\b))",
+          "(?<!(?:\\bme\\b)[\\s\\S]*)(?<!(?:给|向|跟|和|让|替|对|帮|找|告诉|发|交|寄|传|转|审核|通知))我(?![们方])(?!的)(?![\\s\\S]*(?:\\bme\\b))",
           "(?:(?<![\\d十])(?:4|04|四)\\s*月\\s*(?:20|二十|廿)\\s*[日号]|2027[-/.]0?4[-/.]0?20(?!\\d))"
         ],
         "subject": "名单",
@@ -1865,7 +1865,7 @@
         "kind": "action",
         "pattern": [
           "检测报告|农残",
-          "(?<!郁岚[\\s\\S]*)我(?![们方])(?![\\s\\S]*郁岚)",
+          "(?<!郁岚[\\s\\S]*)(?<!(?:给|向|跟|和|让|替|对|帮|找|告诉|发|交|寄|传|转|审核|通知))我(?![们方])(?!的)(?![\\s\\S]*郁岚)",
           "(?:(?<![\\d十])(?:5|05|五)\\s*月\\s*(?:10|十)\\s*[日号]|2027[-/.]0?5[-/.]0?10(?!\\d))"
         ],
         "subject": "检测报告|农残|检测",
@@ -1983,7 +1983,7 @@
         "kind": "action",
         "pattern": [
           "小样",
-          "(?<!(?:\\bme\\b)[\\s\\S]*)我(?![们方])(?![\\s\\S]*(?:\\bme\\b))",
+          "(?<!(?:\\bme\\b)[\\s\\S]*)(?<!(?:给|向|跟|和|让|替|对|帮|找|告诉|发|交|寄|传|转|审核|通知))我(?![们方])(?!的)(?![\\s\\S]*(?:\\bme\\b))",
           "(?:(?<![\\d十])(?:6|06|六)\\s*月\\s*(?:1|01|一)\\s*[日号]|2027[-/.]0?6[-/.]0?1(?!\\d))"
         ],
         "subject": "小样",
@@ -2108,7 +2108,7 @@
         "kind": "action",
         "pattern": [
           "packing\\s+list",
-          "(?<!\\bMira\\b[\\s\\S]*)(?:\\bI\\b(?![./-])|\\bmy\\b)(?![\\s\\S]*\\bMira\\b)",
+          "(?<!\\b(?:Mira|me|they|other\\s+side)\\b[\\s\\S]*)\\bI\\b(?![./-])(?![\\s\\S]*\\b(?:Mira|me|they|other\\s+side)\\b)",
           "(?:\\bSep(?:t(?:ember)?)?\\.?\\s+10(?:st|nd|rd|th)?\\b|\\b10(?:st|nd|rd|th)?\\s+(?:of\\s+)?Sep(?:t(?:ember)?)?\\b|\\b2027-09-10\\b)"
         ],
         "subject": "packing\\s+list",
@@ -2223,7 +2223,7 @@
         "kind": "action",
         "pattern": [
           "bank\\s+statements?",
-          "(?:\\bI\\b(?![./-])|\\bmy\\b)",
+          "(?<!\\b(?:me|they)\\b[\\s\\S]*)(?:\\bI\\b(?![./-])|\\bwe\\b)(?![\\s\\S]*\\b(?:me|they)\\b)",
           "(?:\\bMar(?:ch)?\\.?\\s+12(?:st|nd|rd|th)?\\b|\\b12(?:st|nd|rd|th)?\\s+(?:of\\s+)?Mar(?:ch)?\\b|\\b2027-03-12\\b)"
         ],
         "subject": "bank\\s+statements?",
@@ -2341,7 +2341,7 @@
         "kind": "action",
         "pattern": [
           "\\bactive\\s+users?\\b|\\buser\\s+list\\b|\\blist\\s+of\\s+(?:the\\s+)?users\\b",
-          "(?<!\\bNoor\\b[\\s\\S]*)(?:\\bI\\b(?![./-])|\\bmy\\b)(?![\\s\\S]*\\bNoor\\b)",
+          "(?<!\\b(?:Noor|me|they|other\\s+side)\\b[\\s\\S]*)\\bI\\b(?![./-])(?![\\s\\S]*\\b(?:Noor|me|they|other\\s+side)\\b)",
           "(?:\\bJun(?:e)?\\.?\\s+4(?:st|nd|rd|th)?\\b|\\b4(?:st|nd|rd|th)?\\s+(?:of\\s+)?Jun(?:e)?\\b|\\b2027-06-04\\b)"
         ],
         "subject": "active\\s+users?|user\\s+list|list\\s+of\\s+(?:the\\s+)?users",
@@ -2375,7 +2375,7 @@
         "pattern": [
           "order\\s+form",
           "\\bsign|\\breturn",
-          "(?<!\\bNoor\\b[\\s\\S]*)(?:\\bI\\b(?![./-])|\\bmy\\b)(?![\\s\\S]*\\bNoor\\b)",
+          "(?<!\\b(?:Noor|me|they|other\\s+side)\\b[\\s\\S]*)\\bI\\b(?![./-])(?![\\s\\S]*\\b(?:Noor|me|they|other\\s+side)\\b)",
           "(?:\\bJun(?:e)?\\.?\\s+11(?:st|nd|rd|th)?\\b|\\b11(?:st|nd|rd|th)?\\s+(?:of\\s+)?Jun(?:e)?\\b|\\b2027-06-11\\b)"
         ],
         "subject": "order\\s+form|\\bsign",
@@ -2478,7 +2478,7 @@
         "kind": "action",
         "pattern": [
           "故障记录|维修记录|故障报告|故障",
-          "(?<!顾青[\\s\\S]*)我(?![们方])(?![\\s\\S]*顾青)",
+          "(?<!顾青[\\s\\S]*)(?<!(?:给|向|跟|和|让|替|对|帮|找|告诉|发|交|寄|传|转|审核|通知))我(?![们方])(?!的)(?![\\s\\S]*顾青)",
           "(?:(?<![\\d十])(?:6|06|六)\\s*月\\s*(?:18|十八)\\s*[日号]|2027[-/.]0?6[-/.]0?18(?!\\d))"
         ],
         "subject": "故障",
@@ -2589,7 +2589,7 @@
         "kind": "action",
         "pattern": [
           "流程表|流程|日程",
-          "我(?![们方])",
+          "(?<!(?:给|向|跟|和|让|替|对|帮|找|告诉|发|交|寄|传|转|审核|通知))我(?![们方])(?!的)",
           "(?:(?<![\\d十])(?:8|08|八)\\s*月\\s*(?:28|二十八|廿八)\\s*[日号]|2027[-/.]0?8[-/.]0?28(?!\\d))"
         ],
         "subject": "流程表|流程|日程",
@@ -2721,7 +2721,7 @@
         "kind": "action",
         "pattern": [
           "商品清单|商品",
-          "(?<!简宁[\\s\\S]*)我(?![们方])(?![\\s\\S]*简宁)",
+          "(?<!简宁[\\s\\S]*)(?<!(?:给|向|跟|和|让|替|对|帮|找|告诉|发|交|寄|传|转|审核|通知))我(?![们方])(?!的)(?![\\s\\S]*简宁)",
           "(?:(?<![\\d十])(?:6|06|六)\\s*月\\s*(?:3|03|三)\\s*[日号]|2027[-/.]0?6[-/.]0?3(?!\\d))"
         ],
         "subject": "商品清单|商品",
@@ -2737,6 +2737,794 @@
         ],
         "subject": "会员名单|会员",
         "said": [8]
+      }
+    ]
+  },
+  {
+    "id": "reserved-en-structured-m",
+    "language": "en",
+    "requireSections": true,
+    "openQuestions": false,
+    "notes": [
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "system + price"
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "permit?"
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "fuse board"
+          }
+        ]
+      }
+    ],
+    "turns": [
+      {
+        "side": "me",
+        "text": "Hi, this is Imogen. We're putting solar panels on our roof in Harlow, and I'd like to settle the system and the price today."
+      },
+      {
+        "side": "them",
+        "text": "Pavel, Sunmark Energy. After the survey I'd suggest an 8 kilowatt system with a battery: 18,400 dollars installed."
+      },
+      {
+        "side": "me",
+        "text": "That's more than we planned, and we're hardly home in the evenings, so let's skip the battery. What would it cost without one?"
+      },
+      {
+        "side": "them",
+        "text": "A 6 kilowatt system with 14 panels and no battery is 11,900 dollars, and we could start installing on October 6, 2027."
+      },
+      {
+        "side": "me",
+        "text": "Good. Then it's final: the 6 kilowatt system with 14 panels at 11,900 dollars, installation starting October 6, 2027, and no battery."
+      },
+      {
+        "side": "them",
+        "text": "Confirmed: 6 kilowatts, 14 panels, 11,900 dollars, starting October 6, 2027. I'll file the grid permit application by September 3."
+      },
+      {
+        "side": "me",
+        "text": "Thanks. I'll send you our latest electricity bill by September 8, so you can size the inverter."
+      },
+      {
+        "side": "them",
+        "text": "Good. The old fuse board has to be replaced before we connect anything. Who handles that?"
+      },
+      {
+        "side": "me",
+        "text": "Colm, our electrician, will replace the fuse board by September 29. That job is Colm's."
+      },
+      {
+        "side": "them",
+        "text": "Perfect, that covers everything on my side. I have no open questions."
+      },
+      {
+        "side": "me",
+        "text": "Nothing open on mine either. Thanks, Pavel."
+      }
+    ],
+    "facts": [
+      {
+        "name": "The 6 kilowatt solar system for 11,900 dollars, installation starting October 6, 2027",
+        "kind": "decision",
+        "pattern": [
+          "\\bkW\\b|kilowatt|panels?|solar",
+          "(?:(?:\\$|US\\$|USD\\s*)11,?900(?:\\.00)?(?!\\d|[.,]\\d)|(?<![\\d.,])11,?900(?:\\.00)?\\s*(?:dollars|USD)\\b)",
+          "(?:\\bOct(?:ober)?\\.?\\s+6(?:st|nd|rd|th)?\\b|\\b6(?:st|nd|rd|th)?\\s+(?:of\\s+)?Oct(?:ober)?\\b|\\b2027-10-06\\b)"
+        ],
+        "subject": "kilowatt|\\bkW\\b|panels?|solar|installation",
+        "said": [3, 4, 5],
+        "underLine": "system + price"
+      },
+      {
+        "name": "The User sends the electricity bill, in the first person",
+        "kind": "action",
+        "pattern": [
+          "electricity\\s+bill|\\bbill\\b",
+          "(?<!\\b(?:Imogen|me|they|other\\s+side)\\b[\\s\\S]*)(?:\\bI\\b(?![./-])|\\bwe\\b)(?![\\s\\S]*\\b(?:Imogen|me|they|other\\s+side)\\b)",
+          "(?:\\bSep(?:t(?:ember)?)?\\.?\\s+8(?:st|nd|rd|th)?\\b|\\b8(?:st|nd|rd|th)?\\s+(?:of\\s+)?Sep(?:t(?:ember)?)?\\b|\\b2027-09-08\\b)"
+        ],
+        "subject": "electricity\\s+bill|\\bbill\\b",
+        "said": [6]
+      },
+      {
+        "name": "Pavel files the grid permit application",
+        "kind": "action",
+        "pattern": [
+          "permit|application",
+          "(?<!\\b(?:other\\s+side|they)\\b[\\s\\S]*)\\bPavel\\b(?![\\s\\S]*\\b(?:other\\s+side|they)\\b)",
+          "(?:\\bSep(?:t(?:ember)?)?\\.?\\s+3(?:st|nd|rd|th)?\\b|\\b3(?:st|nd|rd|th)?\\s+(?:of\\s+)?Sep(?:t(?:ember)?)?\\b|\\b2027-09-03\\b)"
+        ],
+        "subject": "permit|application",
+        "said": [5],
+        "underLine": "permit?"
+      },
+      {
+        "name": "Colm replaces the fuse board",
+        "kind": "action",
+        "pattern": [
+          "fuse|consumer\\s+unit|breaker",
+          "\\bColm\\b",
+          "(?:\\bSep(?:t(?:ember)?)?\\.?\\s+29(?:st|nd|rd|th)?\\b|\\b29(?:st|nd|rd|th)?\\s+(?:of\\s+)?Sep(?:t(?:ember)?)?\\b|\\b2027-09-29\\b)"
+        ],
+        "subject": "fuse|consumer\\s+unit|breaker",
+        "said": [8],
+        "underLine": "fuse board"
+      }
+    ]
+  },
+  {
+    "id": "reserved-en-structured-n",
+    "language": "en",
+    "requireSections": true,
+    "openQuestions": true,
+    "notes": [
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "languages + price"
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "sample page?"
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "proofreading"
+          }
+        ]
+      }
+    ],
+    "turns": [
+      {
+        "side": "me",
+        "text": "Hi, thanks for calling back. We make espresso machines, and our user manual needs translating before the autumn launch. I'd like to settle the languages and the price today."
+      },
+      {
+        "side": "them",
+        "text": "Of course. For German, French and Spanish I'd quote 6,900 dollars for the full 64 pages."
+      },
+      {
+        "side": "me",
+        "text": "We only sell in Germany and France this year, so Spanish can wait. Could you do just those two?"
+      },
+      {
+        "side": "them",
+        "text": "German and French only is 4,250 dollars, delivered by December 10, 2027."
+      },
+      {
+        "side": "me",
+        "text": "Then it's final: German and French at 4,250 dollars, delivered by December 10, 2027, and we drop Spanish."
+      },
+      {
+        "side": "them",
+        "text": "Agreed, German and French, 4,250 dollars, December 10, 2027. I'll send you a sample page for approval by November 15."
+      },
+      {
+        "side": "me",
+        "text": "Good. I'll send you our glossary of product terms by November 5, so the sample uses the right words."
+      },
+      {
+        "side": "them",
+        "text": "That helps a lot. Our proofreader, Elias, will check both versions before delivery, by December 6. That check is his job."
+      },
+      {
+        "side": "me",
+        "text": "Great. One thing I can't answer yet is whether the exploded-view diagrams are covered by your price. Our engineers still have to export them."
+      },
+      {
+        "side": "them",
+        "text": "I can't say either until I've seen the diagram files, so that stays open for now."
+      },
+      {
+        "side": "me",
+        "text": "Agreed, the diagrams question stays open. Thanks for your time."
+      }
+    ],
+    "facts": [
+      {
+        "name": "German and French translation for 4,250 dollars, delivered by December 10, 2027",
+        "kind": "decision",
+        "pattern": [
+          "\\bGerman\\b|\\bFrench\\b|translat",
+          "(?:(?:\\$|US\\$|USD\\s*)4,?250(?:\\.00)?(?!\\d|[.,]\\d)|(?<![\\d.,])4,?250(?:\\.00)?\\s*(?:dollars|USD)\\b)",
+          "(?:\\bDec(?:ember)?\\.?\\s+10(?:st|nd|rd|th)?\\b|\\b10(?:st|nd|rd|th)?\\s+(?:of\\s+)?Dec(?:ember)?\\b|\\b2027-12-10\\b)"
+        ],
+        "subject": "German|French|translat|manual",
+        "said": [3, 4, 5],
+        "underLine": "languages + price"
+      },
+      {
+        "name": "The other side sends a sample page",
+        "kind": "action",
+        "pattern": [
+          "sample",
+          "\\bother\\s+side\\b",
+          "(?:\\bNov(?:ember)?\\.?\\s+15(?:st|nd|rd|th)?\\b|\\b15(?:st|nd|rd|th)?\\s+(?:of\\s+)?Nov(?:ember)?\\b|\\b2027-11-15\\b)"
+        ],
+        "subject": "sample",
+        "said": [5],
+        "underLine": "sample page?"
+      },
+      {
+        "name": "The User sends the glossary of product terms, in the first person",
+        "kind": "action",
+        "pattern": [
+          "glossary",
+          "(?<!\\b(?:me|they)\\b[\\s\\S]*)(?:\\bI\\b(?![./-])|\\bwe\\b)(?![\\s\\S]*\\b(?:me|they)\\b)",
+          "(?:\\bNov(?:ember)?\\.?\\s+5(?:st|nd|rd|th)?\\b|\\b5(?:st|nd|rd|th)?\\s+(?:of\\s+)?Nov(?:ember)?\\b|\\b2027-11-05\\b)"
+        ],
+        "subject": "glossary",
+        "said": [6]
+      },
+      {
+        "name": "Elias proofreads both versions",
+        "kind": "action",
+        "pattern": [
+          "proofread|check|review",
+          "\\bElias\\b",
+          "(?:\\bDec(?:ember)?\\.?\\s+6(?:st|nd|rd|th)?\\b|\\b6(?:st|nd|rd|th)?\\s+(?:of\\s+)?Dec(?:ember)?\\b|\\b2027-12-06\\b)"
+        ],
+        "subject": "proofread|check|review",
+        "said": [7],
+        "underLine": "proofreading"
+      }
+    ]
+  },
+  {
+    "id": "reserved-en-structured-o",
+    "language": "en",
+    "requireSections": true,
+    "openQuestions": false,
+    "sectionHeadings": {
+      "actions": "Action items"
+    },
+    "notes": [
+      {
+        "type": "heading",
+        "attrs": {
+          "level": 2
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "Action items"
+          }
+        ]
+      }
+    ],
+    "turns": [
+      {
+        "side": "me",
+        "text": "Hello, Sunita here, from the facilities team at Alder Row. We'd like catering for our company picnic, and I want to settle the menu and the price today."
+      },
+      {
+        "side": "them",
+        "text": "Marco, from Casa Verde Kitchen. For 120 guests I'd suggest our seated buffet: 4,560 dollars, set up in your car park by noon."
+      },
+      {
+        "side": "me",
+        "text": "That's too formal for a picnic, and the budget is tight. Do you have something more casual?"
+      },
+      {
+        "side": "them",
+        "text": "Then our taco truck. It serves 120 guests for 2,880 dollars, and it could come on June 18, 2027."
+      },
+      {
+        "side": "me",
+        "text": "Good. Let's make it final: the taco truck for 120 guests at 2,880 dollars on June 18, 2027, and we drop the buffet."
+      },
+      {
+        "side": "them",
+        "text": "Confirmed: the taco truck, 2,880 dollars, June 18, 2027. I'll email you the allergen list by May 28."
+      },
+      {
+        "side": "me",
+        "text": "Thanks. I'll send you the final guest count by June 4, so the truck brings enough food."
+      },
+      {
+        "side": "them",
+        "text": "Good. We also take a deposit to hold the date. Can you handle that this month?"
+      },
+      {
+        "side": "me",
+        "text": "Yes, I'll pay the deposit by May 21."
+      },
+      {
+        "side": "them",
+        "text": "Great. The truck also needs a council permit to park in your car park. Who gets that?"
+      },
+      {
+        "side": "me",
+        "text": "Delia, our office manager, will get the car park permit from the council by June 1. That job is Delia's."
+      },
+      {
+        "side": "them",
+        "text": "Perfect, that covers everything. I have no open questions."
+      },
+      {
+        "side": "me",
+        "text": "None on mine either. Thanks, Marco."
+      }
+    ],
+    "facts": [
+      {
+        "name": "The taco truck for 120 guests at 2,880 dollars on June 18, 2027",
+        "kind": "decision",
+        "pattern": [
+          "truck|taco",
+          "(?:(?:\\$|US\\$|USD\\s*)2,?880(?:\\.00)?(?!\\d|[.,]\\d)|(?<![\\d.,])2,?880(?:\\.00)?\\s*(?:dollars|USD)\\b)",
+          "(?:\\bJun(?:e)?\\.?\\s+18(?:st|nd|rd|th)?\\b|\\b18(?:st|nd|rd|th)?\\s+(?:of\\s+)?Jun(?:e)?\\b|\\b2027-06-18\\b)"
+        ],
+        "subject": "truck|taco|catering",
+        "said": [3, 4, 5]
+      },
+      {
+        "name": "The User sends the final guest count, in the first person",
+        "kind": "action",
+        "pattern": [
+          "guest\\s+(?:count|numbers?)|head\\s?count|number\\s+of\\s+guests|final\\s+count",
+          "(?<!\\b(?:Sunita|me|they|other\\s+side)\\b[\\s\\S]*)\\bI\\b(?![./-])(?![\\s\\S]*\\b(?:Sunita|me|they|other\\s+side)\\b)",
+          "(?:\\bJun(?:e)?\\.?\\s+4(?:st|nd|rd|th)?\\b|\\b4(?:st|nd|rd|th)?\\s+(?:of\\s+)?Jun(?:e)?\\b|\\b2027-06-04\\b)"
+        ],
+        "subject": "guest\\s+(?:count|numbers?)|head\\s?count|number\\s+of\\s+guests|final\\s+count",
+        "said": [6]
+      },
+      {
+        "name": "Marco emails the allergen list",
+        "kind": "action",
+        "pattern": [
+          "allergen",
+          "(?<!\\b(?:other\\s+side|they)\\b[\\s\\S]*)\\bMarco\\b(?![\\s\\S]*\\b(?:other\\s+side|they)\\b)",
+          "(?:\\bMay\\.?\\s+28(?:st|nd|rd|th)?\\b|\\b28(?:st|nd|rd|th)?\\s+(?:of\\s+)?May\\b|\\b2027-05-28\\b)"
+        ],
+        "subject": "allergen",
+        "said": [5]
+      },
+      {
+        "name": "The User pays the deposit, in the first person",
+        "kind": "action",
+        "pattern": [
+          "deposit",
+          "(?<!\\b(?:Sunita|me|they|other\\s+side)\\b[\\s\\S]*)\\bI\\b(?![./-])(?![\\s\\S]*\\b(?:Sunita|me|they|other\\s+side)\\b)",
+          "(?:\\bMay\\.?\\s+21(?:st|nd|rd|th)?\\b|\\b21(?:st|nd|rd|th)?\\s+(?:of\\s+)?May\\b|\\b2027-05-21\\b)"
+        ],
+        "subject": "deposit",
+        "said": [8]
+      },
+      {
+        "name": "Delia gets the car park permit from the council",
+        "kind": "action",
+        "pattern": [
+          "permit|council",
+          "\\bDelia\\b",
+          "(?:\\bJun(?:e)?\\.?\\s+1(?:st|nd|rd|th)?\\b|\\b1(?:st|nd|rd|th)?\\s+(?:of\\s+)?Jun(?:e)?\\b|\\b2027-06-01\\b)"
+        ],
+        "subject": "permit|council",
+        "said": [10]
+      }
+    ]
+  },
+  {
+    "id": "reserved-zh-structured-m",
+    "language": "zh-CN",
+    "requireSections": true,
+    "openQuestions": false,
+    "notes": [
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "款式和价钱"
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "尺码表"
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "校徽图案"
+          }
+        ]
+      }
+    ],
+    "turns": [
+      {
+        "side": "me",
+        "text": "你好，我是梁薇，小学家委会的。想把明年新生校服的款式和价钱定下来，今天能谈完吗？"
+      },
+      {
+        "side": "them",
+        "text": "可以。我是季川，锦衣服饰的业务经理。你们要一百八十套的话，我们先推荐全棉款，一共四万六千八百元。"
+      },
+      {
+        "side": "me",
+        "text": "全棉太贵了，孩子长得快，穿一年就小了。有没有便宜一点的？"
+      },
+      {
+        "side": "them",
+        "text": "那就改成棉涤混纺，一百八十套一共三万一千二百元，二〇二七年八月二十日前交货。"
+      },
+      {
+        "side": "me",
+        "text": "好，就这么定：棉涤混纺，一共三万一千二百元，八月二十日前交货，全棉的方案不要了。"
+      },
+      {
+        "side": "them",
+        "text": "确认，棉涤混纺，三万一千二百元，八月二十日前交货。尺码表我六月十日前发给你。"
+      },
+      {
+        "side": "me",
+        "text": "好。我们六月二十日前把各班的人数统计发给你们。"
+      },
+      {
+        "side": "them",
+        "text": "收到。校徽的图案也要提前给我们，谁来负责？"
+      },
+      {
+        "side": "me",
+        "text": "我们家委会的阿芳会在七月五日前把校徽图案发给你们，这件事交给阿芳。"
+      },
+      {
+        "side": "them",
+        "text": "好。我这边没有别的事了，也没有没解决的问题。"
+      },
+      {
+        "side": "me",
+        "text": "我这边也没有，今天的事都定了。谢谢季川。"
+      }
+    ],
+    "facts": [
+      {
+        "name": "棉涤混纺校服一百八十套，三万一千二百元，八月二十日前交货",
+        "kind": "decision",
+        "pattern": [
+          "校服|混纺|棉涤",
+          "(?<![\\d.一二三四五六七八九十百千万两]|\\d[,，])(?:三万一千二百|3\\.12\\s*万|31,?200)(?![\\d.])\\s*(?:元|块|人民币)",
+          "(?:(?<![\\d十])(?:8|08|八)\\s*月\\s*(?:20|二十|廿)\\s*[日号]|2027[-/.]0?8[-/.]0?20(?!\\d))"
+        ],
+        "subject": "校服|混纺|棉涤",
+        "said": [3, 4, 5],
+        "underLine": "款式和价钱"
+      },
+      {
+        "name": "季川发尺码表",
+        "kind": "action",
+        "pattern": [
+          "尺码",
+          "(?<!对方[\\s\\S]*)季川(?![\\s\\S]*对方)",
+          "(?:(?<![\\d十])(?:6|06|六)\\s*月\\s*(?:10|十)\\s*[日号]|2027[-/.]0?6[-/.]0?10(?!\\d))"
+        ],
+        "subject": "尺码",
+        "said": [5],
+        "underLine": "尺码表"
+      },
+      {
+        "name": "用户以第一人称把各班人数统计发给厂家",
+        "kind": "action",
+        "pattern": [
+          "人数|统计",
+          "(?<!梁薇[\\s\\S]*)(?<!(?:给|向|跟|和|让|替|对|帮|找|告诉|发|交|寄|传|转|审核|通知))我(?![方])(?!的|们的)(?![\\s\\S]*梁薇)",
+          "(?:(?<![\\d十])(?:6|06|六)\\s*月\\s*(?:20|二十|廿)\\s*[日号]|2027[-/.]0?6[-/.]0?20(?!\\d))"
+        ],
+        "subject": "人数|统计",
+        "said": [6]
+      },
+      {
+        "name": "阿芳发校徽图案",
+        "kind": "action",
+        "pattern": [
+          "校徽|图案",
+          "阿芳",
+          "(?:(?<![\\d十])(?:7|07|七)\\s*月\\s*(?:5|05|五)\\s*[日号]|2027[-/.]0?7[-/.]0?5(?!\\d))"
+        ],
+        "subject": "校徽|图案",
+        "said": [8],
+        "underLine": "校徽图案"
+      }
+    ]
+  },
+  {
+    "id": "reserved-zh-structured-n",
+    "language": "zh-CN",
+    "requireSections": true,
+    "openQuestions": true,
+    "notes": [
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "品种和价钱"
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "合同"
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "样品"
+          }
+        ]
+      }
+    ],
+    "turns": [
+      {
+        "side": "me",
+        "text": "你好，我们是开在大学旁边的咖啡馆，想订每个月的咖啡豆。今天把品种和价钱定下来，行吗？"
+      },
+      {
+        "side": "them",
+        "text": "可以。我们先推荐三个品种的拼配套餐，每个月三十公斤，一共四千五百元。"
+      },
+      {
+        "side": "me",
+        "text": "三个品种用不完，我们只卖拿铁和美式，一个品种就够了。"
+      },
+      {
+        "side": "them",
+        "text": "那就只订一个意式拼配，每个月二十公斤，三千二百元，二〇二七年十月一日开始送。"
+      },
+      {
+        "side": "me",
+        "text": "好，就这么定：一个意式拼配，每月二十公斤，三千二百元，十月一日开始送，三个品种的套餐不要了。"
+      },
+      {
+        "side": "them",
+        "text": "确认，意式拼配，每月二十公斤，三千二百元，十月一日开始。合同我九月八日前发给你。"
+      },
+      {
+        "side": "me",
+        "text": "好。我九月十日前把门店每个月的用量表发给你们，你们好安排送货。"
+      },
+      {
+        "side": "them",
+        "text": "收到。样品也要先寄，我们的烘焙师阿凯会在九月十五日前把一包样品豆寄给你，这件事归阿凯。"
+      },
+      {
+        "side": "me",
+        "text": "好。还有一件事我不确定：包装袋上能不能印我们咖啡馆自己的标签？"
+      },
+      {
+        "side": "them",
+        "text": "这个我现在也答不上来，要问包装供应商，先挂着吧。"
+      },
+      {
+        "side": "me",
+        "text": "好，我们也没办法确认，标签的事先放着，没人答得上来。"
+      }
+    ],
+    "facts": [
+      {
+        "name": "意式拼配咖啡豆每月二十公斤，三千二百元，十月一日开始送",
+        "kind": "decision",
+        "pattern": [
+          "咖啡豆|意式|拼配",
+          "(?<![\\d.一二三四五六七八九十百千万两]|\\d[,，])(?:三千二百|0\\.32\\s*万|3,?200)(?![\\d.])\\s*(?:元|块|人民币)",
+          "(?:(?<![\\d十])(?:10|十)\\s*月\\s*(?:1|01|一)\\s*[日号]|2027[-/.]0?10[-/.]0?1(?!\\d))"
+        ],
+        "subject": "咖啡豆|意式|拼配",
+        "said": [3, 4, 5],
+        "underLine": "品种和价钱"
+      },
+      {
+        "name": "对方发合同",
+        "kind": "action",
+        "pattern": [
+          "合同",
+          "对方",
+          "(?:(?<![\\d十])(?:9|09|九)\\s*月\\s*(?:8|08|八)\\s*[日号]|2027[-/.]0?9[-/.]0?8(?!\\d))"
+        ],
+        "subject": "合同",
+        "said": [5],
+        "underLine": "合同"
+      },
+      {
+        "name": "用户以第一人称把门店用量表发给对方",
+        "kind": "action",
+        "pattern": [
+          "用量",
+          "(?<!(?:给|向|跟|和|让|替|对|帮|找|告诉|发|交|寄|传|转|审核|通知))我(?![们方])(?!的)",
+          "(?:(?<![\\d十])(?:9|09|九)\\s*月\\s*(?:10|十)\\s*[日号]|2027[-/.]0?9[-/.]0?10(?!\\d))"
+        ],
+        "subject": "用量",
+        "said": [6]
+      },
+      {
+        "name": "阿凯寄样品豆",
+        "kind": "action",
+        "pattern": [
+          "样品",
+          "阿凯",
+          "(?:(?<![\\d十])(?:9|09|九)\\s*月\\s*(?:15|十五)\\s*[日号]|2027[-/.]0?9[-/.]0?15(?!\\d))"
+        ],
+        "subject": "样品",
+        "said": [7],
+        "underLine": "样品"
+      }
+    ]
+  },
+  {
+    "id": "reserved-zh-structured-o",
+    "language": "zh-CN",
+    "requireSections": true,
+    "openQuestions": false,
+    "sectionHeadings": {
+      "actions": "待办"
+    },
+    "notes": [
+      {
+        "type": "heading",
+        "attrs": {
+          "level": 2
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "待办"
+          }
+        ]
+      }
+    ],
+    "turns": [
+      {
+        "side": "me",
+        "text": "你好，我是邱宁，做智能门锁的。十一月的建材展我们想订一个展位，今天把方案和价钱定下来。"
+      },
+      {
+        "side": "them",
+        "text": "我是傅磊，展联会展的项目经理。我们先推荐特装展台，三十六平方米，五万八千元。"
+      },
+      {
+        "side": "me",
+        "text": "特装太贵了，我们只展三款锁，二十多平方米就够了，有没有简单点的？"
+      },
+      {
+        "side": "them",
+        "text": "有的。标准展台加定制背板，二十四平方米，二万六千五百元，二〇二七年十一月三日进场搭建。"
+      },
+      {
+        "side": "me",
+        "text": "好，就这么定：标准展台加定制背板，二万六千五百元，十一月三日进场，特装的方案不要了。"
+      },
+      {
+        "side": "them",
+        "text": "确认，标准展台加背板，二万六千五百元，十一月三日进场。搭建图纸我十月十五日前发给你。"
+      },
+      {
+        "side": "me",
+        "text": "好。我十月二十日前把背板的设计稿发给你们。"
+      },
+      {
+        "side": "them",
+        "text": "收到。留位置还要先付一笔定金，你们这个月能付吗？"
+      },
+      {
+        "side": "me",
+        "text": "能，我十月八日前把定金付了。"
+      },
+      {
+        "side": "them",
+        "text": "好。货车进场还要办入场证，谁来办？"
+      },
+      {
+        "side": "me",
+        "text": "我们的行政小宋会在十一月一日前办好货车入场证，这件事交给小宋。"
+      },
+      {
+        "side": "them",
+        "text": "好，这样就齐了。我这边没有别的事了，也没有没解决的问题。"
+      },
+      {
+        "side": "me",
+        "text": "我这边也没有，谢谢傅磊。"
+      }
+    ],
+    "facts": [
+      {
+        "name": "标准展台加定制背板，二万六千五百元，十一月三日进场",
+        "kind": "decision",
+        "pattern": [
+          "展台|展位|背板",
+          "(?<![\\d.一二三四五六七八九十百千万两]|\\d[,，])(?:[二两]万六千五百|2\\.65\\s*万|26,?500)(?![\\d.])\\s*(?:元|块|人民币)",
+          "(?:(?<![\\d十])(?:11|十一)\\s*月\\s*(?:3|03|三)\\s*[日号]|2027[-/.]0?11[-/.]0?3(?!\\d))"
+        ],
+        "subject": "展台|展位|背板",
+        "said": [3, 4, 5]
+      },
+      {
+        "name": "傅磊发搭建图纸",
+        "kind": "action",
+        "pattern": [
+          "图纸",
+          "(?<!对方[\\s\\S]*)傅磊(?![\\s\\S]*对方)",
+          "(?:(?<![\\d十])(?:10|十)\\s*月\\s*(?:15|十五)\\s*[日号]|2027[-/.]0?10[-/.]0?15(?!\\d))"
+        ],
+        "subject": "图纸",
+        "said": [5]
+      },
+      {
+        "name": "用户以第一人称把背板设计稿发给展会公司",
+        "kind": "action",
+        "pattern": [
+          "设计稿|背板",
+          "(?<!邱宁[\\s\\S]*)(?<!(?:给|向|跟|和|让|替|对|帮|找|告诉|发|交|寄|传|转|审核|通知))我(?![们方])(?!的)(?![\\s\\S]*邱宁)",
+          "(?:(?<![\\d十])(?:10|十)\\s*月\\s*(?:20|二十|廿)\\s*[日号]|2027[-/.]0?10[-/.]0?20(?!\\d))"
+        ],
+        "subject": "设计稿|背板",
+        "said": [6]
+      },
+      {
+        "name": "用户以第一人称付定金",
+        "kind": "action",
+        "pattern": [
+          "定金",
+          "(?<!邱宁[\\s\\S]*)(?<!(?:给|向|跟|和|让|替|对|帮|找|告诉|发|交|寄|传|转|审核|通知))我(?![们方])(?!的)(?![\\s\\S]*邱宁)",
+          "(?:(?<![\\d十])(?:10|十)\\s*月\\s*(?:8|08|八)\\s*[日号]|2027[-/.]0?10[-/.]0?8(?!\\d))"
+        ],
+        "subject": "定金",
+        "said": [8]
+      },
+      {
+        "name": "小宋办货车入场证",
+        "kind": "action",
+        "pattern": [
+          "入场证|通行证|货车",
+          "小宋",
+          "(?:(?<![\\d十])(?:11|十一)\\s*月\\s*(?:1|01|一)\\s*[日号]|2027[-/.]0?11[-/.]0?1(?!\\d))"
+        ],
+        "subject": "入场证|通行证|货车",
+        "said": [10]
       }
     ]
   }

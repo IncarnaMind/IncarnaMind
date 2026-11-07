@@ -66,16 +66,16 @@ async function shorten(window: Page, line: string, shortened: string): Promise<L
   return note;
 }
 
-/** Opens the tab's menu by the keyboard and arrows down from Outline, past the exports, to History. */
+/** Opens the tab's menu by the keyboard and arrows down from Duplicate, past the checks and Export, to History. */
 async function openHistoryFromTabMenu(window: Page, tab: Locator): Promise<void> {
   const menu = tab.getByTestId("tab-actions");
   await tab.focus();
   await window.keyboard.press("Shift+F10");
-  await expect(menu.getByTestId("mind.outline")).toBeFocused();
+  await expect(menu.getByTestId("mind.duplicate")).toBeFocused();
   const ids = await menu
     .getByRole("menuitem")
     .evaluateAll((items) => items.map((item) => item.getAttribute("data-testid")));
-  const steps = ids.indexOf("mind.history") - ids.indexOf("mind.outline");
+  const steps = ids.indexOf("mind.history") - ids.indexOf("mind.duplicate");
   for (let step = 0; step < steps; step++) await window.keyboard.press("ArrowDown");
   await expect(menu.getByTestId("mind.history")).toBeFocused();
 }

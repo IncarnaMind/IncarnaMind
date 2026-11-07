@@ -251,6 +251,19 @@ export function ExportMenu({ mindId }: { mindId: string }) {
           </Fragment>
         ))}
         {!more.includes("html") && shareWebPage}
+        <div className={menuRuleClass} />
+        <Item
+          testId="export-ai-use-statement"
+          icon={<span aria-hidden="true" className="size-4 shrink-0" />}
+          label={t("aiStatement.command")}
+          onClick={() => run("mind.aiUseStatement")}
+        />
+        <Item
+          testId="export-check-record"
+          icon={<span aria-hidden="true" className="size-4 shrink-0" />}
+          label={t("checkRecord.command")}
+          onClick={() => run("mind.checkRecord")}
+        />
       </div>
     </>
   );
