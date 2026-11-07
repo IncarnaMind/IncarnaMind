@@ -5,6 +5,7 @@
  * process has given Electron the kept choice before the window opened.
  */
 import type { Appearance } from "../../core/api";
+import { useAppStore } from "./store";
 
 export type Theme = "light" | "dark";
 
@@ -25,3 +26,10 @@ export function shownTheme(): Theme {
 
 /** The other theme, which ⌘K's switch chooses. */
 export const otherTheme = (): Theme => (shownTheme() === "dark" ? "light" : "dark");
+
+/** The User's choice, shown at once; then as the core kept it, the old one if it refused. */
+export async function chooseAppearance(appearance: Appearance): Promise<void> {
+  showAppearance(appearance);
+  await useAppStore.getState().updateSettings({ device: { appearance } });
+  showAppearance(useAppStore.getState().settings?.device.appearance ?? "system");
+}

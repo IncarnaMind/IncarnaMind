@@ -1,6 +1,6 @@
 import type { Appearance } from "../../../core/api";
 import type { MessageKey } from "../../../shared/i18n";
-import { showAppearance } from "../appearance";
+import { chooseAppearance } from "../appearance";
 import { useT } from "../i18n";
 import { useAppStore } from "../store";
 import { ruledListClass, sectionTitleClass } from "./ui";
@@ -15,15 +15,6 @@ const appearanceOptions: readonly { value: Appearance; label: MessageKey }[] = [
 export function AppearanceSettings() {
   const t = useT();
   const appearance = useAppStore((state) => state.settings?.device.appearance ?? "system");
-  const updateSettings = useAppStore((state) => state.updateSettings);
-
-  const choose = (value: Appearance) => {
-    // At once, before the core confirms; then as kept, which is the old choice if it refused.
-    showAppearance(value);
-    void updateSettings({ device: { appearance: value } }).then(() =>
-      showAppearance(useAppStore.getState().settings?.device.appearance ?? "system"),
-    );
-  };
 
   return (
     <section data-testid="appearance-settings">
@@ -41,7 +32,7 @@ export function AppearanceSettings() {
               name="appearance"
               value={option.value}
               checked={appearance === option.value}
-              onChange={() => choose(option.value)}
+              onChange={() => void chooseAppearance(option.value)}
               className="size-4 shrink-0 accent-ink"
             />
             {t(option.label)}
