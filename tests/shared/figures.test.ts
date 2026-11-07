@@ -1262,6 +1262,76 @@ describe("stated units", () => {
     expect(stated("A million people came", EN)).toEqual([]);
   });
 
+  // protects=#2365; fails_when=a currency the reader doesn't know by name ("in thousands of New Taiwan dollars", "of Japanese yen") is read as a unit of measure, so an amount in it is refused where its own sign settles the currency; or a count that ends with a currency's word ("of contracts won") reads as money.
+  test("“in thousands of” a currency's name states money, and any other “of” a measure", () => {
+    const thousands = (name: string) => stated(`(in thousands of ${name})`, EN);
+    for (const name of [
+      "New Taiwan dollars",
+      "NT dollars",
+      "NEW TAIWAN DOLLARS",
+      "Japanese yen",
+      "Brazilian reais",
+      "Korean won",
+      "Swedish kronor",
+      "Mexican pesos",
+      "South African rand",
+      "Norwegian kroner",
+      "Danish kroner",
+      "Russian rubles",
+      "Turkish lira",
+      "Philippine pesos",
+      "Chilean pesos",
+      "Indonesian rupiah",
+      "Malaysian ringgit",
+      "Thai baht",
+      "Chinese yuan",
+      "Chinese renminbi",
+      "New Zealand dollars",
+      "Saudi riyals",
+      "UAE dirhams",
+      "Israeli shekels",
+      "Polish zlotys",
+      "won",
+    ])
+      expect([name, thousands(name)]).toEqual([
+        name,
+        [
+          {
+            chars: `in thousands of ${name}`,
+            scale: 1000,
+            scaleWord: "thousands",
+            unit: { kind: "plain" },
+          },
+        ],
+      ]);
+    for (const [name, code] of [
+      ["Indian rupees", "INR"],
+      ["Swiss francs", "CHF"],
+      ["Australian dollars", "AUD"],
+      ["Singapore dollars", "SGD"],
+      ["Canadian dollars", "CAD"],
+      ["euro", "EUR"],
+      ["United States dollars", "USD"],
+      ["US dollars", "USD"],
+    ] as const)
+      expect([name, thousands(name)]).toMatchObject([
+        name,
+        [{ scale: 1000, unit: { kind: "currency", code } }],
+      ]);
+    for (const [name, word] of [
+      ["tonnes", "tonnes"],
+      ["barrels of oil equivalent", "barrels of oil equivalent"],
+      ["contracts won", "contracts won"],
+      ["units and dollars", "units and dollars"],
+      ["Japanese yen per share", "Japanese yen per share"],
+      ["Korean won and US dollars", "Korean won and US dollars"],
+    ] as const)
+      expect([name, thousands(name)]).toMatchObject([
+        name,
+        [{ scale: 1000, unit: { kind: "other", word } }],
+      ]);
+  });
+
   test("a Chinese header states a scale and a currency", () => {
     expect(stated("单位：万元")).toEqual([
       {

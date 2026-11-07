@@ -1,26 +1,38 @@
 /**
  * Real headers' scale lines, quoted for two rows under them, through the core: the A-share,
- * Hong Kong, US, UK and Indian forms scale as their Document states, and a line that names a
- * measure never scales an amount (#2365).
+ * Hong Kong, US, UK and Indian forms, and a currency named after "of", scale as their Document
+ * states, and a line that names a measure never scales an amount (#2365).
  */
 import { describe, expect, test } from "vitest";
 import { pdf, pdfZh, record } from "../helpers/scaleCases";
 
-type Rows = "zh" | "zh ¥" | "en" | "en $" | "en £";
+type Rows = "zh" | "zh ¥" | "en" | `en ${string}`;
 
-const ROWS: Record<Rows, { lines: [string, string]; numbers: [string, string] }> = {
+const ZH_ROWS = {
   zh: { lines: ["营业收入 1,200", "营业成本 300"], numbers: ["1,200", "300"] },
   "zh ¥": { lines: ["营业收入 ¥1,200", "营业成本 ¥300"], numbers: ["1,200", "300"] },
-  en: { lines: ["Revenue 1,234.5", "Costs 334.5"], numbers: ["1,234.5", "334.5"] },
-  "en $": { lines: ["Revenue $1,234.5", "Costs $334.5"], numbers: ["1,234.5", "334.5"] },
-  "en £": { lines: ["Revenue £1,234.5", "Costs £334.5"], numbers: ["1,234.5", "334.5"] },
-};
+} as const;
+
+type TwoRows = { lines: readonly [string, string]; numbers: readonly [string, string] };
+
+/** "en" rows write no currency; "en NT$" and "en JPY" rows write theirs before each number. */
+function rowsOf(rows: Rows): TwoRows {
+  if (rows === "zh" || rows === "zh ¥") return ZH_ROWS[rows];
+  const sign = rows.slice(3);
+  const before = /[A-Z]$/.test(sign) ? `${sign} ` : sign;
+  return {
+    lines: [`Revenue ${before}1,234.5`, `Costs ${before}334.5`],
+    numbers: ["1,234.5", "334.5"],
+  };
+}
 
 interface Header {
   line: string;
   rows: Rows;
   /** The difference recorded, or null for a refusal. */
   value: number | null;
+  /** The unit the first row is recorded in, where the test asks. */
+  unit?: { kind: "plain" } | { kind: "currency"; code: string };
   /** Read from a plain-text Document: the PDF test font has no "₹". */
   text?: true;
 }
@@ -87,6 +99,94 @@ const HEADERS: Header[] = [
   { line: "(₹ in crores)", rows: "en", value: 9_000_000_000, text: true },
   { line: "(Rs. in thousands)", rows: "en", value: 900_000 },
   { line: "(Rs. in lakhs)", rows: "en", value: 90_000_000 },
+  // Taiwanese, Japanese, Korean, Brazilian, Mexican, Nordic and other filings name their currency
+  // after "of": an amount in it takes the scale, with its own sign's currency or none.
+  {
+    line: "(In thousands of New Taiwan dollars)",
+    rows: "en NT$",
+    value: 900_000,
+    unit: { kind: "currency", code: "TWD" },
+  },
+  {
+    line: "(in thousands of Japanese yen)",
+    rows: "en JPY",
+    value: 900_000,
+    unit: { kind: "currency", code: "JPY" },
+  },
+  {
+    line: "(in thousands of Brazilian reais)",
+    rows: "en R$",
+    value: 900_000,
+    unit: { kind: "currency", code: "BRL" },
+  },
+  {
+    line: "(in millions of Korean won)",
+    rows: "en KRW",
+    value: 900_000_000,
+    unit: { kind: "currency", code: "KRW" },
+  },
+  {
+    line: "(in thousands of Swedish kronor)",
+    rows: "en SEK",
+    value: 900_000,
+    unit: { kind: "currency", code: "SEK" },
+  },
+  {
+    line: "(In thousands of Mexican pesos)",
+    rows: "en MXN",
+    value: 900_000,
+    unit: { kind: "currency", code: "MXN" },
+  },
+  {
+    line: "(in thousands of South African rand)",
+    rows: "en ZAR",
+    value: 900_000,
+    unit: { kind: "currency", code: "ZAR" },
+  },
+  {
+    line: "(in thousands of Thai baht)",
+    rows: "en THB",
+    value: 900_000,
+    unit: { kind: "currency", code: "THB" },
+  },
+  {
+    line: "(Amounts in thousands of Philippine pesos)",
+    rows: "en PHP",
+    value: 900_000,
+    unit: { kind: "currency", code: "PHP" },
+  },
+  {
+    line: "(in thousands of Turkish lira)",
+    rows: "en TRY",
+    value: 900_000,
+    unit: { kind: "currency", code: "TRY" },
+  },
+  {
+    line: "(IN THOUSANDS OF NEW TAIWAN DOLLARS)",
+    rows: "en NT$",
+    value: 900_000,
+    unit: { kind: "currency", code: "TWD" },
+  },
+  {
+    line: "(in thousands of New Taiwan dollars)",
+    rows: "en",
+    value: 900_000,
+    unit: { kind: "plain" },
+  },
+  { line: "(in thousands of Japanese yen)", rows: "en", value: 900_000, unit: { kind: "plain" } },
+  { line: "(in millions of Korean won)", rows: "en", value: 900_000_000, unit: { kind: "plain" } },
+  {
+    line: "(Expressed in thousands of Polish zlotys)",
+    rows: "en",
+    value: 900_000,
+    unit: { kind: "plain" },
+  },
+  {
+    line: "(in thousands of Canadian dollars)",
+    rows: "en",
+    value: 900_000,
+    unit: { kind: "currency", code: "CAD" },
+  },
   // A line that names a measure, a rate or another word beside its scale, which main scaled.
   { line: "Unit: million tonnes", rows: "en $", value: null },
   { line: "(in thousands of tonnes)", rows: "en $", value: null },
@@ -99,6 +199,9 @@ const HEADERS: Header[] = [
   { line: "(tonnes, in thousands)", rows: "en $", value: null },
   { line: "(in millions, tonnes)", rows: "en $", value: null },
   { line: "(in US$ thousands per tonne)", rows: "en $", value: null },
+  { line: "(in thousands of contracts won)", rows: "en $", value: null },
+  { line: "(in thousands of units and dollars)", rows: "en $", value: null },
+  { line: "(in thousands of Japanese yen per share)", rows: "en JPY", value: null },
   { line: "单位：万吨", rows: "zh ¥", value: null },
   { line: "单位：万平方米", rows: "zh ¥", value: null },
   { line: "单位：万桶/日", rows: "zh ¥", value: null },
@@ -112,7 +215,7 @@ describe("Real headers' scale lines (#2365)", { timeout: 300_000 }, () => {
   test.each(HEADERS.map((each, index) => ({ ...each, index })))(
     "$index: $line over $rows rows",
     async (each) => {
-      const rows = ROWS[each.rows];
+      const rows = rowsOf(each.rows);
       const chinese = each.rows.startsWith("zh");
       const recorded = await record({
         file: each.text
@@ -126,6 +229,7 @@ describe("Real headers' scale lines (#2365)", { timeout: 300_000 }, () => {
         query: chinese ? "营业收入 营业成本" : "revenue costs",
       });
       expect(recorded.value).toBe(each.value);
+      if (each.unit) expect(recorded.unit).toEqual(each.unit);
     },
   );
 });

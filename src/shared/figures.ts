@@ -1465,6 +1465,13 @@ const STATED_UNIT_WORDS =
 const PER_TIME = "(?:[ \\u00a0]per[ \\u00a0][A-Za-z]+|[ \\u00a0]?/[ \\u00a0]?[A-Za-z]+)";
 // What "in thousands of …" counts when it names no currency: "tonnes", "barrels of oil equivalent".
 const COUNTED_WORDS = `[A-Za-z][A-Za-z²³-]*(?:[ \\u00a0][A-Za-z][A-Za-z²³-]*){0,5}${PER_TIME}?`;
+// A currency's unit: "of New Taiwan dollars" and "of Brazilian reais" name money though the reader
+// doesn't know the name before it (#2365).
+const CURRENCY_NOUNS =
+  "dollars?|euros?|yen|yuan|renminbi|won|pesos?|reais|reals|kronor|kroner|krona|krone|kronur|rupees?|rupiah|ringgits?|baht|liras?|lire|rand|riyals?|rials?|dirhams?|dinars?|shekels?|zlotys?|francs?|rubles?|roubles?|pounds?|dong|naira|cedis?|shillings?|taka|tenge|hryvnias?|forints?|korunas?|lei|leva|kunas?|soles|bolivianos?|colones|quetzales|lempiras?|patacas?";
+// A country's name before a currency's unit is capitalized ("Korean won", "New Taiwan dollars");
+// "contracts won" and "units and dollars" count something.
+const NAMED_MONEY = /^(?:\p{Lu}\S*[ \u00a0]+){0,3}\S+$/u;
 const STATEMENTS: readonly RegExp[] = [
   new RegExp(
     `(?:金额|货币|数量)?单位[:：]?(?<before>${HAN_CURRENCIES})?(?<scale>万亿|千亿|百亿|十亿|亿|千万|百万|十万|万|千|仟|百)?(?<unit>${CN_UNIT_WORDS}|吨|股|人次|人|户|家|个|%|辆|台|套)?`,
@@ -1516,10 +1523,11 @@ const STATEMENTS: readonly RegExp[] = [
     `(?<![${BEFORE_CN_SCALE}])(?<before>${HAN_CURRENCIES})(?<scale>${CN_SCALES_AFTER_WORDS})(?=$|[\\s)）|,，;；。:：]|计|列)`,
     "dg",
   ),
-  // "in thousands of US dollars" states a currency; any other "of" a measure ("in thousands of
-  // tonnes", "In millions of barrels"), which is never a plain scale an amount could take (#2365).
+  // "in thousands of US dollars" states a currency; "of Japanese yen" money in the currency its
+  // name or the figure's own sign gives; any other "of" a measure ("in thousands of tonnes", "In
+  // millions of barrels"), which is never a plain scale an amount could take (#2365).
   new RegExp(
-    `(?<![A-Za-z])in (?<scale>thousands|millions|billions)(?: of (?:(?<cur>U\\.?S\\.? dollars|US dollars|Hong Kong dollars|HK dollars|dollars|euros|[Rr]enminbi|RMB|yuan|pounds sterling|pounds|yen)(?![A-Za-z])|(?<unit>${COUNTED_WORDS})${ENDS_STATEMENT}))?(?![A-Za-z])`,
+    `(?<![A-Za-z])in (?<scale>thousands|millions|billions)(?: of (?:(?<cur>U\\.?S\\.? dollars|US dollars|Hong Kong dollars|HK dollars|dollars|euros|[Rr]enminbi|RMB|yuan|pounds sterling|pounds|yen)(?![A-Za-z])|(?<money>(?:[A-Za-z][A-Za-z.'-]*[ \\u00a0]){0,3}(?:${CURRENCY_NOUNS}))${ENDS_STATEMENT}|(?<unit>${COUNTED_WORDS})${ENDS_STATEMENT}))?(?![A-Za-z])`,
     "dgi",
   ),
   new RegExp(
@@ -1674,15 +1682,25 @@ function statementsIn(prepared: Prepared, text: string, settled: Settled): State
       const scale = groups.scale ?? null;
       // "单位：港币千元" is in Hong Kong dollars: 元 only names the yuan when nothing comes before it.
       const generic = groups.unit !== undefined && /^[元圆]$/.test(groups.unit) && groups.before;
-      const words = (generic ? groups.before : groups.unit) ?? groups.before ?? groups.cur ?? null;
+      const words =
+        (generic ? groups.before : groups.unit) ??
+        groups.before ??
+        groups.cur ??
+        groups.money ??
+        null;
       let unit: FigureUnit = { kind: "plain" };
       if (match[0].includes("%") || /per ?cent/i.test(match[0])) unit = { kind: "percent" };
       else if (words) {
         const codes = currencyCodes(words, settled);
         const code = codes.length === 1 ? codes[0] : undefined;
         if (code) unit = { kind: "currency", code };
-        else if (!/[$¥]/.test(words))
-          unit = { kind: "other", word: written(at.unit ?? at.before ?? at.cur) ?? words };
+        // Money in a currency the reader can't place is a plain scale: never a currency the line
+        // and the figure don't state.
+        else if (!/[$¥]/.test(words) && !(words === groups.money && NAMED_MONEY.test(words)))
+          unit = {
+            kind: "other",
+            word: written(at.unit ?? at.before ?? at.cur ?? at.money) ?? words,
+          };
       }
       if (!scale && unit.kind === "plain") continue;
       // A bracket naming two currencies states neither for its amounts (#2365).
