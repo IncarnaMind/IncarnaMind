@@ -539,10 +539,9 @@ function labelLine(value: string): string {
 
 /** A new table's column, asked for as its Question's words or as those and its own label. */
 function columnDraft(value: unknown): { text: string; label?: string } {
-  if (typeof value === "string") {
+  if (!isRecord(value)) {
     return { text: oneLine(value, "A Question", "error.comparison.questionTooLong") };
   }
-  if (!isRecord(value)) throw new InvalidInputError("A Question must be text.");
   const text = oneLine(value.text, "A Question", "error.comparison.questionTooLong");
   const label = typeof value.label === "string" ? labelLine(value.label) : "";
   return label ? { text, label } : { text };
