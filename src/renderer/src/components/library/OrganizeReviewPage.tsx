@@ -139,16 +139,15 @@ export function OrganizeReviewPage() {
       />
       <Section
         testId="organize-review-proposed"
-        label={t(sub ? "organizeReview.section.newSubfolders" : "organizeReview.section.newFolders")}
+        label={t(
+          sub ? "organizeReview.section.newSubfolders" : "organizeReview.section.newFolders",
+        )}
         cards={layout.proposed}
         context={context}
       />
       {layout.leftOut.length > 0 && (
         <>
-          <SectionHead
-            label={t("organizeReview.section.leftOut")}
-            count={layout.leftOut.length}
-          />
+          <SectionHead label={t("organizeReview.section.leftOut")} count={layout.leftOut.length} />
           <LeftOutCard items={layout.leftOut} documents={byId} reasonOf={reasonOf} />
         </>
       )}
@@ -208,9 +207,9 @@ function ReviewBar({ layout }: { layout: ReviewLayout }) {
     return () => observer.disconnect();
   }, []);
   const willMove = willMoveText(layout, t);
-  const nothing = layout.yours.concat(layout.proposed).every((card) =>
-    card.items.every((item) => !item.ticked),
-  );
+  const nothing = layout.yours
+    .concat(layout.proposed)
+    .every((card) => card.items.every((item) => !item.ticked));
   return (
     <>
       <div ref={sentinel} aria-hidden="true" className="h-px" />
@@ -277,12 +276,7 @@ function ReviewMenu({ scoped }: { scoped: boolean }) {
     menu.close();
     void replan(kind).catch(report);
   };
-  const item = (
-    kind: Replan,
-    label: string,
-    unavailable: string | null,
-    testId: string,
-  ) => (
+  const item = (kind: Replan, label: string, unavailable: string | null, testId: string) => (
     <button
       type="button"
       role="menuitem"

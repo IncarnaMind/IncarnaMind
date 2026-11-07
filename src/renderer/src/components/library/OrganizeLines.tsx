@@ -86,7 +86,11 @@ export function OrganizeLines() {
             })}
           </span>
           {!run.each && (
-            <Action label={t("organizeReview.stop")} testId="organize-stop" onClick={stopOrganizing} />
+            <Action
+              label={t("organizeReview.stop")}
+              testId="organize-stop"
+              onClick={stopOrganizing}
+            />
           )}
           <span
             aria-hidden="true"

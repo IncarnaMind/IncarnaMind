@@ -134,10 +134,7 @@ export async function organize(input: OrganizeLibraryInput): Promise<OrganizeLib
       useOrganizeReview.setState({ stopped: run?.done ?? 0 });
       return result;
     }
-    const [review] = await Promise.all([
-      refreshReview(),
-      useAppStore.getState().refreshLibrary(),
-    ]);
+    const [review] = await Promise.all([refreshReview(), useAppStore.getState().refreshLibrary()]);
     if (result.proposed === 0 || review.items.length === 0) {
       useNotices.getState().confirm("library.organize.noneFit");
     } else if (libraryShown()) {
@@ -243,7 +240,10 @@ function changeStep(change: OrganizeReviewChange, said: Undoable["said"]): Undoa
 }
 
 /** The rows as an edit leaves them, before the core has said so, where that is safe. */
-function edited(items: readonly OrganizeReviewItem[], edit: OrganizeReviewEdit) {
+function edited(
+  items: readonly OrganizeReviewItem[],
+  edit: OrganizeReviewEdit,
+): OrganizeReviewItem[] {
   if (edit.kind === "tick") {
     const ids = new Set(edit.itemIds);
     return items.map((item) => (ids.has(item.id) ? { ...item, ticked: edit.ticked } : item));
@@ -262,13 +262,14 @@ function edited(items: readonly OrganizeReviewItem[], edit: OrganizeReviewEdit) 
         : item,
     );
   }
-  return items;
+  return [...items];
 }
 
 /** One change to the Suggestions, shown at once; ⌘Z takes it back. */
 export function editReview(edit: OrganizeReviewEdit): Promise<void> {
   const { review } = useOrganizeReview.getState();
-  if (review) useOrganizeReview.setState({ review: { ...review, items: edited(review.items, edit) } });
+  if (review)
+    useOrganizeReview.setState({ review: { ...review, items: edited(review.items, edit) } });
   return makeInTurn(async () => {
     try {
       const change = await core.editOrganizeReview(edit);

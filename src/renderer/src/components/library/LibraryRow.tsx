@@ -202,9 +202,8 @@ export const LibraryRow = memo(function LibraryRow({
   );
   const peek = usePeekKey(doc.id, "library");
   // A double-click keeps the preview it opened, then renames.
-  const rename = useRename<HTMLButtonElement>(
-    `library-document:${doc.id}`,
-    () => keepPreviewOf(doc.id),
+  const rename = useRename<HTMLButtonElement>(`library-document:${doc.id}`, () =>
+    keepPreviewOf(doc.id),
   );
   const renameDocument = useAppStore((state) => state.renameDocument);
   const row = useRef<HTMLDivElement>(null);
@@ -405,18 +404,18 @@ export const LibraryRow = memo(function LibraryRow({
         >
           <RowTags document={doc} />
         </div>
-            <span
-              data-testid="library-document-format"
-              className={`${COLUMN_CLASSES.format} truncate text-[13px] text-ink-secondary`}
-            >
-              {format}
-            </span>
-            <span
-              data-testid="library-document-added"
-              className={`${COLUMN_CLASSES.added} truncate text-[13px] whitespace-nowrap text-ink-secondary`}
-            >
-              {added}
-            </span>
+        <span
+          data-testid="library-document-format"
+          className={`${COLUMN_CLASSES.format} truncate text-[13px] text-ink-secondary`}
+        >
+          {format}
+        </span>
+        <span
+          data-testid="library-document-added"
+          className={`${COLUMN_CLASSES.added} truncate text-[13px] whitespace-nowrap text-ink-secondary`}
+        >
+          {added}
+        </span>
         <span className={COLUMN_CLASSES.more}>
           <ObjectMenu
             target={{ kind: "document", id: doc.id }}

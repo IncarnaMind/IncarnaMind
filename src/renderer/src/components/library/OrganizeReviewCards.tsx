@@ -77,7 +77,10 @@ export interface CardContext {
   /** The Library's Folders, in the sidebar's order, for Move to. */
   folders: readonly LibraryGroup[];
   /** Moves rows to another card, sliding them there. */
-  moveRows(itemIds: readonly string[], to: Exclude<OrganizeReviewTarget, { kind: "leftOut" }>): void;
+  moveRows(
+    itemIds: readonly string[],
+    to: Exclude<OrganizeReviewTarget, { kind: "leftOut" }>,
+  ): void;
 }
 
 const report = (error: unknown) => useAppStore.getState().reportError(error);
@@ -110,7 +113,9 @@ export function OrganizeReviewCard({ card, context }: { card: ReviewCard; contex
         dragged.refs.every(
           (ref) => ref.kind === "document" && waiting.has(ref.id) && !ids.has(ref.id),
         );
-      return ok ? { kind: "move", said: (t) => t("organizeReview.dropInto", { folder: path }) } : null;
+      return ok
+        ? { kind: "move", said: (t) => t("organizeReview.dropInto", { folder: path }) }
+        : null;
     },
     drop: (dropped) => {
       if (dropped.kind !== "objects") return null;
@@ -321,7 +326,6 @@ function OrganizeReviewRow({
     doc ? { refs: [{ kind: "document", id: doc.id }], name: doc.name } : null,
   );
   return (
-    // biome-ignore lint/a11y/noStaticElementInteractions: Space on the row's name peeks, as in the Library.
     <div
       data-testid="organize-review-row"
       data-review-item={item.id}
@@ -351,7 +355,8 @@ function OrganizeReviewRow({
           togglePeek({
             documentId: item.documentId,
             surface: "library",
-            row: event.currentTarget.closest<HTMLElement>("[data-review-item]") ?? event.currentTarget,
+            row:
+              event.currentTarget.closest<HTMLElement>("[data-review-item]") ?? event.currentTarget,
           })
         }
         className={`min-w-0 flex-1 truncate rounded-sm py-1.5 text-left text-ui ${
@@ -531,7 +536,9 @@ function RowMenu({
           <>
             <p className={menuTitleClass}>{t("organizeReview.moveTo")}</p>
             {inReview.length > 0 && (
-              <p className={`${menuTitleClass} font-normal`}>{t("organizeReview.moveTo.inReview")}</p>
+              <p className={`${menuTitleClass} font-normal`}>
+                {t("organizeReview.moveTo.inReview")}
+              </p>
             )}
             {inReview.map((each) => (
               <button
@@ -618,7 +625,10 @@ export function LeftOutCard({
             >
               <span className="truncate text-ui text-ink">{doc?.name}</span>
               {reason && (
-                <span data-testid="organize-review-reason" className="text-[13px] leading-5 text-ink-meta">
+                <span
+                  data-testid="organize-review-reason"
+                  className="text-[13px] leading-5 text-ink-meta"
+                >
                   {reason}
                 </span>
               )}

@@ -1,7 +1,7 @@
 import { attentionIds } from "../attention";
 import { looseDocumentIds, organizeDocuments } from "../organizeDocuments";
-import { confirmReview, openReview, useOrganizeReview } from "../organizeReview";
 import { documentsOfCause, fixOrganizeProblem } from "../organizeFix";
+import { confirmReview, openReview, useOrganizeReview } from "../organizeReview";
 import { retryableIds, unsettledProblemsOf } from "../reviewProblems";
 import { allExamples, isOwnDocument, useAppStore } from "../store";
 import type { Command } from "./registry";

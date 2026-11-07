@@ -1,5 +1,4 @@
 import type { ComponentType } from "react";
-import type { WindowCommandRequest } from "../../../core/api";
 import type { EditMenuState } from "../../../shared/bridge";
 import {
   type CommandId,
@@ -87,13 +86,6 @@ export interface CommandContext {
    * one is offered only where the menu was given it (`needsHere`).
    */
   here?: Partial<Record<CommandId, () => void>>;
-  /**
-   * What the core checked against the Folder wall for an assistant's run of a command that names
-   * no ids (To review's Accept all): it acts on these alone, never on what is in view (#2243).
-   */
-  checked?: WindowCommandRequest["targets"];
-  /** The Folder wall the core checked them behind; null: outside every wall (#2250). */
-  checkedWall?: string | null;
   /** The assistant asked for it, whose reply says how it ended rather than a toast. */
   assistant?: true;
 }

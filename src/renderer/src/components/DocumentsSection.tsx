@@ -14,6 +14,7 @@ import { useLanguage, useT } from "../i18n";
 import { currentTabOf } from "../layoutSlice";
 import { fileStatusLabel, formatCount } from "../linkedFolders";
 import { isListedDocument } from "../meetingTranscript";
+import { useOrganizeReview } from "../organizeReview";
 import { useLibraryDocuments, useLibraryShown } from "../ownDocuments";
 import { usePeekKey } from "../peek";
 import { scanningStatus } from "../scanStatus";
@@ -27,7 +28,6 @@ import {
 import { heldWhileAdding } from "../sidebarList";
 import { moveFromMenu, rowDrag, useSidebarMove } from "../sidebarMoves";
 import { useSortMenu } from "../sortMenu";
-import { useOrganizeReview } from "../organizeReview";
 import { allExamples, isOwnDocument, useAppStore } from "../store";
 import { chipsOf, tagIndex } from "../tagEditing";
 import { isMoveToKey, moveThroughRows, TREE_ROW, useTreeItem } from "../treeKeys";
@@ -233,12 +233,14 @@ export function DocumentsSection() {
               <span
                 data-testid="library-row-count"
                 data-waiting="true"
-                aria-label={t(waiting === 1 ? "organizeReview.waiting.one" : "organizeReview.waiting", {
-                  count: formatCount(waiting, language),
-                })}
                 className="min-w-[6ch] text-right text-[12px] font-bold tabular-nums text-ink"
               >
-                {formatCount(waiting, language)}
+                <span aria-hidden="true">{formatCount(waiting, language)}</span>
+                <span className="sr-only">
+                  {t(waiting === 1 ? "organizeReview.waiting.one" : "organizeReview.waiting", {
+                    count: formatCount(waiting, language),
+                  })}
+                </span>
               </span>
             ) : (
               <span
