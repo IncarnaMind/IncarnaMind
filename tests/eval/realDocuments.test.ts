@@ -1,5 +1,5 @@
 /**
- * The real Documents in `data/real/` (data/README.md): each is listed with its source, the
+ * The real Documents in `eval/data/real/` (eval/data/README.md): each is listed with its source, the
  * licence and the day it was read, the basis in the licence's or the statute's own words and
  * its SHA-256; the gating set, the hard tier and the everyday reports library read the same
  * files; and the scanned page really has no text.
@@ -14,8 +14,8 @@ import { loadManifest } from "../../eval/hard/lib/manifest";
 import { processFile } from "../../src/core/documents/processing";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
-const DATA = join(ROOT, "data");
-/** The README's path, relative to data/, as a file. */
+const DATA = join(ROOT, "eval", "data");
+/** The README's path, relative to eval/data/, as a file. */
 const dataPath = (file: string) => join(DATA, file);
 const sha256 = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 const unquote = (cell: string) => cell.replace(/^`|`$/g, "");
@@ -32,7 +32,7 @@ interface RealDocument {
 /** The rows of the first table under `heading`, as cells. */
 function rowsUnder(markdown: string, heading: string): string[][] {
   const start = markdown.indexOf(heading);
-  if (start < 0) throw new Error(`No ${heading} in data/README.md.`);
+  if (start < 0) throw new Error(`No ${heading} in eval/data/README.md.`);
   const rest = markdown.slice(start + heading.length);
   const end = rest.search(/\n#{1,6} /);
   const lines = (end < 0 ? rest : rest.slice(0, end)).split("\n");
@@ -48,12 +48,12 @@ function rowsUnder(markdown: string, heading: string): string[][] {
 }
 
 async function realDocuments(): Promise<RealDocument[]> {
-  const markdown = await readFile(join(ROOT, "data", "README.md"), "utf8");
+  const markdown = await readFile(join(ROOT, "eval", "data", "README.md"), "utf8");
   return rowsUnder(markdown, "## Real Documents in `real/`").map((cells) => {
     const [file, title, pages, source, licence, basis, hash] = cells;
     if (!file || !title || !pages || !source || !licence || !basis || !hash) {
       throw new Error(
-        `A row of data/README.md's real Documents table is short: ${cells.join(" | ")}`,
+        `A row of eval/data/README.md's real Documents table is short: ${cells.join(" | ")}`,
       );
     }
     const date = /\((\d{4}-\d{2}-\d{2})\)/.exec(licence)?.[1];
@@ -69,7 +69,7 @@ async function realDocuments(): Promise<RealDocument[]> {
   });
 }
 
-/** Every PDF under data/real, relative to data/. */
+/** Every PDF under eval/data/real, relative to eval/data/. */
 async function pdfsInReal(): Promise<string[]> {
   const found: string[] = [];
   const walk = async (directory: string) => {
@@ -84,7 +84,7 @@ async function pdfsInReal(): Promise<string[]> {
   return found.sort();
 }
 
-describe("The real Documents in data/real/", { timeout: 60_000 }, () => {
+describe("The real Documents in eval/data/real/", { timeout: 60_000 }, () => {
   test("each is listed with its source, licence, date, basis and SHA-256, and no file is unlisted", async () => {
     const documents = await realDocuments();
     expect(documents.length).toBeGreaterThanOrEqual(5);
@@ -102,9 +102,9 @@ describe("The real Documents in data/real/", { timeout: 60_000 }, () => {
   test("the hard tier reads the same six, and the gating set the five with text", async () => {
     const documents = await realDocuments();
     const manifest = loadManifest(ROOT);
-    expect(manifest.sources["repository-real"]?.terms).toBe("data/README.md");
+    expect(manifest.sources["repository-real"]?.terms).toBe("eval/data/README.md");
     for (const document of documents) {
-      const path = `data/${document.file}`;
+      const path = `eval/data/${document.file}`;
       const entry = manifest.documents.find((each) => each.path === path);
       expect(entry, path).toBeDefined();
       expect(entry?.sha256, path).toBe(document.sha256);
@@ -114,7 +114,7 @@ describe("The real Documents in data/real/", { timeout: 60_000 }, () => {
     ) as { documents: Record<string, string> };
     const inGating = new Set(Object.values(gating.documents));
     for (const document of documents) {
-      const path = `data/${document.file}`;
+      const path = `eval/data/${document.file}`;
       // The one-page scan has no text to search, so only the hard tier, which allows unread
       // Documents, takes it; the gating run requires every Document to be ready.
       expect(inGating.has(path), path).toBe(!document.file.includes("/scanned/"));

@@ -40,7 +40,7 @@ The Documents:
 
 - **reserves**: the State Administration of Foreign Exchange's table of official reserve assets for 2026 (an .xlsx with its units in Chinese and English), fetched once into the same cache and checked against its SHA-256. It is never committed.
 - **papers**: the two arXiv papers of the owner's conversation, 2306.10683v1 and 1609.04846v1. They are fetched once into the evaluation's cache (`$INCARNAMIND_EVAL_CACHE/everyday/`) and checked against their SHA-256, at one request every three seconds, as arXiv asks. They are never committed.
-- **reports**: the seven generated sample PDFs in `data/` and the five readable real Documents in `data/real/` (the World Development Report 2023 Overview, the National Risk Register 2023, the National Bureau of Statistics' 2023 communiqué, the Mamba paper and the FOMC minutes; `data/README.md` records their licences). The sixth real file, a one-page scan with no text, is in the hard tier only.
+- **reports**: the seven generated sample PDFs in `eval/data/` and the five readable real Documents in `eval/data/real/` (the World Development Report 2023 Overview, the National Risk Register 2023, the National Bureau of Statistics' 2023 communiqué, the Mamba paper and the FOMC minutes; `eval/data/README.md` records their licences). The sixth real file, a one-page scan with no text, is in the hard tier only.
 - **cedar** and **cedar-zh**: a made-up leverage covenant folder in English and in Chinese (`cedar.ts`): the executed facility (a cap of 3.50x), an amendment that takes effect only in 2027, the final figures (net debt 310 and EBITDA 95, in GBP millions) and a superseded draft, written into a temporary folder for each run.
 - **filings**: three made-up filings, each in English and Chinese (`filings.ts`), on which an Answer said the Document lacked a figure it states: a 33-page 10-Q whose results table gives the company's comparable sales (2.1%) while ten pages give comparable sales by segment, category, region and market; a 13-page results release whose summary table gives operating income as a percentage of revenue (38.2%) among Adjusted EBITDA margins; and an 18-page 8-K whose Exhibit 99.1 gives the recast segment earnings (592 for the second quarter of 2026) among ten other recast schedules. The figure is on one page, in its own words. Written into a temporary folder for each run.
 - **dated**: an employment contract and a 劳动合同 (PDFs), a mutual NDA and a 保密协议 (Markdown) whose text gives no date, and board minutes in English and Chinese (PDFs) whose text gives the meeting's date (`dated.ts`). They are written into a temporary folder for each run, with a PDF creation date of 18 October 2026 and a modified day of 3 November 2025 for the text files.
@@ -214,8 +214,8 @@ Haiku's Answers and at most $0.24 of judging; $0.68 of Sonnet's and at most $0.0
 
 ### 2026-10-26: the mixed reports library (#2019)
 
-The `reports` library now holds the seven generated PDFs in `data/` and the five readable real
-Documents in `data/real/` (12 Documents, 683 Passages; `data/README.md` records the real ones).
+The `reports` library now holds the seven generated PDFs in `eval/data/` and the five readable real
+Documents in `eval/data/real/` (12 Documents, 683 Passages; `eval/data/README.md` records the real ones).
 The 50 requests asked over that library were asked three times each; the other libraries are
 unchanged. Claude Haiku 5.5 on the Anthropic key, the claims judged by Claude Sonnet 5.5. Both
 runs ran on an Apple M2 Max (12 cores, 32 GB) at a 15-minute load of 8 to 16 and a 1-minute load

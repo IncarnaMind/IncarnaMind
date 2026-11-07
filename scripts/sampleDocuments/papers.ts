@@ -1,7 +1,7 @@
 /**
- * The four sample papers in `data/`: made for this repository, each in a
+ * The four sample papers in `eval/data/`: made for this repository, each in a
  * fictional research organisation's voice, with the sentences the sample test
- * and the evaluations quote kept on the pages they cite (data/README.md).
+ * and the evaluations quote kept on the pages they cite (eval/data/README.md).
  */
 import { at, type SamplePage } from "./layout";
 
