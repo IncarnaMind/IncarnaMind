@@ -63,9 +63,9 @@ export async function checkStructuredMeetingLoader({
     new Set(loaded).size !== 6 ||
     loaded.some((id) => !picked.includes(id)) ||
     aggregate.calls !== 6 ||
-    aggregate.decisions !== 8 ||
+    aggregate.decisions !== 6 ||
     aggregate.actions !== 18 ||
-    aggregate.inPlaceFacts !== 14
+    aggregate.inPlaceFacts !== 12
   )
     throw new Error("The actual structured loader inventory does not match its frozen contract.");
   const result = {

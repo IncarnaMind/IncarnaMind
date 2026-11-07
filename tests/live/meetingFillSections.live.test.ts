@@ -82,7 +82,7 @@ interface Call {
   requireSections?: boolean;
   openQuestions?: boolean;
   notDecided?: RegExp[];
-  sectionHeadings?: Partial<Record<"summary" | "decisions" | "actions", string>>;
+  sectionHeadings?: Partial<Record<"summary" | "decisions" | "actions" | "questions", string>>;
 }
 
 const me = (text: string) => ({ side: "me" as const, text });
@@ -1549,7 +1549,7 @@ function isReservedCall(value: unknown): value is ReservedCallInput {
     facts.every((fact) => fact.said.every((index) => index < turns.length)) &&
     (sectionHeadings === undefined ||
       (isRecord(sectionHeadings) &&
-        onlyKeys(sectionHeadings, ["summary", "decisions", "actions"]) &&
+        onlyKeys(sectionHeadings, ["summary", "decisions", "actions", "questions"]) &&
         Object.values(sectionHeadings).every((text) => typeof text === "string")))
   );
 }
@@ -2501,7 +2501,12 @@ function reservedSample(language: "en" | "zh-CN"): ReservedCallInput {
       },
       { name: "rota", kind: "action", pattern: "ROTA|排班", said: [1] },
     ],
-    sectionHeadings: { summary: "Summary", decisions: "Settled", actions: "Next steps" },
+    sectionHeadings: {
+      summary: "Summary",
+      decisions: "Settled",
+      actions: "Next steps",
+      questions: "Unknowns",
+    },
   };
 }
 
@@ -2970,7 +2975,7 @@ describe.skipIf(LOADER_PREFLIGHT || (!KEY && !LOCAL_MODEL))(
         );
         const usage = ledger.usage;
         const once = scored.filter((each) => each.count === 1 && each.cited).length;
-        const title = (section: "summary" | "decisions" | "actions") =>
+        const title = (section: "summary" | "decisions" | "actions" | "questions") =>
           call.sectionHeadings?.[section] ??
           translate(call.language, `meetings.fill.section.${section}`);
         const summary = units.filter((each) => each.ai && each.section === title("summary"));
@@ -2979,10 +2984,7 @@ describe.skipIf(LOADER_PREFLIGHT || (!KEY && !LOCAL_MODEL))(
           usage.replies.map((reply) => reply.text),
         );
         const decisions = units.filter((each) => each.ai && each.section === title("decisions"));
-        const questions = units.filter(
-          (each) =>
-            each.ai && each.section === translate(call.language, "meetings.fill.section.questions"),
-        );
+        const questions = units.filter((each) => each.ai && each.section === title("questions"));
         const counts = {
           decisions: scored.filter((each) => each.fact.kind === "decision" && each.count > 0)
             .length,

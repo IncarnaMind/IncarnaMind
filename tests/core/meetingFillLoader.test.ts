@@ -11,9 +11,9 @@ async function setup() {
   const calls = picked.map((id) => ({ id, facts: [] as { kind: string; underLine?: string }[] }));
   const first = calls[0];
   if (!first) throw new Error("Missing toy call.");
-  first.facts = Array.from({ length: 26 }, (_, index) => ({
-    kind: index < 8 ? "decision" : "action",
-    ...(index < 14 && { underLine: "Toy note text must not enter the receipt" }),
+  first.facts = Array.from({ length: 24 }, (_, index) => ({
+    kind: index < 6 ? "decision" : "action",
+    ...(index < 12 && { underLine: "Toy note text must not enter the receipt" }),
   }));
   const receipt = join(await createTempDataFolder(), "loader-receipt.json");
   const environment: Record<string, string | undefined> = {
@@ -33,7 +33,7 @@ test("the preflight records actual returned inventory and source order, without 
   input.calls.reverse();
   const result = await checkStructuredMeetingLoader(input);
   expect(input.load).toHaveBeenCalledExactlyOnceWith(input.picked);
-  expect(result.aggregate).toEqual({ calls: 6, decisions: 8, actions: 18, inPlaceFacts: 14 });
+  expect(result.aggregate).toEqual({ calls: 6, decisions: 6, actions: 18, inPlaceFacts: 12 });
   expect(result.loaded_ids).toEqual(input.calls.map((call) => call.id));
   expect(result.requested_ids).toEqual(input.picked);
   expect(result.source_freeze_sha256).toBe(

@@ -539,5 +539,735 @@
         "underLine": "公寓吸音板：材料选择与工作分工"
       }
     ]
+  },
+  {
+    "id": "reserved-en-structured-d",
+    "language": "en",
+    "requireSections": true,
+    "openQuestions": true,
+    "sectionHeadings": {
+      "summary": "The short version",
+      "decisions": "What's locked in",
+      "actions": "Owners and due dates"
+    },
+    "notes": [
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "posters?" }]
+      },
+      {
+        "type": "heading",
+        "attrs": { "level": 2 },
+        "content": [{ "type": "text", "text": "The short version" }]
+      },
+      {
+        "type": "heading",
+        "attrs": { "level": 2 },
+        "content": [{ "type": "text", "text": "What's locked in" }]
+      },
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "hall + fee" }]
+      },
+      {
+        "type": "heading",
+        "attrs": { "level": 2 },
+        "content": [{ "type": "text", "text": "Owners and due dates" }]
+      }
+    ],
+    "turns": [
+      {
+        "side": "me",
+        "text": "Hi, this is Maren from the Fernhill Community Choir. We need to pick the hall for the spring concert today and sort out who does what."
+      },
+      {
+        "side": "them",
+        "text": "Tomasz here. I've got both quotes in front of me, the Corn Exchange and Linden Hall."
+      },
+      {
+        "side": "me",
+        "text": "The Corn Exchange offered Saturday, April 10, for 380 pounds, but it only seats ninety people, so I'd rather not take it."
+      },
+      {
+        "side": "them",
+        "text": "Agreed, we drop the Corn Exchange. It's too small, and the lower fee doesn't make up for that."
+      },
+      {
+        "side": "me",
+        "text": "So it's final: we book Linden Hall for Saturday, April 17, 2027, at 450 pounds for the evening."
+      },
+      {
+        "side": "them",
+        "text": "Confirmed, Linden Hall it is: April 17, 2027, 450 pounds."
+      },
+      {
+        "side": "me",
+        "text": "I'll send the signed booking form to Linden Hall by March 5."
+      },
+      {
+        "side": "them",
+        "text": "And I'll design the concert posters and send them round by March 12."
+      },
+      {
+        "side": "me",
+        "text": "One more: Priya from the altos told me she'll print the programmes by April 9. Put that job down for Priya."
+      },
+      {
+        "side": "them",
+        "text": "Got it. What I still don't know is whether the hall lets us sell drinks at the interval."
+      },
+      {
+        "side": "me",
+        "text": "Neither do I. Nobody has an answer on the drinks yet, so let's leave it open."
+      },
+      {
+        "side": "them",
+        "text": "Fine. Those three jobs, and nothing else for now."
+      }
+    ],
+    "facts": [
+      {
+        "name": "Linden Hall on April 17, 2027, for 450 pounds",
+        "kind": "decision",
+        "pattern": [
+          "Linden\\s+Hall",
+          "(?:\\bApr(?:il)?\\.?\\s+17(?:st|nd|rd|th)?\\b|\\b17(?:st|nd|rd|th)?\\s+(?:of\\s+)?Apr(?:il)?\\b|\\b2027-04-17\\b)",
+          "(?:£\\s*450(?:\\.00)?(?!\\d|[.,]\\d)|(?<![\\d.,])450(?:\\.00)?\\s*(?:pounds|GBP)\\b|\\bGBP\\s*450(?:\\.00)?(?!\\d|[.,]\\d))"
+        ],
+        "subject": "\\bhall\\b|\\bvenue\\b",
+        "said": [4, 5],
+        "underLine": "hall + fee"
+      },
+      {
+        "name": "Maren sends the signed booking form",
+        "kind": "action",
+        "pattern": [
+          "booking\\s+(?:form|paperwork)|signed\\s+form",
+          "(?:\\bMar(?:ch)?\\.?\\s+5(?:st|nd|rd|th)?\\b|\\b5(?:st|nd|rd|th)?\\s+(?:of\\s+)?Mar(?:ch)?\\b|\\b2027-03-05\\b)",
+          "(?<!\\bme\\b[\\s\\S]*)\\bMaren\\b(?![\\s\\S]*\\bme\\b)"
+        ],
+        "subject": "booking\\s+(?:form|paperwork)|signed\\s+form",
+        "said": [6]
+      },
+      {
+        "name": "Tomasz designs the concert posters",
+        "kind": "action",
+        "pattern": [
+          "poster",
+          "\\bTomasz\\b",
+          "(?:\\bMar(?:ch)?\\.?\\s+12(?:st|nd|rd|th)?\\b|\\b12(?:st|nd|rd|th)?\\s+(?:of\\s+)?Mar(?:ch)?\\b|\\b2027-03-12\\b)"
+        ],
+        "subject": "poster",
+        "said": [7],
+        "underLine": "posters?"
+      },
+      {
+        "name": "Priya prints the programmes",
+        "kind": "action",
+        "pattern": [
+          "\\bprogram(?:me)?s?\\b",
+          "\\bPriya\\b",
+          "(?:\\bApr(?:il)?\\.?\\s+9(?:st|nd|rd|th)?\\b|\\b9(?:st|nd|rd|th)?\\s+(?:of\\s+)?Apr(?:il)?\\b|\\b2027-04-09\\b)"
+        ],
+        "subject": "\\bprogram(?:me)?s?\\b",
+        "said": [8]
+      }
+    ]
+  },
+  {
+    "id": "reserved-en-structured-e",
+    "language": "en",
+    "requireSections": true,
+    "openQuestions": true,
+    "sectionHeadings": {
+      "questions": "Still unanswered"
+    },
+    "notes": [
+      {
+        "type": "heading",
+        "attrs": { "level": 2 },
+        "content": [{ "type": "text", "text": "Pier 4 storage lease" }]
+      },
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "rent / start date" }]
+      },
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "lease paperwork" }]
+      },
+      {
+        "type": "heading",
+        "attrs": { "level": 2 },
+        "content": [{ "type": "text", "text": "Still unanswered" }]
+      }
+    ],
+    "turns": [
+      {
+        "side": "me",
+        "text": "Thanks for making time. For the kayaks we need ground-floor space at Pier 4. What would Unit 14 cost?"
+      },
+      {
+        "side": "them",
+        "text": "Odile here, from Quayside Properties. Unit 14 would be 1,600 dollars a month. If you only need room for the kayaks and paddles, though, Unit 12 is enough."
+      },
+      {
+        "side": "me",
+        "text": "Then we won't take Unit 14; 1,600 a month is more than we can carry. Let's look at Unit 12."
+      },
+      {
+        "side": "them",
+        "text": "Unit 12 is 1,150 dollars a month on a 24-month term, starting April 1, 2027."
+      },
+      {
+        "side": "me",
+        "text": "Agreed. Final answer: Unit 12 at 1,150 dollars a month for 24 months from April 1, 2027."
+      },
+      {
+        "side": "them",
+        "text": "Great. I'll courier the gate key fobs to you by March 8."
+      },
+      {
+        "side": "me",
+        "text": "I'll sign the lease and email it back to you by March 3."
+      },
+      {
+        "side": "them",
+        "text": "Perfect. Is anyone else on your side doing paperwork?"
+      },
+      {
+        "side": "me",
+        "text": "Yes, Bram, our bookkeeper, has agreed to send you our insurance certificate by March 10. That one is his."
+      },
+      {
+        "side": "them",
+        "text": "Noted. One thing I can't tell you is whether the floor in Unit 12 can take a forklift."
+      },
+      {
+        "side": "me",
+        "text": "Nobody on our side knows either. The forklift question stays open for now."
+      }
+    ],
+    "facts": [
+      {
+        "name": "Unit 12 at 1,150 dollars a month from April 1, 2027",
+        "kind": "decision",
+        "pattern": [
+          "\\bUnit\\s*12\\b",
+          "(?:(?:\\$|US\\$|USD\\s*)1,?150(?:\\.00)?(?!\\d|[.,]\\d)|(?<![\\d.,])1,?150(?:\\.00)?\\s*(?:dollars|USD)\\b)",
+          "(?:\\bApr(?:il)?\\.?\\s+1(?:st|nd|rd|th)?\\b|\\b1(?:st|nd|rd|th)?\\s+(?:of\\s+)?Apr(?:il)?\\b|\\b2027-04-01\\b)"
+        ],
+        "subject": "\\bUnit\\s*12\\b|\\brent\\b|\\blease\\b|storage\\s+unit",
+        "said": [3, 4],
+        "underLine": "rent / start date"
+      },
+      {
+        "name": "The User signs and returns the lease, in the first person",
+        "kind": "action",
+        "pattern": [
+          "\\blease\\b",
+          "\\bsign",
+          "(?:\\bMar(?:ch)?\\.?\\s+3(?:st|nd|rd|th)?\\b|\\b3(?:st|nd|rd|th)?\\s+(?:of\\s+)?Mar(?:ch)?\\b|\\b2027-03-03\\b)",
+          "(?<!\\bme\\b[\\s\\S]*)\\bI\\b(?![./-])(?![\\s\\S]*\\bme\\b)"
+        ],
+        "subject": "\\blease\\b",
+        "said": [6],
+        "underLine": "lease paperwork"
+      },
+      {
+        "name": "Odile couriers the gate key fobs",
+        "kind": "action",
+        "pattern": [
+          "\\bfobs?\\b|\\bkeys?\\b",
+          "\\bOdile\\b",
+          "(?:\\bMar(?:ch)?\\.?\\s+8(?:st|nd|rd|th)?\\b|\\b8(?:st|nd|rd|th)?\\s+(?:of\\s+)?Mar(?:ch)?\\b|\\b2027-03-08\\b)"
+        ],
+        "subject": "\\bfobs?\\b|gate\\s+keys?|\\bkeys?\\b",
+        "said": [5]
+      },
+      {
+        "name": "Bram sends the insurance certificate",
+        "kind": "action",
+        "pattern": [
+          "insurance",
+          "\\bBram\\b",
+          "(?:\\bMar(?:ch)?\\.?\\s+10(?:st|nd|rd|th)?\\b|\\b10(?:st|nd|rd|th)?\\s+(?:of\\s+)?Mar(?:ch)?\\b|\\b2027-03-10\\b)"
+        ],
+        "subject": "insurance",
+        "said": [8]
+      }
+    ]
+  },
+  {
+    "id": "reserved-en-structured-f",
+    "language": "en",
+    "requireSections": true,
+    "openQuestions": true,
+    "notes": [
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "print run" }]
+      },
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "Wren – proofs" }]
+      }
+    ],
+    "turns": [
+      {
+        "side": "me",
+        "text": "This is Leona at Kestrel Books. Thanks for joining. We need to settle the first print run for The Salt Road."
+      },
+      {
+        "side": "them",
+        "text": "Gus from Brightline Print. I can offer two options: 4,000 copies at 2 dollars 90 each, or 2,500 copies at 3 dollars 40 each."
+      },
+      {
+        "side": "me",
+        "text": "4,000 is too many for a debut; we'd sit on the stock for years. Let's turn that one down."
+      },
+      {
+        "side": "them",
+        "text": "Understood, the 4,000 option is off the table."
+      },
+      {
+        "side": "me",
+        "text": "So we're going with 2,500 copies at 3 dollars 40 a copy, delivered to our warehouse by May 14, 2027. That's final."
+      },
+      {
+        "side": "them",
+        "text": "Confirmed: 2,500 copies, 3.40 each, delivery by May 14, 2027."
+      },
+      {
+        "side": "me",
+        "text": "Good. I'll send you the final cover file by April 2."
+      },
+      {
+        "side": "them",
+        "text": "And I'll post you the paper samples by March 26."
+      },
+      {
+        "side": "me",
+        "text": "Wren, our editor, is doing the corrections. She'll deliver the corrected proofs to you by March 30."
+      },
+      {
+        "side": "them",
+        "text": "That works. What I can't say yet is whether the cover foil will be gold or copper; the supplier hasn't replied."
+      },
+      {
+        "side": "me",
+        "text": "Then the foil stays an open question. Nobody can answer it today."
+      }
+    ],
+    "facts": [
+      {
+        "name": "2,500 copies at 3.40 dollars each, delivered by May 14, 2027",
+        "kind": "decision",
+        "pattern": [
+          "(?<![\\d.,])2,?500(?!\\d|[.,]\\d)",
+          "(?:(?:\\$|US\\$|USD\\s*)3\\.40(?!\\d)|(?<![\\d.,])3\\.40\\s*(?:dollars|USD)\\b|\\b3\\s+dollars\\s+(?:and\\s+)?40\\b)",
+          "(?:\\bMay\\.?\\s+14(?:st|nd|rd|th)?\\b|\\b14(?:st|nd|rd|th)?\\s+(?:of\\s+)?May\\b|\\b2027-05-14\\b)"
+        ],
+        "subject": "print\\s+run|\\bcopies\\b|print(?:ing)?\\s+order",
+        "said": [4, 5],
+        "underLine": "print run"
+      },
+      {
+        "name": "Leona sends the final cover file",
+        "kind": "action",
+        "pattern": [
+          "\\bcover\\b",
+          "(?<!\\bme\\b[\\s\\S]*)\\bLeona\\b(?![\\s\\S]*\\bme\\b)",
+          "(?:\\bApr(?:il)?\\.?\\s+2(?:st|nd|rd|th)?\\b|\\b2(?:st|nd|rd|th)?\\s+(?:of\\s+)?Apr(?:il)?\\b|\\b2027-04-02\\b)"
+        ],
+        "subject": "\\bcover\\b",
+        "said": [6]
+      },
+      {
+        "name": "Gus posts the paper samples",
+        "kind": "action",
+        "pattern": [
+          "\\bsamples?\\b",
+          "\\bGus\\b",
+          "(?:\\bMar(?:ch)?\\.?\\s+26(?:st|nd|rd|th)?\\b|\\b26(?:st|nd|rd|th)?\\s+(?:of\\s+)?Mar(?:ch)?\\b|\\b2027-03-26\\b)"
+        ],
+        "subject": "\\bsamples?\\b",
+        "said": [7]
+      },
+      {
+        "name": "Wren delivers the corrected proofs",
+        "kind": "action",
+        "pattern": [
+          "\\bproofs?\\b",
+          "\\bWren\\b",
+          "(?:\\bMar(?:ch)?\\.?\\s+30(?:st|nd|rd|th)?\\b|\\b30(?:st|nd|rd|th)?\\s+(?:of\\s+)?Mar(?:ch)?\\b|\\b2027-03-30\\b)"
+        ],
+        "subject": "\\bproofs?\\b",
+        "said": [8],
+        "underLine": "Wren – proofs"
+      }
+    ]
+  },
+  {
+    "id": "reserved-zh-structured-d",
+    "language": "zh-CN",
+    "requireSections": true,
+    "openQuestions": true,
+    "sectionHeadings": {
+      "summary": "整体回顾",
+      "actions": "分工与期限"
+    },
+    "notes": [
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "租金和起租日" }]
+      },
+      {
+        "type": "heading",
+        "attrs": { "level": 2 },
+        "content": [{ "type": "text", "text": "整体回顾" }]
+      },
+      {
+        "type": "heading",
+        "attrs": { "level": 2 },
+        "content": [{ "type": "text", "text": "分工与期限" }]
+      },
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "搬家车" }]
+      }
+    ],
+    "turns": [
+      {
+        "side": "me",
+        "text": "你好，我们的茶室想尽快搬过去，今天想把铺面和租金定下来。"
+      },
+      {
+        "side": "them",
+        "text": "我是骆文，替房东管青石巷和河西路这两处铺面。河西路那间月租七千元，便宜一些，不过要到六月才能空出来。"
+      },
+      {
+        "side": "me",
+        "text": "六月太晚了，河西路那间我们不考虑了。"
+      },
+      {
+        "side": "them",
+        "text": "那就是青石巷十八号，月租九千五百元，二〇二七年四月一日起租，租期两年。"
+      },
+      {
+        "side": "me",
+        "text": "好，就这么定了：青石巷十八号，月租九千五百元，四月一日起租。"
+      },
+      {
+        "side": "them",
+        "text": "我三月十五日前把钥匙交给你们。"
+      },
+      {
+        "side": "me",
+        "text": "我三月十日前把签好的租约寄回给你。"
+      },
+      {
+        "side": "them",
+        "text": "好。你们搬家怎么安排？"
+      },
+      {
+        "side": "me",
+        "text": "搬家车的事交给小葛了，他答应三月二十五日前订好搬家车。"
+      },
+      {
+        "side": "them",
+        "text": "行。还有一件事我也说不准：铺面能不能装排烟管道，我现在答不上来。"
+      },
+      {
+        "side": "me",
+        "text": "我们这边也没人知道，排烟管道这件事先留着，以后再说。"
+      }
+    ],
+    "facts": [
+      {
+        "name": "青石巷十八号，月租九千五百元，四月一日起租",
+        "kind": "decision",
+        "pattern": [
+          "青石巷",
+          "(?<![\\d.,，一二三四五六七八九十百千万])(?:九千五(?:百)?|9[,，]?500|0\\.95\\s*万)(?!\\d)",
+          "(?:(?<![\\d十])(?:4|04|四)\\s*月\\s*(?:1|01|一)\\s*[日号]|2027[-/.]0?4[-/.]0?1(?!\\d))"
+        ],
+        "subject": "青石巷|铺面|租金|起租",
+        "said": [3, 4],
+        "underLine": "租金和起租日"
+      },
+      {
+        "name": "用户以第一人称寄回签好的租约",
+        "kind": "action",
+        "pattern": [
+          "租约|租赁合同|合同",
+          "(?:(?<![\\d十])(?:3|03|三)\\s*月\\s*(?:10|十)\\s*[日号]|2027[-/.]0?3[-/.]0?10(?!\\d))",
+          "(?<!\\bme\\b[\\s\\S]*)我(?![们方])(?![\\s\\S]*\\bme\\b)"
+        ],
+        "subject": "租约|租赁合同|合同",
+        "said": [6]
+      },
+      {
+        "name": "骆文交钥匙",
+        "kind": "action",
+        "pattern": [
+          "钥匙",
+          "骆文",
+          "(?:(?<![\\d十])(?:3|03|三)\\s*月\\s*(?:15|十五)\\s*[日号]|2027[-/.]0?3[-/.]0?15(?!\\d))"
+        ],
+        "subject": "钥匙",
+        "said": [5]
+      },
+      {
+        "name": "小葛订搬家车",
+        "kind": "action",
+        "pattern": [
+          "搬家车|搬家用车|货车|搬运车",
+          "小葛",
+          "(?:(?<![\\d十])(?:3|03|三)\\s*月\\s*(?:25|二十五|廿五)\\s*[日号]|2027[-/.]0?3[-/.]0?25(?!\\d))"
+        ],
+        "subject": "搬家车|搬家用车|货车|搬运车",
+        "said": [8],
+        "underLine": "搬家车"
+      }
+    ]
+  },
+  {
+    "id": "reserved-zh-structured-e",
+    "language": "zh-CN",
+    "requireSections": true,
+    "openQuestions": true,
+    "sectionHeadings": {
+      "decisions": "拍板结果",
+      "questions": "悬而未决"
+    },
+    "notes": [
+      {
+        "type": "heading",
+        "attrs": { "level": 2 },
+        "content": [{ "type": "text", "text": "春茶收购" }]
+      },
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "合同" }]
+      },
+      {
+        "type": "heading",
+        "attrs": { "level": 2 },
+        "content": [{ "type": "text", "text": "拍板结果" }]
+      },
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "收购价" }]
+      },
+      {
+        "type": "heading",
+        "attrs": { "level": 2 },
+        "content": [{ "type": "text", "text": "悬而未决" }]
+      }
+    ],
+    "turns": [
+      {
+        "side": "me",
+        "text": "我是苏晴，合作社这边今天要把春茶的收购价和开收日期定下来。"
+      },
+      {
+        "side": "them",
+        "text": "我是老傅，管烘干车间。有人提议每斤九十元，你们怎么看？"
+      },
+      {
+        "side": "me",
+        "text": "九十元太高了，合作社的账撑不住，这个提议不采纳。"
+      },
+      {
+        "side": "them",
+        "text": "同意，九十元不要了。"
+      },
+      {
+        "side": "me",
+        "text": "最后定下来：今年春茶收购价每斤八十五元，二〇二七年四月八日开始收。"
+      },
+      {
+        "side": "them",
+        "text": "确认，每斤八十五元，四月八日开收。"
+      },
+      {
+        "side": "me",
+        "text": "我四月一日前把收购合同发给各家茶农。"
+      },
+      {
+        "side": "them",
+        "text": "我三月二十八日前把烘干机检修好。"
+      },
+      {
+        "side": "me",
+        "text": "采茶工的事阿梅已经答应了，她四月五日前招齐二十个采茶工。"
+      },
+      {
+        "side": "them",
+        "text": "好。今年要不要申请有机认证，我拿不准。"
+      },
+      {
+        "side": "me",
+        "text": "我也答不上来，有机认证的事今天定不了，先挂着。"
+      }
+    ],
+    "facts": [
+      {
+        "name": "春茶收购价每斤八十五元，四月八日开收",
+        "kind": "decision",
+        "pattern": [
+          "(?<![\\d.一二三四五六七八九十百千万])(?:八十五|85)(?!\\d)\\s*(?:元|块)",
+          "斤",
+          "(?:(?<![\\d十])(?:4|04|四)\\s*月\\s*(?:8|08|八)\\s*[日号]|2027[-/.]0?4[-/.]0?8(?!\\d))"
+        ],
+        "subject": "收购价|收购|开收|春茶",
+        "said": [4, 5],
+        "underLine": "收购价"
+      },
+      {
+        "name": "苏晴把收购合同发给茶农",
+        "kind": "action",
+        "pattern": [
+          "合同",
+          "(?<!\\bme\\b[\\s\\S]*)苏晴(?![\\s\\S]*\\bme\\b)",
+          "(?:(?<![\\d十])(?:4|04|四)\\s*月\\s*(?:1|01|一)\\s*[日号]|2027[-/.]0?4[-/.]0?1(?!\\d))"
+        ],
+        "subject": "合同",
+        "said": [6],
+        "underLine": "合同"
+      },
+      {
+        "name": "老傅检修烘干机",
+        "kind": "action",
+        "pattern": [
+          "烘干",
+          "老傅",
+          "(?:(?<![\\d十])(?:3|03|三)\\s*月\\s*(?:28|二十八|廿八)\\s*[日号]|2027[-/.]0?3[-/.]0?28(?!\\d))"
+        ],
+        "subject": "烘干",
+        "said": [7]
+      },
+      {
+        "name": "阿梅招齐采茶工",
+        "kind": "action",
+        "pattern": [
+          "采茶工|采摘工|采茶",
+          "阿梅",
+          "(?:(?<![\\d十])(?:4|04|四)\\s*月\\s*(?:5|05|五)\\s*[日号]|2027[-/.]0?4[-/.]0?5(?!\\d))"
+        ],
+        "subject": "采茶工|采摘工|采茶|招工",
+        "said": [8]
+      }
+    ]
+  },
+  {
+    "id": "reserved-zh-structured-f",
+    "language": "zh-CN",
+    "requireSections": true,
+    "openQuestions": true,
+    "notes": [
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "预算和工期" }]
+      },
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "瓷砖" }]
+      }
+    ],
+    "turns": [
+      {
+        "side": "me",
+        "text": "包师傅好，今天把民宿翻修的预算和完工日期定了，再把活分一分。"
+      },
+      {
+        "side": "them",
+        "text": "我是包师傅，施工队这边负责你们的翻修。要是全屋换实木地板，得十八万元。"
+      },
+      {
+        "side": "me",
+        "text": "十八万元超出太多了，实木地板这个方案我们不做。"
+      },
+      {
+        "side": "them",
+        "text": "那就按原来的方案，预算十二万元，五月二十日前完工。"
+      },
+      {
+        "side": "me",
+        "text": "可以，就这么定：预算十二万元，二〇二七年五月二十日前完工。"
+      },
+      {
+        "side": "them",
+        "text": "我四月六日前把旧浴室拆完。"
+      },
+      {
+        "side": "me",
+        "text": "我四月三日前去建材市场把瓷砖订下来。"
+      },
+      {
+        "side": "them",
+        "text": "电路谁来弄？"
+      },
+      {
+        "side": "me",
+        "text": "电工小邝那边我已经说好了，他四月十日前把新的线路图画出来。"
+      },
+      {
+        "side": "them",
+        "text": "好。院子的排水沟要不要一起重做，我现在也说不准。"
+      },
+      {
+        "side": "me",
+        "text": "我们也定不下来，排水沟这件事先放着，没人能回答。"
+      }
+    ],
+    "facts": [
+      {
+        "name": "预算十二万元，五月二十日前完工",
+        "kind": "decision",
+        "pattern": [
+          "(?<![\\d.一二三四五六七八九十百千万])(?:十二万|12\\s*万|120[,，]?000(?!\\d)|12\\.0\\s*万)",
+          "(?:(?<![\\d十])(?:5|05|五)\\s*月\\s*(?:20|二十|廿)\\s*[日号]|2027[-/.]0?5[-/.]0?20(?!\\d))"
+        ],
+        "subject": "预算|工期|完工|翻修",
+        "said": [3, 4],
+        "underLine": "预算和工期"
+      },
+      {
+        "name": "用户以第一人称订瓷砖",
+        "kind": "action",
+        "pattern": [
+          "瓷砖",
+          "(?<!\\bme\\b[\\s\\S]*)我(?![们方])(?![\\s\\S]*\\bme\\b)",
+          "(?:(?<![\\d十])(?:4|04|四)\\s*月\\s*(?:3|03|三)\\s*[日号]|2027[-/.]0?4[-/.]0?3(?!\\d))"
+        ],
+        "subject": "瓷砖",
+        "said": [6],
+        "underLine": "瓷砖"
+      },
+      {
+        "name": "包师傅拆完旧浴室",
+        "kind": "action",
+        "pattern": [
+          "浴室",
+          "包师傅",
+          "(?:(?<![\\d十])(?:4|04|四)\\s*月\\s*(?:6|06|六)\\s*[日号]|2027[-/.]0?4[-/.]0?6(?!\\d))"
+        ],
+        "subject": "浴室",
+        "said": [5]
+      },
+      {
+        "name": "小邝画线路图",
+        "kind": "action",
+        "pattern": [
+          "线路|电路",
+          "小邝",
+          "(?:(?<![\\d十])(?:4|04|四)\\s*月\\s*(?:10|十)\\s*[日号]|2027[-/.]0?4[-/.]0?10(?!\\d))"
+        ],
+        "subject": "线路|电路",
+        "said": [8]
+      }
+    ]
   }
 ]
