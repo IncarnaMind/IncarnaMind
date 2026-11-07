@@ -93,6 +93,9 @@ describe("finding a quote", () => {
     expect(findQuote(text, "公司支付了 1,240.501 元")).toBeNull();
     expect(findQuote(text, "毛利率为 45%2。")).toBeNull();
     expect(findQuote("销售（1,240.50）③ 元", "销售（1,240.50）3 元")).toBeNull();
+    const percent = "毛利率为 45％②。";
+    expect(findQuote(percent, "毛利率为 45%2。")).toBeNull();
+    expect(covered(percent, "毛利率为 45％②。")).toBe("毛利率为 45％②。");
   });
 
   test("a circled mark that isn't after a figure is no mark (#2646)", () => {

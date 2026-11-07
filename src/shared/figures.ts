@@ -223,8 +223,8 @@ const isFootnoteMark = (text: string, start: number, end: number): boolean =>
 
 /** A footnote's mark after a figure: a superscript digit ("¹") or a circled mark ("①"). */
 const MARK_AFTER_FIGURE = new RegExp(`^[¹²³⁰⁴-⁹${CIRCLED_CHARS}]$`, "u");
-/** What a figure ends in: a digit, a closing bracket, or a percent. */
-const ENDS_FIGURE = /[\p{Nd})）%]$/u;
+/** What a figure ends in: a digit, a closing bracket, or a percent of either width. */
+const ENDS_FIGURE = /[\p{Nd})）%％]$/u;
 
 /**
  * Whether `text` at `start`–`end` is a footnote's mark directly after a
