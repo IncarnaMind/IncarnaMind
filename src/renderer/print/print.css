@@ -54,6 +54,7 @@ body {
   display: flex;
   flex-direction: column;
   break-after: page;
+  z-index: 0;
 }
 
 .page-body {
@@ -61,18 +62,13 @@ body {
   flex: none;
 }
 
-/* The text and its notes stay above a watermark (#1258), which sits on the page's own layer. */
-.page-body,
-.page-notes {
-  position: relative;
-  z-index: 1;
-}
-
 .page-watermark {
   position: absolute;
   top: 50%;
   left: 50%;
-  z-index: 0;
+  /* Behind the text and its number, which are not raised above it: a PDF's text reads in the order
+     it is drawn, the page's number last (#2758). */
+  z-index: -1;
   transform: translate(-50%, -50%) rotate(-45deg);
   transform-origin: center;
   font-family: var(--sans);
