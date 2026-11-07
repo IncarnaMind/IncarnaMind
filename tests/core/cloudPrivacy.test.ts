@@ -12,7 +12,11 @@ import {
 import { OPENAI_TRANSCRIPTION_URL } from "../../src/core/transcription/cloud/openai";
 import type { CloudConnect } from "../../src/core/transcription/cloud/socket";
 import { createFakeSpeechEngine } from "../../src/core/transcription/fake";
-import { createFakeCloud, type FakeCloudOptions } from "../../src/core/transcription/fakeCloud";
+import {
+  createFakeCloud,
+  createFakeCloudFetch,
+  type FakeCloudOptions,
+} from "../../src/core/transcription/fakeCloud";
 import {
   createMemoryKeychain,
   createTempDataFolder,
@@ -22,7 +26,19 @@ import {
 import { NO_TRANSCRIPTION_FILES, until } from "../helpers/transcription";
 
 const SECOND = 1000;
-const ROUTES = ["soniox", "openai", "qwen", "deepgram", "assemblyai", "gemini"] as const;
+const ROUTES = [
+  "soniox",
+  "openai",
+  "qwen",
+  "deepgram",
+  "assemblyai",
+  "gemini",
+  "elevenlabs",
+  "speechmatics",
+  "gladia",
+  "mistral",
+  "xai",
+] as const;
 type Route = (typeof ROUTES)[number];
 const SERVICES: Record<Route, string> = {
   soniox: "https://stt-rt.soniox.com",
@@ -31,9 +47,44 @@ const SERVICES: Record<Route, string> = {
   deepgram: "https://api.deepgram.com",
   assemblyai: "https://streaming.assemblyai.com",
   gemini: "https://generativelanguage.googleapis.com",
+  elevenlabs: "https://api.elevenlabs.io",
+  speechmatics: "https://global.rt.speechmatics.com",
+  gladia: "https://api.gladia.io",
+  mistral: "https://api.mistral.ai",
+  xai: "https://api.x.ai",
 };
 /** The routes with a key of their own, kept in Settings › Meetings. */
-const OWN_KEYS: readonly Route[] = ["soniox", "deepgram", "assemblyai"];
+const OWN_KEYS: readonly Route[] = [
+  "soniox",
+  "deepgram",
+  "assemblyai",
+  "elevenlabs",
+  "speechmatics",
+  "gladia",
+];
+/** The routes on a chat provider's key from Settings › Models, as each is saved there. */
+const PROVIDER_KEYS = {
+  openai: { kind: "openai", apiKey: "sk-test", modelId: "gpt-6-luna" },
+  qwen: { kind: "qwen", apiKey: "sk-qwen-test", modelId: "qwen3.7-plus" },
+  gemini: { kind: "google", apiKey: "AIza-test", modelId: "gemini-3.8-flash" },
+  mistral: { kind: "mistral", apiKey: "mistral-test-key", modelId: "mistral-small-2603" },
+  xai: { kind: "xai", apiKey: "xai-test-key", modelId: "grok-4.3" },
+} as const;
+
+/** Audio in a JSON message, as base64 PCM at 16 kHz (Gemini's, ElevenLabs', Mistral's), in ms. */
+function jsonAudioMs(data: string): number {
+  const message = JSON.parse(data) as {
+    type?: string;
+    audio?: string;
+    audio_base_64?: string;
+    realtimeInput?: { audio?: { data: string } };
+  };
+  const audio =
+    message.realtimeInput?.audio?.data ??
+    message.audio_base_64 ??
+    (message.type === "input_audio.append" ? message.audio : undefined);
+  return audio ? (Buffer.from(audio, "base64").byteLength / 2 / 16_000) * 1000 : 0;
+}
 
 /**
  * The pretend cloud service, counting the audio that reaches its socket: what the User's choices
@@ -49,6 +100,8 @@ function counting(options: FakeCloudOptions = {}) {
   const opened: string[] = [];
   const held: (() => void)[] = [];
   const service = {
+    /** Gladia's session requests, which come before its socket. */
+    fetch: createFakeCloudFetch(options),
     holdOpen: false,
     errorAfterMs: undefined as number | undefined,
     mark: () => {
@@ -89,12 +142,7 @@ function counting(options: FakeCloudOptions = {}) {
       });
       return {
         send(data) {
-          // Gemini's audio comes as JSON, base64 PCM at 16 kHz.
-          const gemini =
-            typeof data === "string" &&
-            (JSON.parse(data) as { realtimeInput?: { audio?: { data: string } } }).realtimeInput
-              ?.audio;
-          if (gemini) total += (Buffer.from(gemini.data, "base64").byteLength / 2 / 16_000) * 1000;
+          if (!openai && typeof data === "string") total += jsonAudioMs(data);
           if (openai && typeof data === "string") {
             const event = JSON.parse(data) as { type: string; audio?: string };
             if (event.type === "input_audio_buffer.append" && event.audio) {
@@ -138,6 +186,7 @@ function transcriberOn(service: Service): Transcriber {
     };
     serveTranscriber(async () => createFakeSpeechEngine(), port, {
       connect: service.connect,
+      fetch: service.fetch,
       detectors: async () => createFakeSpeechEngine().detector,
     });
     return {
@@ -165,18 +214,10 @@ async function meetingOn(route: Route, service: Service, keychain = createMemory
   const core = open();
   await core.updateSettings({ device: { meetingNoticeAccepted: true } });
   await core.setOutputLocation(join(dataDir, "Documents", "IncarnaMind"));
-  if (OWN_KEYS.includes(route)) {
-    await core.setTranscriptionKey({ route, apiKey: `${route}-test-key` });
-  } else if (route === "gemini") {
-    await core.saveChatProvider({
-      kind: "google",
-      apiKey: "AIza-test",
-      modelId: "gemini-3.8-flash",
-    });
-  } else if (route === "qwen") {
-    await core.saveChatProvider({ kind: "qwen", apiKey: "sk-qwen-test", modelId: "qwen3.7-plus" });
+  if (route in PROVIDER_KEYS) {
+    await core.saveChatProvider(PROVIDER_KEYS[route as keyof typeof PROVIDER_KEYS]);
   } else {
-    await core.saveChatProvider({ kind: "openai", apiKey: "sk-test", modelId: "gpt-6-luna" });
+    await core.setTranscriptionKey({ route, apiKey: `${route}-test-key` });
   }
   await core.updateSettings({ device: { transcriptionRoute: route } });
   const meeting = await core.createMeeting();
@@ -514,7 +555,15 @@ describe("Nothing more goes to the cloud once the User says no", { timeout: 60_0
     expect(service.opened()).toEqual([]);
   });
 
-  for (const route of ["soniox", "qwen"] as const) {
+  for (const route of [
+    "soniox",
+    "qwen",
+    "elevenlabs",
+    "speechmatics",
+    "gladia",
+    "mistral",
+    "xai",
+  ] as const) {
     test(`${route}: a key the service refuses says so, and the next Meeting goes to this computer until the key changes`, async () => {
       const service = counting({ refuse: true });
       const { core, record, meeting } = await meetingOn(route, service);
@@ -556,8 +605,10 @@ describe("A key saved for a meeting service", () => {
     const asked: string[] = [];
     const core = startCore(await createTempDataFolder(), {
       transcriptionModelSource: NO_TRANSCRIPTION_FILES,
-      transcriptionKeyFetch: async (url) => {
-        asked.push(String(url));
+      transcriptionKeyFetch: async (url, init) => {
+        const headers = Object.keys(init?.headers ?? {}).filter((name) => name === "xi-api-key");
+        const body = typeof init?.body === "string" ? [init.body] : [];
+        asked.push([init?.method ?? "GET", String(url), ...headers, ...body].join(" "));
         return new Response(null, { status: 200 });
       },
       keychain: createMemoryKeychain(),
@@ -572,21 +623,24 @@ describe("A key saved for a meeting service", () => {
       const listed = await core.setTranscriptionKey({ route, apiKey: `${route}-test-key` });
       expect(listed.services.find((each) => each.route === route)).toMatchObject({
         hasKey: true,
-        keyChecked: true,
+        // Gladia has no request that checks a key and reads nothing of the User's.
+        keyChecked: route !== "gladia",
       });
     }
     expect(asked).toEqual([]);
   });
 
-  test("out of Local mode, is checked with its service before it's kept", async () => {
+  test("out of Local mode, is checked with its service before it's kept, in a request that reads nothing of the User's", async () => {
     const { core, asked } = await keyed();
     for (const route of OWN_KEYS) {
       await core.setTranscriptionKey({ route, apiKey: `${route}-test-key` });
     }
     expect(asked).toEqual([
-      "https://api.soniox.com/v1/models",
-      "https://api.deepgram.com/v1/projects",
-      "https://streaming.assemblyai.com/v3/token?expires_in_seconds=60",
+      "GET https://api.soniox.com/v1/models",
+      "GET https://api.deepgram.com/v1/projects",
+      "GET https://streaming.assemblyai.com/v3/token?expires_in_seconds=60",
+      "GET https://api.elevenlabs.io/v1/models xi-api-key",
+      'POST https://mp.speechmatics.com/v1/jwts?type=rt {"ttl":60}',
     ]);
   });
 });

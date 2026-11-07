@@ -1,9 +1,10 @@
 /**
  * Where meeting audio is transcribed (#141, #866), as the core decides it: on this computer by
  * default, or live by the cloud service the User chose in Settings › Meetings or on the
- * first-recording sheet, with their own key. OpenAI's, Qwen's and Gemini's is the key of their
- * provider in Settings › Models; Soniox, Deepgram and AssemblyAI ask for their own, kept in the
- * keychain. Deepgram's server can be Cloudflare Workers AI's or the User's own.
+ * first-recording sheet, with their own key. OpenAI's, Qwen's, Gemini's, Mistral's and xAI's is
+ * the key of their provider in Settings › Models; Soniox, Deepgram, AssemblyAI, ElevenLabs,
+ * Speechmatics and Gladia ask for their own, kept in the keychain. Deepgram's server can be
+ * Cloudflare Workers AI's or the User's own.
  *
  * Choosing a service is the consent to send it meeting audio (ADR-0022): the "transcription"
  * flow. Every chunk of audio passes `sending` before it goes: the send gate (Local mode, the
@@ -34,6 +35,7 @@ import {
   qwenRegion,
   TRANSCRIPTION_SERVICES,
   type TranscriptionDataUse,
+  type TranscriptionService,
 } from "../../providers/catalog/transcription";
 import type { Localized } from "../../providers/catalog/types";
 import { isLoopbackHost } from "../../providers/service";
@@ -41,22 +43,40 @@ import type { Secrets } from "../../secrets";
 import { createSendGate } from "../../sendGate";
 import type { SettingsStore } from "../../settings";
 import { ASSEMBLYAI_AUTH } from "./assemblyai";
+import { ELEVENLABS_AUTH } from "./elevenlabs";
 import { DEEPGRAM_URL } from "./protocol";
 import { authHeaders, BEARER, type CloudAuth } from "./socket";
 
 const SENDS = ["meeting-audio"] as const;
 
-/** A request that reads nothing of the User's, to check a service's own key before it is kept. */
-const KEY_CHECKS: Partial<Record<CloudTranscriptionRoute, { url: string; auth: CloudAuth }>> = {
+interface KeyCheck {
+  url: string;
+  auth: CloudAuth;
+  /** A POST with this JSON body; a GET when absent. */
+  post?: string;
+}
+
+/**
+ * A request that reads nothing of the User's, to check a service's own key before it is kept.
+ * Gladia has none: its key is first tried by a Meeting.
+ */
+const KEY_CHECKS: Partial<Record<CloudTranscriptionRoute, KeyCheck>> = {
   soniox: { url: "https://api.soniox.com/v1/models", auth: BEARER },
   // A token for one minute's stream, which is never used.
   assemblyai: {
     url: "https://streaming.assemblyai.com/v3/token?expires_in_seconds=60",
     auth: ASSEMBLYAI_AUTH,
   },
+  elevenlabs: { url: "https://api.elevenlabs.io/v1/models", auth: ELEVENLABS_AUTH },
+  // A temporary key for one minute's real-time session, which is never used.
+  speechmatics: {
+    url: "https://mp.speechmatics.com/v1/jwts?type=rt",
+    auth: BEARER,
+    post: JSON.stringify({ ttl: 60 }),
+  },
 };
 /** Deepgram's own servers are asked for the key's projects; Cloudflare's and the User's aren't asked. */
-const deepgramKeyCheck = (server: string | null) => {
+const deepgramKeyCheck = (server: string | null): KeyCheck | null => {
   const host = new URL(server ?? DEEPGRAM_URL).hostname;
   return isDeepgramHost(host)
     ? { url: `https://${host}/v1/projects`, auth: { header: "Authorization", prefix: "Token " } }
@@ -308,6 +328,10 @@ export function createCloudTranscription(options: CloudTranscriptionOptions) {
     );
   }
 
+  /** The languages the User speaks that a service transcribes. */
+  const spokenIn = (service: TranscriptionService) =>
+    languagesOf(options.languages()).filter((code) => service.languages.includes(code));
+
   const readServices = () => {
     const spoken = languagesOf(options.languages());
     return Promise.all(
@@ -385,7 +409,11 @@ export function createCloudTranscription(options: CloudTranscriptionOptions) {
     try {
       status = (
         await request(check.url, {
-          headers: authHeaders(apiKey, check.auth),
+          headers: {
+            ...authHeaders(apiKey, check.auth),
+            ...(check.post !== undefined && { "content-type": "application/json" }),
+          },
+          ...(check.post !== undefined && { method: "POST", body: check.post }),
           signal: AbortSignal.timeout(KEY_CHECK_TIMEOUT_MS),
         })
       ).status;
@@ -576,7 +604,9 @@ export function createCloudTranscription(options: CloudTranscriptionOptions) {
             ? { service: "deepgram", model, apiKey, url }
             : route === "openai"
               ? { service: "openai", model, apiKey, vad: await options.vadFile() }
-              : { service: route, model, apiKey };
+              : route === "gladia"
+                ? { service: "gladia", model, apiKey, languages: spokenIn(service) }
+                : { service: route, model, apiKey };
       return { route, stream, meter: audio };
     },
   };
