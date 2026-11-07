@@ -552,7 +552,7 @@ export interface RecheckDocuments {
   yourNoteAt?(documentId: string, contentHash: string | null): string | null;
   pageTexts: AnswerDocuments["pageTexts"];
   /** A live Document's name as the app shows it, which words in quotation marks may give (#2504). */
-  documentName?(documentId: string): string | null;
+  documentName(documentId: string): string | null;
   /** The live Passages of the current version covering these Units, in reading order. */
   passagesCovering(
     documentId: string,
@@ -677,7 +677,7 @@ function quotedWordsPlaceIn(
       location?.kind === "time"
         ? quoteInStoredCues(units, words, location, matching)
         : quoteInUnits(units, words, matching),
-    documentName: documents.documentName?.(documentId) ?? null,
+    documentName: documents.documentName(documentId),
     throughNextUnit: () =>
       range.pageFrom !== null && range.pageFrom === range.pageTo
         ? documents.pageTexts(documentId, contentHash, range.pageFrom, range.pageTo + 1)
