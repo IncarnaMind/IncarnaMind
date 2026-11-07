@@ -85,12 +85,19 @@ export function shownItems(
   if (shape === "lines") {
     const bullets = items.filter((item) => item.bullet);
     const lead = leadIn && first && !first.bullet ? [first] : [];
-    return [...lead, ...(bullets.length > 0 ? bullets : items.slice(lead.length))].slice(0, 3);
+    // While it is written, text before the first short line is a model's notes, taken back once it
+    // records its Citations (#2526): the outline stays in its place instead.
+    const rest = bullets.length > 0 ? bullets : streaming ? [] : items.slice(lead.length);
+    return [...lead, ...rest].slice(0, 3);
   }
   const lead = leadIn && first && first.effect === null ? [first] : [];
-  const last = items.at(-1);
+  // While it is written, text before the first "★" line is a model's notes, taken back once it
+  // records its Citations (#2526): the outline stays in its place instead.
+  const from = streaming ? items.findIndex((item) => item.recommended) : 0;
+  const drawn = from === -1 ? [] : items.slice(from);
+  const last = drawn.at(-1);
   const writing = streaming && last && last.effect === null && !lead.includes(last) ? [last] : [];
-  const options = [...items.filter((item) => item.effect !== null), ...writing].slice(0, 2);
+  const options = [...drawn.filter((item) => item.effect !== null), ...writing].slice(0, 2);
   return [...lead, ...options];
 }
 

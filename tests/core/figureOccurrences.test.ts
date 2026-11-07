@@ -203,6 +203,27 @@ test("a row unit cell reaches its numeric cell through the existing reader", () 
   ).toBe(true);
 });
 
+// protects=a bare cell whose digits look like a mobile number stays an amount under the header's stated unit (#2215); fails_when=the mobile/ID rule drops a 138亿 cell of a table headed 金额（万元）.
+test("a mobile-shaped cell under a stated unit header stays an amount", () => {
+  const figures = figuresInMind(
+    stored({
+      type: "table",
+      attrs: { id: "t1" },
+      content: [
+        row(cell("h1", "项目", true), cell("h2", "金额（万元）", true)),
+        row(cell("a", "收入"), cell("b", "13800138000")),
+      ],
+    }),
+  );
+  expect(figures).toHaveLength(1);
+  expect(figures[0]?.reading.value).toBe(13800138000);
+  expect(
+    figures[0]?.reading.ambiguous.some(
+      (each) => each.kind === "scale" && each.readings.some((reading) => reading.scale === 10_000),
+    ),
+  ).toBe(true);
+});
+
 test("a row that only names a group heads the rows below it in their context", () => {
   const figures = figuresInMind(
     stored({
