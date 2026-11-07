@@ -23,6 +23,12 @@ const MIN_ADDED_WORDS = 2;
 /** A marker as a model may write it: "[^3]", or the Passage's id, "[^P3]". */
 const NAMED = /\[\^[Pp]?(\d{1,4})\]/g;
 
+/** A word as the quotes are matched on: "days" and "day" alike. */
+const folded = (word: string) =>
+  word.length > 3 && word.endsWith("s") && !word.endsWith("ss") ? word.slice(0, -1) : word;
+
+const claimWords = (text: string): Set<string> => new Set([...wordsOf(text)].map(folded));
+
 /** A sentence as a quote of it is written: no list mark, heading mark or "[0:04 Them]" lead. */
 const asQuoted = (sentence: string) =>
   sentence
@@ -34,7 +40,7 @@ const asQuoted = (sentence: string) =>
  * The records for the markers of `text` that name a Passage the model was given (`passages`) and
  * have none yet (`recorded`), and the text with a marker of its own wherever a named Passage is
  * quoted by another of its sentences. A marker naming no Passage is left as it is, to go as an
- * unbacked marker goes.
+ * unbacked marker goes; one naming a Passage that has nothing like its claim goes.
  */
 export function markedPassages(
   text: string,
@@ -49,9 +55,15 @@ export function markedPassages(
   const markerOf = new Map<string, number>();
   const records: CitationRecordInput[] = [];
   const rewritten: { at: number; length: number; markers: number[] }[] = [];
-  for (const sentence of answerSentences(named)) {
-    const claim = wordsOf(sentence.text);
+  const sentences = answerSentences(named);
+  for (const [index, sentence] of sentences.entries()) {
+    const own = claimWords(sentence.text);
+    // A marker that starts a sentence ("A claim. [^2]") belongs to the one before, as
+    // `markedSentence` reads it.
+    const before = claimWords(sentences[index - 1]?.text ?? "");
     for (const each of named.slice(sentence.start, sentence.end).matchAll(MARKER)) {
+      const lead = named.slice(sentence.start, sentence.start + each.index).replace(MARKER, "");
+      const claim = lead.trim() === "" && before.size > 0 ? before : own;
       const number = Number(each[1]);
       const passage = shown.get(`P${number}`);
       if (!passage || recorded(number)) continue;
@@ -65,8 +77,14 @@ export function markedPassages(
         }
         return marker;
       });
-      if (markers.length > 0 && (markers.length > 1 || markers[0] !== number)) {
-        rewritten.push({ at: sentence.start + each.index, length: each[0].length, markers });
+      const at = sentence.start + each.index;
+      if (markers.length === 0) {
+        // Nothing of the Passage is like the claim: the marker goes, rather than stand on the
+        // Citation its number has from another sentence.
+        const space = /\s$/u.test(named.slice(0, at)) ? 1 : 0;
+        rewritten.push({ at: at - space, length: each[0].length + space, markers });
+      } else if (markers.length > 1 || markers[0] !== number) {
+        rewritten.push({ at, length: each[0].length, markers });
       }
     }
   }
@@ -79,9 +97,9 @@ export function markedPassages(
 }
 
 /**
- * The sentences of `passage` a claim rests on, each one the Citation check finds there: the one
- * most like `claim`, then each that adds most of the claim's words not yet quoted, while it adds
- * `MIN_ADDED_WORDS` or more.
+ * The sentences of `passage` a claim rests on, each one the Citation check finds there and none a
+ * heading: the one most like `claim`, if it shares a word with it, then each that adds most of the
+ * claim's words not yet quoted, while it adds `MIN_ADDED_WORDS` or more.
  */
 function quotesFor(
   passage: { id: string; text: string },
@@ -89,7 +107,8 @@ function quotesFor(
   found: (passage: string, quote: string) => boolean,
 ): string[] {
   const candidates = passageSentences(passage.text)
-    .map((sentence, at) => ({ quote: asQuoted(sentence), at, words: wordsOf(sentence) }))
+    .filter((sentence) => !/^#+\s/u.test(sentence))
+    .map((sentence, at) => ({ quote: asQuoted(sentence), at, words: claimWords(sentence) }))
     .filter((each) => each.quote !== "");
   const quotes: string[] = [];
   const quoted = new Set<string>();
@@ -103,7 +122,7 @@ function quotesFor(
         added: added(each.words),
         score: likeness(claim, each.words).score,
       }))
-      .filter((each) => quotes.length === 0 || each.added >= MIN_ADDED_WORDS)
+      .filter((each) => each.added >= (quotes.length === 0 ? 1 : MIN_ADDED_WORDS))
       .sort((a, b) =>
         quotes.length === 0
           ? b.score - a.score || a.at - b.at

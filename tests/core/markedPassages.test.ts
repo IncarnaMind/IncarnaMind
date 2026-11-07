@@ -130,4 +130,18 @@ describe("Records for a reply that names its Passages in its markers", () => {
       },
     ]);
   });
+
+  // protects=a marker written after its sentence's full stop is matched on that sentence, never on nothing, a heading is never quoted, and a claim sharing no word with the named Passage loses its marker rather than show another sentence's Citation; fails_when=the Document's heading or its first line is quoted for a marker after a full stop, or a claim sharing no word keeps a marker backed by another sentence's quote; no_claim=what becomes of the unbacked marker (the core's test) (#2526).
+  test("a marker after the full stop is matched on the sentence before it, no heading is quoted, and a claim sharing no word loses its marker", () => {
+    const terms = {
+      id: "P4",
+      text: "# Contract terms\n\n- Minimum term: 12 months.\n- Invoices are due within 30 days.\n- After the contract ends, we provide a CSV export of your data within 30 days.",
+    };
+    const text =
+      "★ Invoices are due in thirty days, so the 30-day payment term holds. [^4]\n→ confirms it\n\nThe pilot starts in March [^4]";
+    expect(markedPassages(text, [terms], everywhere, none)).toEqual({
+      text: text.replace("March [^4]", "March"),
+      records: [{ marker: 4, passage: "P4", quote: "Invoices are due within 30 days." }],
+    });
+  });
 });

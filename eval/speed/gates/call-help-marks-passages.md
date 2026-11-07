@@ -78,3 +78,30 @@ Both languages together:
 - Model calls, and how often the step's arm searched again.
 - Markers that named no Passage the press was given.
 - Each case with a false Supported, on either arm, with its sentence.
+
+## First runs, 2026-11-07: Sonnet missed English "cited" on a bug, now fixed
+
+The runs were made at 8aaadba53, over the 24 cases, three runs each, on the fixed call rig.
+
+| Model, today → step | Language | First whole option | Done | False Supported | Cited | Judged right | Every Citation found |
+|---|---|---|---|---|---|---|---|
+| DeepSeek V4.1 Flash 1017 | en | 1.36 → 1.10 s | 2.72 → 1.40 s | 2–4 → 3–5 | 9–11 → 10–10 | 6–8 → 7–8 | 11–12 → 12–12 |
+| | zh-CN | 1.35 → 1.19 s | 2.66 → 1.49 s | 1–2 → 1–3 | 9–12 → 11–12 | 8–10 → 10–11 | 10–11 → 11–12 |
+| Claude Sonnet 5.5 | en | 4.77 → 1.71 s | 4.78 → 2.41 s | 3–5 → 5–7 | **12–12 → 9–11** | 10–12 → 11–11 | 11–12 → 12–12 |
+| | zh-CN | 4.94 → 1.82 s | 4.94 → 2.78 s | 3–6 → 2–4 | 12–12 → 12–12 | 10–11 → 12–12 | 12–12 → 12–12 |
+
+- **DeepSeek:**
+  - Every line held, and no case failed on either arm.
+  - 71 of 72 presses took one call.
+  - The 15-minute load passed 24 at the run's end, with other runs on this computer, so the run is reported and not gated.
+  - Its spend was $0.29, judge DeepSeek V4 Pro.
+- **Sonnet:** English "cited" fell below today's. Every other line held. One-minute load median 15.9; the 15-minute load passed 24 in the run's last minute. Spend $3.25, judge Claude Opus 5.5.
+- **The cause, traced in the six English presses that lost the cited line:**
+  - In five, the marker came after its sentence's full stop ("…every plan. [^4]"). It was matched against an empty sentence, so the Document's heading was quoted ("Integrations").
+  - In one, "connectors" didn't match "connector", so a shorter line sharing fewer of the claim's words won.
+- **The fix,** to how a marker finds its sentence and to no case:
+  - a marker after the full stop belongs to the sentence before, as `markedSentence` already reads it;
+  - a heading is never quoted;
+  - words match with a plural "s" folded;
+  - a marker whose Passage has nothing like its claim goes, rather than stand on another sentence's Citation.
+- **Run again:** the 24 cases have now been seen by runs of the step. All three gates are run again on the fixed code over the same 24 cases, one at a time, each started at a 15-minute load of 24 or less. Read their result with that in mind. Spend: about $5 more, about $31 in all for this work.
