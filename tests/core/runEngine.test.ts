@@ -13,6 +13,7 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { APICallError } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test, vi } from "vitest";
+import { createAiSdkChatModel } from "../../src/core/providers/models";
 import { withCacheBreakpoints } from "../../src/core/providers/promptCache";
 import { createAiSdkRunEngine } from "../../src/core/runs/aiSdkEngine";
 import type {
@@ -669,6 +670,80 @@ describe.each(ENGINES)("A Run engine: $name", ({ create }) => {
     expect(bodies[1]?.messages.map((message) => message.role)).toEqual(["user"]);
     expect(again.text).toBe("Written.");
     expect(again.events.at(-1)?.type).toBe("finished");
+  });
+
+  // protects=a Gemini reply of thoughts alone, which comes back from a Run as an assistant turn with no text, isn't sent back as a model turn with no parts when the Answer asks again, which Gemini refuses with a 400; fails_when=the re-ask sends the empty model turn and is refused; no_claim=Gemini through other routes (OpenRouter, an OpenAI-compatible server) (#2701).
+  test("on Gemini, asking again after a reply of thoughts alone leaves that reply out, and is answered", async () => {
+    const bodies: { contents: { role: string; parts: unknown[] }[] }[] = [];
+    const chunk = (parts: unknown[]) =>
+      `data: ${JSON.stringify({
+        candidates: [{ content: { role: "model", parts }, finishReason: "STOP" }],
+        usageMetadata: { promptTokenCount: 5, candidatesTokenCount: 1 },
+      })}\r\n\r\n`;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: unknown, init?: { body?: unknown }): Promise<Response> => {
+        const body = JSON.parse(String(init?.body));
+        bodies.push(body);
+        if (body.contents.some((content: { parts: unknown[] }) => content.parts.length === 0)) {
+          return new Response(
+            JSON.stringify({
+              error: {
+                code: 400,
+                message: "contents.parts must not be empty.",
+                status: "INVALID_ARGUMENT",
+              },
+            }),
+            { status: 400, headers: { "content-type": "application/json" } },
+          );
+        }
+        const reply =
+          bodies.length === 1
+            ? chunk([{ text: "Weighing what to say.", thought: true }])
+            : chunk([{ text: "Written." }]);
+        return new Response(reply, { headers: { "content-type": "text/event-stream" } });
+      }),
+    );
+    try {
+      const gemini = createAiSdkChatModel({
+        kind: "google",
+        baseUrl: null,
+        apiKey: "test-key",
+        modelId: "gemini-3.8-flash",
+        thinking: "answer",
+      });
+      const asked: RunMessage = { role: "user", text: "When is high water?" };
+
+      const first = await collect(
+        create(),
+        request(
+          scriptedModel(() => ({ text: "" })),
+          { model: gemini },
+        ),
+      );
+      const again = await collect(
+        create(),
+        request(
+          scriptedModel(() => ({ text: "" })),
+          {
+            model: gemini,
+            messages: [
+              asked,
+              ...(first.finished ?? []),
+              { role: "user", text: "Your reply is empty. Say when high water is." },
+            ],
+          },
+        ),
+      );
+
+      expect(first.finished).toEqual([{ role: "assistant", text: "", toolCalls: [] }]);
+      expect(bodies).toHaveLength(2);
+      expect(bodies[1]?.contents.map((content) => content.role)).toEqual(["user", "user"]);
+      expect(again.text).toBe("Written.");
+      expect(again.events.at(-1)?.type).toBe("finished");
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   test("endsAfter: the Run ends after the step it names, with no further model call", async () => {

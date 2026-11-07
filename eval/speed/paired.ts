@@ -12,7 +12,6 @@ import type { ChatModelChoice, CoreEventName } from "../../src/core";
 import { COMPARISON_CELL_NODE, DATABASE_FILE } from "../../src/core";
 import { toolTextIn } from "../../src/core/answers/toolText";
 import { openDatabase } from "../../src/core/storage";
-import { citationAttributesOf } from "../../src/shared/citations";
 import { comparisonCellOf } from "../../src/shared/comparisons";
 import { queryDatabase } from "../../tests/helpers/core";
 import { connectToMind } from "../../tests/helpers/mindClient";
@@ -20,13 +19,14 @@ import { readMind } from "../../tests/helpers/minds";
 import { type CaseResult, fetchPapers, fetchReserves, reports, runCase } from "../everyday/asking";
 import { CASES, type LibraryName } from "../everyday/cases";
 import { writeDatedDocuments } from "../everyday/dated";
+import { judgeClaims } from "../everyday/judge";
 import { asEvalQuestion } from "../hard/lib/citations";
 import { fetchLibrary } from "../hard/lib/fetch";
 import { loadManifest } from "../hard/lib/manifest";
 import { loadHardQuestions, textProblems } from "../hard/lib/questions";
 import { storedTextReader } from "../hard/lib/stored";
-import { askOne } from "../lib/citations";
-import { type EvalQuestion, loadEvaluationSet } from "../lib/evaluationSet";
+import { type AnswerRecord, askOne } from "../lib/citations";
+import { type EvalQuestion, type ExpectedPassage, loadEvaluationSet } from "../lib/evaluationSet";
 import { neededPassages } from "../lib/handed";
 import { type Library, type LibraryOptions, openLibrary } from "../lib/library";
 import { firstKeptText, isWrittenTwice, type TimingRecorder } from "../lib/timing";
@@ -35,6 +35,7 @@ import { repeatChecks } from "../repeats/repeat";
 import { verdictOf } from "../repeats/score";
 import { SIGNS } from "./flows";
 import type { Expectation, Grade } from "./judge";
+import { citedText, type UnstatedSentence, unstatedSentences } from "./unstated";
 
 export const SET_IDS = [
   "gating",
@@ -44,6 +45,7 @@ export const SET_IDS = [
   "cells",
   "written",
   "call-help",
+  "meeting-notes",
 ] as const;
 export type SetId = (typeof SET_IDS)[number];
 export type Language = "en" | "zh-CN";
@@ -103,7 +105,8 @@ export interface ArmRun {
 
 /**
  * What an item measures itself; the times and calls come from the run around it, but for the
- * first words of an item that tells them itself (`words: "item"`).
+ * first sign and words of an item that tells them itself (`words: "item"`): a sign a window shows
+ * that no Note's event carries, such as the meeting bar's.
  */
 export type Measured = Omit<
   ArmRun,
@@ -114,7 +117,7 @@ export type Measured = Omit<
   | "answerCalls"
   | "inputTokens"
   | "outputTokens"
-> & { firstWordsMs?: number | null };
+> & { firstSignMs?: number | null; firstWordsMs?: number | null };
 
 export interface ItemContext {
   /** The library, whose `timings.begin()` marks the User's action. */
@@ -216,46 +219,148 @@ function questionItem(
     kind,
     language: languageOf(question.language),
     words: "answer",
-    async run({ library, grade }) {
-      const answer = await askOne(library, question, 1, timeoutMs);
-      const done = answer.status === "done";
-      return {
-        ...NOTHING,
-        status: done ? "done" : "failed",
-        error: done
-          ? null
-          : answer.error
-            ? `${answer.error.kind}: ${answer.error.message}`
-            : answer.status,
-        searches: answer.searches.length,
-        citations: answer.citations.length,
-        found: answer.citations.filter((citation) => citation.outcome === "found").length,
-        cited: done && answer.expected ? answer.expected.cited === answer.expected.needed : null,
-        grade: done
-          ? await grade(
-              {
-                question: question.question,
-                quotes: neededPassages(question).map((each) => each.quote),
-                ...extra,
-              },
-              answer.text,
-            )
-          : null,
-        duplicate: answer.timing?.writtenTwice ?? false,
-        // A Tool's call written as text that still shows fails the Answer, whatever it is graded.
-        failures: toolTextIn(answer.text).length > 0 ? ["tool-text"] : [],
-        // Each Citation not found, to tell a quote the model changed from one it put on the wrong page.
-        text: [
-          answer.text,
-          ...answer.citations
-            .filter((citation) => citation.outcome !== "found")
-            .map(
-              (citation) =>
-                `[${citation.outcome}] “${citation.quote}” (${citation.documentName}, p. ${citation.pageFrom ?? "?"}–${citation.pageTo ?? "?"}; on p. ${citation.quoteOn?.join("–") ?? "none"}; ${citation.checkReason ?? citation.check})`,
-            ),
-        ].join("\n"),
-      };
+    async run({ library, grade, claimsJudge }) {
+      return measuredAnswer(
+        await askOne(library, question, 1, timeoutMs),
+        {
+          question: question.question,
+          quotes: neededPassages(question).map((each) => each.quote),
+          ...extra,
+        },
+        grade,
+        claimsJudge,
+      );
     },
+  };
+}
+
+/** Each sentence the false-Supported judge listed, with the quotes it read, for reading by hand. */
+const flaggedLines = (unstated: readonly UnstatedSentence[] | null) =>
+  (unstated ?? []).map(
+    ({ sentence, quotes }) =>
+      `[unstated] ${sentence} ‖ ${quotes.map((quote) => `“${quote}”`).join(" · ")}`,
+  );
+
+/** What a Question's Answer is read for: its Citations, grade, false Supported and claimed changes. */
+export async function measuredAnswer(
+  answer: Pick<
+    AnswerRecord,
+    "status" | "error" | "searches" | "citations" | "expected" | "timing" | "text"
+  >,
+  expected: Expectation,
+  grade: ItemContext["grade"],
+  judge: ItemContext["claimsJudge"],
+): Promise<Measured> {
+  const done = answer.status === "done";
+  const unstated = done
+    ? await unstatedSentences(
+        judge,
+        answer.citations.map((citation, index) => ({
+          // A result from before sentences were numbered keeps each Citation apart.
+          at: citation.sentenceIndex ?? -(index + 1),
+          sentence: citation.sentence,
+          quote: citation.quote,
+          found: citation.outcome === "found",
+        })),
+      )
+    : [];
+  // A Question asked in a Note is offered no Tool that changes one: any change it claims is unmade.
+  const claimed = done ? (await judgeClaims(judge, answer.text, [])).unbacked : [];
+  return {
+    ...NOTHING,
+    status: done ? "done" : "failed",
+    error: done
+      ? null
+      : answer.error
+        ? `${answer.error.kind}: ${answer.error.message}`
+        : answer.status,
+    searches: answer.searches.length,
+    citations: answer.citations.length,
+    found: answer.citations.filter((citation) => citation.outcome === "found").length,
+    cited: done && answer.expected ? answer.expected.cited === answer.expected.needed : null,
+    grade: done ? await grade(expected, answer.text) : null,
+    falseSupported: unstated?.length ?? 0,
+    duplicate: answer.timing?.writtenTwice ?? false,
+    // A Tool's call written as text that still shows fails the Answer, whatever it is graded.
+    failures: [
+      ...(toolTextIn(answer.text).length > 0 ? ["tool-text"] : []),
+      ...(unstated === null ? ["false-supported-unread"] : []),
+      ...(claimed.length > 0 ? ["unbacked"] : []),
+    ],
+    // Each Citation not found, to tell a quote the model changed from one it put on the wrong page.
+    text: [
+      answer.text,
+      ...flaggedLines(unstated),
+      ...claimed.map((sentence) => `[unbacked] ${sentence}`),
+      ...answer.citations
+        .filter((citation) => citation.outcome !== "found")
+        .map(
+          (citation) =>
+            `[${citation.outcome}] “${citation.quote}” (${citation.documentName}, p. ${citation.pageFrom ?? "?"}–${citation.pageTo ?? "?"}; on p. ${citation.quoteOn?.join("–") ?? "none"}; ${citation.checkReason ?? citation.check})`,
+        ),
+    ].join("\n"),
+  };
+}
+
+/**
+ * What a comparison table's filled cell is read for, over the Document `documentName`: cited when a
+ * found Citation in it covers each needed Passage's pages, its grade, false Supported and duplicates.
+ */
+export async function measuredCell(
+  filled: ProseMirrorNode,
+  documentName: string,
+  question: string,
+  needed: readonly ExpectedPassage[],
+  grade: ItemContext["grade"],
+  judge: ItemContext["claimsJudge"],
+): Promise<Measured> {
+  const { status, problem } = comparisonCellOf(filled.attrs);
+  const shown = citedText(filled);
+  const found = shown.citations.filter((each) => each.check === "found");
+  const text = filled.textBetween(0, filled.content.size, " ", " ").trim();
+  const answered = status === "done" || problem === "not-found";
+  // Each Citation on the line of the cell it sits in, as the judge reads it.
+  const lines = shown.text.split("\n");
+  const unstated = answered
+    ? await unstatedSentences(
+        judge,
+        shown.citations.map((citation, index) => {
+          const at = lines.findIndex((line) => line.includes(`[${index + 1}]`));
+          return {
+            at: at === -1 ? -(index + 1) : at,
+            sentence: (lines[at] ?? "").replace(/\[\d+\]/g, "").trim(),
+            quote: citation.quote ?? "",
+            found: citation.check === "found",
+          };
+        }),
+      )
+    : [];
+  return {
+    ...NOTHING,
+    status: answered ? "done" : "failed",
+    error: answered ? null : `${status}: ${problem ?? ""}`,
+    citations: shown.citations.length,
+    found: found.length,
+    cited: needed.every((expected) =>
+      found.some(
+        (each) =>
+          each.documentName === documentName &&
+          each.pageFrom != null &&
+          each.pageTo != null &&
+          each.pageFrom <= expected.pages[1] &&
+          expected.pages[0] <= each.pageTo,
+      ),
+    ),
+    grade: answered
+      ? await grade({ question, quotes: needed.map((each) => each.quote) }, text)
+      : null,
+    falseSupported: unstated?.length ?? 0,
+    duplicate: isWrittenTwice(text),
+    failures: [
+      ...(toolTextIn(text).length > 0 ? ["tool-text"] : []),
+      ...(unstated === null ? ["false-supported-unread"] : []),
+    ],
+    text: [text, ...flaggedLines(unstated)].join("\n"),
   };
 }
 
@@ -351,7 +456,7 @@ export function cellsSet(root: string, timeoutMs: number): PairedGroup[] {
         kind: groupOfQuestion(question),
         language: languageOf(question.language),
         words: "events",
-        async run({ library, grade, arm, ended }) {
+        async run({ library, grade, arm, ended, claimsJudge }) {
           const document = library.documents.get(key);
           if (!document) throw new Error(`No Document ${key} in the library.`);
           const { core } = library;
@@ -392,39 +497,7 @@ export function cellsSet(root: string, timeoutMs: number): PairedGroup[] {
           });
           if (cell === null) throw new Error("The table has no cell.");
           const filled: ProseMirrorNode = cell;
-          const { status, problem } = comparisonCellOf(filled.attrs);
-          const citations: ReturnType<typeof citationAttributesOf>[] = [];
-          filled.descendants((node) => {
-            if (node.type.name === "citation") citations.push(citationAttributesOf(node.attrs));
-          });
-          const found = citations.filter((each) => each.check === "found");
-          const text = filled.textBetween(0, filled.content.size, " ", " ").trim();
-          const answered = status === "done" || problem === "not-found";
-          return {
-            ...NOTHING,
-            status: answered ? "done" : "failed",
-            error: answered ? null : `${status}: ${problem ?? ""}`,
-            citations: citations.length,
-            found: found.length,
-            cited: needed.every((expected) =>
-              found.some(
-                (each) =>
-                  each.documentName === document.name &&
-                  each.pageFrom != null &&
-                  each.pageTo != null &&
-                  each.pageFrom <= expected.pages[1] &&
-                  expected.pages[0] <= each.pageTo,
-              ),
-            ),
-            grade: answered
-              ? await grade(
-                  { question: question.question, quotes: needed.map((each) => each.quote) },
-                  text,
-                )
-              : null,
-            failures: toolTextIn(text).length > 0 ? ["tool-text"] : [],
-            text,
-          };
+          return measuredCell(filled, document.name, question.question, needed, grade, claimsJudge);
         },
       },
     ];
@@ -686,7 +759,8 @@ export async function runOnArm(
   return {
     ...measured,
     answerCalls: own.length,
-    firstSignMs: sign,
+    firstSignMs:
+      item.words === "item" && measured.firstSignMs !== undefined ? measured.firstSignMs : sign,
     firstWordsMs:
       item.words === "item"
         ? (measured.firstWordsMs ?? null)
