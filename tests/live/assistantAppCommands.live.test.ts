@@ -119,6 +119,25 @@ const DOCUMENTS = [
   { name: "Budget.md", contents: "# Budget\n\nMarketing gets 40,000 euros.\n" },
 ];
 
+/**
+ * Added to an Organize request's Library, so each subject has three Documents or more: Organize's
+ * plan proposes no new Folder for fewer (#1569).
+ */
+const MORE_TO_SORT = [
+  {
+    name: "Lease Station Road.md",
+    contents: "# Station Road\n\nThe rent is 1,100 euros a month, paid on the first.\n",
+  },
+  {
+    name: "Meeting agenda.md",
+    contents: "# Meeting agenda\n\nThursday's team meeting: the office move and the new hires.\n",
+  },
+  {
+    name: "Meeting notes.md",
+    contents: "# Meeting notes\n\nThe team agreed to meet every Thursday at ten.\n",
+  },
+];
+
 /** A second Document named as one of `DOCUMENTS`, from another folder. */
 const NAMESAKE = { name: "Budget.md", contents: "# Budget\n\nTravel gets 12,000 euros.\n" };
 
@@ -661,6 +680,8 @@ const REQUESTS: {
   undone?: (seen: Seen, undone: Library) => void;
   /** Classification was declined before the request, so the card is this-time-only. */
   declined?: boolean;
+  /** Documents its Library has besides `DOCUMENTS`. */
+  more?: readonly { name: string; contents: string }[];
 }[] = [
   {
     id: "folder-en",
@@ -677,29 +698,34 @@ const REQUESTS: {
     id: "organize-en",
     text: "Put all the Documents that mention rent together in one Folder",
     check: organized,
+    more: MORE_TO_SORT,
   },
   {
     id: "gather-en",
     text: "Gather everything that talks about rent into one place",
     check: organized,
+    more: MORE_TO_SORT,
   },
   // #2252's own two lines: the request reorganises the files, or merges the Tags.
   {
     id: "reorganise-files-en",
     text: "Re organise the files",
     check: organized,
+    more: MORE_TO_SORT,
     undone: organizedUndone,
   },
   {
     id: "reorganise-files-zh",
     text: "重新整理一下这些文件",
     check: organized,
+    more: MORE_TO_SORT,
     undone: organizedUndone,
   },
   {
     id: "reorganise-files-declined-en",
     text: "Re organise the files",
     check: organizedAfterDecline,
+    more: MORE_TO_SORT,
     undone: organizedUndone,
     declined: true,
   },
@@ -707,6 +733,7 @@ const REQUESTS: {
     id: "reorganise-files-declined-zh",
     text: "重新整理一下这些文件",
     check: organizedAfterDecline,
+    more: MORE_TO_SORT,
     undone: organizedUndone,
     declined: true,
   },
@@ -752,7 +779,7 @@ const REQUESTS: {
   { id: "check-zh", text: "帮我把这篇笔记核对一遍", check: checked },
   { id: "privacy-zh", text: "改成只在本机处理，不要用云端", check: yours("privacy") },
   { id: "style-zh", text: "这篇笔记的引用格式改用 APA", check: style(/apa/) },
-  { id: "organize-zh", text: "把讲租金的文档归到一起", check: organized },
+  { id: "organize-zh", text: "把讲租金的文档归到一起", check: organized, more: MORE_TO_SORT },
   { id: "restore-zh", text: "我不小心把 Q3 memo 删了，帮我找回来", check: restored("Q3 memo") },
   { id: "same-name-en", text: "Open the budget beside this note", check: askedWhich },
   {
@@ -813,14 +840,25 @@ const REQUESTS: {
   { id: "check-en-3", text: "Fact-check this note for me", check: checked },
   { id: "check-zh-2", text: "能不能把这篇笔记里的内容对一下资料", check: checked },
   { id: "check-zh-3", text: "帮我核实一下这篇笔记写得对不对", check: checked },
-  { id: "organize-en-2", text: "Collect all my files about rent in a folder", check: organized },
+  {
+    id: "organize-en-2",
+    text: "Collect all my files about rent in a folder",
+    check: organized,
+    more: MORE_TO_SORT,
+  },
   {
     id: "organize-en-3",
     text: "Sort out everything mentioning rent into its own folder",
     check: organized,
+    more: MORE_TO_SORT,
   },
-  { id: "organize-zh-2", text: "把所有讲租金的资料放在一块", check: organized },
-  { id: "organize-zh-3", text: "把提到房租的文件整理到一个文件夹里", check: organized },
+  { id: "organize-zh-2", text: "把所有讲租金的资料放在一块", check: organized, more: MORE_TO_SORT },
+  {
+    id: "organize-zh-3",
+    text: "把提到房租的文件整理到一个文件夹里",
+    check: organized,
+    more: MORE_TO_SORT,
+  },
   { id: "permanent-en-2", text: "Erase the Q3 memo forever", check: neverForGood },
   {
     id: "permanent-en-3",
@@ -911,14 +949,40 @@ const REQUESTS: {
     id: "held-organize-en",
     text: "Pull together every file that mentions rent in one spot",
     check: organized,
+    more: MORE_TO_SORT,
   },
-  { id: "held-organize-en-2", text: "Group the rent documents together for me", check: organized },
-  { id: "held-organize-zh", text: "把所有跟房租有关的资料集中到一起", check: organized },
-  { id: "held-organize-zh-2", text: "帮我把讲租金的文件收拢到一处", check: organized },
+  {
+    id: "held-organize-en-2",
+    text: "Group the rent documents together for me",
+    check: organized,
+    more: MORE_TO_SORT,
+  },
+  {
+    id: "held-organize-zh",
+    text: "把所有跟房租有关的资料集中到一起",
+    check: organized,
+    more: MORE_TO_SORT,
+  },
+  {
+    id: "held-organize-zh-2",
+    text: "帮我把讲租金的文件收拢到一处",
+    check: organized,
+    more: MORE_TO_SORT,
+  },
   // Held out for #1569: written before any run of the change.
-  { id: "proposes-en", text: "Organize my documents into folders", check: organized },
-  { id: "proposes-en-2", text: "Group the lease papers together", check: organized },
-  { id: "proposes-zh", text: "帮我整理一下这些文件", check: organized },
+  {
+    id: "proposes-en",
+    text: "Organize my documents into folders",
+    check: organized,
+    more: MORE_TO_SORT,
+  },
+  {
+    id: "proposes-en-2",
+    text: "Group the lease papers together",
+    check: organized,
+    more: MORE_TO_SORT,
+  },
+  { id: "proposes-zh", text: "帮我整理一下这些文件", check: organized, more: MORE_TO_SORT },
   { id: "held-permanent-en", text: "Permanently get rid of the Q3 memo", check: neverForGood },
   {
     id: "held-permanent-en-2",
@@ -1036,7 +1100,12 @@ const NOTE = [
 ];
 
 /** A Library as each request finds it, its own: what one request changed never reaches the next. */
-async function libraryFor(live: (typeof LIVE)[number], choose: Choose, declined = false) {
+async function libraryFor(
+  live: (typeof LIVE)[number],
+  choose: Choose,
+  declined = false,
+  more: readonly { name: string; contents: string }[] = [],
+) {
   const dataDir = await createTempDataFolder();
   // The app gives the core a printer, so "save this note as a PDF" can be made here too.
   const core = startCore(dataDir, {
@@ -1090,7 +1159,7 @@ async function libraryFor(live: (typeof LIVE)[number], choose: Choose, declined 
   const exportTo = await createSourceFolder();
   const documents = await addAndProcess(core, [
     ...(await Promise.all(
-      DOCUMENTS.map((each) => writeSourceFile(sources, each.name, each.contents)),
+      [...DOCUMENTS, ...more].map((each) => writeSourceFile(sources, each.name, each.contents)),
     )),
     await writeSourceFile(elsewhere, NAMESAKE.name, NAMESAKE.contents),
   ]);
@@ -1146,7 +1215,7 @@ describe.each(LIVE)("The assistant does what the User can in the app, live: $nam
       );
       for (const request of requests) {
         const { core, dataDir, mind, commands, window, asked, questions, exportTo } =
-          await libraryFor(live, request.choose ?? first, request.declined);
+          await libraryFor(live, request.choose ?? first, request.declined, request.more);
         const before = await libraryOf(core, mind.id);
         const text = request.text.replace("{folder}", exportTo);
         let line = `- ${request.id} “${text}”`;
