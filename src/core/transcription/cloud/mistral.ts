@@ -8,16 +8,19 @@
  *
  * Protocol: https://docs.mistral.ai/studio/audio/speech-to-text/transcribe-in-realtime and
  * https://docs.mistral.ai/studio/audio/speech-to-text/turn-detection. An error comes as an
- * `error` message; a key refused, or an account out of credit, at the handshake is a 401 or 402.
+ * `error` message. Its API answers a wrong key with 401 and an account out of credit with 402
+ * (https://docs.mistral.ai/resources/error-glossary); that its socket's handshake does the same is
+ * assumed.
  */
 import type { CloudLoss } from "../../adapters";
+import { OUT_OF_CREDIT } from "../../providers/creditWords";
 import { cleanSpeech } from "../speechText";
 import { base64Pcm, closedLoss, createLiveStream, type LiveLink } from "./live";
 import { type CloudStreamHandle, type CloudStreamOptions, msOf } from "./stream";
 
 export { MISTRAL_REALTIME_MODEL } from "./protocol";
 export const MISTRAL_REALTIME_URL = "wss://api.mistral.ai/v1/audio/transcriptions/realtime";
-/** Each append holds at most 256 KiB of audio; a second is well inside it. */
+/** A second of audio at most in each message, however much the stream is handed at once. */
 const CHUNK_SAMPLES = 16_000;
 /** The text lags the turns by the streaming delay (480 ms by default): a turn's last words wait this long. */
 const LAST_WORDS_MS = 1500;
@@ -30,17 +33,22 @@ export function mistralUrl(model: string): string {
   return url.toString();
 }
 
-/** An error in Mistral's words: the key, the account's credit, or anything else. */
+/**
+ * An error in Mistral's words: the account's credit first, in the chat providers' words or its own
+ * 402's ("Payment required … The prepaid credit balance has reached zero"), then the key, or
+ * anything else.
+ */
 export function mistralLoss(words: string): CloudLoss {
+  if (OUT_OF_CREDIT.test(words) || /payment required|balance has reached zero/i.test(words)) {
+    return "credit";
+  }
   if (/api key|unauthori[sz]ed|authenticat/i.test(words)) return "refused";
-  if (/credit|payment|balance|billing/i.test(words)) return "credit";
   return "dropped";
 }
 
 interface Line {
   id: number;
   startMs: number;
-  /** Where its turn ended, once it has. */
   endMs: number | null;
   text: string;
 }
@@ -52,7 +60,6 @@ export function createMistralStream(options: CloudStreamOptions): CloudStreamHan
   let received = 0;
   let line: Line | null = null;
   let nextId = 1;
-  /** Where the last line ended. */
   let finalMs = 0;
   let said: CloudLoss | null = null;
   let lastWords: ReturnType<typeof setTimeout> | null = null;

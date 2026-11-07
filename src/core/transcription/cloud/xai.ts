@@ -6,9 +6,12 @@
  *
  * Protocol: https://docs.x.ai/developers/model-capabilities/audio/speech-to-text (Streaming
  * Speech-to-Text) and its schema, https://docs.x.ai/stt-streaming.ws.json. An error comes as an
- * `error` message, in words, before the socket closes; a key refused at the handshake is a 401.
+ * `error` message, in words, before the socket closes. A handshake is refused before the socket
+ * opens: the docs say 401 for a wrong key, which answers 400 "Incorrect API key provided", and an
+ * account out of credit is a 403 saying so (../../providers/creditWords); ./socket reads both.
  */
 import type { CloudLoss } from "../../adapters";
+import { OUT_OF_CREDIT } from "../../providers/creditWords";
 import { cleanSpeech } from "../speechText";
 import { closedLoss, createLiveStream, joinWords, type LiveLink, pcmBytes } from "./live";
 import type { CloudStreamHandle, CloudStreamOptions } from "./stream";
@@ -42,10 +45,13 @@ export function xaiUrl(model: string): string {
   return url.toString();
 }
 
-/** An error in xAI's words: the key, the account's credit or spending limit, or anything else. */
+/**
+ * An error in xAI's words: the account's credit first, as its credit error also says "The caller
+ * does not have permission", then the key, or anything else.
+ */
 export function xaiLoss(words: string): CloudLoss {
+  if (OUT_OF_CREDIT.test(words)) return "credit";
   if (/api key|unauthori[sz]ed|credentials|permission/i.test(words)) return "refused";
-  if (/credit|billing|spending|balance|exhausted|payment/i.test(words)) return "credit";
   return "dropped";
 }
 

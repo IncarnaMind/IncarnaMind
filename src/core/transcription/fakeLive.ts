@@ -368,20 +368,17 @@ function splitMarks(line: HeardLine) {
 const twoPlaces = (ms: number) => Math.round(ms / 10) / 100;
 
 /**
- * xAI: https://docs.x.ai/developers/model-capabilities/audio/speech-to-text. A refused key is a
- * 401 at the handshake. Its words for an account out of credit aren't published: these are a
- * guess the owner's hand check confirms.
+ * xAI: https://docs.x.ai/developers/model-capabilities/audio/speech-to-text. Its handshake refuses
+ * a wrong key with a 400 "Incorrect API key provided" and an account out of credit with a 403
+ * "used all available credits", which the socket's probe reads as these closes.
  */
 export const fakeXai: Make = (options, nextLine, events) => {
   const link = connection(events);
   const lines = lineMaker(nextLine, options.voices ?? 2);
   later(() => {
     if (options.refuse) return link.close(HANDSHAKE_REFUSED);
+    if (options.noCredit) return link.close(HANDSHAKE_NO_CREDIT);
     events.open();
-    if (options.noCredit) {
-      link.reply({ type: "error", message: "Your team's prepaid credits are depleted." });
-      return link.close(1008);
-    }
     link.reply({ type: "transcript.created", id: "83f2f6fd-1cd1-4747-bc52-cebddc961c32" });
   });
   const partial = (line: HeardLine, words: ReturnType<typeof wordsOf>, flags: object) => ({

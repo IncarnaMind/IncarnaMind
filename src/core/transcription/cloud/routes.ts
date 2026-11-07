@@ -52,8 +52,10 @@ const SENDS = ["meeting-audio"] as const;
 interface KeyCheck {
   url: string;
   auth: CloudAuth;
-  /** A POST with this JSON body; a GET when absent. */
-  post?: string;
+  /** A GET when absent. */
+  method?: "POST";
+  /** JSON. */
+  body?: string;
 }
 
 /**
@@ -67,12 +69,18 @@ const KEY_CHECKS: Partial<Record<CloudTranscriptionRoute, KeyCheck>> = {
     url: "https://streaming.assemblyai.com/v3/token?expires_in_seconds=60",
     auth: ASSEMBLYAI_AUTH,
   },
-  elevenlabs: { url: "https://api.elevenlabs.io/v1/models", auth: ELEVENLABS_AUTH },
+  // A single-use token for a real-time session, which is never used and lapses in 15 minutes.
+  elevenlabs: {
+    url: "https://api.elevenlabs.io/v1/single-use-token/realtime_scribe",
+    auth: ELEVENLABS_AUTH,
+    method: "POST",
+  },
   // A temporary key for one minute's real-time session, which is never used.
   speechmatics: {
     url: "https://mp.speechmatics.com/v1/jwts?type=rt",
     auth: BEARER,
-    post: JSON.stringify({ ttl: 60 }),
+    method: "POST",
+    body: JSON.stringify({ ttl: 60 }),
   },
 };
 /** Deepgram's own servers are asked for the key's projects; Cloudflare's and the User's aren't asked. */
@@ -328,7 +336,6 @@ export function createCloudTranscription(options: CloudTranscriptionOptions) {
     );
   }
 
-  /** The languages the User speaks that a service transcribes. */
   const spokenIn = (service: TranscriptionService) =>
     languagesOf(options.languages()).filter((code) => service.languages.includes(code));
 
@@ -411,9 +418,10 @@ export function createCloudTranscription(options: CloudTranscriptionOptions) {
         await request(check.url, {
           headers: {
             ...authHeaders(apiKey, check.auth),
-            ...(check.post !== undefined && { "content-type": "application/json" }),
+            ...(check.body !== undefined && { "content-type": "application/json" }),
           },
-          ...(check.post !== undefined && { method: "POST", body: check.post }),
+          ...(check.method && { method: check.method }),
+          ...(check.body !== undefined && { body: check.body }),
           signal: AbortSignal.timeout(KEY_CHECK_TIMEOUT_MS),
         })
       ).status;

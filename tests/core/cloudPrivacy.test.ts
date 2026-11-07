@@ -99,15 +99,25 @@ function counting(options: FakeCloudOptions = {}) {
   let closes = 0;
   const opened: string[] = [];
   const held: (() => void)[] = [];
+  const fakeFetch = createFakeCloudFetch(options);
+  const requested: string[] = [];
+  let requestedAtMark = 0;
   const service = {
-    /** Gladia's session requests, which come before its socket. */
-    fetch: createFakeCloudFetch(options),
+    /** Gladia's session requests, which come before its socket, carrying the key. */
+    fetch: (async (input, init) => {
+      requested.push(String(input));
+      return fakeFetch(input, init);
+    }) as typeof fetch,
     holdOpen: false,
     errorAfterMs: undefined as number | undefined,
     mark: () => {
       marked = total;
+      requestedAtMark = requested.length;
     },
     sentSinceMark: () => total - marked,
+    /** Session requests since the mark: a key goes in each. */
+    requestedSinceMark: () => requested.length - requestedAtMark,
+    requested: () => [...requested],
     /** How many cloud streams the app has closed: the audio sent before one has all arrived by then. */
     closes: () => closes,
     /** The address of every connection the app opened, in order. */
@@ -268,6 +278,12 @@ describe("Nothing more goes to the cloud once the User says no", { timeout: 60_0
         const { core, record, meeting } = await meetingOn(route, service);
         await until(core, meeting.id, (each) => each.cloud === route);
         record(4 * SECOND);
+        if (route === "gladia") {
+          await vi.waitFor(
+            () => expect(service.requested()).toContain("https://api.gladia.io/v2/live"),
+            { timeout: 20_000, interval: 20 },
+          );
+        }
         await change(core, route);
         // The drop reaches the socket after every audio message sent before it, in channel order:
         // once the app has closed the stream, only what it records next could still go out.
@@ -282,6 +298,7 @@ describe("Nothing more goes to the cloud once the User says no", { timeout: 60_0
         // is drained: anything the cloud got after the mark would have arrived by now.
         await until(core, meeting.id, (each) => each.lines > before);
         expect(service.sentSinceMark()).toBe(0);
+        expect(service.requestedSinceMark()).toBe(0);
         const transcript = (await core.listMeetings())[0]?.transcript;
         expect(transcript?.cloud).toBeNull();
         expect((await core.listMeetings())[0]?.status).toBe("recording");
@@ -580,6 +597,9 @@ describe("Nothing more goes to the cloud once the User says no", { timeout: 60_0
       record(2 * SECOND);
       await settle();
       expect(service.sentSinceMark()).toBe(0);
+      // Gladia's key went in the first Meeting's session request, and in none since.
+      expect(service.requested().length > 0).toBe(route === "gladia");
+      expect(service.requestedSinceMark()).toBe(0);
     });
   }
 
@@ -639,7 +659,7 @@ describe("A key saved for a meeting service", () => {
       "GET https://api.soniox.com/v1/models",
       "GET https://api.deepgram.com/v1/projects",
       "GET https://streaming.assemblyai.com/v3/token?expires_in_seconds=60",
-      "GET https://api.elevenlabs.io/v1/models xi-api-key",
+      "POST https://api.elevenlabs.io/v1/single-use-token/realtime_scribe xi-api-key",
       'POST https://mp.speechmatics.com/v1/jwts?type=rt {"ttl":60}',
     ]);
   });

@@ -4,6 +4,10 @@
  * service's voice detection commits the stretch once the speaker pauses: its final text, then the
  * same with each word's time. It tells no speakers apart live.
  *
+ * When a session reaches its time limit, the service says so and the stream goes on over a new
+ * one, as its docs say to, from the end of the last committed text: that audio is sent again, so
+ * no words are lost and none come twice.
+ *
  * Protocol: https://elevenlabs.io/docs/api-reference/speech-to-text/v-1-speech-to-text-realtime
  * and https://elevenlabs.io/docs/eleven-api/guides/how-to/speech-to-text/realtime/event-reference.
  * An error comes as a message of its own type before the socket closes, which tells nothing more.
@@ -12,7 +16,7 @@ import type { CloudLoss } from "../../adapters";
 import { cleanSpeech } from "../speechText";
 import { base64Pcm, closedLoss, createLiveStream, type LiveLink } from "./live";
 import type { CloudAuth } from "./socket";
-import { type CloudStreamHandle, type CloudStreamOptions, msOf } from "./stream";
+import { type CloudStreamHandle, type CloudStreamOptions, msOf, samplesOf } from "./stream";
 
 export { ELEVENLABS_MODEL } from "./protocol";
 export const ELEVENLABS_URL = "wss://api.elevenlabs.io/v1/speech-to-text/realtime";
@@ -26,6 +30,10 @@ const CHUNK_SAMPLES = 1600;
 const LAST_TEXT_MS = 3000;
 /** A guess, which has no times, starts this long before it came. */
 const UNTIMED_LEAD_MS = 1000;
+/** Audio after the last committed text is kept to send again; never more than this. */
+const KEPT_MS = 60_000;
+/** With nothing being said, only this much of the latest audio is kept: speech in it may not be heard yet. */
+const QUIET_KEPT_MS = 3000;
 
 export function elevenLabsUrl(model: string): string {
   const url = new URL(ELEVENLABS_URL);
@@ -44,7 +52,6 @@ const ERRORS: Readonly<Record<string, CloudLoss>> = {
   // The account must accept Scribe's terms first: its key isn't at fault, nor its credit.
   unaccepted_terms: "dropped",
   rate_limited: "dropped",
-  session_time_limit_exceeded: "dropped",
   transcriber_error: "dropped",
   input_error: "dropped",
   invalid_request: "dropped",
@@ -70,6 +77,12 @@ const seconds = (value: unknown) => (typeof value === "number" ? Math.round(valu
 export function createElevenLabsStream(options: CloudStreamOptions): CloudStreamHandle {
   const { stream, report } = options;
   let received = 0;
+  /** Where the current session's audio starts, in the stream's samples. */
+  let base = 0;
+  /** Audio kept to send again: `kept[0]` starts at sample `safe`. */
+  let safe = 0;
+  const kept: Int16Array[] = [];
+  /** Audio short of a chunk, not sent yet. */
   let pending = new Int16Array(0);
   /** The stretch being said, from its first guess to its timed final text. */
   let line: Line | null = null;
@@ -114,6 +127,50 @@ export function createElevenLabsStream(options: CloudStreamOptions): CloudStream
     const open = committed?.startMs ?? line?.startMs;
     const done = open === undefined ? msOf(received) : Math.min(open, finalMs);
     report.progress(done, msOf(received));
+  }
+
+  /** Audio before `until` needs no sending again. */
+  function release(until: number): void {
+    while (kept.length > 0 && safe + (kept[0] as Int16Array).length <= until) {
+      safe += (kept.shift() as Int16Array).length;
+    }
+  }
+
+  function send(link: LiveLink, samples: Int16Array): void {
+    const joined = new Int16Array(pending.length + samples.length);
+    joined.set(pending);
+    joined.set(samples, pending.length);
+    let at = 0;
+    for (; joined.length - at >= CHUNK_SAMPLES; at += CHUNK_SAMPLES) {
+      link.send(chunk(joined.subarray(at, at + CHUNK_SAMPLES), false));
+    }
+    pending = joined.slice(at);
+  }
+
+  /** The last of the audio, made up to the shortest chunk with silence, commits what is left. */
+  function commit(link: LiveLink): void {
+    const last = new Int16Array(pending.length > 0 ? CHUNK_SAMPLES : 0);
+    last.set(pending);
+    pending = new Int16Array(0);
+    link.send(chunk(last, true));
+  }
+
+  /** The session's time is up: a new one hears again what the last committed text didn't cover. */
+  function renew(link: LiveLink): void {
+    if (lastText) clearTimeout(lastText);
+    writeCommitted();
+    line = null;
+    base = safe;
+    pending = new Int16Array(0);
+    link.renew();
+    const again = new Int16Array(received - safe);
+    let at = 0;
+    for (const samples of kept) {
+      again.set(samples, at);
+      at += samples.length;
+    }
+    send(link, again);
+    if (link.finishing) commit(link);
   }
 
   function maybeDone(link: LiveLink): void {
@@ -178,8 +235,10 @@ export function createElevenLabsStream(options: CloudStreamOptions): CloudStream
               word !== null &&
               (word as { type?: unknown }).type === "word",
           );
-          const startMs = seconds(words[0]?.start);
-          const endMs = seconds(words.at(-1)?.end);
+          const first = seconds(words[0]?.start);
+          const last = seconds(words.at(-1)?.end);
+          const startMs = first === null ? null : msOf(base) + first;
+          const endMs = last === null ? null : msOf(base) + last;
           const text = cleanSpeech(typeof message.text === "string" ? message.text : "");
           const id = committed?.id ?? line?.id ?? nextId++;
           const known = committed ?? line;
@@ -191,10 +250,14 @@ export function createElevenLabsStream(options: CloudStreamOptions): CloudStream
           });
           committed = null;
           if (line?.id === id) line = null;
+          release(Math.min(samplesOf(finalMs), received));
           progress();
           maybeDone(link);
           return;
         }
+        case "session_time_limit_exceeded":
+          renew(link);
+          return;
         default: {
           const loss = elevenLabsLoss(type);
           if (!loss) return;
@@ -206,22 +269,13 @@ export function createElevenLabsStream(options: CloudStreamOptions): CloudStream
     },
     audio(samples, link) {
       received += samples.length;
-      const joined = new Int16Array(pending.length + samples.length);
-      joined.set(pending);
-      joined.set(samples, pending.length);
-      let at = 0;
-      for (; joined.length - at >= CHUNK_SAMPLES; at += CHUNK_SAMPLES) {
-        link.send(chunk(joined.subarray(at, at + CHUNK_SAMPLES), false));
-      }
-      pending = joined.slice(at);
+      kept.push(samples);
+      release(received - samplesOf(line || committed ? KEPT_MS : QUIET_KEPT_MS));
+      send(link, samples);
     },
     finish(link) {
-      // The last of the audio, made up to the shortest chunk with silence, commits what is left;
-      // with none left, an empty chunk does.
-      const last = new Int16Array(pending.length > 0 ? CHUNK_SAMPLES : 0);
-      last.set(pending);
-      pending = new Int16Array(0);
-      link.send(chunk(last, true));
+      // With no audio left, an empty chunk commits.
+      commit(link);
       maybeDone(link);
     },
     late(link) {

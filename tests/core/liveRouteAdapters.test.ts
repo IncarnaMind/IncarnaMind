@@ -12,6 +12,7 @@ import {
   type CloudSocketEvents,
   HANDSHAKE_NO_CREDIT,
   HANDSHAKE_REFUSED,
+  handshakeRefusalOf,
 } from "../../src/core/transcription/cloud/socket";
 import { createSpeechmaticsStream } from "../../src/core/transcription/cloud/speechmatics";
 import { createXaiStream } from "../../src/core/transcription/cloud/xai";
@@ -643,6 +644,46 @@ describe("Gemini's Live API, for what it hears, in the messages its reference sh
   });
 });
 
+// ---- A handshake refused before the socket opened, as a probe with the same key hears the answer ----
+
+describe("A refused handshake, read from the service's answer", () => {
+  test.each([
+    [
+      "xAI's wrong key",
+      400,
+      '{"code":"Client specified an invalid argument","error":"Incorrect API key provided. You can obtain an API key from https://console.x.ai."}',
+      HANDSHAKE_REFUSED,
+    ],
+    [
+      "xAI's account out of credit",
+      403,
+      '{"code":"The caller does not have permission to execute the specified operation","error":"Your team has used all available credits. Please purchase more credits."}',
+      HANDSHAKE_NO_CREDIT,
+    ],
+    [
+      "Google's wrong key",
+      400,
+      "API key not valid. Please pass a valid API key.",
+      HANDSHAKE_REFUSED,
+    ],
+    ["a 401", 401, "", HANDSHAKE_REFUSED],
+    ["a 401 in credit's words", 401, "Insufficient credits.", HANDSHAKE_REFUSED],
+    ["a bare 403", 403, "Forbidden", HANDSHAKE_REFUSED],
+    ["a 402", 402, "", HANDSHAKE_NO_CREDIT],
+    [
+      "a 429 for the quota",
+      429,
+      '{"error":{"message":"You exceeded your current quota, please check your plan and billing details.","type":"insufficient_quota","code":"insufficient_quota"}}',
+      HANDSHAKE_NO_CREDIT,
+    ],
+    ["a 429 for the rate", 429, "Rate limit reached.", 0],
+    ["another 400", 400, "Unsupported sample rate.", 0],
+    ["a 500", 500, "Insufficient credits.", 0],
+  ] as const)("%s", (_, status, body, refusal) => {
+    expect(handshakeRefusalOf(status, body)).toBe(refusal);
+  });
+});
+
 // ---- xAI, as https://docs.x.ai/developers/model-capabilities/audio/speech-to-text shows its stream ----
 
 describe("xAI's streaming speech to text, in the messages its reference shows", () => {
@@ -767,10 +808,15 @@ describe("xAI's streaming speech to text, in the messages its reference shows", 
     ]);
   });
 
-  test("a key refused at the handshake is refused; an error in words names the key or the credit, any other end is dropped; nothing more is reported", () => {
+  test("a key refused at the handshake is refused; an error in words names the credit before the key, any other end is dropped; nothing more is reported", () => {
     for (const [message, loss] of [
       ["Incorrect API key provided.", "refused"],
-      ["Your team's prepaid credits are depleted.", "credit"],
+      [
+        "The caller does not have permission to execute the specified operation: Your team has used all available credits. Please purchase more credits.",
+        "credit",
+      ],
+      ["The caller does not have permission to execute the specified operation.", "refused"],
+      ["RESOURCE_EXHAUSTED: too many requests.", "dropped"],
       ["Stream timeout.", "dropped"],
     ] as const) {
       const { service, heard } = connect();
@@ -786,6 +832,9 @@ describe("xAI's streaming speech to text, in the messages its reference shows", 
     const refused = connect();
     refused.service.drop(HANDSHAKE_REFUSED);
     expect(refused.heard.losses).toEqual(["refused"]);
+    const noCredit = connect();
+    noCredit.service.drop(HANDSHAKE_NO_CREDIT);
+    expect(noCredit.heard.losses).toEqual(["credit"]);
     const dropped = connect();
     dropped.service.open();
     dropped.service.say({ type: "transcript.created", id: "s1" });
@@ -1057,6 +1106,51 @@ describe("ElevenLabs' real-time speech to text, in the messages its reference sh
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  test("a session at its time limit goes on over a new one, sending again the audio after the last committed text: no words lost and none twice", () => {
+    const { service, heard, stream } = connect();
+    service.open();
+    service.say({ message_type: "session_started", session_id: "s1", config: {} });
+    feed((samples) => stream.push(samples), 2);
+    service.say({ message_type: "partial_transcript", text: "First" });
+    service.say({ message_type: "committed_transcript", text: "First point." });
+    service.say(
+      timed("First point.", [
+        ["First", 0.2, 0.6],
+        ["point.", 0.6, 1.0],
+      ]),
+    );
+    feed((samples) => stream.push(samples), 1);
+    service.say({ message_type: "partial_transcript", text: "Second" });
+    service.say({
+      message_type: "session_time_limit_exceeded",
+      error: "Maximum session duration exceeded. Start a new session.",
+    });
+    expect(service.connections).toHaveLength(2);
+    expect(service.connections[0]?.closed).toBe(true);
+    // The old socket's own close, after its error, ends nothing.
+    service.connections[0]?.events.closed(1000, "");
+    service.open();
+    service.say({ message_type: "session_started", session_id: "s2", config: {} });
+    // Kept from the end of the last committed text, 1 s, to the 3 s received.
+    const again = service.json();
+    expect(again).toHaveLength(20);
+    expect(again.every((each) => each.commit === false)).toBe(true);
+    // Its times count from where its audio starts.
+    service.say({ message_type: "committed_transcript", text: "Second point." });
+    service.say(
+      timed("Second point.", [
+        ["Second", 0.1, 0.5],
+        ["point.", 0.5, 0.9],
+      ]),
+    );
+    expect(heard.finals().map((each) => [each.text, each.startMs, each.endMs])).toEqual([
+      ["First point.", 200, 1000],
+      ["Second point.", 1100, 1900],
+    ]);
+    expect(heard.losses).toEqual([]);
+    expect(heard.opened.count).toBe(1);
   });
 
   test("its error message names the close: auth_error is a refused key, quota_exceeded out of credit, anything else dropped; nothing more is reported", () => {
