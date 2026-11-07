@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { modelName } from "../../src/shared/modelName";
+import { modelName, shortModelName } from "../../src/shared/modelName";
 
 describe("modelName", () => {
   test("takes the catalog's name, for the provider's set or, with no provider, from any set", () => {
@@ -36,5 +36,41 @@ describe("modelName", () => {
     expect(modelName("gpt-oss:20b-cloud")).toBe("gpt-oss:20b-cloud");
     expect(modelName("llama3.2", { kind: "openai-compatible" })).toBe("llama3.2");
     expect(modelName("claude-haiku-5-5", { kind: "ollama" })).toBe("claude-haiku-5-5");
+  });
+});
+
+describe("shortModelName", () => {
+  test.each([
+    ["Claude Haiku 5.5", "Haiku 5.5"],
+    ["Claude Sonnet 5.5", "Sonnet 5.5"],
+    ["DeepSeek V4.1 Flash", "DeepSeek Flash"],
+    ["DeepSeek V4 Pro", "DeepSeek Pro"],
+    ["GPT-6 Luna", "GPT-6 Luna"],
+    ["Kimi K2.6", "Kimi K2.6"],
+    ["Qwen 3.5 4B", "Qwen 3.5 4B"],
+    ["DeepSeek V3", "DeepSeek V3"],
+    ["fake-model", "fake-model"],
+    ["gpt-oss:20b-cloud", "gpt-oss:20b-cloud"],
+  ])("%s is shown as %s", (name, short) => {
+    expect(shortModelName(name)).toBe(short);
+  });
+
+  test("a name with neither a Claude nor a version before its tier stays whole", () => {
+    for (const name of [
+      "GPT-6 Luna",
+      "GPT-6.1 Sol",
+      "Kimi K3",
+      "Gemini 3.5 Flash",
+      "Qwen3.5 Plus",
+    ]) {
+      expect(shortModelName(name), name).toBe(name);
+    }
+  });
+
+  test("takes the names the catalog gives: the default models of two providers", () => {
+    expect(shortModelName(modelName("claude-haiku-5-5", { kind: "anthropic" }))).toBe("Haiku 5.5");
+    expect(shortModelName(modelName("deepseek-flash", { kind: "deepseek" }))).toBe(
+      "DeepSeek Flash",
+    );
   });
 });

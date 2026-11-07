@@ -5,7 +5,8 @@ import { core } from "../../core";
 import { errorMessage } from "../../errors";
 import { useLanguage, useT } from "../../i18n";
 import { ProblemLine } from "../ProblemLine";
-import { buttonStyle, rowButtonsClass } from "../ui";
+import { SettingsRow } from "../settings/SettingsGroup";
+import { buttonStyle } from "../ui";
 import { DecisionKeyForm, hostName } from "./DecisionKeyForm";
 import { JevForm } from "./JevSettings";
 import { ProviderLogo } from "./ProviderLogo";
@@ -129,24 +130,26 @@ function SortingKeyRow({
       setProblem(errorMessage(failure, t));
     }
   };
+  const below = changing || problem !== null;
   return (
-    <li data-testid="sorting-key-row" data-host={id} className="flex flex-col py-2.5">
-      <div className="flex items-center gap-3">
-        <ProviderLogo id={logo} />
-        <span className="flex min-w-0 flex-1 flex-col">
-          <span className="truncate text-ui font-semibold text-ink" title={name}>
-            {name}
-          </span>
-          <span
-            data-testid="sorting-key-status"
-            className="truncate text-[13px] leading-5 text-ink-meta"
-            title={status}
-          >
-            {status}
-          </span>
+    <SettingsRow
+      role="listitem"
+      data-testid="sorting-key-row"
+      data-host={id}
+      leading={<ProviderLogo id={logo} />}
+      label={
+        <span className="block truncate" title={name}>
+          {name}
         </span>
-        {!changing && (
-          <span className={rowButtonsClass}>
+      }
+      detail={
+        <span data-testid="sorting-key-status" className="block truncate" title={status}>
+          {status}
+        </span>
+      }
+      control={
+        changing ? undefined : (
+          <>
             <button
               type="button"
               data-testid="sorting-key-change"
@@ -154,7 +157,7 @@ function SortingKeyRow({
                 setProblem(null);
                 setChanging(true);
               }}
-              className={buttonStyle("secondary")}
+              className={buttonStyle("secondary", "sm")}
             >
               {change}
             </button>
@@ -162,15 +165,20 @@ function SortingKeyRow({
               type="button"
               data-testid="sorting-key-remove"
               onClick={() => void removeKey()}
-              className={buttonStyle("ghost")}
+              className={buttonStyle("ghost", "sm")}
             >
               {remove}
             </button>
-          </span>
-        )}
-      </div>
-      {changing && <div className="mt-3 pl-11">{form(() => setChanging(false))}</div>}
-      {problem && <ProblemLine className="mt-1 pl-11">{problem}</ProblemLine>}
-    </li>
+          </>
+        )
+      }
+    >
+      {below && (
+        <div className="flex flex-col gap-1 pl-11">
+          {changing && form(() => setChanging(false))}
+          {problem && <ProblemLine>{problem}</ProblemLine>}
+        </div>
+      )}
+    </SettingsRow>
   );
 }

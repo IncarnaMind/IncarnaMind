@@ -119,31 +119,31 @@ test("Other models: grouped by why, ticked into the model menu, with a wrong tic
     await expect(group("Not known to IncarnaMind")).toContainText("May not work");
     await expect(group("Older models").getByTestId("other-model")).toHaveText("GPT-4 Turbo");
     const cannot = group("Can’t answer Questions here");
-    await expect(cannot.getByRole("checkbox")).toHaveCount(0);
+    await expect(cannot.getByRole("switch")).toHaveCount(0);
     await expect(cannot).toContainText("Completions only");
     await expect(cannot).toContainText("Audio model");
     await expect(cannot).toContainText("Needs the deep research API");
     await expect(
-      other.getByTestId("other-model").filter({ hasText: "gpt-9-not-found" }).getByRole("checkbox"),
+      other.getByTestId("other-model").filter({ hasText: "gpt-9-not-found" }).getByRole("switch"),
     ).toBeChecked();
     await screenshot(window, "other-models-open-en");
 
-    // Tick by clicking the row: it goes into the menu and doesn't move.
+    // Switch it on: it goes into the menu and doesn't move.
     const older = rows.filter({ hasText: "GPT-4 Turbo" });
-    await pointAndClick(window, older);
-    await expect(older.getByRole("checkbox")).toBeChecked();
+    await pointAndClick(window, older.getByRole("switch"));
+    await expect(older.getByRole("switch")).toBeChecked();
     await expect.poll(ids).toEqual(order);
     await settings.getByRole("button", { name: "Close Settings" }).click();
     await expect
       .poll(menuModels)
       .toEqual(["gpt-6.1-sol", "gpt-6-luna", "gpt-9-not-found", "gpt-4-turbo"]);
 
-    // Untick: it leaves the menu again.
+    // Switch it off: it leaves the menu again.
     await openSettings(window, "models");
     await settings.getByTestId("provider-row").first().click();
     await toggle.click();
-    await pointAndClick(window, rows.filter({ hasText: "GPT-4 Turbo" }));
-    await expect(rows.filter({ hasText: "GPT-4 Turbo" }).getByRole("checkbox")).not.toBeChecked();
+    await pointAndClick(window, rows.filter({ hasText: "GPT-4 Turbo" }).getByRole("switch"));
+    await expect(rows.filter({ hasText: "GPT-4 Turbo" }).getByRole("switch")).not.toBeChecked();
     await settings.getByRole("button", { name: "Close Settings" }).click();
     await expect.poll(menuModels).toEqual(["gpt-6.1-sol", "gpt-6-luna", "gpt-9-not-found"]);
 

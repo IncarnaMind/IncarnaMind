@@ -96,7 +96,8 @@ const textLeft = (element: Locator) =>
     return range.getBoundingClientRect().left;
   });
 
-const label = (box: Locator) => box.locator("xpath=ancestor::label");
+/** The words of the switch's row, which its line under them starts in line with. */
+const label = (box: Locator) => box.locator("xpath=ancestor::*[@data-testid='keep-local']//label");
 
 const chatModel = (window: Page) =>
   window.evaluate(async () => {

@@ -112,7 +112,7 @@ test("“Summarise my notes” beside a Mind reads it: the consent says so, the 
     "Neap tides come at the quarter moons.",
   ]);
   await expect(window.getByTestId("assistant-reads")).toHaveText(
-    "Reads “Tide notes” · searches All Documents",
+    "Reads “Tide notes” and All Documents",
   );
 
   const answer = await ask(window, "Summarise my notes");
@@ -171,7 +171,7 @@ test("“Summarise my notes” beside a Mind reads it: the consent says so, the 
 test("in Chinese: the consent, the Answer that read the Mind, and the steps", async () => {
   const { app, window } = await start("zh-CN");
   await writeMind(window, "潮汐笔记", ["大潮出现在新月和满月。", "小潮出现在上弦月和下弦月。"]);
-  await expect(window.getByTestId("assistant-reads")).toHaveText("正在读“潮汐笔记” · 搜索全部文档");
+  await expect(window.getByTestId("assistant-reads")).toHaveText("读“潮汐笔记”和全部文档");
 
   const answer = await ask(window, "总结我的笔记");
   const consent = window.getByTestId("consent-dialog");

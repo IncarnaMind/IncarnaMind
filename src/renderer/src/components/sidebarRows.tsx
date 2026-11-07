@@ -23,9 +23,10 @@ const rowTones: Record<RowTone, string> = {
 export const draggedRowClass = "opacity-45";
 
 /**
- * A row's container. Pointed at it's washed; selected it's on the sheet with
- * an inset rule and weight 600, or, one of several selected, on the accent's
- * wash; one a drag carries is quieter and not washed. Its actions
+ * A row's container. Pointed at it's washed, and one step more while pressed;
+ * selected it's on the sheet with an inset rule and weight 600, or, one of
+ * several selected, on the accent's wash; one a drag carries is quieter and
+ * not washed. Its actions
  * (`rowActionsClass`) sit on its right end and take its
  * background. Names of Documents and Folders are a shade darker than the
  * app's own rows. A row's words can't be selected, so a right-click never
@@ -47,7 +48,7 @@ export const rowClass = (
         ? "bg-sheet font-semibold text-ink shadow-[inset_0_0_0_1px_var(--color-rule)] [--row-bg:var(--color-sheet)]"
         : dragged
           ? rowTones[tone]
-          : `${rowTones[tone]} hover:bg-hover has-[:focus-visible]:bg-hover`
+          : `${rowTones[tone]} hover:bg-hover has-[:focus-visible]:bg-hover has-[.row-main:active]:hover:bg-press`
   } ${dragged ? draggedRowClass : ""}`;
 
 export const dropIntoClass = "bg-accent-wash shadow-[inset_0_0_0_2px_var(--color-accent)]";

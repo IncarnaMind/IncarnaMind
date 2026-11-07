@@ -15,7 +15,14 @@ import { useAppStore } from "../../store";
 import { KeyCharacterLine } from "../KeyCharacterLine";
 import { ProblemMark } from "../ProblemLine";
 import {
+  SettingsGroup,
+  SettingsRow,
+  SettingsRowAction,
+  SettingsSection,
+} from "../settings/SettingsGroup";
+import {
   buttonClass,
+  buttonStyle,
   errorTextClass,
   fieldLabelClass,
   ghostButtonClass,
@@ -23,12 +30,6 @@ import {
   inputClass,
   noticeClass,
   primaryButtonClass,
-  rowButtonsClass,
-  rowTextClass,
-  ruledListClass,
-  ruledRowClass,
-  sectionNoteClass,
-  sectionTitleClass,
 } from "../ui";
 import { setUpJevForSorting } from "./jevSetUp";
 import { SecretStorageNotice, TestResult } from "./ProviderForm";
@@ -45,7 +46,7 @@ const toPercent = (probability: number) => Math.round(probability * 100);
  * Jev-compatible models, another server), plus the band of probabilities
  * whose Tags are marked for review. Once set up, Automatic tags with it.
  */
-export function JevSettingsSection({ embedded = false }: { embedded?: boolean }) {
+export function JevSettingsSection() {
   const t = useT();
   const [jev, setJev] = useJevSettings();
   const [editing, setEditing] = useState(false);
@@ -60,67 +61,64 @@ export function JevSettingsSection({ embedded = false }: { embedded?: boolean })
 
   if (!jev) return null;
   return (
-    <section data-testid="jev-settings" className={`flex flex-col ${embedded ? "mt-5" : ""}`}>
-      {embedded ? (
-        <h5 className="text-ui font-semibold text-ink">{t("jev.settings.title")}</h5>
+    <SettingsSection
+      testId="jev-settings"
+      title={t("jev.settings.title")}
+      help={t("jev.settings.body")}
+    >
+      {editing ? (
+        <SettingsGroup className="px-4 py-3">
+          <JevForm
+            current={jev}
+            onSaved={(saved) => {
+              setJev(saved);
+              setEditing(false);
+            }}
+            onCancel={() => setEditing(false)}
+          />
+        </SettingsGroup>
       ) : (
-        <h4 className={sectionTitleClass}>{t("jev.settings.title")}</h4>
+        <SettingsGroup>
+          {jev.enabled ? (
+            <SettingsRow
+              label={t("jev.settings.inUse")}
+              detail={
+                <span className="break-words">
+                  {t("jev.settings.server", { server: jev.endpoint ?? t("jev.settings.hosted") })}
+                </span>
+              }
+              control={
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setEditing(true)}
+                    className={buttonStyle("secondary", "sm")}
+                  >
+                    {t("jev.settings.change")}
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="jev-remove"
+                    onClick={() => void remove()}
+                    className={buttonStyle("secondary", "sm")}
+                  >
+                    {t("jev.settings.remove")}
+                  </button>
+                </>
+              }
+            >
+              {!jev.hasApiKey && <p className={noticeClass}>{t("jev.settings.keyMissing")}</p>}
+            </SettingsRow>
+          ) : (
+            <SettingsRowAction
+              testId="jev-set-up"
+              label={t("jev.settings.setUp")}
+              onClick={() => setEditing(true)}
+            />
+          )}
+        </SettingsGroup>
       )}
-      <p className={sectionNoteClass}>{t("jev.settings.body")}</p>
-
-      {jev.enabled && !editing && (
-        <div className={ruledListClass}>
-          <div className={ruledRowClass}>
-            <div className="flex min-w-0 flex-col gap-0.5">
-              <p className="text-ui text-ink">{t("jev.settings.inUse")}</p>
-              <p className={`${rowTextClass} break-words`}>
-                {t("jev.settings.server", { server: jev.endpoint ?? t("jev.settings.hosted") })}
-              </p>
-              {!jev.hasApiKey && (
-                <p className={`mt-1.5 ${noticeClass}`}>{t("jev.settings.keyMissing")}</p>
-              )}
-            </div>
-            <div className={rowButtonsClass}>
-              <button type="button" onClick={() => setEditing(true)} className={buttonClass}>
-                {t("jev.settings.change")}
-              </button>
-              <button
-                type="button"
-                data-testid="jev-remove"
-                onClick={() => void remove()}
-                className={buttonClass}
-              >
-                {t("jev.settings.remove")}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {!jev.enabled && !editing && (
-        <div>
-          <button
-            type="button"
-            data-testid="jev-set-up"
-            onClick={() => setEditing(true)}
-            className={buttonClass}
-          >
-            {t("jev.settings.setUp")}
-          </button>
-        </div>
-      )}
-
-      {editing && (
-        <JevForm
-          current={jev}
-          onSaved={(saved) => {
-            setJev(saved);
-            setEditing(false);
-          }}
-          onCancel={() => setEditing(false)}
-        />
-      )}
-    </section>
+    </SettingsSection>
   );
 }
 

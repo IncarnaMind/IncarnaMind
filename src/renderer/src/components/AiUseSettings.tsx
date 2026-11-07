@@ -3,7 +3,8 @@ import type { AiUseCleared } from "../../../core/api";
 import { core } from "../core";
 import { useT } from "../i18n";
 import { useAppStore } from "../store";
-import { buttonStyle, rowStatusClass, rowTextClass, sectionTitleClass } from "./ui";
+import { SettingsGroup, SettingsRow, SettingsSection } from "./settings/SettingsGroup";
+import { buttonStyle } from "./ui";
 
 const reportError = (failure: unknown) => useAppStore.getState().reportError(failure);
 
@@ -42,39 +43,52 @@ export function AiUseSettings() {
   };
 
   return (
-    <section data-testid="ai-use-record" className="flex flex-col">
-      <h4 className={sectionTitleClass}>{t("privacy.aiUse.title")}</h4>
-      <p className={`mt-0.5 ${rowTextClass}`}>{t("privacy.aiUse.body")}</p>
-      <p className={rowTextClass}>{t("privacy.aiUse.private")}</p>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 pt-2">
-        <span data-testid="ai-use-entries" className={rowStatusClass}>
-          {t("privacy.aiUse.entries", { count: entries ?? 0 })}
-        </span>
-        <button
-          type="button"
-          data-testid="ai-use-clear"
-          disabled={!entries}
-          onClick={() => void clear()}
-          className={buttonStyle("secondary", "sm")}
-        >
-          {t("privacy.aiUse.clear")}
-        </button>
-        {cleared && (
-          <span role="status" className="flex items-center gap-2">
-            <span data-testid="ai-use-cleared" className={rowStatusClass}>
-              {t("privacy.aiUse.cleared")}
+    <SettingsSection
+      title={t("privacy.aiUse.title")}
+      testId="ai-use-record"
+      help={
+        <>
+          <p>{t("privacy.aiUse.body")}</p>
+          <p>{t("privacy.aiUse.private")}</p>
+        </>
+      }
+    >
+      <SettingsGroup>
+        <SettingsRow
+          label={
+            <span data-testid="ai-use-entries">
+              {t("privacy.aiUse.entries", { count: entries ?? 0 })}
             </span>
+          }
+          control={
             <button
               type="button"
-              data-testid="ai-use-undo"
-              onClick={() => void undo()}
-              className="rounded-sm px-1 text-[13px] leading-5 font-semibold text-accent hover:underline"
+              data-testid="ai-use-clear"
+              disabled={!entries}
+              onClick={() => void clear()}
+              className={buttonStyle("secondary", "sm")}
             >
-              {t("move.undo")}
+              {t("privacy.aiUse.clear")}
             </button>
-          </span>
+          }
+        />
+        {cleared && (
+          <SettingsRow
+            role="status"
+            label={<span data-testid="ai-use-cleared">{t("privacy.aiUse.cleared")}</span>}
+            control={
+              <button
+                type="button"
+                data-testid="ai-use-undo"
+                onClick={() => void undo()}
+                className={buttonStyle("secondary", "sm")}
+              >
+                {t("move.undo")}
+              </button>
+            }
+          />
         )}
-      </div>
-    </section>
+      </SettingsGroup>
+    </SettingsSection>
   );
 }

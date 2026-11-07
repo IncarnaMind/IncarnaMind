@@ -6,17 +6,15 @@ import { translateNow, useT } from "../i18n";
 import { folderName } from "../linkedFolders";
 import { chooseOutputLocation } from "../outputFiles";
 import { useSettingsTarget } from "../settingsTarget";
-import { InfoTip } from "./InfoTip";
 import { PathText } from "./PathText";
 import { ProblemLine } from "./ProblemLine";
 import {
-  buttonClass,
-  rowTextClass,
-  ruledListClass,
-  ruledRow,
-  sectionNoteClass,
-  sectionTitleClass,
-} from "./ui";
+  SettingsGroup,
+  SettingsRow,
+  SettingsSection,
+  SettingsSwitch,
+} from "./settings/SettingsGroup";
+import { buttonStyle } from "./ui";
 
 const TARGET = ["output-location"] as const;
 
@@ -68,78 +66,79 @@ export function OutputLocationSettings() {
   const { location, linkedFolders } = settings;
 
   return (
-    <section ref={section} data-testid="output-location-settings" className="flex flex-col gap-7">
-      <div>
-        <div className="mb-2 flex items-center">
-          <h4 id={titleId} className={sectionTitleClass}>
-            {t("outputLocation.title")}
-          </h4>
-          <InfoTip text={t("outputLocation.body.tip")} />
-        </div>
-        <div className="flex min-w-0 items-center gap-2">
-          <PathText
-            path={location ?? settings.suggested}
-            testId="output-location-path"
-            className="flex-1 rounded-md border border-rule bg-frame px-3 py-1.5 font-mono text-[13px] leading-5 text-ink-secondary"
+    <section ref={section} data-testid="output-location-settings" className="flex flex-col gap-6">
+      <SettingsSection
+        title={t("outputLocation.title")}
+        titleId={titleId}
+        tip={t("outputLocation.body.tip")}
+        help={
+          (!location || problem) && (
+            <>
+              {!location && (
+                <span data-testid="output-location-default">{t("outputLocation.default")}</span>
+              )}
+              {problem && (
+                <ProblemLine testId="output-location-problem" className="mt-1">
+                  {t("outputLocation.failed", { reason: problem })}
+                </ProblemLine>
+              )}
+            </>
+          )
+        }
+      >
+        <SettingsGroup>
+          <SettingsRow
+            label={
+              <PathText
+                path={location ?? settings.suggested}
+                testId="output-location-path"
+                className="font-mono text-[13px] leading-5 text-ink-secondary"
+              />
+            }
+            control={
+              <button
+                ref={changeButton}
+                type="button"
+                data-testid="output-location-change"
+                aria-describedby={titleId}
+                onClick={() => void change(chooseOutputLocation)}
+                className={buttonStyle("secondary", "sm")}
+              >
+                {t("outputLocation.change")}
+              </button>
+            }
           />
-          <button
-            ref={changeButton}
-            type="button"
-            data-testid="output-location-change"
-            aria-describedby={titleId}
-            onClick={() => void change(chooseOutputLocation)}
-            className={buttonClass}
-          >
-            {t("outputLocation.change")}
-          </button>
-        </div>
-        {!location && (
-          <p
-            data-testid="output-location-default"
-            className="mt-1.5 text-[13px] leading-5 text-ink-meta"
-          >
-            {t("outputLocation.default")}
-          </p>
-        )}
-        {problem && (
-          <ProblemLine testId="output-location-problem" className="mt-2">
-            {t("outputLocation.failed", { reason: problem })}
-          </ProblemLine>
-        )}
-      </div>
+        </SettingsGroup>
+      </SettingsSection>
       {linkedFolders.length > 0 && (
-        <div data-testid="linked-folder-writing">
-          <h4 className={sectionTitleClass}>{t("outputLocation.linked.title")}</h4>
-          <p className={sectionNoteClass}>{t("outputLocation.linked.body")}</p>
-          <ul className={ruledListClass}>
+        <SettingsSection
+          title={t("outputLocation.linked.title")}
+          testId="linked-folder-writing"
+          help={t("outputLocation.linked.body")}
+        >
+          <SettingsGroup role="list">
             {linkedFolders.map((each) => (
-              <li
+              <SettingsRow
                 key={each.linkedFolderId}
+                role="listitem"
                 data-testid="linked-folder-writing-row"
                 data-allowed={each.allowed}
-                className={ruledRow("center", true)}
-              >
-                <div className="flex min-w-0 flex-col">
-                  <span className="truncate text-ui text-ink">{folderName(each.path)}</span>
-                  <PathText path={each.path} className={rowTextClass} />
-                </div>
-                <input
-                  type="checkbox"
-                  role="switch"
-                  aria-checked={each.allowed}
-                  aria-label={t("outputLocation.linked.allow", { name: folderName(each.path) })}
-                  data-testid="linked-folder-writing-switch"
-                  checked={each.allowed}
-                  onChange={(event) => {
-                    const allowed = event.target.checked;
-                    void change(() => core.setLinkedFolderWriting(each.linkedFolderId, allowed));
-                  }}
-                  className="switch"
-                />
-              </li>
+                label={<span className="block truncate">{folderName(each.path)}</span>}
+                detail={<PathText path={each.path} />}
+                control={
+                  <SettingsSwitch
+                    ariaLabel={t("outputLocation.linked.allow", { name: folderName(each.path) })}
+                    testId="linked-folder-writing-switch"
+                    checked={each.allowed}
+                    onChange={(allowed) =>
+                      void change(() => core.setLinkedFolderWriting(each.linkedFolderId, allowed))
+                    }
+                  />
+                }
+              />
             ))}
-          </ul>
-        </div>
+          </SettingsGroup>
+        </SettingsSection>
       )}
     </section>
   );

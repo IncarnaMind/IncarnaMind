@@ -11,7 +11,7 @@ import { ConnectorsSettings } from "./connectors/ConnectorsSettings";
 import { EvidenceSettings } from "./EvidenceSettings";
 import { CloseLineIcon } from "./lineIcons";
 import { MeetingsSettings } from "./MeetingsSettings";
-import { MotionSettings } from "./MotionSettings";
+import { MotionRow } from "./MotionSettings";
 import { OutputLocationSettings } from "./OutputLocationSettings";
 import { PrivacySettings } from "./PrivacySettings";
 import { EmbeddingSettingsSection } from "./providers/EmbeddingSettings";
@@ -21,15 +21,10 @@ import { SavedWebPagesSettings } from "./SavedWebPagesSettings";
 import { SkillScriptsSettings, SkillsSettings } from "./SkillsSettings";
 import { SpendingCapSettings } from "./SpendingCapSettings";
 import { SuggestionSettings } from "./SuggestionSettings";
+import { SettingsPopUpRow } from "./settings/PopUpButton";
+import { SettingsGroup, SettingsRowAction, SettingsSection } from "./settings/SettingsGroup";
 import { TaskNotificationSettings } from "./TaskNotificationSettings";
-import {
-  buttonClass,
-  dialogFrameClass,
-  navRowClass,
-  ruledListClass,
-  sectionNoteClass,
-  sectionTitleClass,
-} from "./ui";
+import { dialogFrameClass, navRowClass } from "./ui";
 import { useBackdropClose, useModal } from "./useModal";
 import { WebSearchSettings } from "./WebSearchSettings";
 
@@ -96,7 +91,10 @@ export function SettingsDialog() {
             </button>
           ))}
         </nav>
-        <section aria-labelledby="settings-page-title" className="flex min-w-0 flex-1 flex-col">
+        <section
+          aria-labelledby="settings-page-title"
+          className="flex min-w-0 flex-1 flex-col bg-frame"
+        >
           <header className="flex h-[60px] shrink-0 items-center justify-between gap-3 pt-2 pr-4 pl-8">
             <h3
               id="settings-page-title"
@@ -144,9 +142,8 @@ function PageContent({ page }: { page: SettingsPage }) {
     case "general":
       return (
         <Page>
-          <LanguageSettings />
+          <InterfaceSettings />
           <SpendingCapSettings />
-          <MotionSettings />
           <TaskNotificationSettings />
           <SuggestionSettings />
           <OutputLocationSettings />
@@ -160,9 +157,7 @@ function PageContent({ page }: { page: SettingsPage }) {
     case "search":
       return (
         <Page>
-          <Titled title="embeddingProviders.settings.title">
-            <EmbeddingSettingsSection />
-          </Titled>
+          <EmbeddingSettingsSection />
           <RerankSettingsSection />
           <WebSearchSettings />
           <SavedWebPagesSettings />
@@ -203,59 +198,43 @@ function PageContent({ page }: { page: SettingsPage }) {
   }
 }
 
-/** A section under its title, for a part of a page that has none of its own. */
-function Titled({
-  title,
-  testId,
-  children,
-}: {
-  title: MessageKey;
-  testId?: string;
-  children: ReactNode;
-}) {
+/** A page's sections, 24px apart. */
+function Page({ children }: { children: ReactNode }) {
+  return <div className="flex flex-col gap-6">{children}</div>;
+}
+
+/**
+ * Settings → General → Interface: the choices that set how the app reads and moves, each a pop-up
+ * button at its row's end.
+ */
+function InterfaceSettings() {
   const t = useT();
   return (
-    <section data-testid={testId}>
-      <h4 className={`mb-2 ${sectionTitleClass}`}>{t(title)}</h4>
-      {children}
-    </section>
+    <SettingsSection title={t("settings.interface")} testId="interface-settings">
+      <SettingsGroup>
+        <LanguageRow />
+        <MotionRow />
+      </SettingsGroup>
+    </SettingsSection>
   );
 }
 
-/** A page's sections, 28px apart. */
-function Page({ children }: { children: ReactNode }) {
-  return <div className="flex flex-col gap-7">{children}</div>;
-}
-
-/** Settings → General → Interface language: a ruled list of choices. */
-function LanguageSettings() {
+function LanguageRow() {
   const t = useT();
   const language = useAppStore((state) => state.settings?.user.language);
   const updateSettings = useAppStore((state) => state.updateSettings);
+  if (language === undefined) return null;
   return (
-    <section data-testid="language-settings">
-      <h4 id="language-title" className={`mb-2 ${sectionTitleClass}`}>
-        {t("settings.language")}
-      </h4>
-      <div role="radiogroup" aria-labelledby="language-title" className={ruledListClass}>
-        {languageOptions.map((option) => (
-          <label
-            key={option.value}
-            className="flex h-10 cursor-pointer items-center gap-3 text-ui text-ink"
-          >
-            <input
-              type="radio"
-              name="language"
-              value={option.value}
-              checked={language === option.value}
-              onChange={() => void updateSettings({ user: { language: option.value } })}
-              className="size-4 shrink-0 accent-ink"
-            />
-            {t(option.label)}
-          </label>
-        ))}
-      </div>
-    </section>
+    <SettingsPopUpRow
+      testId="language-settings"
+      buttonTestId="language-choice"
+      label={t("settings.language")}
+      value={language}
+      options={languageOptions.map((option) => ({ value: option.value, label: t(option.label) }))}
+      onChange={(value) => {
+        if (value !== language) void updateSettings({ user: { language: value } });
+      }}
+    />
   );
 }
 
@@ -270,33 +249,31 @@ function DataFolderSettings() {
       useAppStore.getState().reportError(failure);
     });
   return (
-    <section data-testid="data-folder-settings">
-      <h4 className={sectionTitleClass}>{t("export.dataFolder.title")}</h4>
-      <p className={sectionNoteClass}>
-        {t("export.dataFolder.body")}
-        <br />
-        {t("export.dataFolder.backup")}
-      </p>
-      <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          data-testid="open-data-folder"
+    <SettingsSection
+      title={t("export.dataFolder.title")}
+      testId="data-folder-settings"
+      help={
+        <>
+          {t("export.dataFolder.body")}
+          <br />
+          {t("export.dataFolder.backup")}
+        </>
+      }
+    >
+      <SettingsGroup>
+        <SettingsRowAction
+          testId="open-data-folder"
+          label={t("export.dataFolder.open")}
           onClick={() => void open(files.openDataFolder())}
-          className={buttonClass}
-        >
-          {t("export.dataFolder.open")}
-        </button>
-        <button
-          type="button"
-          data-testid="open-logs-folder"
+        />
+        <SettingsRowAction
+          testId="open-logs-folder"
+          label={t("export.dataFolder.openLogs")}
           title={t("export.dataFolder.logs.tip")}
           onClick={() => void open(files.openLogsFolder())}
-          className={buttonClass}
-        >
-          {t("export.dataFolder.openLogs")}
-        </button>
-      </div>
-    </section>
+        />
+      </SettingsGroup>
+    </SettingsSection>
   );
 }
 
@@ -304,27 +281,19 @@ function DataFolderSettings() {
 function AboutSettings() {
   const t = useT();
   return (
-    <section data-testid="about-settings">
-      <h4 className={sectionTitleClass}>{t("settings.about.title")}</h4>
-      <p className={sectionNoteClass}>{t("settings.about.body")}</p>
-      <div className="flex flex-col items-start gap-1">
-        <a
-          href={REPOSITORY_URL}
-          target="_blank"
-          rel="noreferrer"
-          className="text-ui text-accent underline-offset-2 hover:text-accent-strong hover:underline"
-        >
-          {t("settings.about.repository")}
-        </a>
-        <button
-          type="button"
-          data-testid="about-citation-licences"
+    <SettingsSection
+      title={t("settings.about.title")}
+      testId="about-settings"
+      help={t("settings.about.body")}
+    >
+      <SettingsGroup>
+        <SettingsRowAction href={REPOSITORY_URL} label={t("settings.about.repository")} />
+        <SettingsRowAction
+          testId="about-citation-licences"
+          label={t("settings.about.citationLicences")}
           onClick={() => core.openCitationStyleLicences().catch(useAppStore.getState().reportError)}
-          className="text-ui text-accent underline-offset-2 hover:text-accent-strong hover:underline"
-        >
-          {t("settings.about.citationLicences")}
-        </button>
-      </div>
-    </section>
+        />
+      </SettingsGroup>
+    </SettingsSection>
   );
 }

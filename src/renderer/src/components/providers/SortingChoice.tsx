@@ -10,6 +10,7 @@ import { useLanguage, useT } from "../../i18n";
 import { useModelNames } from "../../modelNames";
 import { useAppStore } from "../../store";
 import { useRead } from "../../useRead";
+import { PopUpSelect } from "../settings/PopUpButton";
 import { fieldClass } from "../ui";
 import {
   automaticRow,
@@ -219,6 +220,7 @@ export interface SetUpRows {
 export function SortingSelect({
   id,
   className = fieldClass,
+  popUp = false,
   labelledBy,
   options,
   current,
@@ -228,6 +230,8 @@ export function SortingSelect({
 }: {
   id: string;
   className?: string;
+  /** Drawn as a pop-up button, as Settings' rows draw a choice; `className` then only bounds it. */
+  popUp?: boolean;
   labelledBy?: string;
   options: readonly SortingOption[];
   current: SortingOption | null;
@@ -244,8 +248,9 @@ export function SortingSelect({
   useEffect(() => {
     if (autoFocus && options.length > 0 && !settingUp) field.current?.focus();
   }, [autoFocus, options.length, settingUp]);
+  const Field = popUp ? PopUpSelect : "select";
   return (
-    <select
+    <Field
       ref={field}
       id={id}
       aria-labelledby={labelledBy}
@@ -280,7 +285,7 @@ export function SortingSelect({
           ))}
         </optgroup>
       )}
-    </select>
+    </Field>
   );
 }
 

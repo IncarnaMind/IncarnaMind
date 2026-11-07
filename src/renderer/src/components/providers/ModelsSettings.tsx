@@ -17,17 +17,16 @@ import { clearModelFailure } from "../../modelHealth";
 import { useModelNames } from "../../modelNames";
 import { useSettingsTarget } from "../../settingsTarget";
 import { useAppStore } from "../../store";
-import { ChevronRightLineIcon, PlusLineIcon } from "../lineIcons";
+import { PlusLineIcon } from "../lineIcons";
+import {
+  SettingsGroup,
+  SettingsRow,
+  SettingsRowAction,
+  SettingsSection,
+} from "../settings/SettingsGroup";
 import { TaggingSettings } from "../TaggingSettings";
 import { UndoLineAt } from "../UndoLine";
-import {
-  buttonClass,
-  noticeClass,
-  pageIntroClass,
-  rowTextClass,
-  ruledListClass,
-  sectionTitleClass,
-} from "../ui";
+import { buttonStyle, noticeClass } from "../ui";
 import { AddProvider } from "./AddProvider";
 import { ReadinessExplanation } from "./ChatReadinessNotice";
 import { ModelDefaults } from "./ModelDefaults";
@@ -196,8 +195,9 @@ export function ModelsSettings() {
   }
 
   return (
-    <div ref={section} data-testid="models-settings" className="flex flex-col gap-7">
-      <UndoLineAt place={MODELS_UNDO_PLACE} />
+    <div ref={section} data-testid="models-settings" className="flex flex-col gap-6">
+      {/* An empty line takes no room: the gap after it would push the first section down. */}
+      <UndoLineAt place={MODELS_UNDO_PLACE} className="-mb-6 has-[*]:mb-0" />
       {body ?? (
         <>
           {readiness && !readiness.ready && readiness.reason !== "no-provider" && (
@@ -229,7 +229,7 @@ export function ModelsSettings() {
           >
             <summary
               data-testid="models-advanced-toggle"
-              className="cursor-default text-[13px] leading-5 font-semibold text-ink-secondary select-none hover:text-ink"
+              className="cursor-default px-4 text-[13px] leading-5 font-semibold text-ink-secondary select-none hover:text-ink"
             >
               {t("settings.advanced")}
             </summary>
@@ -264,35 +264,41 @@ function YourProviders({
 }) {
   const t = useT();
   const sortingKeys = hosts.some(keptForSorting) || (jev?.enabled && jev.hasApiKey);
+  const none = providers.length === 0 && !sortingKeys;
   return (
-    <section data-testid="your-providers" className="flex flex-col gap-2">
-      <h4 className={sectionTitleClass}>{t("models.providers.title")}</h4>
-      {providers.length === 0 && !sortingKeys ? (
-        <p className={pageIntroClass}>{t("models.providers.none")}</p>
-      ) : (
-        <ul className={ruledListClass}>
-          {providers.map((provider) => (
-            <ProviderRow
-              key={provider.id}
-              provider={provider}
-              group={groups.find((each) => each.provider.id === provider.id)}
-              onOpen={() => onOpen(provider)}
-            />
-          ))}
-          <SortingKeyRows hosts={hosts} jev={jev} onHosts={onHosts} onJev={onJev} />
-        </ul>
-      )}
-      <button
-        type="button"
-        data-testid="models-add-provider"
-        data-opens="add-provider"
-        onClick={onAdd}
-        className={`${buttonClass} gap-1.5 self-start`}
-      >
-        <PlusLineIcon className="size-3.5" />
-        {t("models.providers.add")}
-      </button>
-    </section>
+    <SettingsSection title={t("models.providers.title")} testId="your-providers">
+      <SettingsGroup role={none ? undefined : "list"}>
+        {none ? (
+          <SettingsRow
+            label={<span className="text-ink-secondary">{t("models.providers.none")}</span>}
+          />
+        ) : (
+          <>
+            {providers.map((provider) => (
+              <ProviderRow
+                key={provider.id}
+                provider={provider}
+                group={groups.find((each) => each.provider.id === provider.id)}
+                onOpen={() => onOpen(provider)}
+              />
+            ))}
+            <SortingKeyRows hosts={hosts} jev={jev} onHosts={onHosts} onJev={onJev} />
+          </>
+        )}
+      </SettingsGroup>
+      <div className="mt-3">
+        <button
+          type="button"
+          data-testid="models-add-provider"
+          data-opens="add-provider"
+          onClick={onAdd}
+          className={buttonStyle("secondary", "sm")}
+        >
+          <PlusLineIcon className="size-3.5" />
+          {t("models.providers.add")}
+        </button>
+      </div>
+    </SettingsSection>
   );
 }
 
@@ -330,31 +336,25 @@ function ProviderRow({
         ? t("models.providers.inMenu.one")
         : t("models.providers.inMenu.other", { count });
   return (
-    <li>
-      <button
-        type="button"
-        data-testid="provider-row"
-        data-provider-id={provider.id}
-        data-opens={`provider:${provider.id}`}
-        onClick={onOpen}
-        className="flex w-full items-center gap-3 py-2.5 text-left hover:bg-hover"
-      >
-        <ProviderLogo id={logoIdOf(provider)} />
-        <span className="flex min-w-0 flex-1 flex-col">
-          <span className="truncate text-ui font-semibold text-ink" title={name}>
-            {name}
-            {region && <span className="font-normal text-ink-meta"> · {region}</span>}
-          </span>
-          <span
-            data-testid="provider-row-status"
-            className="truncate text-[13px] leading-5 text-ink-meta"
-          >
-            {joinMeta([state, models])}
-          </span>
+    <SettingsRowAction
+      listItem
+      testId="provider-row"
+      data-provider-id={provider.id}
+      data-opens={`provider:${provider.id}`}
+      leading={<ProviderLogo id={logoIdOf(provider)} />}
+      label={
+        <span className="block truncate" title={name}>
+          {name}
+          {region && <span className="text-ink-meta"> · {region}</span>}
         </span>
-        <ChevronRightLineIcon aria-hidden="true" className="size-4 shrink-0 text-ink-meta" />
-      </button>
-    </li>
+      }
+      detail={
+        <span data-testid="provider-row-status" className="block truncate">
+          {joinMeta([state, models])}
+        </span>
+      }
+      onClick={onOpen}
+    />
   );
 }
 
@@ -382,7 +382,7 @@ function RemovedLine({
           ? t("models.removed.automatic", { provider })
           : t("models.removed", { provider });
   return (
-    <p data-testid="models-removed" role="status" className={rowTextClass}>
+    <p data-testid="models-removed" role="status" className={noticeClass}>
       {text}
     </p>
   );

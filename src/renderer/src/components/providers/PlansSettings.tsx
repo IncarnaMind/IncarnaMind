@@ -1,15 +1,8 @@
 import { SHOW_CLAUDE_APP_SETUP, SHOW_GOOGLE_PLAN_SETUP } from "../../../../shared/agentConnection";
 import { useT } from "../../i18n";
 import { useAppStore } from "../../store";
-import {
-  buttonStyle,
-  rowButtonsClass,
-  rowTextClass,
-  rowTitleClass,
-  ruledListClass,
-  ruledRowClass,
-  sectionTitleClass,
-} from "../ui";
+import { SettingsGroup, SettingsRow, SettingsSection } from "../settings/SettingsGroup";
+import { buttonStyle } from "../ui";
 import { ChatGptPlanRow } from "./ChatGptPlanSettings";
 import { ClaudePlanRow } from "./ClaudePlan";
 import { CopilotPlanRow } from "./CopilotPlan";
@@ -25,59 +18,60 @@ const GOOGLE_CREDITS = "https://developers.google.com/program";
 export function PlansSettings() {
   const t = useT();
   const showPage = useAppStore((state) => state.showSettingsPage);
-  const row = (title: string, line: string, action: React.ReactNode, extra?: React.ReactNode) => (
-    <li className={ruledRowClass}>
-      <div className="flex min-w-0 flex-col gap-0.5">
-        <span className={rowTitleClass}>{title}</span>
-        <span className={rowTextClass}>{line}</span>
-        {extra}
-      </div>
-      <div className={rowButtonsClass}>{action}</div>
-    </li>
-  );
   return (
-    <section data-testid="plans-settings">
-      <h4 className={`mb-2 ${sectionTitleClass}`}>{t("plans.title")}</h4>
+    <SettingsSection title={t("plans.title")} testId="plans-settings">
       <LocalModeUnavailable className="mb-2" />
-      <ul className={ruledListClass}>
+      <SettingsGroup role="list">
         <ChatGptPlanRow />
         <ClaudePlanRow />
         <CopilotPlanRow />
-        {SHOW_CLAUDE_APP_SETUP &&
-          row(
-            t("plans.claude.title"),
-            t("plans.claude.line"),
-            <button
-              type="button"
-              data-testid="plans-claude"
-              onClick={() => showPage("agents")}
-              className={buttonStyle("secondary", "sm")}
-            >
-              {t("setup.claude.connect")}
-            </button>,
-          )}
-        {SHOW_GOOGLE_PLAN_SETUP &&
-          row(
-            t("plans.google.title"),
-            t("plans.google.line"),
-            <button
-              type="button"
-              data-testid="plans-google"
-              onClick={() => showPage("agents")}
-              className={buttonStyle("secondary", "sm")}
-            >
-              {t("plans.google.connect")}
-            </button>,
-            <a
-              href={GOOGLE_CREDITS}
-              target="_blank"
-              rel="noreferrer"
-              className="text-[13px] font-semibold text-accent underline-offset-2 hover:underline"
-            >
-              {t("plans.google.credits")} ↗
-            </a>,
-          )}
-      </ul>
-    </section>
+        {SHOW_CLAUDE_APP_SETUP && (
+          <SettingsRow
+            role="listitem"
+            label={t("plans.claude.title")}
+            detail={t("plans.claude.line")}
+            control={
+              <button
+                type="button"
+                data-testid="plans-claude"
+                onClick={() => showPage("agents")}
+                className={buttonStyle("secondary", "sm")}
+              >
+                {t("setup.claude.connect")}
+              </button>
+            }
+          />
+        )}
+        {SHOW_GOOGLE_PLAN_SETUP && (
+          <SettingsRow
+            role="listitem"
+            label={t("plans.google.title")}
+            detail={
+              <>
+                <span className="block">{t("plans.google.line")}</span>
+                <a
+                  href={GOOGLE_CREDITS}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-semibold text-accent underline-offset-2 hover:underline"
+                >
+                  {t("plans.google.credits")} ↗
+                </a>
+              </>
+            }
+            control={
+              <button
+                type="button"
+                data-testid="plans-google"
+                onClick={() => showPage("agents")}
+                className={buttonStyle("secondary", "sm")}
+              >
+                {t("plans.google.connect")}
+              </button>
+            }
+          />
+        )}
+      </SettingsGroup>
+    </SettingsSection>
   );
 }

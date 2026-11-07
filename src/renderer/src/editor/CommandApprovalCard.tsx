@@ -273,7 +273,15 @@ export function CommandApprovalCard({
           </ul>
         </div>
       )}
-      <div className="approval-actions">
+      <div className="approval-actions approval-actions--row">
+        <button
+          type="button"
+          data-testid="approval-deny"
+          onClick={() => respond(request.requestId, "deny")}
+          className="approval-button approval-button--ghost"
+        >
+          {t(deletes ? "commands.ask.keep" : "commands.ask.deny")}
+        </button>
         <button
           type="button"
           data-testid="approval-allow-once"
@@ -284,14 +292,6 @@ export function CommandApprovalCard({
         >
           {allow}
           {keys && <span className="approval-keys">{keys}</span>}
-        </button>
-        <button
-          type="button"
-          data-testid="approval-deny"
-          onClick={() => respond(request.requestId, "deny")}
-          className="approval-button approval-button--ghost"
-        >
-          {t(deletes ? "commands.ask.keep" : "commands.ask.deny")}
         </button>
       </div>
     </div>

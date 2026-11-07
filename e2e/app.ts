@@ -2649,6 +2649,10 @@ export const keptWords = (editor: Locator) =>
 export const frontMind = (window: Page) =>
   window.locator('[data-testid="tab-group"][data-focused] [data-testid="mind-pane"]:visible');
 
+/** The example Note's row in the sidebar, which carries no badge: its row says it is the example. */
+export const exampleRow = (window: Page) =>
+  window.locator('[data-testid="mind-list-item"][data-example]');
+
 /** The name of the Mind the User is in, as its tab shows it. */
 export const frontMindName = (window: Page) =>
   window.locator(

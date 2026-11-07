@@ -107,7 +107,7 @@ for (const [language, width, count] of [
       await window.keyboard.press("ControlOrMeta+Backspace");
       await expect(window.getByTestId("undo-line")).toContainText(words.deleted);
       await expect(library.getByTestId("library-document")).toHaveCount(0);
-      await expect(library.getByTestId("library-add-documents")).toBeFocused();
+      await expect(library.getByTestId("library-empty-add-files")).toBeFocused();
 
       await recordCounts(window);
       await window.keyboard.press("ControlOrMeta+z");
