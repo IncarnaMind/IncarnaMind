@@ -2051,19 +2051,40 @@ export function mindTools(options: MindToolsOptions): {
 
   type Settled = Pick<Written, "blocks"> & { change: MindChange };
 
-  /** What one write made before `cite` recorded its markers holds once its Citations are in. */
+  /**
+   * Puts the Citations recorded after one write made before `cite` into its Blocks, and hands
+   * `toCheck` what is then to be checked as soon as the Note holds it, so nothing after can leave
+   * it out.
+   */
   const settleOne = (
     toolCallId: string,
     each: NonNullable<ReturnType<(typeof unsettled)["get"]>>,
-  ): Settled | null => {
+    toCheck: (written: Settled) => void,
+  ): void => {
     const { blocks, cited, unrecorded, ...notes } = options.blocksOf(each.markdown);
     if (blocks.length !== each.ids.length) {
       console.warn(
         `Citations recorded after a Mind was written couldn't go in: the text reads as ${blocks.length} Blocks, ${each.ids.length} were written (Mind ${each.mindId}, call ${toolCallId}).`,
       );
+      // An Analysis run after the write reads its markers as more Blocks. The Citations it had as
+      // it was written are still there, unchecked, so they are checked as they stand.
+      const standing = minds.read(each.mindId, (note) => {
+        const found: { ids: string[]; blocks: NodeJSON[] } = { ids: [], blocks: [] };
+        for (const element of topLevelBlocks(note)) {
+          const id = idOf(element);
+          if (!each.ids.includes(id)) continue;
+          found.ids.push(id);
+          found.blocks.push(nodeOf(element));
+        }
+        return found;
+      });
       // Its chart would draw figures whose Citations never went in.
-      if (each.chart) options.changed(toolCallId, { ...each.sent, chartNotDrawn: "uncited" });
-      return null;
+      const change: MindChange = each.chart
+        ? { ...each.sent, chartNotDrawn: "uncited" }
+        : each.sent;
+      toCheck({ blocks: { mindId: each.mindId, ...standing }, change });
+      if (each.chart) options.changed(toolCallId, change);
+      return;
     }
     const synced = minds.edit(each.mindId, (note) => {
       const found: { ids: string[]; blocks: NodeJSON[] } = { ids: [], blocks: [] };
@@ -2078,6 +2099,8 @@ export function mindTools(options: MindToolsOptions): {
       }
       return found;
     });
+    const written: Settled = { blocks: { mindId: each.mindId, ...synced }, change: each.sent };
+    toCheck(written);
     const there = synced.ids.length;
     const drawn = each.chart?.(blocks) ?? null;
     const charted = drawn !== null && !drawn.problem;
@@ -2099,8 +2122,8 @@ export function mindTools(options: MindToolsOptions): {
       ...someTableNotes(notes),
       ...(drawn?.problem && { chartNotDrawn: drawn.problem }),
     };
+    written.change = change;
     options.changed(toolCallId, change);
-    return { blocks: { mindId: each.mindId, ...synced }, change };
   };
 
   const settle = async (failed = false): Promise<void> => {
@@ -2111,8 +2134,7 @@ export function mindTools(options: MindToolsOptions): {
     const settled: { toolCallId: string; written: Settled }[] = [];
     for (const [toolCallId, each] of entries) {
       try {
-        const written = settleOne(toolCallId, each);
-        if (written) settled.push({ toolCallId, written });
+        settleOne(toolCallId, each, (written) => settled.push({ toolCallId, written }));
       } catch (error) {
         // A Note that refuses one write's Citations leaves the others to go in and be checked.
         console.error(
