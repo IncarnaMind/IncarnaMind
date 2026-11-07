@@ -24,7 +24,6 @@ INCARNAMIND_EVAL_CHAT_KIND=anthropic INCARNAMIND_EVAL_CHAT_MODEL=claude-haiku-5-
 - `INCARNAMIND_EVAL_SUPPORT_BUDGET`: dollars; the run stops before the next check once it has spent this (1).
 - `INCARNAMIND_EVAL_SUPPORT_ARM`: a name for the report's folder, such as `before` or `after`.
 - `INCARNAMIND_EVAL_SUPPORT_JUDGE=answer`: judges the sentences as an Answer in the assistant judges its own, through the app: each Answer, scripted, writes up to 16 of them citing their quotes, grouped by the Document they cite, and the real model judges them in batches of up to 8 (`src/core/answers/checks/sentenceBatch.ts`), on the meter and within the Answer's checking limit. Without it, each sentence is checked on its own with `checkClaim`, as Check this Note checks one.
-- `INCARNAMIND_EVAL_SUPPORT_THINKING=summary`: with `JUDGE=answer`, the batches think at the provider's default effort, as before the catalog gave the check its own (#1631), so a run can compare the two.
 - `INCARNAMIND_EVAL_SUPPORT_DRY=1`: finds each cited quote's Passage, as the Citation check finds a quote, and checks nothing; no model needed. A case whose quote no Passage holds is skipped and listed in the report.
 
 Each run writes `eval/results/<start time>-support-<model>-<arm>/report.json`: every check's verdict, what it said, the parts it named with theirs, its time, its requests and tokens, and its cost from the app's own meter.

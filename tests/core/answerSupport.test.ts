@@ -7,7 +7,7 @@ import type { NodeJSON } from "../../src/shared/blockJson";
 import { citedSentences } from "../../src/shared/citedSentences";
 import { checkGenerate, checkingModel, checkReply, isCheckRun, type Plan } from "../helpers/checks";
 import { answerJudged, setUpWithDocuments, shownPassages } from "../helpers/citations";
-import { nextTurn, queryDatabase, startCore } from "../helpers/core";
+import { nextTurn, startCore } from "../helpers/core";
 import {
   type GenerateCall,
   type GeneratedReply,
@@ -368,40 +368,6 @@ describe("an Answer works at once, and its Citations wait for their sentences' j
       expect(judged.citations.some((citation) => citation.check === "found")).toBe(false);
     },
   );
-
-  // protects=an Answer's sentences are judged by a model made for the check's own kind of call, so the catalog's effort for the check reaches its batches (#1631); fails_when=the batches' model is made as any other call that thinks, at the provider's default; no_claim=which effort the provider is sent is reasoningRequests.test.ts's.
-  test("its sentences are judged by a model made for the check's kind of call", async () => {
-    const sentence = ANSWER.replace("[^1]", "");
-    const batches: GenerateCall[] = [];
-    const { core, dataDir } = await setUpWithDocuments(
-      answeringModel(
-        "kilns installed cost",
-        ANSWER,
-        [INSTALLATION],
-        { [sentence]: { verdict: "supported", quote: INSTALLATION, says: sentence } },
-        {
-          judge: (call) => {
-            batches.push(call);
-            return batchReply(call, {
-              [sentence]: { verdict: "supported", quote: INSTALLATION, says: sentence },
-            });
-          },
-        },
-      ),
-      [KILN_DECK],
-    );
-
-    expect(await citationsOfAnswer(core, "When is the kiln installed?")).toMatchObject([
-      { marker: 1, check: "found" },
-    ]);
-    expect(batches).toHaveLength(1);
-    const asked = queryDatabase<{ reasoning: string | null }>(
-      dataDir,
-      "SELECT reasoning FROM ai_timings WHERE kind = 'model'",
-    ).map((row) => row.reasoning);
-    expect(asked.filter((reasoning) => reasoning === "check")).toHaveLength(1);
-    expect(asked).not.toContain("summary");
-  });
 
   test("closed while its sentence is judged, it writes nothing more, and the next start finds its Citation not checked", async () => {
     let release = () => {};

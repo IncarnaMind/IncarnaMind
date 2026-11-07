@@ -441,7 +441,7 @@ const PROVIDERS = [
     // less often. So every kind thinks at its default.
     request: {
       thinkingOff: { options: { deepseek: { thinking: { type: "disabled" } } } },
-      effort: { models: { "deepseek-flash": { answer: DEEPSEEK_LOW, check: DEEPSEEK_LOW } } },
+      effort: { models: { "deepseek-flash": { answer: DEEPSEEK_LOW } } },
     },
     roles: {
       answers: "deepseek-flash",

@@ -10,7 +10,7 @@ export interface ModelRequestTiming {
   dataFlow: string;
   providerKind: string;
   modelId: string;
-  /** The reasoning setting it was asked with ("off", "summary", "answer", "careful", "task", "check"); null if none. */
+  /** The reasoning setting it was asked with ("off", "summary", "answer", "careful", "task"); null if none. */
   reasoning: string | null;
 }
 

@@ -211,7 +211,6 @@ describe("An Answer's request to a model that thinks", () => {
       { effort: "high" },
     ],
     ["claude-sonnet-5-5", "task", { type: "adaptive", display: "summarized" }, undefined],
-    ["claude-sonnet-5-5", "check", { type: "adaptive", display: "summarized" }, undefined],
     ["claude-haiku-5-5", "task", { type: "adaptive", display: "summarized" }, { effort: "low" }],
     [
       "claude-haiku-5-5-20261001",
@@ -288,10 +287,9 @@ describe("An Answer's request to a model that thinks", () => {
     expect(deepseek[0]?.reasoning_effort).toBeUndefined();
   });
 
-  // protects=DeepSeek Flash's Answers and the check of an Answer's sentences ask for reasoning_effort low, and its Tasks, careful Answers and calls of no kind keep DeepSeek's default (#1631); fails_when=an Answer or a check lacks effort "low", or another kind carries thinking, reasoning or an effort; no_claim=the fake API doesn't check what DeepSeek accepts.
+  // protects=DeepSeek Flash's Answers ask for reasoning_effort low, and its Tasks, careful Answers and calls of no kind keep DeepSeek's default (#1631); fails_when=an Answer lacks effort "low", or another kind carries thinking, reasoning or an effort; no_claim=the fake API doesn't check what DeepSeek accepts.
   test.each([
     ["answer", "low"],
-    ["check", "low"],
     ["careful", undefined],
     ["task", undefined],
     ["summary", undefined],

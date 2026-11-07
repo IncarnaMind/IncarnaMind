@@ -399,9 +399,6 @@ test("Answer sentences against the quotes they cite", async () => {
   const judge =
     process.env.INCARNAMIND_EVAL_SUPPORT_JUDGE?.trim() === "answer" ? "answer" : "check";
   const spend = { total: 0, cap: Number(process.env.INCARNAMIND_EVAL_SUPPORT_BUDGET ?? "1") || 1 };
-  // "summary": every model at its provider's default effort, as the batches were sent before the
-  // catalog gave the check its own (#1631); only the batches reach the model when judged as an Answer.
-  const thinking = process.env.INCARNAMIND_EVAL_SUPPORT_THINKING?.trim() === "summary";
   const rows: Row[] = [];
   const skipped: { id: string; why: string }[] = [];
 
@@ -418,12 +415,7 @@ test("Answer sentences against the quotes they cite", async () => {
       chatModels:
         judge === "answer"
           ? (inner) =>
-              batchWatch.chatModels((spec) =>
-                judgingModel(
-                  inner(thinking ? { ...spec, thinking: "summary" } : spec) as LanguageModelV4,
-                  script,
-                ),
-              )
+              batchWatch.chatModels((spec) => judgingModel(inner(spec) as LanguageModelV4, script))
           : watch.chatModels,
       name: `support-${name}`,
       embedder: createWorkerEmbedder(),
