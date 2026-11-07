@@ -108,13 +108,12 @@ export function looksLikeHeader(cells: readonly Pick<Cell, "value" | "numeric">[
 
 /**
  * Whether a row heads the rows below it: a column whose cell is words where
- * the next row with that column is a figure, and none the other way round. A
- * row that shares no column with it is a section's own label ("2025") and is
- * passed over.
+ * the next row of the table is a figure, and none the other way round. A row
+ * of one cell is a section's own label ("2025") and is passed over.
  */
 function headsBelow(cells: readonly Cell[], below: readonly (readonly Cell[])[]): boolean {
   const columns = new Set(cells.map((cell) => cell.column));
-  const next = below.find((row) => row.some((cell) => columns.has(cell.column)));
+  const next = below.find((row) => row.length >= 2 && row.some((cell) => columns.has(cell.column)));
   if (!next) return false;
   let heads = false;
   for (const cell of cells) {

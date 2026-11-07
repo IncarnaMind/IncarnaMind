@@ -515,6 +515,33 @@ describe("a sheet's header row is found from its shape (#2373)", () => {
       expect(later?.text.split("\n")[0]).toBe(header.join("\t"));
     },
   );
+
+  test("a one-cell section label under the header leaves it the header", async () => {
+    const units = await unitsOf("xlsx", [
+      ["Year", "Q1", "Q2"],
+      ["2025"],
+      ...Array.from({ length: 120 }, (_, index) => [
+        `Region ${index + 1}`,
+        100 + index,
+        200 + index,
+      ]),
+    ]);
+
+    expect(units[1]?.label?.header).toBe(true);
+    expect(units[1]?.label?.rows?.[0]).toBe(1);
+    expect(units[1]?.text.split("\n")[0]).toBe("Year\tQ1\tQ2");
+  });
+
+  test("a table of words alone keeps its first header-like row", async () => {
+    const units = await unitsOf("csv", [
+      ["Name", "City"],
+      ...Array.from({ length: 120 }, (_, index) => [`Person ${index + 1}`, "Hangzhou"]),
+    ]);
+
+    expect(units[1]?.label?.header).toBe(true);
+    expect(units[1]?.label?.rows?.[0]).toBe(1);
+    expect(units[1]?.text.split("\n")[0]).toBe("Name\tCity");
+  });
 });
 
 describe("Files that can't be read fail cleanly, with a reason", () => {
