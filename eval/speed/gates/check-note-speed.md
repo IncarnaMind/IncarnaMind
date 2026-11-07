@@ -117,13 +117,13 @@ The runs were made at a9bc9b0bc (twelve) against 7cb76c42a (six), on Claude Haik
 
 **Decision, 2026-11-06:** Check this Note stays at six, with steps 1 and 2. Twelve's end comes sooner, but the User sees the first verdict, and on a Library of real size twelve makes it later, because every search waits for the one reranker. The false Supported isn't the reason: `main` Supports that sentence too, in 2 of gate A's 3 runs. That doesn't waive it: it stays a false Supported on `main`, and twelve's one counts against twelve. What could bring twelve back is a staggered start, with the first sentence's searches scored first, or more rerank throughput. Twelve goes back to #2532.
 
-## Gate C, written on 2026-11-07 before its runs: twelve at once again, on a reranker that no longer drains the GPU twelve times a search
+## Gate C, written on 2026-11-07 before its runs: twelve at once again, on a reranker that no longer drains the GPU twelve times a batch
 
 What changed since the rerun above: the built-in reranker's GPU file is Optimum's O4 export, made for CUDA, and it keeps twelve copies between host and GPU memory as nodes, one after each layer's attention scale. On WebGPU each made the session read a value back from the GPU, waiting for all it had been given, twelve times a batch. The GPU session now reads them as Identity (`src/core/reranking/hostCopies.ts`). A copy changes no value, so no search, Passage or verdict can change for it; what it changes is how soon a search is scored.
 
 ### The reranker's own bars, before the check's runs
 
-`INCARNAMIND_EVAL_SPEED_RERANK=1` (`../rerankThroughput.speed.ts`), five runs an arm taking turns, on the twenty searches Check this Note makes over the mixed Library (ten sentences in English and ten in Chinese):
+`INCARNAMIND_EVAL_SPEED_RERANK=1` (`../rerankThroughput.speed.ts`), five runs an arm taking turns, on twenty searches over the mixed Library, one for each of the Note's ten sentences in English and ten in Chinese, the sentence as its query:
 
 - **Every score the same, bit for bit,** in every search, as the GPU file was downloaded and with its copies read as Identity. One differing score fails it, and the copies stay.
 - **Twelve searches at once no slower:** the median with the copies read as Identity is not above the median as downloaded.
@@ -147,3 +147,41 @@ Gate B's bars, unchanged: per cell, twelve's median end comes before six's; twel
 ### What decides
 
 Check this Note takes twelve only if every cell holds every bar and each model holds the verdict bars. Otherwise it stays at six and the failing cell is named. The copies read as Identity ship either way if the reranker's own bars hold, since they change no score.
+
+## Result of gate C, 2026-11-07: the copies read as Identity ship; Check this Note stays at six
+
+Two corrections to the text above, made after the runs and changing no bar: the heading said "a search" for "a batch", and the reranker's searches were described as the ones Check this Note makes, where a check writes its own queries; they are one search for each sentence, the sentence as its query.
+
+### The reranker's own bars: met
+
+The copy the GPU session opens is written once beside the downloaded file, with its twelve `MemcpyFromHost` nodes read as Identity (`src/core/reranking/index.ts`, `hostCopies.ts`), and opened by its path. It was first built to open the rewritten bytes; that keeps the model in memory a second time for as long as the session is open (the process's external memory stayed 241 MB higher, and its resident memory 60 to 110 MB higher), so the copy is a file instead. Five runs an arm, taking turns, with the 15-minute load at 6 to 11; milliseconds, median (range):
+
+| Arm | Load | 20 searches one by one | The first 12 at once |
+|---|--:|--:|--:|
+| As downloaded | 742 (631–840) | 5,930 (5,587–6,884) | 4,204 (3,687–5,107) |
+| Copies read as Identity | 684 (566–928) | 5,266 (4,936–5,445) | 3,796 (3,498–3,845) |
+
+- **Every score the same:** 0 of 349 differ, bit for bit, and none differs between runs of an arm. The real-model test (`tests/core/realReranker.test.ts`) gives the same on English, Chinese and long Passages, with the copy written as the app writes it.
+- **Twelve at once:** 10% sooner; one by one, 11%.
+- **Memory:** not measured by the eval. Measured in separate processes, one per way of opening the GPU session, after it opened: 865 to 894 MB resident from the downloaded file, 863 to 865 MB from the copy. The copy takes 235 MB more on disk. Writing it reads the downloaded file once, 0.2 to 0.8 s, the first time the GPU session opens after it is downloaded; later starts open the copy as they opened the file before.
+
+### Check this Note at twelve: not met
+
+The runs were made at 47a33ec62 (twelve) against f4303486d (six), in the order above, on a direct Anthropic key, with the 15-minute load at 10.2 to 12.8. Both arms opened the rewritten bytes, which give the same scores as the copy. They spent $2.11. Medians are given six → twelve; the spread is six's runs' largest minus smallest first verdict.
+
+| Cell | First verdict | Spread | Done | Rerank median | Holds |
+|---|---|--:|---|---|---|
+| Haiku, timing Library, en | 5.6 → 4.4 s | 1.0 s | 13.1 → 9.0 s | 0.0 → 0.6 s | yes |
+| Haiku, timing Library, zh-CN | 4.8 → 4.9 s | 0.5 s | 10.7 → 8.2 s | 0.0 → 0.0 s | yes: 0.1 s later, within its spread |
+| Haiku, mixed Library, en | 6.3 → 7.5 s | 1.7 s | 16.1 → 14.7 s | 1.8 → 3.2 s | **no:** 1.2 s later, past 1.0 s |
+| Haiku, mixed Library, zh-CN | 6.4 → 8.1 s | 0.5 s | 13.9 → 11.8 s | 0.9 → 4.5 s | **no:** 1.7 s later, past its spread |
+| Sonnet, timing Library, en | 7.4 → 7.1 s | 0.6 s | 17.5 → 15.7 s | 0.0 → 0.0 s | yes |
+| Sonnet, timing Library, zh-CN | 7.4 → 7.3 s | 0.3 s | 15.6 → 13.1 s | 0.0 → 0.0 s | yes |
+
+- **No failure:** no request failed and no rate limit was met at twelve.
+- **Verdicts:** on Claude Haiku 5.5, judged right 117 → 113 of 120, false Supported 1 → 0, not checked 3 → 7, each within its margin of 4; on Claude Sonnet 5.5, judged right 60 of 60 on both arms, no false Supported, not checked 0 → 0. No sentence the Documents don't state was Supported more often at twelve. Six's one false Supported is Chinese sentence 3 on the mixed Library, the sentence `main` Supported in 2 of gate A's 3 runs.
+- **Where the first verdict went:** on the mixed Library a run's first rerank starts the reranker and loads its model, on the first sentence's search. At six it took 1.0 to 1.8 s; at twelve 2.1 to 2.4 s in three of the six runs (Chinese runs 1 and 2, English run 2), and in those three the first verdict came 1.3 to 2.1 s after six's median. The one other run that came later, English run 1 by 1.2 s, had a load like six's, and its first sentence took four requests. Every later search waits behind that first one. The first sentences' searches are scored before later sentences' at twelve as at six, and between answers the GPU scores as fast as it does alone, so the queue's order and the GPU's speed aren't the cause. A main thread kept busy in 30 to 80 ms slices didn't slow the load either (0.56 to 1.1 s against 0.57 to 1.5 s idle). Why the load is slower when twelve checks start together is not established.
+- **DeepSeek V4.1 Flash 1017 (`deepseek-flash`), one run per arm, reported only:** first verdict 6.3 → 5.3 s (timing, en), 6.7 → 5.1 s (timing, zh-CN), 6.2 → 6.5 s (mixed, en), 6.2 → 6.6 s (mixed, zh-CN); end 12.3 → 9.3, 11.4 → 7.2, 14.1 → 11.9 and 14.1 → 10.1 s; judged right 35 → 39 of 40, false Supported 1 → 0 (English sentence 3 on six's mixed Library), not checked 2 → 0. $0.06.
+
+**Decision, 2026-11-07:** Check this Note stays at six, the copies read as Identity ship. What could bring twelve back is the model loaded before the first sentence's search, while the claims are named, so that search doesn't start it; in the app it is loaded already once anything has been reranked since IncarnaMind started, which the timing's fresh Library never is.
+
