@@ -113,6 +113,7 @@ import { plainText } from "../../mindText";
 import { insertBlocks } from "../../noteAdding";
 import {
   citationsDropped,
+  heldBy,
   keepingTitle,
   leadingOf,
   type OwnApplied,
@@ -1594,33 +1595,51 @@ export function mindTools(options: MindToolsOptions): {
     breaks: number;
     /** How many of its content's Blocks are finished and recorded. */
     ready: number;
-    /** How many of its Blocks are in the Mind. */
-    written: number;
-    /** It may yet be refused: nothing more goes in until the call has all of it. */
+    /** Its Blocks in the Mind and what they held as written: the User may change them meanwhile. */
+    written: { ids: readonly string[]; held: string | null } | null;
+    /** Nothing more goes in until the call has all of it: it may be refused, or the text changed. */
     held: boolean;
   }
   /** By call; null for one whose text goes in only once the call has all of it. */
   const revisions = new Map<string, Revision | null>();
 
-  /** What came in of a revision goes: the text is as it was. */
-  const takeBack = (revision: Revision): void => {
-    if (revision.written === 0) return;
-    revision.written = 0;
-    minds.edit(revision.mind.id, (note) => {
+  /**
+   * What came in of a revision goes, and the text is as it was. False, taking nothing back, once
+   * the User changed what came in: the window draws it as applied, so they may type in it.
+   */
+  const takeBack = (revision: Revision): boolean => {
+    const { written } = revision;
+    if (!written) return true;
+    return minds.edit(revision.mind.id, (note) => {
+      if (heldBy(note, written.ids) !== written.held) return false;
       resolveProposals(note, (each) => each.request === revision.request, "reject");
+      revision.written = null;
+      return true;
     });
   };
 
-  // A revision cut off by Stop, a failed model or a call that never ran would leave the text half new.
-  const takeBackRevisions = (): void => {
+  /**
+   * Takes back the revisions but `except`'s, as one cut off by Stop or a failed model, or whose
+   * call never ran, its input refused, would leave the text half new while the model goes on.
+   */
+  const takeBackRevisions = (except: string | null = null): void => {
     for (const [toolCallId, revision] of revisions) {
-      if (!revision || revision.written === 0) continue;
-      takeBack(revision);
-      options.failed(toolCallId, { kind: "stopped", mindId: revision.mind.id });
+      if (toolCallId === except) continue;
+      revisions.set(toolCallId, null);
+      if (!revision?.written) continue;
+      try {
+        if (takeBack(revision))
+          options.failed(toolCallId, { kind: "stopped", mindId: revision.mind.id });
+      } catch (error) {
+        console.error(
+          `What came in of call ${toolCallId}'s new text for Mind ${revision.mind.id} couldn't be taken back:`,
+          error,
+        );
+      }
     }
-    revisions.clear();
+    if (except === null) revisions.clear();
   };
-  options.signal.addEventListener("abort", takeBackRevisions);
+  options.signal.addEventListener("abort", () => takeBackRevisions());
 
   /**
    * More of a call's content: the Blocks it has finished (all but the one
@@ -2324,6 +2343,8 @@ export function mindTools(options: MindToolsOptions): {
     removesOnly?: boolean;
     /** Citations `cite` records later go in once the Run is done (`settle`), into Blocks added whole. */
     whole?: boolean;
+    /** Text still coming in: its Blocks take the Answer as their origin once all of it is in. */
+    partial?: boolean;
   }
 
   /**
@@ -2337,7 +2358,7 @@ export function mindTools(options: MindToolsOptions): {
     part: OwnWaiting | OwnApplied,
     blocks: readonly NodeJSON[],
     request: string,
-    { remade, action, removesOnly = false, whole = false }: Replacing,
+    { remade, action, removesOnly = false, whole = false, partial = false }: Replacing,
   ): string[] | null => {
     const asked =
       over.kind === "own" ? ownAsked(note, over) : remade === undefined || !remade.typedSince;
@@ -2353,7 +2374,7 @@ export function mindTools(options: MindToolsOptions): {
         ? replaceOwn(note, part, blocks.map(createElement), request, ownRequests)
         : replaceApplied(note, part, blocks, request, { whole });
     if (!written || !doc) return written;
-    setOriginsOf(doc, request, written, options.origin);
+    if (!partial) setOriginsOf(doc, request, written, options.origin);
     recordProposalRequest(doc, request, {
       source: "answer-added",
       providerId: options.prepared.provider.id,
@@ -2382,7 +2403,7 @@ export function mindTools(options: MindToolsOptions): {
       again = "call edit_mind again",
       streamed,
       ...replacing
-    }: Omit<Replacing, "whole"> & { again?: string; streamed?: string } = {},
+    }: Omit<Replacing, "whole" | "partial"> & { again?: string; streamed?: string } = {},
   ): Written & { change: MindChange; dropped: number } => {
     const { remade } = replacing;
     const alone = withoutPointersBack(markdown);
@@ -2453,6 +2474,12 @@ export function mindTools(options: MindToolsOptions): {
   const unmadeSaid = (name: string) =>
     translate(options.language, "assistant.table.unmade", { mind: name });
 
+  const changedWhileComing = (mind: ChangeableMind) =>
+    new Refusal(
+      { kind: "changed", mindId: mind.id },
+      `Nothing more was changed in “${mind.name}”: the User changed your new text there while it was coming in. What came in stays as it is, waiting for them to accept or reject; don't write it again.`,
+    );
+
   const noTable = (mind: ChangeableMind) =>
     new Refusal(
       { kind: "no-table", mindId: mind.id },
@@ -2506,7 +2533,7 @@ export function mindTools(options: MindToolsOptions): {
       return waiting.kind === "none" ? ownAppliedIn(note, stretch.from, stretch.to) : null;
     });
     return (
-      over && { mind, over, request: randomUUID(), breaks: 0, ready: 0, written: 0, held: false }
+      over && { mind, over, request: randomUUID(), breaks: 0, ready: 0, written: null, held: false }
     );
   };
 
@@ -2514,15 +2541,17 @@ export function mindTools(options: MindToolsOptions): {
    * More of an `edit_mind` call's content as the model writes it (#1635): each paragraph it has
    * finished takes the place of the next paragraph of the text it replaces, all in one request
    * written again each time over the text as it was, so the page keeps its length while the rest
-   * comes in instead of showing the old text and the new one below it. The call writes the whole
-   * text over it in the end, or takes it back (`beginEdit`).
+   * comes in. The call writes the whole text over it in the end, or takes it back (`beginEdit`).
    */
   const streamRevision = (toolCallId: string, text: string): void => {
     if (options.signal.aborted || ended.has(toolCallId)) return;
     const fields = partialFields(text);
     const content = fields.get("content");
     if (!content) return;
-    if (!revisions.has(toolCallId)) revisions.set(toolCallId, openRevision(fields));
+    if (!revisions.has(toolCallId)) {
+      takeBackRevisions(toolCallId);
+      revisions.set(toolCallId, openRevision(fields));
+    }
     const revision = revisions.get(toolCallId);
     if (!revision || revision.held) return;
     // Only once a paragraph has ended is there a Block more to write.
@@ -2543,19 +2572,24 @@ export function mindTools(options: MindToolsOptions): {
     if (ready <= revision.ready) return;
     revision.ready = ready;
     const { mind, over, request } = revision;
-    if (revision.written === 0) minds.checkpoint(mind.id);
+    if (!revision.written) minds.checkpoint(mind.id);
     const written = minds.edit(mind.id, (note) => {
-      takeBack(revision);
+      if (!takeBack(revision)) return null;
       const titled = options.blocksOf(keepingTitle(note, over, markdown)).blocks;
       const done = titled.slice(0, ready + titled.length - blocks.length);
       const part = leadingOf(note, over, done.length);
-      return part && replaceIn(note, over, part, done, request, {}) ? done.length : null;
+      const ids = part && replaceIn(note, over, part, done, request, { partial: true });
+      return ids && { ids, held: heldBy(note, ids) };
     });
-    if (written === null) {
+    if (!written) {
       revision.held = true;
       return;
     }
     revision.written = written;
+    options.changed(toolCallId, {
+      ...changeIn(mind.id, request, false),
+      ...(over.kind === "own" && { revised: true }),
+    });
   };
 
   /**
@@ -2722,13 +2756,12 @@ export function mindTools(options: MindToolsOptions): {
       revisions.delete(toolCallId);
       // What came in goes, and the whole text or the text as it was takes its place, in one step:
       // the window never draws the old text between them (#1635).
-      const begun =
-        revision && revision.written > 0
-          ? minds.edit(revision.mind.id, () => {
-              takeBack(revision);
-              return beginEdit(input, toolCallId, canCallAgain, revision);
-            })
-          : beginEdit(input, toolCallId, canCallAgain, null);
+      const begun = revision?.written
+        ? minds.edit(revision.mind.id, () => {
+            if (!takeBack(revision)) throw changedWhileComing(revision.mind);
+            return beginEdit(input, toolCallId, canCallAgain, revision);
+          })
+        : beginEdit(input, toolCallId, canCallAgain, null);
       if (begun.kind === "content") {
         const { mind, over, written, before, newText, times, added, hint } = begun;
         const checked = await checkWritten(toolCallId, written, signal);
@@ -3134,5 +3167,17 @@ export function mindTools(options: MindToolsOptions): {
     },
   };
 
-  return { tools: [read, gated(edit), gated(add), create].map(reporting), settle };
+  /** A Tool that reads or writes a Note once revisions whose calls never ran are taken back. */
+  const afterRevisions = (tool: Tool): Tool => ({
+    ...tool,
+    call(input, context) {
+      takeBackRevisions(context.toolCallId);
+      return tool.call(input, context);
+    },
+  });
+
+  return {
+    tools: [read, gated(edit), gated(add), create].map((tool) => reporting(afterRevisions(tool))),
+    settle,
+  };
 }

@@ -450,6 +450,13 @@ export function leadingOf<T extends OwnWaiting | OwnApplied>(
   return { ...over, blockIds: range.map(idOf), fingerprint: fingerprintOf(range) };
 }
 
+/** What the top-level Blocks `ids` hold now, to tell whether they change; null once one is gone. */
+export function heldBy(blocks: Y.XmlFragment, ids: readonly string[]): string | null {
+  const top = topLevelBlocks(blocks);
+  const found = ids.flatMap((id) => top.filter((element) => idOf(element) === id).slice(0, 1));
+  return found.length === ids.length ? fingerprintOf(found) : null;
+}
+
 /**
  * Accepts the Proposals of `own`'s Blocks in a copy of the Mind, so its text
  * reads as the User would see it once accepted: what a revision rewrites.

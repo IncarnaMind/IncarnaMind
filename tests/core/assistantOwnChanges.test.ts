@@ -2253,6 +2253,52 @@ describe("New text coming in over the assistant's own text (#1635)", { timeout: 
     expect((await core.listCheckpoints(pageId)).checkpoints).toHaveLength(checkpoints + 1);
   });
 
+  // protects=Stop while edit_mind's new text comes in over the assistant's own waiting text puts that text back exactly, still waiting as the earlier Answer's (#1635); fails_when=the old waiting text is lost, comes back changed, or part of the new text stays; no_claim=none beyond protects.
+  test("Stop while the new text comes in over its own waiting text puts that text back exactly", async () => {
+    const page = `## Summary\n\n${OLD.join("\n\n")}`;
+    const input = {
+      mind: "Tide notes",
+      part: "Summary",
+      content: `## Summary\n\n${NEW.join("\n\n")}`,
+    };
+    const model = scriptedModel((call): ScriptedReply => {
+      if (asked(call).endsWith("write a summary page")) {
+        return called(call, "create_mind")
+          ? { text: "It covers the quarter." }
+          : { calls: [{ tool: "create_mind", input: { title: "Tide notes", content: page } }] };
+      }
+      return {
+        calls: [{ tool: "edit_mind", input, streamInput: true }],
+        pause: {
+          after: JSON.stringify(input).indexOf(NEW[2] as string) + 4,
+          until: new Promise(() => undefined),
+        },
+      };
+    });
+    const { core, mind } = await setUp(model);
+    const first = await askAssistant(core, { text: "write a summary page", mindId: mind.id });
+    const made = await madeBy(core, first);
+    await made.settled();
+    const before = exactly(made);
+    const second = await core.askInConversation({
+      text: "make it longer",
+      mindId: mind.id,
+      conversationId: first.conversationId,
+    });
+    if (!second.asked) throw new Error("Not asked.");
+    await expect.poll(() => shownWithChanges(made)).toContain(`+ ${NEW[1]}`);
+
+    const ended = answerEnded(core, second.answerId);
+    await core.stopConversationAnswer({
+      conversationId: second.conversation.id,
+      answerId: second.answerId,
+    });
+    await ended;
+    await made.settled();
+
+    expect(exactly(made)).toEqual(before);
+  });
+
   // protects=new text that came in and is refused once whole (here, off the length asked for) is taken back, and the Note is exactly as it was (#1635); fails_when=the paragraphs that came in stay; no_claim=the refusal's words.
   test("refused once whole, what came in is taken back", async () => {
     const { core, client, before, asked, release } = await longer({
@@ -2266,6 +2312,67 @@ describe("New text coming in over the assistant's own text (#1635)", { timeout: 
     const answer = await answerJudged(core, asked.conversation.id, asked.answerId);
     expect(mindCalls(answer)[0]?.mindProblem).toMatchObject({ kind: "length" });
     expect(exactly(client)).toEqual(before);
+  });
+
+  // protects=an edit_mind call whose input is refused never runs: what it streamed in is taken back before the model's next call reads the Note, so the call it tries again works on the text as it was (#1635); fails_when=the half-new text stays, so the next call is refused or measures the wrong text; no_claim=which inputs a provider refuses.
+  test("a call whose input is refused never runs, and what it streamed in goes before the next call", async () => {
+    const valid = { part: "Tide notes", content: CONTENT };
+    const model = scriptedModel((call): ScriptedReply => {
+      if (call.results.length === 0) {
+        return {
+          calls: [{ tool: "edit_mind", input: { ...valid, unknown: true }, streamInput: true }],
+        };
+      }
+      if (call.results.length === 1) return { calls: [{ tool: "edit_mind", input: valid }] };
+      return { text: "Done." };
+    });
+    const whole = await longer({ streamed: false });
+    whole.release();
+    await answerEnded(whole.core, whole.asked.answerId);
+    await whole.client.settled();
+    const { core, mind, client } = await setUp(model);
+    await core.addToNote({
+      mindId: mind.id,
+      blocks: [
+        { type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "Tide notes" }] },
+        ...OLD.map((words) => ({ type: "paragraph", content: [{ type: "text", text: words }] })),
+      ],
+      origin: null,
+      model: null,
+    });
+    await client.settled();
+
+    const answer = await askAssistant(core, { text: "Make the summary longer.", mindId: mind.id });
+
+    await client.settled();
+    const [, retried] = mindCalls(answer);
+    expect(retried?.mindProblem).toBeUndefined();
+    expect(retried?.mindChange).toMatchObject({ request: expect.any(String) });
+    expect(shownWithChanges(client)).toEqual(shownWithChanges(whole.client));
+  });
+
+  // protects=what the User types into edit_mind's new text while it comes in stays theirs: nothing more is written over it, the old text after it stays, and the model is told the text changed (#1635); fails_when=the typed words are taken back with the new text, or the rest of the old text is lost; no_claim=how the model then replies.
+  test("words the User types into the new text while it comes stay, and nothing more is written", async () => {
+    const { core, client, asked, release } = await longer();
+    await expect.poll(() => applied(client)).toContain(NEW[1]);
+    client.doc.transact(() => {
+      const first = client.blocks.get(3);
+      const text = first instanceof Y.XmlElement ? first.get(0) : null;
+      if (text instanceof Y.XmlText) text.insert(0, "Typed by me. ");
+    });
+    await client.settled();
+    release();
+    await answerEnded(core, asked.answerId);
+    await client.settled();
+
+    const answer = await answerJudged(core, asked.conversation.id, asked.answerId);
+    expect(mindCalls(answer)[0]?.mindProblem).toMatchObject({ kind: "changed" });
+    expect(applied(client).slice(-4)).toEqual([
+      "Tide notes",
+      `Typed by me. ${NEW[0]}`,
+      NEW[1],
+      OLD[2],
+    ]);
   });
 
   // protects=Stop, or a model that fails, while edit_mind's new text is coming takes back what came: the Note is exactly as it was, and the card claims no change for the window to apply (#1635); fails_when=part of the new text stays in place of the old, or a change is claimed; no_claim=the words of the stop or the failure.
