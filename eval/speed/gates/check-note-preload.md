@@ -61,3 +61,44 @@ Over the runs both arms finished, the later arm against the earlier one:
 
 - **Step 1** ships if gate D holds in every cell and on both models' verdict bars.
 - **Step 2** ships, in a pull request of its own after step 1, only if gate D holds and gate E holds in every cell and on both models' verdict bars. Otherwise Check this Note stays at six, and the failing cell is named.
+
+## Result, 2026-11-07: gate D met, so the reranker loads while the claims are named; gate E not met, so Check this Note stays at six
+
+The runs were made at 2afea5b0f (`main`), 06e949710 (`preload`) and b0ba53c17 (`twelve`; f6bf40e1a here is the same change), in the order above, on a direct Anthropic key, with the 15-minute load at 5.8 to 7.6. They spent $3.06. Medians are given earlier arm → later arm; the spread is the earlier arm's runs' largest minus smallest first verdict.
+
+### Gate D: `main` → `preload`: met
+
+| Cell | First verdict | Spread | Done | First rerank that scored | Holds |
+|---|---|--:|---|---|---|
+| Haiku, timing Library, en | 5.1 → 4.8 s | 0.8 s | 12.5 → 11.1 s | 0.8 → 0.1 s | yes |
+| Haiku, timing Library, zh-CN | 5.3 → 4.0 s | 1.3 s | 11.3 → 10.4 s | 1.4 → 0.0 s | yes |
+| Haiku, mixed Library, en | 6.9 → 5.7 s | 1.4 s | 16.0 → 17.3 s | 1.0 → 0.4 s | yes: the end 1.3 s later, within `main`'s spread of 1.7 s |
+| Haiku, mixed Library, zh-CN | 6.1 → 6.1 s | 1.9 s | 13.8 → 11.9 s | 0.8 → 0.3 s | yes |
+| Sonnet, timing Library, en | 7.2 → 7.0 s | 0.4 s | 15.9 → 16.3 s | 0.1 → 0.1 s | yes: the end within `main`'s spread |
+| Sonnet, timing Library, zh-CN | 7.0 → 6.9 s | 1.0 s | 14.6 → 15.4 s | 0.0 → 0.0 s | yes: the end within `main`'s spread |
+
+- **What it had to show:** on the mixed Library the first search's rerank fell from 1.0 to 0.4 s in English and from 0.8 to 0.3 s in Chinese; it no longer waits for the load.
+- **No failure:** no request failed and no rate limit was met.
+- **Verdicts:** on Claude Haiku 5.5, judged right 115 → 118 of 120, false Supported 0 → 0, Not checked 6 → 4; on Claude Sonnet 5.5, judged right 60 of 60 on both arms, false Supported 0 → 0, Not checked 0 → 1.
+
+### Gate E: `preload` → `twelve`: not met
+
+| Cell | First verdict | Spread | Done | Rerank median | Holds |
+|---|---|--:|---|---|---|
+| Haiku, timing Library, en | 4.8 → 4.6 s | 1.8 s | 11.1 → 7.6 s | 0.1 → 0.0 s | yes |
+| Haiku, timing Library, zh-CN | 4.0 → 4.6 s | 0.9 s | 10.4 → 7.0 s | 0.0 → 0.0 s | yes: 0.6 s later, within its spread |
+| Haiku, mixed Library, en | 5.7 → 6.2 s | 2.2 s | 17.3 → 11.6 s | 1.0 → 2.1 s | yes: 0.5 s later |
+| Haiku, mixed Library, zh-CN | 6.1 → 5.2 s | 1.4 s | 11.9 → 11.3 s | 0.5 → 2.2 s | yes |
+| Sonnet, timing Library, en | 7.0 → 6.5 s | 0.6 s | 16.3 → 12.4 s | 0.0 → 0.0 s | yes |
+| Sonnet, timing Library, zh-CN | 6.9 → 6.8 s | 1.0 s | 15.4 → 10.9 s | 0.0 → 0.0 s | yes |
+
+- **Every timing bar is met,** the mixed Library's first verdict included, for the first time; no request failed and no rate limit was met at twelve.
+- **The verdict bar on Claude Haiku 5.5 is not met:** Chinese sentence 3 on the mixed Library was Supported in one of twelve's three runs and none of the preload's. It is the sentence `main` Supported in 2 of gate A's 3 runs, and six in one of gate C's; that doesn't waive it. Otherwise judged right 118 → 116 of 120 and Not checked 4 → 2. On Claude Sonnet 5.5, judged right 60 → 59 of 60, no false Supported, Not checked 1 → 1.
+
+### DeepSeek V4.1 Flash 1017 (`deepseek-flash`), one run per arm, reported only
+
+- **First verdict** (timing en, timing zh-CN, mixed en, mixed zh-CN): `main` 4.6, 4.9, 4.2, 6.9 s; `preload` 4.6, 4.6, 5.3, 4.5 s; `twelve` 4.6, 4.2, 5.6, 5.8 s.
+- **End:** `main` 12.3, 11.9, 14.1, 12.8 s; `preload` 10.1, 9.9, 14.6, 14.1 s; `twelve` 7.7, 7.1, 11.1, 8.7 s.
+- **Judged right:** 34, 36 and 37 of 40. `main`'s one false Supported is English sentence 3 on the mixed Library; none on the other two. $0.10.
+
+**Decision, 2026-11-07:** the reranker loads while the claims are named. Check this Note stays at six: twelve's timing now holds, and what stands in its way is the false Supported on one Chinese sentence, which the check gives on every arm from time to time.
