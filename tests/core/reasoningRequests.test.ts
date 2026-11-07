@@ -211,6 +211,7 @@ describe("An Answer's request to a model that thinks", () => {
       { effort: "high" },
     ],
     ["claude-sonnet-5-5", "task", { type: "adaptive", display: "summarized" }, undefined],
+    ["claude-sonnet-5-5", "check", { type: "adaptive", display: "summarized" }, undefined],
     ["claude-haiku-5-5", "task", { type: "adaptive", display: "summarized" }, { effort: "low" }],
     [
       "claude-haiku-5-5-20261001",

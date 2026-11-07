@@ -269,7 +269,7 @@ export interface ChecksOptions
     prepareModel(
       choice: ChatModelChoice | undefined,
       flow: CheckFlow,
-      thinking?: undefined,
+      thinking?: "check",
       options?: { sends?: readonly DataKind[] },
     ): Promise<PreparedChatModel>;
     modelShape(choice: ChatModelChoice | undefined): Promise<ModelShape | null>;
@@ -1625,7 +1625,7 @@ export function createChecks(options: ChecksOptions) {
     if (service && (options.localOnly() || options.consent.status("chat", service) !== "accepted"))
       return null;
     try {
-      return await chat.prepareModel(choice, "chat");
+      return await chat.prepareModel(choice, "chat", "check");
     } catch (error) {
       if (error instanceof ChatNotReadyError || error instanceof ConsentDeclinedError) return null;
       throw error;

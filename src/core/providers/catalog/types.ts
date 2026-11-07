@@ -155,9 +155,10 @@ export interface RequestQuirks {
  * - "answer": an Answer to a Question, a write or an edit in the assistant, and a Meeting's notes;
  * - "careful": an Answer to a Question that asks to check or calculate;
  * - "task": a Task's Answer: a comparison table's cell (a Research step and draft think at the
- *   provider's default).
+ *   provider's default);
+ * - "check": the judgement of an Answer's sentences against what they cite, once it ends (#2311).
  */
-export type ThinkingKind = "answer" | "careful" | "task";
+export type ThinkingKind = "answer" | "careful" | "task" | "check";
 
 /**
  * How far IncarnaMind stands behind a provider (ADR-0019). A first-class one is
