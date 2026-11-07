@@ -52,3 +52,46 @@ All 36 runs ran on one route per model: Claude Haiku 5.5 and Claude Sonnet 5.5 o
 - Calls whose text could come in, `content` with its `part` named first and no `instruction` before it, over the assistant's own text: on the step, 1 of Sonnet's 10 calls, none of Haiku's 8, and 5 of DeepSeek's 12 (two of which were refused once whole and taken back). Sonnet and Haiku mostly name `part` after `content`, give `instruction` beside it, or give content over the User's text, which is refused. So the step rarely acted on Claude, and the target of 2 to 3 s sooner on Sonnet isn't met: 14.9 → 14.0 s in English, 13.2 → 14.0 s in Chinese.
 
 The gate fails: bar 1 in one cell and unreadable in another, bar 2 in one, bar 3 in two. What ships is the decision below. Spent: $2.56 (Sonnet $2.12, Haiku $0.15, DeepSeek $0.29).
+
+## Second try, 2026-11-07: the new text comes in whatever order the fields come in
+
+Written and committed on 2026-11-07, after the result above and before any run it gates. The runs above stay as they are.
+
+### The step
+
+The first try streamed only a call whose `part` came before its content with no `instruction` beside it: 1 of Sonnet's 10 calls, none of Haiku's 8. Now the content waits for `part`, and for the Note's name when one is given, in whatever order they come; once they are whole, what has come of the content goes in at once and the rest as it is written. An `instruction` beside the content no longer stops it, since the call writes the content. Everything else is as in the first try: the call ends as the same call made whole, in one step; a call refused once whole, Stop or a failed model takes back what came in. A call that never names `part` goes in once the call has all of it, as before.
+
+### The runs
+
+- **Arms:** `main` at bcb1f6b51, unchanged; `step` at 4cf7a1c61, this branch with that `main` merged and the change above (the commit of this section changes only this file).
+- **Flow:** `assistant-longer`, as in the first try, through a probe that runs the flow as `npm run eval:speed` does (the same signs and timing records) and also records the page after each change as the window draws it (every Proposal accepted, Citation marks ignored), each Tool call's start and end with the order of its input's fields, the Checkpoints the Answer took, and the page with the Answer's change requests rejected. The probe is the same file on both arms and isn't committed.
+- **Order:** one process per arm, model, language and run, alternating `main`, `step`, `main`, `step`.
+- **Cells**, three runs per arm, 36 runs:
+  - Claude Sonnet 5.5 (`claude-sonnet-5-5`), direct Anthropic route, English and Chinese.
+  - Claude Haiku 5.5 (`claude-haiku-5-5`), direct Anthropic route, English and Chinese.
+  - DeepSeek V4.1 Flash 1017 (`deepseek-flash`), English and Chinese.
+  - If the direct key runs out of credit, the second direct key carries on with the same model, noted below with the time; no cell mixes models.
+- **Stop runs:** on `step`, one run per model and language with Stop pressed at the page's first change while an `edit_mind` call is open: 6 runs.
+- **Kept:** each run's data folder. **Load:** a run starts only while the 15-minute load is at most 24.
+- **Cost:** about $2.60 for the 36 runs, as the first try's, and $0.40 for the Stop runs, within this work's cap of $6.
+
+### The bars
+
+Bars 1 to 4 are the first try's, per cell, read the same way. Bar 1 must hold on the first change as the first try read it (the first change of any kind in the page) and on the first new text that stays (the first line of the page's end that wasn't there before the Answer and stays in every later state), so text that comes in and is taken back doesn't count as sooner.
+
+5. **Quality**, on every run of the step, whatever the cell:
+   - **Text in its place:** in every state of the page, the User's note stays its first line, unchanged; and while an `edit_mind` call's text comes in, the page never has more lines than the more of its lines at the call's start and at its end, so new text never shows beside the old text it replaces.
+   - **No claimed-but-unmade edit:** no more runs than on `main` whose reply says the summary changed while no change landed, read from the app's own record of claims no call made (`unbackedClaims`), and, for each run whose page didn't change, from its reply read in full.
+   - **Undo in one step:** in every run whose Answer changed the page, rejecting the Answer's change requests, as its Undo does, gives back exactly the page before the Answer; and no Checkpoint more per landed `edit_mind` call than on `main`, but the one each call that came in and was taken back saved.
+   - **Stop keeps what landed:** in each Stop run, a call stopped while its text was still coming in leaves the page exactly as it was at the call's start and claims no change, and a call that had run before Stop keeps what it wrote: never part of a call's text. The unit tests of Stop and a failed model pass.
+   - **Checks unchanged:** every landed `edit_mind` write of cited text has its written check (`selfCheck`), and over each model's runs the share of those writes' cited sentences checked is no lower than on `main`.
+
+### Reported, not bars
+
+- **The share of calls that streamed:** of the `edit_mind` calls with content, how many showed text in the page before the call had all of its input (a state of the page inside the call's window other than its first and last), per arm and cell, with the order of their fields.
+- The first change, the first new text that stays, and Done: medians, `main` → step, per cell; the target is 2 to 3 seconds sooner on Sonnet.
+- Calls whose text came in and was taken back.
+
+### What decides
+
+The step ships if every cell holds bars 1 to 4 and every quality line holds. If a quality line fails, it doesn't ship. If the quality lines hold and the first change on Sonnet doesn't move, the result says so plainly and recommends closing the pull request. Either way, what ships is decided in a dated note below, not by reading these bars again.
