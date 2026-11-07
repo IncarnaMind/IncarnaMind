@@ -258,13 +258,13 @@ async function shownChecks(
   }));
 }
 
-// protects=Check this Note sends twelve claims at once to a model on a service (#2532) and one at a time to a model on this computer (#1618); fails_when=the number changes, or a model on this computer is sent several at once; no_claim=a real provider's rate limits, which the run's backoff answers.
+// protects=a check sends six claims at once to a model on a service and one at a time to a model on this computer (#1618); fails_when=the number changes, or a model on this computer is sent several at once; no_claim=a real provider's rate limits, which the run's backoff answers.
 test.each([
-  [12, "a model on a service", true],
+  [6, "a model on a service", true],
   [1, "a model on this computer", false],
 ] as const)("Check this note sends %i claims at once to %s", async (atOnce, _, onService) => {
   const sentences = Array.from(
-    { length: 14 },
+    { length: 9 },
     (_, index) => `Spring tide ${index + 1} comes at new moon.`,
   );
   const plans: Record<string, Plan> = Object.fromEntries(
@@ -319,7 +319,7 @@ test.each([
 
   const result = await core.checkMind(request(mind.id, "all"));
 
-  expect(result).toMatchObject({ kind: "checked", sentences: 14 });
+  expect(result).toMatchObject({ kind: "checked", sentences: 9 });
   expect(most).toBe(atOnce);
 });
 

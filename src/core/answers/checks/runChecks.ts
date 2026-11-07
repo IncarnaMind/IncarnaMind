@@ -52,14 +52,6 @@ const CLOUD_CLAIMS_AT_ONCE = 6;
 export const claimsAtOnce = (prepared: PreparedChatModel): number =>
   prepared.provider.service ? CLOUD_CLAIMS_AT_ONCE : 1;
 
-// Check this Note alone, held to its gate (#2532, eval/speed/gates/check-note-preload.md › Gate E):
-// the write and Verify keep six, as twelve failed the write's own (check-speed-twelve.md).
-const NOTE_CLAIMS_AT_ONCE = 12;
-
-/** How many sentences Check this Note checks at once on `prepared`. */
-export const noteClaimsAtOnce = (prepared: PreparedChatModel): number =>
-  prepared.provider.service ? NOTE_CLAIMS_AT_ONCE : 1;
-
 /** A claim marked "checking", and what its check sends. */
 export interface QueuedClaim {
   id: string;
@@ -232,8 +224,6 @@ export async function runChecks(
   options: RunChecksOptions,
   run: ChecksRun & {
     queued: readonly QueuedClaim[];
-    /** How many claims it checks at once, when not `claimsAtOnce`'s. */
-    atOnce?: number;
     /** The limit on checks at once, when the run shares it with checks started before it. */
     slots?: Slots;
   },
@@ -269,7 +259,7 @@ export async function runChecks(
     };
 
   let checked = 0;
-  const atOnce = run.atOnce ?? claimsAtOnce(prepared);
+  const atOnce = claimsAtOnce(prepared);
   const limit = run.slots ?? slots(atOnce);
   const { stop } = await runItems(
     run.queued,
