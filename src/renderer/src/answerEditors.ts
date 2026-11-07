@@ -7,7 +7,7 @@
 import type { Editor } from "@tiptap/core";
 import type { Node as ProseMirrorNode, Slice } from "@tiptap/pm/model";
 import { type ConversationAnswer, NOTE_BLOCK_TYPES } from "../../core/api";
-import { asQuoteChecked, pageBlocks } from "../../shared/answerBlocks";
+import { asQuoteChecked, pageBlocks, withAnswerChecks } from "../../shared/answerBlocks";
 import type { NodeJSON } from "../../shared/blockJson";
 import { unbackedCommandNotes, unrunToolNotes } from "../../shared/unrunTools";
 import { questionOf } from "./conversations";
@@ -130,10 +130,17 @@ export async function copyAnswer(answerId: string): Promise<boolean> {
  */
 export const notesToAdd = (answer: ConversationAnswer): NodeJSON[] => {
   const selected = selectedNotes(answer.id);
+  const asked = questionOf(answer);
+  const question = asked?.text ?? "";
   return [
     ...(selected
-      ? asQuoteChecked(selected, answer.status)
-      : pageBlocks(answer, questionOf(answer)?.text ?? "")),
+      ? withAnswerChecks(
+          asQuoteChecked(selected, answer.status),
+          answer,
+          question,
+          asked?.scope ?? null,
+        )
+      : withAnswerChecks(pageBlocks(answer, question), answer, question, asked?.scope ?? null)),
     ...unrunToolNotes(translateNow, answer.steps),
     ...unbackedCommandNotes(translateNow, answer.steps),
   ];
