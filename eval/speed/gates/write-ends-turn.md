@@ -61,3 +61,33 @@ A second paired run on Claude Haiku 5.5 (9 pairs of `writes`, $0.37) was stopped
 - **"Ended at the write"** now counts a run only if the Run stopped after a step that called a Tool, so a blank reply the model wrote after the Run went on is not counted as an end. **"No reply where one was asked for"** counts over the held-out flows' runs.
 
 The bars are unchanged.
+
+## Result, 2026-11-07: quality bars 1 and 2 not met on Claude Haiku 5.5; the step doesn't ship
+
+Run at 375762a3a, paired `write-replies` against `today` on a direct Anthropic key, load 2.8–9.5 (median 5.4).
+
+**Claude Haiku 5.5, `writes`, three runs per flow and language (30 pairs, $1.17):**
+
+| | write-replies | today |
+|---|---|---|
+| Done, median (paired) | 33.5 s | 30.7 s (−2.5 s, sooner in 17 of 30) |
+| First change in the page | 16.5 s | 15.8 s (−0.2 s) |
+| Ended at the write | 0 of 30 | 4 of 30 |
+| Marked done, still replied | – | 21 of 25 |
+| No reply where one was asked for | 0 of 12 | **2 of 12** |
+| Other everyday guard failed | 0 | **2** (both `no-reply`) |
+| False Supported, change claimed and none made, failed to run | 0 | 0 |
+
+- **Bar 1 fails:** `assistant-write-and-ask` ("Write a short summary of the Vantrell report's emissions targets into my notes. Which year do they run to?") ended at the write with no reply in 1 of 3 English and 1 of 3 Chinese runs. Haiku marked the write done in 11 of the 12 held-out runs; in the other 9 the write's result had something to say (in the replies, most often a sentence marked as not supported), which kept the reply.
+- **Bar 2 fails** with the same two runs.
+- **Speed:** per timed flow, the paired median Done moved +6.6 s (`assistant-write`), −0.8 s (`assistant-write-long`) and −1.0 s (`assistant-longer`): only 4 of the 30 writes ended at the write, as most still had a flagged sentence to report.
+
+**Exploratory, after the result (not gating): Claude Sonnet 5.5, the held-out flows and the eight-paragraph write, two runs per language (12 pairs, $3.65):**
+- The eight-paragraph write ended at its write in 4 of 4 runs: Done 29.5 → 23.9 s (paired −5.6 s), every run 21.6–24.8 s, first change 7.7 → 7.9 s. That meets #1635's eight-paragraph budget.
+- Sonnet marked the write done in all 4 runs of `assistant-write-and-ask`, and 6 of the 8 held-out runs. None ended with no reply only because each of those writes' results had something to say (in the replies, a sentence marked as not supported or contradicted). A clean write there would have ended without its answer.
+
+**Exploratory, DeepSeek V4.1 Flash 1017 (`deepseek-flash`), the same 12 pairs ($0.51 by the app's count):** it marked the write done in 4 of 12 runs (1 of the 8 held-out runs) and no run ended at its write, so nothing moved: no reply was missing, and the paired times swung with DeepSeek's own spread (the eight-paragraph write's `write-replies` runs took 93–181 s).
+
+So a writing call's own `done` is not a safe signal on either Claude model: both mark a write done when the User's message still asks a question. What ships: nothing from this step. The branch is kept for the next try.
+
+**For the next try:** decide "the reply adds nothing" outside the writing call. One shape, from the decision recorded for #1667 step D: end at a done write and have the provider's quick model write the reply from the User's request and the write's result (its text included), so a question the write answers ("which year") is still answered, and a write with flags says them, without re-reading the conversation. It needs its own held-out compound requests, written before its runs; these two flows have now been seen.
