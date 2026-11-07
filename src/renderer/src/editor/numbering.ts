@@ -9,7 +9,9 @@ import {
   isNumberingScheme,
   itemLevel,
   type NumberingScheme,
+  nextNumbers,
   numberingMarker,
+  startingNumbers,
 } from "../../../shared/numbering";
 import { asOneStep, undoStackOf } from "./editorUndo";
 
@@ -80,21 +82,28 @@ export function drawnMarkers(doc: ProseMirrorNode): { pos: number; marker: strin
 
 function markerDecorations(doc: ProseMirrorNode): Decoration[] {
   const decorations: Decoration[] = [];
-  let before: number[] | null = null;
+  // The numbers each parent's closest earlier numbered list ended with (#2334).
+  const ended = new Map<ProseMirrorNode, number[]>();
+  /** Draws `list`, and returns the numbers its last item is drawn with. */
   const draw = (
     list: ProseMirrorNode,
     at: number,
     depth: number,
     outer: { scheme: NumberingScheme; startLevel: number },
-    numbers: number[],
-  ) => {
+    outerNumbers: readonly number[],
+    before: readonly number[] | null,
+  ): readonly number[] => {
     const level = itemLevel(depth, outer.startLevel);
     const ordered = list.type.name === "orderedList";
+    let numbers = outerNumbers;
     if (ordered) {
       const start = Number(list.attrs.start);
-      numbers[level] = (Number.isInteger(start) && start > 0 ? start : 1) - 1;
-      numbers.length = level + 1;
-      for (let parent = 0; parent < level; parent++) numbers[parent] ||= 1;
+      numbers = startingNumbers({
+        start: Number.isInteger(start) && start > 0 ? start : 1,
+        level,
+        from: before ?? outerNumbers,
+        continues: before !== null,
+      });
     }
     // Each item with the marker its number gives it, and the numbers as they stand at it for a list under it.
     const each: {
@@ -105,10 +114,7 @@ function markerDecorations(doc: ProseMirrorNode): Decoration[] {
       numbers: number[];
     }[] = [];
     list.forEach((item, offset) => {
-      if (ordered) {
-        numbers[level] = (numbers[level] ?? 0) + 1;
-        numbers.length = level + 1;
-      }
+      if (ordered) numbers = nextNumbers(numbers, level);
       const first = item.firstChild;
       const marker =
         ordered && first?.isTextblock ? numberingMarker(outer.scheme, level, numbers) : null;
@@ -141,12 +147,13 @@ function markerDecorations(doc: ProseMirrorNode): Decoration[] {
       item.forEach((child, childOffset) => {
         const childAt = itemAt + 1 + childOffset;
         if (child.type.name === "orderedList") {
-          draw(child, childAt, depth + 1, outer, at);
+          draw(child, childAt, depth + 1, outer, at, null);
         } else if (child.type.name === "bulletList" || child.type.name === "taskList") {
           drawNested(child, childAt);
         }
       });
     }
+    return numbers;
   };
   // A numbered list under a bullet or a to-do starts a numbered list of its own (#1419).
   const drawNested = (list: ProseMirrorNode, at: number) => {
@@ -155,7 +162,14 @@ function markerDecorations(doc: ProseMirrorNode): Decoration[] {
       item.forEach((child, childOffset) => {
         const childAt = itemAt + 1 + childOffset;
         if (child.type.name === "orderedList") {
-          draw(child, childAt, 0, { scheme: schemeOf(child), startLevel: startLevelOf(child) }, []);
+          draw(
+            child,
+            childAt,
+            0,
+            { scheme: schemeOf(child), startLevel: startLevelOf(child) },
+            [],
+            null,
+          );
         } else if (child.type.name === "bulletList" || child.type.name === "taskList") {
           drawNested(child, childAt);
         }
@@ -167,17 +181,11 @@ function markerDecorations(doc: ProseMirrorNode): Decoration[] {
     if (node.type.name !== "orderedList") return true;
     const nested = parent?.type.name === "listItem" || parent?.type.name === "taskItem";
     if (nested && listParent(doc, pos) === "orderedList") return false;
-    const continues = node.attrs[CONTINUES_ATTRIBUTE] === true && before !== null;
-    const numbers: number[] = continues && before ? [...before] : [];
+    const before =
+      node.attrs[CONTINUES_ATTRIBUTE] === true && parent ? (ended.get(parent) ?? null) : null;
     const outer = { scheme: schemeOf(node), startLevel: startLevelOf(node) };
-    if (continues && before) {
-      const level = itemLevel(0, outer.startLevel);
-      const shifted = { ...node.attrs, start: (before[level] ?? 0) + 1 };
-      draw(node.type.create(shifted, node.content), pos, 0, outer, numbers);
-    } else {
-      draw(node, pos, 0, outer, numbers);
-    }
-    if (!nested) before = numbers.length > 0 ? numbers : before;
+    const numbers = draw(node, pos, 0, outer, [], before);
+    if (!nested && parent) ended.set(parent, [...numbers]);
     return false;
   });
   return decorations;
@@ -438,20 +446,23 @@ export function setNumbering(editor: Editor, scheme: NumberingScheme): boolean {
 export const restartNumbering = (editor: Editor): boolean =>
   asOneStep(editor, () => setListAttributes(editor, { start: 1, [CONTINUES_ATTRIBUTE]: null }));
 
-/** Whether the list the caret is in can go on from a numbered list before it, and doesn't yet. */
+/** Whether the list the caret is in can go on from a numbered list among its siblings, and doesn't yet. */
 export function canContinueNumbering(editor: Editor): boolean {
   const list = numberedListAt(editor);
   if (!list || list.node.attrs[CONTINUES_ATTRIBUTE] === true) return false;
   // A numbered list under a bullet or a to-do starts fresh, so it has nothing above it to go on.
   if (listParent(editor.state.doc, list.pos) !== null) return false;
-  let earlier = false;
-  editor.state.doc.nodesBetween(0, list.pos, (node, pos, parent) => {
-    if (earlier || pos >= list.pos) return false;
-    const nested = parent?.type.name === "listItem" || parent?.type.name === "taskItem";
-    if (node.type.name === "orderedList" && !nested) earlier = true;
-    return !earlier;
-  });
-  return earlier;
+  return earlierNumberedSibling(editor.state.doc, list.pos) !== null;
+}
+
+/** The numbered list closest before the one at `pos` among its siblings, or null. */
+function earlierNumberedSibling(doc: ProseMirrorNode, pos: number): ProseMirrorNode | null {
+  const $at = doc.resolve(pos);
+  for (let index = $at.index() - 1; index >= 0; index--) {
+    const sibling = $at.parent.child(index);
+    if (sibling.type.name === "orderedList") return sibling;
+  }
+  return null;
 }
 
 export const continueNumbering = (editor: Editor): boolean =>

@@ -29,7 +29,7 @@ import {
   type FakeTranscriberOptions,
   failingOver,
 } from "../../src/core/transcription/fake";
-import { createFakeCloud } from "../../src/core/transcription/fakeCloud";
+import { createFakeCloud, createFakeCloudFetch } from "../../src/core/transcription/fakeCloud";
 import type { SpeechEngine } from "../../src/core/transcription/speech";
 import { createTempDataFolder, manualClock, startCore } from "./core";
 import { scriptedModels } from "./models";
@@ -112,6 +112,7 @@ export function inProcessTranscriber(
     };
     serveTranscriber(engine, options.failover ? failingOver(port, options.failover) : port, {
       connect,
+      fetch: createFakeCloudFetch(options.cloud),
       detectors: async () => createFakeSpeechEngine(options).detector,
     });
     kill = () => {

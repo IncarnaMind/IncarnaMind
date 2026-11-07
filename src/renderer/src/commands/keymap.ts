@@ -93,7 +93,10 @@ export function holdsKey(
 }
 
 const dialogHolds = (id: CommandId) =>
-  dialogOpen() && holdsKey(id, linesShownIn(topModalNow()), useUndo.getState());
+  // The picture viewer's own Copy, from the Edit menu, is the modal's and not the page's (#2377).
+  id !== "picture.copy" &&
+  dialogOpen() &&
+  holdsKey(id, linesShownIn(topModalNow()), useUndo.getState());
 
 const report = (error: unknown) => useAppStore.getState().reportError(error);
 

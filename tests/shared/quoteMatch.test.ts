@@ -74,6 +74,35 @@ describe("finding a quote", () => {
     expect(covered("the 2ⁿᵈ row", "the 2nd row")).toBe("the 2ⁿᵈ row");
   });
 
+  test("reads a circled mark after a figure as a footnote's mark, never another digit (#2646)", () => {
+    const text = "Hollin Pumps was paid 1,240.50① on 2 April";
+    expect(covered(text, "Hollin Pumps was paid 1,240.50")).toBe("Hollin Pumps was paid 1,240.50");
+    expect(covered(text, "1,240.50① on 2 April")).toBe("1,240.50① on 2 April");
+    expect(findQuote(text, "Hollin Pumps was paid 1,240.501 on 2 April")).toBeNull();
+    // A drawn page, as a Word viewer draws it, keeps the mark a digit: the quote is still found.
+    expect(covered("Hollin Pumps was paid 1,240.501 on 2 April", "1,240.50① on 2 April")).toBe(
+      "1,240.501 on 2 April",
+    );
+    expect(findQuote("The fee (1,240.50)① was paid", "The fee (1,240.50)1 was paid")).toBeNull();
+    expect(findQuote("the share was 45%① of revenue", "the share was 45%1 of revenue")).toBeNull();
+  });
+
+  test("reads a circled mark after a Chinese figure as a footnote's mark (#2646)", () => {
+    const text = "公司支付了 1,240.50① 元，毛利率为 45%②。";
+    expect(covered(text, "公司支付了 1,240.50① 元")).toBe("公司支付了 1,240.50① 元");
+    expect(findQuote(text, "公司支付了 1,240.501 元")).toBeNull();
+    expect(findQuote(text, "毛利率为 45%2。")).toBeNull();
+    expect(findQuote("销售（1,240.50）③ 元", "销售（1,240.50）3 元")).toBeNull();
+    const percent = "毛利率为 45％②。";
+    expect(findQuote(percent, "毛利率为 45%2。")).toBeNull();
+    expect(covered(percent, "毛利率为 45％②。")).toBe("毛利率为 45％②。");
+  });
+
+  test("a circled mark that isn't after a figure is no mark (#2646)", () => {
+    expect(covered("see the note① here", "see the note1 here")).toBe("see the note① here");
+    expect(covered("第①章 引言", "第1章 引言")).toBe("第①章 引言");
+  });
+
   test("matches a line-end hyphen the quote keeps with a space after it", () => {
     const text = "if the initial hyper-\nstep sizes are too large";
     expect(covered(text, "initial hyper- step sizes")).toBe("initial hyper-\nstep sizes");

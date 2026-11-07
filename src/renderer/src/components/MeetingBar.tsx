@@ -7,7 +7,7 @@ import { commands } from "../commands/registry";
 import { files } from "../core";
 import { useT } from "../i18n";
 import { helpKeysLabel, useMeetingHelp } from "../meetingHelp";
-import { useMeetings, useMeetingTime } from "../meetings";
+import { isWaitingForPermission, useMeetings, useMeetingTime } from "../meetings";
 import { clockTime, durationLabel } from "../meetingTime";
 import { useGuideInPlace } from "../permissionGuide";
 import { useAppStore } from "../store";
@@ -78,6 +78,7 @@ function MeetingControls({ meeting }: { meeting: Meeting }) {
   const time = clockTime(useMeetingTime(meeting));
   const { pause, resume, stop } = useMeetings.getState();
   const recording = meeting.status === "recording";
+  const waiting = isWaitingForPermission(meeting);
   const memo = meeting.kind === "memo";
   const toggle = () => void (recording ? pause(meeting.id) : resume(meeting.id));
   const shortcut = shortcutLabel("meeting.pauseResume");
@@ -89,21 +90,25 @@ function MeetingControls({ meeting }: { meeting: Meeting }) {
         <span
           aria-hidden="true"
           data-testid="meeting-dot"
-          data-status={meeting.status}
+          data-status={waiting ? "waiting" : meeting.status}
           className="recording-dot"
         />
         <span data-testid="meeting-state" className="font-semibold">
           {t(
-            !recording
-              ? "meetings.bar.paused"
-              : memo
-                ? "memos.bar.recording"
-                : "meetings.bar.recording",
+            waiting
+              ? "meetings.bar.waiting"
+              : !recording
+                ? "meetings.bar.paused"
+                : memo
+                  ? "memos.bar.recording"
+                  : "meetings.bar.recording",
           )}
         </span>
-        <span role="timer" data-testid="meeting-time" className="meeting-time">
-          {time}
-        </span>
+        {!waiting && (
+          <span role="timer" data-testid="meeting-time" className="meeting-time">
+            {time}
+          </span>
+        )}
         <LevelBars meeting={meeting} />
       </span>
       {!memo && (

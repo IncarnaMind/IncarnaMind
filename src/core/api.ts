@@ -2643,6 +2643,13 @@ export interface QuotedWords {
   answer: QuotedPiece[];
   /** The Document's words nearest them, the matching stretch `found: true`; null when none is near. */
   closest: QuotedPiece[] | null;
+  /**
+   * The Answer's quote in the Document's own marks, where the two differ only in the kind of
+   * their quotation marks (#2605): what Use the Document's wording puts in the sentence. The
+   * quote's other characters are its own, so only its marks change. Absent for any other
+   * difference, which the card offers nothing for.
+   */
+  documentWording?: string;
 }
 
 /** The Answer's quoted words, found where they run on past the page the Citation cites (#2504). */
@@ -3323,9 +3330,10 @@ export interface DeviceSettings {
 
 /**
  * Where a Meeting's audio is turned into text: on this computer, or live by a cloud service with
- * the User's own key (#141, #866): OpenAI, Qwen (Alibaba Cloud Model Studio, for mainland China)
- * and Gemini with the key of their provider in Settings › Models; Soniox, Deepgram (also at
- * Cloudflare Workers AI or a server of the User's own) and AssemblyAI with a key of their own.
+ * the User's own key (#141, #866): OpenAI, Qwen (Alibaba Cloud Model Studio, for mainland China),
+ * Gemini and xAI with the key of their provider in Settings › Models; Soniox, Deepgram
+ * (also at Cloudflare Workers AI or a server of the User's own), AssemblyAI, ElevenLabs,
+ * Speechmatics and Gladia with a key of their own.
  */
 export const TRANSCRIPTION_ROUTES = [
   "local",
@@ -3335,6 +3343,10 @@ export const TRANSCRIPTION_ROUTES = [
   "deepgram",
   "assemblyai",
   "gemini",
+  "elevenlabs",
+  "speechmatics",
+  "gladia",
+  "xai",
 ] as const;
 export type TranscriptionRoute = (typeof TRANSCRIPTION_ROUTES)[number];
 export type CloudTranscriptionRoute = Exclude<TranscriptionRoute, "local">;
@@ -10816,6 +10828,7 @@ export type MeetingKind = "meeting" | "memo";
 /**
  * How one source is recorded right now:
  * - "off": not asked for ("Only me"), or the Meeting isn't recording.
+ * - "waiting": the system's permission prompt is open, and nothing is captured until it is answered.
  * - "starting": asked for, not heard from yet.
  * - "recording": its audio is coming in.
  * - "silent": the computer's sound has been nothing but silence for a minute,
@@ -10827,6 +10840,7 @@ export type MeetingKind = "meeting" | "memo";
  */
 export type MeetingSourceState =
   | "off"
+  | "waiting"
   | "starting"
   | "recording"
   | "silent"
@@ -13437,9 +13451,10 @@ export interface CoreApi {
   /** The cloud services that can transcribe meeting audio (#141), and whether each has a key. */
   listTranscriptionServices(): Promise<TranscriptionServices>;
   /**
-   * Keeps a transcription service's own key (Soniox, Deepgram, AssemblyAI), in the keychain, once
-   * the service accepts it, with Deepgram's server where it is another. Throws
-   * `InvalidInputError` when it refuses the key or the server's address isn't one.
+   * Keeps a transcription service's own key (Soniox, Deepgram, AssemblyAI, ElevenLabs,
+   * Speechmatics, Gladia), in the keychain, once the service accepts it, with Deepgram's server
+   * where it is another. Throws `InvalidInputError` when it refuses the key or the server's
+   * address isn't one.
    */
   setTranscriptionKey(input: SetTranscriptionKeyInput): Promise<TranscriptionServices>;
   /** Forgets a transcription service's own key; meeting audio is then transcribed on this computer. */

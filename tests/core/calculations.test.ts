@@ -1226,6 +1226,91 @@ describe("A raised footnote digit after an amount (#2474)", { timeout: 60_000 },
   });
 });
 
+describe("A circled footnote mark after an amount (#2646)", { timeout: 60_000 }, () => {
+  test("calculate reads 1,240.50 from 1,240.50①, and a joined number doesn't pass", async () => {
+    const figures = (passage: string) => [
+      {
+        marker: 1,
+        label: "Grant paid",
+        formula: "amount",
+        inputs: [
+          {
+            name: "amount",
+            label: "Grant",
+            passage,
+            quote: "Hollin Pumps 1,240.50①",
+            number: "1,240.50",
+          },
+        ],
+      },
+      {
+        marker: 2,
+        label: "Joined digits",
+        formula: "joined",
+        inputs: [
+          {
+            name: "joined",
+            label: "Joined",
+            passage,
+            quote: "Hollin Pumps 1,240.501",
+            number: "1,240.501",
+          },
+        ],
+      },
+      {
+        marker: 3,
+        label: "Joined number",
+        formula: "named",
+        inputs: [
+          {
+            name: "named",
+            label: "Named",
+            passage,
+            quote: "Hollin Pumps 1,240.50①",
+            number: "1,240.501",
+          },
+        ],
+      },
+    ];
+    const model = calculatingModel({
+      queries: ["grants paid"],
+      steps: [
+        (passages): Call[] => [
+          {
+            tool: "calculate",
+            input: { figures: figures(passageOf(passages, "Grants paid 2025")) },
+          },
+        ],
+      ],
+      answer: "Hollin Pumps was paid [=1].",
+    });
+    const { core } = await setUpCalculating(model, [
+      { name: "Grants paid 2025.txt", contents: "Grants paid 2025\nHollin Pumps 1,240.50①" },
+    ]);
+
+    const { answer } = await askAndRead(core, "How much was Hollin Pumps paid?");
+
+    expect(shown(answerBlocks(answer))).toBe("Hollin Pumps was paid 1,240.50.");
+    expect(answer.figures).toMatchObject([
+      {
+        marker: 1,
+        shown: "1,240.50",
+        inputs: [
+          {
+            citation: { quote: "Hollin Pumps 1,240.50①", check: "found" },
+            number: { chars: "1,240.50①", value: 1240.5 },
+          },
+        ],
+      },
+    ]);
+    expect(answer.figures).toHaveLength(1);
+    const [message] = told(model, "calculate");
+    expect(message).toContain("Recorded [=1] = 1,240.50");
+    expect(message).toContain("[=2] joined: the quote isn't word for word");
+    expect(message).toContain('[=3] named: the quote has no number "1,240.501"; it has 1,240.50①.');
+  });
+});
+
 describe("Amounts in brackets are negative (#978)", { timeout: 60_000 }, () => {
   const inputs = (cited: number[], numbers: string[]) =>
     ["price", "agent", "legal", "other"].map((name, index) => ({

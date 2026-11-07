@@ -19,12 +19,13 @@
  * - a reference or footnote mark "[^36]" reads "[36]": models write a paper's
  *   reference "[36]" in the syntax of our own Citation markers. Only matching
  *   reads it so: the markers in an Answer's text are never touched;
- * - a superscript digit directly after a figure reads as a footnote's mark, not
- *   a digit, as the figure reader reads one: a quote that joins the mark to the
- *   figure ("1,240.501") is not in "1,240.50¹", while a quote that keeps the
- *   mark is found where a drawn page keeps the mark a digit ("1,240.50¹" in
- *   "1,240.501", as a Word page draws one). A superscript elsewhere is no mark:
- *   "x²", "Ca²⁺" and "2ⁿᵈ" read "x2", "Ca2+" and "2nd";
+ * - a superscript digit or a circled mark directly after a figure reads as a
+ *   footnote's mark, not a digit, as the figure reader reads one: a quote that
+ *   joins the mark to the figure ("1,240.501") is not in "1,240.50¹" or
+ *   "1,240.50①", while a quote that keeps the mark is found where a drawn page
+ *   keeps the mark a digit ("1,240.50¹" in "1,240.501", as a Word page draws
+ *   one). A mark elsewhere is no mark: "see note¹", "x²", "Ca²⁺" and "2ⁿᵈ"
+ *   read "see note1", "x2", "Ca2+" and "2nd" (#2474, #2646);
  * - a soft hyphen that ends a line is read as a hyphen, so the word split
  *   there is joined like any other ("inter\u00ad\nnational");
  * - a pipe that breaks a table's cells, a lone "|" with whitespace or a

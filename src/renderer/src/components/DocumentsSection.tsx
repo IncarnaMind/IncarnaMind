@@ -23,6 +23,7 @@ import {
   useSelectionOrder,
   useSeveralSelected,
 } from "../selection";
+import { heldWhileAdding } from "../sidebarList";
 import { moveFromMenu, rowDrag, useSidebarMove } from "../sidebarMoves";
 import { useSortMenu } from "../sortMenu";
 import { allExamples, isOwnDocument, useAppStore } from "../store";
@@ -90,6 +91,12 @@ export function DocumentsSection() {
   const t = useT();
   const language = useLanguage();
   const libraryDocuments = useLibraryDocuments();
+  const heldDocuments = useAppStore((state) => state.heldDocuments);
+  // The count above follows every Document; the tree holds its rows until a batch lands (#1329).
+  const treeDocuments = useMemo(
+    () => heldWhileAdding(libraryDocuments, heldDocuments),
+    [libraryDocuments, heldDocuments],
+  );
   const libraryShown = useLibraryShown();
   const firstOpen = useFirstOpen();
   const hasOwnDocuments = useAppStore((state) =>
@@ -240,7 +247,7 @@ export function DocumentsSection() {
           while the tree lists nothing, so the first section to arrive moves neither (#2142). */}
       <div ref={tree} data-testid="sidebar-sections" {...treeKeys} className="flow-root">
         <LibraryFolders
-          documents={quiet ? NO_DOCUMENTS : libraryDocuments}
+          documents={quiet ? NO_DOCUMENTS : treeDocuments}
           renderDocument={renderDocument}
           quiet={quiet}
           hideExamples={foldExamples}
