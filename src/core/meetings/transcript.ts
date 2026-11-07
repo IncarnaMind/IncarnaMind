@@ -780,16 +780,18 @@ export function createTranscripts(options: TranscriptsOptions) {
   // Dropped, refused, out of credit or the gate closed: the cloud's streams are dropped, nothing
   // they queued is sent, and the stretch this computer didn't hear is transcribed after Stop. At
   // the cap, the streams finish with what they were already sent. A new key for the same service
-  // opens the streams again on it, from the next audio (#866).
-  function leaveCloud(state: State, live: Live, reason: Leaving): void {
-    if (live.engine === "local") return;
+  // opens the streams again on it, from the next audio (#866). Resolves once the transcription
+  // process has dropped the streams.
+  function leaveCloud(state: State, live: Live, reason: Leaving): Promise<void> {
+    if (live.engine === "local") return Promise.resolve();
     const route = live.engine;
     const atMs = live.pushedMs;
     const failed = reason === "dropped" || reason === "refused" || reason === "credit";
+    let dropped: Promise<void> | null = null;
     if (reason === "cap") {
       if (live.started) finishStreams(state, live, atMs);
     } else {
-      dropStreams(live);
+      dropped = dropStreams(live);
       const lost = { fromMs: live.doneMs, toMs: Math.max(live.doneMs, live.pushedMs) };
       if (live.started && live.pendingFrom === null && lost.toMs > lost.fromMs) {
         if (failed) state.gaps.push({ ...lost, reason: "cloud" });
@@ -812,7 +814,7 @@ export function createTranscripts(options: TranscriptsOptions) {
       choose(state, live, options.cloud);
       persist(state);
       options.changed();
-      return;
+      return dropped ?? Promise.resolve();
     }
     if (reason !== "user" && reason !== "renew") state.fellBack = { route, atMs, reason };
     health.add(state.meetingId, {
@@ -822,10 +824,21 @@ export function createTranscripts(options: TranscriptsOptions) {
       to: "local",
       reason: failed ? "failed" : reason === "cap" ? "cap" : "user",
     });
-    startEngine(state);
+    if (dropped) {
+      // Loading this computer's engine waits for the drop: a process stopped for not confirming
+      // it then fails no load, and the next one loads afresh (#2702).
+      void dropped.then(() => {
+        if (closed || state.live !== live) return;
+        startEngine(state);
+        options.changed();
+      });
+    } else {
+      startEngine(state);
+    }
     writeLines(state, { now: true });
     persist(state);
     options.changed();
+    return dropped ?? Promise.resolve();
   }
 
   function gateClosed(live: Live): Leaving | null {
@@ -1042,14 +1055,17 @@ export function createTranscripts(options: TranscriptsOptions) {
     live.finishing.push({ stream: own.stream, reading, done, drop });
   }
 
-  function dropStreams(live: Live): void {
-    for (const own of Object.values(live.streams)) transcriber.drop(own.stream);
+  function dropStreams(live: Live): Promise<void> {
+    const dropped = Object.values(live.streams).map((own) => own.stream);
     for (const each of live.finishing) {
-      transcriber.drop(each.stream);
+      dropped.push(each.stream);
       // Its stretch is transcribed from the audio after Stop, as any stream lost is.
       each.reading.lost = true;
       each.drop();
     }
+    if (live.engine !== "local") return transcriber.dropCloud(dropped);
+    for (const stream of dropped) transcriber.drop(stream);
+    return Promise.resolve();
   }
 
   function send(state: State, live: Live, audio: TrackedAudio): void {
@@ -1570,13 +1586,16 @@ export function createTranscripts(options: TranscriptsOptions) {
     /**
      * Where meeting audio may go changed (Local mode, consent, the chosen route, a key): every
      * live cloud stream whose gate is now closed is dropped at once, not at its next chunk.
+     * Resolves once the transcription process has dropped them.
      */
-    recheckCloud(): void {
+    recheckCloud(): Promise<void> {
+      const dropping: Promise<void>[] = [];
       for (const state of states.values()) {
         const live = state.live;
         const leaving = live && gateClosed(live);
-        if (live && leaving) leaveCloud(state, live, leaving);
+        if (live && leaving) dropping.push(leaveCloud(state, live, leaving));
       }
+      return Promise.all(dropping).then(() => {});
     },
 
     /**

@@ -364,7 +364,6 @@ describe("Anthropic requests", () => {
         "Your reply is empty. Say what causes the tides.",
       ]),
     );
-    // The two user messages go as one, the earlier Question's text marked: no mark on an empty block.
     expect(marks(body).filter((mark) => mark.startsWith("message"))).toEqual(["message 1 (user)"]);
     const marked = messages.flatMap((each) =>
       (each.content as { text?: string; cache_control?: unknown }[]).filter(

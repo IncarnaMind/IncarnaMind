@@ -25,6 +25,7 @@ import type { ProviderOptions, RequestQuirks, ThinkingKind } from "./catalog/typ
 import { createPlanChatModel } from "./chatgpt/planEndpoint";
 import { createClaudeAccountChatModel } from "./claudeAccount/messages";
 import { createCopilotChatModel } from "./copilot/requests";
+import { withoutEmptyTurns } from "./emptyTurns";
 import { endpointUrl } from "./kinds";
 import { createOllamaChatModel } from "./ollamaChat";
 import { DEFAULT_OLLAMA_SETTINGS, type OllamaModelSettings } from "./ollamaModels";
@@ -147,6 +148,7 @@ export const createAiSdkChatModel: ChatModelFactory = (spec) => {
     model = withoutStorage(model, spec.kind === "xai" ? "xai" : "openai");
   }
   if (anthropicFor(spec.kind) === "anthropic") model = withCacheBreakpoints(model);
+  if (spec.kind === "google") model = withoutEmptyTurns(model);
   if (spec.thinking === "off" && request?.thinkingOff && canSkipThinking(spec, request)) {
     model = withThinkingOff(model, spec, request.thinkingOff);
   }

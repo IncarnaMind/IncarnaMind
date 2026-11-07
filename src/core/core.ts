@@ -9,6 +9,7 @@ import { isCitationStyleId, withRecentStyle } from "../shared/citationStyles";
 import { parseQuotedWords } from "../shared/citations";
 import type { DrawnPage } from "../shared/citedPage";
 import { ACCEPT_SUGGESTIONS } from "../shared/commands";
+import { exportMarksOf, isExportMarks, writeExportMarks } from "../shared/exportMarks";
 import { optionsFor } from "../shared/exportOptions";
 import { figureScheduleChange } from "../shared/figureSchedule";
 import { graphemeBoundary } from "../shared/graphemes";
@@ -1291,8 +1292,11 @@ export function createCore(adapters: CoreAdapters): Core {
   if (documents.searchableCount() > 0) rerank.prepare();
   /** Set once outside agents exist: Local mode pauses them. */
   let agentsLocalModeChanged = () => {};
-  /** Where meeting audio may go changed: a live cloud stream whose gate closed stops now (#141). */
-  let transcriptionGateChanged = () => {};
+  /**
+   * Where meeting audio may go changed: a live cloud stream whose gate closed stops now (#141).
+   * Resolves once the transcription process has dropped it (#2702).
+   */
+  let transcriptionGateChanged = (): Promise<void> => Promise.resolve();
   /** Set once Connectors exist: Local mode pauses those on other computers. */
   let connectorsLocalModeChanged = () => {};
   /**
@@ -1310,7 +1314,7 @@ export function createCore(adapters: CoreAdapters): Core {
         () => new LocalModeError(),
       );
     }
-    transcriptionGateChanged();
+    const dropped = transcriptionGateChanged();
     if (wasLocal !== embedding.localOnly()) {
       usageData.localModeChanged();
       privacyChanged();
@@ -1324,6 +1328,7 @@ export function createCore(adapters: CoreAdapters): Core {
       // An Answer on its way to a cloud model stops at once, with the reason.
       if (embedding.localOnly()) await answers.stopCloud();
     }
+    await dropped;
     return embeddingSettings();
   };
 
@@ -2921,6 +2926,7 @@ export function createCore(adapters: CoreAdapters): Core {
 
   const checks = createChecks({
     language: () => settings.get().language,
+    warmReranker: () => rerank.warm(),
     // What a check reads of the Documents as it runs: their words, names and whether it may use
     // them. Its scope, their Folders and Tags are taken when the run starts (#2532).
     libraryState: () =>
@@ -3169,6 +3175,7 @@ export function createCore(adapters: CoreAdapters): Core {
       return lineSpacing === "default" ? null : lineSpacing;
     },
     bibliography: (mindId) => content.readSettings(mindId, bibliographyShown),
+    exportMarks: (mindId) => content.readSettings(mindId, exportMarksOf),
     formatCitations: (request) => citationStyles.format(request),
     citedPage: (citation) => citedPages.image(citation),
     citedUnits: ({ documentId, contentHash, pageFrom, pageTo }) => {
@@ -4666,7 +4673,7 @@ export function createCore(adapters: CoreAdapters): Core {
       removeDocuments(documentIds, deletedAt);
     }
   });
-  transcriptionGateChanged = () => transcripts?.recheckCloud();
+  transcriptionGateChanged = () => transcripts?.recheckCloud() ?? Promise.resolve();
   meetingHelpOf = (mindId, question) => {
     const meeting = meetings.liveOf(mindId);
     if (!meeting) return null;
@@ -5453,9 +5460,10 @@ export function createCore(adapters: CoreAdapters): Core {
       const languageWas = settings.get().language;
       const updated = settings.update(change);
       // Choosing a cloud service where its line says meeting audio goes to it is the consent (ADR-0022).
+      let dropped = Promise.resolve();
       if (route !== undefined) {
         cloudTranscription.chose(updated.device.transcriptionRoute);
-        transcriptionGateChanged();
+        dropped = transcriptionGateChanged();
       }
       if (!updated.user.suggestWhileWriting) suggestions.stop();
       events.emit("settings.changed", updated);
@@ -5475,6 +5483,7 @@ export function createCore(adapters: CoreAdapters): Core {
           .followLanguage()
           .catch((error) => console.error("The example Minds didn't follow the language:", error));
       }
+      await dropped;
       return updated;
     },
     addDocuments,
@@ -5931,9 +5940,10 @@ export function createCore(adapters: CoreAdapters): Core {
       if (riding.length > 0) await decisionsChanged(await decisionHosts.list());
       // A transcription route that used this provider's key has none now.
       await cloudTranscription.refreshKeys();
-      transcriptionGateChanged();
+      const dropped = transcriptionGateChanged();
       settingsChanged();
       await readinessChanged();
+      await dropped;
     },
     testChatConnection: (input) => loggingTest("chat")(chat.test(input)),
     testChatProvider: (providerId) => loggingTest("chat")(chat.testProvider(providerId)),
@@ -6170,9 +6180,10 @@ export function createCore(adapters: CoreAdapters): Core {
       if (typeof flowId === "string" && typeof serviceId === "string") {
         cloudTranscription.revoked(flowId, serviceId);
       }
-      transcriptionGateChanged();
+      const dropped = transcriptionGateChanged();
       settingsChanged();
       await dataFlowsChanged();
+      await dropped;
       return revokedAt;
     },
     restoreConsent: async (flowId, serviceId, revokedAt) => {
@@ -6928,6 +6939,13 @@ export function createCore(adapters: CoreAdapters): Core {
       await adapters.shell.openPath(path);
     },
     getMindStyle: async (mindId) => content.readSettings(minds.get(mindId).id, mindStyleOf),
+    getExportMarks: async (mindId) => content.readSettings(minds.get(mindId).id, exportMarksOf),
+    setExportMarks: async (mindId, marks) => {
+      if (!isExportMarks(marks)) throw new InvalidInputError({ key: "error.exportMarks.invalid" });
+      const mind = writableMind(mindId);
+      content.editSettings(mind.id, (mindSettings) => writeExportMarks(mindSettings, marks));
+      return content.readSettings(mind.id, exportMarksOf);
+    },
     getPageSetup: async (mindId) => {
       const mind = minds.get(mindId);
       const paper = systemPaper();
@@ -7009,8 +7027,9 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     removeTranscriptionKey: async (route) => {
       const listed = await cloudTranscription.removeKey(route);
-      transcriptionGateChanged();
+      const dropped = transcriptionGateChanged();
       settingsChanged();
+      await dropped;
       return listed;
     },
     openAudioSettings: (source) => meetings.openSettings(source),

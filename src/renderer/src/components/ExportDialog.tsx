@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useId, useState } from "react";
+import { type FormEvent, useEffect, useId, useRef, useState } from "react";
 import type {
   ExportFormat,
   ExportPreferences,
@@ -8,6 +8,13 @@ import type {
   TheirChangesShown,
   WordExportPreferences,
 } from "../../../core/api";
+import {
+  type ExportMarks,
+  MAX_WATERMARK_WORDS,
+  settledMarks,
+  WATERMARK_CHOICES,
+  type WatermarkChoice,
+} from "../../../shared/exportMarks";
 import { hasCitationPlace, hasQuestionsOption } from "../../../shared/exportOptions";
 import type { MessageKey } from "../../../shared/i18n";
 import { useCitationStylePicker, useStyleLabel } from "../citationStylePicker";
@@ -196,6 +203,83 @@ function TheirChangesRow({
   );
 }
 
+const WATERMARK_LABELS: Readonly<Record<WatermarkChoice, MessageKey>> = {
+  none: "export.watermark.none",
+  draft: "export.watermark.draft",
+  confidential: "export.watermark.confidential",
+  words: "export.watermark.words",
+};
+
+/**
+ * What the pages of a Word file or a PDF carry (#1258): page numbers, and a watermark of its own,
+ * a preset word or the User's; a Note that hasn't chosen has page numbers and no watermark.
+ */
+function MarksRows({ marks, onChange }: { marks: ExportMarks; onChange(next: ExportMarks): void }) {
+  const t = useT();
+  const id = useId();
+  const words = useRef<HTMLInputElement>(null);
+  const before = useRef(marks.watermark);
+  // Choosing the User's own word puts the cursor in it; a Note that already had one keeps focus elsewhere.
+  useEffect(() => {
+    if (marks.watermark === "words" && before.current !== "words") words.current?.focus();
+    before.current = marks.watermark;
+  }, [marks.watermark]);
+  return (
+    <>
+      <SwitchRow
+        label={t("export.pageNumbers")}
+        hint={t("export.pageNumbers.hint")}
+        checked={marks.pageNumbers}
+        onChange={(pageNumbers) => onChange({ ...marks, pageNumbers })}
+        testId="export-page-numbers"
+      />
+      <div className="flex flex-col py-2">
+        <div className={rowClass}>
+          <label htmlFor={id} className="text-ui text-ink">
+            {t("export.watermark")}
+          </label>
+          <span className="relative flex shrink-0">
+            <select
+              id={id}
+              data-testid="export-watermark"
+              value={marks.watermark}
+              aria-describedby={`${id}-hint`}
+              onChange={(event) => {
+                const chosen = WATERMARK_CHOICES.find((each) => each === event.target.value);
+                if (chosen) onChange({ ...marks, watermark: chosen });
+              }}
+              className="h-8 w-52 max-w-full appearance-none rounded-sm border border-rule-strong bg-sheet pr-8 pl-2.5 text-ui text-ink focus:border-accent"
+            >
+              {WATERMARK_CHOICES.map((each) => (
+                <option key={each} value={each}>
+                  {t(WATERMARK_LABELS[each])}
+                </option>
+              ))}
+            </select>
+            <ChevronDownLineIcon className="pointer-events-none absolute top-2.5 right-2.5 size-3.5 text-ink-meta" />
+          </span>
+        </div>
+        <span id={`${id}-hint`} className={hintClass}>
+          {t("export.watermark.hint")}
+        </span>
+        {marks.watermark === "words" && (
+          <input
+            ref={words}
+            type="text"
+            data-testid="export-watermark-words"
+            aria-label={t("export.watermark.wordsLabel")}
+            placeholder={t("export.watermark.wordsLabel")}
+            value={marks.words ?? ""}
+            maxLength={MAX_WATERMARK_WORDS}
+            onChange={(event) => onChange({ ...marks, words: event.target.value })}
+            className="mt-2 h-8 w-full rounded-sm border border-rule-strong bg-sheet px-2.5 text-ui text-ink focus:border-accent"
+          />
+        )}
+      </div>
+    </>
+  );
+}
+
 /** The Mind's citation style, read again once the picker closes, since the User may have chosen another. */
 function useMindCitationStyle(mindId: string): MindCitationStyle | null {
   const [style, setStyle] = useState<MindCitationStyle | null>(null);
@@ -360,6 +444,8 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
   } | null>(null);
   /** This Note's own comment choice, for someone else's file (#110); null until changed here. */
   const [othersComments, setOthersComments] = useState<boolean | null>(null);
+  /** This Note's page numbers and watermark (#1258); null until the core has said. */
+  const [marks, setMarks] = useState<ExportMarks | null>(null);
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const { format } = draft;
@@ -391,6 +477,19 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
     };
   }, [mind.id]);
 
+  useEffect(() => {
+    let current = true;
+    core.getExportMarks(mind.id).then(
+      (found) => {
+        if (current) setMarks(found);
+      },
+      (error: unknown) => useAppStore.getState().reportError(error),
+    );
+    return () => {
+      current = false;
+    };
+  }, [mind.id]);
+
   const save = async (event: FormEvent) => {
     event.preventDefault();
     setSaving(true);
@@ -398,6 +497,7 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
     try {
       const settings = await core.updateSettings({ user: { exportOptions: draft } });
       useAppStore.setState({ settings });
+      if (marks) await core.setExportMarks(mind.id, settledMarks(marks));
       if (othersComments !== null && othersComments !== counts?.othersComments) {
         await core.setCheckComments(mind.id, othersComments);
       }
@@ -412,6 +512,7 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
   const leftOut =
     hasQuestionsOption(format) && !draft[format].includeQuestions ? (counts?.questions ?? 0) : 0;
   const emptyPack = format === "source-pack" && counts?.packCitations === 0;
+  const wordsMissing = marks?.watermark === "words" && (marks.words ?? "").trim() === "";
 
   return (
     <form onSubmit={(event) => void save(event)} className="flex min-h-0 flex-col">
@@ -542,6 +643,10 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
           />
         )}
 
+        {marks && (format === "docx" || format === "pdf") && (
+          <MarksRows marks={marks} onChange={setMarks} />
+        )}
+
         {hasCitationPlace(format) && citationStyle && (
           <CitationPlaceRow
             value={draft.citationPlace}
@@ -567,7 +672,7 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
         <button
           type="submit"
           data-testid="export-save"
-          disabled={saving}
+          disabled={saving || wordsMissing}
           aria-describedby={hintId}
           title={hint}
           className={primaryButtonClass}

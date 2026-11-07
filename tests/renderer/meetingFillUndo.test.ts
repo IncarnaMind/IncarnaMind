@@ -22,6 +22,8 @@ const bridge = vi.hoisted(() => ({
   openMind: async (_mindId: string): Promise<unknown> => null,
   applyMindUpdate: async (_mindId: string, _update: Uint8Array): Promise<void> => undefined,
   follows: [] as [string, boolean][],
+  /** What Undo said in My notes. */
+  told: [] as string[],
   /** The window's Meetings, as the core last sent them: only the fill matters here. */
   setMeetings: (_meetings: { id: string; fill: MeetingFill | null }[]): void => undefined,
 }));
@@ -56,8 +58,11 @@ vi.mock("../../src/renderer/src/meetings", async () => {
 
 const { openMindCopy, flushMindUpdates } = await import("../../src/renderer/src/mindCopies");
 const { takeFillInEditor } = await import("../../src/renderer/src/editor/meetingFillUndo");
-const { fillStepIn, letGoOfUndoneFill, undoFillInEditor } = await import(
+const { fillNextIn, fillStateIn, fillStepIn, letGoOfUndoneFill, undoFillInEditor } = await import(
   "../../src/renderer/src/meetingFillSteps"
+);
+const { MyNotes, MyNotesHistory, showMyNotes } = await import(
+  "../../src/renderer/src/editor/myNotes"
 );
 const { noteExtensions } = await import("../../src/renderer/src/editor/noteSchema");
 
@@ -119,6 +124,7 @@ beforeEach(() => {
   }
   server = new Y.Doc();
   bridge.follows = [];
+  bridge.told = [];
   const send = (mindId: string, update: Uint8Array, cause?: EditCause) => {
     for (const listener of [...bridge.listeners]) {
       listener({ mindId, update, ...(cause && { cause }) });
@@ -194,7 +200,8 @@ function citationIn(note: Y.XmlFragment): Y.XmlElement {
 }
 
 /** A copy of the Note, open in an editor that takes the fill as its own step. */
-async function openEditor(): Promise<Editor> {
+/** `mine`: the copy can show My notes, with its Undo. */
+async function openEditor(mine = false): Promise<Editor> {
   const doc = await new Promise<Y.Doc>((resolve, reject) => {
     const close = openMindCopy(
       MIND,
@@ -208,6 +215,16 @@ async function openEditor(): Promise<Editor> {
     extensions: [
       ...noteExtensions(),
       Collaboration.configure({ document: doc, field: MIND_CONTENT_FIELD }),
+      ...(mine
+        ? [
+            MyNotes,
+            MyNotesHistory.configure({
+              fillNext: fillNextIn,
+              fillState: fillStateIn,
+              tell: (said) => bridge.told.push(said),
+            }),
+          ]
+        : []),
     ],
   });
   editor.view.updateState(editor.state.reconfigure({ plugins: editor.extensionManager.plugins }));
@@ -369,5 +386,33 @@ describe.each(["en", "zh-CN"] as const)("the fill in two copies of one Note (%s)
     expect(fillStepIn(MEETING, editor)).toBeNull();
     editor.commands.undo();
     await settled(editor, filledText);
+  });
+
+  // protects=⌘Z in My notes, when another copy left the User's last step empty, doesn't take back the fill past it: the fill is put back at once and the line says to undo it from Notes (#138); fails_when=Yjs passes over the empty step and the fill goes unseen; no_claim=Yjs's own choice of step.
+  test("⌘Z in My notes past a step another copy emptied leaves the fill in place", async () => {
+    ownLine(words);
+    const first = await openEditor(true);
+    const second = await openEditor();
+    setFill("filling");
+    fillFromCore(words);
+    await settled(first, filledText);
+    showMyNotes(first, true);
+    typeAfter(first, words.own, words.typed);
+    const typedText = `${words.own}${words.typed}\n${words.heading}\n${words.bullet}`;
+    await settled(second, typedText);
+    let end = -1;
+    second.state.doc.descendants((node, pos) => {
+      if (end < 0 && node.isTextblock && node.textContent === `${words.own}${words.typed}`) {
+        end = pos + node.nodeSize - 1;
+      }
+      return end < 0;
+    });
+    second.view.dispatch(second.state.tr.delete(end - words.typed.length, end));
+    await settled(first, filledText);
+
+    first.commands.undo();
+    await settled(first, filledText);
+    expect(bridge.told).toEqual(["fillUndo"]);
+    expect(fillStepIn(MEETING, first)).toBe("top");
   });
 });
