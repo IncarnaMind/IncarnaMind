@@ -6638,6 +6638,7 @@ export const zhCN = {
   "meetings.template.command": "会议模板：{name}",
   "meetings.panel.collapse": "收起",
   "meetings.panel.expand": "展开",
+  "meetings.panel.keysForHelp": "{keys} 获取帮助",
   "meetings.panel.close": "关闭浮窗",
   "meetings.panel.hidden": "在系统支持时，共享屏幕中不显示",
   "meetings.callHelp": "通话助手",

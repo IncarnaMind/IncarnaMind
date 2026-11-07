@@ -7007,6 +7007,7 @@ export const en = {
   "meetings.template.command": "Meeting template: {name}",
   "meetings.panel.collapse": "Collapse",
   "meetings.panel.expand": "Expand",
+  "meetings.panel.keysForHelp": "{keys} for help",
   "meetings.panel.close": "Close the panel",
   "meetings.panel.hidden": "Hidden from your screen share where your system allows",
   "meetings.callHelp": "Call help",
