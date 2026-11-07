@@ -2696,6 +2696,7 @@ export const en = {
   "jev.settings.hosted": "TypeSafe",
   "jev.settings.keyMissing": "No Jev key on this device, so Documents wait. Enter it again.",
   "jev.settings.setUp": "Use TypeSafe Jev…",
+  "jev.setUp.line": "TypeSafe’s model for sorting and meeting hints, with your key",
   "jev.settings.change": "Change",
   "jev.settings.remove": "Stop using Jev",
   "jev.form.apiKey": "Jev API key",

@@ -1,9 +1,8 @@
 name: Nightly
 
-# Checks that would slow every pull request, or need runners there are few of, run here: every
-# night on main, and by hand (workflow_dispatch). A failing night is fixed before new work, like
-# a red main. The rest of the scheduled runs planned in #331 (speed, soak, quitting halfway,
-# messy files, journeys, and a weekly Windows smoke test) join this file as more jobs.
+# Every night on main, and by hand: CI's checks (ci.yml) on whatever merged that day, and the
+# checks that need the app packaged as the User installs it, which no pull request runs. A red
+# night is fixed before new work, like a red main.
 on:
   schedule:
     - cron: "23 2 * * *"
@@ -19,53 +18,18 @@ env:
 
 concurrency:
   group: nightly-${{ github.ref }}
-  # A night's run on main always finishes.
   cancel-in-progress: false
 
 jobs:
-  # The whole smoke suite on macOS, including the specs only macOS has, such as the traffic
-  # lights in the title bar (e2e/titleBar.spec.ts) and full screen. As one job it takes over four
-  # hours there, so it is split into shards that run at once, balanced as CI's Linux shards are
-  # (scripts/smoke-shard.mjs and e2e/durations.json). Each shard has to stay well inside the
-  # job's hour: with four, three of them ran out of time on 2026-10-26.
-  smoke-macos:
-    name: Smoke shard ${{ matrix.shard }}/8 (macOS)
-    runs-on: macos-latest
-    timeout-minutes: 60
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8]
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version-file: .nvmrc
-          cache: npm
-      - run: npm ci
-      # Downloads from GitHub's releases fail now and then (a 500), and each shard downloads
-      # Electron, so a failed download is tried again here rather than failing every spec.
-      - name: Make sure Electron is installed
-        run: |
-          for attempt in 1 2 3; do
-            node node_modules/electron/install.js && exit 0
-            sleep 20
-          done
-          exit 1
-      - run: npm run test:smoke -- $(node scripts/smoke-shard.mjs ${{ matrix.shard }} 8)
-      - name: Upload Playwright traces
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: smoke-test-results-macos-${{ matrix.shard }}
-          path: test-results/
-          retention-days: 7
+  ci:
+    uses: ./.github/workflows/ci.yml
 
-  # The packaged app loads every engine module the way it runs them, reads scans with real OCR
-  # (#1819) and transcribes a meeting with its real speech engine and model (#1239), as ci.yml runs
-  # them for a pull request that changes their coverage. ci.yml's own night loads the Linux app's.
-  packaged-transcription:
-    name: Packaged app's real engines (macOS)
+  # Engine failures appear only in the package, while every test passes on the fakes: each engine
+  # module loads the way the app runs it (#1239), scans are read with the real OCR (#1819) and a
+  # meeting is transcribed with the real speech engine and model (#1239). Ad-hoc signed, as the
+  # release signs a build without its certificate.
+  packaged-macos:
+    name: Packaged app (macOS)
     runs-on: macos-latest
     timeout-minutes: 45
     steps:
@@ -75,16 +39,16 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
-      - name: Package the app
+      - run: npm run dist:dir -- -c.mac.identity=- -c.mac.notarize=false
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
-        run: npm run dist:dir -- -c.mac.identity=- -c.mac.notarize=false
       - uses: ./.github/actions/packaged-transcription
 
-  # The packaged Windows app loads every engine module (#1239) and transcribes a meeting on the app's
-  # own ONNX Runtime library (#2152), as ci.yml runs it for a pull request that changes what it covers.
-  packaged-speech-windows:
-    name: Packaged app's speech engine (Windows)
+  # The engines load (#1239), the speech engine runs on the app's own ONNX Runtime library, which
+  # keeps its usage events out of Windows' diagnostic data (#2152), and an outside agent connects
+  # and secrets are kept in the packaged app.
+  packaged-windows:
+    name: Packaged app (Windows)
     runs-on: windows-latest
     timeout-minutes: 60
     steps:
@@ -94,25 +58,25 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
-      - name: Package the app
+      - run: npm run dist:dir
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
-        run: npm run dist:dir
-      - name: Check the package
-        run: npm run check:package
+      - run: npm run check:package
       - uses: ./.github/actions/packaged-engines
       - uses: ./.github/actions/packaged-speech-windows
+      - if: ${{ !cancelled() }}
+        run: npm run test:packaged -- agentConnection.packaged.ts secrets.packaged.ts
+      - if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: packaged-windows
+          path: test-results/
+          retention-days: 7
 
-  # The Word corpus (eval/word/README.md): the committed files and the extended set, fetched from
-  # their commit-pinned URLs, opened in LibreOffice headless.
-  word-corpus:
-    name: Word corpus, core and extended
+  packaged-linux:
+    name: Packaged app (Linux)
     runs-on: ubuntu-latest
-    timeout-minutes: 90
-    env:
-      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
-      INCARNAMIND_WORD_REQUIRE_LIBREOFFICE: "1"
-      INCARNAMIND_WORD_SET: all
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -120,9 +84,105 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
-      - name: Install LibreOffice Writer
+      - run: npm run dist:dir
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      - uses: ./.github/actions/packaged-engines
+      - if: ${{ !cancelled() }}
+        run: xvfb-run -a npm run test:packaged -- agentConnection.packaged.ts
+      - if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: packaged-linux
+          path: test-results/
+          retention-days: 7
+
+  # Two packages of the same built main, at the old and the updated version in
+  # tests/fixtures/lifecycle-versions.json: one instance, startup, quitting and the update between
+  # them (docs/agents/testing.md).
+  lifecycle-windows:
+    name: Packaged startup, quit and updates (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: node node_modules/vitest/vitest.mjs run tests/helpers/lifecycleProcesses.test.ts --maxWorkers=1
+      - name: Package the old and the updated app
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libreoffice-writer
-      - run: npm run eval:word:fetch
-      - run: npm run eval:word
+          node node_modules/electron-vite/bin/electron-vite.js build --mode test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Copy-Item e2e/lifecycleMain.cjs out/main/lifecycle.cjs
+          $versions = Get-Content tests/fixtures/lifecycle-versions.json | ConvertFrom-Json
+          npx electron-builder --win --x64 --dir --publish never "--config.directories.output=dist/lifecycle-old" "--config.extraMetadata.main=./out/main/lifecycle.cjs" "--config.extraMetadata.version=$($versions.old)"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npx electron-builder --win --x64 --dir --publish never "--config.directories.output=dist/lifecycle-updated" "--config.extraMetadata.main=./out/main/lifecycle.cjs" "--config.extraMetadata.version=$($versions.updated)"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/check-lifecycle-packages.mjs dist/lifecycle-old/win-unpacked/resources/app.asar dist/lifecycle-updated/win-unpacked/resources/app.asar
+      - name: Start, quit and update the packaged app
+        run: |
+          $env:INCARNAMIND_PACKAGED_APP = Join-Path $pwd "dist/lifecycle-old/win-unpacked/IncarnaMind.exe"
+          $env:INCARNAMIND_PACKAGED_UPDATED_APP = Join-Path $pwd "dist/lifecycle-updated/win-unpacked/IncarnaMind.exe"
+          node node_modules/@playwright/test/cli.js test singleInstance.spec.ts startupProgress.spec.ts Lifecycle.spec.ts --workers=1 --retries=0
+      - if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: lifecycle-windows
+          path: test-results/
+          retention-days: 7
+
+  # run_code on the Python it downloads on first use (ADR-0025), built as the release builds it,
+  # in the OS sandbox.
+  run-code-linux:
+    name: run_code with its real Python (Linux)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - uses: ./.github/actions/apt-install
+        with:
+          packages: bubblewrap socat ripgrep
+      - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      # The uv scripts/pythonNative/pins.ts names: the build stops on any other.
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.13.6"
+          enable-cache: false
+      - uses: actions/cache@v5
+        with:
+          path: ${{ runner.temp }}/python-native-cache
+          key: python-native-${{ runner.os }}-${{ hashFiles('scripts/pythonNative/lock.txt', 'scripts/pythonNative/pins.ts') }}
+      - run: npm run python:native -- --out "$RUNNER_TEMP/python-native" --url http://127.0.0.1/ --cache "$RUNNER_TEMP/python-native-cache"
+      - run: INCARNAMIND_TEST_PYTHON_RUNTIME="$RUNNER_TEMP/python-native" npx vitest run tests/main/runCode
+
+  # The sweep of a run's leftover processes and the OS sandbox's profile are Seatbelt's, so their
+  # tests run only on macOS (ADR-0025); on Linux, bubblewrap ends a run's processes itself.
+  run-code-macos:
+    name: The sweep and the OS sandbox (macOS)
+    runs-on: macos-latest
+    timeout-minutes: 20
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npx vitest run tests/main/runLeftovers.test.ts tests/main/runCodeLeftBehind.test.ts tests/main/sandbox.test.ts tests/main/runCode.test.ts
+        env:
+          INCARNAMIND_TEST_OS_SANDBOX: required
