@@ -3,10 +3,17 @@
  * ends when the records are all taken, and keeps one copy when they weren't.
  */
 import { describe, expect, test } from "vitest";
+import { WORKING_TEXT_INSTRUCTIONS } from "../../src/core/answers/workingText";
 import { askAndFinish, citationsIn, setUpWithDocuments, shownPassages } from "../helpers/citations";
 import type { MindClient } from "../helpers/mindClient";
 import { answerIn } from "../helpers/minds";
-import { type ModelCall, type ScriptedReply, scriptedModel } from "../helpers/models";
+import {
+  type GenerateCall,
+  type GeneratedReply,
+  type ModelCall,
+  type ScriptedReply,
+  scriptedModel,
+} from "../helpers/models";
 
 const SPRING = "Spring tides happen at new moon and at full moon.";
 const WRONG = "Spring tides happen only at the new moon.";
@@ -16,6 +23,12 @@ const TIDES_MD = ["# Tides", "", SPRING, "", "Neap tides happen at the quarter m
 
 /** A model the list beside the catalog names as writing first (#489). */
 const WRITES_THEN_CITES = { answerPaths: { writesThenCites: () => true } };
+
+/** The one small call that decides whether trailing text is the Answer's or the model's working (#2371). */
+const judging =
+  (part: "answer" | "working") =>
+  (call: GenerateCall): GeneratedReply =>
+    call.system === WORKING_TEXT_INSTRUCTIONS ? { text: JSON.stringify({ part }) } : { text: "" };
 
 /** A model that searches, then writes its Answer and calls `cite` in one turn, as Claude Haiku 5.5 does. */
 function writesBesideCite(quotes: string[]) {
@@ -182,5 +195,64 @@ describe("An Answer written in the turn that calls cite", { timeout: 30_000 }, (
 
     expect(citationsIn(client, answerId).map((citation) => citation.quote)).toEqual([SPRING]);
     expect(shown(client, answerId)).toBe("Spring tides come at new and full moon[c].");
+  });
+
+  // protects=the model's working remark after the Answer, before cite, stays out of the Answer, while the Answer's own prose written before cite is kept; fails_when=the remark shows, or the Answer's first paragraph is dropped; no_claim=none beyond protects.
+  test("a remark written after the Answer, before cite, isn't shown; the Answer's prose is", async () => {
+    const model = scriptedModel(
+      (call: ModelCall): ScriptedReply => {
+        const searched = call.results.find((result) => result.tool === "search_documents");
+        if (!searched) {
+          return { calls: [{ tool: "search_documents", input: { query: "spring tides" } }] };
+        }
+        const passage = shownPassages(searched.text)[0]?.id ?? "P1";
+        return {
+          text: `Tides are driven by the Moon.\n\n${ANSWER}\n\nCitations need to be recorded now.`,
+          calls: [{ tool: "cite", input: { citations: [{ marker: 1, passage, quote: SPRING }] } }],
+        };
+      },
+      { generate: judging("working") },
+    );
+    const { core, client, mind } = await setUpWithDocuments(
+      model,
+      [{ name: "Tides.md", contents: TIDES_MD }],
+      WRITES_THEN_CITES,
+    );
+
+    const { answerId } = await askAndFinish(core, client, mind.id, "When are spring tides?");
+
+    expect(citationsIn(client, answerId).map((citation) => citation.quote)).toEqual([SPRING]);
+    expect(shown(client, answerId)).toBe(
+      "Tides are driven by the Moon.\nSpring tides come at new and full moon[c].",
+    );
+  });
+
+  // protects=an uncited caveat written after the Answer, before cite, stays: the judge decides it is the Answer's, not the model's working; fails_when=the caveat is dropped; no_claim=none beyond protects.
+  test("a caveat written after the Answer, before cite, is shown when it is the Answer's", async () => {
+    const model = scriptedModel(
+      (call: ModelCall): ScriptedReply => {
+        const searched = call.results.find((result) => result.tool === "search_documents");
+        if (!searched) {
+          return { calls: [{ tool: "search_documents", input: { query: "spring tides" } }] };
+        }
+        const passage = shownPassages(searched.text)[0]?.id ?? "P1";
+        return {
+          text: `${ANSWER}\n\nThe tide table doesn't say how high the water rises.`,
+          calls: [{ tool: "cite", input: { citations: [{ marker: 1, passage, quote: SPRING }] } }],
+        };
+      },
+      { generate: judging("answer") },
+    );
+    const { core, client, mind } = await setUpWithDocuments(
+      model,
+      [{ name: "Tides.md", contents: TIDES_MD }],
+      WRITES_THEN_CITES,
+    );
+
+    const { answerId } = await askAndFinish(core, client, mind.id, "When are spring tides?");
+
+    expect(shown(client, answerId)).toBe(
+      "Spring tides come at new and full moon[c].\nThe tide table doesn't say how high the water rises.",
+    );
   });
 });

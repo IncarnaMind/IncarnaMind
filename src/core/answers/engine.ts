@@ -143,6 +143,7 @@ import {
 } from "./turnChecks";
 import { citeUnmarked, missingMarkerEvents, textEdits } from "./unmarkedQuotes";
 import { createWindowBudget, SEARCH_RESERVE_TOKENS, type WindowBudget } from "./window";
+import { wroteWorking } from "./workingText";
 
 /** One message of Question context. */
 export interface AnswerMessage {
@@ -745,6 +746,22 @@ export function searchToolDescription(languages: readonly DocumentLanguage[]): s
 }
 /** A Citation marker ("[^1]") or a figure marker ("[=1]"): the Answer is being written. */
 const MARKER = /\[[\^=]\d{1,4}\]/;
+
+/**
+ * Where an Answer's text ends in a step that calls `cite` or `calculate`: after the last paragraph
+ * holding a marker. What follows it, with no marker of its own, may be the model's working on the
+ * call it is about to make or an uncited caveat of the Answer's; the judge in ./workingText decides
+ * which (#2371), and paragraphs before the last marked one are always the Answer's.
+ */
+function answerEnd(text: string): number {
+  let end = 0;
+  let from = 0;
+  for (const separator of text.matchAll(/\r?\n[ \t]*\r?\n/g)) {
+    if (MARKER.test(text.slice(from, separator.index))) end = separator.index;
+    from = separator.index + separator[0].length;
+  }
+  return MARKER.test(text.slice(from)) ? text.length : end;
+}
 
 /**
  * A backstop: a step before the last that has read the Documents and has written this much with no
@@ -2198,8 +2215,26 @@ async function* toolLoop(
           if (recorded && !stepTools.some((each) => !recording(each)) && !again)
             setAside.push({ text: stepText, searched });
         } else {
-          keptText += stepText;
-          if (recorded && MARKER.test(stepText)) answered = true;
+          const trims = recorded && request.toolSet !== "check";
+          let answer = trims ? stepText.slice(0, answerEnd(stepText)) : stepText;
+          let working = stepText.slice(answer.length);
+          if (working.trim() !== "") {
+            // The paragraph the text follows tells the judge what it is about; the Answer may be long.
+            if (
+              !(await wroteWorking(request, answer.trimEnd().slice(-800), working, temperature))
+            ) {
+              answer = stepText;
+              working = "";
+            }
+          }
+          keptText += answer;
+          if (working) {
+            const shown = released - keptText.length;
+            if (shown > 0) yield { type: "text-retracted", length: shown };
+            released = Math.min(released, keptText.length);
+            setAside.push({ text: working, searched });
+          }
+          if (recorded && MARKER.test(answer)) answered = true;
         }
         stepText = "";
         stepTools = [];
