@@ -14,7 +14,6 @@ import {
   newMind,
   pointAndClick,
   removeDataFolder,
-  runCommand,
   setLanguage,
   setWindowSize,
   urlsOpened,
@@ -216,10 +215,10 @@ test("Review goes to each Document that needs attention, and a credit failure is
     await expect(status).toBeVisible({ timeout: 60_000 });
     await expect(status.getByTestId("status-label")).toHaveText("Needs attention");
 
-    // The Not in a Folder header says the shared cause in words only: Try again can't help it.
+    // The Not in a Folder header says the shared cause and offers its fix: Try again can't help it.
     const header = library.getByTestId("library-organize-failed");
-    await expect(header).toHaveText("4 Documents not organized: no credit left");
-    await expect(header.getByRole("button")).toHaveCount(0);
+    await expect(header).toHaveText("4 Documents not organized: no credit left · Add credit");
+    await expect(header.getByRole("button")).toHaveText(["Add credit"]);
 
     // A row names only the cause, and its tooltip and accessible name carry the whole sentence (#2308).
     const failedRow = library
@@ -280,7 +279,7 @@ test("Review goes to each Document that needs attention, and a credit failure is
 
     // The second from the Library, in Chinese.
     await setLanguage(window, "zh-CN");
-    await expect(header).toHaveText("4 个文档未整理：额度已用完");
+    await expect(header).toHaveText("4 个文档未整理：额度已用完 · 充值");
     await expect(failedRow.getByTestId("library-not-sorted")).toHaveAttribute(
       "title",
       "你的 OpenAI 密钥额度已用完",
@@ -310,7 +309,7 @@ test("Review goes to each Document that needs attention, and a credit failure is
 
     // The fourth from a Note, in Chinese: every one was seen, so the status goes.
     await setLanguage(window, "zh-CN");
-    await expect(header).toHaveText("4 个文档未整理：额度已用完");
+    await expect(header).toHaveText("4 个文档未整理：额度已用完 · 充值");
     await screenshot(window, "review-attention-zh-900-status");
     await newMind(window);
     const fourth = await pressReview(window, fourthId);
@@ -327,9 +326,9 @@ test("Review goes to each Document that needs attention, and a credit failure is
     await screenshot(window, "review-attention-en-900-gone");
     await expect(attentionOf(window)).toHaveCount(0);
 
-    // Add credit, from ⌘K, opens the company's billing page; back in the app, Organize runs once
-    // by itself on those four, and its Review proposes their Folder (#2308).
-    await runCommand(window, "library.addCredit", "Add credit for Organize");
+    // Add credit, beside the line, opens the company's billing page; back in the app, Organize
+    // runs once by itself on those four, and its Review proposes their Folder (#2308).
+    await pointAndClick(window, header.getByTestId("library-organize-fix"));
     await expect
       .poll(() => urlsOpened(app))
       .toContain("https://platform.openai.com/settings/organization/billing/overview");
@@ -394,7 +393,7 @@ test("Review reaches a Document past Not in a Folder's first rows when a search 
     await window.getByTestId("open-library").click();
     const library = window.getByTestId("library");
     await expect(library.getByTestId("library-organize-failed")).toHaveText(
-      "9 Documents not organized: no credit left",
+      "9 Documents not organized: no credit left · Add credit",
       { timeout: 60_000 },
     );
 
@@ -527,14 +526,14 @@ test("mixed causes retry only what can help, and Review lands on the credit fail
     await confirmWaiting(window);
     expect(await filedCounts(window)).toEqual({ Alpha: 8, Beta: 8, Gamma: 8, Delta: 8 });
     const header = library.getByTestId("library-organize-failed");
-    await expect(header).toHaveText("2 Documents not organized · Try again", {
+    await expect(header).toHaveText("2 Documents not organized · Add credit · Try again", {
       timeout: 60_000,
     });
-    await expect(header.getByRole("button")).toHaveText(["Try again"]);
+    await expect(header.getByRole("button")).toHaveText(["Add credit", "Try again"]);
 
     // Try again sends only the one the model couldn't reach: the credit failure can't be helped
     // by sending it again, so the Review proposes a Folder for one Document.
-    await pointAndClick(window, header.getByRole("button"));
+    await pointAndClick(window, header.getByRole("button", { name: "Try again" }));
     await expect(window.getByTestId("organize-running")).toBeVisible({ timeout: 30_000 });
     const review = window.getByTestId("organize-review");
     await expect(review).toBeVisible({ timeout: 60_000 });
@@ -542,8 +541,8 @@ test("mixed causes retry only what can help, and Review lands on the credit fail
     await expect(window.getByTestId("organize-review-name")).toHaveText(["Alpha network check"]);
     await pointAndClick(window, window.getByTestId("organize-review-confirm"));
     await expect(review).toHaveCount(0);
-    await expect(header).toHaveText("1 Document not organized: no credit left");
-    await expect(header.getByRole("button")).toHaveCount(0);
+    await expect(header).toHaveText("1 Document not organized: no credit left · Add credit");
+    await expect(header.getByRole("button")).toHaveText(["Add credit"]);
 
     // Review lands on it below the four Folders' sections, its row in view with its cause.
     const creditId = await window.evaluate(async () => {

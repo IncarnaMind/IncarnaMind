@@ -394,12 +394,13 @@ test("⌘Z takes Organize's Confirm back and ⇧⌘Z files them again in one ste
       .toEqual(["Research notes A: none", "Research notes B: none", "Research notes C: none"]);
     await expect.poll(() => menu("edit.redo")).toEqual({ label: "Redo Organize", enabled: true });
 
-    // One Document is kept out of the Folder meanwhile, by a change that leaves no step: Redo
+    // One Document is put in another Folder meanwhile, by a change that leaves no step: Redo
     // leaves it as chosen.
     await (await coreOf(window)).evaluate(async (core) => {
       const chosen = (await core.listDocuments()).find((each) => each.name === "Research notes B");
       if (!chosen) throw new Error("No Document to choose.");
-      await core.assignDocumentGroup(chosen.id, null);
+      const archive = await core.createLibraryGroup({ name: "Archive", description: "" });
+      await core.assignDocumentGroup(chosen.id, archive.id);
     });
 
     // ⇧⌘Z files the other two again, in one step, and a second does nothing.
@@ -411,7 +412,7 @@ test("⌘Z takes Organize's Confirm back and ⇧⌘Z files them again in one ste
       .poll(folders)
       .toEqual([
         "Research notes A: Research",
-        "Research notes B: none",
+        "Research notes B: Archive",
         "Research notes C: Research",
       ]);
     await expect.poll(() => menu("edit.redo")).toMatchObject({ enabled: false });
