@@ -1190,6 +1190,10 @@
        "removes_only": {
         "type": "boolean",
         "description": "Give it on every call: true when the User asks only for text to go, the rest to stay word for word, as in \"Delete the last sentence\" or \"Take out the deposit line\"; false when they ask to shorten, rewrite or change it in any other way."
+       },
+       "done": {
+        "type": "boolean",
+        "description": "Only with content: true when this call does the last thing the User asked for, so your reply would only say it was done: the turn then ends with it, and the User sees what it did in the Note and on its line. Leave it out while more is to do, or when you have more to tell them."
        }
       },
       "additionalProperties": false
@@ -1237,6 +1241,10 @@
        "content": {
         "type": "string",
         "description": "The text, in Markdown, cited as an Answer is: each source a marker like [^1], for a Citation you recorded with cite before this call, right after the words it backs, in a table's cells too. Never write a source as text: \"[Tides, p. 3]\" is how IncarnaMind shows you a Citation, and content with one is refused. A new section starts with its heading. A table has a heading row, a row of ---, then each row on a line of its own. Write it last, after the other fields."
+       },
+       "done": {
+        "type": "boolean",
+        "description": "true when this call does the last thing the User asked for, so your reply would only say it was done: the turn then ends with it, and the User sees what it did in the Note and on its line. Leave it out while more is to do, or when you have more to tell them."
        }
       },
       "required": [
@@ -1283,6 +1291,10 @@
        "content": {
         "type": "string",
         "description": "The text, in Markdown, cited as an Answer is: each source a marker like [^1], for a Citation you recorded with cite before this call, right after the words it backs, in a table's cells too. Never write a source as text: \"[Tides, p. 3]\" is how IncarnaMind shows you a Citation, and content with one is refused. A new section starts with its heading. A table has a heading row, a row of ---, then each row on a line of its own. Write it last, after the other fields."
+       },
+       "done": {
+        "type": "boolean",
+        "description": "true when this call does the last thing the User asked for, so your reply would only say it was done: the turn then ends with it, and the User sees what it did in the Note and on its line. Leave it out while more is to do, or when you have more to tell them."
        }
       },
       "required": [
@@ -1732,6 +1744,10 @@
        "removes_only": {
         "type": "boolean",
         "description": "Give it on every call: true when the User asks only for text to go, the rest to stay word for word, as in \"Delete the last sentence\" or \"Take out the deposit line\"; false when they ask to shorten, rewrite or change it in any other way."
+       },
+       "done": {
+        "type": "boolean",
+        "description": "Only with content: true when this call does the last thing the User asked for, so your reply would only say it was done: the turn then ends with it, and the User sees what it did in the Note and on its line. Leave it out while more is to do, or when you have more to tell them."
        }
       },
       "additionalProperties": false
@@ -1779,6 +1795,10 @@
        "content": {
         "type": "string",
         "description": "The text, in Markdown, cited as an Answer is: each source a marker like [^1], for a Citation you recorded with cite before this call, right after the words it backs, in a table's cells too. Never write a source as text: \"[Tides, p. 3]\" is how IncarnaMind shows you a Citation, and content with one is refused. A new section starts with its heading. A table has a heading row, a row of ---, then each row on a line of its own. Write it last, after the other fields."
+       },
+       "done": {
+        "type": "boolean",
+        "description": "true when this call does the last thing the User asked for, so your reply would only say it was done: the turn then ends with it, and the User sees what it did in the Note and on its line. Leave it out while more is to do, or when you have more to tell them."
        }
       },
       "required": [
@@ -1825,6 +1845,10 @@
        "content": {
         "type": "string",
         "description": "The text, in Markdown, cited as an Answer is: each source a marker like [^1], for a Citation you recorded with cite before this call, right after the words it backs, in a table's cells too. Never write a source as text: \"[Tides, p. 3]\" is how IncarnaMind shows you a Citation, and content with one is refused. A new section starts with its heading. A table has a heading row, a row of ---, then each row on a line of its own. Write it last, after the other fields."
+       },
+       "done": {
+        "type": "boolean",
+        "description": "true when this call does the last thing the User asked for, so your reply would only say it was done: the turn then ends with it, and the User sees what it did in the Note and on its line. Leave it out while more is to do, or when you have more to tell them."
        }
       },
       "required": [
@@ -2307,6 +2331,10 @@
        "removes_only": {
         "type": "boolean",
         "description": "Give it on every call: true when the User asks only for text to go, the rest to stay word for word, as in \"Delete the last sentence\" or \"Take out the deposit line\"; false when they ask to shorten, rewrite or change it in any other way."
+       },
+       "done": {
+        "type": "boolean",
+        "description": "Only with content: true when this call does the last thing the User asked for, so your reply would only say it was done: the turn then ends with it, and the User sees what it did in the Note and on its line. Leave it out while more is to do, or when you have more to tell them."
        }
       },
       "additionalProperties": false
@@ -2354,6 +2382,10 @@
        "content": {
         "type": "string",
         "description": "The text, in Markdown, cited as an Answer is: each source a marker like [^1], for a Citation you recorded with cite before this call, right after the words it backs, in a table's cells too. Never write a source as text: \"[Tides, p. 3]\" is how IncarnaMind shows you a Citation, and content with one is refused. A new section starts with its heading. A table has a heading row, a row of ---, then each row on a line of its own. Write it last, after the other fields."
+       },
+       "done": {
+        "type": "boolean",
+        "description": "true when this call does the last thing the User asked for, so your reply would only say it was done: the turn then ends with it, and the User sees what it did in the Note and on its line. Leave it out while more is to do, or when you have more to tell them."
        }
       },
       "required": [
@@ -2400,6 +2432,10 @@
        "content": {
         "type": "string",
         "description": "The text, in Markdown, cited as an Answer is: each source a marker like [^1], for a Citation you recorded with cite before this call, right after the words it backs, in a table's cells too. Never write a source as text: \"[Tides, p. 3]\" is how IncarnaMind shows you a Citation, and content with one is refused. A new section starts with its heading. A table has a heading row, a row of ---, then each row on a line of its own. Write it last, after the other fields."
+       },
+       "done": {
+        "type": "boolean",
+        "description": "true when this call does the last thing the User asked for, so your reply would only say it was done: the turn then ends with it, and the User sees what it did in the Note and on its line. Leave it out while more is to do, or when you have more to tell them."
        }
       },
       "required": [
@@ -2842,6 +2878,10 @@
        "removes_only": {
         "type": "boolean",
         "description": "Give it on every call: true when the User asks only for text to go, the rest to stay word for word, as in \"Delete the last sentence\" or \"Take out the deposit line\"; false when they ask to shorten, rewrite or change it in any other way."
+       },
+       "done": {
+        "type": "boolean",
+        "description": "Only with content: true when this call does the last thing the User asked for, so your reply would only say it was done: the turn then ends with it, and the User sees what it did in the Note and on its line. Leave it out while more is to do, or when you have more to tell them."
        }
       },
       "additionalProperties": false
@@ -2893,6 +2933,10 @@
        "answer": {
         "type": "boolean",
         "description": "true to put your last Answer in this conversation in as it is, with its Citations, instead of content: when the User asks to put that Answer (\"it\", \"this\") in a Note, as \"add this to my notes\" does after a Question."
+       },
+       "done": {
+        "type": "boolean",
+        "description": "true when this call does the last thing the User asked for, so your reply would only say it was done: the turn then ends with it, and the User sees what it did in the Note and on its line. Leave it out while more is to do, or when you have more to tell them."
        }
       },
       "required": [],
@@ -2941,6 +2985,10 @@
        "answer": {
         "type": "boolean",
         "description": "true to put your last Answer in this conversation in as it is, with its Citations, instead of content: when the User asks to put that Answer (\"it\", \"this\") in a Note, as \"add this to my notes\" does after a Question."
+       },
+       "done": {
+        "type": "boolean",
+        "description": "true when this call does the last thing the User asked for, so your reply would only say it was done: the turn then ends with it, and the User sees what it did in the Note and on its line. Leave it out while more is to do, or when you have more to tell them."
        }
       },
       "required": [
@@ -3408,6 +3456,10 @@
        "removes_only": {
         "type": "boolean",
         "description": "Give it on every call: true when the User asks only for text to go, the rest to stay word for word, as in \"Delete the last sentence\" or \"Take out the deposit line\"; false when they ask to shorten, rewrite or change it in any other way."
+       },
+       "done": {
+        "type": "boolean",
+        "description": "Only with content: true when this call does the last thing the User asked for, so your reply would only say it was done: the turn then ends with it, and the User sees what it did in the Note and on its line. Leave it out while more is to do, or when you have more to tell them."
        }
       },
       "additionalProperties": false
@@ -3459,6 +3511,10 @@
        "answer": {
         "type": "boolean",
         "description": "true to put your last Answer in this conversation in as it is, with its Citations, instead of content: when the User asks to put that Answer (\"it\", \"this\") in a Note, as \"add this to my notes\" does after a Question."
+       },
+       "done": {
+        "type": "boolean",
+        "description": "true when this call does the last thing the User asked for, so your reply would only say it was done: the turn then ends with it, and the User sees what it did in the Note and on its line. Leave it out while more is to do, or when you have more to tell them."
        }
       },
       "required": [],
@@ -3507,6 +3563,10 @@
        "answer": {
         "type": "boolean",
         "description": "true to put your last Answer in this conversation in as it is, with its Citations, instead of content: when the User asks to put that Answer (\"it\", \"this\") in a Note, as \"add this to my notes\" does after a Question."
+       },
+       "done": {
+        "type": "boolean",
+        "description": "true when this call does the last thing the User asked for, so your reply would only say it was done: the turn then ends with it, and the User sees what it did in the Note and on its line. Leave it out while more is to do, or when you have more to tell them."
        }
       },
       "required": [
@@ -4007,6 +4067,10 @@
        "removes_only": {
         "type": "boolean",
         "description": "Give it on every call: true when the User asks only for text to go, the rest to stay word for word, as in \"Delete the last sentence\" or \"Take out the deposit line\"; false when they ask to shorten, rewrite or change it in any other way."
+       },
+       "done": {
+        "type": "boolean",
+        "description": "Only with content: true when this call does the last thing the User asked for, so your reply would only say it was done: the turn then ends with it, and the User sees what it did in the Note and on its line. Leave it out while more is to do, or when you have more to tell them."
        }
       },
       "additionalProperties": false
@@ -4058,6 +4122,10 @@
        "answer": {
         "type": "boolean",
         "description": "true to put your last Answer in this conversation in as it is, with its Citations, instead of content: when the User asks to put that Answer (\"it\", \"this\") in a Note, as \"add this to my notes\" does after a Question."
+       },
+       "done": {
+        "type": "boolean",
+        "description": "true when this call does the last thing the User asked for, so your reply would only say it was done: the turn then ends with it, and the User sees what it did in the Note and on its line. Leave it out while more is to do, or when you have more to tell them."
        }
       },
       "required": [],
@@ -4106,6 +4174,10 @@
        "answer": {
         "type": "boolean",
         "description": "true to put your last Answer in this conversation in as it is, with its Citations, instead of content: when the User asks to put that Answer (\"it\", \"this\") in a Note, as \"add this to my notes\" does after a Question."
+       },
+       "done": {
+        "type": "boolean",
+        "description": "true when this call does the last thing the User asked for, so your reply would only say it was done: the turn then ends with it, and the User sees what it did in the Note and on its line. Leave it out while more is to do, or when you have more to tell them."
        }
       },
       "required": [

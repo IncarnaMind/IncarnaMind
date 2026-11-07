@@ -1937,6 +1937,8 @@ async function* toolLoop(
   const askedForFixes = new Map<string, boolean>();
   const writesMinds = request.tools.some((each) => each.provider.kind === "minds");
   const endedTurn = new Set<string>();
+  /** The Run ended after a step its calls ended: what they did is the reply (`Tool.endsTurn`). */
+  let endedByCalls = false;
   // A text whose figures the reader gave up on ends the Run before the model hears of it: the
   // check says where they couldn't be read. Told as a failed call, the model took it for no evidence.
   const unreadable = new AbortController();
@@ -2185,7 +2187,18 @@ async function* toolLoop(
         request.afterFirstStep?.(step.text);
       }
       if (signal.aborted) return true;
-      if (step.calls.length > 0 && step.calls.every((call) => endedTurn.has(call.id))) return true;
+      const ended = (call: { id: string }) => endedTurn.has(call.id);
+      // Records beside a call that ends the turn, all taken, leave nothing for a reply (#1635).
+      const recordsBeside =
+        step.calls.some(ended) &&
+        step.calls.every(
+          (call) =>
+            ended(call) ||
+            (recording(offered.get(call.tool)) && askedForFixes.get(call.id) === false),
+        ) &&
+        (!request.writeThenCite || owesNothing(besideRecords));
+      endedByCalls = (step.calls.length > 0 && step.calls.every(ended)) || recordsBeside;
+      if (endedByCalls) return true;
       const recordsOnly =
         step.calls.length > 0 && step.calls.every((call) => recording(offered.get(call.tool)));
       const reply = (text: string) => MARKER.test(text) && (request.isReply?.(text) ?? true);
@@ -2381,7 +2394,8 @@ async function* toolLoop(
         yield { type: "failed", error: event.error };
         return;
       case "finished": {
-        if (keptText.trim() === "" && (setAside.at(-1)?.text ?? "").trim() !== "")
+        // Ended by its calls, the Answer is what they did: text set aside before them was a preamble.
+        if (!endedByCalls && keptText.trim() === "" && (setAside.at(-1)?.text ?? "").trim() !== "")
           keptText = setAside.pop()?.text ?? "";
         const taken = takeToolText(keptText, toolTextTags);
         // Asked again, the model wrote nothing: the reply before stands, as when the ask fails.

@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { vi } from "vitest";
-import type { ChatModelChoice, CoreEventName } from "../../src/core";
+import type { ChatModelChoice, ConversationAnswer, CoreEventName } from "../../src/core";
 import { COMPARISON_CELL_NODE, DATABASE_FILE } from "../../src/core";
 import { toolTextIn } from "../../src/core/answers/toolText";
 import { openDatabase } from "../../src/core/storage";
@@ -33,7 +33,7 @@ import { firstKeptText, isWrittenTwice, type TimingRecorder } from "../lib/timin
 import { SETS as CHECK_SETS, documentsOf, writeDocuments } from "../repeats/cases";
 import { repeatChecks } from "../repeats/repeat";
 import { verdictOf } from "../repeats/score";
-import { SIGNS } from "./flows";
+import { FLOWS, SIGNS } from "./flows";
 import type { Expectation, Grade } from "./judge";
 
 export const SET_IDS = [
@@ -44,6 +44,7 @@ export const SET_IDS = [
   "cells",
   "written",
   "call-help",
+  "writes",
 ] as const;
 export type SetId = (typeof SET_IDS)[number];
 export type Language = "en" | "zh-CN";
@@ -75,6 +76,8 @@ export interface ArmRun {
   firstWordsMs: number | null;
   /** The first whole option, reading or line a help reply shows; absent: not a help reply. */
   firstOptionMs?: number | null;
+  /** The first change in the page, which words in the panel may come before. */
+  firstChangeMs?: number | null;
   doneMs: number | null;
   modelCalls: number;
   /** Of them, the Answer's own: not its search rewrite, translation or checks. */
@@ -99,6 +102,11 @@ export interface ArmRun {
   text: string;
   /** Each request and local step, for an item that reads them (a help reply). */
   requests?: RequestTiming[];
+  /** Of the model calls, the written checks' and the reply's change-claim check's (#1635). */
+  checkCalls?: number;
+  claimChecks?: number;
+  /** The Answer ended at its write, with no reply (#1635); absent: the item asks for no write. */
+  endedAtWrite?: boolean;
 }
 
 /**
@@ -109,11 +117,14 @@ export type Measured = Omit<
   ArmRun,
   | "firstSignMs"
   | "firstWordsMs"
+  | "firstChangeMs"
   | "doneMs"
   | "modelCalls"
   | "answerCalls"
   | "inputTokens"
   | "outputTokens"
+  | "checkCalls"
+  | "claimChecks"
 > & { firstWordsMs?: number | null };
 
 export interface ItemContext {
@@ -521,6 +532,82 @@ export function everydaySet(root: string, cacheDir: string): PairedGroup[] {
   }));
 }
 
+/** The flows that write into a page (./flows), each asked as the User asks it, over the mixed sample set (#1635). */
+const WRITE_FLOWS = [
+  "assistant-write",
+  "assistant-write-long",
+  "assistant-longer",
+  "assistant-write-and-say",
+  "assistant-write-and-ask",
+] as const;
+/** Of them, those that ask for something after the write: only a reply can say it. */
+const SAYS_AFTER: ReadonlySet<string> = new Set([
+  "assistant-write-and-say",
+  "assistant-write-and-ask",
+]);
+
+export function writesSet(): PairedGroup[] {
+  return [
+    {
+      name: "writes",
+      items: WRITE_FLOWS.flatMap((id) =>
+        (["en", "zh-CN"] as const).map(
+          (language): PairedItem => ({
+            set: "writes",
+            id,
+            kind: id,
+            language,
+            words: "events",
+            async run({ library }) {
+              const flow = FLOWS.find((each) => each.id === id);
+              if (!flow) throw new Error(`No flow "${id}" (eval/speed/flows.ts).`);
+              const seen: { answer?: ConversationAnswer } = {};
+              await library.core.updateSettings({ user: { language } });
+              await flow.run({
+                core: library.core,
+                language,
+                documents: library.documents,
+                begin: () => library.timings?.begin(),
+                answered: (answer) => {
+                  seen.answer = answer;
+                },
+              });
+              const { answer } = seen;
+              if (!answer) throw new Error("The flow ended with no Answer.");
+              const done = answer.status === "done";
+              const endedAtWrite =
+                answer.text.trim() === "" &&
+                answer.toolCalls.some((call) => call.mindChange !== undefined);
+              return {
+                ...NOTHING,
+                status: done ? "done" : "failed",
+                error: done ? null : `${answer.errorKind ?? answer.status}`,
+                endedAtWrite,
+                failures: [
+                  ...(toolTextIn(answer.text).length > 0 ? ["tool-text"] : []),
+                  ...(SAYS_AFTER.has(id) && answer.text.trim() === "" ? ["no-reply"] : []),
+                ],
+                text: [
+                  answer.text,
+                  ...answer.toolCalls.map((call) => `[call] ${call.tool} ${call.status}`),
+                ].join("\n"),
+              };
+            },
+          }),
+        ),
+      ),
+      async open(base) {
+        const library = await openLibrary({
+          ...base,
+          name: "paired-writes",
+          documents: await reports(),
+        });
+        return { library, close: () => library.close() };
+      },
+    },
+  ];
+}
+
 /** What a Document states, all of it or for its own term: Supported is right for these. */
 const STATED = new Set(["supported", "partly"]);
 const FINISHED = new Set(["ready", "failed", "no-text"]);
@@ -624,6 +711,7 @@ export async function runOnArm(
   let begunAt = "";
   let sign: number | null = null;
   let words: number | null = null;
+  let change: number | null = null;
   let ended: number | null = null;
   const stops = [
     ...SIGNS.map((event) =>
@@ -631,6 +719,7 @@ export async function runOnArm(
         if (begun === null) return;
         sign ??= performance.now() - begun;
         if (WORDS.has(event)) words ??= performance.now() - begun;
+        if (event === "mind.update") change ??= performance.now() - begun;
       }),
     ),
     ...ENDS.map((event) =>
@@ -644,7 +733,7 @@ export async function runOnArm(
     begin() {
       begun = performance.now();
       begunAt = new Date().toISOString();
-      sign = words = ended = null;
+      sign = words = change = ended = null;
       context.recorder.begin();
     },
   };
@@ -673,16 +762,18 @@ export async function runOnArm(
     (call) => doneMs === null || call.startMs <= doneMs,
   );
   // The core tags a call made for an Answer by its step (src/core/timing): untagged, it is the Answer's.
-  const own =
+  const tagged =
     begun === null
       ? []
-      : queryDatabase<{ started_at: string }>(
+      : queryDatabase<{ started_at: string; step: string | null }>(
           context.library.dataDir,
-          "SELECT started_at FROM ai_timings WHERE kind = 'model' AND step IS NULL AND started_at >= ?",
+          "SELECT started_at, step FROM ai_timings WHERE kind = 'model' AND started_at >= ?",
           [begunAt],
         ).filter(
           (row) => doneMs === null || Date.parse(row.started_at) <= Date.parse(begunAt) + doneMs,
         );
+  const own = tagged.filter((row) => row.step === null);
+  const ofStep = (step: string) => tagged.filter((row) => row.step === step).length;
   return {
     ...measured,
     answerCalls: own.length,
@@ -693,9 +784,12 @@ export async function runOnArm(
         : item.words === "answer"
           ? recording && firstKeptText(recording.textEvents)
           : words,
+    firstChangeMs: change,
     doneMs,
     modelCalls: calls.length,
     inputTokens: calls.reduce((sum, call) => sum + (call.inputTokens ?? 0), 0),
     outputTokens: calls.reduce((sum, call) => sum + (call.outputTokens ?? 0), 0),
+    checkCalls: ofStep("written-check") + ofStep("written-quick-check"),
+    claimChecks: ofStep("change-claim-check"),
   };
 }

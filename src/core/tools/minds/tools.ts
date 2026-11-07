@@ -2085,6 +2085,49 @@ export function mindTools(options: MindToolsOptions): {
     unsettled.clear();
   };
 
+  /**
+   * Results of writes that leave their reply nothing to say: each applied at once, and neither
+   * what it wrote nor its check left a note the model is told to say or act on. Given `done`,
+   * the turn ends on such a call (#1635).
+   */
+  const sayingAll = new Set<string>();
+  const saysAll = (
+    mind: ChangeableMind,
+    written: Written & { change: MindChange },
+    checked: WrittenCheck | null,
+  ): boolean => {
+    const { change } = written;
+    return (
+      outcomeOf(mind, change.request) === APPLIES &&
+      writtenNotes(written).length === 0 &&
+      !change.uncited &&
+      !change.chartNotDrawn &&
+      !change.unlinkedSources &&
+      !change.droppedSources &&
+      !change.extraCells &&
+      (checked === null ||
+        (checked.cut.length === 0 &&
+          checked.unsupported === 0 &&
+          checked.contradicted === 0 &&
+          checked.failed === 0 &&
+          checked.sent >= checked.cited))
+    );
+  };
+  const endable = (result: string, all: boolean): string => {
+    if (all) sayingAll.add(result);
+    return result;
+  };
+  const endsTurn = (result: string, input: Record<string, unknown>) =>
+    input.done === true && sayingAll.has(result);
+
+  const doneProperty = {
+    done: {
+      type: "boolean",
+      description:
+        "true when this call does the last thing the User asked for, so your reply would only say it was done: the turn then ends with it, and the User sees what it did in the Note and on its line. Leave it out while more is to do, or when you have more to tell them.",
+    },
+  };
+
   /** What the model reads of Blocks it added: how many, and what of their Citations didn't hold. */
   const added = (
     mind: ChangeableMind,
@@ -2375,6 +2418,10 @@ export function mindTools(options: MindToolsOptions): {
           description:
             'Give it on every call: true when the User asks only for text to go, the rest to stay word for word, as in "Delete the last sentence" or "Take out the deposit line"; false when they ask to shorten, rewrite or change it in any other way.',
         },
+        done: {
+          ...doneProperty.done,
+          description: `Only with content: ${doneProperty.done.description}`,
+        },
       },
       additionalProperties: false,
     },
@@ -2382,6 +2429,7 @@ export function mindTools(options: MindToolsOptions): {
     providerTool: MIND_TOOLS.edit,
     effects: effectOn("write"),
     untrustedResult: false,
+    endsTurn,
     async call(input, { toolCallId, signal, canCallAgain }) {
       const markdown = optional(input.content);
       const instruction = markdown === null ? text(input.instruction, "instruction") : "";
@@ -2474,7 +2522,13 @@ export function mindTools(options: MindToolsOptions): {
         });
         const checked = await checkWritten(toolCallId, written, signal);
         const went = ` (${lengthSaid(before, newText, times)})`;
-        return [
+        const all =
+          saysAll(mind, written, checked) &&
+          written.dropped === 0 &&
+          added.length === 0 &&
+          !stretch.hint &&
+          (times === null || offLength(before, newText, times) === null);
+        const result = [
           over.kind === "own"
             ? revisedText(mind, written.change, went)
             : replacedOwnText(mind, written.change.request, went),
@@ -2490,6 +2544,7 @@ export function mindTools(options: MindToolsOptions): {
             : []),
           ...(stretch.hint ? [stretch.hint] : []),
         ].join(" ");
+        return endable(result, all);
       }
       const replaced = waiting.kind === "own" ? replacedOwn(mind.id, waiting.blockIds) : {};
       const toWrite =
@@ -2621,6 +2676,7 @@ export function mindTools(options: MindToolsOptions): {
         ...chartProperty,
         content: contentProperty,
         ...answerProperty,
+        ...doneProperty,
       },
       required: options.lastAnswer ? [] : ["content"],
       additionalProperties: false,
@@ -2629,6 +2685,7 @@ export function mindTools(options: MindToolsOptions): {
     providerTool: MIND_TOOLS.add,
     effects: effectOn("write"),
     untrustedResult: false,
+    endsTurn,
     streamInput(toolCallId, input) {
       streamContent(toolCallId, input, (fields) => {
         // Only once the Mind and the place it names are whole: a name cut short could mean another.
@@ -2677,11 +2734,14 @@ export function mindTools(options: MindToolsOptions): {
       );
       if (!written) throw noTable(mind);
       const checked = await checkWritten(toolCallId, written, signal);
-      return added(
-        mind,
-        written,
-        `in “${mind.name}”, ${after ? `after “${after}”` : "at its end"}`,
-        checked,
+      return endable(
+        added(
+          mind,
+          written,
+          `in “${mind.name}”, ${after ? `after “${after}”` : "at its end"}`,
+          checked,
+        ),
+        saysAll(mind, written, checked),
       );
     },
   };
@@ -2770,6 +2830,7 @@ export function mindTools(options: MindToolsOptions): {
         ...chartProperty,
         content: contentProperty,
         ...answerProperty,
+        ...doneProperty,
       },
       required: ["title"],
       additionalProperties: false,
@@ -2779,6 +2840,7 @@ export function mindTools(options: MindToolsOptions): {
     // The Mind it writes to isn't made yet.
     effects: () => [{ action: "write", scope: { kind: "mind", mindId: "" } }],
     untrustedResult: false,
+    endsTurn,
     streamInput(toolCallId, input) {
       streamContent(toolCallId, input, (fields) => {
         const title = fields.get("title");
@@ -2863,7 +2925,10 @@ export function mindTools(options: MindToolsOptions): {
         return `${made}. It is empty. ${noTable(mind).message}`;
       }
       const checked = await checkWritten(toolCallId, written, signal);
-      return `${made}. ${added(mind, written, "in it", checked)}`;
+      return endable(
+        `${made}. ${added(mind, written, "in it", checked)}`,
+        saysAll(mind, written, checked),
+      );
     },
   };
 

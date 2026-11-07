@@ -220,6 +220,10 @@ export function pairedSection(
     const done = counted(run);
     return `${done.filter((each) => (each.searches ?? 0) > 1).length} of ${done.length}`;
   };
+  const atWrite = (run: (row: PairedRow) => ArmRun) => {
+    const done = rows.map(run).filter((each) => each.status === "done");
+    return `${done.filter((each) => each.endedAtWrite).length} of ${done.length}`;
+  };
   const holds = (each: Guard) =>
     `${each.holds ? "yes" : "**no**"}${each.allowed > 0 ? ` (${each.allowed} fewer allowed)` : ""}`;
   const rule = (each: Guard) =>
@@ -229,11 +233,21 @@ export function pairedSection(
     "|---|---|---|---|",
     `| First sign (median / p90) ${of((run) => run.firstSignMs)}`,
     `| First words ${of((run) => run.firstWordsMs)}`,
+    ...(rows.some((row) => row.candidate.endedAtWrite !== undefined)
+      ? [`| First change in the page ${of((run) => run.firstChangeMs ?? null)}`]
+      : []),
     `| Done ${of((run) => run.doneMs)}`,
     `| Model calls (mean) | ${mean(rows.map((row) => row.baseline.modelCalls))} | ${mean(rows.map((row) => row.candidate.modelCalls))} | |`,
     `| Tokens in / out (median) | ${tokens((row) => row.baseline)} | ${tokens((row) => row.candidate)} | |`,
     `| Citations found | ${found((row) => row.baseline)} | ${found((row) => row.candidate)} | |`,
     `| Answered in one call | ${oneCall((row) => row.baseline)} | ${oneCall((row) => row.candidate)} | |`,
+    ...(rows.some((row) => row.candidate.endedAtWrite !== undefined)
+      ? [
+          `| Ended at the write | ${atWrite((row) => row.baseline)} | ${atWrite((row) => row.candidate)} | |`,
+          `| Written-check calls (mean) | ${mean(rows.map((row) => row.baseline.checkCalls ?? 0))} | ${mean(rows.map((row) => row.candidate.checkCalls ?? 0))} | |`,
+          `| Change-claim checks (mean) | ${mean(rows.map((row) => row.baseline.claimChecks ?? 0))} | ${mean(rows.map((row) => row.candidate.claimChecks ?? 0))} | |`,
+        ]
+      : []),
     ...(counted((row) => row.candidate).length > 0
       ? [
           `| Searched more than once | ${searchedAgain((row) => row.baseline)} | ${searchedAgain((row) => row.candidate)} | |`,

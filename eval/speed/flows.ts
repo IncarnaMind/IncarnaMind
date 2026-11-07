@@ -7,7 +7,13 @@
  * (src/core/timing), tagged with the flow.
  */
 import { randomUUID } from "node:crypto";
-import { type Core, type CoreEventName, type Document, messageReference } from "../../src/core";
+import {
+  type ConversationAnswer,
+  type Core,
+  type CoreEventName,
+  type Document,
+  messageReference,
+} from "../../src/core";
 import { pageBlocks } from "../../src/shared/answerBlocks";
 import { connectToMind } from "../../tests/helpers/mindClient";
 import { note, writeMind } from "../../tests/helpers/minds";
@@ -20,6 +26,10 @@ export interface FlowContext {
   language: Language;
   /** The mixed sample set: the generated PDFs in eval/data/ and the readable Documents in eval/data/real/. */
   documents: ReadonlyMap<string, Document>;
+  /** At the User's action: a paired run times its item from here (./paired). */
+  begin?(): void;
+  /** The Answer the User's action ended with, for a flow that asks one. */
+  answered?(answer: ConversationAnswer): void;
 }
 
 /** When the window saw each kind of sign, in milliseconds from the User's action. */
@@ -140,11 +150,20 @@ const UN_CLAIM = {
   "zh-CN": "Norvath Assembly 2022 年度报告介绍了它在 90 多个国家的工作。",
 };
 
+/** The User's action, asking `input`: what a paired run times, and the Answer it ends with. */
+async function asking(context: FlowContext, input: Parameters<typeof ask>[1]) {
+  context.begin?.();
+  const answer = await ask(context.core, input);
+  context.answered?.(answer);
+  return answer;
+}
+
 function asked(text: Record<Language, string>, paragraphs: (language: Language) => string[]) {
-  return async ({ core, language }: FlowContext) => {
+  return async (context: FlowContext) => {
+    const { core, language } = context;
     const { mindId } = await mindWith(core, language, paragraphs(language));
     return timed(core, mindId, () =>
-      ask(core, { text: text[language], mindId, conversationId: null, focus: null }),
+      asking(context, { text: text[language], mindId, conversationId: null, focus: null }),
     );
   };
 }
@@ -178,6 +197,40 @@ export const FLOWS: readonly Flow[] = [
     ),
   },
   {
+    id: "assistant-write-long",
+    label: "Ask the assistant to write eight paragraphs into the page",
+    run: asked(
+      {
+        en: "Write an eight-paragraph summary of the ESG report into my notes",
+        "zh-CN": "把 ESG 报告写成八段总结放进我的笔记",
+      },
+      (language) => [NOTES[language]],
+    ),
+  },
+  // Held out for #1635: each asks for something after the write, which only a reply can say.
+  {
+    id: "assistant-write-and-say",
+    label: "Ask the assistant to write into the page and say something in its reply",
+    run: asked(
+      {
+        en: "Add the ESG report's main targets to my notes, and tell me in your reply which of them looks hardest to meet",
+        "zh-CN": "把 ESG 报告的主要目标加到我的笔记里，并在回复里告诉我哪个目标看起来最难达成",
+      },
+      (language) => [NOTES[language]],
+    ),
+  },
+  {
+    id: "assistant-write-and-ask",
+    label: "Ask the assistant to write into the page and answer a question about it",
+    run: asked(
+      {
+        en: "Write a short summary of the Vantrell report's emissions targets into my notes. Which year do they run to?",
+        "zh-CN": "把 Vantrell 报告的排放目标简要写进我的笔记。这些目标截止到哪一年？",
+      },
+      (language) => [NOTES[language]],
+    ),
+  },
+  {
     id: "assistant-edit",
     label: "Ask the assistant to edit a paragraph",
     run: asked(
@@ -188,7 +241,8 @@ export const FLOWS: readonly Flow[] = [
   {
     id: "assistant-longer",
     label: "Ask the assistant to make a summary it added to the page longer",
-    async run({ core, language }) {
+    async run(context) {
+      const { core, language } = context;
       const { mindId } = await mindWith(core, language, [NOTES[language]]);
       const question = SUMMARISE[language];
       const summary = await ask(core, {
@@ -206,7 +260,7 @@ export const FLOWS: readonly Flow[] = [
       const client = await connectToMind(core, mindId);
       await client.settled();
       return timed(core, mindId, () =>
-        ask(core, {
+        asking(context, {
           text: LONGER[language],
           mindId,
           conversationId: summary.conversationId,

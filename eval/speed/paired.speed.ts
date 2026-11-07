@@ -39,6 +39,7 @@ import {
   runOnArm,
   SET_IDS,
   type SetId,
+  writesSet,
 } from "./paired";
 import {
   itemTable,
@@ -126,6 +127,8 @@ function groupsOf(set: SetId, cacheDir: string): PairedGroup[] {
       return writtenSet();
     case "call-help":
       return callHelpSet();
+    case "writes":
+      return writesSet();
   }
 }
 
