@@ -43,7 +43,9 @@ jobs:
       - run: npm ci
       - run: npm run typecheck && npm run lint
 
-  # Four shards that run at once: as one job the unit tests take about half an hour.
+  # Four shards that run at once: as one job the unit tests take about half an hour. A pull
+  # request runs the tests its changes reach in Vitest's import graph; the nightly run and a
+  # release run them all.
   unit:
     name: Unit tests (${{ matrix.shard }}/4)
     if: github.event.pull_request.draft != true
@@ -56,7 +58,10 @@ jobs:
       matrix:
         shard: [1, 2, 3, 4]
     steps:
+      # The merge commit and its first parent, main, so the change is what this pull request adds.
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
       - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
@@ -68,7 +73,16 @@ jobs:
         with:
           packages: bubblewrap socat ripgrep
       - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-      - run: npm test -- --shard=${{ matrix.shard }}/4
+      # Vitest's --changed doesn't follow a change to the dependencies, the tests' own setup or CI.
+      - env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          only=()
+          if [ "$EVENT" = pull_request ] && ! git diff --name-only HEAD^1 HEAD \
+            | grep -qE '^(package(-lock)?\.json|vitest\.config\.ts|tests/setup/|\.github/workflows/ci\.yml)'; then
+            only=(--changed=HEAD^1 --passWithNoTests)
+          fi
+          npm test -- --shard=${{ matrix.shard }}/4 "${only[@]}"
 
   # A pull request's own specs, or every spec when it changes what they all run on
   # (scripts/smoke-shard.mjs); every spec when the nightly run or a release calls this file.
