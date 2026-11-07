@@ -42,6 +42,9 @@ const WRITES_THEN_CITES: readonly Admitted[] = [
  * - Claude Haiku 5.5 came off on 2026-11-04: answered in one call from the Question's own
  *   search, judged right fell from 60 to 57 of 65 on the gating set, with 2 allowed. It is back
  *   since the second search, measured on the same gate with held-out Questions written first.
+ * - DeepSeek V4.1 Flash 1017 (2026-11-07), with the second search, held the held-out set but not
+ *   the gating set: expected Passages cited fell from 64 to 61 of 65, with 2 allowed, three of
+ *   them on quoted words the quote check misreads (#2504).
  * - Claude Sonnet 5.5, citing first, was 1.4 s sooner on the gating set, but every Citation found
  *   fell from 63 to 59 of 65, mostly on quoted words the quote check misreads on both paths
  *   (#2504). It is measured again once those are fixed.
