@@ -6,16 +6,15 @@
  * they cite each line the case rests on; whether they give what the case expects; and every
  * sentence a found Citation backs whose quote doesn't say it.
  */
-import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { generateText, type LanguageModel } from "ai";
-import type { CitationAttributes, Core, MeetingFill } from "../../src/core";
+import type { Core, MeetingFill } from "../../src/core";
 import { toolTextIn } from "../../src/core/answers/toolText";
-import { citationAttributesOf } from "../../src/shared/citations";
 import { connectToMind } from "../../tests/helpers/mindClient";
 import { readMind } from "../../tests/helpers/minds";
 import { type Judged, openCall, quotes, readJudged } from "./callHelp";
 import { MEETING_NOTES_CASES, type MeetingNotesCase } from "./meetingNotesCases";
 import type { Measured, PairedGroup, PairedItem } from "./paired";
+import { citedText } from "./unstated";
 
 /** The longest the notes may take after Stop. */
 const NOTES_TIMEOUT_MS = 5 * 60_000;
@@ -63,30 +62,6 @@ async function judge(model: LanguageModel, each: MeetingNotesCase, notes: string
   if (read) return read;
   console.error(`The judge's reply couldn't be read: ${again.text.slice(0, 200)}`);
   return { grade: "unread", unstated: [] } satisfies Judged;
-}
-
-/** The notes as the page shows them, each Citation by its number, and the Citations in that order. */
-export function notesOf(doc: ProseMirrorNode): {
-  text: string;
-  citations: Partial<CitationAttributes>[];
-} {
-  const lines: string[] = [];
-  const citations: Partial<CitationAttributes>[] = [];
-  doc.descendants((node) => {
-    if (!node.isTextblock) return true;
-    let line = "";
-    node.descendants((child) => {
-      if (child.isText) line += child.text ?? "";
-      else if (child.type.name === "citation") {
-        citations.push(citationAttributesOf(child.attrs));
-        line += `[${citations.length}]`;
-      }
-      return true;
-    });
-    if (line.trim()) lines.push(node.type.name === "heading" ? `## ${line}` : line);
-    return false;
-  });
-  return { text: lines.join("\n"), citations };
 }
 
 const fillOf = async (core: Core, meetingId: string) =>
@@ -143,7 +118,7 @@ function item(each: MeetingNotesCase): PairedItem {
       if (!stopped) throw new Error("The Meeting is gone.");
       const client = await connectToMind(core, stopped.mindId);
       await client.settled();
-      const notes = notesOf(readMind(client));
+      const notes = citedText(readMind(client));
       const found = notes.citations.filter((citation) => citation.check === "found");
       const filled = fill.state === "filled";
       const judged = filled

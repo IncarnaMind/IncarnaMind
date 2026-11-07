@@ -35,6 +35,7 @@ import { repeatChecks } from "../repeats/repeat";
 import { verdictOf } from "../repeats/score";
 import { SIGNS } from "./flows";
 import type { Expectation, Grade } from "./judge";
+import { citedText, falseSupportedIn } from "./unstated";
 
 export const SET_IDS = [
   "gating",
@@ -218,9 +219,19 @@ function questionItem(
     kind,
     language: languageOf(question.language),
     words: "answer",
-    async run({ library, grade }) {
+    async run({ library, grade, claimsJudge }) {
       const answer = await askOne(library, question, 1, timeoutMs);
       const done = answer.status === "done";
+      const unstated = done
+        ? await falseSupportedIn(
+            claimsJudge,
+            answer.citations.map((citation) => ({
+              sentence: citation.sentence,
+              quote: citation.quote,
+              found: citation.outcome === "found",
+            })),
+          )
+        : 0;
       return {
         ...NOTHING,
         status: done ? "done" : "failed",
@@ -243,9 +254,13 @@ function questionItem(
               answer.text,
             )
           : null,
+        falseSupported: unstated ?? 0,
         duplicate: answer.timing?.writtenTwice ?? false,
         // A Tool's call written as text that still shows fails the Answer, whatever it is graded.
-        failures: toolTextIn(answer.text).length > 0 ? ["tool-text"] : [],
+        failures: [
+          ...(toolTextIn(answer.text).length > 0 ? ["tool-text"] : []),
+          ...(unstated === null ? ["false-supported-unread"] : []),
+        ],
         // Each Citation not found, to tell a quote the model changed from one it put on the wrong page.
         text: [
           answer.text,
@@ -353,7 +368,7 @@ export function cellsSet(root: string, timeoutMs: number): PairedGroup[] {
         kind: groupOfQuestion(question),
         language: languageOf(question.language),
         words: "events",
-        async run({ library, grade, arm, ended }) {
+        async run({ library, grade, arm, ended, claimsJudge }) {
           const document = library.documents.get(key);
           if (!document) throw new Error(`No Document ${key} in the library.`);
           const { core } = library;
@@ -402,6 +417,21 @@ export function cellsSet(root: string, timeoutMs: number): PairedGroup[] {
           const found = citations.filter((each) => each.check === "found");
           const text = filled.textBetween(0, filled.content.size, " ", " ").trim();
           const answered = status === "done" || problem === "not-found";
+          // Each Citation on the line of the cell it sits in, as the judge reads it.
+          const shown = citedText(filled);
+          const lines = shown.text.split("\n");
+          const unstated = answered
+            ? await falseSupportedIn(
+                claimsJudge,
+                shown.citations.map((citation, index) => ({
+                  sentence: (lines.find((line) => line.includes(`[${index + 1}]`)) ?? "")
+                    .replace(/\[\d+\]/g, "")
+                    .trim(),
+                  quote: citation.quote ?? "",
+                  found: citation.check === "found",
+                })),
+              )
+            : 0;
           return {
             ...NOTHING,
             status: answered ? "done" : "failed",
@@ -424,7 +454,12 @@ export function cellsSet(root: string, timeoutMs: number): PairedGroup[] {
                   text,
                 )
               : null,
-            failures: toolTextIn(text).length > 0 ? ["tool-text"] : [],
+            falseSupported: unstated ?? 0,
+            duplicate: isWrittenTwice(text),
+            failures: [
+              ...(toolTextIn(text).length > 0 ? ["tool-text"] : []),
+              ...(unstated === null ? ["false-supported-unread"] : []),
+            ],
             text,
           };
         },

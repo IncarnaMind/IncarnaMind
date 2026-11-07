@@ -25,6 +25,8 @@ And none new:
 - no new Tool call left as text, notes with a problem or with nothing written;
 - no more items failing to run.
 
+*Added on 2026-11-07, after review and before the cells are run again: the first cells runs never measured false Supported or duplicates, which read 0 on both arms whatever the cells said, so their "no new false Supported" line doesn't stand. For a cell, false Supported is now a cell line with a found Citation that states something its quoted words don't say (a figure, a period, a name, a yes or a no), as Claude Sonnet 5.5 reads each found Citation's line against its quote (`eval/speed/unstated.ts`); a duplicate is a cell that says the same paragraph twice. A judge reply that can't be read counts as a failure on that item, not as none. The cells set is run again on both models, paired, with every other line above as written, and a model is admitted for cells only on that run.*
+
 ## Faster, or it isn't admitted
 
 Writing first is for speed: a flow is admitted on a model only where the paired median difference of the time to the end is below zero on that set and model.
