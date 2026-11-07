@@ -157,6 +157,9 @@ describe("Rewrite is offered", () => {
     ["因乙方逾期，违约金为500元。", "因为乙方逾期，违约金为700元。", true],
     ["董事会认为损失为500万元。", "董事会认为损失为800万元。", true],
     ["公司为客户垫付500元。", "公司为客户垫付600元。", true],
+    ["持股比例增加公司股本的3%。", "持股比例增加为公司股本的8%。", false],
+    ["服务费下调客户合同金额的0.5%。", "服务费下调为客户合同金额的2%。", false],
+    ["持股比例增加为公司股本的3%。", "持股比例增加为公司股本的8%。", true],
     ["The lease was extended by 2 years.", "The lease was extended to 5 years.", false],
     ["The lease was extended to 2 years.", "The lease was extended to 5 years.", true],
   ])("for %s from %s: %s", (sentence, quote, offered) => {
