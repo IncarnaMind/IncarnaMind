@@ -10821,6 +10821,7 @@ export type MeetingKind = "meeting" | "memo";
 /**
  * How one source is recorded right now:
  * - "off": not asked for ("Only me"), or the Meeting isn't recording.
+ * - "waiting": the system's permission prompt is open, and nothing is captured until it is answered.
  * - "starting": asked for, not heard from yet.
  * - "recording": its audio is coming in.
  * - "silent": the computer's sound has been nothing but silence for a minute,
@@ -10832,6 +10833,7 @@ export type MeetingKind = "meeting" | "memo";
  */
 export type MeetingSourceState =
   | "off"
+  | "waiting"
   | "starting"
   | "recording"
   | "silent"

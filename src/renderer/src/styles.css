@@ -832,7 +832,8 @@
   }
   /*
    * A Meeting recording, on its tab and in its bar: a small red dot, the one
-   * red outside Citation checks (the owner's choice), grey while paused.
+   * red outside Citation checks (the owner's choice), grey while paused or
+   * while the system's permission prompt is open.
    */
   .recording-dot {
     flex-shrink: 0;
@@ -841,7 +842,8 @@
     border-radius: 9999px;
     background: var(--color-danger);
 
-    &[data-status="paused"] {
+    &[data-status="paused"],
+    &[data-status="waiting"] {
       background: var(--color-ink-meta);
     }
   }

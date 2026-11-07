@@ -342,6 +342,10 @@ export const useMeetingOf = (mindId: string): Meeting | undefined =>
 export const isLive = (meeting: Meeting | undefined): meeting is Meeting =>
   meeting?.status === "recording" || meeting?.status === "paused";
 
+/** It is recording, but the system's microphone prompt is still open: nothing is captured yet. */
+export const isWaitingForPermission = (meeting: Meeting | undefined): boolean =>
+  meeting?.status === "recording" && meeting.sources.microphone === "waiting";
+
 /** Whether some Meeting's audio is being captured now: background work waits meanwhile. */
 export const useCapturing = (): boolean =>
   useMeetings((state) => state.meetings.some((each) => each.recordingSince !== null));
