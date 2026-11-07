@@ -10,6 +10,8 @@ import {
   leaveFirstOpen,
   makeTagOnDocument,
   newMind,
+  openPageMenu,
+  pointAndClick,
   removeDataFolder,
   savedPath,
   setLanguage,
@@ -105,6 +107,18 @@ test("the tab strip stays when a second tab is closed again", async () => {
   await window.locator('[role="tab"][aria-selected="true"]').getByTestId("tab-close").click();
   await expect(window.getByTestId("tab-title")).toHaveCount(1);
   await expect(window.getByTestId("tab-list")).toBeVisible();
+  await app.close();
+});
+
+test("the page menu's Rename names the example in its tab while the first open's steps show", async () => {
+  const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+  await expect(window.getByTestId("first-open-steps")).toBeVisible();
+  await pointAndClick(window, (await openPageMenu(window)).getByTestId("mind.rename"));
+  const field = window.getByTestId("tab-rename");
+  await expect(field).toBeFocused();
+  await field.fill("Credit paper");
+  await field.press("Enter");
+  await expect(window.getByTestId("tab-title")).toHaveText("Credit paper");
   await app.close();
 });
 
