@@ -61,6 +61,29 @@ body {
   flex: none;
 }
 
+/* The text and its notes stay above a watermark (#1258), which sits on the page's own layer. */
+.page-body,
+.page-notes {
+  position: relative;
+  z-index: 1;
+}
+
+.page-watermark {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 0;
+  transform: translate(-50%, -50%) rotate(-45deg);
+  transform-origin: center;
+  font-family: var(--sans);
+  font-size: 84pt;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  color: #c7ccd3;
+  opacity: 0.5;
+}
+
 .page-notes {
   margin-top: auto;
   padding-top: 10pt;

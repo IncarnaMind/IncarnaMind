@@ -19,6 +19,7 @@ import { allOrigins } from "../../src/shared/blockOrigins";
 import { readChart } from "../../src/shared/charts";
 import { pendingProposals, proposalRequestOf } from "../../src/shared/proposals";
 import { askAssistant, changesIn, lastResult, mindCalls } from "../helpers/assistant";
+import { checkReply, isCheckRun } from "../helpers/checks";
 import { answerEnded, setUpWithDocuments, shownPassages } from "../helpers/citations";
 import { startCore } from "../helpers/core";
 import { boundEditor } from "../helpers/editor";
@@ -422,6 +423,30 @@ describe("Use all, where the text went (#1171 review)", { timeout: 60_000 }, () 
     expect(shownWithChanges(client)).not.toEqual(fromTwo);
     await resolveChanges(client, "reject");
     expect(shownWithChanges(client)).toEqual(fromTwo);
+  });
+
+  // protects=Use all's text from every Document lands checked, as a first write's does: its cited sentences are checked and the card counts them (#1635); fails_when=the rewrite lands with found Citations and no check, which reads as checked; no_claim=the verdicts, which the written check's own tests hold.
+  test("Use all checks the text it writes again", async () => {
+    const model = scriptedModel((call) =>
+      isCheckRun(call) ? checkReply(call, {}) : summaryOfShown(call),
+    );
+    const { core, mind, scope } = await inAFolderOfTwo(model);
+    const first = await askAssistant(core, {
+      text: "Based on my files, write a summary",
+      mindId: mind.id,
+      scope,
+    });
+    const made = changesIn(first).find((change) => change.created);
+    expect(made?.selfCheck).toMatchObject({ cited: 2, sent: 2 });
+    const summary = await connectToMind(core, made?.mindId ?? "");
+    await resolveChanges(summary, "accept");
+
+    const rewritten = await useAll(core, first);
+
+    const [change] = changesIn(rewritten);
+    expect(change).toMatchObject({ mindId: made?.mindId, created: false });
+    expect(change?.selfCheck).toMatchObject({ cited: 7, sent: 7, failed: 0 });
+    expect(lastResult(model)).toContain("with Citations were checked against them.");
   });
 
   // protects=text the User typed in since isn't taken away at once by Use all: the rewrite waits for them, as changes that would remove their words wait (#880), and the model is told it waits; fails_when=the rewrite applies at once over their words; no_claim=the window's line, which shows what waits.
