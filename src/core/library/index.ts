@@ -1587,6 +1587,10 @@ export function createLibrary(options: {
     ): Pick<FolderDeletion, "assignments"> {
       const existing = group(id);
       const folders = subtree(existing.id);
+      // The record is dated when it is written, not at `at`: Undo of a Restore deletes a Folder
+      // at its old time after an item was deleted at the Undo's own, and the item still reads the
+      // Folder it was in (#2274).
+      const written = now();
       const record = (
         folderId: string,
         kind: "document" | "mind" | "conversation",
@@ -1597,7 +1601,7 @@ export function createLibrary(options: {
           `INSERT INTO deleted_folder_items
              (id, folder_id, item_kind, item_id, suggested, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          [randomUUID(), folderId, kind, itemId, suggested, at, at],
+          [randomUUID(), folderId, kind, itemId, suggested, written, written],
         );
       const assignments = db.transaction(() => {
         const rows = db.all<AssignmentRow & { live: number }>(
