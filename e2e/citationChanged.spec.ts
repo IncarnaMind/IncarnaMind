@@ -17,7 +17,6 @@ import {
   removeDataFolder,
   setLanguage,
   setWindowSize,
-  showAssistant,
   useLocalChatModel,
 } from "./app";
 
@@ -231,7 +230,6 @@ test("a Citation's card says its Document changed, and its viewer opens the vers
       await expect(card).toHaveCount(0);
     };
     const showCard = async () => {
-      await showAssistant(window);
       if ((await card.count()) > 0) await hideCard();
       await window.mouse.move(0, 0);
       await pointAt(window, chip);

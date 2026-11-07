@@ -1510,18 +1510,6 @@ export async function placeAssistant(window: Page, place: Partial<AssistantPlace
 }
 
 /**
- * Unfolds the assistant if it is folded, with the one click its rail offers (#2270): a Citation's
- * page opened beside the Note folds it, so a spec that goes on to another Citation in it, or to
- * its card, needs it back first.
- */
-export async function showAssistant(window: Page): Promise<void> {
-  const assistant = window.getByTestId("assistant");
-  if ((await assistant.getAttribute("data-folded")) === null) return;
-  await pointAndClick(window, window.getByTestId("assistant-fold"));
-  await expect(assistant).not.toHaveAttribute("data-folded");
-}
-
-/**
  * Opens a Document at a location as a Citation does, through the test hook: as a
  * preview in the group right of the Mind the User is in (made if needed); with
  * no Mind in front, as from the sidebar.

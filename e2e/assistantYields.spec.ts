@@ -20,10 +20,11 @@ import {
 } from "./app";
 
 /*
- * The assistant yields to a Citation's page (#2270): at 1,440px the Note and the page cannot
- * keep their even split beside the open assistant, so it folds to its rail and comes back when
- * the page closes; at 1,600px it stays open. The User's own fold or unfold wins, and unfolding
- * it while the page is open gives the page the narrower share instead. Set
+ * The assistant yields to a Citation's page opened from the Note (#2270): at 1,440px the Note
+ * and the page cannot keep their even split beside the open assistant, so it folds to its rail
+ * and comes back when the page closes; at 1,600px it stays open. A Citation clicked inside the
+ * assistant leaves it open, and the page takes the narrower share. The User's own fold or unfold
+ * wins, and unfolding it while the page is open gives the page the narrower share too. Set
  * INCARNAMIND_SCREENSHOTS to a folder to also save screenshots there.
  */
 
@@ -124,6 +125,38 @@ for (const language of ["en", "zh-CN"] as const) {
     });
   }
 
+  test(`a Citation clicked in the assistant at 1440px leaves it open, its Answer in view, and the page narrower (${language})`, async () => {
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    await dismissChatSetup(window);
+    await useLocalChatModel(window);
+    await setLanguage(window, language);
+    await setWindowSize(app, window, 1440, 900);
+    const answer = await draftCiting(window);
+
+    await pointAndClick(window, answer.getByTestId("citation-chip").first());
+    await expect(window.getByTestId("viewer-title")).toHaveText("Tides");
+    await expect(
+      window.getByTestId("viewer").locator("[data-quote-highlight]").first(),
+    ).toBeVisible();
+    // The page takes the narrower share, so the Note keeps the width it is written at.
+    await expect
+      .poll(async () => {
+        const split = await splitOf(window);
+        return split.note - split.page;
+      })
+      .toBeGreaterThan(20);
+    const split = await splitOf(window);
+    expect(split.note).toBeGreaterThanOrEqual(480);
+    expect(split.page).toBeLessThan(split.note);
+    // The User is reading in the assistant: it stays open, with the Answer and its Citation's card.
+    await expect(assistantOf(window)).not.toHaveAttribute("data-folded");
+    await expect(answer).toBeInViewport();
+    await expect(window.getByTestId("citation-card")).toBeVisible();
+    await motionSettled(window);
+    await screenshot(window, `assistant-yields-from-assistant-${language}-1440`);
+    await app.close();
+  });
+
   test(`the assistant comes back by itself with the same thread, scroll and Citation (${language})`, async () => {
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
     await dismissChatSetup(window);
@@ -146,8 +179,9 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect.poll(() => thread.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
     const scrolled = await thread.evaluate((element) => element.scrollTop);
 
-    // A Citation clicked inside the assistant: its page opens, the quote washed, and the assistant folds.
-    await pointAndClick(window, last.getByTestId("citation-chip").first());
+    // A Citation clicked in the Note: its page opens, the quote washed, and the assistant folds.
+    const chip = editorOf(window).getByTestId("citation-chip").first();
+    await pointAndClick(window, chip);
     await expect(window.getByTestId("viewer-title")).toHaveText("Tides");
     await expect(
       window.getByTestId("viewer").locator("[data-quote-highlight]").first(),
@@ -161,10 +195,8 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(answers).toHaveCount(count);
     await expect.poll(() => thread.evaluate((element) => element.scrollTop)).toBe(scrolled);
     await expect(first).toBeVisible();
-    await expect(last.getByTestId("citation-chip").first()).toHaveAttribute(
-      "aria-expanded",
-      "true",
-    );
+    await expect(last).toBeVisible();
+    await expect(chip).toHaveAttribute("aria-expanded", "true");
     await expect(window.getByTestId("citation-card")).toBeVisible();
     await motionSettled(window);
     await screenshot(window, `assistant-yields-restored-${language}`);
@@ -177,10 +209,10 @@ for (const language of ["en", "zh-CN"] as const) {
     await useLocalChatModel(window);
     await setLanguage(window, language);
     await setWindowSize(app, window, 1440, 760);
-    const answer = await draftCiting(window);
+    await draftCiting(window);
 
-    // A Citation in the assistant folds it.
-    await pointAndClick(window, answer.getByTestId("citation-chip").first());
+    // A Citation in the Note folds it.
+    await pointAndClick(window, editorOf(window).getByTestId("citation-chip"));
     await expect(window.getByTestId("viewer-title")).toHaveText("Tides");
     await expect(assistantOf(window)).toHaveAttribute("data-folded", "true");
 

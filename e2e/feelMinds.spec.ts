@@ -78,11 +78,6 @@ test("first open, a Question, its Citation, and the Mind checked", async () => {
   const chip = answer.getByTestId("citation-chip").first();
   await feel.step("open a Citation", async () => {
     await pointAndClick(window, chip);
-    // The page needs the Note's room: the assistant folds to its rail while it is open (#2270).
-    await expect(window.getByTestId("assistant")).toHaveAttribute("data-folded", "true");
-  });
-  await feel.step("bring the assistant back", async () => {
-    await window.keyboard.press("ControlOrMeta+j");
     await expect(window.getByTestId("citation-card")).toBeVisible();
   });
   await feel.step("close the Citation", async () => {

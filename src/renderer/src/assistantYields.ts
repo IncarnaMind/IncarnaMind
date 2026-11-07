@@ -120,7 +120,8 @@ export function citationPageOpened(layout: WindowLayout, origin: CitedOrigin): v
   if (!noteLacksRoom(widths)) return;
   if (origin === "assistant") {
     const narrowed = pageYieldsWidths(layout, pair, cardWidth);
-    if (narrowed) void app.changeLayout({ type: "resize", widths: narrowed });
+    // At once, in the frame the page first shows in, so it opens at its share rather than jumping to it.
+    if (narrowed) void app.resizeGroups(narrowed);
     return;
   }
   const room = cardWidth + GAP + Math.max(SIDE_MIN, place.width);

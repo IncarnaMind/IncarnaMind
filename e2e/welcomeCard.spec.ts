@@ -28,7 +28,6 @@ import {
   setLanguage,
   setSidebarWidth,
   setWindowSize,
-  showAssistant,
   slideSelect,
   welcomeStep as step,
 } from "./app";
@@ -1359,9 +1358,6 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(local.first()).toBeVisible({ timeout: 30_000 });
       await expect(step(window, "citation")).toHaveAttribute("data-state", "open");
       await pointAndClick(window, local.first());
-      // The page needs the Note's room: the assistant folds; its card waits inside it (#2270).
-      await expect(assistant).toHaveAttribute("data-folded", "true");
-      await showAssistant(window);
       await expect(window.getByTestId("citation-card")).toBeVisible();
       await expect(window.getByTestId("citation-badge")).toHaveText(
         language === "en" ? "Not checked" : "未核对",

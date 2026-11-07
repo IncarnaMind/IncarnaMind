@@ -13,7 +13,6 @@ import {
   removeDataFolder,
   setLanguage,
   setWindowSize,
-  showAssistant,
   useLocalChatModel,
 } from "./app";
 
@@ -77,19 +76,12 @@ test.afterEach(async () => {
   await removeDataFolder(sources);
 });
 
-/**
- * Opens the card of the last Answer's one Citation. Where its page leaves the Note too little
- * room, the assistant folds to its rail with the card inside, and is brought back (#2270).
- */
-async function openCard(window: Page, { folds = false } = {}) {
+/** Opens the card of the last Answer's one Citation. */
+async function openCard(window: Page) {
   const answer = assistantAnswers(window).last();
   const citation = answer.getByTestId("citation");
   await expect(citation).toHaveCount(1);
   await citation.getByTestId("citation-chip").click();
-  if (folds) {
-    await expect(window.getByTestId("assistant")).toHaveAttribute("data-folded", "true");
-    await showAssistant(window);
-  }
   const card = window.getByTestId("citation-card");
   await expect(card).toBeVisible();
   return { answer, citation, card };
@@ -164,7 +156,7 @@ test("a quote the page has, with the same Question asked without quotation marks
 
   await askInAssistant(window, "What does the report say about training coverage?");
 
-  const { citation, card } = await openCard(window, { folds: true });
+  const { citation, card } = await openCard(window);
   await expect(citation).toHaveAttribute("data-check", "found");
   await expect(card.getByTestId("citation-badge")).toHaveText("Quote found on p. 3");
   await expect(card.getByTestId("citation-answer-words")).toHaveCount(0);

@@ -25,7 +25,6 @@ import {
   runFromPalette,
   setLanguage,
   setWindowSize,
-  showAssistant,
   useLocalChatModel,
 } from "./app";
 
@@ -351,7 +350,6 @@ async function asked(window: Page, question: string): Promise<Locator> {
 /** Shows a Citation's card by pointing at it, as a person does; it is put away first if it is already up. */
 async function showCard(window: Page, chip: Locator): Promise<Locator> {
   const card = window.getByTestId("citation-card");
-  await showAssistant(window);
   await expect(async () => {
     if ((await card.count()) > 0) {
       await window.keyboard.press("Escape");

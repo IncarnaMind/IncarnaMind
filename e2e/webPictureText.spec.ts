@@ -14,7 +14,6 @@ import {
   removeDataFolder,
   setLanguage,
   setWindowSize,
-  showAssistant,
   useLocalChatModel,
 } from "./app";
 
@@ -130,8 +129,6 @@ test("a chart's text is cited as its section and figure, its card says it was re
   if (SCREENSHOTS) await window.screenshot({ path: join(SCREENSHOTS, "picture-cited-en.png") });
 
   await setLanguage(window, "zh-CN");
-  // Its page gave the Note its room: the assistant folded, and one click brings it back (#2270).
-  await showAssistant(window);
   await expect(citation.getByTestId("citation-chip")).toHaveAttribute(
     "aria-label",
     /§ Results，图 1/,
