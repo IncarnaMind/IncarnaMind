@@ -121,7 +121,7 @@ import { calculationsSchema, checkCalculationsSchema } from "./calculationsSchem
 import { asksForFixes, WRITE_NOW } from "./citations";
 import { type AskedPicture, earlierContext, type RequestMind, withLineBefore } from "./context";
 import { retryFigures } from "./figureRetry";
-import { markedRecords } from "./markedPassages";
+import { markedPassages } from "./markedPassages";
 import {
   NOTHING_SHOWN_YET,
   SEARCH_QUERY_INSTRUCTIONS,
@@ -2390,7 +2390,7 @@ async function* toolLoop(
       case "finished": {
         if (keptText.trim() === "" && (setAside.at(-1)?.text ?? "").trim() !== "")
           keptText = setAside.pop()?.text ?? "";
-        const taken = takeToolText(keptText, toolTextTags);
+        let taken = takeToolText(keptText, toolTextTags);
         // Asked again, the model wrote nothing: the reply before stands, as when the ask fails.
         // A turn that ended after a refused Tool keeps the app's own words (`blankReply`).
         if (
@@ -2418,15 +2418,16 @@ async function* toolLoop(
           }
           if (request.marksPassages) {
             const { documents } = request;
-            const marked = markedRecords(
+            const marked = markedPassages(
               taken.text,
               documents.shownPassages?.() ?? [],
               (passage, quote) => documents.quoteFound?.(passage, quote) ?? false,
               (marker) => documents.hasRecord?.(marker) ?? false,
             );
-            cited.push(...marked);
+            taken = { ...taken, text: marked.text };
+            cited.push(...marked.records);
             try {
-              documents.cite(marked, { structured: true });
+              documents.cite(marked.records, { structured: true });
             } catch (error) {
               if (error instanceof FiguresNotRead) throw error;
               console.error(

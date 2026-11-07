@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { markedRecords } from "../../src/core/answers/markedPassages";
+import { markedPassages } from "../../src/core/answers/markedPassages";
 
 const PRICES = {
   id: "P2",
@@ -21,28 +21,53 @@ describe("Records for a reply that names its Passages in its markers", () => {
   test("quotes the sentence of the named Passage most like the marked claim, as a quote is written", () => {
     const text =
       "★ Enterprise stays at $52 a driver, with route optimisation [^2]\n→ holds the price\n\nThey asked for forty dollars [^1]\n\n企业版每名司机每月 340 元 [^3]";
-    expect(markedRecords(text, [HEARD, PRICES, ZH], everywhere, none)).toEqual([
-      {
-        marker: 2,
-        passage: "P2",
-        quote: "Enterprise plan: $52 per driver a month, with route optimisation.",
-      },
-      {
-        marker: 1,
-        passage: "P1",
-        quote: "Could you do Enterprise at forty dollars a driver?",
-      },
-      { marker: 3, passage: "P3", quote: "企业版：每名司机每月 340 元，含路线优化。" },
-    ]);
+    expect(markedPassages(text, [HEARD, PRICES, ZH], everywhere, none)).toEqual({
+      text,
+      records: [
+        {
+          marker: 2,
+          passage: "P2",
+          quote: "Enterprise plan: $52 per driver a month, with route optimisation.",
+        },
+        {
+          marker: 1,
+          passage: "P1",
+          quote: "Could you do Enterprise at forty dollars a driver?",
+        },
+        { marker: 3, passage: "P3", quote: "企业版：每名司机每月 340 元，含路线优化。" },
+      ],
+    });
   });
 
   // protects=a quote the Citation check wouldn't find is passed over for the next most alike that it finds; a marker naming no Passage given, or one already recorded, gets no record; fails_when=an unfound quote is recorded, or a record is made for a Passage not given or a marker already backed; no_claim=what becomes of the unbacked marker (the core's test) (#2526).
   test("takes the most alike sentence the check finds, and nothing for a marker naming no Passage or already recorded", () => {
     const text = "Enterprise is $52 a driver [^2], with 10% off from 50 drivers [^7]";
     const found = (_: string, quote: string) => !quote.startsWith("Enterprise plan");
-    expect(markedRecords(text, [PRICES], found, none)).toEqual([
-      { marker: 2, passage: "P2", quote: "Volume: 10% off Enterprise from 50 drivers." },
-    ]);
-    expect(markedRecords(text, [PRICES], everywhere, (marker) => marker === 2)).toEqual([]);
+    expect(markedPassages(text, [PRICES], found, none)).toEqual({
+      text,
+      records: [{ marker: 2, passage: "P2", quote: "Volume: 10% off Enterprise from 50 drivers." }],
+    });
+    expect(markedPassages(text, [PRICES], everywhere, (marker) => marker === 2)).toEqual({
+      text,
+      records: [],
+    });
+  });
+
+  // protects=a Passage named in two sentences that rest on different sentences of it gets a record for each, the second under a marker of its own that the text then holds, and two sentences resting on the same sentence share one; fails_when=both claims get one quote, or a new marker collides with one the reply wrote; no_claim=how the panel numbers them (#2526).
+  test("a Passage named by two claims resting on different sentences of it gets a marker for each", () => {
+    const text =
+      "★ Enterprise is $52 a driver [^2]\n→ holds the price\n\nFrom 50 drivers it is 10% off [^2]\n→ a real lever\n\nThey asked about forty dollars [^1], and Enterprise is still $52 a driver [^2]";
+    expect(markedPassages(text, [HEARD, PRICES], everywhere, none)).toEqual({
+      text: text.replace("10% off [^2]", "10% off [^3]"),
+      records: [
+        {
+          marker: 2,
+          passage: "P2",
+          quote: "Enterprise plan: $52 per driver a month, with route optimisation.",
+        },
+        { marker: 3, passage: "P2", quote: "Volume: 10% off Enterprise from 50 drivers." },
+        { marker: 1, passage: "P1", quote: "Could you do Enterprise at forty dollars a driver?" },
+      ],
+    });
   });
 });
