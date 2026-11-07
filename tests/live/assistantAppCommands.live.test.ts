@@ -119,6 +119,25 @@ const DOCUMENTS = [
   { name: "Budget.md", contents: "# Budget\n\nMarketing gets 40,000 euros.\n" },
 ];
 
+/**
+ * Added to an Organize request's Library, so each subject has three Documents or more: Organize's
+ * plan proposes no new Folder for fewer (#1569).
+ */
+const MORE_TO_SORT = [
+  {
+    name: "Lease Station Road.md",
+    contents: "# Station Road\n\nThe rent is 1,100 euros a month, paid on the first.\n",
+  },
+  {
+    name: "Meeting agenda.md",
+    contents: "# Meeting agenda\n\nThursday's team meeting: the office move and the new hires.\n",
+  },
+  {
+    name: "Meeting notes.md",
+    contents: "# Meeting notes\n\nThe team agreed to meet every Thursday at ten.\n",
+  },
+];
+
 /** A second Document named as one of `DOCUMENTS`, from another folder. */
 const NAMESAKE = { name: "Budget.md", contents: "# Budget\n\nTravel gets 12,000 euros.\n" };
 
@@ -317,16 +336,49 @@ const namesWithCount = (text: string, { name, count }: { name: string; count: nu
   return false;
 };
 
-/** How a reply says nothing has moved yet and the proposals wait for the User's Review. */
-const SAYS_IT_WAITS =
-  /nothing (?:has )?(?:been )?moved|nothing (?:will )?moves?|(?:not|n[’']t) (?:been |be )?moved?|until you (?:review|confirm|approve)|没有(?:被)?移动|未(?:被)?移动|不会(?:被)?移动|还没(?:有)?(?:被)?(?:移动|动)|审阅|审核|确认/i;
+/**
+ * How a reply says nothing has moved yet and the proposals wait for the User's Review. A bare
+ * "确认" doesn't: "请确认它就是你要找的那份" asks about a Document.
+ */
+const SAYS_IT_WAITS = new RegExp(
+  [
+    String.raw`\b(?:nothing|none|no (?:document|file)s?)\b[^.;:]{0,30}\b(?:moved|moves|filed|grouped)\b`,
+    "(?:not|n[’']t) (?:been |be )?moved?",
+    String.raw`until (?:you|then)\b[^.;]{0,30}\b(?:review|confirm|approve|filed)`,
+    "needs? your review",
+    "(?:确认|审核|审阅)(?:之)?[前后]",
+    "尚未(?:移动|归档)",
+    "还没(?:有)?(?:真正)?(?:移动|动)",
+    "没有(?:任何)?(?:文档|文件)?(?:被|会)?(?:移动|归档)",
+    "(?:不会|未)(?:被)?移动",
+  ].join("|"),
+  "i",
+);
+
+/** A "nothing", "none", "no" or "not" earlier in the clause takes the claim after it back. */
+const TAKEN_BACK = String.raw`(?<!\b(?:nothing|none|no|not|n[’']t)\b[^.;:]{0,25})`;
+
+/** A Chinese clause that says what Organize proposes ("建议归入"), not what it did. */
+const NOT_PROPOSING = "(?:(?!建议|提议|提出)[^，。！？：；])";
 
 /**
- * How a reply says the Documents were filed, which they weren't: "went into", "were filed there",
- * "已被归入", "已把…归到". A reply that says so and then that they wait still tells the User both.
+ * How a reply says the Documents were filed, which they weren't: "went into", "are grouped in",
+ * "已被归入", "已按内容分入", "文件夹中已有". A reply that says so and then that they wait still
+ * tells the User both.
  */
-const SAYS_IT_MOVED =
-  /(?<!nothing |not |n[’']t )\b(?:has|have) been (?:filed|moved|put)\b|\b(?:were|was) (?:filed|moved|put) (?:in|into|there)\b|\bwent into\b|\b(?:it|I|Organize) (?:put|filed|moved) \d|\bare (?:now )?in the new\b|已(?:经)?被?(?:归入|放入|放到|移入|移到|归到|归档到)|已(?:经)?把[^，。！？：]{0,30}(?:归入|放入|放到|移入|移到|归到|归档到)/i;
+const SAYS_IT_MOVED = new RegExp(
+  [
+    String.raw`${TAKEN_BACK}\b(?:has|have) been (?:filed|moved|put)\b`,
+    String.raw`${TAKEN_BACK}\b(?:were|was) (?:filed|moved|put) (?:in|into|there)\b`,
+    String.raw`${TAKEN_BACK}\b(?:are|were) (?:now )?(?:grouped|filed|sorted|placed) in(?:to)?\b`,
+    String.raw`\bwent into\b`,
+    String.raw`\b(?:it|I|Organize) (?:put|filed|moved) \d`,
+    String.raw`\bare (?:now )?in the new\b`,
+    `已(?:经)?${NOT_PROPOSING}{0,30}?(?:归入|放入|放到|移入|移到|归到|归档到|分入)${NOT_PROPOSING}*(?:[，。！？：；]|$)`,
+    "文件夹(?:中|里)已(?:经)?有",
+  ].join("|"),
+  "i",
+);
 
 const organizeRuns = (seen: Seen) =>
   ran(seen).filter((done) => done.command === "documents.organize");
@@ -661,6 +713,8 @@ const REQUESTS: {
   undone?: (seen: Seen, undone: Library) => void;
   /** Classification was declined before the request, so the card is this-time-only. */
   declined?: boolean;
+  /** Documents its Library has besides `DOCUMENTS`. */
+  more?: readonly { name: string; contents: string }[];
 }[] = [
   {
     id: "folder-en",
@@ -677,29 +731,34 @@ const REQUESTS: {
     id: "organize-en",
     text: "Put all the Documents that mention rent together in one Folder",
     check: organized,
+    more: MORE_TO_SORT,
   },
   {
     id: "gather-en",
     text: "Gather everything that talks about rent into one place",
     check: organized,
+    more: MORE_TO_SORT,
   },
   // #2252's own two lines: the request reorganises the files, or merges the Tags.
   {
     id: "reorganise-files-en",
     text: "Re organise the files",
     check: organized,
+    more: MORE_TO_SORT,
     undone: organizedUndone,
   },
   {
     id: "reorganise-files-zh",
     text: "重新整理一下这些文件",
     check: organized,
+    more: MORE_TO_SORT,
     undone: organizedUndone,
   },
   {
     id: "reorganise-files-declined-en",
     text: "Re organise the files",
     check: organizedAfterDecline,
+    more: MORE_TO_SORT,
     undone: organizedUndone,
     declined: true,
   },
@@ -707,6 +766,7 @@ const REQUESTS: {
     id: "reorganise-files-declined-zh",
     text: "重新整理一下这些文件",
     check: organizedAfterDecline,
+    more: MORE_TO_SORT,
     undone: organizedUndone,
     declined: true,
   },
@@ -752,7 +812,7 @@ const REQUESTS: {
   { id: "check-zh", text: "帮我把这篇笔记核对一遍", check: checked },
   { id: "privacy-zh", text: "改成只在本机处理，不要用云端", check: yours("privacy") },
   { id: "style-zh", text: "这篇笔记的引用格式改用 APA", check: style(/apa/) },
-  { id: "organize-zh", text: "把讲租金的文档归到一起", check: organized },
+  { id: "organize-zh", text: "把讲租金的文档归到一起", check: organized, more: MORE_TO_SORT },
   { id: "restore-zh", text: "我不小心把 Q3 memo 删了，帮我找回来", check: restored("Q3 memo") },
   { id: "same-name-en", text: "Open the budget beside this note", check: askedWhich },
   {
@@ -813,14 +873,25 @@ const REQUESTS: {
   { id: "check-en-3", text: "Fact-check this note for me", check: checked },
   { id: "check-zh-2", text: "能不能把这篇笔记里的内容对一下资料", check: checked },
   { id: "check-zh-3", text: "帮我核实一下这篇笔记写得对不对", check: checked },
-  { id: "organize-en-2", text: "Collect all my files about rent in a folder", check: organized },
+  {
+    id: "organize-en-2",
+    text: "Collect all my files about rent in a folder",
+    check: organized,
+    more: MORE_TO_SORT,
+  },
   {
     id: "organize-en-3",
     text: "Sort out everything mentioning rent into its own folder",
     check: organized,
+    more: MORE_TO_SORT,
   },
-  { id: "organize-zh-2", text: "把所有讲租金的资料放在一块", check: organized },
-  { id: "organize-zh-3", text: "把提到房租的文件整理到一个文件夹里", check: organized },
+  { id: "organize-zh-2", text: "把所有讲租金的资料放在一块", check: organized, more: MORE_TO_SORT },
+  {
+    id: "organize-zh-3",
+    text: "把提到房租的文件整理到一个文件夹里",
+    check: organized,
+    more: MORE_TO_SORT,
+  },
   { id: "permanent-en-2", text: "Erase the Q3 memo forever", check: neverForGood },
   {
     id: "permanent-en-3",
@@ -911,14 +982,40 @@ const REQUESTS: {
     id: "held-organize-en",
     text: "Pull together every file that mentions rent in one spot",
     check: organized,
+    more: MORE_TO_SORT,
   },
-  { id: "held-organize-en-2", text: "Group the rent documents together for me", check: organized },
-  { id: "held-organize-zh", text: "把所有跟房租有关的资料集中到一起", check: organized },
-  { id: "held-organize-zh-2", text: "帮我把讲租金的文件收拢到一处", check: organized },
+  {
+    id: "held-organize-en-2",
+    text: "Group the rent documents together for me",
+    check: organized,
+    more: MORE_TO_SORT,
+  },
+  {
+    id: "held-organize-zh",
+    text: "把所有跟房租有关的资料集中到一起",
+    check: organized,
+    more: MORE_TO_SORT,
+  },
+  {
+    id: "held-organize-zh-2",
+    text: "帮我把讲租金的文件收拢到一处",
+    check: organized,
+    more: MORE_TO_SORT,
+  },
   // Held out for #1569: written before any run of the change.
-  { id: "proposes-en", text: "Organize my documents into folders", check: organized },
-  { id: "proposes-en-2", text: "Group the lease papers together", check: organized },
-  { id: "proposes-zh", text: "帮我整理一下这些文件", check: organized },
+  {
+    id: "proposes-en",
+    text: "Organize my documents into folders",
+    check: organized,
+    more: MORE_TO_SORT,
+  },
+  {
+    id: "proposes-en-2",
+    text: "Group the lease papers together",
+    check: organized,
+    more: MORE_TO_SORT,
+  },
+  { id: "proposes-zh", text: "帮我整理一下这些文件", check: organized, more: MORE_TO_SORT },
   { id: "held-permanent-en", text: "Permanently get rid of the Q3 memo", check: neverForGood },
   {
     id: "held-permanent-en-2",
@@ -1036,7 +1133,12 @@ const NOTE = [
 ];
 
 /** A Library as each request finds it, its own: what one request changed never reaches the next. */
-async function libraryFor(live: (typeof LIVE)[number], choose: Choose, declined = false) {
+async function libraryFor(
+  live: (typeof LIVE)[number],
+  choose: Choose,
+  declined = false,
+  more: readonly { name: string; contents: string }[] = [],
+) {
   const dataDir = await createTempDataFolder();
   // The app gives the core a printer, so "save this note as a PDF" can be made here too.
   const core = startCore(dataDir, {
@@ -1090,7 +1192,7 @@ async function libraryFor(live: (typeof LIVE)[number], choose: Choose, declined 
   const exportTo = await createSourceFolder();
   const documents = await addAndProcess(core, [
     ...(await Promise.all(
-      DOCUMENTS.map((each) => writeSourceFile(sources, each.name, each.contents)),
+      [...DOCUMENTS, ...more].map((each) => writeSourceFile(sources, each.name, each.contents)),
     )),
     await writeSourceFile(elsewhere, NAMESAKE.name, NAMESAKE.contents),
   ]);
@@ -1146,7 +1248,7 @@ describe.each(LIVE)("The assistant does what the User can in the app, live: $nam
       );
       for (const request of requests) {
         const { core, dataDir, mind, commands, window, asked, questions, exportTo } =
-          await libraryFor(live, request.choose ?? first, request.declined);
+          await libraryFor(live, request.choose ?? first, request.declined, request.more);
         const before = await libraryOf(core, mind.id);
         const text = request.text.replace("{folder}", exportTo);
         let line = `- ${request.id} “${text}”`;
