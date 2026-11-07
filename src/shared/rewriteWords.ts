@@ -143,11 +143,11 @@ const FUNCTION_WORDS = new Set(
 );
 const FUNCTION_CHARACTERS = new Set([..."的是与和"]);
 /**
- * 为 where it says no "to": in 作为, 认为, 因为, 成为 and 以为, in 为了, and as "for" before 公司
- * or 客户. Anywhere else it is compared, since after a change verb it says "to" (增加为2000万元
- * is a level, 增加1000万元 a change), and no list of those verbs is whole.
+ * 为 where it says no "to": in 作为, 认为, 因为, 成为, 以为 and 为了. Anywhere else it is compared,
+ * since after a change verb it says "to" (增加为2000万元 is a level, 增加1000万元 a change), and no
+ * list of those verbs is whole.
  */
-const NOT_TO = /(?<=[作认因成以])为|为(?=了|公司|客户)/gu;
+const NOT_TO = /(?<=[作认因成以])为|为(?=了)/gu;
 /** Words either side may say where the other doesn't, without changing what a figure is of. */
 const ADDABLE = new Set([..."shall must each every any all".split(" "), ..."应当须本每位"]);
 
