@@ -31,6 +31,7 @@ import {
   type CitationState,
   citationSource,
   citationState,
+  citedSpeakers,
   withShownName,
 } from "../../../shared/citations";
 import { citationLocation, formatLocation } from "../../../shared/locations";
@@ -396,7 +397,7 @@ export function ChartView({
       .map(({ citation, state }) => {
         const shown = withShownName(citation, documents);
         const badge = badgeMessage(state, shown, t);
-        return `${citationSource(shown, t).text}. ${t(badge.key, badge.params)}`;
+        return `${citationSource(shown, t, undefined, documents).text}. ${t(badge.key, badge.params)}`;
       })
       .join(" · ");
   };
@@ -414,7 +415,9 @@ export function ChartView({
         origin,
         check: state.check,
         withQuote: quoteSaysSo(state.check) || state.reason === "document-removed",
-        label: location ? formatLocation(location, t) : null,
+        label: location
+          ? formatLocation(location, t, { speakers: citedSpeakers(citation, documents) })
+          : null,
         from: place?.groupId,
       },
     );

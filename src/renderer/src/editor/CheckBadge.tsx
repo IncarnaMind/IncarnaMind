@@ -50,6 +50,7 @@ import { MindCheckAsk, MindUnchanged, RunningText } from "./MindCheckLine";
 import { HealthCard, PartMark, partLabel, useHealth } from "./NoteHealth";
 import { Popover } from "./Popover";
 import { useVerifyState, VerifyCard, verifyDone } from "./VerifyLine";
+import { shownPhase } from "./verifyPhase";
 
 /**
  * What a check the User started checked, from the render its run ends in
@@ -339,6 +340,7 @@ function VerifyBadge({
   const place = useCardPlace(mindId);
   const state = useVerifyState(editor, doc, mindId, verification);
   const { rows, marked, checking } = state.marks;
+  const phase = shownPhase(state.running, marked);
   const checked = useJustChecked(editor, state.running, () => (state.problem ? 0 : marked));
   const toCheck = state.asking ? state.total : 0;
   // No claims to check, or none found yet: the card says why, so the page isn't silently bare.
@@ -366,9 +368,9 @@ function VerifyBadge({
       state={null}
       ask={input.asking || input.problem}
       running={
-        state.running === "finding" ? (
+        phase === "finding" ? (
           t("verify.finding")
-        ) : state.running === "checking" ? (
+        ) : phase === "checking" ? (
           <span data-testid="badge-progress" className="tabular-nums">
             {t("badge.checking", { done: format(marked - checking), total: format(marked) })}
           </span>

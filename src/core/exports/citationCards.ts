@@ -8,6 +8,7 @@ import {
   citationState,
   citedLocation,
   citedName,
+  citedSpeakers,
   citedTextKept,
   shownDocumentName,
 } from "../../shared/citations";
@@ -15,6 +16,7 @@ import { clockTime } from "../../shared/clock";
 import { anchorsCovered, joinUnits, quoteInUnits, type Translate } from "../../shared/locations";
 import type { TextRange } from "../../shared/quoteMatch";
 import type { SourceDocument } from "../../shared/sources";
+import { shownSpeaker } from "../../shared/speakers";
 import {
   anchorsOf,
   columnName,
@@ -22,7 +24,12 @@ import {
   parseCueTarget,
   type UnitText,
 } from "../../shared/units";
-import type { CitationAttributes, CitationCheck, KeptCitationText } from "../api";
+import type {
+  CitationAttributes,
+  CitationCheck,
+  KeptCitationText,
+  TranscriptSpeakers,
+} from "../api";
 import { looksLikeHeader } from "../documents/formats/grid";
 import type { Language } from "../language";
 
@@ -100,9 +107,9 @@ export function citationCard(
     t,
     language,
   );
-  const location = citedLocation(attributes, t);
+  const location = citedLocation(attributes, t, documents);
   const placed = location !== null && (state.check === "found" || state.check === "not-found");
-  const spokenLocation = citedLocation(attributes, spoken(t));
+  const spokenLocation = citedLocation(attributes, spoken(t), documents);
   const address = documents.find((each) => each.id === state.documentId)?.web?.address ?? null;
   return {
     check: state.check,
@@ -123,6 +130,7 @@ export function citationCard(
       address,
       citedTextKept(attributes, kept),
       t,
+      citedSpeakers(attributes, documents),
     ),
   };
 }
@@ -165,6 +173,7 @@ function contentOf(
   address: string | null,
   kept: boolean,
   t: Translate,
+  speakers: TranscriptSpeakers | null,
 ): CardContent {
   const first = units[0];
   if (!first) return kept ? { kind: "quote", text: quote, from: null } : { kind: "missing", quote };
@@ -182,7 +191,7 @@ function contentOf(
     case "rows":
       return cellsOf(units, ranges, t) ?? asText;
     case "cues":
-      return linesOf(units, ranges) ?? asText;
+      return linesOf(units, ranges, speakers, t) ?? asText;
     default:
       return passageOf(units, ranges, kind === "section", address) ?? asText;
   }
@@ -312,7 +321,12 @@ function cellsOf(
   };
 }
 
-function linesOf(units: readonly UnitText[], ranges: readonly TextRange[]): CardContent | null {
+function linesOf(
+  units: readonly UnitText[],
+  ranges: readonly TextRange[],
+  speakers: TranscriptSpeakers | null,
+  t: Translate,
+): CardContent | null {
   const { starts } = joinUnits(units);
   const lines: { time: string; speaker: string | null; runs: CardRun[] }[] = [];
   units.forEach((unit, index) => {
@@ -326,9 +340,10 @@ function linesOf(units: readonly UnitText[], ranges: readonly TextRange[]): Card
         }))
         .filter((range) => range.start < range.end);
       if (!times || inside.length === 0) return;
+      const label = unit.label?.speakers?.[cue];
       lines.push({
         time: clockTime(times.startMs),
-        speaker: unit.label?.speakers?.[cue] ?? null,
+        speaker: label ? shownSpeaker(speakers, times.startMs, label, t) : null,
         runs: runsOf(unit.text.slice(anchor.start, anchor.end), inside),
       });
     });

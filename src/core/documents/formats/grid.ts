@@ -3,8 +3,9 @@
  * are stored in: each sheet in blocks of rows (ADR-0011).
  *
  * A block's text has one line per row, listing the row's cells from the
- * sheet's first column, separated by tabs, so the cells read in order and a
- * cell's place in the text gives its reference. A block holds up to
+ * sheet's first column to its last, blank cells included, separated by tabs,
+ * so the cells read in order and a cell's place in the text gives its
+ * reference. A block holds up to
  * `BLOCK_ROWS` rows and about `BLOCK_CHARACTERS` characters (about 400
  * tokens), whichever comes first, so a Passage of about 500 tokens takes in
  * a block or two. Every block after a sheet's first repeats its header row
@@ -179,12 +180,22 @@ export function headerRow(rows: ReadonlyMap<number, Cell[]>): number | null {
     : (candidates[0] ?? null);
 }
 
-/** A row's line: its cells from `firstColumn`, tab-separated, empty cells empty. */
-function rowLine(cells: readonly Cell[], firstColumn: number): string {
+/**
+ * The most columns a row is padded out to. A sheet that uses more keeps each
+ * line to its own cells: a single cell far to the right would otherwise make
+ * every line as wide as the sheet.
+ */
+const MAX_PADDED_COLUMNS = 1000;
+
+/** A row's line: its cells from `firstColumn` to the sheet's last, tab-separated, blank cells empty. */
+function rowLine(cells: readonly Cell[], firstColumn: number, width: number): string {
   const values: string[] = [];
   for (const cell of cells)
     values[cell.column - firstColumn] = cell.value.replace(/[\t\n\r]+/g, " ");
-  return Array.from(values, (value) => value ?? "").join("\t");
+  return Array.from(
+    { length: Math.max(width, values.length) },
+    (_, index) => values[index] ?? "",
+  ).join("\t");
 }
 
 /**
@@ -240,8 +251,9 @@ export function gridUnits(
     if (rows.size === 0) continue;
     for (const list of rows.values()) list.sort((a, b) => a.column - b.column);
     const numbers = [...rows.keys()].sort((a, b) => a - b);
+    const width = Math.min(sheet.columnCount - firstColumn, MAX_PADDED_COLUMNS);
     const header = headerRow(rows);
-    const headerLine = header === null ? null : rowLine(rows.get(header) ?? [], firstColumn);
+    const headerLine = header === null ? null : rowLine(rows.get(header) ?? [], firstColumn, width);
 
     let at = 0;
     while (at < numbers.length) {
@@ -250,7 +262,7 @@ export function gridUnits(
       let characters = 0;
       while (at < numbers.length && block.length < BLOCK_ROWS) {
         const number = numbers[at] as number;
-        const line = rowLine(rows.get(number) ?? [], firstColumn);
+        const line = rowLine(rows.get(number) ?? [], firstColumn, width);
         if (block.length > 0 && characters + line.length > BLOCK_CHARACTERS) break;
         block.push(number);
         lines.push(line);
