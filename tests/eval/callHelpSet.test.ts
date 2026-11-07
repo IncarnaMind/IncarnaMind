@@ -11,6 +11,7 @@ import { afterEach, describe, expect, test } from "vitest";
 import { newestStretch } from "../../eval/speed/arms";
 import { callHelpSet } from "../../eval/speed/callHelp";
 import { CALL_HELP_CASES, callOf, TRANSCRIPT } from "../../eval/speed/callHelpCases";
+import { CALL_HELP_HELD_OUT } from "../../eval/speed/callHelpHeldOut";
 import { openLedger } from "../../eval/speed/ledger";
 import { runOnArm } from "../../eval/speed/paired";
 import type { CoreAdapters } from "../../src/core";
@@ -136,23 +137,38 @@ async function pressed(
 }
 
 describe("The call-help cases", () => {
-  test("15 cases a language, each with ids of its own, Documents of its own, and the lines it rests on in them", () => {
-    expect(new Set(CALL_HELP_CASES.map((each) => each.id)).size).toBe(30);
-    expect(CALL_HELP_CASES.filter((each) => each.language === "en")).toHaveLength(15);
-    expect(CALL_HELP_CASES.filter((each) => each.language === "zh-CN")).toHaveLength(15);
-    for (const each of CALL_HELP_CASES) {
-      const said = callOf(each).map((turn) => turn.text);
-      expect(each.documents.length, each.id).toBeGreaterThan(0);
-      for (const group of each.rests) {
-        expect(group.length, each.id).toBeGreaterThan(0);
-        for (const rest of group) {
-          if (rest.in === TRANSCRIPT) expect(said, each.id).toContain(rest.line);
-          else {
-            const document = each.documents.find((one) => one.file === rest.in);
-            expect(document?.text, each.id).toContain(rest.line);
+  test.each([
+    ["first", CALL_HELP_CASES],
+    ["held-out", CALL_HELP_HELD_OUT],
+  ])(
+    "%s set: 15 cases a language, each with ids of its own, Documents of its own, and the lines it rests on in them",
+    (_, cases) => {
+      expect(new Set(cases.map((each) => each.id)).size).toBe(30);
+      expect(cases.filter((each) => each.language === "en")).toHaveLength(15);
+      expect(cases.filter((each) => each.language === "zh-CN")).toHaveLength(15);
+      for (const each of cases) {
+        const said = callOf(each).map((turn) => turn.text);
+        expect(each.documents.length, each.id).toBeGreaterThan(0);
+        for (const group of each.rests) {
+          expect(group.length, each.id).toBeGreaterThan(0);
+          for (const rest of group) {
+            if (rest.in === TRANSCRIPT) expect(said, each.id).toContain(rest.line);
+            else {
+              const document = each.documents.find((one) => one.file === rest.in);
+              expect(document?.text, each.id).toContain(rest.line);
+            }
           }
         }
       }
+    },
+  );
+
+  test("the held-out set shares no case and no Document with the first", () => {
+    const ids = new Set(CALL_HELP_CASES.map((each) => each.id));
+    const files = new Set(CALL_HELP_CASES.flatMap((each) => each.documents.map((one) => one.file)));
+    for (const each of CALL_HELP_HELD_OUT) {
+      expect(ids.has(each.id), each.id).toBe(false);
+      for (const document of each.documents) expect(files.has(document.file), each.id).toBe(false);
     }
   });
 

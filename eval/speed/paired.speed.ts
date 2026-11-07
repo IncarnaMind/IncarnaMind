@@ -126,7 +126,8 @@ function groupsOf(set: SetId, cacheDir: string): PairedGroup[] {
     case "written":
       return writtenSet();
     case "call-help":
-      return callHelpSet();
+    case "call-help-held-out":
+      return callHelpSet(set);
     case "meeting-notes":
       return meetingNotesSet();
   }
