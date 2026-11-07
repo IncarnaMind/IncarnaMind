@@ -53,8 +53,14 @@ function judging(reply?: (unstated: number[]) => string) {
   return { model, prompts };
 }
 
-const UNSTATED: CitedSentence = { sentence: "120 days", quote: "Termination notice", found: true };
+const UNSTATED: CitedSentence = {
+  at: 0,
+  sentence: "120 days",
+  quote: "Termination notice",
+  found: true,
+};
 const STATED: CitedSentence = {
+  at: 1,
   sentence: "90 days",
   quote: "Termination notice: 90 days.",
   found: true,
@@ -68,7 +74,7 @@ describe("False Supported in an Answer or a cell", () => {
       await falseSupportedIn(judging().model, [
         STATED,
         UNSTATED,
-        { sentence: "45 days for cause", quote: "Termination notice", found: true },
+        { at: 2, sentence: "45 days for cause", quote: "Termination notice", found: true },
       ]),
     ).toBe(2);
   });
@@ -89,7 +95,7 @@ describe("False Supported in an Answer or a cell", () => {
   });
 
   test("a sentence with two Citations is judged once against both quotes, and counts once", async () => {
-    const twice = { sentence: "Notice is 90 days, or 30 days for cause", found: true };
+    const twice = { at: 0, sentence: "Notice is 90 days, or 30 days for cause", found: true };
     const { model, prompts } = judging();
 
     expect(
@@ -107,6 +113,19 @@ describe("False Supported in an Answer or a cell", () => {
     ).toBe(1);
   });
 
+  test("two sentences that read the same are each judged on their own quotes", async () => {
+    const same = "Growth was 45% in the year.";
+    const { model, prompts } = judging();
+
+    expect(
+      await falseSupportedIn(model, [
+        { at: 0, sentence: same, quote: "Growth: 45% in the year.", found: true },
+        { at: 3, sentence: same, quote: "Margins rose in the year.", found: true },
+      ]),
+    ).toBe(1);
+    expect(prompts[0]?.match(/Sentence:/g)).toHaveLength(2);
+  });
+
   test("numbers written as strings are read; anything else in the list is an unread reply", async () => {
     const asStrings = judging((unstated) => JSON.stringify({ unstated: unstated.map(String) }));
     expect(await falseSupportedIn(asStrings.model, [STATED, UNSTATED])).toBe(1);
@@ -120,8 +139,9 @@ const grade = async (): Promise<"right"> => "right";
 
 describe("The Questions and cells sets read false Supported through the measure", () => {
   test("a Question's Answer whose found quote doesn't state its sentence counts one", async () => {
-    const citation = (sentence: string, quote: string) => ({
+    const citation = (sentence: string, quote: string, sentenceIndex = 0) => ({
       sentence,
+      sentenceIndex,
       quote,
       documentName: "Corvane Agreement",
       pageFrom: 1,

@@ -248,7 +248,9 @@ export async function measuredAnswer(
   const unstated = done
     ? await falseSupportedIn(
         judge,
-        answer.citations.map((citation) => ({
+        answer.citations.map((citation, index) => ({
+          // A result from before sentences were numbered keeps each Citation apart.
+          at: citation.sentenceIndex ?? -(index + 1),
           sentence: citation.sentence,
           quote: citation.quote,
           found: citation.outcome === "found",
@@ -314,13 +316,15 @@ export async function measuredCell(
   const unstated = answered
     ? await falseSupportedIn(
         judge,
-        shown.citations.map((citation, index) => ({
-          sentence: (lines.find((line) => line.includes(`[${index + 1}]`)) ?? "")
-            .replace(/\[\d+\]/g, "")
-            .trim(),
-          quote: citation.quote ?? "",
-          found: citation.check === "found",
-        })),
+        shown.citations.map((citation, index) => {
+          const at = lines.findIndex((line) => line.includes(`[${index + 1}]`));
+          return {
+            at: at === -1 ? -(index + 1) : at,
+            sentence: (lines[at] ?? "").replace(/\[\d+\]/g, "").trim(),
+            quote: citation.quote ?? "",
+            found: citation.check === "found",
+          };
+        }),
       )
     : 0;
   return {

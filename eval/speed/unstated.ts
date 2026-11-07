@@ -11,6 +11,8 @@ import type { CitationAttributes } from "../../src/core";
 import { citationAttributesOf } from "../../src/shared/citations";
 
 export interface CitedSentence {
+  /** Where the sentence (or a cell's line) is: Citations at the same place are on one sentence. */
+  at: number;
   /** The sentence (or a cell's line) the Citation is on, without its Citations. */
   sentence: string;
   quote: string;
@@ -51,12 +53,16 @@ export async function falseSupportedIn(
   judge: LanguageModel,
   cited: readonly CitedSentence[],
 ): Promise<number | null> {
-  const bySentence = new Map<string, string[]>();
+  // By place, not by words: two sentences that read the same are each judged on their own quotes.
+  const bySentence = new Map<number, { sentence: string; quotes: string[] }>();
   for (const each of cited) {
     if (!each.found) continue;
-    bySentence.set(each.sentence, [...(bySentence.get(each.sentence) ?? []), each.quote]);
+    const quotes = bySentence.get(each.at)?.quotes ?? [];
+    bySentence.set(each.at, { sentence: each.sentence, quotes: [...quotes, each.quote] });
   }
-  const sentences = [...bySentence];
+  const sentences = [...bySentence.values()].map(
+    ({ sentence, quotes }) => [sentence, quotes] as const,
+  );
   if (sentences.length === 0) return 0;
   const prompt = sentences
     .map(
