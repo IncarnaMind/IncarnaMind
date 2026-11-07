@@ -26,6 +26,11 @@ interface PopoverProps extends HTMLAttributes<HTMLDivElement> {
   /** Something else it keeps clear of, placed again as that changes size: a page's check badge. */
   follows?: () => Element | null | undefined;
   /**
+   * A menu of a selection follows its words on a scroll or a resize, but not on its own resize
+   * or a layout shift: those re-place it in a loop on a busy renderer.
+   */
+  still?: boolean;
+  /**
    * Called on Esc, wherever the focus is, or on a press outside both the
    * popover and `anchor`.
    */
@@ -61,6 +66,7 @@ export function Popover({
   placement = "bottom-start",
   middleware,
   follows,
+  still = false,
   onDismiss,
   initialFocus,
   returnFocus = false,
@@ -71,6 +77,8 @@ export function Popover({
   ...props
 }: PopoverProps) {
   const ref = useRef<HTMLDivElement>(null);
+  // It grows from its anchor once: a new anchor, as a selection is read again, only moves it.
+  const entered = useRef(false);
   const dismiss = useRef(onDismiss);
   dismiss.current = onDismiss;
   const focusFirst = useRef(initialFocus);
@@ -93,7 +101,7 @@ export function Popover({
     const element = ref.current;
     if (!element) return;
     element.showPopover();
-    let shown = false;
+    let shown = entered.current;
     const place = () => {
       void computePosition(anchor, element, {
         placement,
@@ -118,9 +126,15 @@ export function Popover({
           focusFirst.current?.current?.focus();
         }
         shown = true;
+        entered.current = true;
       });
     };
-    const stopFollowing = autoUpdate(anchor, element, place);
+    const stopFollowing = autoUpdate(
+      anchor,
+      element,
+      place,
+      still ? { elementResize: false, layoutShift: false } : undefined,
+    );
     const followed = following.current?.();
     const resized = followed ? new ResizeObserver(place) : null;
     if (followed) resized?.observe(followed);
@@ -165,7 +179,7 @@ export function Popover({
       document.removeEventListener("keydown", dismissOnEscape, true);
       if (element.matches(":popover-open")) element.hidePopover();
     };
-  }, [anchor, placement]);
+  }, [anchor, placement, still]);
 
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: it has a role, a dialog's unless the caller gives another (e.g. menu).

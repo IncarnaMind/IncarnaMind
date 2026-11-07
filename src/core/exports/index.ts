@@ -81,7 +81,7 @@ import { addSources, listCitations, styleCitations, withFigureNotes } from "./ci
 import { piecesOf, renderDocx } from "./docx";
 import { bodyFamily, renderHtml } from "./html";
 import { exportLabels } from "./labels";
-import { renderMarkdown } from "./markdown";
+import { picturesBeside, renderMarkdown } from "./markdown";
 import { printedPdf } from "./printedPdf";
 import { renderPrintHtml } from "./printHtml";
 import { failedSentences } from "./sentenceChecks";
@@ -100,6 +100,11 @@ import { INCARNAMIND } from "./wordReview";
 
 /** What a footnote needs of a live Document: a web page's site, address and fetch dates. */
 type LiveDocument = SourceDocument;
+
+/** The files a rendered export would write differ from the list the User allowed (#2514). */
+export class ExportChangedError extends Error {
+  override name = "ExportChangedError";
+}
 
 export interface ExportsDependencies {
   /** The Mind; throws if it doesn't exist or was deleted. */
@@ -373,6 +378,7 @@ export function createExports(deps: ExportsDependencies) {
         : null;
     const preview: MindExportPreview = {
       fileName: `${format === "source-pack" ? translate(language, "export.pack.fileName", { name: fileStem }) : fileStem}.${EXTENSIONS[format]}`,
+      pictures: format === "markdown" ? picturesBeside(blocks) : [],
       citations: footnotes.length,
       citedDocuments: sourcesOf(
         footnotes.map((each) => attributesOf.get(each) ?? {}),

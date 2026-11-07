@@ -1,14 +1,22 @@
 import { useEffect, useRef, useState } from "react";
+import {
+  DECISION_HOST_ENTRIES,
+  decisionModelOf,
+} from "../../../../core/providers/catalog/decisions";
 import { useAnswers } from "../../answers";
 import { core } from "../../core";
+import { useDecisionHosts } from "../../decisionHosts";
 import { useLanguage, useT } from "../../i18n";
 import { useModelNames } from "../../modelNames";
 import { useAppStore } from "../../store";
 import { useRead } from "../../useRead";
 import { fieldClass } from "../ui";
 import {
+  automaticRow,
+  hostSetUpOffers,
   jevStateOf,
   offersJevSetUp,
+  type SetUpOffer,
   type SortingOption,
   sortingKey,
   sortingOptions,
@@ -44,10 +52,13 @@ export function useSorting() {
   const nameOf = useModelNames();
   const [jevSettings] = useJevSettings();
   const jev = jevStateOf(jevSettings);
+  const [decisionHosts] = useDecisionHosts();
   const library = useAppStore((state) => state.library);
   const saved = library?.settings.classifier ?? null;
   // Read again only when asked: a read more as the step opens would overtake the one it shows.
   const [rereads, setRereads] = useState(0);
+  // A host's key kept or forgotten anywhere changes what can sort.
+  useEffect(() => core.on("decisions.changed", () => setRereads((count) => count + 1)), []);
   const read = useSortingModels([rereads]);
   const models = read.state === "ready" ? read.data : null;
   const chatModel = useAppStore((state) => state.settings?.user.chatModel ?? null);
@@ -97,9 +108,13 @@ export function useSorting() {
           ? named
           : saved.kind === "jev"
             ? "TypeSafe Jev"
-            : saved.kind === "auto"
-              ? t("tagging.decision.auto")
-              : saved.modelId,
+            : saved.kind === "decision"
+              ? `${decisionModelOf(saved.host, saved.modelId)?.name ?? saved.modelId} · ${
+                  DECISION_HOST_ENTRIES[saved.host].name[language === "zh-CN" ? "zh" : "en"]
+                }`
+              : saved.kind === "auto"
+                ? t("tagging.decision.auto")
+                : saved.modelId,
       provider: null,
       decisionModel: saved.kind !== "chat",
       ...(saved.kind === "chat" && { modelName: named }),
@@ -112,10 +127,17 @@ export function useSorting() {
     if (at >= 0) options[at] = told;
     else options.unshift(told);
   }
+  const best = options[0] ?? null;
+  // Under Automatic, what it sorts with now, which Turn on… allows (#1907).
+  const pick =
+    (!saved || saved.kind === "automatic") && models
+      ? automaticRow(models, options, language)
+      : null;
+  const unlisted = pick && !pick.listed ? pick.row : null;
   const current =
     saved && saved.kind !== "automatic"
       ? (options.find((each) => sortingKey(each.classifier) === sortingKey(saved)) ?? null)
-      : (options[0] ?? null);
+      : (pick?.row ?? null);
   /**
    * Saves the choice. `turnOn`: the choice was made with its sends line on screen, so it is the
    * choice to tag and sort with it (#2308); otherwise the switch stays where it was.
@@ -142,29 +164,51 @@ export function useSorting() {
       return false;
     }
   };
+  // With the rest of the list, once it is read: the picker waits for both.
+  const setUpOffers: SetUpOffer[] =
+    read.state === "ready"
+      ? [
+          ...(offersJevSetUp(jev, localMode)
+            ? [{ id: "jev" as const, label: t("jev.settings.setUp") }]
+            : []),
+          ...hostSetUpOffers(decisionHosts, localMode, (host) =>
+            t("decisions.setUp.row", {
+              model: host.models[0]?.name ?? "",
+              provider: host.name[language === "zh-CN" ? "zh" : "en"],
+            }),
+          ),
+        ]
+      : [];
   return {
     options,
     current,
+    /** The best the keys reach, preselected where the User is choosing (the setup card). */
+    best,
+    /** Settings' list: Automatic's own pick first where the list doesn't offer it. */
+    settingsOptions: unlisted ? [unlisted, ...options] : options,
     choose,
     known,
     loading: read.state === "loading",
     read,
     library,
-    // With the rest of the list, once it is read: the picker waits for both.
-    jevSetUp: read.state === "ready" && offersJevSetUp(jev, localMode),
+    setUpOffers,
     jevSettings,
+    decisionHosts,
     /** Reads the list again, once Jev is set up in place and chosen (#2615). */
     reread: () => setRereads((count) => count + 1),
   };
 }
 
-const SET_UP_JEV = "set-up-jev";
+const SET_UP = "set-up:";
 
-/** The last row, "Use TypeSafe Jev…", while Jev isn't set up (#2615); `open` while its setup shows. */
-export interface JevSetUpRow {
-  offered: boolean;
-  open: boolean;
-  onChoose(): void;
+/**
+ * The rows at the foot of the list that set a decision model up in place: "Use TypeSafe Jev…"
+ * while Jev isn't set up (#2615), and each host's (#1907). `open`: the one whose setup shows.
+ */
+export interface SetUpRows {
+  offers: readonly SetUpOffer[];
+  open: SetUpOffer["id"] | null;
+  onChoose(id: SetUpOffer["id"]): void;
 }
 
 /** The choice of what sorts, editable in place wherever it is shown. */
@@ -185,14 +229,14 @@ export function SortingSelect({
   current: SortingOption | null;
   /** It takes the focus as its step opens. */
   autoFocus?: boolean;
-  setUp?: JevSetUpRow | null;
+  setUp?: SetUpRows | null;
   onChange(option: SortingOption): void;
 }) {
   const t = useT();
   const noPlaceholder = t("setup.sorting.noChoice");
   const field = useRef<HTMLSelectElement>(null);
   // It can't take the focus while it waits for the list, so it does once the list comes.
-  const settingUp = setUp?.open === true;
+  const settingUp = setUp?.open != null;
   useEffect(() => {
     if (autoFocus && options.length > 0 && !settingUp) field.current?.focus();
   }, [autoFocus, options.length, settingUp]);
@@ -202,11 +246,12 @@ export function SortingSelect({
       id={id}
       aria-labelledby={labelledBy}
       data-testid="models-sorting"
-      value={setUp?.open ? SET_UP_JEV : current ? sortingKey(current.classifier) : ""}
-      disabled={options.length === 0 && !setUp?.offered}
+      value={setUp?.open ? `${SET_UP}${setUp.open}` : current ? sortingKey(current.classifier) : ""}
+      disabled={options.length === 0 && !setUp?.offers.length}
       onChange={(event) => {
-        if (event.target.value === SET_UP_JEV) {
-          setUp?.onChoose();
+        const offer = setUp?.offers.find((each) => `${SET_UP}${each.id}` === event.target.value);
+        if (offer) {
+          setUp?.onChoose(offer.id);
           return;
         }
         const chosen = options.find(
@@ -222,8 +267,14 @@ export function SortingSelect({
           {option.label}
         </option>
       ))}
-      {(setUp?.offered || setUp?.open) && (
-        <option value={SET_UP_JEV}>{t("jev.settings.setUp")}</option>
+      {setUp && setUp.offers.length > 0 && (
+        <optgroup label={t("decisions.setUp.group")}>
+          {setUp.offers.map((offer) => (
+            <option key={offer.id} value={`${SET_UP}${offer.id}`}>
+              {offer.label}
+            </option>
+          ))}
+        </optgroup>
       )}
     </select>
   );

@@ -19,7 +19,7 @@ import { parseQuotedWords, parseQuotedWordsCheck } from "./citations";
 import { parseLocation } from "./locations";
 
 /** At most this many Blocks go into a note at once, and this deep. */
-const MAX_BLOCKS = 2_000;
+export const MAX_BLOCKS = 2_000;
 const MAX_DEPTH = 24;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>

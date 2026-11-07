@@ -1712,7 +1712,7 @@ export const useAppStore = create<AppState>()((set, get) => {
       useNotices.getState().showError(error);
     },
 
-    openDocument(location, how = { as: "list" }) {
+    async openDocument(location, how = { as: "list" }): Promise<WindowLayout | null> {
       // Direct navigation ends Citation-source scope; openCited records its source after this call.
       useComposer.setState({ citedSource: null });
       const { documentId, ...place } = location;

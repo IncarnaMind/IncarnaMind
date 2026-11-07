@@ -15,7 +15,7 @@ import { connectToMind, type MindClient } from "../helpers/mindClient";
 import { editMind } from "../helpers/minds";
 import { promptOf, scriptedModels, streamingModel } from "../helpers/models";
 import { fakePrinter } from "../helpers/printer";
-import { paragraph, run, wordFile } from "../helpers/word";
+import { paragraph, picture, run, wordFile } from "../helpers/word";
 import { importWordBytes } from "../helpers/wordMinds";
 
 const PRIYA = 'w:author="Priya Nair" w:date="2026-10-02T09:00:00Z"';
@@ -100,6 +100,64 @@ describe("someone else's changes, shown as changes", { timeout: 30_000 }, () => 
     );
     expect(sent).toContain("[waiting change, adds: A paragraph the AI would add.]");
     expect(sent).not.toContain("A paragraph out of date.");
+  });
+
+  test("the pictures a Markdown preview lists follow the saved choice to accept someone's changes, as the export does (#2514)", async () => {
+    const dataDir = await createTempDataFolder();
+    const core = startCore(dataDir, {
+      createChatModel: scriptedModels(streamingModel("Noted.")).createChatModel,
+    });
+    await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+    const png = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+      "base64",
+    );
+    const gif = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+    const body = [
+      `<w:p>${picture("rId5", "A kept chart")}</w:p>`,
+      `<w:p><w:pPr><w:rPr><w:del w:id="3" ${PRIYA}/></w:rPr></w:pPr><w:del w:id="4" ${PRIYA}><w:r><w:delText xml:space="preserve">The old chart: </w:delText></w:r></w:del></w:p>`,
+    ].join("");
+    const { mindId, client } = await importWordBytes(
+      core,
+      dataDir,
+      wordFile({
+        body,
+        media: { rId5: { name: "media/image1.png", data: png } },
+        rels: `<Relationship Id="rId5" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image1.png"/>`,
+      }),
+      { name: "Redline pictures.docx", origin: "someone-else" },
+    );
+    // Priya deleted the paragraph that holds the old chart: the picture goes with it.
+    editMind(client, (blocks) =>
+      blocks.map((block) =>
+        (block.attrs?.proposal as { kind?: string } | undefined)?.kind === "delete"
+          ? {
+              ...block,
+              content: [
+                ...(block.content ?? []),
+                { type: "image", attrs: { src: gif, alt: "The old chart" } },
+              ],
+            }
+          : block,
+      ),
+    );
+    await client.settled();
+    expect((await core.previewMindExport(mindId, { format: "markdown" })).pictures).toEqual([
+      "picture-6b7fa434f92a.png",
+      "picture-ef1955ae757c.gif",
+    ]);
+
+    const saved = await core.getSettings();
+    await core.updateSettings({
+      user: { exportOptions: { ...saved.user.exportOptions, theirChanges: "accepted" } },
+    });
+    const preview = await core.previewMindExport(mindId, { format: "markdown" });
+    const exported = await core.exportMind(mindId, {
+      format: "markdown",
+      theirChanges: "accepted",
+    });
+    expect(preview.pictures).toEqual(["picture-6b7fa434f92a.png"]);
+    expect((exported.files ?? []).map((file) => file.name)).toEqual(preview.pictures);
   });
 
   test("Markdown shows them as CriticMarkup with who made each, or as if accepted", async () => {

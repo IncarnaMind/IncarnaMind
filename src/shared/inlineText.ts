@@ -1,3 +1,6 @@
+import { CALCULATED_FIGURE_NODE, CITATION_NODE } from "../core/api";
+import type { NodeJSON } from "./blockJson";
+import { readCalculatedFigureEvidence } from "./calculatedFigures";
 import { INLINE_NODE } from "./sentences";
 
 export type InlineTextPiece =
@@ -126,4 +129,31 @@ export function sliceInlineText(
     rawStarts: projection.rawStarts.slice(start, end),
     rawEnds: projection.rawEnds.slice(start, end),
   };
+}
+
+/** Each inline node of a Block's content, where it starts: a text node takes its length, any other one. */
+export function inlineLayout(content: readonly NodeJSON[]): { node: NodeJSON; start: number }[] {
+  let at = 0;
+  return content.map((node) => {
+    const start = at;
+    at += node.type === "text" ? (node.text ?? "").length : 1;
+    return { node, start };
+  });
+}
+
+/** A Block's inline content as checks read it: the pieces, and their text with the Citations left out. */
+export function projectedContent(content: readonly NodeJSON[]) {
+  const pieces = inlineLayout(content).map(({ node, start }): InlineTextPiece => {
+    const place = {
+      from: start,
+      to: start + (node.type === "text" ? (node.text ?? "").length : 1),
+    };
+    if (node.type === "text") return { kind: "text", text: node.text ?? "", ...place };
+    if (node.type === CITATION_NODE) return { kind: "citation", ...place };
+    if (node.type === "hardBreak") return { kind: "break", ...place };
+    const figure =
+      node.type === CALCULATED_FIGURE_NODE ? readCalculatedFigureEvidence(node.attrs ?? {}) : null;
+    return { kind: "atom", ...place, ...(figure && { shown: figure.figure.shown }) };
+  });
+  return { pieces, projection: projectInlineText(pieces) };
 }

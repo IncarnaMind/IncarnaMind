@@ -111,9 +111,24 @@ async function errorText(response: Response): Promise<string> {
   return text.trim().slice(0, 500) || response.statusText;
 }
 
+/**
+ * Where a decision request goes and in what shape, when it isn't `{baseUrl}/v1/systemone`: another
+ * host's endpoint (./catalog/decisions.ts), TypeSafe's protocol or OpenAI's Decisions API.
+ */
+export interface DecisionEndpoint {
+  url: string;
+  protocol: "systemone" | "openai";
+  /** A yes-or-no question goes with both criteria (OpenRouter refuses one with only "true"). */
+  bothCriteria?: boolean;
+  /** The most questions one request takes; more are asked in several requests about the same state. */
+  maxQuestions?: number;
+}
+
 export interface AskJevInput {
   /** The base URL: TypeSafe's, or a Jev-compatible server's. */
   baseUrl: string;
+  /** Another host's endpoint, in place of `{baseUrl}/v1/systemone`. */
+  endpoint?: DecisionEndpoint;
   apiKey: string;
   model: string;
   /** What the questions are about: text, or structured data. */
@@ -141,25 +156,126 @@ interface JevChoiceQuestion {
   criteria: Record<string, string>;
 }
 
+type DecisionQuestion = JevNoulQuestion | JevChoiceQuestion;
+
+const withBothCriteria = (question: DecisionQuestion): DecisionQuestion =>
+  question.type === "noul"
+    ? {
+        ...question,
+        criteria: {
+          true: question.criteria?.true ?? "Yes.",
+          false: question.criteria?.false ?? "No.",
+        },
+      }
+    : question;
+
+/** OpenAI's name for a question: ours, after a letter, as a Tag's id may begin with a digit. */
+const OPENAI_NAME = "q_";
+
+/** OpenAI's predicate has no criteria: what a yes and a no mean go in its instructions. */
+function openAiQuestion(id: string, question: DecisionQuestion) {
+  const name = `${OPENAI_NAME}${id}`;
+  if (question.type === "choice") {
+    return {
+      type: "choice",
+      name,
+      instructions: question.instructions,
+      choices: Object.entries(question.criteria).map(([value, description]) => ({
+        value,
+        description,
+      })),
+    };
+  }
+  const meaning = [
+    question.criteria?.true ? `Yes means: ${question.criteria.true}` : "",
+    question.criteria?.false ? `No means: ${question.criteria.false}` : "",
+  ].filter(Boolean);
+  return {
+    type: "predicate",
+    name,
+    instructions: [question.instructions, ...meaning].join("\n"),
+  };
+}
+
+/**
+ * OpenAI's answers, a list in question order, as TypeSafe's map by question id. A refusal is left
+ * out, so the question reads as unanswered.
+ */
+function fromOpenAi(answer: unknown): unknown {
+  if (!isRecord(answer) || !Array.isArray(answer.answers)) return answer;
+  const answers: Record<string, unknown> = {};
+  for (const item of answer.answers) {
+    if (!isRecord(item) || typeof item.name !== "string" || !item.name.startsWith(OPENAI_NAME))
+      continue;
+    const id = item.name.slice(OPENAI_NAME.length);
+    if (item.type === "predicate") answers[id] = { type: "noul", noul: item.probability };
+    else if (
+      item.type === "choice" &&
+      (typeof item.choice === "string" || typeof item.choice === "boolean")
+    )
+      answers[id] = { type: "choice", choice: String(item.choice) };
+  }
+  return { ...answer, answers };
+}
+
+/** Cloudflare's REST API may wrap a model's answer as `{ result, success }`. */
+const unwrapped = (answer: unknown): unknown =>
+  isRecord(answer) && !isRecord(answer.answers) && isRecord(answer.result) ? answer.result : answer;
+
 async function requestJev(
   input: Omit<AskJevInput, "questions"> & {
-    questions: Record<string, JevNoulQuestion | JevChoiceQuestion>;
+    questions: Record<string, DecisionQuestion>;
   },
 ): Promise<unknown> {
-  const { baseUrl, model, state, questions, signal, retries, timeoutMs } = input;
+  const endpoint = input.endpoint ?? {
+    url: `${input.baseUrl}${JEV_PATH}`,
+    protocol: "systemone" as const,
+  };
+  const entries = Object.entries(input.questions).map(
+    ([id, question]): [string, DecisionQuestion] => [
+      id,
+      endpoint.bothCriteria ? withBothCriteria(question) : question,
+    ],
+  );
+  const size = endpoint.maxQuestions ?? entries.length;
+  if (entries.length <= size) return postDecision(input, endpoint, entries);
+  const answers: Record<string, unknown> = {};
+  let last: unknown = null;
+  for (let at = 0; at < entries.length; at += size) {
+    last = await postDecision(input, endpoint, entries.slice(at, at + size));
+    if (isRecord(last) && isRecord(last.answers)) Object.assign(answers, last.answers);
+  }
+  return isRecord(last) ? { ...last, answers } : { answers };
+}
+
+async function postDecision(
+  input: Omit<AskJevInput, "questions">,
+  endpoint: DecisionEndpoint,
+  questions: readonly [string, DecisionQuestion][],
+): Promise<unknown> {
+  const { model, state, signal, retries, timeoutMs } = input;
   const apiKey = readApiKey(input.apiKey);
-  const body = JSON.stringify({
-    state,
-    model,
-    questions,
-    ...(input.images?.length ? { images: input.images } : {}),
-  });
+  const where = input.endpoint ? new URL(endpoint.url).origin : input.baseUrl;
+  const body = JSON.stringify(
+    endpoint.protocol === "openai"
+      ? {
+          model,
+          input: typeof state === "string" ? state : JSON.stringify(state),
+          questions: questions.map(([name, question]) => openAiQuestion(name, question)),
+        }
+      : {
+          state,
+          model,
+          questions: Object.fromEntries(questions),
+          ...(input.images?.length ? { images: input.images } : {}),
+        },
+  );
   for (let attempt = 0; ; attempt++) {
     const backoff = Math.min(INITIAL_BACKOFF_MS * 2 ** attempt, MAX_BACKOFF_MS);
     input.beforeSend?.();
     let response: Response;
     try {
-      response = await fetch(`${baseUrl}${JEV_PATH}`, {
+      response = await fetch(endpoint.url, {
         method: "POST",
         headers: {
           authorization: `Bearer ${apiKey}`,
@@ -176,7 +292,7 @@ async function requestJev(
         await sleep(backoff, signal);
         continue;
       }
-      throw new JevRequestError("network", `Couldn't reach ${baseUrl}: ${message}`);
+      throw new JevRequestError("network", `Couldn't reach ${where}: ${message}`);
     }
 
     if (!response.ok) {
@@ -199,22 +315,27 @@ async function requestJev(
       answer = await response.json();
     } catch {
       if (signal.aborted) throw signal.reason;
-      throw new JevRequestError("provider", "Jev's answer isn't valid JSON.", response.status);
+      throw new JevRequestError(
+        "provider",
+        "The decision model's answer isn't valid JSON.",
+        response.status,
+      );
     }
-    return answer;
+    return endpoint.protocol === "openai" ? fromOpenAi(answer) : unwrapped(answer);
   }
 }
 
 /** Each question's `noul`, checked: a number from 0 to 1, for every question asked. */
 function probabilities(answer: unknown, ids: readonly string[]): Record<string, number> {
   const answers = isRecord(answer) && isRecord(answer.answers) ? answer.answers : null;
-  if (!answers) throw new JevRequestError("provider", "Jev's answer has no answers.");
+  if (!answers)
+    throw new JevRequestError("provider", "The decision model's answer has no answers.");
   const result: Record<string, number> = {};
   for (const id of ids) {
     const entry = answers[id];
     const noul = isRecord(entry) ? entry.noul : undefined;
     if (typeof noul !== "number" || !Number.isFinite(noul) || noul < 0 || noul > 1) {
-      throw new JevRequestError("provider", `Jev didn't answer question "${id}".`);
+      throw new JevRequestError("provider", `The decision model didn't answer question "${id}".`);
     }
     result[id] = noul;
   }
