@@ -42,6 +42,8 @@ export const OUTPUT_LIMITS = {
   edit: { most: 16_000 },
   "connection-test": { most: 64 },
   "quick-check": { most: 64 },
+  // One word: whether text beside cite is the Answer's or the model's working (#2371).
+  "working-text": { most: 64 },
 } as const satisfies Record<string, { most: number; each?: number }>;
 
 export type ModelCallKind = keyof typeof OUTPUT_LIMITS;

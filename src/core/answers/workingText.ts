@@ -9,6 +9,7 @@
 import { generateText, jsonSchema, Output } from "ai";
 import { tagged } from "../promptData";
 import type { ChatLanguageModel } from "../providers/models";
+import { outputTokens } from "../providers/outputLimits";
 import type { AnswerRequest } from "./engine";
 import { smallCallModel } from "./smallCalls";
 
@@ -52,8 +53,8 @@ export async function judgeWorkingText(
         "\n\n",
       ),
       temperature,
-      maxOutputTokens: 16,
-      output: Output.object({ schema: partSchema }),
+      maxOutputTokens: outputTokens("working-text"),
+      output: Output.object({ schema: partSchema, name: "part" }),
       maxRetries: 0,
       abortSignal: signal,
     });
