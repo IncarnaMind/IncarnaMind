@@ -11,7 +11,8 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { JSONContent } from "@tiptap/core";
-import { type Core, type Document, messageReference } from "../../src/core";
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
+import { CHART_NODE, type Core, type Document, messageReference } from "../../src/core";
 import { pageBlocks } from "../../src/shared/answerBlocks";
 import { connectToMind } from "../../tests/helpers/mindClient";
 import { note, readMind, writeMind } from "../../tests/helpers/minds";
@@ -129,14 +130,38 @@ const BRIEFING_NOTE = {
   ],
 };
 
-function asked(text: Record<Language, string>, paragraphs: (language: Language) => string[]) {
+/** What a run must have made to count: a run that answered without it timed another flow. */
+type Made = (answer: Awaited<ReturnType<typeof ask>>, page: ProseMirrorNode) => string | null;
+
+function asked(
+  text: Record<Language, string>,
+  paragraphs: (language: Language) => string[],
+  made?: Made,
+) {
   return async ({ core, language }: FlowContext) => {
     const { mindId } = await mindWith(core, language, paragraphs(language));
-    return timed(core, mindId, () =>
-      ask(core, { text: text[language], mindId, conversationId: null, focus: null }),
-    );
+    let answer: Awaited<ReturnType<typeof ask>> | null = null;
+    const signs = await timed(core, mindId, async () => {
+      answer = await ask(core, { text: text[language], mindId, conversationId: null, focus: null });
+    });
+    if (made && answer) {
+      const client = await connectToMind(core, mindId);
+      await client.settled();
+      const missing = made(answer, readMind(client));
+      if (missing) throw new Error(missing);
+    }
+    return signs;
   };
 }
+
+const holdsChart = (page: ProseMirrorNode) => {
+  let found = false;
+  page.descendants((node) => {
+    if (node.type.name === CHART_NODE) found = true;
+    return !found;
+  });
+  return found;
+};
 
 const documentsNamed = (documents: ReadonlyMap<string, Document>, ...parts: string[]) =>
   parts.flatMap(
@@ -319,6 +344,7 @@ export const FLOWS: readonly Flow[] = [
         "zh-CN": "Vantrell 2022 年为其目标提供的约 1180 亿美元中，绿色融资占多大比例？",
       },
       (language) => [NOTES[language]],
+      (answer) => (answer.figures.length > 0 ? null : "The Answer has no Calculated figure."),
     ),
   },
   {
@@ -330,6 +356,7 @@ export const FLOWS: readonly Flow[] = [
         "zh-CN": "把 Vantrell 2022 年为目标提供的绿色融资和发展融资做成柱状图，加到我的笔记里",
       },
       (language) => [NOTES[language]],
+      (_, page) => (holdsChart(page) ? null : "No chart reached the page."),
     ),
   },
   {
@@ -361,9 +388,14 @@ export const FLOWS: readonly Flow[] = [
           CITED.map((each) => citedParagraph(each[language], report, each.quote, each.page)),
         );
         await client.settled();
-        return await timed(core, mind.id, () =>
-          core.checkContradictions({ requestId: randomUUID(), mindId: mind.id }),
-        );
+        let checked: Awaited<ReturnType<Core["checkContradictions"]>> | null = null;
+        const signs = await timed(core, mind.id, async () => {
+          checked = await core.checkContradictions({ requestId: randomUUID(), mindId: mind.id });
+        });
+        if (checked?.kind !== "checked" || checked.checked === 0) {
+          throw new Error(`Nothing was checked: ${JSON.stringify(checked)}`);
+        }
+        return signs;
       } finally {
         // Its Documents go back to Not in a Folder, so the flows after it search and sort as before.
         await core.deleteLibraryGroup(folder.id);
@@ -390,7 +422,14 @@ export const FLOWS: readonly Flow[] = [
             allDocuments: true,
           });
           if (found.kind !== "found") throw new Error(`No claims found: ${JSON.stringify(found)}`);
-          await core.verifyClaims({ requestId: randomUUID(), mindId, allDocuments: true });
+          const checked = await core.verifyClaims({
+            requestId: randomUUID(),
+            mindId,
+            allDocuments: true,
+          });
+          if (checked.kind !== "checked" || checked.checked === 0) {
+            throw new Error(`No claim was checked: ${JSON.stringify(checked)}`);
+          }
         });
       } finally {
         // A new file each run, so each is read for the first time, and out of the Library after.

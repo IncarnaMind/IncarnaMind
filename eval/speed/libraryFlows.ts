@@ -3,8 +3,9 @@
  * have none (the Library's grouping), Organize filing Documents into Folders, and automatic Tags
  * worked out again. Each runs on the model Automatic picks for tagging and Organize with the
  * User's Answers model saved, as the Library's "Use …" saves it, and is timed from the press to
- * the last Document done, by the signs the Library shows. Each run leaves the Library's Folders as
- * it found them, so the flows after it search and sort as before.
+ * the last Document done, by the signs the Library shows. Each run leaves the Library's Folders
+ * and settings as it found them, so the flows after it search and sort as before; the Tags it
+ * gave the sample Documents stay.
  */
 import type { Core, CoreEventName, LibraryGroup } from "../../src/core";
 import {
@@ -43,22 +44,22 @@ function sortedIds({ documents }: FlowContext): string[] {
 }
 
 /**
- * Organize and tagging on the model Automatic picks, allowed to send to its service: what the
- * Library's "Use …" saves. Sorting stays a press: new Documents aren't sent by themselves.
+ * Organize on the model Automatic picks, allowed to send to its service, as the Library's "Use …"
+ * saves it; `work` runs with it, and the Library's settings are put back after.
  */
-async function readyToSort(core: Core): Promise<void> {
+async function sorting<T>(core: Core, work: () => Promise<T>): Promise<T> {
   const automatic = (await core.getTaggingModels()).automatic;
   if (!automatic) throw new Error("No model can tag or organize with this provider.");
   const { settings } = await core.getLibrary();
-  await core.saveLibrarySettings({
-    ...settings,
-    classifier: automatic.classifier,
-    organizeWith: automatic.classifier,
-    automatic: false,
-  });
+  await core.saveLibrarySettings({ ...settings, organizeWith: automatic.classifier });
   for (const flow of ["tagging", "classification"] as const) {
     const route = await core.getTaggingRoute(flow);
     if (route.where === "cloud") await core.allowDataFlow(flow, route.service.id);
+  }
+  try {
+    return await work();
+  } finally {
+    await core.saveLibrarySettings(settings);
   }
 }
 
@@ -86,23 +87,30 @@ async function withoutFolders(core: Core, groups: readonly LibraryGroup[]): Prom
 const ORGANIZED = new Set(["classified", "failed"]);
 const TAGGED = new Set(["tagged", "no-tags", "failed", "skipped"]);
 
+/** Throws for Documents that ended failed: a run that sent nothing for them isn't timed as done. */
+function noneFailed(states: readonly string[], what: string): void {
+  const failed = states.filter((state) => state === "failed").length;
+  if (failed > 0) throw new Error(`${what} failed for ${failed} Documents.`);
+}
+
 export const LIBRARY_FLOWS: readonly Flow[] = [
   {
     id: "library-grouping",
     label: "Organize with no Folders yet: Folders proposed for five Documents",
     async run(context) {
       const { core } = context;
-      await readyToSort(core);
       const ids = sortedIds(context);
       let made: LibraryGroup[] = [];
-      try {
-        return await timedInLibrary(context, async () => {
-          made = await core.proposeFolders(ids);
-          if (made.length === 0) throw new Error("No Folder was proposed.");
-        }, ["library.changed"]);
-      } finally {
-        await withoutFolders(core, made);
-      }
+      return sorting(core, async () => {
+        try {
+          return await timedInLibrary(context, async () => {
+            made = await core.proposeFolders(ids);
+            if (made.length === 0) throw new Error("No Folder was proposed.");
+          }, ["library.changed"]);
+        } finally {
+          await withoutFolders(core, made);
+        }
+      });
     },
   },
   {
@@ -110,25 +118,31 @@ export const LIBRARY_FLOWS: readonly Flow[] = [
     label: "Organize: five Documents filed into three Folders, with their Tags",
     async run(context) {
       const { core, language } = context;
-      await readyToSort(core);
       const ids = sortedIds(context);
       const folders: LibraryGroup[] = [];
-      try {
-        for (const name of FOLDERS[language]) {
-          folders.push(await core.createLibraryGroup({ name, description: "" }));
+      const statuses = async () =>
+        (await core.getLibrary()).assignments.filter((each) => ids.includes(each.documentId));
+      return sorting(core, async () => {
+        try {
+          for (const name of FOLDERS[language]) {
+            folders.push(await core.createLibraryGroup({ name, description: "" }));
+          }
+          const signs = await timedInLibrary(context, async () => {
+            await core.classifyDocuments(ids);
+            await until(async () => {
+              const done = (await statuses()).filter((each) => ORGANIZED.has(each.status));
+              return done.length === ids.length;
+            }, "Organize");
+          }, ["library.assignments", "documents.tagged"]);
+          noneFailed(
+            (await statuses()).map((each) => each.status),
+            "Organize",
+          );
+          return signs;
+        } finally {
+          await withoutFolders(core, folders);
         }
-        return await timedInLibrary(context, async () => {
-          await core.classifyDocuments(ids);
-          await until(async () => {
-            const { assignments } = await core.getLibrary();
-            return ids.every((id) =>
-              assignments.some((each) => each.documentId === id && ORGANIZED.has(each.status)),
-            );
-          }, "Organize");
-        }, ["library.assignments", "documents.tagged"]);
-      } finally {
-        await withoutFolders(core, folders);
-      }
+      });
     },
   },
   {
@@ -136,17 +150,23 @@ export const LIBRARY_FLOWS: readonly Flow[] = [
     label: "Automatic Tags worked out again for five Documents",
     async run(context) {
       const { core } = context;
-      await readyToSort(core);
       const ids = sortedIds(context);
-      return timedInLibrary(context, async () => {
-        await core.retagDocuments(ids);
-        await until(async () => {
-          const listed = await core.listDocuments();
-          return ids.every((id) =>
-            listed.some((each) => each.id === id && TAGGED.has(each.tagging)),
-          );
-        }, "Tagging");
-      }, ["documents.tagged"]);
+      const states = async () =>
+        (await core.listDocuments()).filter((each) => ids.includes(each.id));
+      return sorting(core, async () => {
+        const signs = await timedInLibrary(context, async () => {
+          await core.retagDocuments(ids);
+          await until(async () => {
+            const done = (await states()).filter((each) => TAGGED.has(each.tagging));
+            return done.length === ids.length;
+          }, "Tagging");
+        }, ["documents.tagged"]);
+        noneFailed(
+          (await states()).map((each) => each.tagging),
+          "Tagging",
+        );
+        return signs;
+      });
     },
   },
 ];

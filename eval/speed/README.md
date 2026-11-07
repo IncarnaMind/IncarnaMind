@@ -79,6 +79,7 @@ The sets' baselines, and which set each is (#2019). Re-baselined on the mixed se
 - **False Supported:** a sentence with a found Citation that states something its quoted words don't say, as the same judge reads each one.
 - **Other guards:** a Tool call left as text, notes with a problem, or nothing written.
 - Pair `today` with `write-then-cite` (#489) to measure writing the notes before their records; the gate is `gates/write-then-cite-tasks.md`.
+- A key refused for credit shows as notes that failed, which the runner can't tell from a model's failure, so it doesn't stop by itself: watch the log.
 
 ### Adding an arm
 

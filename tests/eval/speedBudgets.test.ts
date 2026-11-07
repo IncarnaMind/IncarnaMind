@@ -83,4 +83,55 @@ describe("The budget table", () => {
 
     expect(rows(table)[0]).toContain("| 3.0 s / 9.0 s |");
   });
+
+  test("of twenty runs, the 95th percentile is the 19th slowest, not the 18th the 90th would take", () => {
+    const haiku = "anthropic/claude-haiku-5-5";
+    const runs = Array.from({ length: 20 }, (_, index) =>
+      run("question", haiku, { sign: 0, words: 1000, done: (index + 1) * 1000 }),
+    );
+
+    expect(rows(flowTable(runs))[0]).toContain("| 10.0 s / 19.0 s |");
+  });
+
+  test("an edit whose page never changed in one run of three misses its budget, and says so", () => {
+    const table = budgetTable([
+      run("assistant-edit", "anthropic/claude-haiku-5-5", {
+        sign: 0,
+        words: 1000,
+        change: 1000,
+        done: 2000,
+      }),
+      run("assistant-edit", "anthropic/claude-haiku-5-5", { sign: 0, words: 1000, done: 2000 }),
+      run("assistant-edit", "anthropic/claude-haiku-5-5", {
+        sign: 0,
+        words: 1000,
+        change: 1200,
+        done: 2000,
+      }),
+    ]);
+
+    expect(rows(table)[0]).toContain("| **1.2 s, none in 1 of 3** of 8.0 s (change in the page) |");
+    expect(rows(table)[0]).toMatch(/\| \*\*missed\*\* \|$/);
+  });
+
+  test("a flow with no sign in one run of three breaks the 0.5 s rule", () => {
+    const haiku = "anthropic/claude-haiku-5-5";
+    const table = flowTable([
+      run("research", haiku, { sign: 0, words: 1000, done: 1000 }),
+      run("research", haiku, { sign: 0, words: 1000, done: 1000 }),
+      {
+        ...run("research", haiku, { sign: 0, words: 1000, done: 1000 }),
+        signs: {
+          startedAt: "2026-11-07T00:00:00.000Z",
+          firstSignMs: null,
+          firstWordsMs: 1000,
+          firstChangeMs: null,
+          doneMs: 1000,
+          longestQuietMs: 1000,
+        },
+      },
+    ]);
+
+    expect(rows(table)[0]).toMatch(/\| \*\*no\*\* \| yes \|$/);
+  });
 });

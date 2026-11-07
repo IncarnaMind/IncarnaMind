@@ -189,6 +189,8 @@ baseline("the speed of every AI flow, on each model and language", async () => {
     "",
     "## Budgets (#1624)",
     "",
+    "Held at the 95th percentile. Claude Sonnet, Opus and the models named Pro or Sol are Sonnet-class; every other model is held to the Haiku-class budget.",
+    "",
     budgetTable(results),
     "",
     "## Requests and local steps",

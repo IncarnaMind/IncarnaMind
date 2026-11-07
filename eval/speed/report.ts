@@ -83,7 +83,10 @@ export function flowTable(runs: readonly FlowRun[]): string {
                 (LIBRARY_FLOW_IDS.has(run.flow) && BACKGROUND.has(record.data_flow ?? ""))),
           ).length,
       );
-      const signOk = (percentile(sign, HELD_AT) ?? Number.POSITIVE_INFINITY) <= SIGN_WITHIN_MS;
+      // A run that showed no sign at all misses the rule, as a slow one does.
+      const signOk =
+        sign.length === timed.length &&
+        (percentile(sign, HELD_AT) ?? Number.POSITIVE_INFINITY) <= SIGN_WITHIN_MS;
       const quietOk = (percentile(quiet, HELD_AT) ?? Number.POSITIVE_INFINITY) <= QUIET_AT_MOST_MS;
       return `| ${flow} | ${model} | ${language} | ${timed.length}/${each.length} | ${pair(sign)} | ${pair(known(timed.map((run) => run.firstWordsMs)))} | ${pair(known(timed.map((run) => run.firstChangeMs)))} | ${pair(timed.map((run) => run.doneMs))} | ${pair(quiet)} | ${percentile(calls, 0.5) ?? "–"} | ${signOk ? "yes" : "**no**"} | ${quietOk ? "yes" : "**no**"} |`;
     },
@@ -130,7 +133,7 @@ interface Budget {
   doneMs: number;
 }
 
-/** A model of Claude Sonnet's class or above; the rest are held to the Haiku-class budget. */
+/** A model of Claude Sonnet's class or above; every other model, Kimi's included, is held to the Haiku-class budget. */
 const SONNET_CLASS = /sonnet|opus|-pro\b|sol\b/;
 
 const BUDGETS: readonly Budget[] = [
@@ -160,11 +163,17 @@ const BUDGETS: readonly Budget[] = [
   },
 ];
 
-/** A time at the 95th percentile against its limit: in bold when over it, or never measured. */
+/**
+ * A time at the 95th percentile against its limit, in bold when over it. A run that never got
+ * there (no sign, no change in the page) misses it, and the count of those is shown.
+ */
 function held(values: readonly (number | null)[], limit: number): { met: boolean; shown: string } {
-  const at = percentile(known(values), HELD_AT);
-  const met = at !== null && at <= limit;
-  return { met, shown: `${met ? seconds(at) : `**${seconds(at)}**`} of ${seconds(limit)}` };
+  const times = known(values);
+  const at = percentile(times, HELD_AT);
+  const never = values.length - times.length;
+  const met = never === 0 && at !== null && at <= limit;
+  const shown = `${seconds(at)}${never > 0 ? `, none in ${never} of ${values.length}` : ""}`;
+  return { met, shown: `${met ? shown : `**${shown}**`} of ${seconds(limit)}` };
 }
 
 /**
