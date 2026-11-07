@@ -2285,12 +2285,43 @@ describe("a batch of Documents being added (#1329)", () => {
     expect(useAppStore.getState().documents[0]?.name).toBe("new-1 v1");
   });
 
-  test("another batch still being added keeps the hold while one lands", () => {
+  test("a second batch does not take a new hold, so the first's rows stay held", () => {
     emit("documents.batch", batch({ id: "b1", documentIds: ["one"] }));
+    // A Document arriving between the batches is in the store; a new hold would take it in.
+    emit("document.status", doc("one", 1));
+    vi.advanceTimersByTime(100);
     emit("documents.batch", batch({ id: "b2", documentIds: ["two"] }));
-    emit("documents.batch", batch({ id: "b1", documentIds: ["one"], adding: false }));
     expect(useAppStore.getState().heldDocuments).toEqual(["a", "b", "c"]);
     emit("documents.batch", batch({ id: "b2", documentIds: ["two"], adding: false }));
+    emit("documents.batch", batch({ id: "b1", documentIds: ["one"], adding: false }));
+    expect(useAppStore.getState().heldDocuments).toBeNull();
+  });
+
+  test("a batch after the last one landed holds what the tree has by then", () => {
+    emit("documents.batch", batch({ id: "b1", documentIds: ["one"] }));
+    emit("documents.batch", batch({ id: "b1", documentIds: ["one"], adding: false }));
+    expect(useAppStore.getState().heldDocuments).toBeNull();
+    emit("document.status", doc("one", 1));
+    vi.advanceTimersByTime(100);
+    emit("documents.batch", batch({ id: "b2", documentIds: ["two"] }));
+    expect(useAppStore.getState().heldDocuments).toEqual(["one", "a", "b", "c"]);
+    emit("documents.batch", batch({ id: "b2", documentIds: ["two"], adding: false }));
+    expect(useAppStore.getState().heldDocuments).toBeNull();
+  });
+
+  test("a Linked folder's first scan never holds the tree, even while it adds", () => {
+    emit(
+      "documents.batch",
+      batch({ id: "scan", linkedFolderId: "folder", documentIds: ["found"] }),
+    );
+    expect(useAppStore.getState().heldDocuments).toBeNull();
+    emit("document.status", doc("found", 1));
+    vi.advanceTimersByTime(100);
+    expect(useAppStore.getState().heldDocuments).toBeNull();
+    emit(
+      "documents.batch",
+      batch({ id: "scan", linkedFolderId: "folder", documentIds: ["found"], adding: false }),
+    );
     expect(useAppStore.getState().heldDocuments).toBeNull();
   });
 });
