@@ -329,7 +329,7 @@ async function ownTranscriptRoundTrip(
 }
 
 for (const language of ["en", "zh-CN"] as const) {
-  // protects=after Stop, typed lines and an Action items heading are filled in place as cited AI text, Summary and Decisions follow, and one Undo restores the heading and lines in English and Chinese (#142, #2306); fails_when=a section is missing or repeated, typed text changes, additions are uncited or not AI text, or Undo leaves an addition; no_claim=a real model's wording or allocation of facts.
+  // protects=after Stop, the call's action is written whole under the typed Action items heading and each typed line gets a pointer to it, all cited AI text, Summary and Decisions follow, and one Undo restores the heading and lines in English and Chinese (#142, #2306); fails_when=a section is missing or repeated, typed text changes, additions are uncited or not AI text, or Undo leaves an addition; no_claim=a real model's wording or allocation of facts.
   test(`after Stop, typed lines and an Action items heading are filled in place, sections follow, and one Undo restores them (${language})`, async () => {
     const words = LINES[language];
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
@@ -384,15 +384,16 @@ for (const language of ["en", "zh-CN"] as const) {
       expect(paragraphs[userAt]).toMatchObject({ generated: false, citations: 0 });
       expect(paragraphs[userAt + 1]).toMatchObject({ generated: true, citations: 1 });
     }
-    const canonical = paragraphs[paragraphs.findIndex((each) => each.text === words.notes[0]) + 1];
-    const secondary = paragraphs[paragraphs.findIndex((each) => each.text === words.notes[1]) + 1];
-    if (!canonical || !secondary) throw new Error("Missing canonical fact or its line reference");
-    expect(canonical.prose.trim()).not.toBe("");
-    expect(paragraphs.filter((each) => each.prose === canonical.prose)).toHaveLength(1);
-    const actionReference = (await actions.locator(".generated-text").allTextContents()).join("");
-    expect(actionReference.trim()).not.toBe("");
-    expect(secondary.prose).toBe(actionReference);
-    expect(actionReference).not.toBe(canonical.prose);
+    const whole = (await actions.locator(".generated-text").allTextContents()).join("");
+    expect(whole.trim()).not.toBe("");
+    expect(paragraphs.filter((each) => each.prose === whole)).toHaveLength(1);
+    const [first, second] = words.notes.map(
+      (text) => paragraphs[paragraphs.findIndex((each) => each.text === text) + 1],
+    );
+    if (!first || !second) throw new Error("Missing a typed line's pointer to the action");
+    expect(first.prose.trim()).not.toBe("");
+    expect(second.prose).toBe(first.prose);
+    expect(first.prose).not.toBe(whole);
     await expect(notes).not.toContainText(MACHINE_CONTROLS);
     await expect(notes.locator('[data-testid="citation"]:not([data-check="found"])')).toHaveCount(
       0,
@@ -501,17 +502,18 @@ for (const language of ["en", "zh-CN"] as const) {
           );
           expect(canonical).toHaveLength(1);
           expect(canonical[0]?.citations).toBe(1);
-          const actionReference = notes.locator("h2:not(:has(.generated-text)) + p");
-          await expect(actionReference).toHaveCount(1);
-          await expect(actionReference.getByTestId("citation")).toHaveAttribute(
-            "data-check",
-            "found",
+          const action = notes.locator("h2:not(:has(.generated-text)) + p");
+          await expect(action).toHaveCount(1);
+          await expect(action.getByTestId("citation")).toHaveAttribute("data-check", "found");
+          expect((await action.locator(".generated-text").allTextContents()).join("")).toBe(
+            canonical[0]?.prose,
           );
-          const referenceWords = (
-            await actionReference.locator(".generated-text").allTextContents()
-          ).join("");
-          expect(referenceWords.trim()).not.toBe("");
-          expect(words.speech.some((said) => referenceWords.includes(said))).toBe(false);
+          for (const text of words.notes) {
+            const pointer = paragraphs[paragraphs.findIndex((each) => each.text === text) + 1];
+            expect(pointer).toMatchObject({ generated: true, citations: 1 });
+            expect(pointer?.prose.trim()).not.toBe("");
+            expect(words.speech.some((said) => pointer?.prose.includes(said))).toBe(false);
+          }
           await expect(
             notes.locator('[data-testid="citation"]:not([data-check="found"])'),
           ).toHaveCount(0);

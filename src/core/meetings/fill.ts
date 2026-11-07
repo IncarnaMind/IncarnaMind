@@ -88,6 +88,8 @@ export interface MeetingFillOptions {
   transcript(documentId: string): Promise<WindowedPassage[]>;
   /** The model to fill with: the one the Mind uses (#1379), as Local mode and consent allow. */
   route(mindId: string): Promise<FillRoute>;
+  /** The name the User set for themselves, or null: never the computer's login name. */
+  userName(): string | null;
   answers: {
     answerMeetingFill(input: {
       context: QuestionContext;
@@ -513,8 +515,8 @@ export function createMeetingFill(options: MeetingFillOptions) {
       };
       const context =
         mode === "notes"
-          ? notesContext(lines, question, history)
-          : sectionsContext(question, history);
+          ? notesContext(lines, question, history, options.userName())
+          : sectionsContext(question, history, options.userName());
       let answer: CellAnswer;
       try {
         answer = await ask(context, part, transcriptId, route, signal);
@@ -569,8 +571,13 @@ export function createMeetingFill(options: MeetingFillOptions) {
     }
     const { overview } = ledger;
     const omitted = ledger.omitted(unfinishedParts === 0);
-    if (omitted > 0)
-      log.warn("meeting.fillItemsOmitted", { meetingId: meeting.id, items: omitted });
+    if (omitted > 0) {
+      log.warn("meeting.fillItemsOmitted", {
+        meetingId: meeting.id,
+        items: omitted,
+        ...ledger.omittedReasons(unfinishedParts === 0),
+      });
+    }
     set(meeting.id, { omitted, unfinishedParts });
     if (ledger.facts.length === 0 && overview === null) {
       throw new FillProblemError(

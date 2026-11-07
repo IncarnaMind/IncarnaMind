@@ -71,21 +71,23 @@ function freeze(value: unknown): void {
 
 describe("Meeting fact placement (#2306)", () => {
   test.each([
-    { text: "Dana sends the contract by Friday.", topic: "Contract" },
-    { text: "林周五前发送合同。", topic: "合同" },
-  ])(
-    "keeps the complete related fact under its line and only a cited category reference: $topic",
-    ({ text, topic }) => {
-      const accepted = fact(text, { topic });
+    { text: "Dana sends the contract by Friday.", topic: "Contract", section: "actions" },
+    { text: "林周五前发送合同。", topic: "合同", section: "actions" },
+    { text: "The final rate is 18%.", topic: "Rate", section: "decisions" },
+    { text: "谁签署合同还没定。", topic: "签署人", section: "questions" },
+  ] as const)(
+    "writes a $section fact whole in its section and points the User's line to it with the same Citations: $topic",
+    ({ text, topic, section }) => {
+      const accepted = fact(text, { topic, sections: [section] });
       const placed = placeFacts(input([accepted]));
 
-      expect(placed.lines.get("L1")).toEqual([accepted.body]);
-      expect(placed.lines.get("L1")?.[0]).toBe(accepted.body);
-      const action = placed.sections.get("actions")?.[0];
-      expect(action && textOf(action).trim()).toBe(`${topic}: see above.`);
-      expect(action && citationsOf(action)).toEqual(accepted.citations);
-      expect(action?.content?.[0]?.marks).toEqual([{ type: GENERATED_MARK }]);
-      expect(placed.sections.has("summary")).toBe(false);
+      expect(placed.sections).toEqual(new Map([[section, [accepted.body]]]));
+      expect(placed.sections.get(section)?.[0]).toBe(accepted.body);
+      expect(placed.lines.get("L1")).toHaveLength(1);
+      const pointer = placed.lines.get("L1")?.[0];
+      expect(pointer && textOf(pointer).trim()).toBe(`${topic}: see below.`);
+      expect(pointer && citationsOf(pointer)).toEqual(accepted.citations);
+      expect(pointer?.content?.[0]?.marks).toEqual([{ type: GENERATED_MARK }]);
       expect(placed.unplaced).toBe(0);
     },
   );
@@ -149,14 +151,25 @@ describe("Meeting fact placement (#2306)", () => {
     expect(placed.unplaced).toBe(1);
   });
 
-  test("ignores an invalid ranked home while keeping its valid successor and category reference", () => {
-    const accepted = fact("Dana sends the contract by Friday.", { lines: ["L404", "L1"] });
-    const placed = placeFacts(input([accepted]));
+  test("ignores an invalid ranked line while its valid successor still gets the fact or its pointer", () => {
+    const background = fact("The fee stays at 18%.", {
+      lines: ["L404", "L1"],
+      sections: ["summary"],
+    });
+    const kept = placeFacts(input([background]));
 
-    expect(placed.lines).toEqual(new Map([["L1", [accepted.body]]]));
-    const action = placed.sections.get("actions")?.[0];
-    expect(action && textOf(action).trim()).toBe("Contract: see above.");
-    expect(placed.unplaced).toBe(1);
+    expect(kept.lines).toEqual(new Map([["L1", [background.body]]]));
+    expect(kept.sections.size).toBe(0);
+    expect(kept.unplaced).toBe(1);
+
+    const action = fact("Dana sends the contract by Friday.", { lines: ["L404", "L1"] });
+    const pointed = placeFacts(input([action]));
+
+    expect(pointed.sections).toEqual(new Map([["actions", [action.body]]]));
+    expect(pointed.lines.get("L1")).toHaveLength(1);
+    const pointer = pointed.lines.get("L1")?.[0];
+    expect(pointer && textOf(pointer).trim()).toBe("Contract: see below.");
+    expect(pointed.unplaced).toBe(1);
   });
 
   test("uses a requested category, not a heading line, as the full fallback home", () => {
@@ -183,7 +196,7 @@ describe("Meeting fact placement (#2306)", () => {
   test("respects model ranking while references follow the actual earlier and later User lines", () => {
     const accepted = fact("The final rate is 18%.", {
       lines: ["L99", "L8", "L30", "L8"],
-      sections: ["summary", "decisions"],
+      sections: ["summary"],
     });
     const placed = placeFacts(
       input([accepted], {
@@ -203,10 +216,47 @@ describe("Meeting fact placement (#2306)", () => {
     expect(later && textOf(later).trim()).toBe("Contract: see above.");
     expect(earlier && citationsOf(earlier)).toEqual(accepted.citations);
     expect(later && citationsOf(later)).toEqual(accepted.citations);
-    expect(placed.sections.has("summary")).toBe(false);
+    expect(placed.sections.size).toBe(0);
   });
 
-  test("an arbitrary routed category includes every descendant heading, not only the nearest one", () => {
+  test("a decision's pointers under the User's lines look up or down to its routed heading", () => {
+    const accepted = fact("The final rate is 18%.", {
+      lines: ["L99", "L8", "L30"],
+      sections: ["decisions"],
+    });
+    const placed = placeFacts(
+      input([accepted], {
+        lines: [
+          { marker: "L8", heading: false, ancestors: [] },
+          { marker: "H7", heading: true, ancestors: [] },
+          { marker: "L99", heading: false, ancestors: ["H7"] },
+          { marker: "H12", heading: true, ancestors: [] },
+          { marker: "L30", heading: false, ancestors: ["H12"] },
+        ],
+        headings: new Map([["decisions", "H7"]]),
+      }),
+    );
+
+    expect(placed.sections).toEqual(new Map([["decisions", [accepted.body]]]));
+    const pointers = new Map(
+      [...placed.lines].map(([marker, nodes]) => [
+        marker,
+        nodes.map((node) => textOf(node).trim()),
+      ]),
+    );
+    expect(pointers).toEqual(
+      new Map([
+        ["L99", ["Contract: see below."]],
+        ["L8", ["Contract: see below."]],
+        ["L30", ["Contract: see above."]],
+      ]),
+    );
+    for (const nodes of placed.lines.values()) {
+      expect(nodes.flatMap(citationsOf)).toEqual(accepted.citations);
+    }
+  });
+
+  test("an arbitrary routed category spans every descendant heading, so a line inside it points below", () => {
     const accepted = fact("林周五前发送合同。");
     const placed = placeFacts(
       input([accepted], {
@@ -220,8 +270,10 @@ describe("Meeting fact placement (#2306)", () => {
       }),
     );
 
-    expect(placed.lines.get("L1")).toEqual([accepted.body]);
-    expect(placed.sections.size).toBe(0);
+    expect(placed.sections).toEqual(new Map([["actions", [accepted.body]]]));
+    expect(placed.lines.get("L1")).toHaveLength(1);
+    const pointer = placed.lines.get("L1")?.[0];
+    expect(pointer && textOf(pointer).trim()).toBe("Contract: see below.");
   });
 
   test("a full fact in an ordinary line needs no Summary reference even under a different heading", () => {
@@ -239,7 +291,7 @@ describe("Meeting fact placement (#2306)", () => {
     expect(placed.sections.size).toBe(0);
   });
 
-  test("a routed category ending before the full line points below, not above", () => {
+  test("a line after a routed category that ends earlier points above to the whole fact", () => {
     const accepted = fact("Dana sends the contract by Friday.");
     const placed = placeFacts(
       input([accepted], {
@@ -253,13 +305,15 @@ describe("Meeting fact placement (#2306)", () => {
       }),
     );
 
-    const action = placed.sections.get("actions")?.[0];
-    expect(action && textOf(action).trim()).toBe("Contract: see below.");
-    expect(action && citationsOf(action)).toEqual(accepted.citations);
+    expect(placed.sections).toEqual(new Map([["actions", [accepted.body]]]));
+    expect(placed.lines.get("L1")).toHaveLength(1);
+    const pointer = placed.lines.get("L1")?.[0];
+    expect(pointer && textOf(pointer).trim()).toBe("Contract: see above.");
+    expect(pointer && citationsOf(pointer)).toEqual(accepted.citations);
   });
 
   test("an unrelated nested heading does not cover a routed category", () => {
-    const accepted = fact("Dana sends the contract by Friday.");
+    const accepted = fact("The fee is 18%.", { sections: ["summary"] });
     const placed = placeFacts(
       input([accepted], {
         lines: [
@@ -268,12 +322,14 @@ describe("Meeting fact placement (#2306)", () => {
           { marker: "L1", heading: false, ancestors: ["H7", "H8"] },
           { marker: "H12", heading: true, ancestors: [] },
         ],
-        headings: new Map([["actions", "H12"]]),
+        headings: new Map([["claims", "H12"]]),
+        claims: new Set([accepted.id]),
       }),
     );
 
-    const action = placed.sections.get("actions")?.[0];
-    expect(action && textOf(action).trim()).toBe("Contract: see above.");
+    expect(placed.lines.get("L1")).toEqual([accepted.body]);
+    const claim = placed.sections.get("claims")?.[0];
+    expect(claim && textOf(claim).trim()).toBe("Contract: see above.");
   });
 
   test("category-to-category references follow routed positions instead of category order", () => {
@@ -325,7 +381,7 @@ describe("Meeting fact placement (#2306)", () => {
     expect(placed.sections).toEqual(new Map([["actions", [accepted.body]]]));
   });
 
-  test("repeated input IDs create only one full fact, secondary reference and Claims reference", () => {
+  test("repeated input IDs create only one full fact, one pointer per line and one Claims reference", () => {
     const citations = [
       checkedCitation("I will send the contract by Friday.", "Dana", 311),
       checkedCitation("Friday is confirmed.", "Me", 328),
@@ -345,9 +401,12 @@ describe("Meeting fact placement (#2306)", () => {
       }),
     );
 
-    expect(placed.lines.get("L1")).toEqual([accepted.body]);
-    expect(placed.lines.get("L2")).toHaveLength(1);
-    expect(placed.sections.get("actions")).toHaveLength(1);
+    expect(placed.sections.get("actions")).toEqual([accepted.body]);
+    for (const marker of ["L1", "L2"]) {
+      expect(placed.lines.get(marker)).toHaveLength(1);
+      const pointer = placed.lines.get(marker)?.[0];
+      expect(pointer && textOf(pointer).trim()).toBe("Contract: see below.");
+    }
     expect(placed.sections.get("claims")).toHaveLength(1);
     const claim = placed.sections.get("claims")?.[0];
     expect(claim && textOf(claim).trim()).toBe("Contract: see above.");
@@ -377,10 +436,13 @@ describe("Meeting fact placement (#2306)", () => {
     expect(placed.sections.has("claims")).toBe(false);
   });
 
-  test.each([false, true])(
-    "an earlier Claims heading points below to a canonical section=%s",
-    (sectionHome) => {
-      const accepted = fact("The fee is 18%.", { lines: sectionHome ? [] : ["L1"] });
+  test.each([
+    { home: "Actions", lines: [], sections: ["actions"] },
+    { home: "User's line", lines: ["L1"], sections: ["summary"] },
+  ] as const)(
+    "an earlier Claims heading points below to the whole fact in its $home",
+    ({ lines, sections }) => {
+      const accepted = fact("The fee is 18%.", { lines: [...lines], sections: [...sections] });
       const placed = placeFacts(
         input([accepted], {
           lines: [
@@ -403,10 +465,13 @@ describe("Meeting fact placement (#2306)", () => {
     },
   );
 
-  test.each([false, true])(
-    "no Claims stub is added around a canonical descendant section=%s",
-    (sectionHome) => {
-      const accepted = fact("费用为 18%。", { lines: sectionHome ? [] : ["L1"] });
+  test.each([
+    { home: "Actions", lines: [], sections: ["actions"] },
+    { home: "User's line", lines: ["L1"], sections: ["summary"] },
+  ] as const)(
+    "no Claims stub is added around the whole fact in a descendant $home",
+    ({ home, lines, sections }) => {
+      const accepted = fact("费用为 18%。", { lines: [...lines], sections: [...sections] });
       const placed = placeFacts(
         input([accepted], {
           lines: [
@@ -423,7 +488,7 @@ describe("Meeting fact placement (#2306)", () => {
       );
 
       expect(placed.sections.has("claims")).toBe(false);
-      expect(sectionHome ? placed.sections.get("actions") : placed.lines.get("L1")).toEqual([
+      expect(home === "Actions" ? placed.sections.get("actions") : placed.lines.get("L1")).toEqual([
         accepted.body,
       ]);
     },
@@ -463,14 +528,16 @@ describe("Meeting fact placement (#2306)", () => {
       const accepted = fact(text, { topic });
       const placed = placeFacts(
         input([accepted], {
-          reference: chinese ? (name) => `${name}：详见上文。` : reference,
+          reference: chinese
+            ? (name, direction) => `${name}：详见${direction === "above" ? "上" : "下"}文。`
+            : reference,
         }),
       );
 
-      const action = placed.sections.get("actions")?.[0];
-      const expected = chinese ? `${topic}：详见上文。 ` : `${topic}: see above. `;
-      expect(action?.type).toBe("paragraph");
-      expect(action?.content).toEqual([
+      const pointer = placed.lines.get("L1")?.[0];
+      const expected = chinese ? `${topic}：详见下文。 ` : `${topic}: see below. `;
+      expect(pointer?.type).toBe("paragraph");
+      expect(pointer?.content).toEqual([
         { type: "text", text: expected, marks: [{ type: GENERATED_MARK }] },
         ...accepted.citations,
       ]);
@@ -531,6 +598,6 @@ describe("Meeting fact placement (#2306)", () => {
 
     expect({ ...request, reference: null }).toEqual(before);
     expect(placeFacts(request)).toEqual(placed);
-    expect(placed.lines.get("L2")?.[0]).toBe(accepted.body);
+    expect(placed.sections.get("actions")?.[0]).toBe(accepted.body);
   });
 });

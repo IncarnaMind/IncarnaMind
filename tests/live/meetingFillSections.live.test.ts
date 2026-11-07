@@ -2000,11 +2000,21 @@ function placements(
     }
     close();
   }
+  // A decision or an action is written whole in its section; the typed line it answers then has
+  // a short pointer citing the same turn (#2306).
+  const pointed = units.some(
+    (unit) =>
+      outside(unit) &&
+      unit.afterLine === fact.underLine &&
+      !says(fact, unit.text) &&
+      citesRightly(unit, fact, call, cues),
+  );
   return {
     count: found.reduce((sum, each) => sum + each.count, 0),
     inPlace:
       fact.underLine === undefined ||
-      found.some((each) => each.units[0]?.afterLine === fact.underLine),
+      found.some((each) => each.units[0]?.afterLine === fact.underLine) ||
+      (fact.kind !== "figure" && found.length > 0 && pointed),
     cited:
       found.length > 0 &&
       found.every((each) => each.units.every((unit) => citesRightly(unit, fact, call, cues))),
@@ -2586,6 +2596,22 @@ test.each(["en", "zh-CN"] as const)(
       inPlace: false,
       cited: true,
     });
+  },
+);
+
+test.each(["en", "zh-CN"] as const)(
+  "a decision written whole in its section is in place when its typed line points to it, citing the same turn (%s)",
+  (language) => {
+    const { unit, text, score } = splitDecision(language);
+    const inSection = (each: Unit): Unit => ({ ...each, section: "Decisions", afterLine: null });
+    const pointer = language === "en" ? "Budget — see below" : "预算，详见下文";
+    expect(score([unit(pointer), inSection(unit(text.whole))])).toEqual({
+      count: 1,
+      inPlace: true,
+      cited: true,
+    });
+    expect(score([unit(pointer, 0), inSection(unit(text.whole))]).inPlace).toBe(false);
+    expect(score([unit(pointer)]).inPlace).toBe(false);
   },
 );
 

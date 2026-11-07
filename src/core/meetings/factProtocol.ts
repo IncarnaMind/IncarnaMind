@@ -21,12 +21,23 @@ export interface MeetingOverview {
   citations: NodeJSON[];
 }
 
+/** Why a fact was left out, for the log: never its words. */
+export type OmitReason =
+  | "metadata"
+  | "frame"
+  | "citationNotFound"
+  | "markers"
+  | "text"
+  | "noCitation"
+  | "repeated";
+
 export interface FactReply {
   facts: MeetingFact[];
   overview: MeetingOverview | null;
   omitted: number;
   /** Known invalid or conflicting IDs, once each in first-encounter order. */
   omittedIds: string[];
+  omittedReasons: Record<string, OmitReason>;
   invalidFrames: number;
 }
 
@@ -259,30 +270,31 @@ function checkedBody(
   frame: Frame,
   required: readonly number[],
   receipts: ReadonlyMap<number, MarkedCitation | null>,
-): MeetingOverview | null {
+): MeetingOverview | OmitReason {
   if (!frame.closed || !frame.aligned || frame.blocks.length !== 2 || frame.raw.length !== 2)
-    return null;
+    return "frame";
   const body = paragraph(frame.blocks[1], frame.id !== null);
   const raw = paragraph(frame.raw[1], frame.id !== null);
-  if (!body || !raw) return null;
+  if (!body || !raw) return "frame";
   const markers = new Set<number>();
-  let valid = true;
+  let found = true;
   const projected = withCitations([raw], (marker) => {
     markers.add(marker);
     const receipt = receipts.get(marker);
     if (receipt?.check !== "found") {
-      valid = false;
+      found = false;
       return null;
     }
     const { marker: _marker, ...citation } = receipt;
     return citationNode(citation);
   });
-  if (!valid || markers.size !== required.length || required.some((marker) => !markers.has(marker)))
-    return null;
+  if (!found) return "citationNotFound";
+  if (markers.size !== required.length || required.some((marker) => !markers.has(marker)))
+    return "markers";
   const generated = asGenerated([body])[0];
-  if (!generated || !sameValue(asGenerated(projected)[0], generated)) return null;
+  if (!generated || !sameValue(asGenerated(projected)[0], generated)) return "text";
   const citations = (generated.content ?? []).filter((child) => child.type === CITATION_NODE);
-  return citations.length > 0 ? { body: generated, citations } : null;
+  return citations.length > 0 ? { body: generated, citations } : "noCitation";
 }
 
 /** Known invalid fact IDs count once; unknown frames are separate, and the overview is required. */
@@ -290,12 +302,19 @@ export function parseFactReply(
   answer: Pick<CellAnswer, "markdown" | "blocks" | "citations">,
 ): FactReply {
   if (answer.markdown.length > 2_000_000 || answer.blocks.length > 20_000)
-    return { facts: [], overview: null, omitted: 1, omittedIds: [], invalidFrames: 1 };
+    return {
+      facts: [],
+      overview: null,
+      omitted: 1,
+      omittedIds: [],
+      omittedReasons: {},
+      invalidFrames: 1,
+    };
   const raw = markdownToBlocks(answer.markdown);
   const { frames, invalidFrames } = framesOf(answer.blocks, raw);
   const invalidFences = invalidMetadataFences(answer.markdown);
   const receipts = sessionReceipts(answer.citations);
-  const facts = new Map<string, { fact: MeetingFact; metadata: FactMetadata } | null>();
+  const facts = new Map<string, { fact: MeetingFact; metadata: FactMetadata } | OmitReason>();
   let overview: MeetingOverview | null | undefined;
   let overviewInventory: number[] | undefined;
   for (const frame of frames) {
@@ -304,10 +323,11 @@ export function parseFactReply(
     const value = sameValue(parsed, metadata(frame.raw[0])) ? parsed : null;
     if (frame.id === null) {
       const required = value?.citations;
-      const checked =
+      const result =
         value && Object.keys(value).length === 1 && inventory(required)
           ? checkedBody(frame, required, receipts)
           : null;
+      const checked = typeof result === "object" ? result : null;
       if (overview === undefined) {
         overview = checked;
         if (inventory(required)) overviewInventory = required;
@@ -317,27 +337,31 @@ export function parseFactReply(
       continue;
     }
     const fields = value ? factMetadata(value) : null;
-    const checked = fields ? checkedBody(frame, fields.citations, receipts) : null;
-    if (!fields || !checked) {
-      facts.set(frame.id, null);
+    const checked = fields ? checkedBody(frame, fields.citations, receipts) : "metadata";
+    if (!fields || typeof checked === "string") {
+      facts.set(frame.id, typeof checked === "string" ? checked : "metadata");
       continue;
     }
     const { citations: _inventory, ...details } = fields;
     const next = { fact: { id: frame.id, ...details, ...checked }, metadata: fields };
     if (!facts.has(frame.id)) facts.set(frame.id, next);
-    else if (!sameValue(facts.get(frame.id), next)) facts.set(frame.id, null);
+    else if (!sameValue(facts.get(frame.id), next)) facts.set(frame.id, "repeated");
   }
   const kept: MeetingFact[] = [];
   const omittedIds: string[] = [];
+  const omittedReasons: Record<string, OmitReason> = {};
   for (const [id, value] of facts) {
-    if (value) kept.push(value.fact);
-    else omittedIds.push(id);
+    if (typeof value === "string") {
+      omittedIds.push(id);
+      omittedReasons[id] = value;
+    } else kept.push(value.fact);
   }
   return {
     facts: kept,
     overview: overview ?? null,
     omitted: omittedIds.length + (overview ? 0 : 1),
     omittedIds,
+    omittedReasons,
     invalidFrames,
   };
 }

@@ -83,6 +83,7 @@ export function notesContext(
   lines: readonly FillLine[],
   question: string,
   history?: FillHistory,
+  userName?: string | null,
 ): QuestionContext {
   const shown = lines.map(
     (line) => `${line.marker}${line.heading ? " (heading)" : ""}: ${line.text}`,
@@ -90,6 +91,11 @@ export function notesContext(
   const prefix = `P${history?.part ?? 1}_F`;
   const framing = [
     callIntro,
+    ...(userName
+      ? [
+          `The User, who speaks as Me, set their name as ${JSON.stringify(userName)}: write their own commitments and choices with that name, however the transcript spells it.`,
+        ]
+      : []),
     lines.length > 0
       ? "The User took the notes below during the call, a line each. Fill them in from the transcript:"
       : "The User took no notes. Write the meeting's notes from the transcript.",
@@ -145,8 +151,12 @@ export function notesContext(
 }
 
 /** The meeting's notes in sections, when the User took none. */
-export function sectionsContext(question: string, history?: FillHistory): QuestionContext {
-  return notesContext([], question, history);
+export function sectionsContext(
+  question: string,
+  history?: FillHistory,
+  userName?: string | null,
+): QuestionContext {
+  return notesContext([], question, history, userName);
 }
 
 /** A node's plain text: a Citation has none. */

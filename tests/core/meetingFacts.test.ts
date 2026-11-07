@@ -65,6 +65,7 @@ async function capture(
           first: "Dana will send the draft on Monday",
           second: "Alex will bring the checklist on Tuesday",
           topics: ["review date", "draft", "checklist"],
+          pointer: (topic: string, direction: "above" | "below") => `${topic} — see ${direction}`,
         }
       : {
           line: "评审日期与分工",
@@ -73,6 +74,8 @@ async function capture(
           first: "王芳周一发草稿",
           second: "李明周二带来检查清单",
           topics: ["评审日期", "草稿", "检查清单"],
+          pointer: (topic: string, direction: "above" | "below") =>
+            `${topic}，详见${direction === "above" ? "上" : "下"}文`,
         };
   const text = [
     badRouting ? "HEADINGS: H9=NONE" : splitHeading ? "HEADINGS: H1=ACTIONS" : "HEADINGS: H1=NONE",
@@ -225,8 +228,11 @@ for (const language of ["en", "zh-CN"] as const) {
           if (node.type.name === "listItem") items.push(node.textContent);
         });
         expect(items).toHaveLength(1);
+        for (const topic of words.topics) {
+          expect(items[0]).toContain(words.pointer(topic, "below"));
+        }
         for (const full of [words.decision, words.first, words.second]) {
-          expect(items[0]).toContain(full);
+          expect(items[0]).not.toContain(full);
           expect(readMind(client).textContent.split(full)).toHaveLength(2);
         }
         await core.undoMeetingFill(meeting.id);
@@ -247,12 +253,21 @@ for (const language of ["en", "zh-CN"] as const) {
         expect(fill).toMatchObject({ state: "filled", omitted: 0 });
         const text = readMind(client).textContent;
         const blocks = readMind(client);
-        const boundary = blocks.child(1);
-        expect(boundary.type.name).toBe("paragraph");
-        const references = boundary.textContent;
-        expect(references).toContain(language === "en" ? "draft — see below" : "草稿，详见下文");
-        expect(references).not.toContain(words.first);
-        expect(text.indexOf(words.first)).toBeGreaterThan(text.indexOf(words.line));
+        const action = blocks.child(1);
+        expect(action.type.name).toBe("paragraph");
+        expect(action.textContent).toContain(words.first);
+        expect(text.split(words.first)).toHaveLength(2);
+        const children: string[] = [];
+        blocks.forEach((node) => {
+          children.push(node.textContent.trim());
+        });
+        const line = children.indexOf(words.line);
+        expect(line).toBeGreaterThan(1);
+        expect(children.slice(line + 1, line + 4)).toEqual([
+          words.pointer(words.topics[0] ?? "", "below"),
+          words.pointer(words.topics[1] ?? "", "above"),
+          words.pointer(words.topics[2] ?? "", "above"),
+        ]);
         await core.undoMeetingFill(meeting.id);
         await vi.waitFor(() => expect(exactly(client)).toEqual(before));
       } finally {
@@ -281,11 +296,12 @@ for (const language of ["en", "zh-CN"] as const) {
           paragraphs.push(node.textContent);
         });
         const start = paragraphs.indexOf(words.line);
-        expect(paragraphs.slice(start + 1, start + 4)).toEqual([
-          expect.stringContaining(words.decision),
-          expect.stringContaining(words.first),
-          expect.stringContaining(words.second),
-        ]);
+        expect(paragraphs.slice(start + 1, start + 4).map((each) => each.trim())).toEqual(
+          words.topics.map((topic) => words.pointer(topic, "below")),
+        );
+        for (const full of [words.decision, words.first, words.second]) {
+          expect(paragraphs.findIndex((each) => each.includes(full))).toBeGreaterThan(start + 3);
+        }
         const added = fill.addedBlockIds;
         expect(added).toBeDefined();
         expect(added?.length).toBeGreaterThan(0);
