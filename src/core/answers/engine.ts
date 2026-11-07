@@ -1445,15 +1445,15 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
           "question-search",
           yield* started("question-search", { query }, ONE_SEARCH_PARAMETERS),
         );
-        const made: MadeSearch[] = asked
-          ? [{ id: "question-search", input: { query }, result: asked }]
-          : [];
+        const made: MadeSearch[] = [
+          { id: "question-search", input: { query }, result: asked ?? mergedOrFailed([]) },
+        ];
         const named = asked
           ? (request.documents.namedNotReached?.(query, asked.passageIds ?? []) ?? [])
           : [];
         const pending = [];
         for (const [index, document] of named.entries()) {
-          const id = `question-search-named-${index + 1}`;
+          const id = `${NAMED_SEARCH}${index + 1}`;
           pending.push({
             id,
             input: { query, document },
@@ -1843,6 +1843,12 @@ const runMessage = (message: AnswerMessage): RunMessage =>
  */
 const PRESEARCH_NOTE =
   "IncarnaMind searched the Question's own words for you. If these Passages don't hold all of the answer, search again with other words before writing.";
+
+/** The id each search made in a Document the Question names (#1633) starts with. */
+const NAMED_SEARCH = "question-search-named-";
+
+/** Whether a search's card is one the engine made in a Document the Question names, before the first call. */
+export const isNamedSearch = (toolCallId: string) => toolCallId.startsWith(NAMED_SEARCH);
 
 /** What a search made by the engine looked for, as its card shows it: in one Document, or all. */
 interface SearchInput {

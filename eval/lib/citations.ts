@@ -33,6 +33,7 @@ import {
   type QuoteRetry,
   type RejectedRecord,
 } from "../../src/core";
+import { isNamedSearch } from "../../src/core/answers/engine";
 import { outputTokensFor } from "../../src/core/providers/ollamaModels";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import { figureShownText } from "../../src/shared/calculatedFigures";
@@ -597,7 +598,11 @@ export async function askOne(
       }),
       core.on("answer.toolCallStarted", (event) => {
         const query = event.call.input.query;
-        if (event.mindId === mind.id && typeof query === "string") searches.push(query);
+        // A search the engine made in a Document the Question names is part of the one made first,
+        // so "searched more than once" still counts only Answers that searched on (#1633).
+        if (event.mindId !== mind.id || typeof query !== "string" || isNamedSearch(event.call.id))
+          return;
+        searches.push(query);
       }),
     ];
   });

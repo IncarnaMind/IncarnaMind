@@ -59,6 +59,22 @@ function answering(more = 0) {
   });
 }
 
+/** Writes one sentence citing the Passage that holds `line`, in one call, or says the Documents don't. */
+function citingTheLine(line: string) {
+  return scriptedModel((call: ModelCall): ScriptedReply => {
+    const passage = call.results
+      .flatMap((result) => shownPassages(result.text))
+      .find((each) => each.text.includes(line));
+    if (!passage) return { text: "The Documents don't say." };
+    return {
+      text: "That is the figure[^1].",
+      calls: [
+        { tool: "cite", input: { citations: [{ marker: 1, passage: passage.id, quote: line }] } },
+      ],
+    };
+  });
+}
+
 /** As a model on both lists: it writes the Answer, then cites it. */
 const setUp = (model: ReturnType<typeof scriptedModel>, retrieveFirst: boolean) =>
   setUpWithDocuments(model, [{ name: "Tides.md", contents: TIDES_MD }], {
@@ -109,7 +125,7 @@ describe("An Answer that retrieves first", { timeout: 30_000 }, () => {
     );
   });
 
-  test("on Claude Haiku 5.5, which the list no longer names, the model searches first itself", async () => {
+  test("on Claude Haiku 5.5, as the list names it, the Question is searched before the first call and answered in one", async () => {
     const model = answering();
     const { core, client, mind } = await setUpWithDocuments(model, [
       { name: "Tides.md", contents: TIDES_MD },
@@ -123,8 +139,8 @@ describe("An Answer that retrieves first", { timeout: 30_000 }, () => {
 
     const { answerId } = await askAndFinish(core, client, mind.id, "When are spring tides?");
 
-    expect(JSON.stringify(model.doStreamCalls[0]?.prompt)).not.toContain("question-search");
-    expect(model.doStreamCalls).toHaveLength(2);
+    expect(JSON.stringify(model.doStreamCalls[0]?.prompt)).toContain("question-search");
+    expect(model.doStreamCalls).toHaveLength(1);
     expect(citationsIn(client, answerId)).toMatchObject([{ quote: SPRING, check: "found" }]);
   });
 
@@ -276,24 +292,68 @@ describe("An Answer that retrieves first", { timeout: 30_000 }, () => {
 
   // Answered in one call from another Document's Passages, a Question about warm-up steps that
   // named no Document went wrong where the loop's own search found the settings table (#1633).
-  test("searches the Question again in the Document a word of it names, when its own search reached none of them", async () => {
-    const ramp = "Ramp steps: 6,000 for both configurations.";
-    const asked = "For how many steps does the learning rate ramp up?";
-    const model = scriptedModel((call: ModelCall): ScriptedReply => {
-      const passage = call.results
-        .flatMap((result) => shownPassages(result.text))
-        .find((each) => each.text.includes(ramp));
-      if (!passage) return { text: "The Documents don't say." };
-      return {
-        text: "It ramps up for 6,000 steps[^1].",
-        calls: [
-          { tool: "cite", input: { citations: [{ marker: 1, passage: passage.id, quote: ramp }] } },
+  test.each([
+    {
+      case: "English",
+      asked: "For how many steps does the learning rate ramp up?",
+      decoys: [
+        "For how many steps does the learning rate go up? It goes up for 2,000 steps, then the learning rate decays.",
+        "A learning rate says how far each update moves; how many steps it goes up for is set before a run.",
+      ],
+      named: { name: "Kestrel settings", text: "Ramp steps: 6,000 for both configurations." },
+    },
+    {
+      case: "Chinese",
+      asked: "学习率要预热多少步？",
+      decoys: [
+        "学习率要上升多少步？学习率先上升两千步，然后学习率下降。",
+        "学习率决定每一步更新走多远，上升多少步在训练前就定好了。",
+      ],
+      named: { name: "鸢尾设置", text: "预热步数：六千步，两种配置相同。" },
+    },
+    {
+      case: "a word only its name holds",
+      asked: "For how many steps does the Kestrel learning rate rise?",
+      decoys: [
+        "For how many steps does the learning rate go up? It goes up for 2,000 steps, then the learning rate decays.",
+        "A learning rate says how far each update moves; how many steps it goes up for is set before a run.",
+      ],
+      named: { name: "Kestrel settings", text: "Warm-up: 6,000 steps for both configurations." },
+    },
+  ])(
+    "searches the Question again in the Document a word of it names, when its own search reached none of them ($case)",
+    async ({ asked, decoys, named }) => {
+      const model = citingTheLine(named.text);
+      const { searches, answerSearch } = recordSearches();
+      const { core, client, mind } = await setUpWithDocuments(
+        model,
+        [
+          { name: "Schedules.md", contents: `# Schedules\n\n${decoys[0]}` },
+          { name: "Glossary.md", contents: `# Glossary\n\n${decoys[1]}` },
+          { name: `${named.name}.md`, contents: `# Settings\n\n${named.text}` },
         ],
-      };
-    });
+        {
+          answerPaths: { retrievesFirst: () => true, writesThenCites: () => true },
+          answerSearch: { ...answerSearch, maxPassages: 2 },
+        },
+      );
+      const cards: unknown[] = [];
+      core.on("answer.toolCallStarted", (event) => cards.push(event.call.input));
+
+      const { answerId } = await askAndFinish(core, client, mind.id, asked);
+
+      expect(searches[0]).toEqual(["Glossary", "Schedules"]);
+      expect(cards).toEqual([{ query: asked }, { query: asked, document: named.name }]);
+      expect(model.doStreamCalls).toHaveLength(1);
+      expect(citationsIn(client, answerId)).toMatchObject([{ quote: named.text, check: "found" }]);
+    },
+  );
+
+  test("searches the Question again in two of the Documents its words name, not more", async () => {
+    const asked = "For how many steps does the learning rate ramp, taper and plateau?";
     const { searches, answerSearch } = recordSearches();
     const { core, client, mind } = await setUpWithDocuments(
-      model,
+      citingTheLine("The ramp lasts 6,000 steps."),
       [
         {
           name: "Schedules.md",
@@ -305,22 +365,59 @@ describe("An Answer that retrieves first", { timeout: 30_000 }, () => {
           contents:
             "# Glossary\n\nA learning rate says how far each update moves; how many steps it goes up for is set before a run.",
         },
-        { name: "Kestrel settings.md", contents: `# Settings\n\n${ramp}` },
+        { name: "Ramp.md", contents: "# Notes\n\nThe ramp lasts 6,000 steps." },
+        { name: "Taper.md", contents: "# Notes\n\nThe taper lasts 9,000 steps." },
+        { name: "Plateau.md", contents: "# Notes\n\nThe plateau lasts 1,000 steps." },
       ],
       {
         answerPaths: { retrievesFirst: () => true, writesThenCites: () => true },
         answerSearch: { ...answerSearch, maxPassages: 2 },
       },
     );
-    const cards: unknown[] = [];
-    core.on("answer.toolCallStarted", (event) => cards.push(event.call.input));
 
-    const { answerId } = await askAndFinish(core, client, mind.id, asked);
+    await askAndFinish(core, client, mind.id, asked);
 
+    expect(searches).toHaveLength(3);
     expect(searches[0]).toEqual(["Glossary", "Schedules"]);
-    expect(cards).toEqual([{ query: asked }, { query: asked, document: "Kestrel settings" }]);
-    expect(model.doStreamCalls).toHaveLength(1);
-    expect(citationsIn(client, answerId)).toMatchObject([{ quote: ramp, check: "found" }]);
+    expect(searches.slice(1).flat().sort()).toEqual(["Ramp", "Taper"]);
+  });
+
+  test("doesn't search again in a Document a word names when another Document has its name", async () => {
+    const asked = "For how many steps does the learning rate ramp up?";
+    const sources = await createTempDataFolder();
+    const { searches, answerSearch } = recordSearches();
+    const { core, client, mind } = await setUpWithDocuments(
+      answering(),
+      [
+        {
+          name: "Schedules.md",
+          contents:
+            "# Schedules\n\nFor how many steps does the learning rate go up? It goes up for 2,000 steps, then the learning rate decays.",
+        },
+        {
+          name: "Glossary.md",
+          contents:
+            "# Glossary\n\nA learning rate says how far each update moves; how many steps it goes up for is set before a run.",
+        },
+        { name: "Settings.md", contents: "# Settings\n\nRamp steps: 6,000." },
+      ],
+      {
+        answerPaths: { retrievesFirst: () => true, writesThenCites: () => true },
+        answerSearch: { ...answerSearch, maxPassages: 2 },
+      },
+    );
+    // A longer Document of the same name, in another folder: a search by the name would go to it.
+    await addAndProcess(core, [
+      await writeSourceFile(
+        sources,
+        "Settings.md",
+        `# Settings\n\n${"Batches hold about the same number of tokens. ".repeat(40)}`,
+      ),
+    ]);
+
+    await askAndFinish(core, client, mind.id, asked);
+
+    expect(searches).toHaveLength(1);
   });
 
   test("searches once when its own search reached a Document a word of the Question names", async () => {

@@ -2309,7 +2309,11 @@ export function createCitationSession(
         passageIds.map((passageId) => documents.citationSource(passageId)?.documentId),
       );
       if (named.some((each) => reached.has(each.id))) return [];
-      return named.slice(0, NAMED_SEARCHES).map((each) => each.name);
+      // A name another Document shares would send the search to that one.
+      return named
+        .filter((each) => documents.documentNamed?.(each.name) === each.id)
+        .slice(0, NAMED_SEARCHES)
+        .map((each) => each.name);
     },
 
     ...(documents.documentNamed && documents.passagesCovering && documents.passagesBetween
