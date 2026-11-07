@@ -788,9 +788,12 @@ describe("a figure in the words a sentence quotes is stated by its Citation", ()
     const citations = await askedCited(
       "What does the contract say?",
       "contract terms levy",
-      "The “Contract 10” sets the terms [^1].",
+      "The “Contract Term 10 Rules” sets the terms [^1].",
       "The terms set the levy",
-      { name: "Contract 10.md", contents: "# Contract\n\nThe terms set the levy.\n" },
+      {
+        name: "Contract Term 10 Rules.md",
+        contents: "# Contract\n\nThe terms set the levy.\n",
+      },
     );
 
     expect(checkOf(citations, 1)).toMatchObject({ check: "not-checked" });
