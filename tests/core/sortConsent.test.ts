@@ -403,16 +403,16 @@ describe("The row's words (#2308)", () => {
       "4 to organize",
       "1 to organize",
       "Allow Anthropic",
-      "4 Documents wait to be organized: Anthropic isn’t allowed to read them. Allowing it sends each Document’s name, kind and page count, the start of its text and its slide titles or sheet names, with your Folders’ names and descriptions and any matching Tags’, to Anthropic, for these and for Documents you add later.",
-      "1 Document waits to be organized: Anthropic isn’t allowed to read it. Allowing it sends the Document’s name, kind and page count, the start of its text and its slide titles or sheet names, with your Folders’ names and descriptions and any matching Tags’, to Anthropic, for this one and for Documents you add later.",
+      "4 Documents wait to be organized: Anthropic isn’t allowed to read them. Allowing it sends each Document’s name, kind and page count, the start of its text and its slide titles or sheet names, with your Folders’ names and descriptions, any matching Tags’ names and descriptions and your interface language, to Anthropic, for these and for Documents you add later.",
+      "1 Document waits to be organized: Anthropic isn’t allowed to read it. Allowing it sends the Document’s name, kind and page count, the start of its text and its slide titles or sheet names, with your Folders’ names and descriptions, any matching Tags’ names and descriptions and your interface language, to Anthropic, for this one and for Documents you add later.",
     ],
     [
       "zh-CN",
       "4 个待整理",
       "1 个待整理",
       "允许 Anthropic",
-      "4 个文档等待整理：尚未允许 Anthropic 读取。允许后，会把每个文档的名称、类型和页数、开头部分的文字及幻灯片标题或工作表名称，连同你的文件夹名称和描述以及相符标签的名称和描述，发送给 Anthropic，包括这些文档和以后添加的文档。",
-      "1 个文档等待整理：尚未允许 Anthropic 读取。允许后，会把这个文档的名称、类型和页数、开头部分的文字及幻灯片标题或工作表名称，连同你的文件夹名称和描述以及相符标签的名称和描述，发送给 Anthropic，包括这个文档和以后添加的文档。",
+      "4 个文档等待整理：尚未允许 Anthropic 读取。允许后，会把每个文档的名称、类型和页数、开头部分的文字及幻灯片标题或工作表名称，连同你的文件夹名称和描述、相符标签的名称和描述以及你的界面语言，发送给 Anthropic，包括这些文档和以后添加的文档。",
+      "1 个文档等待整理：尚未允许 Anthropic 读取。允许后，会把这个文档的名称、类型和页数、开头部分的文字及幻灯片标题或工作表名称，连同你的文件夹名称和描述、相符标签的名称和描述以及你的界面语言，发送给 Anthropic，包括这个文档和以后添加的文档。",
     ],
   ] as const)("%s", (language, many, one, allowLabel, sends, sendsOne) => {
     expect(translate(language, "library.toSort.other", { count: 4 })).toBe(many);

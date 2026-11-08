@@ -48,10 +48,10 @@ interface Subject extends StoredDocument {
   embedding_model: string | null;
 }
 
-/** A run the core starts for the assistant, beside what the User's own run is given (#1569). */
+/** What the core gives a run beyond its input: the assistant's, or one allowed alone (#1569). */
 export interface OwnRun {
-  /** Who asked, and the id its Undo takes the proposals back by. */
-  run: { origin: OrganizeReviewOrigin; runId: string };
+  /** Who asked, and the id its Undo takes the proposals back by; when left out, the Library. */
+  run?: { origin: OrganizeReviewOrigin; runId: string };
   /** The cloud read the User allowed for this run. */
   permit?: CloudReadPermit;
   signal?: AbortSignal;
@@ -218,7 +218,7 @@ export function createLibraryOrganizer(options: {
       const settings = options.settings();
       if (input.folderId !== null && !options.folders().some((f) => f.id === input.folderId))
         throw new InvalidInputError({ key: "error.folder.notFound" });
-      const runId = own?.run.runId ?? crypto.randomUUID();
+      const runId = own?.run?.runId ?? crypto.randomUUID();
       current?.abort();
       const controller = new AbortController();
       current = controller;

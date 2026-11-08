@@ -29,17 +29,19 @@ export const en = {
   "library.organize.retry": "Try again",
   "library.organize.explain": "Suggests a Folder and Tags for each Document. You decide.",
   "library.organize.needsModel": "Organize needs an AI model",
-  "library.organize.use": "Use {company}",
   "library.toSort.one": "1 to organize",
   "library.toSort.other": "{count} to organize",
   "library.toSort.allow": "Allow {service}",
   "library.toSort.sends.one":
-    "1 Document waits to be organized: {service} isn’t allowed to read it. Allowing it sends the Document’s name, kind and page count, the start of its text and its slide titles or sheet names, with your Folders’ names and descriptions and any matching Tags’, to {service}, for this one and for Documents you add later.",
+    "1 Document waits to be organized: {service} isn’t allowed to read it. Allowing it sends the Document’s name, kind and page count, the start of its text and its slide titles or sheet names, with your Folders’ names and descriptions, any matching Tags’ names and descriptions and your interface language, to {service}, for this one and for Documents you add later.",
   "library.toSort.sends.other":
-    "{count} Documents wait to be organized: {service} isn’t allowed to read them. Allowing it sends each Document’s name, kind and page count, the start of its text and its slide titles or sheet names, with your Folders’ names and descriptions and any matching Tags’, to {service}, for these and for Documents you add later.",
-  "library.organize.sends": "Sends document names and excerpts to {company}.",
-  "library.organize.sends.details":
-    "Each Document’s name and the start of its text (for a scan, images of its first pages), and your Folders’ and Tags’ names and descriptions, go to {company}.",
+    "{count} Documents wait to be organized: {service} isn’t allowed to read them. Allowing it sends each Document’s name, kind and page count, the start of its text and its slide titles or sheet names, with your Folders’ names and descriptions, any matching Tags’ names and descriptions and your interface language, to {service}, for these and for Documents you add later.",
+  "library.organize.consent.title": "Allow {service} to read your Documents?",
+  "library.organize.consent.sends":
+    "Allowing it sends each Document’s name, kind and page count, the start of its text and its slide titles or sheet names, with your Folders’ names and descriptions, any matching Tags’ names and descriptions and your interface language, to {service}, each time you organize.",
+  "library.organize.consent.declined":
+    "You said no to this before. Allow and organize sends them this time only.",
+  "library.organize.allow": "Allow and organize",
   "library.organize.dismiss": "Not now",
   "library.organize.setUp": "Set up a model on this computer",
   "library.organize.noneFit": "Organize found no Folder to suggest for these Documents",
@@ -3871,7 +3873,7 @@ export const en = {
   "models.removed.automatic": "Removed {provider}. Its defaults are back to Automatic.",
   "models.providers.title": "Your providers",
   "needsModel.organize":
-    "Organize needs an AI model. It sends Documents’ names and excerpts, and Folder and Tag names and descriptions, to the model you set up.",
+    "Organize needs an AI model. It sends each Document’s name, kind and page count, the start of its text and its slide titles or sheet names, with your Folders’ names and descriptions, any matching Tags’ names and descriptions and your interface language, to the model you set up, once you allow it.",
   "needsModel.compare":
     "Compare Documents needs an AI model. It sends the Documents you chose to the model you set up.",
   "needsModel.help":
