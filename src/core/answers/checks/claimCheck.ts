@@ -1396,8 +1396,9 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
         })),
       );
       session.check();
-      // The run's last reply decides each figure: an earlier reply's Figures line never stands
-      // over a later reply that gives none, or another (#2591).
+      // The run's final reply decides each figure: an earlier reply's Figures line never stands
+      // over a later reply that gives none, or another (#2591). A final turn that answers in prose
+      // instead of a reply keeps the reply asked about, for the sentence and its figures (#2184).
       const figuresText = text;
       if (invalidInput || pending.size > 0) {
         retryPendingQuotes();
