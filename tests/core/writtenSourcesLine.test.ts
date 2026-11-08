@@ -7,7 +7,7 @@
 import { describe, expect, test, vi } from "vitest";
 import type { ConversationAnswer, Core } from "../../src/core";
 import { foldedLine, type StepsInput, stepRows } from "../../src/renderer/src/answerSteps";
-import { foldedWords } from "../../src/renderer/src/answerStepWords";
+import { foldedWords, mindCallText } from "../../src/renderer/src/answerStepWords";
 import { translate } from "../../src/shared/i18n";
 import { pendingProposals } from "../../src/shared/proposals";
 import { askAssistant } from "../helpers/assistant";
@@ -69,6 +69,7 @@ const WALKS = {
       written: "Searched All Documents · 2 sources",
       meeting: "Listened to the live transcript · 2 sources",
       stopped: "Searched All Documents · 1 source",
+      stoppedRow: "Edited “Estuary” · 2 changes",
     },
     used: "2 used",
   },
@@ -113,6 +114,7 @@ const WALKS = {
       written: "已搜索全部文档 · 2 个来源",
       meeting: "已听实时转写 · 2 个来源",
       stopped: "已搜索全部文档 · 1 个来源",
+      stoppedRow: "修改了“Estuary” · 2 处修订",
     },
     used: "用了 2 段",
   },
@@ -249,7 +251,7 @@ for (const language of ["en", "zh-CN"] as const) {
       expect(words.found).toContain(walk.used);
     });
 
-    // protects=a write stopped halfway keeps what it wrote, and its line names the source that text cites; fails_when=the stopped write's line says "no sentence matched them"; no_claim=what Undo does with it.
+    // protects=a write stopped halfway keeps what it wrote, its line names the source that text cites, and its row says what it changed; fails_when=the stopped write's line says "no sentence matched them", or its row "Couldn't change"; no_claim=what Undo does with it.
     test("a write stopped halfway names the source of what it wrote", async () => {
       const core = startCore(await createTempDataFolder(), {
         createChatModel: scriptedModels(writingModel(walk, new Promise(() => undefined)))
@@ -276,6 +278,11 @@ for (const language of ["en", "zh-CN"] as const) {
       expect(answer.status).toBe("stopped");
       expect(pendingProposals(client.blocks)).toHaveLength(2);
       expect(wording(answer, mind.id, language).line).toBe(walk.lines.stopped);
+      const t = (key: Parameters<typeof translate>[1], params?: Parameters<typeof translate>[2]) =>
+        translate(language, key, params);
+      const write = answer.toolCalls.find((call) => call.tool === "add_to_mind");
+      if (!write) throw new Error("No write.");
+      expect(mindCallText(t, write, "Estuary")).toBe(walk.lines.stoppedRow);
     });
   });
 }
