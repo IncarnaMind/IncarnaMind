@@ -1854,6 +1854,7 @@ function structureOf(doc: ProseMirrorNode, call: Call) {
       .filter((topic) => !topics.some((each) => topic.pattern.test(each.heading)))
       .map((topic) => topic.name),
     topicItems: topicItems.length,
+    topicSentences: topicItems.map((item) => (item.text.match(SENTENCES) ?? []).length),
     topicNotBullets: topicItems.filter((item) => !item.bullet).length,
     topicUncited: topicItems.filter((item) => !item.cited).length,
     topicPointers: topicItems.filter((item) => isPointer(item.text)).length,
@@ -3848,6 +3849,10 @@ describe.skipIf(LOADER_PREFLIGHT || (!KEY && !LOCAL_MODEL))(
               );
             }
             expect(structure.topicNotBullets, "A topic's facts are bullets").toBe(0);
+            expect(
+              structure.topicSentences.filter((count) => count > 2),
+              "A topic's bullets are short, not paragraphs",
+            ).toEqual([]);
             expect(structure.topicUncited, "Every topic bullet is cited").toBe(0);
             expect(structure.topicPointers, "A topic holds facts, not pointers").toBe(0);
             expect(structure.sectionNotBullets, "A section's items are bullets").toBe(0);
