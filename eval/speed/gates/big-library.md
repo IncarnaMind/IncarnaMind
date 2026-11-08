@@ -57,3 +57,27 @@ The packaged build, driven as a User drives it, with Claude Haiku 5.5 on a direc
 `rows` ships if every bar holds. If one fails, the change ships no further and the numbers go on #2772.
 
 **Cost:** about $0.20 a run, $0.80 for the four; within the $6 approved for this work.
+
+## Result (added after the runs, 2026-11-08)
+
+Run on 2026-11-08 at a 15-minute load of 4.4 to 5.5, `main` at b2ae19bf8 against `rows` at af29a79df; spent $0.73 on the four runs. **Every bar holds.**
+
+| Bar | `main` | `rows` | Holds |
+|---|---|---|---|
+| Main thread busy during the import (each run) | 33.4 s of 34.4 s; 36.1 s of 37.3 s | 6.3 s of 7.7 s; 5.3 s of 6.2 s | yes: 81% and 85% lower |
+| Per call on 2,629 Documents: figure schedule; Check's planning; its start | 49 ms; 69 ms; 68 ms | 6.0 ms; 24 ms; 22 ms | yes |
+| Per call during the import: the ready Question (not asked on the settled 2,629) | 32 ms | 3.6 ms | yes |
+| Check this Note, sign / first verdict / end (median, `main`'s spread), 28 | 0.23 / 6.9 / 16.4 s (0.02 / 1.2 / 6.9) | 0.23 / 5.6 / 15.9 s | yes |
+| the same, during the import | 0.30 / 5.6 / 15.7 s (0.03 / 3.7 / 8.5) | 0.25 / 5.8 / 14.5 s | yes |
+| the same, 2,629 | 0.34 / 5.5 / 14.9 s (0.02 / 2.0 / 1.7) | 0.29 / 5.6 / 14.0 s | yes |
+| Questions, first words / end (median, `main`'s spread), 28 | 5.0 / 7.8 s (7.1 / 10.1) | 4.7 / 6.9 s | yes |
+| the same, during the import | 5.1 / 6.6 s (3.8 / 6.4) | 4.9 / 7.0 s | yes |
+| the same, 2,629 | 4.4 / 6.1 s (5.9 / 5.2) | 4.4 / 6.2 s | yes |
+| False Supported: the four sentences not stated, 12 checks an arm | 0 | 0 | yes |
+| Judged right in the checks, of 96 sentences | 85 | 85 | yes |
+| Answers judged right, of 36; a quote not found; a change claimed | 36; 0; 0 | 36; 0; 0 | yes |
+| Failed requests | 0 | 0 | yes |
+
+- With the main thread free, the 2,000 Documents were all ready in 6 to 8 s instead of 34 to 37 s, so most of `rows`' "during the import" actions ran after it.
+- Each Question was asked in a new Note, but the assistant's conversation carried on from one to the next, the same on both arms; its first byte grows over a run with it.
+- Citations whose sentence's judgement didn't run (`not-checked`): 33 of 103 on `main`, 39 of 109 on `rows`. It went with each Answer's shape and run on both arms (the same Chinese contract Question gave three such Citations in one run of each arm). Supported Citations: 67 on both.
