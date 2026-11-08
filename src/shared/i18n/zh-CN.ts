@@ -1973,6 +1973,8 @@ export const zhCN = {
   "viewer.keepTip": "保留这个标签页（或双击它的标签）",
   "viewer.pdf.failed": "无法打开这个 PDF。",
   "viewer.loading": "正在打开文档…",
+  "viewer.notOpened": "IncarnaMind 无法打开这个文档。",
+  "viewer.notOpened.pdf": "IncarnaMind 无法打开这个 PDF。",
   "viewer.failed": "无法显示这个文档：{message}",
   "viewer.cited.asCited": "引用时，{date}",
   "viewer.cited.openCurrent": "打开当前版本",

@@ -26,7 +26,7 @@ import { scannedTextLayer, useScannedPages } from "./scannedText";
 import { pdfSelection, useSelectionReader } from "./selectedText";
 import { UnreadPagesLine } from "./UnreadPagesLine";
 import { HeaderDivider, ViewerHeader } from "./ViewerHeader";
-import { FileGone, ViewerMessage } from "./ViewerMessage";
+import { FileGone, OpeningDocument, ViewerMessage } from "./ViewerMessage";
 import { createWheelZoom, MAX_ZOOM, MIN_ZOOM, stepZoom } from "./zoom";
 
 /** Space around the picture, in CSS pixels. */
@@ -342,7 +342,7 @@ export function ImageView({ document, target }: { document: Document; target: Vi
       </ViewerHeader>
       <UnreadPagesLine document={document} />
       {loaded.kind === "loading" ? (
-        <ViewerMessage>{t("viewer.loading")}</ViewerMessage>
+        <OpeningDocument key={attempt} retry={reload} />
       ) : loaded.kind === "missing" ? (
         <FileGone quote={target.quote} />
       ) : loaded.kind === "failed" ? (
