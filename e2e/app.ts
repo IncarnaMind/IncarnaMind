@@ -962,12 +962,13 @@ export const ANTHROPIC_KEY = "sk-ant-api03-a-test-key-for-first-run";
 
 /**
  * Opens the key form where a key's own form names no service we list (#1922): the field says so,
- * and its way on picks the service.
+ * and its way on picks the service. The key has no sk-, which DeepSeek's and others' share and
+ * would be asked about instead (#2865).
  */
 export async function openServiceList(
   window: Page,
   card: Locator,
-  key = "sk-unknown",
+  key = "a-key-no-service-issues",
 ): Promise<void> {
   const field = card.getByTestId("setup-key");
   await field.fill(key);
@@ -977,6 +978,19 @@ export async function openServiceList(
   await expect(form).toBeVisible();
   // The key only reached the list: the form starts as it would from Settings.
   await form.locator('input[type="password"]').fill("");
+}
+
+/**
+ * The setup card's way in with this test id, in view: in Chinese the ChatGPT and Claude plans
+ * sit under Other ways (#2865), which a person opens first.
+ */
+export async function setupWay(window: Page, card: Locator, testId: string): Promise<Locator> {
+  const way = card.getByTestId(testId);
+  if (await way.evaluate((element) => element.closest("details")?.open === false)) {
+    await pointAndClick(window, card.getByTestId("setup-other"));
+  }
+  await expect(way).toBeVisible();
+  return way;
 }
 
 /**
@@ -1421,6 +1435,27 @@ export async function interceptShowItemInFolder(app: ElectronApplication) {
 /** The paths the intercepted file manager was asked to show. */
 export function pathsShown(app: ElectronApplication) {
   return app.evaluate(() => (globalThis as { pathsShown?: string[] }).pathsShown ?? []);
+}
+
+/** Every request the scripted chat model was sent: where it would have gone, and with which key. */
+export const fakeChatRequests = (app: ElectronApplication) =>
+  app.evaluate(
+    () =>
+      (
+        globalThis as {
+          incarnamindFakeChatRequests?: {
+            service: string;
+            endpoint: string | null;
+            apiKey: string | null;
+          }[];
+        }
+      ).incarnamindFakeChatRequests ?? [],
+  );
+
+/** Puts text on the clipboard and pastes it with the keyboard, as a person would. */
+export async function pasteText(app: ElectronApplication, window: Page, text: string) {
+  await app.evaluate(({ clipboard }, value) => clipboard.writeText(value), text);
+  await window.keyboard.press("ControlOrMeta+v");
 }
 
 /**

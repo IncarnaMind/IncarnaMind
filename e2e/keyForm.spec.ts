@@ -1084,7 +1084,7 @@ for (const { value, line, chips, titles } of [
   },
   {
     value: "zh-CN",
-    line: "在这里可以识别 OpenAI、Anthropic、Google、OpenRouter 和 xAI 的密钥。",
+    line: "可以识别 DeepSeek、通义千问、智谱 GLM、硅基流动等服务的密钥。",
     chips: ["DeepSeek", "通义千问", "Kimi", "智谱 GLM", "Anthropic", "OpenAI", "Google"],
     titles: ["DeepSeek", "通义千问", "Kimi", "智谱 GLM"],
   },

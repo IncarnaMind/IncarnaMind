@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { AgentClient, ChatProvider } from "../../../../core/api";
+import type { KeyTarget } from "../../../../core/providers/catalog/keyForms";
 import { SHOW_CLAUDE_APP_SETUP } from "../../../../shared/agentConnection";
 import { core } from "../../core";
 import { errorMessage } from "../../errors";
@@ -40,6 +41,7 @@ export function ModelSetupCard() {
   const localOnly = useAppStore((state) => state.embedding?.localOnly === true);
   const [view, setView] = useState<"key" | null>(null);
   const [initialKey, setInitialKey] = useState("");
+  const [initialTarget, setInitialTarget] = useState<KeyTarget | undefined>(undefined);
   const [others, setOthers] = useState(false);
   const [providers, setProviders] = useState<ChatProvider[]>([]);
   const ollama = useOllama(() => undefined, undefined, { localModeUnasked: true });
@@ -64,6 +66,14 @@ export function ModelSetupCard() {
     setView(null);
     keyField.current?.focus();
   };
+  // Neither plan is sold in mainland China, the region the Chinese interface stands for, so
+  // there they wait under Other ways (#2865).
+  const plans = (
+    <>
+      <ChatGptPlanWay sign={sign} leads={!chinese} />
+      <ClaudePlanWay onUseKey={useKeyInstead} />
+    </>
+  );
 
   return (
     <section
@@ -104,19 +114,15 @@ export function ModelSetupCard() {
                 onSaved={() => undefined}
                 unrecognised={{
                   label: "setup.key.chooseService",
-                  run: (key) => {
+                  run: (key, next) => {
                     setInitialKey(key);
+                    setInitialTarget(next);
                     setView("key");
                   },
                 }}
               />
             )}
-            {!localOnly && (
-              <>
-                <ChatGptPlanWay sign={sign} chinese={chinese} />
-                <ClaudePlanWay onUseKey={useKeyInstead} />
-              </>
-            )}
+            {!localOnly && !chinese && plans}
             <LocalWay ollama={ollama} />
             {!localOnly && (
               <details
@@ -131,6 +137,7 @@ export function ModelSetupCard() {
                   {t("setup.other")}
                 </summary>
                 <div className="mt-2 flex flex-col gap-2">
+                  {chinese && plans}
                   <CopilotSetupWay onKey={useKeyInstead} />
                   {SHOW_CLAUDE_APP_SETUP && !chinese && <ClaudeWay />}
                 </div>
@@ -151,6 +158,10 @@ export function ModelSetupCard() {
           <ProviderForm
             providers={providers}
             initialKey={initialKey}
+            {...(initialTarget !== undefined && {
+              initialKind: initialTarget.service,
+              initialEndpoint: initialTarget.region,
+            })}
             onSaved={() => undefined}
             standalone
           />
@@ -171,13 +182,13 @@ export function ModelSetupCard() {
   );
 }
 
-/** The ChatGPT plan: the first way in for a User with no key. */
+/** The ChatGPT plan: the first way in for a User with no key, where it can be bought. */
 function ChatGptPlanWay({
   sign,
-  chinese,
+  leads,
 }: {
   sign: ReturnType<typeof useContinueWithChatGpt>;
-  chinese: boolean;
+  leads: boolean;
 }) {
   const t = useT();
   const storage = useChatGptStorage();
@@ -195,13 +206,13 @@ function ChatGptPlanWay({
             sign.failure?.kind === "record-unreadable" ? { replaceUnreadable: true } : {},
           )
         }
-        className={`w-full ${buttonStyle(chinese ? "secondary" : "primary", "lg")}`}
+        className={`w-full ${buttonStyle(leads ? "primary" : "secondary", "lg")}`}
       >
         <ChatGptMark className="size-4" />
         {t("setup.chatgpt.use")}
       </button>
       <p data-testid="setup-chatgpt-line" className={lineClass}>
-        {t(chinese ? "setup.chatgpt.line.china" : "setup.chatgpt.line")}
+        {t("setup.chatgpt.line")}
       </p>
       {/* It signs in at once, so it says here what goes to OpenAI (ADR-0022). */}
       <SendsLine provider={CHATGPT_RECIPIENT} testId="setup-chatgpt-sends" />

@@ -58,6 +58,7 @@ This changes two earlier lines. Consequences says "The first-run setup lists onl
 - **Why.** In mainland China few first-class providers work (DeepSeek, Qwen and SiliconFlow), and Kimi and GLM are among the most used there. A first-run line that left them out sent those Users to Settings to find them.
 - **The line.** The first-run key line names the providers that work for the language: DeepSeek, Qwen, Kimi and GLM in Chinese; OpenAI, Anthropic, Google, DeepSeek and Kimi in English. Each named provider opens its key form in one step. The form's row of choices follows the language: in Chinese DeepSeek, Qwen, Kimi and GLM come first.
 - **What the tiers still decide.** Which providers have a key guide of their own, and which are tried by hand before a release. Kimi and GLM have neither.
+- **Kimi's keys aren't recognised (#2865).** Kimi documents no form for its keys, so the Chinese line names only what the field recognises, without Kimi, and a Kimi key reaches Kimi through Another service.
 
 ## Amendment: the Copilot plan signs in through IncarnaMind's own GitHub app (#876)
 
