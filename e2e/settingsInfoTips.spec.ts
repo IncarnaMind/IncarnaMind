@@ -98,13 +98,18 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(settings).toBeVisible();
       await expect(info).toBeFocused();
       await window.keyboard.press("Tab");
+      // The pointer rests on the ⓘ until the tip is shown and has grown to its place, as a person
+      // reading it does, and only then moves onto the tip.
       await info.hover();
       await expect(tooltip).toBeVisible();
+      await motionSettled(window);
       await tooltip.hover();
       await expect(tooltip).toBeVisible();
       await window.mouse.move(0, 0);
       await expect(tooltip).toHaveCount(0);
       await info.hover();
+      await expect(tooltip).toBeVisible();
+      await motionSettled(window);
       await tooltip.hover();
       await window.keyboard.press("Escape");
       await expect(tooltip).toHaveCount(0);
