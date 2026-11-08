@@ -341,11 +341,7 @@ for (const language of ["en", "zh-CN"] as const) {
   // protects=after Stop, the call's action is written whole under the typed Action items heading and each typed line gets a pointer to it, all cited AI text, Summary and Decisions follow, and one Undo restores the heading and lines in English and Chinese (#142, #2306); fails_when=a section is missing or repeated, typed text changes, additions are uncited or not AI text, or Undo leaves an addition; no_claim=a real model's wording or allocation of facts.
   test(`after Stop, typed lines and an Action items heading are filled in place, sections follow, and one Undo restores them (${language})`, async () => {
     const words = LINES[language];
-    // The sections are titled in the call's language (#2770), so the call is in the language tested.
-    const { app, window } = await launchApp(dataDir, {
-      fakeChat: true,
-      transcriber: { lines: [words.speech[0]], theirLines: [words.speech[1]] },
-    });
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
     await setWindowSize(app, window, language === "en" ? 1440 : 900, 900);
     await recordOnClose(app, window, `meeting-fill-sections-${language}`);
     await dismissChatSetup(window);
@@ -384,7 +380,12 @@ for (const language of ["en", "zh-CN"] as const) {
     await expectFillPlace(notes, addedBlockIds);
     await expectActionsFit(line, 1);
     const added = notes.locator(".generated-text");
-    await expect(notes.locator("h2")).toHaveText([words.actions, words.summary, words.decisions]);
+    // The typed heading stays as typed; the sections take the call's language, here English (#2770).
+    await expect(notes.locator("h2")).toHaveText([
+      words.actions,
+      LINES.en.summary,
+      LINES.en.decisions,
+    ]);
     await expect(heading).toHaveText(words.actions);
     const actions = notes.locator("h2:not(:has(.generated-text)) + p");
     await expect(actions).toHaveCount(1);
