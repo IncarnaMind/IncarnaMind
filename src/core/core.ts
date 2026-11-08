@@ -445,6 +445,12 @@ export interface Core extends CoreApi, CoreEventSource {
    */
   showSavedFile(path: string): Promise<void>;
   /**
+   * Save recording… (#687): writes a Meeting's audio as one WAV file at `path`, which the host's
+   * save dialog gave. Not while it records; NotFoundError when it has no audio, or its audio is
+   * deleted while it is written, which then leaves nothing at `path`.
+   */
+  writeMeetingRecording(meetingId: string, path: string): Promise<void>;
+  /**
    * Opens a file IncarnaMind saved since it started in the default app for its
    * type, through the `shell` adapter. Throws NotFoundError for any other path.
    */
@@ -4802,6 +4808,7 @@ export function createCore(adapters: CoreAdapters): Core {
     capture: adapters.audioCapture,
     noticeAccepted: () => settings.get().device.meetingNoticeAccepted,
     systemAudioByDefault: () => settings.get().device.meetingSystemAudio,
+    keepAudioByDefault: () => settings.get().device.keepMeetingAudio,
     language: () => settings.get().language,
     createMind: (title, folderId) => {
       const mind = minds.create(parseCreateMindInput({ title, folderId }));
@@ -7189,6 +7196,8 @@ export function createCore(adapters: CoreAdapters): Core {
       return meetingFill.followUndo(id, input.undone);
     },
     deleteMeetingAudio: async (meetingId) => meetings.deleteAudio(meetingId),
+    keepMeetingAudio: async (input) => meetings.keepAudio(input),
+    writeMeetingRecording: (meetingId, path) => meetings.writeRecording(meetingId, path),
     readMeetingAudio: async (input) => meetings.readAudio(input),
     retryTranscript: async (meetingId) => meetings.retryTranscript(meetingId),
     listTranscriptionServices: () => cloudTranscription.list(),

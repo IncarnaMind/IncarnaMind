@@ -2813,6 +2813,17 @@ export const migrations: readonly Migration[] = [
       ALTER TABLE document_groups DROP COLUMN suggested;
     `,
   },
+  {
+    version: 138,
+    description:
+      "A Meeting's audio can be kept until the User deletes it, by Keep audio or the setting (#687)",
+    sql: `
+      -- When the User kept the audio (ISO 8601 UTC): by Keep audio, or the setting "Keep a
+      -- meeting's audio" as the Meeting started recording. A kept Meeting has no
+      -- audio_expires_at. NULL: its audio goes a day after its last stretch.
+      ALTER TABLE meetings ADD COLUMN audio_kept_at TEXT;
+    `,
+  },
 ];
 
 /**

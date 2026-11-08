@@ -4,6 +4,7 @@ import { writingTime } from "../../../shared/blockTimes";
 import { markNow, noteOf } from "../editor/meetingNotes";
 import { translateNow } from "../i18n";
 import { currentMindIdOf, currentTabOf } from "../layoutSlice";
+import { saveRecording } from "../meetingAudio";
 import { helpKeysLabel } from "../meetingHelp";
 import { canRecordMeetings, isLive, useMeetings } from "../meetings";
 import {
@@ -19,6 +20,7 @@ import { useAppStore } from "../store";
 import { openTranscriptBeside } from "../transcripts";
 import { readMindHandle, transcriptHandle } from "./handles";
 import type { Command, CommandContext } from "./registry";
+import { mindOf } from "./targets";
 
 /*
  * Recording a Meeting (#135), from the keyboard, the menus and ⌘K. ⌘⇧P is a
@@ -70,6 +72,13 @@ async function leaveMark(): Promise<void> {
 function startedMeetingInView(ctx?: CommandContext): Meeting | undefined {
   const mindId =
     ctx?.focus?.kind === "mind" ? ctx.focus.id : currentMindIdOf(useAppStore.getState().layout);
+  const meeting = useMeetings.getState().meetings.find((each) => each.mindId === mindId);
+  return meeting && meeting.status !== "ready" ? meeting : undefined;
+}
+
+/** The Meeting of the one Note a menu or ⌘K acts on, once it has started recording. */
+function recordedMeetingOf(ctx: CommandContext): Meeting | undefined {
+  const mindId = mindOf(ctx);
   const meeting = useMeetings.getState().meetings.find((each) => each.mindId === mindId);
   return meeting && meeting.status !== "ready" ? meeting : undefined;
 }
@@ -370,6 +379,53 @@ export const meetingCommands: readonly Command[] = [
     run(ctx) {
       const meeting = startedMeetingInView(ctx);
       if (meeting) useRequests.getState().ask({ deleteAudio: { meetingId: meeting.id } });
+    },
+  },
+  {
+    id: "meeting.keepAudio",
+    label: "meetings.command.keepAudio",
+    keywords: ["meetings.audio.keptForGood"],
+    group: "main",
+    // Its Undo line, and ⌘Z outside a text field, take it back.
+    reversible: true,
+    when: whereMeetings,
+    enabled: (ctx) => {
+      const meeting = startedMeetingInView(ctx);
+      if (!meeting) return { reason: "meetings.command.noMeetingInView" };
+      if (meeting.audio.keptUntilDeleted && meeting.audio.kept) {
+        return { reason: "meetings.command.audioKeptAlready" };
+      }
+      if (!meeting.audio.kept) {
+        return {
+          reason: meeting.audio.deletedAt ? "meetings.command.noAudio" : "meetings.audio.none",
+        };
+      }
+      return true;
+    },
+    run(ctx) {
+      const meeting = startedMeetingInView(ctx);
+      if (meeting) return useMeetings.getState().keepAudio(meeting.id);
+    },
+  },
+  {
+    id: "meeting.saveRecording",
+    label: "meetings.command.saveRecording",
+    group: "main",
+    // It writes a file where the User chose, and changes nothing kept.
+    reversible: true,
+    appliesTo: ["mind", "tab"],
+    when: (ctx) => recordedMeetingOf(ctx) !== undefined,
+    enabled: (ctx) => {
+      const meeting = recordedMeetingOf(ctx);
+      if (meeting?.status === "recording") return { reason: "meetings.command.saveWhileRecording" };
+      if (meeting?.audio.kept) return true;
+      return {
+        reason: meeting?.audio.deletedAt ? "meetings.command.noAudio" : "meetings.audio.none",
+      };
+    },
+    run(ctx) {
+      const meeting = recordedMeetingOf(ctx);
+      if (meeting) return saveRecording(meeting);
     },
   },
 ];
