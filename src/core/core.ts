@@ -7048,6 +7048,7 @@ export function createCore(adapters: CoreAdapters): Core {
       return meetingFill.followUndo(id, input.undone);
     },
     deleteMeetingAudio: async (meetingId) => meetings.deleteAudio(meetingId),
+    readMeetingAudio: async (input) => meetings.readAudio(input),
     retryTranscript: async (meetingId) => meetings.retryTranscript(meetingId),
     listTranscriptionServices: () => cloudTranscription.list(),
     setTranscriptionKey: async (input) => {

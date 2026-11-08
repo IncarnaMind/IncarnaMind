@@ -51,7 +51,7 @@ import {
   type TextRange,
 } from "../../shared/quoteMatch";
 import { readableQuote, readableQuoteText } from "../../shared/readableQuote";
-import { markWords, speakerMark, speakerOf } from "../../shared/speakers";
+import { markWords, partsOf, speakerMark, speakerOf } from "../../shared/speakers";
 import { foldRadicals } from "../../shared/text";
 import { parseCueTarget, sameRun } from "../../shared/units";
 import {
@@ -339,15 +339,19 @@ function quoteInCues(
   // Cue marks round down, so a named second includes cues that start within it.
   const until = time.to + 1000;
   const asked = markWords(time.speaker ?? "");
-  const saidBy = (startMs: number, label: string | null) =>
+  // A line the User split (#138) is said by each of its parts' Speakers.
+  const saidBy = (cue: { startMs: number; endMs: number }, label: string | null, said: string) =>
     label !== null &&
-    (asked === markWords(speakerMark(speakers, startMs, label)) ||
-      asked === markWords(speakerOf(speakers, startMs, label)));
+    partsOf(speakers, { ...cue, text: said, label }).some(
+      (part) =>
+        asked === markWords(speakerMark(speakers, part.startMs, label)) ||
+        asked === markWords(speakerOf(speakers, part.startMs, label)),
+    );
   return quoteInCueWindow(
     units,
     quote,
-    (cue, label) =>
-      (!time.speaker || saidBy(cue.startMs, label)) && cue.startMs < until && cue.endMs > time.from,
+    (cue, label, said) =>
+      (!time.speaker || saidBy(cue, label, said)) && cue.startMs < until && cue.endMs > time.from,
     matching,
   );
 }
@@ -372,7 +376,11 @@ function quoteInStoredCues(
 function quoteInCueWindow(
   units: readonly PageText[],
   quote: string,
-  selected: (cue: { startMs: number; endMs: number }, speaker: string | null) => boolean,
+  selected: (
+    cue: { startMs: number; endMs: number },
+    speaker: string | null,
+    said: string,
+  ) => boolean,
   matching: Matching & { unique?: boolean },
   accepted?: (ranges: readonly TextRange[]) => boolean,
 ): TextRange[] | null {
@@ -383,7 +391,15 @@ function quoteInCueWindow(
     for (const [at, anchor] of (unit.anchors ?? []).entries()) {
       const cue = parseCueTarget(anchor.target);
       if (!cue) continue;
-      if (!selected(cue, unit.label?.speakers?.[at] ?? null)) continue;
+      if (
+        !selected(
+          cue,
+          unit.label?.speakers?.[at] ?? null,
+          unit.text.slice(anchor.start, anchor.end),
+        )
+      ) {
+        continue;
+      }
       const start = (starts[index] ?? 0) + anchor.start;
       const end = (starts[index] ?? 0) + anchor.end;
       const previous = spans.at(-1);

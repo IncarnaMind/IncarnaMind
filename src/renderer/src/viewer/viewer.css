@@ -373,6 +373,39 @@
   .transcript-follow {
     @apply absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full border border-rule bg-sheet px-3 py-1 font-sans text-[12px] leading-5 font-semibold text-ink-secondary shadow-sm hover:bg-hover hover:text-ink;
   }
+  /*
+   * A saved Meeting's Transcript plays from a clicked word while its audio is kept (#138): the
+   * word being said is washed, the caret Enter splits the line at is a bar before its word, and
+   * the player sits at the foot, the last line kept clear of it.
+   */
+  .transcript-word {
+    @apply rounded-[3px];
+  }
+  .transcript-word[data-playable]:hover {
+    @apply cursor-pointer bg-hover;
+  }
+  .transcript-word[data-playing] {
+    @apply bg-accent-wash;
+  }
+  .transcript-word[data-caret] {
+    box-shadow: -2px 0 0 var(--color-ink);
+  }
+  .transcript-page[data-player] {
+    @apply pb-20;
+  }
+  .transcript-player {
+    @apply absolute bottom-5 left-1/2 z-10 m-0 flex h-11 w-[520px] max-w-[calc(100%-32px)] min-w-0 -translate-x-1/2 items-center gap-3 rounded-[10px] border-0 bg-sheet pr-2.5 pl-1.5 font-sans text-[13px] leading-5 text-ink-secondary;
+    box-shadow: var(--shadow-popover);
+  }
+  .transcript-player-toggle {
+    @apply inline-flex size-8 shrink-0 items-center justify-center rounded-lg bg-ink text-white hover:bg-ink-strong disabled:opacity-50;
+  }
+  .transcript-player-track {
+    @apply block h-1 min-w-10 flex-auto overflow-hidden rounded-sm bg-rule;
+  }
+  .transcript-player-track > span {
+    @apply block h-full origin-left bg-ink-secondary;
+  }
 
   .document-plain {
     @apply m-0 font-serif text-body break-words whitespace-pre-wrap text-ink;

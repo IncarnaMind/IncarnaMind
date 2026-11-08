@@ -8,6 +8,8 @@ import {
   markWords,
   numberedVoice,
   parseTranscriptSpeakers,
+  partStartOf,
+  partsOf,
   readStoredSpeakers,
   SPEAKER_ME,
   SPEAKER_THEM,
@@ -17,6 +19,7 @@ import {
   speakerMark,
   speakerName,
   speakersIn,
+  withLineSplit,
   withSpeakerChosen,
 } from "../../src/shared/speakers";
 
@@ -207,5 +210,127 @@ describe("Who's who in a Transcript (#138)", () => {
     expect(markWords("Dana [CFO]")).toBe("Dana CFO");
     expect(markWords("[Lin]\nWu")).toBe("Lin Wu");
     expect(readStoredSpeakers(null)).toEqual({ speakers: null, dropped: 0 });
+  });
+});
+
+/** A line of the call's file, said by Speaker 1 from 2 s to 6 s. */
+const LINE = {
+  startMs: 2000,
+  endMs: 6000,
+  text: "We sign on Friday. No, I need the budget first.",
+  label: "Speaker 1",
+};
+const REST = LINE.text.indexOf("No,");
+
+describe("Splitting a line (#138)", () => {
+  // protects=a split keeps the file's line and makes two parts, each with its own start and words, the rest said by the Speaker of the part it was in until the User says otherwise; one more split makes three; fails_when=a part loses words or a space, the rest starts at the line's start, the new part shares a start with another, or the whole line's Speaker changes; no_claim=the window, which the window spec covers.
+  test("a line split in two keeps its words, each part with its own start and Speaker", () => {
+    expect(partsOf(null, LINE)).toEqual([
+      { startMs: 2000, endMs: 6000, at: 0, text: LINE.text, label: "Speaker 1", lineMs: 2000 },
+    ]);
+    const split = withLineSplit(null, LINE, REST, 4100);
+    const parts = partsOf(split, LINE);
+    expect(parts.map((part) => [part.startMs, part.endMs, part.text])).toEqual([
+      [2000, 4100, "We sign on Friday."],
+      [4100, 6000, "No, I need the budget first."],
+    ]);
+    expect(parts.map((part) => shownSpeaker(split, part.startMs, part.label, en))).toEqual([
+      "Speaker 1",
+      "Speaker 1",
+    ]);
+    // Who speaks the rest: the second part alone.
+    const told = withSpeakerChosen(
+      split,
+      [...CALL, { startMs: 4100, label: "Speaker 1" }],
+      { startMs: 4100, label: "Speaker 1" },
+      { name: "Sam" },
+      false,
+    );
+    expect(
+      partsOf(told, LINE).map((part) => shownSpeaker(told, part.startMs, part.label, en)),
+    ).toEqual(["Speaker 1", "Sam"]);
+    // A time outside the part is brought inside it, and a third part follows the second's Speaker.
+    const third = withLineSplit(told, LINE, LINE.text.indexOf("the budget"), 9000);
+    expect(partsOf(third, LINE).map((part) => [part.startMs, part.text])).toEqual([
+      [2000, "We sign on Friday."],
+      [4100, "No, I need"],
+      [5999, "the budget first."],
+    ]);
+    expect(shownSpeaker(third, 5999, "Speaker 1", en)).toBe("Sam");
+  });
+
+  // protects=a split at a part's own start, outside the line, or in a part too short to hold another start changes nothing, and a split whose line reads otherwise now is left out; fails_when=an empty part is made, two parts share a start, or a stale split cuts another text; no_claim=the caret's rule about a part's first word, which the window spec covers.
+  test("a split at a part's start, outside the line or in a part too short changes nothing", () => {
+    const split = withLineSplit(null, LINE, REST, 4100);
+    expect(withLineSplit(split, LINE, REST, 5000)).toBe(split);
+    expect(withLineSplit(null, LINE, 0, 2500)).toEqual({ labels: {}, lines: {} });
+    expect(withLineSplit(null, LINE, LINE.text.length, 2500)).toEqual({ labels: {}, lines: {} });
+    const short = { ...LINE, endMs: 2001 };
+    expect(withLineSplit(null, short, REST, 2000)).toEqual({ labels: {}, lines: {} });
+    expect(partsOf(split, { ...LINE, text: "Another text now." })).toHaveLength(1);
+  });
+
+  // protects=a Citation stores its file's line and quote, and shows the part its quote starts in, by that part's time and Speaker, in English and Chinese; a quote not found shows the line; fails_when=the Citation shows the line's first time or Speaker for words of the rest; no_claim=the core's checks, which the core test covers.
+  test("a Citation into a split line shows the part its quote is in", () => {
+    const speakers = withSpeakerChosen(
+      withLineSplit(null, LINE, REST, 4100),
+      [...CALL, { startMs: 4100, label: "Speaker 1" }],
+      { startMs: 4100, label: "Speaker 1" },
+      { name: "王丽" },
+      false,
+    );
+    const location = { kind: "time" as const, from: 2000, to: 6000, speaker: "Speaker 1" };
+    expect(partStartOf(speakers, 2000, "Speaker 1", "the budget first")).toBe(4100);
+    expect(formatLocation(location, en, { speakers, quote: "I need the budget" })).toBe(
+      "王丽 · 0:04",
+    );
+    expect(formatLocation(location, zh, { speakers, quote: "I need the budget" })).toBe(
+      "王丽 · 0:04",
+    );
+    expect(formatLocation(location, en, { speakers, quote: "We sign on Friday" })).toBe(
+      "Speaker 1 · 0:02",
+    );
+    expect(formatLocation(location, zh, { speakers, quote: "Nothing like it" })).toBe(
+      "发言人 1 · 0:02",
+    );
+    expect(
+      citedLocation(
+        { documentId: "t", contentHash: "h", location, quote: "No, I need the budget first." },
+        en,
+        [{ id: "t", contentHash: "h", speakers }],
+      ),
+    ).toBe("王丽 · 0:04");
+  });
+
+  // protects=splits as stored or sent keep only what holds: the line's text, and parts after one another in text and time, inside it; fails_when=a split with parts out of order, at the same time, outside the text or with a bad key is kept; no_claim=the core's refusal, which the core test covers.
+  test("splits as stored keep only what holds", () => {
+    const good = { text: LINE.text, parts: [{ at: REST, ms: 4100 }] };
+    const parsed = parseTranscriptSpeakers({
+      labels: {},
+      lines: {},
+      splits: {
+        "2000 Speaker 1": good,
+        "3000 Speaker 1": {
+          text: LINE.text,
+          parts: [
+            { at: REST, ms: 4100 },
+            { at: 3, ms: 4200 },
+          ],
+        },
+        "4000 Speaker 1": {
+          text: LINE.text,
+          parts: [
+            { at: 3, ms: 4100 },
+            { at: REST, ms: 4100 },
+          ],
+        },
+        "5000 Speaker 1": { text: LINE.text, parts: [{ at: LINE.text.length, ms: 4100 }] },
+        "no start": good,
+      },
+    });
+    expect(parsed).toEqual({
+      speakers: { labels: {}, lines: {}, splits: { "2000 Speaker 1": good } },
+      dropped: 4,
+    });
   });
 });

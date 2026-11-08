@@ -218,7 +218,9 @@ export function CitationView({
   const shown = withShownName(attributes, documents);
   const location = citationLocation(attributes);
   const speakers = citedSpeakers(attributes, documents);
-  const where = location ? formatLocation(location, t, { speakers }) : null;
+  const where = location
+    ? formatLocation(location, t, { speakers, quote: attributes.quote })
+    : null;
   const recheckAsked = editor.isEditable && needsRecheck(state, attributes, recheck);
   // Kept over, or moved to, only the version the card showed: a check still of an older one, or failed, isn't it.
   const lookedAt =
@@ -873,7 +875,10 @@ function CitationCard({
   const location = citationLocation(attributes);
   const lives = live ? [live] : null;
   const where = location
-    ? formatLocation(location, t, { speakers: citedSpeakers(attributes, lives) })
+    ? formatLocation(location, t, {
+        speakers: citedSpeakers(attributes, lives),
+        quote: attributes.quote,
+      })
     : null;
   const withPdfPage = location ? formatLocationWithPdf(location, t) : null;
   const opens = web ? "web" : openKind(location);
