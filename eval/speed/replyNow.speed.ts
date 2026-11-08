@@ -275,11 +275,17 @@ async function runCase(
     if (answer?.kind !== "answer") throw new Error("No Answer was kept.");
     run.replyText = answer.text;
     run.calls = answer.toolCalls.map((call) => `${call.tool}:${call.status}`);
+    // A failed Answer, or one that wrote nothing, has no write to time: it is no run of this case.
+    if (answer.status === "failed")
+      throw new Error(
+        `The Answer failed: ${answer.errorMessage ?? answer.errorKind ?? "no reason"}`,
+      );
     const written = [
       ...new Set(
         answer.toolCalls.flatMap((call) => (call.mindChange ? [call.mindChange.mindId] : [])),
       ),
     ];
+    if (written.length === 0) throw new Error("The assistant wrote nothing into a Note.");
     const firsts = written.flatMap((mindId) => changed.get(mindId) ?? []);
     run.firstChange = firsts.length > 0 ? Math.min(...firsts) : null;
     const clients = await Promise.all(
@@ -375,6 +381,10 @@ test.skipIf(env("REPLY_NOW") === null)(
     );
     const repeats = Number(env("RUNS") ?? "1");
     const stopUsd = Number(env("STOP_USD") ?? "6");
+    if (!Number.isInteger(repeats) || repeats < 1)
+      throw new Error("INCARNAMIND_EVAL_SPEED_RUNS is a whole number of runs, 1 or more.");
+    if (!Number.isFinite(stopUsd) || stopUsd <= 0)
+      throw new Error("INCARNAMIND_EVAL_SPEED_STOP_USD is a number of dollars above 0, like 6.");
     const judge = judgeOf();
     const folder = join(
       ROOT,

@@ -853,9 +853,10 @@ describe("What the assistant writes is checked once it lands, the reply not wait
     }
   });
 
-  // protects=the sentences of a table land together after every check, in one edit, as a table's marks are footed against each other and its chart drawn from them (#2532); fails_when=a table's sentence lands on its own as its check ends; no_claim=how a table foots.
-  test("a table's sentences land together after every check", async () => {
+  // protects=the sentences of a table land together after every check, in one edit, as a table's marks are footed against each other and its chart drawn from them (#2532), while the count still moves as each check ends (#2830); fails_when=a table's sentence lands on its own as its check ends, or the count stays at 0 until the end; no_claim=how a table foots.
+  test("a table's sentences land together after every check, and the count moves as each ends", async () => {
     const seen: string[][] = [];
+    const progress: WrittenCheckProgress[] = [];
     const { core, client } = await write(
       {
         content:
@@ -863,7 +864,8 @@ describe("What the assistant writes is checked once it lands, the reply not wait
         into: true,
         cloud: { kind: "anthropic", modelId: "claude-haiku-5-5" },
       },
-      ({ client: connected }) => {
+      ({ core: started, client: connected }) => {
+        started.on("writtenCheck.progress", (event) => progress.push(event));
         connected.doc.on("update", () => {
           seen.push(claimSpans(readMind(connected)).map((span) => span.check.state));
         });
@@ -871,6 +873,12 @@ describe("What the assistant writes is checked once it lands, the reply not wait
     );
 
     expect(await marksIn(core, client)).toHaveLength(2);
+    expect(progress.map(({ done, total, running }) => [done, total, running])).toEqual([
+      [0, 2, true],
+      [1, 2, true],
+      [2, 2, true],
+      [2, 2, false],
+    ]);
     // Both show as checked together: never one with a verdict while the other is still checking.
     expect(seen).toContainEqual(["checking", "checking"]);
     expect(
