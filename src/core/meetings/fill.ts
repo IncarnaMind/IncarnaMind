@@ -398,7 +398,7 @@ export function transcriptParts(
  * What `promise` gives, or `stopped` as soon as the fill is stopped. Its listener goes once
  * `promise` settles: a fill checks dozens of claims on one signal.
  */
-function orStopped<T>(promise: Promise<T>, signal: AbortSignal, stopped: T): Promise<T> {
+export function orStopped<T>(promise: Promise<T>, signal: AbortSignal, stopped: T): Promise<T> {
   if (signal.aborted) return Promise.resolve(stopped);
   return new Promise<T>((resolve, reject) => {
     const stop = () => resolve(stopped);

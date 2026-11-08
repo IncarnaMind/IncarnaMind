@@ -4,6 +4,7 @@
  * are none, every retained addition AI text citing the Transcript, one Undo, and nothing written
  * when no safe item survives, a quit cuts it short, or Local mode keeps it off the cloud.
  */
+import { getEventListeners } from "node:events";
 import { wrapLanguageModel } from "ai";
 import { describe, expect, test, vi } from "vitest";
 import type {
@@ -16,7 +17,7 @@ import type {
 import { CITE_RETRY_INSTRUCTIONS, QUOTE_RETRY_INSTRUCTIONS } from "../../src/core/answers/prompt";
 import type { WindowedPassage } from "../../src/core/documents/search";
 import type { FakeCaptureOptions } from "../../src/core/meetings/fakeCapture";
-import { FILL_PART_TOKENS, transcriptParts } from "../../src/core/meetings/fill";
+import { FILL_PART_TOKENS, orStopped, transcriptParts } from "../../src/core/meetings/fill";
 import type { FillSection } from "../../src/core/meetings/fillPrompt";
 import { createFakeChatModel } from "../../src/main/fakeChat";
 import { citationAttributesOf } from "../../src/shared/citations";
@@ -2756,6 +2757,31 @@ for (const call of CALLS) {
     });
   });
 }
+
+describe("A fill's wait on a claim check or the speaker pass (#2773)", () => {
+  // protects=a fill waits on each of its claims' checks with an abort listener on its one signal, and lets go of each once that check settles, so a fill checking dozens of claims holds no more listeners than checks in flight; fails_when=every listener stays on the signal until the fill is dropped; no_claim=Node's own warning, which it no longer prints for an AbortSignal.
+  test("a dozen waits on one signal leave no abort listener once each settles", async () => {
+    const fill = new AbortController();
+    const settled = await Promise.all(
+      Array.from({ length: 12 }, (_, at) => orStopped(Promise.resolve(at), fill.signal, -1)),
+    );
+    expect(settled).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+    expect(getEventListeners(fill.signal, "abort")).toHaveLength(0);
+  });
+
+  // protects=a wait stopped before its promise settles gives the stopped value at once, and a promise that rejects passes its rejection on, each letting go of its listener; fails_when=a stop waits for the promise, a rejection is swallowed, or a listener stays; no_claim=none beyond protects.
+  test("stopped first it gives the stopped value at once; a rejection passes through", async () => {
+    const fill = new AbortController();
+    const waiting = orStopped(new Promise<number>(() => {}), fill.signal, -1);
+    fill.abort();
+    await expect(waiting).resolves.toBe(-1);
+    const other = new AbortController();
+    await expect(orStopped(Promise.reject(new Error("refused")), other.signal, -1)).rejects.toThrow(
+      "refused",
+    );
+    expect(getEventListeners(other.signal, "abort")).toHaveLength(0);
+  });
+});
 
 describe("How a fill asks its model (#2306)", { timeout: 60_000 }, () => {
   test("the notes think as an Answer does without a post-final Citation repair request", async () => {
