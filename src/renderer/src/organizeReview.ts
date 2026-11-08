@@ -205,7 +205,7 @@ const working = (ids: ReadonlySet<string>) =>
 export async function organizeEach(
   ids: readonly string[],
   folderId: string | null,
-  forService?: string,
+  { forService, once }: { forService?: string; once?: boolean } = {},
 ): Promise<void> {
   if (useOrganizeReview.getState().run || ids.length === 0) return;
   const mine = new Set(ids);
@@ -226,6 +226,7 @@ export async function organizeEach(
   try {
     await core.classifyDocuments([...ids], {
       ...(forService !== undefined && { forService }),
+      ...(once === true && { once }),
       ...(folderId !== null && { folderId }),
     });
     await useAppStore.getState().refreshLibrary();

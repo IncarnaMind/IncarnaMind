@@ -6585,6 +6585,12 @@ export interface OrganizeLibraryInput {
   folderId?: string;
   /** The service the User allowed on the press: a run for another sends nothing (#2308). */
   forService?: string;
+  /**
+   * With `forService`: the User allowed this run alone, under their earlier no to that service
+   * (#2252, ADR-0022). It sends there under a permit, on the model the Library offers when none
+   * is chosen, and keeps neither the consent nor the model.
+   */
+  once?: boolean;
   /** The User saw the estimate and went on. */
   costAccepted?: boolean;
   /**
@@ -6597,6 +6603,27 @@ export interface OrganizeLibraryInput {
 
 /** How many new Folders a plan made again aims at, against how many the last plan proposed. */
 export type FolderCountAim = { fewerThan: number } | { moreThan: number };
+
+/**
+ * What Organize needs before a run of the User's own (#1569, ADR-0022). `model`: the kind of model
+ * it runs on, the chosen one or the one the Library offers.
+ */
+export type OrganizeStart =
+  /** It runs now: its model is on this computer, or its service is allowed. */
+  | { ready: true; model: TaggingClassifier["kind"] }
+  /** No model can organize. `noProvider`: no AI model is set up at all. */
+  | { ready: false; needs: "model"; noProvider: boolean }
+  /**
+   * The first time this cloud service would read the Documents for Organize: the card says what
+   * goes there. `declined`: the User said no to it before, so its Allow covers one run (`once`).
+   */
+  | {
+      ready: false;
+      needs: "consent";
+      service: ExternalService;
+      declined: boolean;
+      model: TaggingClassifier["kind"];
+    };
 
 export type OrganizeLibraryResult =
   /** Estimated at more than $1: nothing was sent, and the User is asked first. */
@@ -11953,11 +11980,13 @@ export interface CoreApi {
    * it waits for the User, and its Tags; nothing is filed (#1569). A Document the User filed is
    * proposed a move only in a run on its `folderId`. With `forService`, a continuation of a
    * press authorized for that service: a different destination queues and clears nothing, and a
-   * change while the run waits sends nothing there.
+   * change while the run waits sends nothing there. With `once` too, the User allowed this run
+   * alone under their earlier no (see `OrganizeLibraryInput.once`): it sorts them before it
+   * returns, and throws what stopped it.
    */
   classifyDocuments(
     documentIds?: string[],
-    options?: { forService?: string; folderId?: string },
+    options?: { forService?: string; folderId?: string; once?: boolean },
   ): Promise<void>;
   /**
    * Stops automatic Tagging with AI where the Documents waiting to be
@@ -12059,6 +12088,20 @@ export interface CoreApi {
   organizeLibrary(input?: OrganizeLibraryInput): Promise<OrganizeLibraryResult>;
   /** Stops the Organize under way; nothing it planned goes into the Review. */
   stopOrganizeLibrary(): Promise<void>;
+  /**
+   * Organize's first step on the User's press (#1569, ADR-0022): what it needs before it runs.
+   * A model the Library offers that may run without asking (one on this computer, or one whose
+   * service the User allowed) is kept as Organize's. In Local mode nothing asks: a cloud model
+   * throws TaggingNotReadyError, as its run would.
+   */
+  startOrganize(): Promise<OrganizeStart>;
+  /**
+   * The card's "Allow and organize": Organize may send to `serviceId` from now on, through the
+   * classification flow's consent, on the model the Library offers when none is chosen, which is
+   * kept. Records nothing when that isn't what Organize asks now, or under the User's earlier no,
+   * whose Allow covers one run (`OrganizeLibraryInput.once`). Returns what Organize needs now.
+   */
+  allowOrganize(serviceId: string): Promise<OrganizeStart>;
 
   /**
    * Brings back deleted Minds with their content, conversations with their messages,
@@ -14714,6 +14757,8 @@ const methods: Record<CoreApiMethod, true> = {
   restoreDiscardedOrganizeReview: true,
   organizeLibrary: true,
   stopOrganizeLibrary: true,
+  startOrganize: true,
+  allowOrganize: true,
   restore: true,
   deleteAgain: true,
   undoCommands: true,
