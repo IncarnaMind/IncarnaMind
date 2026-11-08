@@ -878,4 +878,20 @@ describe("Records for a reply that names its Passages in its markers", () => {
       },
     ]);
   });
+  // protects=a check that a Document supports what was said, its two markers right after what was said, records the call's line and the Document's; fails_when=either Passage goes uncited (#2526).
+  test("what was said, marked with the call's line and the Document's, quotes both", () => {
+    const call = { id: "P1", text: "[0:03 Me] Spare probes ship within 3 business days." };
+    const terms = { id: "P2", text: "- Spare probes ship within 3 business days of the order." };
+    expect(
+      markedPassages(
+        "You said spare probes ship within 3 business days [^1][^2]; the service terms support this.",
+        [call, terms],
+        everywhere,
+        none,
+      ).records,
+    ).toEqual([
+      { marker: 1, passage: "P1", quote: "Spare probes ship within 3 business days." },
+      { marker: 2, passage: "P2", quote: "Spare probes ship within 3 business days of the order." },
+    ]);
+  });
 });

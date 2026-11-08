@@ -215,7 +215,7 @@ describe("Help during the call", { timeout: 60_000 }, () => {
     ]);
   });
 
-  // protects=on the path that names Passages in markers, a press's reply is written in one request offered no cite, each marker naming a Passage it was given becomes that Passage's Citation, quoting the sentence holding its claim and found, and a marker naming none becomes none, with no request after the reply to ask for it; fails_when=cite is offered, a second request is made, a named Passage isn't cited or is cited by another sentence, or a marker naming no Passage is kept; no_claim=what a real model writes (eval/speed/gates/call-help-marks-passages.md) (#2526).
+  // protects=on the path that names Passages in markers, a press's reply is written in one request offered no cite, each marker naming a Passage it was given becomes that Passage's Citation, quoting the sentence holding its claim and found, and a marker naming none becomes none, with no request after the reply to ask for it, and the model is told to name both the call's line and the Document's when a Document supports what was said; fails_when=cite is offered, a second request is made, a named Passage isn't cited or is cited by another sentence, or a marker naming no Passage is kept; no_claim=what a real model writes (eval/speed/gates/call-help-marks-passages.md) (#2526).
   test("on the path that names Passages in markers, a press is offered no cite, and each marker naming a Passage becomes its Citation, quoting its sentence holding the claim", async () => {
     const { core, meeting, calls } = await setUp(
       priceSheet(),
@@ -229,6 +229,9 @@ describe("Help during the call", { timeout: 60_000 }, () => {
     expect(calls[0]?.tools).toContain("search_documents");
     expect(calls[0]?.tools).not.toContain("cite");
     expect(calls[0]?.system).toContain("write [^3] to cite P3");
+    expect(calls[0]?.system).toContain(
+      "if the Document supports it, put both markers right after what was said",
+    );
     expect(answer.citations).toEqual([
       expect.objectContaining({ documentName: "Price sheet", quote: PRICE, check: "found" }),
     ]);

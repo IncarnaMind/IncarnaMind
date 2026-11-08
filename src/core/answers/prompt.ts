@@ -701,10 +701,12 @@ const writeThenCite = (keeps: boolean, minds: boolean) => [
 /**
  * How a listed model cites in call help (#2526): offered no `cite`, it names each Passage in its
  * marker and IncarnaMind records the quote (see ./markedPassages), so the reply takes one call with
- * no Tool's result to think over.
+ * no Tool's result to think over. A check that a Document supports what was said names both
+ * Passages: naming only the call's line, Claude Sonnet 5.5 left the Document uncited.
  */
 const MARKS_PASSAGES = [
   "- Put a marker right after each claim a Passage supports, with that Passage's number alone in it: write [^3] to cite P3 and [^12] to cite P12, never [^P3]. IncarnaMind records the quotes. One Passage a marker: a claim resting on two gets both, as [^3][^12]. Add no list of sources.",
+  "- When a sentence checks what was said in the call against a Document: if the Document supports it, put both markers right after what was said, the call line's and the Document's, as \"you said X [^1][^4]\"; if the Document contradicts it, put the call line's marker after what was said and the Document's after what the Document says.",
   "- Use quotation marks only around a Document's exact words, in its own language.",
   "- Write nothing before a search: only the reply, once you have what it needs.",
 ];
