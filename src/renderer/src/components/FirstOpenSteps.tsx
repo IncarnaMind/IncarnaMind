@@ -6,13 +6,11 @@ import {
   useRef,
   useState,
 } from "react";
-import type { CommandId } from "../../../shared/commands";
 import type { MessageKey } from "../../../shared/i18n";
 import { fitName } from "../../../shared/naming";
 import { type AskBlock, useAnswers } from "../answers";
 import { focusComposer } from "../commands/assistant";
 import { shortcutLabel } from "../commands/keymap";
-import { type CommandContext, commands, offered } from "../commands/registry";
 import { composerKey } from "../composer";
 import { askReadyQuestion, stopReadyAsk, useConversations, useReadyAsk } from "../conversations";
 import { AskProblem } from "../editor/AskProblem";
@@ -38,12 +36,6 @@ type StepKey = "citation" | "question" | "files";
 
 const STEPS: readonly StepKey[] = ["files", "question", "citation"];
 
-const NEXT: readonly { id: CommandId; label: MessageKey }[] = [
-  { id: "comparison.start", label: "firstOpen.next.compare" },
-  { id: "meeting.record", label: "firstOpen.next.meeting" },
-  { id: "mind.export", label: "firstOpen.next.export" },
-];
-
 // Each state the card can be in. They are laid out unseen in the live card's cell, so the tallest
 // sets its height at whatever width the page has, and the page doesn't move as the steps tick.
 const STATES: readonly { current: StepKey | undefined; modelReady: boolean }[] = [
@@ -67,8 +59,6 @@ const DO_ICONS: Record<StepKey, typeof PlusLineIcon> = {
 };
 
 const CARD_PADDING = "px-3.5 pt-3.5 pb-2.5";
-
-const HERE: CommandContext = { selection: [], focus: null, surface: "mind" };
 
 function Step({
   step,
@@ -298,28 +288,6 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
               {t("firstOpen.model.choose")}
             </button>
           </div>
-        )}
-        {setUp && (
-          <p className="pt-3 text-[13px] leading-5 text-ink-secondary">
-            {t("firstOpen.next.lead")}{" "}
-            {NEXT.flatMap(({ id, label }) => {
-              const command = commands.get(id);
-              return command && offered(command, HERE) ? [{ id, label }] : [];
-            }).map(({ id, label }, index) => (
-              <span key={id}>
-                {index > 0 && " · "}
-                <button
-                  type="button"
-                  data-testid={only("first-open-next")}
-                  data-command={live ? id : undefined}
-                  onClick={() => void commands.run(id)}
-                  className="rounded-sm text-accent-strong underline-offset-2 hover:underline focus-visible:outline-offset-0"
-                >
-                  {t(label)}
-                </button>
-              </span>
-            ))}
-          </p>
         )}
       </>
     );
