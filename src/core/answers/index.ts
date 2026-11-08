@@ -638,6 +638,8 @@ export interface AnswersOptions {
    * records or is paused: its text is the button's name. Null for any other Question.
    */
   meetingHelp?(mindId: string, question: string): MeetingHelpKind | null;
+  /** See `CoreAdapters.helpFormJudged`. */
+  helpFormJudged?(): boolean;
   providerExists(providerId: string): boolean;
   /**
    * An Answer's sentences with Citations, checked against what they cite before it ends (#2311):
@@ -3551,7 +3553,8 @@ export function createAnswers(options: AnswersOptions) {
         gate,
         streamsInput,
         toolSet: input.toolSet ?? (help ? "documents" : undefined),
-        ...(help && { formOf: (text: string) => helpForm(help, text) }),
+        ...(help &&
+          !options.helpFormJudged?.() && { formOf: (text: string) => helpForm(help, text) }),
         ...(input.outputKind && { outputKind: input.outputKind }),
         ...(keepsQuestionsLanguage && {
           languageNote: () => (skillNamesNoLanguage ? skillLanguageNote(language) : null),

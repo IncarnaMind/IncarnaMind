@@ -99,6 +99,7 @@ async function setUp(
   before?: (core: Core) => Promise<void>,
   said: { lines?: readonly string[]; theirLines?: readonly string[] } = {},
   answering: (calls: ModelCall[]) => ReturnType<typeof scriptedModel> = helpingModel,
+  helpFormJudged?: () => boolean,
 ) {
   const calls: ModelCall[] = [];
   const dataDir = await createTempDataFolder();
@@ -106,6 +107,7 @@ async function setUp(
   const { core, record } = await transcribingCore(dataDir, {
     createChatModel: models.createChatModel,
     engine: said,
+    ...(helpFormJudged && { helpFormJudged }),
   });
   await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
   await before?.(core);
@@ -274,6 +276,23 @@ describe("Help during the call", { timeout: 60_000 }, () => {
       ]);
     },
   );
+
+  // protects=the evaluation's switch to main's rule judges a reply's own lines as before #2778, so a paired run compares the two rules and nothing else; fails_when=the switch leaves the form unjudged; no_claim=which rule is right (#2778).
+  test("with the form judged as before, its last → line is asked about and taken back", async () => {
+    const asked: string[][] = [];
+    const reply = "★ 是的，企业版每个席位每月 45 美元，含单点登录 [^1]\n→ 直接回答，推进通话";
+    const { core, meeting } = await setUp(
+      addPriceSheet,
+      {},
+      writesBesideCite(reply, asked),
+      () => true,
+    );
+
+    const { answer } = await press(core, meeting, "answer");
+
+    expect(asked).toEqual([["→ 直接回答，推进通话"]]);
+    expect(answer.text).toBe("★ 是的，企业版每个席位每月 45 美元，含单点登录 [^1]");
+  });
 
   // protects=a button pressed while the live text is behind and has no line yet is answered with one plain line saying so, in the User's language, without asking the model; fails_when=the model is asked and may tell the User to retype what was said; no_claim=the panel's drawing of it (the smoke test) (#1366).
   test("with the live text behind and no line yet, a button's reply says so in the User's language, and the model isn't asked", async () => {

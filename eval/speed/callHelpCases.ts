@@ -379,12 +379,12 @@ const MIGRATION_ZH = {
 };
 
 /** A Document's line, as a Citation of it must quote. */
-const line = (document: CallDocument, starts: string) => {
+export const line = (document: CallDocument, starts: string) => {
   const found = document.text.split("\n").find((each) => each.includes(starts));
   if (!found) throw new Error(`${document.file} has no line with “${starts}”.`);
   return { in: document.file, line: found.replace(/^-\s*/, "") };
 };
-const said = (text: string) => ({ in: TRANSCRIPT, line: text });
+export const said = (text: string) => ({ in: TRANSCRIPT, line: text });
 
 const EN_RENEWAL =
   "If you renew early, I can keep a twelve percent discount for you, as long as you sign by the end of March.";
