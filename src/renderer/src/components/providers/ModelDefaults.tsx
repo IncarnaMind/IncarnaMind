@@ -223,7 +223,6 @@ function SortingRow({ id }: { id: string }) {
         // Choosing here never turns tagging on: Turn on… does, once Jev is chosen (#2308).
         <JevSortingSetUp
           jev={jevSettings}
-          choosing={false}
           choose={async () => {
             const chosen = await choose({ classifier: { kind: "jev" } });
             reread();
@@ -237,7 +236,6 @@ function SortingRow({ id }: { id: string }) {
         <DecisionSortingSetUp
           key={host.host}
           host={host}
-          choosing={false}
           choose={async () => {
             const chosen = await choose({ classifier: firstModelOf(host) });
             reread();
@@ -249,7 +247,7 @@ function SortingRow({ id }: { id: string }) {
       ) : (
         <div className="flex flex-col gap-1">
           {keyProvider && !current?.unresolved && <UsesKeyLine catalogId={keyProvider} />}
-          <SortingLine option={current} reading={read.state === "loading"} choosing={false} />
+          <SortingLine option={current} reading={read.state === "loading"} />
           {library && !library.settings.automatic && current && !current.unresolved && (
             <TurnOnTagging option={current} />
           )}

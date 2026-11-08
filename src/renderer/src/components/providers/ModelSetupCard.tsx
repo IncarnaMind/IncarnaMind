@@ -8,10 +8,8 @@ import { turnOffLocalMode } from "../../localMode";
 import { giveUpWaiting, useModelSetup } from "../../modelSetup";
 import { ollamaRead } from "../../ollamaRead";
 import { useAppStore } from "../../store";
-import { useTranscriptionServicesRead } from "../../transcriptionServices";
 import { OnThisComputer } from "../OnThisComputer";
 import { ProblemLine } from "../ProblemLine";
-import { ReadProblem } from "../ReadProblem";
 import { buttonStyle, hintClass } from "../ui";
 import { ChatGptMark } from "./ChatGptMark";
 import {
@@ -27,46 +25,16 @@ import { KeyEntry } from "./KeyEntry";
 import { OllamaAction, OllamaProgress, type Ollama as OllamaState, useOllama } from "./OllamaCard";
 import { ProviderForm } from "./ProviderForm";
 import { SendsLine } from "./SendsLine";
-import { SetupCard, SetupSteps } from "./SetupSteps";
 
 const CLAUDE_DOWNLOAD = "https://claude.ai/download";
 
 /**
  * The first own Question with no model set (#103): the assistant's composer becomes this card
- * while the Question waits above it. The first of three steps (#1922) is a key pasted, named by
- * its form and used at once; then the ways in that need no key, best first. Choosing a service
- * is the consent for it (#718), so no dialog is added here.
+ * while the Question waits above it. A key is pasted, named by its form and used at once; then
+ * the ways in that need no key, best first. Choosing a service is the consent for it (#718), so
+ * no dialog is added here.
  */
 export function ModelSetupCard() {
-  const ready = useModelSetup((state) => state.ready);
-  const t = useT();
-  // Step 2's rows depend on whether a cloud service has a key, so the steps open only on a list
-  // that was read, and never redraw as a later read lands (#2147). While the read goes, the card
-  // says it is reading, rather than offering the key form of step 1 again (#2310).
-  const services = useTranscriptionServicesRead(ready, true);
-  if (!ready) return <ChooseAnAi />;
-  if (services.state === "loading") {
-    return (
-      <SetupCard>
-        <p data-testid="setup-services-reading" role="status" className={hintClass}>
-          {t("setup.services.reading")}
-        </p>
-      </SetupCard>
-    );
-  }
-  if (services.state === "ready") return <SetupSteps />;
-  return (
-    <SetupCard>
-      <ReadProblem
-        words={t("setup.services.failed")}
-        read={services}
-        testId="setup-services-problem"
-      />
-    </SetupCard>
-  );
-}
-
-function ChooseAnAi() {
   const t = useT();
   const chinese = useLanguage() === "zh-CN";
   const localOnly = useAppStore((state) => state.embedding?.localOnly === true);

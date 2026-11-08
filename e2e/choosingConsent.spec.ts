@@ -15,7 +15,6 @@ import {
   addProviderForm,
   askInAssistant,
   closeSettings,
-  continueSetup,
   createDataFolder,
   dismissChatSetup,
   launchApp,
@@ -24,6 +23,7 @@ import {
   openAdvancedModels,
   openServiceList,
   openSettings,
+  pointAndClick,
   removeDataFolder,
   setLanguage,
   setWindowSize,
@@ -127,10 +127,15 @@ test("first run: choosing a provider with a key is the consent for what runs by 
   await form.getByTestId("provider-sends").scrollIntoViewIfNeeded();
   await screenshot(window, "choosing-line-setup-en");
   await form.getByTestId("provider-use-key").click();
-  await continueSetup(window);
+  await expect(window.getByTestId("composer-input")).toBeVisible();
 
-  // Setup's third step chose OpenAI for Tags and Folders, its line saying what goes: that turned
-  // tagging on (#2308), so a Document is tagged without asking, and Settings shows the switch on.
+  // Tags are turned on where they are set: Settings › Models says what goes before Turn on…
+  // does it (#2308). Then a Document is tagged without asking.
+  const sorting = (await openSettings(window, "models")).getByTestId("model-default-row-sorting");
+  await pointAndClick(window, sorting.getByTestId("models-tagging-turn-on"));
+  await pointAndClick(window, sorting.getByTestId("models-tagging-use"));
+  await expect(sorting.getByTestId("models-tagging-off")).toHaveCount(0);
+  await closeSettings(window);
   await addDocuments(window, [await invoice("Invoice 40")]);
   await expect(
     window.getByTestId("document-list-item").filter({ hasText: "Invoice 40" }),

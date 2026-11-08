@@ -9,7 +9,6 @@ import {
   addProviderForm,
   assistantAnswers,
   closeSettings,
-  continueSetup,
   createDataFolder,
   expectDotsBetweenParts,
   interceptOpenExternal,
@@ -255,7 +254,7 @@ for (const value of ["en", "zh-CN"] as const) {
       await window.keyboard.insertText(value === "en" ? KEYS.anthropic : KEYS.bare);
       if (value === "en") await pointAndClick(window, form.getByTestId("provider-use-key"));
       else await window.keyboard.press("Enter");
-      await expect(window.getByTestId("assistant-setup-line")).toBeVisible();
+      await expect(window.getByTestId("composer-input")).toBeVisible();
       const chatModel = await window.evaluate(
         async () =>
           (await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.getSettings())
@@ -1424,7 +1423,6 @@ test("Connect server shows a key the server refuses in place, and with a good on
     await form.getByTestId("provider-use-key").click();
     await expect(form).toBeHidden();
     await closeSettings(window);
-    await continueSetup(window);
     // The waiting Question was asked: the conversation holds its Answer (the server only answers
     // the connection test, so how it ends is not the point).
     await expect(assistantAnswers(window).first()).toBeVisible({ timeout: 15_000 });

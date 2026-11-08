@@ -6,7 +6,6 @@ import type { CoreBridge } from "../src/core/api";
 import {
   acceptPlainTextKeys,
   assistantAnswers,
-  continueSetup,
   createDataFolder,
   dismissChatSetup,
   exampleRow,
@@ -319,7 +318,7 @@ test("the footer asks for a model to tag only once a Document of the User's own 
   await app.close();
 });
 
-test("an empty Mind of one's own shows no second start guide, the example's steps tick as Documents are added and a Question is asked, and it says what to try next once all are done", async () => {
+test("an empty Mind of one's own shows no second start guide, the example's steps tick as Documents are added and a Question is asked, and the card ends there once all are done", async () => {
   await writeFile(
     join(sources, "Harbour notes.md"),
     "# Harbour notes\n\nThe harbour master publishes the tide tables every January.\n",
@@ -383,7 +382,6 @@ test("an empty Mind of one's own shows no second start guide, the example's step
     /Asked a question/,
     /Opened a checked Citation/,
   ]);
-  await expect(steps.getByTestId("first-open-next").first()).toBeVisible();
   await pointAndClick(window, steps.getByTestId("first-open-hide"));
   await expect(steps).toHaveCount(0);
 });
@@ -461,7 +459,7 @@ test("the steps card's first step offers Add files… and Link a folder… at on
   await setLanguage(window, "zh-CN");
   await useLocalChatModel(window);
   await expect(steps.locator("h2")).toHaveText("准备好了");
-  await continueSetup(window);
+  await expect(setup).toHaveCount(0);
 });
 
 test('"Ask" is ticked by an Answer that arrives, not by one that fails (#766)', async () => {
@@ -824,7 +822,7 @@ test("a double-click on the ready Question asks it once, and Enter on it moves t
   await removeDataFolder(keyboard);
 });
 
-test("on a fresh install, a first checked Citation from the User's own file takes eight steps", async () => {
+test("on a fresh install, a first checked Citation from the User's own file takes seven steps", async () => {
   const notes = join(sources, "Harbour notes.md");
   await writeFile(
     notes,
@@ -861,7 +859,6 @@ test("on a fresh install, a first checked Citation from the User's own file take
     await expect(field).toBeFocused();
     await step("paste the key", () => window.keyboard.insertText("sk-ant-a-key-from-the-company"));
     await step("Enter", () => window.keyboard.press("Enter"));
-    await step("Use this", () => continueSetup(window));
 
     const citation = assistantAnswers(window).last().getByTestId("citation").first();
     await expect(citation).toHaveAttribute("data-check", "found", { timeout: 20_000 });
@@ -869,7 +866,7 @@ test("on a fresh install, a first checked Citation from the User's own file take
       "aria-label",
       /Harbour notes/,
     );
-    expect(taken).toHaveLength(8);
+    expect(taken).toHaveLength(7);
   } finally {
     await app.close();
   }
@@ -909,7 +906,6 @@ test("finishing the steps with no model asks for one in the card, never says You
   await expect(step(window, "files")).toHaveAttribute("data-state", "done");
   await expect(steps).toContainText("Choose an AI model to ask about your own files.");
   await expect(steps).not.toContainText("You’re set up");
-  await expect(steps.getByTestId("first-open-next")).toHaveCount(0);
   // Each part of the shell still waits for its own moment. The card asks for the model, and the
   // footer's one line says the files wait for it (#1128).
   const sidebar = window.getByTestId("sidebar");
@@ -924,8 +920,6 @@ test("finishing the steps with no model asks for one in the card, never says You
   await expect(setup.getByRole("heading", { level: 2 })).toHaveText("Set up your AI");
   await useLocalChatModel(window);
   await expect(steps.locator("h2")).toHaveText("You’re set up");
-  await expect(steps.getByTestId("first-open-next").first()).toBeVisible();
-  await continueSetup(window);
   await expect(sidebar.getByTestId("tagging-waiting")).toHaveCount(0);
   await expect(window.getByTestId("composer-input")).toBeVisible();
   await app.close();
@@ -944,25 +938,7 @@ test("by keyboard alone: Choose a model takes the focus into the setup, and a sa
   await expect(setup.getByTestId("setup-key")).toBeFocused();
   await window.keyboard.insertText("sk-ant-a-key-from-the-company");
   await window.keyboard.press("Enter");
-  // A saved model brings the cursor to the composer: the steps left wait as one line above it
-  // (#2310), a Shift+Tab (past its ✕) away, and each is one key further.
-  await expect(window.getByTestId("composer-input")).toBeFocused();
-  await window.keyboard.press("Shift+Tab");
-  await expect(window.getByTestId("assistant-setup-skip")).toBeFocused();
-  await window.keyboard.press("Shift+Tab");
-  const line = window.getByTestId("assistant-setup-line");
-  await expect(line).toBeFocused();
-  await window.keyboard.press("Enter");
-  const transcription = setup.getByTestId("setup-transcription");
-  await expect(transcription).toBeFocused();
-  await window.keyboard.press("Tab");
-  await expect(setup.getByTestId("setup-transcription-use")).toBeFocused();
-  await window.keyboard.press("Enter");
-  const sorting = setup.getByTestId("models-sorting");
-  await expect(sorting).toBeFocused();
-  await window.keyboard.press("Tab");
-  await expect(setup.getByTestId("setup-sorting-use")).toBeFocused();
-  await window.keyboard.press("Enter");
+  // A saved model brings the cursor to the composer, and nothing more is asked of the User.
   await expect(setup).toHaveCount(0);
   await expect(window.getByTestId("first-open-steps").locator("h2")).toHaveText("You’re set up");
   await expect(window.getByTestId("composer-input")).toBeFocused();

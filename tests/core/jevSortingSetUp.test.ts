@@ -10,8 +10,7 @@ import { taggingModel } from "../helpers/tags";
 /*
  * "Use TypeSafe Jev…" in the sorting picker (#2615), through the core as the picker drives it:
  * what it reads while the key is typed, then Use this, which tries the key, saves it and makes Jev
- * what sorts, with tagging turned on as the setup card's step does. Requests to TypeSafe's hosted
- * Jev go to a fake.
+ * what sorts, with tagging turned on. Requests to TypeSafe's hosted Jev go to a fake.
  */
 
 const LOCAL: SaveChatProviderInput = { kind: "ollama", modelId: "local-model" };
@@ -37,7 +36,7 @@ async function readAsThePickerDoes(core: Core) {
   await core.getSecretStorage();
 }
 
-/** The setup card's Use this, as `useSorting().choose` saves it with its line on screen. */
+/** Use this with tagging turned on, as `saveLibrarySettings` saves it with its line on screen. */
 const chooseJevAndTurnOn = (core: Core) => async () => {
   const { settings } = await core.getLibrary();
   await core.saveLibrarySettings({

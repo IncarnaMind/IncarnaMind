@@ -112,8 +112,8 @@ for (const { language, width, height } of [
       const [authorize] = (await urlsOpened(app)).slice(-1);
       expect((await signInAt(openai, authorize ?? "")).status).toBe(200);
       await window.getByTestId("chatgpt-welcome-ok").click();
-      // A model works: the composer is back, the steps left wait in their line above it.
-      await expect(window.getByTestId("assistant-setup-line")).toBeVisible({ timeout: 15_000 });
+      // A model works: the composer is back.
+      await expect(window.getByTestId("composer-input")).toBeVisible({ timeout: 15_000 });
 
       expect((await readFile(secretsFile)).equals(before)).toBe(false);
       const plan = await window.evaluate(() =>
