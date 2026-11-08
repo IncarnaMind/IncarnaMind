@@ -46,6 +46,7 @@ import {
 import { askedFor, translationRequested, whyItWaits } from "../../../shared/askedChanges";
 import { setOrigins, setOriginsOf } from "../../../shared/blockOrigins";
 import { type ChartData, gridOfTable, readChart, redrawnData } from "../../../shared/charts";
+import { citationAttributesOf } from "../../../shared/citations";
 import { closeTitles } from "../../../shared/closeTitles";
 import { formatShortDate } from "../../../shared/dates";
 import { FIGURE_MARKER, type PlacedFigure } from "../../../shared/figureMarkers";
@@ -93,6 +94,7 @@ import {
   CHART_NODE,
   type ChartProblem,
   CITATION_NODE,
+  type Citation,
   type ConversationAnswer,
   type EditAction,
   type EditWithAiResult,
@@ -355,6 +357,40 @@ const someOf = (items: readonly string[]) =>
 
 const citationNodesIn = (node: NodeJSON): NodeJSON[] =>
   node.type === CITATION_NODE ? [node] : (node.content ?? []).flatMap(citationNodesIn);
+
+/** The Citations `blocks` hold, each once, as their nodes give them. */
+function citationsIn(blocks: readonly NodeJSON[]): Citation[] {
+  const found = new Map<string, Citation>();
+  for (const node of blocks.flatMap(citationNodesIn)) {
+    const read = citationAttributesOf(node.attrs ?? {});
+    if (!read.passageId || !read.documentId) continue;
+    const citation: Citation = {
+      passageId: read.passageId,
+      documentId: read.documentId,
+      documentName: read.documentName ?? "",
+      contentHash: read.contentHash ?? "",
+      pageFrom: read.pageFrom ?? null,
+      pageTo: read.pageTo ?? null,
+      location: read.location ?? null,
+      quote: read.quote ?? "",
+      check: read.check ?? "checking",
+      checkReason: null,
+    };
+    const key = JSON.stringify([
+      citation.passageId,
+      citation.pageFrom,
+      citation.pageTo,
+      citation.location,
+    ]);
+    if (!found.has(key)) found.set(key, citation);
+  }
+  return [...found.values()];
+}
+
+const citationsOf = (blocks: readonly NodeJSON[]) => {
+  const citations = citationsIn(blocks);
+  return citations.length > 0 ? { citations } : {};
+};
 
 const listed = (minds: readonly ChangeableMind[]) =>
   minds
@@ -946,8 +982,17 @@ function notProposed(
   }
 }
 
-const citedIn = ({ cited, unrecorded }: { cited: number; unrecorded: number }) => ({
+const citedIn = ({
+  cited,
+  unrecorded,
+  blocks,
+}: {
+  cited: number;
+  unrecorded: number;
+  blocks: readonly NodeJSON[];
+}) => ({
   ...(cited > 0 && { cited }),
+  ...citationsOf(blocks),
   ...(unrecorded > 0 && { unrecorded }),
 });
 
@@ -1645,9 +1690,13 @@ export function mindTools(options: MindToolsOptions): {
       return;
     }
     const unmade = ready.findIndex(unmadeTable);
-    writeMore(writer, unmade < 0 ? ready : ready.slice(0, unmade));
+    const written = unmade < 0 ? ready : ready.slice(0, unmade);
+    writeMore(writer, written);
     minds.writing(writer.mind.id, { after: writer.anchor });
-    if (writer.written > 0) options.changed(toolCallId, changeOf(writer, stream.created));
+    // Stopped here, the write keeps what the Note holds; its Answer's steps count those Citations.
+    if (writer.written > 0) {
+      options.changed(toolCallId, { ...changeOf(writer, stream.created), ...citationsOf(written) });
+    }
   };
 
   type Content = ReturnType<MindToolsOptions["blocksOf"]>;
@@ -1816,7 +1865,7 @@ export function mindTools(options: MindToolsOptions): {
     // Markers `cite` may still record in this step count as left out only once the Run is done.
     const change = {
       ...changeOf(writer, made),
-      ...citedIn({ cited, unrecorded: 0 }),
+      ...citedIn({ cited, unrecorded: 0, blocks }),
       ...(noCitation(content, markdown) && { uncited: true as const }),
       ...someTableNotes(notes),
       ...(drawn?.problem && { chartNotDrawn: drawn.problem }),
@@ -2118,7 +2167,7 @@ export function mindTools(options: MindToolsOptions): {
         : each.change();
     const change: MindChange = {
       ...counts,
-      ...citedIn({ cited, unrecorded }),
+      ...citedIn({ cited, unrecorded, blocks }),
       ...someTableNotes(notes),
       ...(drawn?.problem && { chartNotDrawn: drawn.problem }),
     };
@@ -2366,7 +2415,7 @@ export function mindTools(options: MindToolsOptions): {
     };
     const change: MindChange = {
       ...revision(),
-      ...citedIn({ cited, unrecorded: 0 }),
+      ...citedIn({ cited, unrecorded: 0, blocks }),
       ...(noCitation(content, newText) && { uncited: true as const }),
       ...someTableNotes(notes),
     };

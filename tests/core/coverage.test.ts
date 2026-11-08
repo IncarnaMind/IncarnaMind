@@ -684,6 +684,44 @@ describe("A name in the Question that fits several Documents (#1512)", () => {
     expect(namedCoverage("总结这个文件", ["design"], ["design"], files)).toBeNull();
   });
 
+  // protects=a Document fitted by one word of a fuller name the Question gives another ("report" of "the Field Report") isn't named as read, even when the Answer used only its Passages; fails_when="I read “Harlow Basin Annual Report 2022”; 1 other Document matches" comes back; no_claim=a name that fits two Documents alike, which the tests above hold.
+  test("a word of a fuller name the Question gives another Document names no third (#2768)", () => {
+    const en = [
+      { id: "field", name: "Field Report - Northern Estuary" },
+      { id: "update", name: "Quarterly Research Update" },
+      { id: "annual", name: "Harlow Basin Annual Report 2022" },
+      { id: "ferry", name: "Ferry Timetable Report" },
+    ];
+    expect(
+      namedCoverage(
+        "Write a detailed summary of the Field Report and the Quarterly Research Update into this note, with a section for each.",
+        ["annual", "field"],
+        ["annual", "field"],
+        en,
+      ),
+    ).toBeNull();
+    const zh = [
+      { id: "field", name: "现场报告（北部河口）" },
+      { id: "update", name: "季度研究更新" },
+      { id: "annual", name: "哈洛盆地2022年度报告" },
+      { id: "ferry", name: "渡轮时刻报告" },
+    ];
+    expect(
+      namedCoverage(
+        "在这个笔记里为现场报告和季度研究更新各写一节详细摘要。",
+        ["annual", "field"],
+        ["annual", "field"],
+        zh,
+      ),
+    ).toBeNull();
+    // The Question that names only "the report" still names what it read, and offers the others.
+    expect(namedCoverage("Summarise the report", ["annual"], ["annual"], en)).toEqual({
+      kind: "named",
+      used: [{ id: "annual", name: "Harlow Basin Annual Report 2022" }],
+      rest: ["field", "ferry"],
+    });
+  });
+
   // protects=a name that several Documents share offers all those it didn't read; fails_when=only one is counted, or one the name doesn't fit is; no_claim=none beyond protects.
   test("offers every other Document the name fits", () => {
     const contracts = [
