@@ -2,7 +2,7 @@ import { writeFile } from "node:fs/promises";
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test, vi } from "vitest";
 import type { ClaimCheckAction, ClaimCheckAttributes, Core, Document } from "../../src/core";
-import { sameNumber } from "../../src/core/answers/checks/claimCheck";
+import { agreesAtShownPrecision } from "../../src/core/answers/checks/calculated";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { noteStateParts, readNoteState } from "../../src/renderer/src/noteState";
 import { claimCheckShown } from "../../src/shared/claimChecks";
@@ -3697,7 +3697,15 @@ describe("The check's figures against a statement line's bracketed column (#2576
       const stated = readFigures(claim, context)[0];
       if (!stated) throw new Error("The sentence's figure isn't read.");
       expect(bracketed.value).toBeLessThan(0);
-      expect(sameNumber(stated, bracketed)).toBe(agrees);
+      // The comparison the verdict makes: the sentence's figure against the source's number.
+      expect(
+        agreesAtShownPrecision(stated, {
+          value: bracketed.value,
+          unit: bracketed.unit,
+          inputs: [],
+          formula: "",
+        }),
+      ).toBe(agrees);
     },
   );
 });

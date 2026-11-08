@@ -2983,7 +2983,6 @@ function restates(
   settled: Settled,
 ): { currency?: string | null; repeated?: boolean } | null {
   const { s } = prepared;
-  if (settled.negativeBrackets) return null;
   const value = readingOf({ ...inner, negative: false }).value;
   // No further back than one amount's words reach, so a long line costs no more.
   const near = Math.max(0, bracket - 160);
@@ -3031,19 +3030,23 @@ function restates(
       (before.unit.kind === "currency" && inner.unit.kind === "currency"
         ? before.currencies.some((code) => codes.includes(code))
         : JSON.stringify(before.unit) === JSON.stringify(inner.unit));
-    if (!unitsAgree || readingOf(before).value !== value || signed(before.from)) return null;
+    if (!unitsAgree || readingOf(before).value !== value) return null;
     // A statement line writes one amount twice, its minused column in the same scale form in
     // brackets: "£3.6m (£3.6m)", "3.6亿元（3.6亿元）" is positive then negative, not a gloss (#2576).
+    // The sign words and the page's far reaches don't change that: the column is a minus anyway.
     if (
       before.scaleWord !== null &&
       before.scaleWord === inner.scaleWord &&
       before.core.chinese === inner.core.chinese &&
+      before.rangeTo === null &&
       row === "statement"
     ) {
       return { repeated: true };
     }
+    if (settled.negativeBrackets || signed(before.from)) return null;
     return agreed(before.currencies);
   }
+  if (settled.negativeBrackets) return null;
   // Back to the line's or the cell's start, not to the last figure: "and 50/100" may have been
   // read as a date.
   const from = line + s.slice(line, end).lastIndexOf("\t") + 1;
@@ -3440,7 +3443,9 @@ function readAround(
     draft.count = count;
     const currencySigned = outer !== null || currency !== null;
     if (aside?.repeated) {
-      negate();
+      // A count of people in brackets is never a minus (#1023), repeated or not.
+      if (count) enclose();
+      else negate();
     } else if (bare && found.formatted) {
       // "(1,250)" and "($1,250)" are accounting negatives, unless they count people.
       if (count) enclose();
@@ -3461,7 +3466,7 @@ function readAround(
     } else if (
       row === "table"
         ? draft.unit.kind === "plain" || draft.unit.kind === "currency"
-        : row === "statement" && currencySigned && settled.accounts
+        : row === "statement" && currencySigned && (settled.accounts || settled.negativeBrackets)
     ) {
       // "(US$170 million)" after an amount in another currency restates it; in a cell of its own, or in accounts beside a statement's label ("Impairment (£1.2m)"), it is a minus.
       const codes = outer?.codes ?? draft.currencies;

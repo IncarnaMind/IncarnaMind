@@ -1823,6 +1823,65 @@ describe("a statement line's bracket that repeats its amount (#2576)", () => {
   );
 
   test.each([
+    // The sign words and the page's far reaches don't stop the repeated column being a minus (#2576).
+    [
+      "Operating loss £3.6m (£3.6m)",
+      EN,
+      [
+        ["£3.6m", 3600000],
+        ["(£3.6m)", -3600000],
+      ],
+    ],
+    [
+      "净亏损 3.6亿元 （3.6亿元）",
+      ZH,
+      [
+        ["3.6亿元", 360000000],
+        ["（3.6亿元）", -360000000],
+      ],
+    ],
+  ] as [text: string, context: FigureContext, figures: [string, number][]][])(
+    "a loss's statement line reads its bracket as the minus: %s",
+    (text, context, figures) => {
+      expect(readFigures(text, context).map((each) => [each.chars, each.value])).toEqual(figures);
+    },
+  );
+
+  test("a page whose words name a loss, or whose text runs past 400 characters, keeps the minus", () => {
+    const line = "Eliminations £3.6m (£3.6m)";
+    const around = {
+      language: "en" as const,
+      around: { before: "profit or loss and other comprehensive income.", after: "" },
+    };
+    expect(readFigures(line, around).map((each) => each.value)).toEqual([3600000, -3600000]);
+    const far = `${"A note about the prior year.\n".repeat(15)}${line}`;
+    expect(readFigures(far, EN).map((each) => each.value)).toEqual([3600000, -3600000]);
+  });
+
+  test("a Document that says brackets are negative reads the repeated bracket as one", () => {
+    expect(
+      readFigures("Eliminations £3.6m (£3.6m)", { ...EN, negativeBrackets: true }).map(
+        (each) => each.value,
+      ),
+    ).toEqual([3600000, -3600000]);
+  });
+
+  test("a count of people in brackets stays positive, and a range's bracket is no repeat", () => {
+    expect(
+      readFigures("Headcount 1.2m (1.2m)", EN).map((each) => [each.chars, each.value]),
+    ).toEqual([
+      ["1.2m", 1200000],
+      ["(1.2m)", 1200000],
+    ]);
+    expect(
+      readFigures("Revenue £3.6–3.8m (£3.6m)", EN).map((each) => [each.chars, each.value]),
+    ).toEqual([
+      ["£3.6–3.8m", 3600000],
+      ["£3.6m", 3600000],
+    ]);
+  });
+
+  test.each([
     ["The fund (£2.1bn) invested for years.", EN, [["£2.1bn", 2100000000]]],
     [
       "The loss was £5m (£1.2bn including tax).",
