@@ -324,7 +324,8 @@ function TranscriptContent({
     ],
     [transcript, microphonePausedAtMs],
   );
-  // A turn breaks at a gap in the Transcript, and before a line asking who speaks it.
+  // A turn breaks at a gap in the Transcript, and around a line asking who speaks it: the answer
+  // is that line's alone.
   const turns = useMemo<TurnRow[]>(
     () =>
       turnsOf(
@@ -341,6 +342,7 @@ function TranscriptContent({
                 : speakerOf(speakers, row.part.startMs, row.part.label),
             startsTurn:
               rest?.line === row.id ||
+              (rest !== null && rest.line === before?.id) ||
               (before !== undefined &&
                 breaks.some((at) => before.part.startMs < at && at <= row.part.startMs)),
           };
