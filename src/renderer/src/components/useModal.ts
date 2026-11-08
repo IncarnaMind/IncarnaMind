@@ -1,5 +1,6 @@
 import { type RefObject, useEffect, useRef, useSyncExternalStore } from "react";
 import { flushSync } from "react-dom";
+import { endLeavingCopies } from "../motion";
 import { useFocusReturn } from "./useFocusReturn";
 
 /** The native modal dialogs that are open, the one opened last on top. */
@@ -125,6 +126,17 @@ export function useModal(
   useEffect(() => {
     const element = dialog.current;
     if (!element) return;
+    // Gone with the thing that showed it, before React takes it off the page: whatever takes
+    // the component (Esc's close reaches the store) leaves the focus where it was, as closing
+    // it would. Not `close()`: React runs this once more in development, and a close would be
+    // the store's answer, taking the dialog with it.
+    return () => {
+      focus.giveBack(element);
+    };
+  }, [focus]);
+  useEffect(() => {
+    const element = dialog.current;
+    if (!element) return;
     return watchEscClose(element, () => focus.giveBack(element));
   }, [focus]);
   useEffect(() => {
@@ -133,6 +145,7 @@ export function useModal(
     if (open && !element.open) {
       focus.remember();
       element.showModal();
+      endLeavingCopies();
       if (initialFocus) initialFocus.current?.focus();
       else if (focusDialog) element.focus();
     }

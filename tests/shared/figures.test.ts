@@ -1762,6 +1762,152 @@ describe("the scale forms a Document states apart from its figures (#2365)", () 
   });
 });
 
+// protects=#2576; fails_when=a statement line's bracket that repeats the amount in the same scale
+// form, as an elimination's second column does, reads as the same positive amount again, so a
+// sentence that gives the eliminated amount as positive is Supported against the wrong column.
+describe("a statement line's bracket that repeats its amount (#2576)", () => {
+  test.each([
+    [
+      "Intercompany eliminations £3.6m (£3.6m)",
+      EN,
+      [
+        ["£3.6m", 3600000],
+        ["(£3.6m)", -3600000],
+      ],
+    ],
+    [
+      "Eliminations $1.2bn ($1.2bn)",
+      EN,
+      [
+        ["$1.2bn", 1200000000],
+        ["($1.2bn)", -1200000000],
+      ],
+    ],
+    [
+      "Eliminations\t£3.6m\t(£3.6m)",
+      EN,
+      [
+        ["£3.6m", 3600000],
+        ["(£3.6m)", -3600000],
+      ],
+    ],
+    [
+      "Eliminations | £3.6m | (£3.6m)",
+      EN,
+      [
+        ["£3.6m", 3600000],
+        ["(£3.6m)", -3600000],
+      ],
+    ],
+    [
+      "内部往来抵销 3.6亿元 （3.6亿元）",
+      ZH,
+      [
+        ["3.6亿元", 360000000],
+        ["（3.6亿元）", -360000000],
+      ],
+    ],
+    [
+      "抵销 2.5万元 （2.5万元）",
+      ZH,
+      [
+        ["2.5万元", 25000],
+        ["（2.5万元）", -25000],
+      ],
+    ],
+  ] as [text: string, context: FigureContext, figures: [string, number][]][])(
+    "%s",
+    (text, context, figures) => {
+      expect(readFigures(text, context).map((each) => [each.chars, each.value])).toEqual(figures);
+    },
+  );
+
+  test.each([
+    // The sign words and the page's far reaches don't stop the repeated column being a minus (#2576).
+    [
+      "Operating loss £3.6m (£3.6m)",
+      EN,
+      [
+        ["£3.6m", 3600000],
+        ["(£3.6m)", -3600000],
+      ],
+    ],
+    [
+      "净亏损 3.6亿元 （3.6亿元）",
+      ZH,
+      [
+        ["3.6亿元", 360000000],
+        ["（3.6亿元）", -360000000],
+      ],
+    ],
+  ] as [text: string, context: FigureContext, figures: [string, number][]][])(
+    "a loss's statement line reads its bracket as the minus: %s",
+    (text, context, figures) => {
+      expect(readFigures(text, context).map((each) => [each.chars, each.value])).toEqual(figures);
+    },
+  );
+
+  test("a page whose words name a loss, or whose text runs past 400 characters, keeps the minus", () => {
+    const line = "Eliminations £3.6m (£3.6m)";
+    const around = {
+      language: "en" as const,
+      around: { before: "profit or loss and other comprehensive income.", after: "" },
+    };
+    expect(readFigures(line, around).map((each) => each.value)).toEqual([3600000, -3600000]);
+    const far = `${"A note about the prior year.\n".repeat(15)}${line}`;
+    expect(readFigures(far, EN).map((each) => each.value)).toEqual([3600000, -3600000]);
+  });
+
+  test("a Document that says brackets are negative reads the repeated bracket as one", () => {
+    expect(
+      readFigures("Eliminations £3.6m (£3.6m)", { ...EN, negativeBrackets: true }).map(
+        (each) => each.value,
+      ),
+    ).toEqual([3600000, -3600000]);
+  });
+
+  test("a count of people in brackets stays positive, and a range's bracket is no repeat", () => {
+    expect(
+      readFigures("Headcount 1.2m (1.2m)", EN).map((each) => [each.chars, each.value]),
+    ).toEqual([
+      ["1.2m", 1200000],
+      ["(1.2m)", 1200000],
+    ]);
+    expect(
+      readFigures("Revenue £3.6–3.8m (£3.6m)", EN).map((each) => [each.chars, each.value]),
+    ).toEqual([
+      ["£3.6–3.8m", 3600000],
+      ["£3.6m", 3600000],
+    ]);
+  });
+
+  test.each([
+    ["The fund (£2.1bn) invested for years.", EN, [["£2.1bn", 2100000000]]],
+    [
+      "The loss was £5m (£1.2bn including tax).",
+      EN,
+      [
+        ["£5m", 5000000],
+        ["£1.2bn", 1200000000],
+      ],
+    ],
+    ["Seventy-Five Thousand Dollars ($75,000.00)", EN, [["$75,000.00", 75000]]],
+    [
+      "人民币九万八千元（¥98,000）",
+      ZH,
+      [
+        ["人民币九万八千元", 98000],
+        ["¥98,000", 98000],
+      ],
+    ],
+  ] as [text: string, context: FigureContext, figures: [string, number][]][])(
+    "a bracket in running text, a gloss, or an amount in words keeps its reading: %s",
+    (text, context, figures) => {
+      expect(readFigures(text, context).map((each) => [each.chars, each.value])).toEqual(figures);
+    },
+  );
+});
+
 // protects=#2341; fails_when=a bracket that gives the amount just before it again in figures, as
 // contracts write "人民币九万八千元（¥98,000）" and "Seventy-Five Thousand Dollars ($75,000.00)", is read
 // as an accounting negative, so a correct sentence is Contradicted; or a bracket that is a real
