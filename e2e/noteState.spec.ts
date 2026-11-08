@@ -24,7 +24,7 @@ import {
 
 /*
  * A note says when it is done (D266, #1915): the corner badge, the note's row in Home and
- * the Export menu say the same state — "Claims not checked", "1 needs a look", "Checked 14:25" —
+ * the Export menu say the same state — "Not checked", "1 needs a look", "Checked 14:25" —
  * in English and Chinese. The scripted model finds a sentence contradicted when it shares
  * three words with a Document line and has a number the line doesn't (#96). Set
  * INCARNAMIND_SCREENSHOTS to a folder to also save the screenshots.
@@ -45,19 +45,19 @@ const SUPPORTED = "Spring tides happened 12 times in 2026.";
 
 const WORDS = {
   en: {
-    notChecked: "Claims not checked",
+    notChecked: "Not checked",
     look: "1 needs a look",
     checked: "Checked ",
-    checkFirst: "1 claim not checked yet · Check first",
+    checkFirst: "1 sentence not checked yet · Check first",
     see: "Show",
     running: "A check is running",
     checking: /\d+ being checked/,
   },
   "zh-CN": {
-    notChecked: "说法未核对",
+    notChecked: "未核对",
     look: "需要留意 1 处",
     checked: "已核对 ",
-    checkFirst: "1 条说法待核对 · 先核对",
+    checkFirst: "1 句待核对 · 先核对",
     see: "查看",
     running: "正在核对",
     checking: /\d+ 句正在核对/,

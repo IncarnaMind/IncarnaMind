@@ -34,8 +34,8 @@ describe("What a check for contradictions found, in parts of a line", () => {
       ["12 条引用的说法中有 2 条与文档矛盾", "3 条未核对"],
     ]);
     expect(both(run({ checked: 9 }))).toEqual([
-      ["No contradictions in 12 cited claims", "3 not checked"],
-      ["12 条引用的说法中没有发现矛盾", "3 条未核对"],
+      ["No contradictions in 12 cited sentences", "3 not checked"],
+      ["12 句有引用的句子之间没有矛盾", "3 条未核对"],
     ]);
   });
 

@@ -6,6 +6,7 @@ import {
   type CitationAttributes,
   CLAIM_CHECK_MARK,
   type ClaimCheckAttributes,
+  type ClaimCheckPart,
 } from "../../src/core/api";
 import { claimsOf } from "../../src/renderer/src/editor/claimChecks";
 import {
@@ -395,7 +396,7 @@ describe("A Mind's health", () => {
     expect(health.failed).toHaveLength(1);
   });
 
-  test("the card says everything is checked only with nothing left, a claim with no Citation too (#1909, #1941, D266)", () => {
+  test("the card says everything is checked only with nothing left; a supported sentence with no Citation counts as done (#1909, #1941, #2831)", () => {
     const cited = healthOf(
       docOf(paragraph(checked("Spring tides come at full moon.", "supported"), citation("found"))),
     );
@@ -411,19 +412,13 @@ describe("A Mind's health", () => {
       docOf(paragraph(checked("Spring tides come at full moon.", "supported"))),
     );
     expect(healthSummary(uncited, { running: false, problem: false, unread: 0 })).toEqual({
-      kind: "left",
-      summary: {
-        supported: 1,
-        look: { claims: 0, contradicted: 0, unsupported: 0, notFound: 0 },
-        toCheck: 0,
-        noCitation: 1,
-      },
+      kind: "all",
     });
   });
 
-  // The failing case a note with one Citation and three claims without one showed: "1 Citation
-  // found · 3 with no Citation · Everything checked" (#1941).
-  test("a note with one Citation and three claims without one names the three as still to cite (#1941)", () => {
+  // A note with one Citation and three supported sentences without one: all four are supported,
+  // and nothing holds back "Everything checked" (#2831).
+  test("a note with one Citation and three supported sentences without one is all checked (#2831)", () => {
     const health = healthOf(
       docOf(
         paragraph(checked("Spring tides come at full moon.", "supported"), citation("found")),
@@ -435,18 +430,15 @@ describe("A Mind's health", () => {
 
     expect(health.supported).toBe(4);
     expect(health.noCitation).toHaveLength(3);
+    expect(checkRows(health).map(({ row, places }) => [row, places.length])).toEqual([
+      ["supported", 4],
+    ]);
     expect(healthSummary(health, { running: false, problem: false, unread: 0 })).toEqual({
-      kind: "left",
-      summary: {
-        supported: 4,
-        look: { claims: 0, contradicted: 0, unsupported: 0, notFound: 0 },
-        toCheck: 0,
-        noCitation: 3,
-      },
+      kind: "all",
     });
   });
 
-  test("the card's summary counts what its rows show: supported, what needs a look by reason, and what is left (#1941)", () => {
+  test("the card's summary counts what its rows show: supported, what needs a look by reason, and what is left (#1941, #2831)", () => {
     const health = healthOf(
       docOf(
         paragraph(checked("Spring tides come at full moon.", "supported"), citation("found")),
@@ -459,15 +451,20 @@ describe("A Mind's health", () => {
       ),
     );
 
+    // The sentence not checked whose Citation isn't found needs a look, counted once (#2831).
     expect(healthSummary(health, { running: false, problem: false, unread: 0 })).toEqual({
       kind: "left",
       summary: {
         supported: 2,
-        look: { claims: 2, contradicted: 1, unsupported: 1, notFound: 0 },
+        look: { claims: 3, contradicted: 1, unsupported: 1, notFound: 1 },
         toCheck: 1,
         noCitation: 1,
       },
     });
+    expect(checkRows(health).map(({ row, places }) => [row, places.length])).toEqual([
+      ["look", 3],
+      ["supported", 2],
+    ]);
   });
 
   // A claim with two missing Citations, and a claim with a verdict problem and a missing
@@ -606,5 +603,143 @@ describe("The check card's rows (#2831)", () => {
       paragraph(checked("Spring tides come at full moon.", "supported"), citation("found")),
     );
     expect(checkRows(healthOf(doc)).map(({ row }) => row)).toEqual(["supported"]);
+  });
+
+  /** Each row's count, and that the rows count every sentence a check reads once (own notes are of the supported). */
+  const rowsOf = (health: NoteHealth) => {
+    const rows = checkRows(health);
+    const counted = rows.filter(({ row }) => row !== "ownNotes");
+    expect(counted.reduce((sum, { places }) => sum + places.length, 0)).toBe(health.checkable);
+    expect(new Set(counted.flatMap(({ places }) => places)).size).toBe(health.checkable);
+    return rows.map(({ row, places }) => [row, places.length]);
+  };
+  const part = (
+    start: number,
+    end: number,
+    verdict: ClaimCheckPart["verdict"],
+  ): ClaimCheckPart => ({
+    span: { start, end },
+    kind: "fact",
+    verdict,
+    evidence: [],
+    says: null,
+    unsupported: null,
+    calculation: null,
+    reason: null,
+    detail: null,
+    versions: [],
+    excluded: [],
+    citedCaseUnchecked: false,
+    citedCaseFound: false,
+  });
+
+  // protects=a sentence whose parts disagree counts once, by its worst part (#2831); fails_when=it counts in two rows, or as supported; no_claim=how the parts are judged.
+  test("a sentence with mixed part verdicts counts once, under needs a look", () => {
+    const sentence = "Spring tides come at full moon and neap tides are twice as strong.";
+    const doc = docOf(
+      paragraph(
+        checked(sentence, "unsupported", null, {
+          parts: [part(0, 32, "supported"), part(33, sentence.length, "unsupported")],
+        }),
+        citation("found"),
+      ),
+      paragraph(checked("Sea levels rose by a metre in a century.", "supported")),
+    );
+    expect(rowsOf(healthOf(doc))).toEqual([
+      ["look", 1],
+      ["supported", 1],
+    ]);
+  });
+
+  // protects=a sentence kept as the User's view is no sentence a check reads and has no row, unless a Citation of it isn't found, which puts it under needs a look (#2831); fails_when=a kept sentence counts as not checked, or its missing quote hides; no_claim=how the card names kept sentences.
+  test("a kept sentence has no row, unless its Citation isn't found", () => {
+    const kept = (sentence: string) => checked(sentence, "unsupported", null, { kept: true });
+    const quiet = healthOf(
+      docOf(
+        paragraph(kept("Online sales grew 12% in the quarter."), citation("found")),
+        paragraph(checked("Sea levels rose by a metre in a century.", "supported")),
+      ),
+    );
+    expect(rowsOf(quiet)).toEqual([["supported", 1]]);
+    expect(quiet.kept).toHaveLength(1);
+    const missing = healthOf(
+      docOf(paragraph(kept("Online sales grew 12% in the quarter."), citation("not-found"))),
+    );
+    expect(rowsOf(missing)).toEqual([["look", 1]]);
+    expect(missing.kept).toHaveLength(0);
+  });
+
+  // protects=a sentence edited since its check (↻) counts once, not checked (#2831); fails_when=it still counts as supported, or in two rows; no_claim=the re-check's words.
+  test("a sentence edited since its check counts once, not checked", () => {
+    const sentence = "Online sales grew 12% in the quarter.";
+    const edited = {
+      ...checked(sentence, "supported"),
+      text: "Online sales grew 15% in the quarter.",
+    };
+    const doc = docOf(
+      paragraph(edited, citation("found")),
+      paragraph(checked("Sea levels rose by a metre in a century.", "supported")),
+    );
+    const health = healthOf(doc);
+    expect(health.recheck).toHaveLength(1);
+    expect(rowsOf(health)).toEqual([
+      ["supported", 1],
+      ["toCheck", 1],
+    ]);
+  });
+
+  // protects=the supported sentences only the User's own notes back are named under supported, never counted twice (#335, #2831); fails_when=they add to the rows' total; no_claim=none beyond protects.
+  test("the own-notes line is named under supported and adds nothing to the total", () => {
+    const doc = docOf(
+      paragraph(
+        checked("Harbours publish the times of high water every week.", "supported", null, {
+          evidence: evidencing("2026-10-12T10:00:00.000Z"),
+        }),
+      ),
+      paragraph(
+        checked("Spring tides come at the new moon.", "supported", null, {
+          evidence: evidencing(),
+        }),
+      ),
+    );
+    expect(rowsOf(healthOf(doc))).toEqual([
+      ["supported", 2],
+      ["ownNotes", 1],
+    ]);
+  });
+
+  // protects=a Citation not found on a sentence no check has read puts it under needs a look, counted once, and so does one on a sentence that isn't a claim (#2831); fails_when=it hides, leaving the badge green, or counts as not checked too; no_claim=the reason's words.
+  test("a Citation not found on a sentence that isn't checked puts it under needs a look", () => {
+    const doc = docOf(
+      paragraph(text("The quote isn't on the page it cites "), citation("not-found"), text(".")),
+      paragraph(text("I think this is right "), citation("not-found"), text(".")),
+      paragraph(checked("Sea levels rose by a metre in a century.", "supported")),
+    );
+    const health = healthOf(doc);
+    expect(rowsOf(health)).toEqual([
+      ["look", 2],
+      ["supported", 1],
+    ]);
+    expect(healthSummary(health, { running: false, problem: false, unread: 0 })).toMatchObject({
+      kind: "left",
+      summary: { look: { claims: 2, notFound: 2 } },
+    });
+  });
+
+  // protects=a sentence the last whole check couldn't sort is under not checked, named on that check's line too (#2831); fails_when=it sits in no row, so the rows don't add up; no_claim=the line's words.
+  test("a sentence the last check couldn't sort is under not checked", () => {
+    const unsorted = "The harbour office posts the times each week.";
+    const health = healthOf(
+      docOf(
+        paragraph(text(unsorted)),
+        paragraph(checked("Sea levels rose by a metre in a century.", "supported")),
+      ),
+      { unexamined: [sentenceKey(unsorted)] },
+    );
+    expect(health.unexamined).toHaveLength(1);
+    expect(rowsOf(health)).toEqual([
+      ["supported", 1],
+      ["toCheck", 1],
+    ]);
   });
 });

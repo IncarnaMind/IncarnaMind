@@ -22,7 +22,7 @@ import {
 
 /*
  * The check badge (#909, #1909, D266): at a Mind's bottom right, its state on every note
- * with a sentence a check reads ("Claims not checked", "1 needs a look", "Checked 14:25"), never
+ * with a sentence a check reads ("Not checked", "1 needs a look", "Checked 14:25"), never
  * bare while one waits. Its card opens from it, and from ⌘K. The scripted model
  * (src/main/fakeChat/checks.ts) finds a sentence supported when it shares
  * three words with a line of a Document, and otherwise unsupported. Set
@@ -78,7 +78,7 @@ test("a Note of plain notes says its state; its card, from ⌘K, has one count p
   await window.keyboard.type(` ${SUPPORTED}`);
   await expect(editor).toContainText(SUPPORTED);
   await expect(badge).toHaveAttribute("data-state", "not-checked");
-  await expect(badge.locator(".check-badge-words")).toHaveText("Claims not checked");
+  await expect(badge.locator(".check-badge-words")).toHaveText("Not checked");
   const card = await checkCard(window);
   await expect(card.getByTestId("health-toCheck")).toContainText("1 not checked");
   await expect(card.getByTestId("health-noCitation")).toHaveCount(0);
@@ -120,14 +120,16 @@ test("a Note of plain notes says its state; its card, from ⌘K, has one count p
   await window.keyboard.type(" The harbour is quiet in winter.");
   // Another claim arrives with no check: the note is not checked any more (D266).
   await expect(badge).toHaveAttribute("data-state", "not-checked");
-  await expect(badge.locator(".check-badge-words")).toHaveText("Claims not checked");
+  await expect(badge.locator(".check-badge-words")).toHaveText("Not checked");
 
-  // ⌘K reaches the card from anywhere; Esc from inside it puts the focus back.
+  // ⌘K reaches the card from anywhere, named Checks, and its old name still finds it; Esc from
+  // inside it puts the focus back.
   await window.keyboard.press("ControlOrMeta+k");
   await window.keyboard.type("Claims and Citations");
+  await expect(window.getByTestId("palette-item").first()).toContainText("Checks");
   await pointAndClick(
     window,
-    window.getByTestId("palette-item").filter({ hasText: "Claims and Citations" }).first(),
+    window.getByTestId("palette-item").filter({ hasText: "Checks" }).first(),
   );
   await expect(card).toBeVisible();
   await expect(card.getByTestId("health-found")).toHaveCount(0);
@@ -228,11 +230,11 @@ test("in Chinese and a narrow pane the badge keeps its state to its mark; Tab re
   await expect(editor.getByTestId("citation")).toHaveCount(1);
   const open = window.getByTestId("check-badge-open");
   const words = window.getByTestId("check-badge").locator(".check-badge-words");
-  await expect(open).toHaveAccessibleName("Claims and Citations: Claims not checked");
-  await expect(words).toHaveText("Claims not checked");
+  await expect(open).toHaveAccessibleName("Checks: Not checked");
+  await expect(words).toHaveText("Not checked");
   await setLanguage(window, "zh-CN");
-  await expect(open).toHaveAccessibleName("说法和引用：说法未核对");
-  await expect(words).toHaveText("说法未核对");
+  await expect(open).toHaveAccessibleName("核对：未核对");
+  await expect(words).toHaveText("未核对");
   await expect(words).toBeVisible();
   await setWindowSize(app, window, 1100, 720);
   await expect(words).toBeVisible();

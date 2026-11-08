@@ -84,9 +84,12 @@ export type HealthPart = (typeof HEALTH_PARTS)[number];
 export interface NoteHealth {
   found: number[];
   notFound: number[];
-  /** The covered claims that need a look: contradicted, unsupported, or one of their Citations not found. */
+  /**
+   * The sentences that need a look: a covered claim contradicted or unsupported, or any sentence
+   * one of whose Citations isn't found, whatever its state, except while it is checked (#2831).
+   */
   lookClaims: number[];
-  /** The Citations not found on those claims: a reason's count, never a claim's (#1941). */
+  /** The Citations not found on those sentences: a reason's count, never a sentence's (#1941). */
   lookNotFound: number[];
   unsupported: number[];
   contradicted: number[];
@@ -349,8 +352,18 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
           missing.push(citation.pos);
         }
       }
+      // A Citation whose quoted words aren't found puts its sentence under needs a look, whatever
+      // the sentence's state, except while it is being checked (#2831).
+      const lookFor = (counted: boolean) => {
+        if (missing.length === 0) return false;
+        if (!counted) health.checkable++;
+        health.lookClaims.push(from);
+        health.lookNotFound.push(...missing);
+        return true;
+      };
       if (state.kind === "to-check") {
         health.checkable++;
+        lookFor(true);
         health.toCheck.push(from);
         if (state.why === "failed") {
           health.failed.push(from);
@@ -373,16 +386,19 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
         if (table) health.tableCells.push(from);
         return;
       }
-      if (state.kind === "kept") {
-        health.kept.push(from);
-        return;
-      }
       if (state.kind === "checking") {
         health.checkable++;
         health.checking.push(from);
         return;
       }
-      if (state.kind !== "covered" || !claim) return;
+      if (state.kind === "kept") {
+        if (!lookFor(false)) health.kept.push(from);
+        return;
+      }
+      if (state.kind !== "covered" || !claim) {
+        lookFor(false);
+        return;
+      }
       health.checkable++;
       const checkedAt = claim.check.checkedAt;
       if (
@@ -403,10 +419,10 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
         if (kind !== "chart" && isClaim(text) && citations.length === 0)
           health.noCitation.push(from);
       }
-      if (unsupported || contradicted || missing.length > 0) {
+      if (unsupported || contradicted) {
         health.lookClaims.push(from);
         health.lookNotFound.push(...missing);
-      }
+      } else lookFor(true);
     },
     (table, pos) => {
       const shown = input.tableShown?.(table);
@@ -439,21 +455,26 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
  * up to the sentences a check reads. What needs a look (unsupported, contradicted, or a Citation
  * not found: its own card says which), what is supported, with the ones only the User's own notes
  * back named under it (`ownNotes`, of the supported), what is being checked and what isn't
- * checked. A sentence the last whole check couldn't sort is named on that check's line, never in
- * a row (#2313). Rows with none are left out.
+ * checked, the sentences the last whole check couldn't sort among them (named on that check's
+ * line too). Each counts once, in its worst state: needs a look, then not checked, then
+ * supported, so an Analysis table with a column not recalculated is one not checked. Rows with
+ * none are left out.
  */
 export const CHECK_ROWS = ["look", "supported", "ownNotes", "checking", "toCheck"] as const;
 export type CheckRow = (typeof CHECK_ROWS)[number];
 
 export function checkRows(health: NoteHealth): { row: CheckRow; places: readonly number[] }[] {
-  const unexamined = new Set(health.unexamined);
-  const supported = new Set(health.supportedAt);
+  const look = new Set(health.lookClaims);
+  const toCheck = [...new Set(health.toCheck)].filter((pos) => !look.has(pos));
+  const notChecked = new Set(toCheck);
+  const supportedAt = health.supportedAt.filter((pos) => !look.has(pos) && !notChecked.has(pos));
+  const supported = new Set(supportedAt);
   const places: Record<CheckRow, readonly number[]> = {
     look: health.lookClaims,
-    supported: health.supportedAt,
+    supported: supportedAt,
     ownNotes: health.ownNotes.filter((pos) => supported.has(pos)),
     checking: health.checking,
-    toCheck: health.toCheck.filter((pos) => !unexamined.has(pos)),
+    toCheck,
   };
   return CHECK_ROWS.flatMap((row) =>
     places[row].length > 0 ? [{ row, places: places[row] }] : [],
@@ -478,10 +499,10 @@ export interface HealthSummary {
 /**
  * The card's one summary, counted and decided from the same `NoteHealth` its
  * rows show, so the two can never disagree (#1941): "everything checked" only
- * when nothing is left — no claim that needs a look, none not checked, no
- * supported claim with no Citation, and no file a narrowed check couldn't read
- * (#1915) — otherwise the supported claims the rows don't count (#2313). Null
- * while a check runs or a problem shows: the card says that in its place.
+ * when nothing is left — no sentence that needs a look, none not checked, and
+ * no file a narrowed check couldn't read (#1915). A supported sentence with no
+ * Citation counts as done (#2831). Null while a check runs or a problem shows:
+ * the card says that in its place.
  */
 export function healthSummary(
   health: NoteHealth,
@@ -499,7 +520,8 @@ export function healthSummary(
     toCheck: health.toCheck.length,
     noCitation: health.noCitation.length,
   };
-  const left = summary.look.claims + summary.toCheck + summary.noCitation;
+  // A supported sentence counts as done: finding a Citation for it is the check's job (#2831).
+  const left = summary.look.claims + summary.toCheck;
   if (left > 0) return { kind: "left", summary };
   return unread > 0 ? null : { kind: "all" };
 }
