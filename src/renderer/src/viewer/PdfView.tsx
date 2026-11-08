@@ -46,7 +46,7 @@ import { type ScannedPage, scannedTextLayer, useScannedPages } from "./scannedTe
 import { pdfSelection, useSelectionReader } from "./selectedText";
 import { UnreadPagesLine } from "./UnreadPagesLine";
 import { HeaderDivider, ViewerHeader } from "./ViewerHeader";
-import { FileGone, ViewerMessage } from "./ViewerMessage";
+import { FileGone, OpeningDocument, ViewerMessage } from "./ViewerMessage";
 import { createWheelZoom, MAX_ZOOM, MIN_ZOOM, stepZoom } from "./zoom";
 
 /** CSS pixels per PDF point: at 100% a page shows at its printed size. */
@@ -153,13 +153,23 @@ export function PdfView({
     }
   };
 
+  const waitingFor = useRef("pdf.js");
+
   // biome-ignore lint/correctness/useExhaustiveDependencies: `attempt` opens it again after Retry or unlocking.
   useEffect(() => {
     let cancelled = false;
     let task: PDFDocumentLoadingTask | undefined;
+    const start = (pdfjs: PdfJs, password?: string): PDFDocumentLoadingTask => {
+      waitingFor.current = "the file and pdf.js's worker";
+      const started = openPdf(pdfjs, document.id, source, password);
+      started.onProgress = ({ loaded }: { loaded: number }) => {
+        waitingFor.current = `the file and pdf.js's worker, ${loaded} bytes read`;
+      };
+      return started;
+    };
     /** Opens the PDF; a locked one with the password the core keeps for it, asked for only then. */
     const open = async (pdfjs: PdfJs): Promise<PDFDocumentProxy | null> => {
-      task = openPdf(pdfjs, document.id, source);
+      task = start(pdfjs);
       try {
         return await task.promise;
       } catch (error) {
@@ -167,10 +177,11 @@ export function PdfView({
         const password = await core.documentPasswordFor(document.id);
         if (cancelled || password === null) return null;
         await task.destroy();
-        task = openPdf(pdfjs, document.id, source, password);
+        task = start(pdfjs, password);
         return await task.promise;
       }
     };
+    waitingFor.current = "pdf.js";
     loadPdfJs()
       .then(async (pdfjs) => {
         if (cancelled) return;
@@ -180,6 +191,7 @@ export function PdfView({
           setLoaded({ kind: "locked" });
           return;
         }
+        waitingFor.current = "its first page";
         const first = (await pdf.getPage(1)).getViewport({ scale: 1 });
         if (!cancelled) {
           setLoaded({
@@ -206,9 +218,9 @@ export function PdfView({
     case "loading":
       return (
         <>
-          <ViewerHeader />
+          <ViewerHeader onRetry={reopen} />
           {banner}
-          <ViewerMessage>{t("viewer.loading")}</ViewerMessage>
+          <OpeningDocument key={attempt} retry={reopen} waitingOn={() => waitingFor.current} />
         </>
       );
     case "missing":

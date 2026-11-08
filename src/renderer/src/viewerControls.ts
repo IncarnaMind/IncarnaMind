@@ -5,7 +5,8 @@
  * from the group the User is in, and, not about the viewer, answer the Skill
  * picker without the system's dialog, add files and folders by path as a drop
  * would, or wait for, slow down and look at what moves, shorten how long an Answer
- * is silent before its line says how long it takes, read the command registry
+ * is silent before its line says how long it takes, or how long a Document may take
+ * to open before the viewer says it couldn't, read the command registry
  * as data, give Home's Coming up its meetings, or hold back the citation style
  * picker's list of every style.
  */
@@ -21,6 +22,7 @@ import { currentTabOf } from "./layoutSlice";
 import { leavingCopies, motionRunning, setMotionSpeed } from "./motion";
 import { interceptSkillPicker } from "./skills";
 import { useAppStore } from "./store";
+import { setViewerOpenLimitMs } from "./viewer/openLimit";
 
 declare global {
   interface Window {
@@ -68,6 +70,7 @@ export function installTestHooks(): void {
       found: findable.all().map((kind) => kind.kind),
     }),
     setSilentWaitMs,
+    setViewerOpenLimitMs,
     setComingUp: (meetings) => useComingUp.setState({ meetings }),
     holdStyleCatalogue,
     motionRunning,

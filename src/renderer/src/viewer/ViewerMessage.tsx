@@ -1,9 +1,12 @@
-import { type ReactNode, useContext, useState } from "react";
+import { type ReactNode, useContext, useEffect, useRef, useState } from "react";
 import { type ProblemAction, ProblemLine } from "../components/ProblemLine";
+import { logCaught } from "../errorLog";
 import { errorMessage } from "../errors";
 import { useT } from "../i18n";
 import { saidInLine } from "../lineNames";
 import { useAppStore } from "../store";
+import { canOpenExternally, useOpenExternally } from "./openExternally";
+import { viewerOpenLimitMs } from "./openLimit";
 import { ViewerFrameContext } from "./ViewerHeader";
 
 /**
@@ -41,6 +44,66 @@ export function ViewerMessage({
     >
       <p className="max-w-sm break-words text-ink-meta">{children}</p>
     </div>
+  );
+}
+
+/**
+ * "Opening the Document…" while a view opens its file. A view still opening after the limit
+ * says it couldn't, with one way on: the Document in its own app, else `retry`; it still shows
+ * the Document if the open finishes after all (#2828). `waitingOn` names, for the log, what the
+ * view was still waiting for.
+ */
+export function OpeningDocument({
+  retry,
+  waitingOn,
+}: {
+  retry?: () => void;
+  waitingOn?: () => string;
+}) {
+  const t = useT();
+  const { document } = useContext(ViewerFrameContext);
+  const [late, setLate] = useState(false);
+  const external = useOpenExternally(document);
+  const kind = document?.kind ?? "unknown";
+  const said = useRef(waitingOn);
+  useEffect(() => {
+    said.current = waitingOn;
+  });
+  useEffect(() => {
+    const limit = viewerOpenLimitMs();
+    const timer = setTimeout(() => {
+      setLate(true);
+      const stage = said.current?.();
+      logCaught(
+        new Error(
+          `A ${kind} Document was still opening after ${limit} ms${stage ? `, waiting for ${stage}` : ""}.`,
+        ),
+      );
+    }, limit);
+    return () => clearTimeout(timer);
+  }, [kind]);
+
+  if (!late) return <ViewerMessage>{t("viewer.loading")}</ViewerMessage>;
+  const action: ProblemAction | undefined =
+    document && canOpenExternally(document)
+      ? {
+          label: t(document.web ? "webPages.openLive" : "documents.copy.open"),
+          testId: "viewer-not-opened-open",
+          onClick: external.open,
+        }
+      : retry && {
+          label: t("documents.retryAction"),
+          testId: "viewer-not-opened-retry",
+          onClick: retry,
+        };
+  return (
+    <ViewerMessage tone="error" testId="viewer-not-opened" action={action}>
+      {external.problem ? (
+        <span title={external.problem.fullMessage}>{external.problem.message}</span>
+      ) : (
+        t(kind === "pdf" ? "viewer.notOpened.pdf" : "viewer.notOpened")
+      )}
+    </ViewerMessage>
   );
 }
 

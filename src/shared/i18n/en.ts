@@ -1991,6 +1991,8 @@ export const en = {
   "viewer.keepTip": "Keep this tab open (or double-click its tab)",
   "viewer.pdf.failed": "This PDF couldn’t be opened.",
   "viewer.loading": "Opening the Document…",
+  "viewer.notOpened": "IncarnaMind couldn’t open this Document.",
+  "viewer.notOpened.pdf": "IncarnaMind couldn’t open this PDF.",
   "viewer.failed": "This Document couldn’t be shown: {message}",
   "viewer.cited.asCited": "As cited, {date}",
   "viewer.cited.openCurrent": "Open the current version",
