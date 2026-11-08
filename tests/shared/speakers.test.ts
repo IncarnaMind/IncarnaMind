@@ -19,6 +19,7 @@ import {
   speakerMark,
   speakerName,
   speakersIn,
+  splitsHold,
   withLineSplit,
   withSpeakerChosen,
 } from "../../src/shared/speakers";
@@ -302,6 +303,55 @@ describe("Splitting a line (#138)", () => {
     ).toBe("王丽 · 0:04");
   });
 
+  // protects=a part said outside its line, before its start or after its end, never counts: the map drops one at or before the line's start, the line reads whole with one at or after its end, and the core's check refuses both; fails_when=a part outside its line gives the line another Speaker; no_claim=the core's reading of the file, which the core test covers.
+  test("a split whose part lies outside its line is left out", () => {
+    const outside = {
+      labels: {},
+      lines: { "7000 Speaker 1": "Speaker 2" },
+      splits: { "2000 Speaker 1": { text: LINE.text, parts: [{ at: REST, ms: 7000 }] } },
+    };
+    expect(partsOf(outside, LINE)).toHaveLength(1);
+    expect(shownSpeaker(outside, LINE.startMs, LINE.label, en)).toBe("Speaker 1");
+    expect(splitsHold(outside, [LINE])).toBe(false);
+    const before = {
+      ...outside,
+      splits: { "2000 Speaker 1": { text: LINE.text, parts: [{ at: REST, ms: 1500 }] } },
+    };
+    expect(parseTranscriptSpeakers(before)).toEqual({
+      speakers: { labels: {}, lines: { "7000 Speaker 1": "Speaker 2" } },
+      dropped: 1,
+    });
+    expect(splitsHold(withLineSplit(null, LINE, REST, 4100), [LINE])).toBe(true);
+  });
+
+  // protects=the rest is known by its start and label, so it never starts where another line by its label does: with contiguous or touching cues it takes the nearest free time inside its part, and the core refuses a split that clashes; fails_when=the rest and another line share a key, so one choice moves both; no_claim=lines by other labels, which never share a key.
+  test("the rest never starts where another line by its label starts", () => {
+    const next = {
+      startMs: 5999,
+      endMs: 9000,
+      text: "Then the board reads it.",
+      label: "Speaker 1",
+    };
+    const lines = [
+      { startMs: LINE.startMs, label: LINE.label },
+      { startMs: next.startMs, label: next.label },
+    ];
+    const last = LINE.text.lastIndexOf("first.");
+    const split = withLineSplit(null, LINE, last, 5999, lines);
+    expect(partsOf(split, LINE).map((part) => part.startMs)).toEqual([2000, 5998]);
+    expect(splitsHold(split, [LINE, next])).toBe(true);
+    const clash = {
+      labels: {},
+      lines: {},
+      splits: { "2000 Speaker 1": { text: LINE.text, parts: [{ at: last, ms: 5999 }] } },
+    };
+    expect(splitsHold(clash, [LINE, next])).toBe(false);
+    // Another label's line starting then is no clash.
+    expect(withLineSplit(null, LINE, last, 5999, [{ startMs: 5999, label: "Me" }])).toMatchObject({
+      splits: { "2000 Speaker 1": { parts: [{ at: last, ms: 5999 }] } },
+    });
+  });
+
   // protects=splits as stored or sent keep only what holds: the line's text, and parts after one another in text and time, inside it; fails_when=a split with parts out of order, at the same time, outside the text or with a bad key is kept; no_claim=the core's refusal, which the core test covers.
   test("splits as stored keep only what holds", () => {
     const good = { text: LINE.text, parts: [{ at: REST, ms: 4100 }] };
@@ -324,13 +374,14 @@ describe("Splitting a line (#138)", () => {
             { at: REST, ms: 4100 },
           ],
         },
-        "5000 Speaker 1": { text: LINE.text, parts: [{ at: LINE.text.length, ms: 4100 }] },
+        "5000 Speaker 1": { text: LINE.text, parts: [{ at: LINE.text.length, ms: 6100 }] },
+        "6000 Speaker 1": { text: LINE.text, parts: [{ at: REST, ms: 6000 }] },
         "no start": good,
       },
     });
     expect(parsed).toEqual({
       speakers: { labels: {}, lines: {}, splits: { "2000 Speaker 1": good } },
-      dropped: 4,
+      dropped: 5,
     });
   });
 });

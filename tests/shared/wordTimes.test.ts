@@ -34,6 +34,27 @@ describe("When a Transcript's words were said (#138)", () => {
     ]);
   });
 
+  // protects=a word is placed where the line has it even after a letter whose lower case is longer ("İ") or an emoji, so every later word keeps its place; fails_when=places after "İ" or an emoji shift by a character; no_claim=a word written in another script, which is left out.
+  test('words after "İ" or an emoji keep their places', () => {
+    const text = "İstanbul is far. 🎉Party time";
+    expect(
+      alignWords(text, [
+        { text: "İSTANBUL", ms: 0 },
+        { text: " is", ms: 400 },
+        { text: " far.", ms: 700 },
+        { text: "party", ms: 1300 },
+        { text: " time", ms: 1700 },
+      ]),
+    ).toEqual([
+      { at: 0, ms: 0 },
+      { at: text.indexOf(" is") + 1, ms: 400 },
+      { at: text.indexOf("far"), ms: 700 },
+      { at: text.indexOf("Party"), ms: 1300 },
+      { at: text.indexOf("time"), ms: 1700 },
+    ]);
+    expect(text.indexOf("Party")).toBe(19);
+  });
+
   // protects=with word times a word plays from its own time, and between two the time goes evenly; with none, a character's time is in proportion to where it is in the line; atTime is timeAt's inverse at the stamps; fails_when=a word plays from the line's start, a time falls outside the line, or the estimate isn't proportional; no_claim=how close the estimate is on real speech, which the pull request measures.
   test("a word's time is its own, else an estimate in proportion to where it is", () => {
     const timed = {

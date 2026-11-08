@@ -9,9 +9,17 @@ import { describe, expect, test } from "vitest";
 import type { Core, Document } from "../../src/core";
 import type { Cue } from "../../src/core/documents/formats/vtt";
 import { clockTime } from "../../src/shared/clock";
+import { translate } from "../../src/shared/i18n";
+import { formatLocation } from "../../src/shared/locations";
 import { partsOf, withLineSplit, withSpeakerChosen } from "../../src/shared/speakers";
 import { timeAt } from "../../src/shared/wordTimes";
-import { askAndFinish, citingModel, onlyCitation, type ShownPassage } from "../helpers/citations";
+import {
+  askAndFinish,
+  citingModel,
+  onlyCitation,
+  type ShownPassage,
+  setUpWithDocuments,
+} from "../helpers/citations";
 import { createTempDataFolder } from "../helpers/core";
 import { connectToMind } from "../helpers/mindClient";
 import { writeMind } from "../helpers/minds";
@@ -234,4 +242,133 @@ describe("Splitting a line of a Transcript (#138)", { timeout: 60_000 }, () => {
     });
     core.close();
   });
+});
+
+/** A call in English or Chinese: Dana's line, which the User splits, then a line of hers that starts 1 ms before it ends. */
+const CALLS = {
+  en: {
+    label: "Dana",
+    rest: "Sam",
+    line: "We sign on Friday. No, I need the budget first.",
+    next: "Then the board reads it on Monday.",
+    head: "We sign on Friday",
+    tail: "No, I need the budget first",
+    across: "Friday. No, I need",
+    at: "No,",
+  },
+  zh: {
+    label: "王丽",
+    rest: "李明",
+    line: "我们周五签约。不，我需要先看预算。",
+    next: "然后董事会周一再看。",
+    head: "我们周五签约",
+    tail: "我需要先看预算",
+    across: "签约。不，我需要",
+    at: "不，",
+  },
+} as const;
+
+describe("A split line's quotes, by who said them (#138)", { timeout: 60_000 }, () => {
+  // protects=of a split line a model's record finds its quote only in the parts the named Speaker said: "0:02 Sam" quoting Dana's words, "0:04 Dana" quoting Sam's, and a quote across the split under either name aren't found, while each quote under its own Speaker is, and with both parts Dana's a quote across the split is found again; the Citation found keeps its line and shows the rest's Speaker, and checks found again; the core refuses a split outside its line or where another of her lines starts; in English and Chinese; fails_when=a quote is found under someone who didn't say it, a crossing quote is found under one name, a right one isn't, or a split that doesn't hold is kept; no_claim=a real model's records.
+  test.each(["en", "zh"] as const)(
+    "only the named Speaker's parts hold their quote (%s)",
+    async (language) => {
+      const call = CALLS[language];
+      let cite = { location: "", quote: "" };
+      const plan = {
+        query: call.line,
+        records: (passages: ShownPassage[]) => [
+          { marker: 1, passage: passages[0]?.id, location: cite.location, quote: cite.quote },
+        ],
+        answer: "So [^1].",
+      };
+      const file = `WEBVTT\n\n00:00:02.000 --> 00:00:06.000\n<v ${call.label}>${call.line}\n\n00:00:05.999 --> 00:00:09.000\n<v ${call.label}>${call.next}\n`;
+      const { core, documents, mind, client } = await setUpWithDocuments(citingModel(plan), [
+        { name: `${language}.vtt`, contents: file },
+      ]);
+      const transcript = documents[0] as Document;
+      const line = { startMs: 2000, endMs: 6000, text: call.line, label: call.label };
+      const lines = [
+        { startMs: 2000, label: call.label },
+        { startMs: 5999, label: call.label },
+      ];
+      const at = call.line.indexOf(call.at);
+
+      // A split that doesn't hold is refused: a part outside the line, or where her next line starts.
+      for (const ms of [6500, 5999]) {
+        await expect(
+          core.setTranscriptSpeakers({
+            documentId: transcript.id,
+            speakers: {
+              labels: {},
+              lines: {},
+              splits: { [`2000 ${call.label}`]: { text: call.line, parts: [{ at, ms }] } },
+            },
+          }),
+        ).rejects.toMatchObject({ wording: { key: "error.transcript.speakersUnheld" } });
+      }
+
+      const split = withLineSplit(null, line, at, 4100, lines);
+      const told = withSpeakerChosen(
+        split,
+        [...lines, { startMs: 4100, label: call.label }],
+        { startMs: 4100, label: call.label },
+        { name: call.rest },
+        false,
+      );
+      await core.setTranscriptSpeakers({ documentId: transcript.id, speakers: told });
+      const asked = async (location: string, quote: string) => {
+        cite = { location, quote };
+        const { answerId } = await askAndFinish(core, client, mind.id, `${location}: ${quote}?`);
+        return onlyCitation(client, answerId);
+      };
+
+      const right = await asked(`0:04 ${call.rest}`, call.tail);
+      expect(right).toMatchObject({
+        check: "found",
+        location: { kind: "time", from: 2000, speaker: call.label },
+      });
+      expect((await asked(`0:02 ${call.label}`, call.head)).check).toBe("found");
+      for (const [location, quote] of [
+        [`0:02 ${call.rest}`, call.head],
+        [`0:04 ${call.label}`, call.tail],
+        [`0:02 ${call.label}`, call.tail],
+        [`0:02 ${call.label}`, call.across],
+        [`0:04 ${call.rest}`, call.across],
+      ] as const) {
+        expect((await asked(location, quote)).check, `${location} ${quote}`).not.toBe("found");
+      }
+
+      // The Citation found checks found again, and shows the rest's Speaker and time.
+      const again = await core.recheckCitation({
+        mindId: mind.id,
+        documentId: transcript.id,
+        pageFrom: right.pageFrom ?? null,
+        pageTo: right.pageTo ?? null,
+        quote: call.tail,
+        location: right.location ?? null,
+      });
+      if ("keptInside" in again) throw new Error("The check was kept inside a wall.");
+      expect(again.check).toBe("found");
+      const t = (key: Parameters<typeof translate>[1], params?: Parameters<typeof translate>[2]) =>
+        translate(language === "en" ? "en" : "zh-CN", key, params);
+      if (!again.location) throw new Error("The check found no Location.");
+      expect(formatLocation(again.location, t, { speakers: told, quote: call.tail })).toBe(
+        `${call.rest} · 0:04`,
+      );
+
+      // With both parts Dana's again, a quote across the split is hers.
+      const hers = withSpeakerChosen(
+        told,
+        [...lines, { startMs: 4100, label: call.label }],
+        { startMs: 4100, label: call.label },
+        { label: call.label },
+        false,
+      );
+      expect(hers.splits).toEqual(told.splits);
+      await core.setTranscriptSpeakers({ documentId: transcript.id, speakers: hers });
+      expect((await asked(`0:02 ${call.label}`, call.across)).check).toBe("found");
+      core.close();
+    },
+  );
 });

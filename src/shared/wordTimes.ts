@@ -6,6 +6,19 @@
  */
 import type { Cue, WordTime } from "../core/documents/formats/vtt";
 
+/**
+ * Where `word` is in `text`, `within` characters of `from` at most, case aside, as a place in
+ * `text` itself: a letter whose lower case is longer ("İ" is "i̇") would move every place after it
+ * in a lowered copy.
+ */
+function foldedIndexOf(text: string, word: string, from: number, within: number): number {
+  const wanted = word.toLocaleLowerCase();
+  for (let at = from; at <= from + within && at + word.length <= text.length; at++) {
+    if (text.slice(at, at + word.length).toLocaleLowerCase() === wanted) return at;
+  }
+  return -1;
+}
+
 /** A transcriber's word, as it came: its text and when it started, in ms. */
 export interface HeardWord {
   text: string;
@@ -21,14 +34,13 @@ const NEXT_WORD_WITHIN = 40;
  * other Chinese script) is left out, and its time with it.
  */
 export function alignWords(text: string, words: readonly HeardWord[]): WordTime[] {
-  const lower = text.toLocaleLowerCase();
   const placed: WordTime[] = [];
   let from = 0;
   for (const word of words) {
-    const wanted = word.text.trim().toLocaleLowerCase();
+    const wanted = word.text.trim();
     if (!wanted) continue;
-    const at = lower.indexOf(wanted, from);
-    if (at < 0 || at - from > NEXT_WORD_WITHIN) continue;
+    const at = foldedIndexOf(text, wanted, from, NEXT_WORD_WITHIN);
+    if (at < 0) continue;
     const last = placed.at(-1);
     if (!last || (at > last.at && word.ms >= last.ms)) placed.push({ at, ms: Math.round(word.ms) });
     from = at + wanted.length;

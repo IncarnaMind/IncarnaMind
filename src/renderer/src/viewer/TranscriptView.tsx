@@ -443,7 +443,7 @@ function TranscriptContent({
       const first = row.pieces.find((piece) => piece.word);
       if (!nameable || row.cue.speaker === null || !first || at <= first.at) return;
       const line = fileLineOf(row.cue);
-      const next = withLineSplit(nameable.speakers, line, at, timeAt(row.cue, at));
+      const next = withLineSplit(nameable.speakers, line, at, timeAt(row.cue, at), lines);
       const made = partsOf(next, line).find((part) => part.at === at);
       if (!made) return;
       setCaret(null);
@@ -464,7 +464,7 @@ function TranscriptContent({
         },
       });
     },
-    [nameable, focusLine],
+    [nameable, focusLine, lines],
   );
 
   const activeRow = useCallback(
