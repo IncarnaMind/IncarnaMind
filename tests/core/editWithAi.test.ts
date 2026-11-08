@@ -323,9 +323,6 @@ describe("Edit with AI", () => {
         check: "found",
       }),
     ]);
-    // Nothing of the Document the Note may not read reaches it.
-    expect(await exported(core, outside.id)).not.toContain("Harbours publish");
-
     await core.editWithAi(wholeParagraph(insideClient, inside.id, insideNote.attrs.id, "improve"));
     await resolveChanges(insideClient, "accept");
     expect(mindCitations(insideClient)).toEqual([

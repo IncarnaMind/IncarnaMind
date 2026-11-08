@@ -172,8 +172,10 @@ export interface EditsOptions {
   consent: Consent;
   /** Local mode: only models on this computer. */
   localOnly(): boolean;
-  /** A Citation's attributes checked again now, or null when its check comes out the same. */
-  /** Checks a kept Citation again, unless the Note may not read its Document (#2746). */
+  /**
+   * A Citation's attributes checked again now: its new attributes, or null when its check comes
+   * out the same, or the Note may not read its Document (#2746).
+   */
   recheck(attributes: Attributes, mindId: string): Attributes | null;
   /**
    * Says where a request writes next in a Mind as its changes come in (#202); null once it has

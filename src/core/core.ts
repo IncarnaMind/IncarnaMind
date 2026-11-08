@@ -1711,9 +1711,10 @@ export function createCore(adapters: CoreAdapters): Core {
   };
   /**
    * Whether a Note may read again the Document a Citation names (#1934): never a Document kept
-   * inside a walled Folder the Note is outside. Every path that checks a Citation again decides
-   * this here, so none but Recheck forgets the wall (#2746). A caller with no Note (an Answer in
-   * the assistant, a Document's viewer) is reading as browsing is, and may.
+   * inside a walled Folder the Note is outside. Recheck, Add to Note, the edit's kept Citations
+   * and a figure's inputs all ask this one question, so no path forgets the wall as Edit with AI
+   * did (#2746). A caller with no Note (an Answer in the assistant, a Document's viewer) is
+   * reading as browsing is, and may.
    */
   const mayRecheckIn = (mindId: string | null, documentId: string): boolean => {
     const wall = walledDocument(documentId);
@@ -2933,12 +2934,8 @@ export function createCore(adapters: CoreAdapters): Core {
         scope,
         personId: settings.get().user.personId,
         language: settings.get().language,
-        keptInside: (documentId) => {
-          const wall = walledDocument(documentId);
-          return wall === null || wall === walledFolder(mind.id)
-            ? null
-            : (walledFolderName(documentId) ?? documentId);
-        },
+        keptInside: (documentId) =>
+          mayRecheckIn(mind.id, documentId) ? null : (walledFolderName(documentId) ?? documentId),
       });
     });
   }
