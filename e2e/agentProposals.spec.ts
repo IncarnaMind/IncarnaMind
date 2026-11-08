@@ -2,12 +2,17 @@ import { mkdir, realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import { SHOW_AGENT_CONNECTION } from "../src/shared/agentConnection";
 import {
   acceptPlainTextKeys,
+  boxBottom,
+  boxesOverlap,
+  boxOf,
+  boxRight,
   catchCopies,
+  changeOnScreen,
   closeSettings,
   copied,
   createDataFolder,
@@ -94,8 +99,13 @@ test("an agent the User lets propose changes: its change waits in the Note with 
     await nameMind(window, "Field notes");
     await enterContent(window);
     await window.keyboard.type("Tides rise twice a day.");
+    await window.keyboard.press("Enter");
+    await window.keyboard.type("The harbour office posts the times each week.");
     const editor = frontMind(window).getByTestId("mind-editor");
-    await expect(editor.locator(":scope > p")).toHaveText(["Tides rise twice a day."]);
+    await expect(editor.locator(":scope > p")).toHaveText([
+      "Tides rise twice a day.",
+      "The harbour office posts the times each week.",
+    ]);
     const mindId = await frontMind(window).getAttribute("data-mind-id");
     await window.evaluate(
       async (place) => {
@@ -115,7 +125,7 @@ test("an agent the User lets propose changes: its change waits in the Note with 
       .getByTestId("agent-connect")
       .click();
     const dialog = window.getByTestId("connect-agent-dialog");
-    await dialog.getByTestId("connect-agent-name").fill("Research agent");
+    await dialog.getByTestId("connect-agent-name").fill("Research assistant agent");
     await dialog.getByTestId("agent-folder").check();
     const propose = dialog.getByTestId("agent-propose");
     await expect(propose).not.toBeChecked();
@@ -123,7 +133,7 @@ test("an agent the User lets propose changes: its change waits in the Note with 
     await propose.check();
     await shot(window, "agent-proposals-connect");
     await dialog.getByTestId("connect-agent-allow").click();
-    const row = page.locator('[data-testid="agent-pairing"][data-name="Research agent"]');
+    const row = page.locator('[data-testid="agent-pairing"][data-name="Research assistant agent"]');
     await expect(row.getByTestId("agent-pairing-proposes")).toHaveText(
       "Can propose changes to notes there, which wait for you",
     );
@@ -169,10 +179,14 @@ test("an agent the User lets propose changes: its change waits in the Note with 
     // They wait: the Note's bar and each change's own bar name the agent, and the change's bar
     // counts the sentences it would leave with no Citation.
     await expect(window.getByTestId("proposals-count")).toHaveText("2 changes waiting");
-    await expect(window.getByTestId("proposals-agents")).toHaveText("Proposed by Research agent");
+    await expect(window.getByTestId("proposals-agents")).toHaveText(
+      "Proposed by Research assistant agent",
+    );
     await pointAndClick(window, editor.locator("ins.proposal-insert").first());
     const bar = window.getByTestId("change-bar");
-    await expect(bar.getByTestId("change-bar-author")).toHaveText("Proposed by Research agent");
+    await expect(bar.getByTestId("change-bar-author")).toHaveText(
+      "Proposed by Research assistant agent",
+    );
     await expect(bar.getByTestId("change-bar-uncited")).toHaveText("1 sentence with no Citation");
     await shot(window, "agent-proposals-waiting-en");
 
@@ -189,7 +203,7 @@ test("an agent the User lets propose changes: its change waits in the Note with 
           ).map((entry) => [entry.kind, entry.agent]),
         ),
       )
-      .toEqual([["outside-agent-change-accepted", "Research agent"]]);
+      .toEqual([["outside-agent-change-accepted", "Research assistant agent"]]);
 
     await editor.focus();
     await window.keyboard.press("ControlOrMeta+z");
@@ -212,9 +226,11 @@ test("an agent the User lets propose changes: its change waits in the Note with 
     await shot(window, "agent-proposals-uncited-en");
 
     await setLanguage(window, "zh-CN");
-    await expect(window.getByTestId("proposals-agents")).toHaveText("Research agent 建议");
+    await expect(window.getByTestId("proposals-agents")).toHaveText(
+      "Research assistant agent 建议",
+    );
     await cycles("2 句没有引用");
-    await expect(bar.getByTestId("change-bar-author")).toHaveText("Research agent 建议");
+    await expect(bar.getByTestId("change-bar-author")).toHaveText("Research assistant agent 建议");
     await shot(window, "agent-proposals-uncited-zh");
 
     // The User edits the word the rewrite replaces: out of date, it can only be rejected, since
@@ -227,6 +243,59 @@ test("an agent the User lets propose changes: its change waits in the Note with 
     await shot(window, "agent-proposals-out-of-date-zh");
     await pointAndClick(window, stale.getByTestId("change-reject"));
     await expect(window.getByTestId("proposals-count")).toHaveText("1 处修订待处理");
+
+    // A bar never cuts its place or its author short (#2409): a name of 24 characters shows whole
+    // beside a count of the uncited sentences and Accept · Reject, and the bar takes a second
+    // line, clear of its change and the line after it, at a narrow and a wide window.
+    for (const width of [1440, 900]) {
+      for (const language of ["en", "zh-CN"] as const) {
+        await setWindowSize(app, window, width, 900);
+        await setLanguage(window, language);
+        await pointAndClick(window, added);
+        await expect(bar).toHaveAccessibleName(
+          language === "en" ? "Change 1 of 1" : "第 1 处修订，共 1 处",
+        );
+        const author = bar.getByTestId("change-bar-author");
+        await expect(author).toHaveText(
+          language === "en"
+            ? "Proposed by Research assistant agent"
+            : "Research assistant agent 建议",
+        );
+        await expect(bar.getByTestId("change-bar-uncited")).toHaveText(
+          language === "en" ? "2 sentences with no Citation" : "2 句没有引用",
+        );
+        await expect(bar.getByTestId("change-accept")).toBeVisible();
+        await expect(bar.getByTestId("change-reject")).toBeVisible();
+
+        const fits = (part: Locator) =>
+          part.evaluate((element) => element.scrollWidth <= element.clientWidth + 1);
+        const where = `${width} ${language}`;
+        expect
+          .soft(await fits(bar.locator(".change-bar-position")), `${where}: the place`)
+          .toBe(true);
+        expect.soft(await fits(author), `${where}: the author`).toBe(true);
+        const row = await boxOf(bar.locator(".change-bar-row"));
+        const line = await boxOf(bar.locator(".change-bar-position"));
+        expect
+          .soft(row.height, `${where}: the bar's second line`)
+          .toBeGreaterThanOrEqual(line.height * 2);
+
+        const { change, next } = await changeOnScreen(editor, added);
+        const card = await boxOf(bar);
+        expect.soft(next, `${where}: a line after the change`).not.toBeNull();
+        expect.soft(boxesOverlap(card, change), `${where}: over its change`).toBe(false);
+        if (next) expect.soft(boxesOverlap(card, next), `${where}: over the next line`).toBe(false);
+        const page = await boxOf(window.locator(".mind-tab-page:visible"));
+        expect.soft(card.x, `${where}: inside the page`).toBeGreaterThanOrEqual(page.x);
+        expect
+          .soft(boxRight(card), `${where}: inside the page`)
+          .toBeLessThanOrEqual(boxRight(page) + 1);
+        expect
+          .soft(boxBottom(card), `${where}: above the page's foot`)
+          .toBeLessThanOrEqual(boxBottom(page) + 1);
+        await shot(window, `change-bar-${language}-${width}`);
+      }
+    }
   } finally {
     await app.close();
   }

@@ -45,6 +45,27 @@ describe("Where a change's card goes", () => {
     expect(changeBarPlace(words, 900, page, card, line).kind).toBe("dock");
   });
 
+  test("a card on two lines sits beside a change with room for it, clear of the change and the next line", () => {
+    const twoLines: ChangeBarBox = { left: 300, top: 200, right: 500, bottom: 245 };
+    const below: ChangeBarBox = { left: 300, top: 255.5, right: 700, bottom: 274.5 };
+    const bar = { width: 420, height: 44 };
+    const place = changeBarPlace(twoLines, twoLines.right, page, bar, line);
+    expect(place.kind).toBe("beside");
+    expect(overlap(cardBox(place, bar.height), twoLines)).toBe(false);
+    expect(overlap(cardBox(place, bar.height), below)).toBe(false);
+    expect(cardBox(place, bar.height).right).toBeLessThanOrEqual(page.right);
+  });
+
+  test("a card on two lines docked at the page's foot stays inside it, over neither the change nor the next line", () => {
+    const change = oneLine(page.right - 100);
+    const bar = { width: 420, height: 44 };
+    const place = changeBarPlace(change, change.right, page, bar, line);
+    expect(place.kind).toBe("dock");
+    expect(overlap(cardBox(place, bar.height), change)).toBe(false);
+    expect(overlap(cardBox(place, bar.height), nextLine)).toBe(false);
+    expect(cardBox(place, bar.height).bottom).toBeLessThanOrEqual(page.bottom);
+  });
+
   test("docked when the card, with its why line, is taller than the change's lines", () => {
     const change = oneLine(700);
     const tall = { width: 260, height: 44 };
