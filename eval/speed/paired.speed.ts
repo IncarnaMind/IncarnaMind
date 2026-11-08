@@ -1,9 +1,9 @@
 /**
  * `npm run eval:speed` with INCARNAMIND_EVAL_SPEED_PAIRED (README.md › Paired runs): each item of
  * the sets named, on each model, runs on two arms, today's path and a new one, each in a core of
- * its own, the order turning item by item. Both are read the same way and compared item by item;
- * the run stops at the new arm's first false Supported that today's didn't give. Writes
- * eval/results/speed-paired-<time>/.
+ * its own, the order turning pair by pair over the whole run. Both are read the same way and
+ * compared item by item; the run stops at the new arm's first false Supported that today's didn't
+ * give. Writes eval/results/speed-paired-<time>/.
  */
 import { mkdir, writeFile } from "node:fs/promises";
 import { cpus, loadavg, totalmem } from "node:os";
@@ -42,6 +42,7 @@ import {
   type SetId,
 } from "./paired";
 import {
+  armTurns,
   itemTable,
   newFalseSupported,
   outcomeOf,
@@ -49,6 +50,7 @@ import {
   pairedSection,
   seconds,
   timeTable,
+  wentFirst,
 } from "./pairedReport";
 import { percentile } from "./report";
 import { env, list, modelNamed, modelsAsked, spentUsd } from "./settings";
@@ -213,6 +215,7 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
       ),
     ),
   );
+  const turn = armTurns();
   run: for (const group of bySet.flat()) {
     if (!group.items.some((item) => asked.has(item))) continue;
     log(`Opening ${group.name}, once for each arm`);
@@ -270,7 +273,7 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
           await choiceIn(opened[0].library),
           await choiceIn(opened[1].library),
         ] as const;
-        for (const [index, item] of items.entries()) {
+        for (const item of items) {
           for (let time = 1; time <= runs; time++) {
             const spent = spentBefore + (await spentInCores()) + judge.spent();
             await ledger.record(spent);
@@ -279,8 +282,7 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
               break run;
             }
             loads.push(loadavg()[0] ?? 0);
-            // The order turns, so neither arm always meets a cache the other warmed.
-            const order: readonly (0 | 1)[] = (index + time) % 2 === 0 ? [0, 1] : [1, 0];
+            const order = turn();
             const done: ArmRun[] = [];
             for (const which of order) {
               const arm = arms[which];
@@ -304,6 +306,7 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
               language: item.language,
               model: name,
               run: time,
+              first: order[0],
               baseline: done[0] as ArmRun,
               candidate: done[1] as ArmRun,
             };
@@ -376,6 +379,8 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
     `${new Date().toISOString()} · commit ${commitOf(ROOT)} · ${arms[0].id}: ${arms[0].label}; ${arms[1].id}: ${arms[1].label}. Judge: ${judge.name}.`,
     "",
     `This computer: ${cpus()[0]?.model ?? "unknown CPU"}, ${cpus().length} cores, ${Math.round(totalmem() / 2 ** 30)} GB; one-minute load ${loads.length ? `${Math.min(...loads).toFixed(1)} to ${Math.max(...loads).toFixed(1)}, median ${(percentile(loads, 0.5) ?? 0).toFixed(1)}` : "–"}. Spent: $${spent.toFixed(2)} (the judge $${judge.spent().toFixed(2)})${ledger.before > 0 ? `; with the runs before it, $${(ledger.before + spent).toFixed(2)} of $${stopUsd}` : ""}.${stopped ? ` ${stopped}` : ""}`,
+    "",
+    `Went first: ${arms[0].id} in ${wentFirst(rows)[0]} pairs, ${arms[1].id} in ${wentFirst(rows)[1]}.`,
     "",
     `Times are from the User's action, median / 90th percentile. A guard counts the items both arms finished; lost: right with the first arm and not the second, gained: the other way round. Cited, judged right and every Citation found hold with up to ${margin} fewer items in 30.`,
     "",

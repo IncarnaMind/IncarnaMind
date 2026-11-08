@@ -14,9 +14,27 @@ export interface PairedRow {
   model: string;
   /** Which time this item ran, from 1. */
   run: number;
+  /** The arm that ran first in this pair: 0 the baseline, 1 the candidate. */
+  first: 0 | 1;
   baseline: ArmRun;
   candidate: ArmRun;
 }
+
+/**
+ * Which arm goes first in each pair of a run (#2791). The order turns on a count kept across the
+ * run's groups, models and items, so neither arm always meets a cache, or a model's load, that
+ * the other warmed, even where every group holds one item.
+ */
+export function armTurns(): () => readonly [0 | 1, 0 | 1] {
+  let pairs = 0;
+  return () => (pairs++ % 2 === 0 ? [0, 1] : [1, 0]);
+}
+
+/** How many of `rows` each arm went first in, baseline then candidate. */
+export const wentFirst = (rows: readonly Pick<PairedRow, "first">[]): [number, number] => [
+  rows.filter((row) => row.first === 0).length,
+  rows.filter((row) => row.first === 1).length,
+];
 
 /** The candidate gave a false Supported on an item the baseline didn't: the run stops there. */
 export const newFalseSupported = (row: Pick<PairedRow, "baseline" | "candidate">) =>

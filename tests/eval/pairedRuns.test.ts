@@ -14,11 +14,13 @@ import {
   type RequestTiming,
 } from "../../eval/speed/paired";
 import {
+  armTurns,
   guards,
   newFalseSupported,
   type PairedRow,
   pairedSection,
   timeTable,
+  wentFirst,
 } from "../../eval/speed/pairedReport";
 import { createFakeEmbedder } from "../../src/core/embedding/fake";
 import {
@@ -55,6 +57,7 @@ const row = (baseline: Partial<ArmRun>, candidate: Partial<ArmRun>, id = "en-01"
   language: "en",
   model: "anthropic/claude-haiku-5-5",
   run: 1,
+  first: 0,
   baseline: { ...RUN, ...baseline },
   candidate: { ...RUN, ...candidate },
 });
@@ -330,4 +333,23 @@ describe("the arms' Answer paths", () => {
       });
     },
   );
+});
+
+describe("Which arm goes first (#2791)", () => {
+  // protects=a run whose groups each hold one item, as the meeting-notes and call-help sets do, turns which arm goes first from pair to pair across groups and models, so each goes first in half of the run's pairs; fails_when=the order turns only on an item's place in its group, so one arm goes first in every pair; no_claim=how a cache or a model's load favours the arm that goes second.
+  test("over one-item groups and two models, each arm goes first in half the pairs", () => {
+    const turn = armTurns();
+    const rows: Pick<PairedRow, "first">[] = [];
+    for (let group = 0; group < 12; group++) {
+      for (let model = 0; model < 2; model++) rows.push({ first: turn()[0] });
+    }
+    expect(wentFirst(rows)).toEqual([12, 12]);
+    expect(rows.slice(0, 4).map((each) => each.first)).toEqual([0, 1, 0, 1]);
+  });
+
+  test("an odd number of pairs leaves one arm first once more", () => {
+    const turn = armTurns();
+    const rows = Array.from({ length: 5 }, () => ({ first: turn()[0] }));
+    expect(wentFirst(rows)).toEqual([3, 2]);
+  });
 });
