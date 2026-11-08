@@ -471,29 +471,36 @@ function useBarPlace(
         ?.querySelector('[data-testid="ask-pill"]')
         ?.getBoundingClientRect();
       const badge = pageOf?.querySelector(".mind-foot-badge .check-badge")?.getBoundingClientRect();
-      // Its natural width, before this placement's cap.
+      // Its width at the widest it is drawn, before this placement's own cap.
       element.style.maxWidth = "";
       const size = { width: element.offsetWidth, height: element.offsetHeight };
       const line = lineHeightAt(editor, change.from);
-      const at = changeBarPlace(
-        box,
-        textRightOn(editor, change.from, change.end, box),
-        {
-          left: page.left,
-          top: Math.max(page.top, barOfChanges?.bottom ?? page.top),
-          right: page.right,
-          bottom: page.bottom,
-        },
-        size,
-        line,
-        {
-          right: Math.min(page.right, badge ? badge.left - GAP_PX : page.right),
-          bottom: Math.min(page.bottom, pill ? pill.top : page.bottom),
-        },
-      );
+      const textRight = textRightOn(editor, change.from, change.end, box);
+      const pageBox = {
+        left: page.left,
+        top: Math.max(page.top, barOfChanges?.bottom ?? page.top),
+        right: page.right,
+        bottom: page.bottom,
+      };
+      const limits = {
+        right: Math.min(page.right, badge ? badge.left - GAP_PX : page.right),
+        bottom: Math.min(page.bottom, pill ? pill.top : page.bottom),
+      };
+      const at = changeBarPlace(box, textRight, pageBox, size, line, limits);
       element.style.maxWidth = `${at.maxWidth}px`;
-      Object.assign(element.style, { left: `${at.x}px`, top: `${at.y}px`, visibility: "visible" });
-      if (at.kind === "dock" && change.focused) scrollAboveCard(editor, box, line, at.y);
+      // A narrower cap may give the bar a second line; it is placed again at the height it then
+      // draws, so a docked bar stays clear of the page's foot and its change.
+      const wrapped = { width: element.offsetWidth, height: element.offsetHeight };
+      const placed =
+        wrapped.height === size.height
+          ? at
+          : changeBarPlace(box, textRight, pageBox, wrapped, line, limits);
+      Object.assign(element.style, {
+        left: `${placed.x}px`,
+        top: `${placed.y}px`,
+        visibility: "visible",
+      });
+      if (placed.kind === "dock" && change.focused) scrollAboveCard(editor, box, line, placed.y);
     };
     return autoUpdate(editor.view.dom, element, place);
   }, [editor, bar, change]);
@@ -612,7 +619,7 @@ function ChangeBar({ editor, mindId }: { editor: Editor; mindId: string }) {
       className="change-bar"
       style={{ visibility: "hidden" }}
     >
-      <div className="change-bar-row">
+      <div className="change-bar-row meta-line">
         <span className="change-bar-position">
           {t("proposal.position", { index: shown.index, count: shown.count })}
         </span>
@@ -622,8 +629,8 @@ function ChangeBar({ editor, mindId }: { editor: Editor; mindId: string }) {
           </span>
         )}
         {shown.uncited.length > 0 && (
-          <>
-            <span aria-hidden="true" className="proposal-dot">
+          <span className="meta-part change-bar-dotted">
+            <span aria-hidden="true" className="meta-dot">
               ·
             </span>
             {/* A way to find them, not a warning: quiet, as a chart's "1 with no Citation" is. */}
@@ -638,7 +645,7 @@ function ChangeBar({ editor, mindId }: { editor: Editor; mindId: string }) {
                 ? t("proposal.uncited.one")
                 : t("proposal.uncited", { count: shown.uncited.length })}
             </button>
-          </>
+          </span>
         )}
         {shown.dropped > 0 && (
           <span data-testid="change-bar-drops" className="change-bar-drops">
@@ -666,19 +673,21 @@ function ChangeBar({ editor, mindId }: { editor: Editor; mindId: string }) {
         >
           {t("proposal.accept")}
         </button>
-        <span aria-hidden="true" className="proposal-dot">
-          ·
+        <span className="meta-part change-bar-dotted">
+          <span aria-hidden="true" className="meta-dot">
+            ·
+          </span>
+          <button
+            type="button"
+            data-testid="change-reject"
+            title={`${t("proposal.reject")} (${keys.reject})`}
+            aria-keyshortcuts={isMacOS() ? "Meta+Backspace" : "Control+Backspace"}
+            onClick={(event) => resolve(event, "reject")}
+            className="proposal-action"
+          >
+            {t("proposal.reject")}
+          </button>
         </span>
-        <button
-          type="button"
-          data-testid="change-reject"
-          title={`${t("proposal.reject")} (${keys.reject})`}
-          aria-keyshortcuts={isMacOS() ? "Meta+Backspace" : "Control+Backspace"}
-          onClick={(event) => resolve(event, "reject")}
-          className="proposal-action"
-        >
-          {t("proposal.reject")}
-        </button>
       </div>
       {why && shown.focused && (
         <div data-testid="change-bar-why" className="change-bar-why">
