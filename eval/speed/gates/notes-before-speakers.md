@@ -49,4 +49,4 @@ The speaker pass renamed no one in any run, so every branch run made its notes o
 - **No new unstated sentence, Claude Haiku 5.5 in English.** One sentence was flagged: "The Great Enterprise plan…", made from "Great. Enterprise is…".
 - **Faster, DeepSeek in English.** In one branch run its thinking took 62.9 s, against 24.0 s in main's, so the median came later.
 
-The change is parked, built and tested, on the branch `perf/2773-notes-before-speakers`. Two runs a side can't tell a change that sends the same request apart from the models' own spread. A next try needs a guard for that, such as the request's words being the same, decided before its runs.
+The change is parked, built and tested, on the branch `perf/2773-notes-before-speakers`, with the core tests named above. Two runs a side can't tell a change that sends the same request apart from the models' own spread. A next try needs a guard for that, such as the request's words being the same, decided before its runs.
