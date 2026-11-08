@@ -43,3 +43,20 @@ If both models hold every line, the change ships on: a call's notes start once i
 ## Spend
 
 Within this phase's $5, held by the runner's ledger (`INCARNAMIND_EVAL_SPEED_LEDGER`, `INCARNAMIND_EVAL_SPEED_STOP_USD`), which also counts the judge.
+
+## Result (2026-11-08): it holds on both models, so it ships
+
+`speakers-first` against `notes-before-speakers` at commit `a54792e25`, the meeting-notes set once per model, 12 pairs a model, each arm first in 6. The one-minute load was 2.1–3.6. Claude Sonnet 5.5 judged.
+
+| Model | Same first request | Notes in, median: speakers-first → notes-before-speakers | Paired median difference (EN / ZH) | Pairs slower |
+|---|---|---|---|---|
+| Claude Haiku 5.5 | 12 of 12 | 81.1 → 41.4 s | −34.3 s (−40.9 / −27.8) | 0 of 12 |
+| DeepSeek V4.1 Flash | 12 of 12 | 113.0 → 67.1 s | −34.3 s (−36.6 / −34.3) | 0 of 12 |
+
+- **Made once.** The stand-in pass renamed no line, so no fill was dropped and made again, and every pair's first request was the same.
+- **Reported, as the gate says:**
+  - Claude Haiku 5.5, speakers-first → notes-before-speakers: cited 8 → 9, judged right 6 → 9, every Citation found on both arms, false Supported 68 → 55, notes failed or partly filled in 11 → 4.
+  - DeepSeek: cited 10 → 10, right 10 → 10, all found on both arms, false Supported 22 → 16, failed or partly filled 1 → 1.
+
+  With the same request on both arms, these differences are the models' own. They set the spread for `notes-low-effort.md`.
+- **Spend:** $0.36 on Haiku and $0.54 on DeepSeek (the judge's included), and $0.08 on two runs of `today` against `today` that checked the stand-in and the request check first.
