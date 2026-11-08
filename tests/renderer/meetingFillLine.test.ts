@@ -504,13 +504,17 @@ describe.each(["en", "zh-CN"] as const)("existing fill behavior in %s", (languag
   });
 
   test.each([
-    ["waiting", false, "Finishing the transcript…", "正在完成转写稿…"],
-    ["filling", false, "Filling in the note…", "正在补全笔记…"],
-    ["filling", true, "Filling in the note on this computer…", "正在这台电脑上补全笔记…"],
+    ["waiting", true, false, "Finishing the transcript…", "正在完成转写稿…"],
+    ["waiting", false, false, "Filling in the note…", "正在补全笔记…"],
+    ["filling", false, false, "Filling in the note…", "正在补全笔记…"],
+    ["filling", false, true, "Filling in the note on this computer…", "正在这台电脑上补全笔记…"],
   ] as const)(
-    "%s (local: %s) says what is under way, with the live dot and no actions",
-    async (state, local, en, zh) => {
-      const line = await show(meetingOf(fillOf({ state, local })));
+    "%s (speakers being told apart: %s, local: %s) says what is under way, with the live dot and no actions",
+    async (state, separating, local, en, zh) => {
+      const meeting = meetingOf(fillOf({ state, local }));
+      const transcript = meeting.transcript;
+      if (!transcript) throw new Error("The meeting has no Transcript.");
+      const line = await show({ ...meeting, transcript: { ...transcript, separating } });
       expect(line?.textContent).toBe(language === "en" ? en : zh);
       expect(line?.getAttribute("role")).toBe("status");
       expect(line?.querySelector(".answer-writing")?.textContent).toBe(language === "en" ? en : zh);

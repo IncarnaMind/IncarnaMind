@@ -100,22 +100,23 @@ export function MeetingFillLine({ meeting, editor }: { meeting: Meeting; editor?
   }
   if (fill.state === "waiting" || fill.state === "filling") {
     // From Stop, a call's note says what is under way: its Transcript's last lines and speakers,
-    // then the note (#2773). A Transcript that stopped says why in its own line.
-    const finishing =
-      meeting.kind === "meeting" && fill.state === "waiting" && !meeting.transcript?.problem;
-    const downloading = finishing
-      ? speechModelDownload(meeting.transcript?.model ?? null, t)
-      : null;
+    // then the note, which a finished Transcript starts at once (#2773). A Transcript that
+    // stopped says why in its own line.
+    const transcript = meeting.transcript;
+    const call = meeting.kind === "meeting" && fill.state === "waiting" && !transcript?.problem;
+    const finished = transcript?.state === "saved" && !transcript.separating;
+    const finishing = call && !finished;
+    const downloading = finishing ? speechModelDownload(transcript?.model ?? null, t) : null;
     const text = downloading
       ? t("meetings.transcript.finishingDownload", downloading)
       : finishing
         ? t("meetings.transcript.finishing")
-        : fill.state === "waiting"
+        : fill.state === "waiting" && !call
           ? t(words.waiting)
           : t(fill.local ? words.fillingLocal : words.filling);
     return (
       <ProblemLine testId="meeting-fill-line" role="status" className="">
-        <span className={fill.state === "filling" || finishing ? "answer-writing" : undefined}>
+        <span className={fill.state === "filling" || call ? "answer-writing" : undefined}>
           {text}
         </span>
       </ProblemLine>
