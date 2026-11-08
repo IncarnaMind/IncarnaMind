@@ -382,6 +382,7 @@ test("an empty Mind of one's own shows no second start guide, the example's step
     /Asked a question/,
     /Opened a checked Citation/,
   ]);
+  await expect(steps).not.toContainText("Try next");
   await pointAndClick(window, steps.getByTestId("first-open-hide"));
   await expect(steps).toHaveCount(0);
 });
@@ -939,6 +940,7 @@ test("by keyboard alone: Choose a model takes the focus into the setup, and a sa
   await window.keyboard.insertText("sk-ant-a-key-from-the-company");
   await window.keyboard.press("Enter");
   // A saved model brings the cursor to the composer, and nothing more is asked of the User.
+  await expect(window.getByTestId("composer-input")).toBeFocused();
   await expect(setup).toHaveCount(0);
   await expect(window.getByTestId("first-open-steps").locator("h2")).toHaveText("You’re set up");
   await expect(window.getByTestId("composer-input")).toBeFocused();
