@@ -2,7 +2,8 @@
  * The packaged app's engine check (#1239). Started with `--check-engines=<file>`, the app opens no
  * window of its own and uses a data folder of its own. It starts each engine process as the app
  * does and has it load its modules through the engine's own loaders (../core/engineModules), loads
- * the OS sandbox's module here, and runs a regression, a forecast, a clustering and a plot with a
+ * the OS sandbox's module here, asks the Mac's calendar helper whether it may read (never asking
+ * the User), and runs a regression, a forecast, a clustering and a plot with a
  * Chinese title in the hidden Analyses window, with every package Analyses bring (ADR-0025). It
  * writes what it found to <file> as JSON and exits, with 1 when anything didn't load. No model is
  * downloaded. e2e/packaged/engines.packaged.ts runs it, and the release runs that before it
@@ -28,6 +29,7 @@ import { RERANKING_PROCESS } from "./reranker";
 import { SANDBOX_RUNTIME } from "./sandbox";
 import { TEXT_RECOGNITION_PROCESS } from "./scanReader";
 import { SPEAKER_PROCESS } from "./speakerSeparator";
+import { calendarHelperCheck } from "./systemCalendar";
 import { TRANSCRIPTION_PROCESS } from "./transcriber";
 
 export const CHECK_ENGINES_SWITCH = "check-engines";
@@ -85,12 +87,16 @@ function checkProcess(engine: EngineProcess): Promise<EngineCheck[]> {
   });
 }
 
-/** What the main process loads itself: the OS sandbox, where there is one (./platform). */
-function mainModules(): EngineModule[] {
+/**
+ * What the main process loads itself: the OS sandbox, where there is one (./platform), and on
+ * macOS the calendar helper it runs (#190).
+ */
+function mainModules(log: FileLogger): EngineModule[] {
   if (process.platform !== "darwin" && process.platform !== "linux") return [];
   const helper = seccompHelper();
   return [
     SANDBOX_RUNTIME,
+    ...(process.platform === "darwin" ? [calendarHelperCheck(log)] : []),
     ...(helper === undefined
       ? []
       : [
@@ -156,7 +162,7 @@ async function checkPython(log: FileLogger): Promise<EngineCheck> {
 export async function checkEngines(log: FileLogger): Promise<EngineCheck[]> {
   const [processes, main, python] = await Promise.all([
     Promise.all(ENGINE_PROCESSES.map(checkProcess)),
-    checkEngineModules(mainModules()),
+    checkEngineModules(mainModules(log)),
     checkPython(log),
   ]);
   return [

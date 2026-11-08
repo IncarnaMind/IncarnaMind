@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 import type { Core } from "../../src/core";
+import { createFakeSystemCalendar } from "../../src/core/calendars/fakeSystem";
 import { readVtt } from "../../src/core/documents/formats/vtt";
 import type { FakeSpeechOptions } from "../../src/core/transcription/fake";
 import { createTempDataFolder } from "../helpers/core";
@@ -55,6 +56,49 @@ describe("The transcriber on this computer knows the names in the call (#1031)",
     await core.moveToFolder({ documentIds: documents.map((each) => each.id), folderId: folder.id });
     const mind = await core.createMind({ title: "Weekly call with Dana", folderId: folder.id });
     const meeting = await core.createMeeting({ mindId: mind.id });
+    await core.startMeeting({ meetingId: meeting.id });
+
+    const lines = await linesOf(core, meeting.id, record);
+    expect(lines).toContain("Dana is joining us from the Leeds office.");
+    expect(lines.join(" ")).not.toMatch(/Donna|Leads/);
+  });
+
+  test("the people on the calendar event a Note was made for, and their companies, are told first (#190)", async () => {
+    const { core, record } = await transcribingCore(await createTempDataFolder(), {
+      engine: MISHEARING,
+      systemCalendar: createFakeSystemCalendar({
+        access: "allowed",
+        calendars: [{ id: "work", title: "Work", source: "Exchange", kind: "exchange" }],
+        events: [
+          {
+            calendarId: "work",
+            id: "intro",
+            externalId: "intro@example",
+            occurrence: null,
+            title: "Intro call",
+            start: "2026-10-06T09:30:00Z",
+            end: "2026-10-06T10:00:00Z",
+            allDay: false,
+            status: "confirmed",
+            attendees: [
+              { name: "Priya", email: "priya@example.com", self: true, status: "accepted" },
+              { name: "Dana", email: "dana@leeds.co.uk", self: false, status: "accepted" },
+            ],
+            organizer: null,
+            url: null,
+            location: null,
+            notes: null,
+          },
+        ],
+      }),
+    });
+    await core.connectCalendar("mac");
+    const [event] = await core.listCalendarEvents({
+      from: "2026-10-06T00:00:00Z",
+      to: "2026-10-07T00:00:00Z",
+    });
+    const { mindId } = await core.takeEventNotes(event?.id ?? "");
+    const meeting = await core.createMeeting({ mindId });
     await core.startMeeting({ meetingId: meeting.id });
 
     const lines = await linesOf(core, meeting.id, record);

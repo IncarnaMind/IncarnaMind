@@ -203,6 +203,10 @@ const LABEL_WORDS =
 export const looksLikeLabel = (words: string) =>
   LABEL_WORDS.test(words.normalize("NFKC").replace(/\s+/gu, " ").trim());
 
+/** Whether a Speaker can be given this name: the rules a name the User types is kept by. */
+export const isSpeakerName = (name: string): boolean =>
+  speakerText(name, MAX_SPEAKER_NAME) && !looksLikeLabel(name);
+
 /** A Speaker as a mark names them inside its brackets: brackets and line breaks are spaces. */
 export const markWords = (speaker: string) =>
   speaker
