@@ -2618,7 +2618,8 @@ export const zhCN = {
   "embeddingProviders.settings.offNote": "按关键词搜索文档。",
   "embeddingProviders.settings.turnOn": "开启…",
   "embeddingProviders.settings.builtIn": "内置模型",
-  "embeddingProviders.settings.sendsTo": "你的文档全文和搜索内容会发送到 {service}。",
+  "embeddingProviders.settings.sendsTo":
+    "你的文档全文（每段都带着所属文档的名称）和搜索内容会发送到 {service}。",
   "embeddingProviders.settings.local": "在这台电脑上运行。",
   "embeddingProviders.settings.change": "更换模型",
   "embeddingProviders.settings.error": "搜索暂时无法使用这个模型，文档会等它恢复后再处理。{reason}",
@@ -2645,7 +2646,8 @@ export const zhCN = {
   "embeddingProviders.test.ok": "连接成功：模型生成了一个 {dimensions} 维的向量。",
   "embeddingProviders.confirm.title": "切换到 {provider}？",
   "embeddingProviders.confirm.reprocess": "将重新读取全部 {count} 个文档，完成前按关键词搜索。",
-  "embeddingProviders.confirm.cloud": "{service} 将收到你所有文档的全文，以及你的每一次搜索。",
+  "embeddingProviders.confirm.cloud":
+    "{service} 将收到你所有文档的全文（每段都带着所属文档的名称），以及你的每一次搜索。",
   "embeddingProviders.confirm.local": "所有内容都留在这台电脑上。",
   "embeddingProviders.confirm.cancel": "取消",
   "embeddingProviders.confirm.switch": "切换并重新处理",
@@ -2672,7 +2674,7 @@ export const zhCN = {
   "rerank.settings.body.details":
     "默认开启，使用在这台电脑上运行的内置模型；Cohere 和 Voyage AI 需要密钥。你也可以关闭它。它用于只搜索一次的模型生成的回答、写作建议，以及核对和对比表；自己搜索的模型不使用它，段落没能回答问题时会再搜一次。",
   "rerank.settings.inUse": "{service} 把最相关的搜索结果排在前面（{model}）。",
-  "rerank.settings.sends": "每次搜索和找到的段落都会发送到 {service}。",
+  "rerank.settings.sends": "每次搜索和找到的段落（每段都带着所属文档的名称）都会发送到 {service}。",
   "rerank.settings.builtInUse": "由内置模型把最佳结果排在前面。",
   "rerank.settings.builtInDefault": "默认由内置模型把最佳结果排在前面。",
   "rerank.settings.notDownloaded": "有文档时下载一次（{total} MB）。",
