@@ -488,13 +488,19 @@ function useBarPlace(
       };
       const at = changeBarPlace(box, textRight, pageBox, size, line, limits);
       element.style.maxWidth = `${at.maxWidth}px`;
-      // A narrower cap may give the bar a second line; it is placed again at the height it then
-      // draws, so a docked bar stays clear of the page's foot and its change.
-      const wrapped = { width: element.offsetWidth, height: element.offsetHeight };
-      const placed =
+      // A cap may give the bar another line, and a docked bar's cap may be narrower than the
+      // beside one: the size it draws at is measured before its place is taken, so a docked bar
+      // stays clear of the page's foot and its change, and inside the page.
+      let wrapped = { width: element.offsetWidth, height: element.offsetHeight };
+      let placed =
         wrapped.height === size.height
           ? at
           : changeBarPlace(box, textRight, pageBox, wrapped, line, limits);
+      if (placed.maxWidth < at.maxWidth) {
+        element.style.maxWidth = `${placed.maxWidth}px`;
+        wrapped = { width: element.offsetWidth, height: element.offsetHeight };
+        placed = changeBarPlace(box, textRight, pageBox, wrapped, line, limits);
+      }
       Object.assign(element.style, {
         left: `${placed.x}px`,
         top: `${placed.y}px`,
