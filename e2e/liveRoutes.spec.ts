@@ -96,7 +96,7 @@ test("Deepgram's row in Your providers names the server it sends to; Change key 
   const row = settings.locator('[data-testid="transcription-key-row"][data-host="deepgram"]');
   const status = row.getByTestId("transcription-key-status");
   await expect(status).toHaveText(
-    "For meeting transcription · sent to wss://api.cloudflare.com/client/v4/accounts/0f0e0d/ai/run/@cf/deepgram/nova-3",
+    "Your key · Used for meeting transcription · sent to wss://api.cloudflare.com/client/v4/accounts/0f0e0d/ai/run/@cf/deepgram/nova-3",
   );
 
   // In Chinese, at the narrowest width, the address is cut inside its row, whole in its tooltip.

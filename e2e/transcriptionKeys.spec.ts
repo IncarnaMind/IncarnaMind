@@ -279,7 +279,8 @@ test("Remove key on the chosen service's row sends meetings back to this compute
   await expect(picker).toHaveValue("local");
   await expect(routesOf(picker)).toHaveText(["On this computer"]);
   await expect(setUpRowsOf(picker)).toContainText(["Use Soniox…"]);
-  await expect(settings.getByTestId("your-providers")).toContainText("No provider yet");
+  await expect(settings.getByTestId("provider-row")).toHaveCount(0);
+  await expect(settings.getByTestId("transcription-key-row")).toHaveCount(0);
   expect((await bridge(window)).route).toBe("local");
 
   const meetings = (await showSettingsPage(window, "meetings")).getByTestId("meetings-settings");
@@ -353,6 +354,7 @@ test("a provider row whose key also transcribes says both uses, and ⌘K and a r
       kind: "anthropic",
       apiKey: "sk-ant-api03-a-test-key",
       modelId: "claude-haiku-5-5",
+      keepDefault: true,
     });
   });
   await setKey(window, "soniox", SONIOX_KEY);

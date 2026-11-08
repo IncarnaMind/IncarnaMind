@@ -12,6 +12,7 @@ import {
   dismissChatSetup,
   interceptOpenExternal,
   launchApp,
+  ollamaListing,
   openDirectoryEntry,
   openPlanPage,
   openSettings,
@@ -20,7 +21,6 @@ import {
   setLanguage,
   setWindowSize,
   urlsOpened,
-  useLocalChatModel,
 } from "./app";
 
 /*
@@ -195,8 +195,10 @@ test("each job is chosen in exactly one place in Settings", async () => {
   await pointAndClick(window, settings.getByTestId("embedding-change"));
   await window.getByTestId("embedding-confirm").getByTestId("embedding-confirm-switch").click();
   await expect(settings.getByTestId("embedding-model")).toHaveValue("built-in");
+  // Pages already shown stay in the dialog, hidden: each page's pickers are counted inside it.
+  const ai = settings.getByTestId("settings-page-ai");
   for (const picker of Object.values(JOB_PICKERS)) {
-    await expect(settings.getByTestId(picker), picker).toHaveCount(1);
+    await expect(ai.getByTestId(picker), picker).toHaveCount(1);
   }
   const pages = await settings
     .getByTestId("settings-nav")
@@ -206,9 +208,10 @@ test("each job is chosen in exactly one place in Settings", async () => {
   for (const page of pages.filter((each) => each !== "ai")) {
     await settings.getByTestId(`settings-nav-${page}`).click();
     await expect(settings).toHaveAttribute("data-page", page);
-    await expect(settings.getByTestId(`settings-page-${page}`)).toBeVisible();
+    const shown = settings.getByTestId(`settings-page-${page}`);
+    await expect(shown).toBeVisible();
     for (const picker of Object.values(JOB_PICKERS)) {
-      await expect(settings.getByTestId(picker), `${picker} on ${page}`).toHaveCount(0);
+      await expect(shown.getByTestId(picker), `${picker} on ${page}`).toHaveCount(0);
     }
   }
 });
@@ -491,16 +494,31 @@ test("a plan and a key for the same model: the key's row says the plan is the on
   }
 });
 
-// protects=an Ollama that has stopped is a row that says "Not running", where the User sees it; fails_when=it reads as working, or the row goes; no_claim=how Ollama is started.
-test("a local runtime that stops says “Not running”", async () => {
-  const window = await launch({ ollama: "http://127.0.0.1:9", ollamaApp: "installed" });
-  await useLocalChatModel(window, "llama4");
-  const settings = await openSettings(window, "ai");
-  const ollama = row(settings, "Ollama");
-  await expect(ollama.getByTestId("account-state")).toHaveText("Not running");
-  await expect(ollama.getByTestId("provider-row-status")).toHaveText(
-    /^On this computer · Used for Answers/,
-  );
+// protects=an Ollama on this computer reads "Running" while it answers and "Not running" once it stops, where the User sees it; fails_when=a stopped runtime reads as working, or the row goes; no_claim=how Ollama is started.
+test("a local runtime says “Running”, and “Not running” once it stops", async () => {
+  const ollama = await ollamaListing(["llama4"]);
+  try {
+    const window = await launch({ ollamaApp: "installed" });
+    await window.evaluate(async (baseUrl) => {
+      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      await bridge.saveChatProvider({ kind: "ollama", baseUrl, modelId: "llama4" });
+    }, ollama.url);
+    let settings = await openSettings(window, "ai");
+    await expect(row(settings, "Ollama").getByTestId("account-state")).toHaveText("Running");
+    await expect(row(settings, "Ollama").getByTestId("provider-row-status")).toHaveText(
+      /^On this computer · Used for Answers/,
+    );
+    await closeSettings(window);
+
+    await new Promise<void>((done) => ollama.server.close(() => done()));
+    settings = await openSettings(window, "ai");
+    await expect(row(settings, "Ollama").getByTestId("account-state")).toHaveText("Not running");
+    await expect(row(settings, "Ollama").getByTestId("provider-row-status")).toHaveText(
+      /^On this computer · Used for Answers/,
+    );
+  } finally {
+    ollama.server.close();
+  }
 });
 
 // protects=⌘K's Add an account or key opens the sheet, and Esc closes it with nothing changed; fails_when=it opens a page instead, or Esc closes Settings too; no_claim=the directory's groups, tested above.
