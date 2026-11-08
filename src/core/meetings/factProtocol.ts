@@ -127,27 +127,38 @@ const label = (value: unknown): value is string =>
   value.length <= 240 &&
   !/[\p{Cc}\p{Zl}\p{Zp}]/u.test(value);
 
-/** What a heading never shows: a Citation marker, a line's address or a token for the User. */
-const NOT_A_TITLE = /\[\^\d*\]|\b[LH]\d+\b|[{｛][^{}｛｝]*[}｝]/u;
+/** What a heading never shows: a Citation marker or a token for the User. */
+const NOT_A_TITLE = /\[\^\d*\]|[{｛][^{}｛｝]*[}｝]/u;
 /** A token for the User, with the possessive after it: what a topic loses to become a title. */
 const TOKEN = /[{｛]+[^{}｛｝]*[}｝]+(?:['’]s\b|\s*的)?/gu;
+const ADDRESS = /\b[LH]\d+\b/gu;
 
-/** The heading a fact goes under: its own, else its topic's words without markers or tokens. */
-function titleOf(heading: unknown, topic: string): string | null {
-  if (label(heading) && !NOT_A_TITLE.test(heading)) return heading.trim();
+/**
+ * The heading a fact goes under: its own, else its topic's words without markers or tokens.
+ * `addresses` are the User's lines and headings as the model was shown them ("L3", "H2"): only
+ * those are machine addresses, so a half-year such as "H2 targets" stays a title (#2306).
+ */
+function titleOf(heading: unknown, topic: string, addresses: ReadonlySet<string>): string | null {
+  const addressed = (text: string) =>
+    [...text.matchAll(ADDRESS)].some((match) => addresses.has(match[0]));
+  if (label(heading) && !NOT_A_TITLE.test(heading) && !addressed(heading)) return heading.trim();
   const words = topic
     .replace(TOKEN, "")
-    .replace(/\[\^\d*\]|\b[LH]\d+\b/gu, "")
+    .replace(/\[\^\d*\]/gu, "")
+    .replace(ADDRESS, (address) => (addresses.has(address) ? "" : address))
     .replace(/\s+/gu, " ")
     .trim();
   return words !== "" && !NOT_A_TITLE.test(words) ? words : null;
 }
 
-function factMetadata(value: Record<string, unknown>): FactMetadata | null {
+function factMetadata(
+  value: Record<string, unknown>,
+  addresses: ReadonlySet<string>,
+): FactMetadata | null {
   if (Object.keys(value).some((key) => !FACT_KEYS.includes(key))) return null;
   const { topic, citations, lines, sections, claim } = value;
   const supersedes = Object.hasOwn(value, "supersedes") ? value.supersedes : [];
-  const heading = label(topic) ? titleOf(value.heading, topic) : null;
+  const heading = label(topic) ? titleOf(value.heading, topic, addresses) : null;
   if (
     !label(topic) ||
     heading === null ||
@@ -320,10 +331,15 @@ function checkedBody(
   return citations.length > 0 ? { body: generated, citations } : "noCitation";
 }
 
-/** Known invalid fact IDs count once; unknown frames are separate, and the overview is required. */
+/**
+ * Known invalid fact IDs count once; unknown frames are separate, and the overview is required.
+ * `addresses`: the User's lines and headings as the model was shown them ("L1", "H2").
+ */
 export function parseFactReply(
   answer: Pick<CellAnswer, "markdown" | "blocks" | "citations">,
+  addresses: readonly string[] = [],
 ): FactReply {
+  const known = new Set(addresses);
   if (answer.markdown.length > 2_000_000 || answer.blocks.length > 20_000)
     return {
       facts: [],
@@ -359,7 +375,7 @@ export function parseFactReply(
       }
       continue;
     }
-    const fields = value ? factMetadata(value) : null;
+    const fields = value ? factMetadata(value, known) : null;
     const checked = fields ? checkedBody(frame, fields.citations, receipts) : "metadata";
     if (!fields || typeof checked === "string") {
       facts.set(frame.id, typeof checked === "string" ? checked : "metadata");

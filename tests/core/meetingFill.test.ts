@@ -1056,6 +1056,29 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     core.close();
   });
 
+  // protects=a topic heading drops only this fill's own addresses: "H1" when the User typed a first heading, while "H2" as a half-year stays, in English and Chinese (#2306); fails_when=a finance "H2" is dropped, or an address the prompt listed shows as a heading; no_claim=which headings a model writes.
+  test.each([
+    ["H2 targets", "H2 targets"],
+    ["下半年 H2 目标", "下半年 H2 目标"],
+    ["H1 targets", "targets"],
+  ])("with a typed heading, a topic headed %j is shown as %j", async (title, shown) => {
+    const model = fillingModel(
+      [
+        "HEADINGS: H1=NONE",
+        overview("The call set the targets [^1]."),
+        fact("P1_targets", "targets", "We agreed the enterprise price is 45 dollars a seat [^1].", {
+          heading: title,
+        }),
+      ].join("\n\n"),
+      { 1: MY_LINES[0] as string },
+    );
+    const { core, meeting, client } = await recorded(model, [heading(2, "Goals"), note("plan")]);
+
+    expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", omitted: 0 });
+    await vi.waitFor(() => expect(outline(client)).toContain(`## «${shown}»`));
+    core.close();
+  });
+
   // protects=in Simplified Chinese, with no notes taken, the sections start the Note where its blank lines were, with none above them, and the model is told the Transcript's own Chinese words for who spoke, so it writes 我 and 对方 rather than Me, Them or 用户 (#2305); fails_when=a blank line is left above the first section, or the model is shown only the English marks; no_claim=a real model's wording, which tests/live/meetingNotes.live.test.ts measures.
   test("in Simplified Chinese, the sections start the Note with no blank line above, and the model is told the Transcript's words for who spoke", async () => {
     const prompts: string[] = [];

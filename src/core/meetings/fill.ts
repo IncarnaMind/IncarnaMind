@@ -600,6 +600,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
       mode === "notes" ? "meetings.fill.question.notes" : "meetings.fill.question.sections",
     );
     const ledger = createFactLedger();
+    const addresses = lines.map((line) => line.marker);
     let unfinishedParts = 0;
     let problem: MeetingFillProblem | null = null;
     const destinations = new Map<FillSection, string>();
@@ -623,7 +624,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
       let parsed: FactReply;
       try {
         answer = await ask(context, part, transcriptId, route, signal);
-        parsed = parseFactReply(answer);
+        parsed = parseFactReply(answer, addresses);
         // Cut off before it closed a frame, as when the thinking takes the room: asked once more
         // with twice the room, which the cost cap sets aside only then. One that closed some keeps
         // them (#2306).
@@ -635,7 +636,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
         ) {
           log.info("meeting.fillAskedWithMoreRoom", { meetingId: meeting.id });
           answer = await ask(context, part, transcriptId, route, signal, true);
-          parsed = parseFactReply(answer);
+          parsed = parseFactReply(answer, addresses);
         }
       } catch (error) {
         if (signal.aborted || (ledger.facts.length === 0 && ledger.overview === null)) throw error;
