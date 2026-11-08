@@ -176,3 +176,7 @@ On DeepSeek V4.1 Flash, the branch put `owner-1` under its floor where main didn
 ### Before these runs (2026-11-08)
 
 Main moved on while the fixes were written, and the branch took it in: main is now `e2dab852d`, whose #2834 keeps what a write the stop cut short wrote. Such a write didn't finish, so it doesn't back "done" either (`tests/core/claimedChanges.test.ts`). The runs are at the branch's `ac90816ae` against `e2dab852d`'s source.
+
+### A check the provider didn't answer (2026-11-08, before the runs it changes)
+
+In the branch's first run of the probes on Claude Haiku 5.5 at this head, 40 checks in a row (the 974th to the 1029th) came back in under 0.4 s with no verdict: the provider didn't answer them, and the probe harness read each as nothing flagged, so `section-unmade-*` read 4 and 11 of 20 against 20 and 20 in the round before. Through the same harness, the two were caught 40 of 40 when run again alone. The harness now asks such a check again, twice at most, and counts one never answered apart from the probes' results. That run is replaced: the probes run again on the branch with Claude Haiku 5.5 once the runs above are done, and main's runs are read with any check under 0.4 s set apart.

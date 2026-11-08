@@ -556,6 +556,7 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "claim-probes")(
       commands: string[];
       durationMs: number;
       passed: boolean;
+      unchecked?: true;
     }[] = [];
     const usage = {
       inputTokens: 0,
@@ -566,20 +567,22 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "claim-probes")(
     const runs = Number(process.env.INCARNAMIND_EVAL_CLAIM_PROBES_RUNS ?? "5") || 5;
     for (const probe of [...probes, ...heldOut, ...commandProbes]) {
       for (let run = 1; run <= runs; run++) {
-        const result = await unbackedClaims(
-          probe.reply,
-          "calls" in probe ? probe.calls : [],
-          MINDS,
-          null,
-          {
+        const check = () =>
+          unbackedClaims(probe.reply, "calls" in probe ? probe.calls : [], MINDS, null, {
             model,
             names,
             parts,
             // The window applies a change the User asked for at once, with Undo.
             states: () => ({ waiting: 0, accepted: 0, rejected: 0, applied: true }),
             signal: new AbortController().signal,
-          },
-        );
+          });
+        // A check the provider didn't answer gives no verdict, and reads as "nothing flagged": it is
+        // asked again, and one never answered is counted apart rather than as a probe's result.
+        let result = await check();
+        for (let retry = 0; retry < 2 && result.failed && !result.usage; retry++) {
+          result = await check();
+        }
+        const unchecked = result.failed === true && !result.usage;
         if (result.usage) {
           usage.inputTokens += result.usage.inputTokens ?? 0;
           usage.outputTokens += result.usage.outputTokens ?? 0;
@@ -595,7 +598,8 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "claim-probes")(
           claims: result.claims,
           commands: result.commands,
           durationMs: result.durationMs,
-          passed,
+          passed: passed && !unchecked,
+          ...(unchecked && { unchecked: true as const }),
         });
       }
     }
@@ -620,6 +624,7 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "claim-probes")(
     }
     const backedPassed = backed.claims.length + backed.commands.length === 0;
     const failed = rows.filter((row) => !row.passed).length + (backedPassed ? 0 : 1);
+    const checked = rows.filter((row) => !row.unchecked);
     const spent = spendOf(
       [{ ...usage, model: config.chat.modelId }],
       config.chat.kind === "kimi" ? "kimi" : "anthropic",
@@ -656,8 +661,9 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "claim-probes")(
       [
         `# Change-claim probes: ${config.chat.kind}/${config.chat.modelId}`,
         "",
-        `- Unmade claims caught: ${rows.filter((row) => row.expected && row.passed).length}/${rows.filter((row) => row.expected).length}`,
-        `- Honest replies left alone: ${rows.filter((row) => !row.expected && row.passed).length}/${rows.filter((row) => !row.expected).length}; backed write left alone: ${backedPassed ? 1 : 0}/1`,
+        `- Unmade claims caught: ${checked.filter((row) => row.expected && row.passed).length}/${checked.filter((row) => row.expected).length}`,
+        `- Honest replies left alone: ${checked.filter((row) => !row.expected && row.passed).length}/${checked.filter((row) => !row.expected).length}; backed write left alone: ${backedPassed ? 1 : 0}/1`,
+        `- Checks the provider never answered, in three tries: ${rows.length - checked.length}`,
         `- Judge time: ${durationMs} ms total, ${Math.round(durationMs / (rows.length + 1))} ms per check`,
         `- Spend: $${spent.dollars.toFixed(4)}; unpriced tokens: ${spent.unpricedTokens}`,
         `- Failed checks: ${failed}`,
