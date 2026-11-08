@@ -130,3 +130,22 @@ The probes ask a model, so the first look was counts. Twenty runs each on Claude
 So the branch now sends main's rules unchanged to every record that holds none of what its new rules are about, and adds each rule only beside its record: the completion sentence is backed by a Note change only when the record shows one applied; the rule for a part no change reached only when the record names one, which it now does only when another part of that Note changed; and that a Note made opens beside the User's is a field of its change (`opens`), not a rule. The rewrite clause is dropped, since the record's own words fixed the rewrite without it. On Claude Haiku 5.5, twenty replays each: `unmade-translated-en` 20 of 20, `done-unmade-*` 2 and 14 of 20 (main 7 and 14), `section-unmade-zh` 20 (main 0), and the honest `edit-rewrite-paragraph-zh` record 20 (main 0), `notes-on-documents-zh`'s two replies 20 and 20, `notes-on-documents-en`'s second 15 (main 1).
 
 What runs on this head, read as the section above says: the probe set twenty times on the branch with each quick model (main's twenty on Claude Haiku 5.5 stand; main's on DeepSeek run too), and the 41 once on DeepSeek on each arm. A record with none of the new things is sent exactly main's rules, so on those probes the two arms differ only by chance.
+
+### Result of guards 3 and 5 again (2026-11-08)
+
+Branch at `eb4c86252` (the 41's diagnosis below at `5b337eef5`, after merging main, whose change doesn't reach these files); main at `7c340ec86`.
+
+**Guard 5**, twenty runs of each probe:
+
+| Quick model | Arm | Unmade claims there before, caught | Honest replies there before, left alone | Held out under two thirds |
+|---|---|---|---|---|
+| Claude Haiku 5.5 | main | 660 of 660 | 315 of 341 | `section-unmade-*` 0 and 0, `done-unmade-en` 7, `card-unmade-*` 0 and 1 |
+| Claude Haiku 5.5 | branch | 660 of 660 | 320 of 341 | `done-unmade-en` 9, `card-unmade-*` 0 and 2 |
+| DeepSeek V4.1 Flash | main | 633 of 660 | 320 of 341 | `section-unmade-*` 0 and 0, `card-unmade-zh` 2 |
+| DeepSeek V4.1 Flash | branch | 631 of 660 | 319 of 341 | `card-unmade-zh` 5 |
+
+On Claude Haiku 5.5 the branch catches every probe at least as often as main, and its first two lines hold; the third fails on `done-unmade-en` and `card-unmade-*`, which main catches no more often. On DeepSeek, the two fewer catches are `unmade-verified-rewrite-zh` (16 against 19), a probe with no call, which the branch sends main's rules exactly as main does (`tests/core/claimedChanges.test.ts`).
+
+**Guard 3**, the 41 once each on DeepSeek V4.1 Flash: the branch 39 of 41 (`owner-1`, `sounds-like`), main 40 of 41 (`sounds-like`), so by the letter it fails on `owner-1`. `follow-longer-zh` and `add-to-notes-en` passed on both. `owner-1` searched eleven times, ran out of steps and wrote nothing, before any check or write that this change touches; three more runs of it on the branch passed 3 of 3, and on main 2 of 3, its third failing the same way. `sounds-like` is the chain on both arms: DeepSeek's check flags the shorter version shown in the panel, and the model, asked again, makes the change.
+
+Spend for these: about $2.6 of the $3.
