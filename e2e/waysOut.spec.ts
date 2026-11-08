@@ -16,14 +16,14 @@ import {
   launchApp,
   motionSettled,
   newMind,
+  openDirectoryEntry,
+  openPlanPage,
   openSettings,
   pointAndClick,
   removeDataFolder,
   setLanguage,
   setWindowSize,
   urlsOpened,
-  openDirectoryEntry,
-  openPlanPage,
 } from "./app";
 
 /*

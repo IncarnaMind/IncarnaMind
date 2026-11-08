@@ -285,7 +285,7 @@ test("a sign-in not finished in time says so in the row, in English and Chinese"
   }
 });
 
-test("⌘K: Sign in with Claude opens the words in Settings › Models, before anything is sent", async () => {
+test("⌘K: Sign in with Claude opens the words in Settings › AI, before anything is sent", async () => {
   const { app, window } = await launchApp(dataDir, { claude: fake.origin });
   try {
     await interceptOpenExternal(app);

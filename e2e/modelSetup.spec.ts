@@ -1158,7 +1158,7 @@ for (const language of ["en", "zh-CN"] as const) {
       }
     });
 
-    test(`Settings › Models says the same of ${model} saved for sorting when it isn't the chat default (${language})`, async () => {
+    test(`Settings › AI says the same of ${model} saved for sorting when it isn't the chat default (${language})`, async () => {
       const { app, window } = await launchApp(dataDir, { fakeChat: true });
       try {
         await setWindowSize(app, window, 1280, 800);
@@ -1255,7 +1255,7 @@ for (const language of ["en", "zh-CN"] as const) {
   });
 }
 
-// What step 3 and Settings › Models read to say what sorts: the core's models, with its answer for
+// What step 3 and Settings › AI read to say what sorts: the core's models, with its answer for
 // the saved choice. The core is the only thing they ask, so it is the one read that can fail.
 const SORTING_READS = [
   { channel: "core:getTaggingModels", name: "the models that can sort", atFirst: true },
@@ -1314,7 +1314,7 @@ for (const language of ["en", "zh-CN"] as const) {
       }
     });
 
-    test(`Settings › Models says in place when ${name} can't be read, ${atFirst ? "at first and " : ""}on a read again (${language})`, async () => {
+    test(`Settings › AI says in place when ${name} can't be read, ${atFirst ? "at first and " : ""}on a read again (${language})`, async () => {
       const { app, window } = await launchApp(dataDir, { fakeChat: true });
       try {
         await setWindowSize(app, window, 1280, 800);
@@ -1431,7 +1431,11 @@ for (const language of ["en", "zh-CN"] as const) {
       const meetings = again.getByTestId("meetings-settings");
       await expect(meetings.getByTestId("meetings-route-line")).toHaveCount(0);
       // The saved route is still OpenAI: nothing says it is on this computer.
-      await expect(meetings.getByTestId("meetings-route")).toHaveValue("openai");
+      const route = await window.evaluate(async () => {
+        const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        return (await core.getSettings()).device.transcriptionRoute;
+      });
+      expect(route).toBe("openai");
       await expect(meetings).not.toContainText(translate(language, "meetings.route.hereLine"));
 
       await controlReads(app, "core:listTranscriptionServices", { failing: false });
@@ -1540,9 +1544,9 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(card.getByTestId("setup-services-reading")).toBeVisible();
       await expect(card.getByTestId("setup-step-transcription")).toHaveCount(0);
 
-      // Meetings is opened again, its reads held too, and a key the service refuses is tried
-      // from its picker's fold.
-      const settings = await settingsOnMeetings(window);
+      // Settings › AI is opened, its reads held too, and a key the service refuses is tried from
+      // Meeting transcription's picker.
+      const settings = await settingsOnModels(window);
       await settings.getByTestId("meetings-route").selectOption("set-up:soniox");
       const form = settings.getByTestId("transcription-key-form-soniox");
       const input = form.getByTestId("transcription-key-input");
@@ -1633,15 +1637,13 @@ for (const language of ["en", "zh-CN"] as const) {
             .sort(),
         );
 
-      // Every read of the list fails as Settings opens: Meetings says so once, and offers only the
-      // route that is saved.
+      // Every read of the list fails as Settings opens: Meetings says so once.
       await controlReads(app, SERVICES, { failing: true });
       const dialog = await settingsOnMeetings(window);
       const meetings = dialog.getByTestId("meetings-settings");
       const problem = meetings.getByTestId("meetings-route-problem");
       await expect(problem).toContainText(translate(language, "setup.services.failed"));
-      await expect.poll(() => offered(meetings)).toEqual(["local", "soniox"]);
-      // Settings › Models reads once for its page when it is first shown, and fails as well: its
+      // Settings › AI reads once for its page when it is first shown, and fails as well: its
       // picker offers the saved route, and Your providers lists no transcription key.
       await showSettingsPage(window, "ai");
       const models = dialog.getByTestId("ai-jobs");
@@ -1658,9 +1660,8 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(meetings.getByTestId("meetings-route-line")).toContainText(
         translate(language, "meetings.route.cloudLine", { provider: "Soniox" }),
       );
-      await expect.poll(() => offered(meetings)).toEqual(["local", "openai", "soniox"]);
 
-      // Settings › Models read for itself, so its failure stands until it is tried again; its
+      // Settings › AI read for itself, so its failure stands until it is tried again; its
       // Try again brings back the picker and the key row together.
       await showSettingsPage(window, "ai");
       await expect(modelsProblem).toBeVisible();
@@ -2494,7 +2495,7 @@ for (const language of ["en", "zh-CN"] as const) {
     }
   });
 
-  test(`Settings › Models' choice for sorting says what goes once tagging is on, and leaves the switch where it was (${language})`, async () => {
+  test(`Settings › AI' choice for sorting says what goes once tagging is on, and leaves the switch where it was (${language})`, async () => {
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
     try {
       await setWindowSize(app, window, 1280, 800);

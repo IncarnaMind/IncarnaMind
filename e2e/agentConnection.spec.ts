@@ -7,11 +7,11 @@ import {
   dismissChatSetup,
   launchApp,
   newMind,
+  openPlanPage,
   removeDataFolder,
   setLanguage,
   setWindowSize,
   showSettingsPage,
-  openPlanPage,
 } from "./app";
 
 let dataDir: string;

@@ -212,7 +212,7 @@ describe("a failed Answer's problem line", () => {
     const hosted = answerProblem("too-long", "anthropic", false, { local: false });
     expect(hosted.fix).toEqual({
       kind: "settings",
-      page: "models",
+      page: "ai",
       label: "answer.error.chooseModel",
     });
     expect(translate("en", hosted.line, { model: "Claude Haiku 5.5" })).toBe(
@@ -228,8 +228,8 @@ describe("a failed Answer's problem line", () => {
   });
 
   test("what the User can fix in Settings opens the page that fixes it", () => {
-    expect(ANSWER_PROBLEMS.auth.fix).toMatchObject({ kind: "settings", page: "models" });
-    expect(ANSWER_PROBLEMS.model.fix).toMatchObject({ kind: "settings", page: "models" });
+    expect(ANSWER_PROBLEMS.auth.fix).toMatchObject({ kind: "settings", page: "ai" });
+    expect(ANSWER_PROBLEMS.model.fix).toMatchObject({ kind: "settings", page: "ai" });
     // A declined data flow is allowed again on the Privacy page.
     expect(ANSWER_PROBLEMS["consent-declined"].fix).toMatchObject({
       kind: "settings",
@@ -300,7 +300,7 @@ describe("a failed Answer's problem line", () => {
     expect(shown("unknown", "zh-CN")).toEqual(["Anthropic 出了问题，原因不明", "重试"]);
     expect(ANSWER_PROBLEMS.refused.fix).toEqual({
       kind: "settings",
-      page: "models",
+      page: "ai",
       label: "answer.error.chooseModel",
     });
   });

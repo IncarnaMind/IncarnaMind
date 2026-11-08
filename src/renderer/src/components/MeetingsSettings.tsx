@@ -6,9 +6,7 @@ import { useAppStore } from "../store";
 import { useAudioKeptKey, useTranscriptionServicesRead } from "../transcriptionServices";
 import { CalendarSettings } from "./meetings/CalendarSettings";
 import { HelpSettings } from "./meetings/HelpSettings";
-import { TranscriptionRouteSelect } from "./meetings/TranscriptionRouteSelect";
 import { TranscriptionRouteLine } from "./meetings/TranscriptionSettings";
-import { useTranscriptionSetUp } from "./meetings/TranscriptionSetUp";
 import { WordsToKnow } from "./meetings/WordsToKnow";
 import { PopUpSelect } from "./settings/PopUpButton";
 import {
@@ -17,6 +15,7 @@ import {
   SettingsSection,
   SettingsSwitchRow,
 } from "./settings/SettingsGroup";
+import { buttonStyle } from "./ui";
 
 const SCRIPT_LABELS: Record<ChineseScript, MessageKey> = {
   simplified: "meetings.script.simplified",
@@ -28,14 +27,12 @@ export function MeetingsSettings() {
   const device = useAppStore((state) => state.settings?.device);
   const canRecord = useAppStore((state) => state.settings?.meetingAudio);
   const updateSettings = useAppStore((state) => state.updateSettings);
+  const openSettings = useAppStore((state) => state.openSettings);
   const whatId = useId();
-  const routeId = useId();
   const scriptId = useId();
   const script = useAppStore((state) => state.settings?.chineseScript);
   const keptKey = useAudioKeptKey();
-  // The one read of this section: the route line and the choice draw from it.
   const services = useTranscriptionServicesRead();
-  const setUp = useTranscriptionSetUp(routeId, services);
   if (!device || !canRecord || !script) return null;
   const microphoneOnly = canRecord !== "both";
   const both = device.meetingSystemAudio && !microphoneOnly;
@@ -91,22 +88,18 @@ export function MeetingsSettings() {
           />
           <SettingsRow
             label={t("meetings.settings.route")}
-            htmlFor={routeId}
-            tip={t("models.defaults.meetings.tip")}
-            tipId={`${routeId}-tip`}
             detail={<TranscriptionRouteLine read={services} />}
             control={
-              <TranscriptionRouteSelect
-                id={routeId}
-                popUp
-                read={services}
-                setUp={setUp.rows}
-                onChosen={setUp.onChosen}
-              />
+              <button
+                type="button"
+                data-testid="meetings-route-change"
+                onClick={() => openSettings("ai", "transcription")}
+                className={buttonStyle("secondary", "sm")}
+              >
+                {t("meetings.settings.routeChange")}
+              </button>
             }
-          >
-            {setUp.panel}
-          </SettingsRow>
+          />
           <SettingsRow
             label={t("meetings.script.title")}
             htmlFor={scriptId}

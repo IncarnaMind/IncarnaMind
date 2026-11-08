@@ -102,7 +102,7 @@ test("an organization's policy stops a Copilot Answer: GitHub's line, an API key
   await app.close();
 });
 
-test("signed out of Copilot, the lines name GitHub Copilot with its ways back, and Sign in with GitHub opens its place in Settings › Models", async () => {
+test("signed out of Copilot, the lines name GitHub Copilot with its ways back, and Sign in with GitHub opens its place in Settings › AI", async () => {
   const { app, window } = await launchApp(dataDir, { copilot: github.origin, ollama: NO_OLLAMA });
   await interceptOpenExternal(app);
   await setWindowSize(app, window, 1100, 800);

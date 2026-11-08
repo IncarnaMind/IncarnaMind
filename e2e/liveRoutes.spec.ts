@@ -19,7 +19,7 @@ import {
 
 /**
  * The live routes with a key of their own (#866), with the pretend services every smoke test's
- * fake transcriber has: Deepgram's server kept with its key in Settings › Models, and an
+ * fake transcriber has: Deepgram's server kept with its key in Settings › AI, and an
  * account out of credit as one line in the meeting bar. Set INCARNAMIND_SCREENSHOTS to a folder
  * to also save screenshots.
  */
@@ -64,14 +64,16 @@ test("Deepgram's row in Your providers names the server it sends to; Change key 
     });
   }, CLOUDFLARE);
 
-  // Choosing Deepgram in Settings › Meetings sends the audio to Cloudflare, as its line says.
-  let settings = await openSettings(window, "meetings");
+  // Choosing Deepgram in Settings › AI sends the audio to Cloudflare, as Meetings' line says.
+  let settings = await openSettings(window, "ai");
   const route = settings.getByTestId("meetings-route");
-  await expect(route.locator(":scope > option:not([hidden])")).toHaveText([
-    "On this computer",
+  await expect(route.locator("option:not([hidden]):not([value^='set-up:'])")).toHaveText([
     "Deepgram",
+    "On this computer",
   ]);
   await route.selectOption("deepgram");
+  await expect(route).toHaveValue("deepgram");
+  settings = await showSettingsPage(window, "meetings");
   const line = settings.getByTestId("meetings-route-line");
   await expect(line).toContainText("Audio goes to Cloudflare while you record.");
   await expect(line).toContainText(
@@ -133,8 +135,8 @@ test("an AssemblyAI account out of credit is one line in the bar with Add credit
   await useOutputLocation(window, sources);
   await acceptPlainTextKeys(window);
 
-  // AssemblyAI set up from Settings › Meetings' fold: Use this keeps the key and chooses it.
-  const settings = await openSettings(window, "meetings");
+  // AssemblyAI set up from Meeting transcription's picker: Use this keeps the key and chooses it.
+  let settings = await openSettings(window, "ai");
   await settings.getByTestId("meetings-route").selectOption("set-up:assemblyai");
   const form = settings.getByTestId("transcription-key-form-assemblyai");
   await expect(form.getByRole("textbox", { name: "Server" })).toHaveCount(0);
@@ -142,6 +144,7 @@ test("an AssemblyAI account out of credit is one line in the bar with Add credit
   await form.getByTestId("transcription-key-save").click();
   await expect(form).toHaveCount(0);
   await expect(settings.getByTestId("meetings-route")).toHaveValue("assemblyai");
+  settings = await showSettingsPage(window, "meetings");
   await expect(settings.getByTestId("meetings-route-line")).toContainText(
     "Audio goes to AssemblyAI while you record.",
   );

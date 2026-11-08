@@ -464,7 +464,9 @@ for (const language of ["en", "zh-CN"] as const) {
       expect((await library(window)).classifier).toEqual({ kind: "automatic" });
       // The Qwen key stays for chat, and the fold offers Alibaba's workspace again.
       await expect(providers.getByTestId("provider-row")).toHaveCount(1);
-      await expect(picker.locator("option[value^='set-up:']")).toHaveCount(setUpRows(language).length + 1);
+      await expect(picker.locator("option[value^='set-up:']")).toHaveCount(
+        setUpRows(language).length + 1,
+      );
     } finally {
       await app.close();
     }

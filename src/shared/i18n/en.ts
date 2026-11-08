@@ -3807,7 +3807,6 @@ export const en = {
   "models.other.reason.computerUse": "Needs the computer use API",
   "models.defaults.noModel": "No model yet",
   "models.defaults.images.none": "No model reads images yet",
-  "models.defaults.meetings.tip": "Where meeting audio is turned into text.",
   "meetings.route.local": "On this computer",
   "meetings.route.openai": "OpenAI",
   "meetings.route.soniox": "Soniox",
@@ -6069,7 +6068,8 @@ export const en = {
     "Couldn’t reach {service}. Check the connection and try again.",
   "error.transcription.keyRefused":
     "{service} didn’t accept this key. Copy it again and paste it here.",
-  "error.transcription.noOwnKey": "That transcription service uses the key you set in Settings › AI.",
+  "error.transcription.noOwnKey":
+    "That transcription service uses the key you set in Settings › AI.",
   "error.transcription.unknownService": "That isn’t a transcription service.",
   "error.transcription.serverScheme": "The server address must start with wss:// or https://.",
   "error.transcription.serverEncrypted":
@@ -6978,6 +6978,7 @@ export const en = {
   "meetings.cantRecord.notes": "Take notes instead",
   "meetings.settings.what": "What is recorded",
   "meetings.settings.route": "Transcribe on",
+  "meetings.settings.routeChange": "Change in Settings › AI",
   "meetings.settings.whatBoth": "Your microphone and the other people (the computer’s sound).",
   "meetings.settings.whatMe": "Only your microphone.",
   "meetings.settings.keepAudio": "Keep a meeting’s audio",

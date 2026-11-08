@@ -20,7 +20,7 @@ import {
 } from "./app";
 
 /**
- * Meeting transcription's keys live in Settings › Models: a service with a key of its own is set
+ * Meeting transcription's keys live in Settings › AI: a service with a key of its own is set
  * up in place from the foot of the Meeting transcription picker, in Defaults or in Settings ›
  * Meetings, and its key is then a row of Your providers, "For meeting transcription", with Change
  * key and Remove key. The pretend cloud service of every smoke test's fake transcriber takes any
@@ -196,9 +196,9 @@ test("a Soniox key set up from Defaults' Meeting transcription is checked, chose
   await expect(soniox.getByTestId("transcription-key-change")).toHaveText("Change key");
   await expect(soniox.getByTestId("transcription-key-remove")).toHaveText("Remove key");
 
-  // The same setting in Settings › Meetings, which has no key rows of its own.
+  // Settings › Meetings says where the audio goes, with no picker or key rows of its own.
   const meetings = (await showSettingsPage(window, "meetings")).getByTestId("meetings-settings");
-  await expect(meetings.getByTestId("meetings-route")).toHaveValue("soniox");
+  await expect(meetings.getByTestId("meetings-route")).toHaveCount(0);
   await expect(meetings.getByTestId("meetings-route-line")).toContainText(
     "Audio goes to Soniox while you record.",
   );
@@ -209,11 +209,11 @@ test("a Soniox key set up from Defaults' Meeting transcription is checked, chose
   await expect.poll(async () => (await bridge(window)).meetings[0]?.cloud).toBe("soniox");
 });
 
-test("Deepgram set up from Settings › Meetings' fold takes Cloudflare's address: the line above Use this names Cloudflare, and the next meeting uses it", async () => {
+test("Deepgram set up from Meeting transcription's picker takes Cloudflare's address: the line above Use this names Cloudflare, and the next meeting uses it", async () => {
   const window = await launch();
   await useOutputLocation(window, sources);
-  const settings = await openSettings(window, "meetings");
-  const meetings = settings.getByTestId("meetings-settings");
+  const settings = await openSettings(window, "ai");
+  const meetings = settings.getByTestId("model-default-row-transcription");
   const picker = meetings.getByTestId("meetings-route");
   await expect(setUpRowsOf(picker)).toContainText(["Use Deepgram…"]);
   await picker.selectOption("set-up:deepgram");
@@ -244,9 +244,8 @@ test("Deepgram set up from Settings › Meetings' fold takes Cloudflare's addres
   await pointAndClick(window, form.getByTestId("transcription-key-save"));
   await expect(form).toHaveCount(0);
   await expect(picker).toHaveValue("deepgram");
-  await expect(meetings.getByTestId("meetings-route-line")).toContainText(
-    "Audio goes to Cloudflare while you record.",
-  );
+  const line = (await showSettingsPage(window, "meetings")).getByTestId("meetings-route-line");
+  await expect(line).toContainText("Audio goes to Cloudflare while you record.");
   expect((await bridge(window)).flows).toContainEqual({
     id: "transcription",
     service: "https://api.cloudflare.com",
@@ -284,7 +283,6 @@ test("Remove key on the chosen service's row sends meetings back to this compute
   expect((await bridge(window)).route).toBe("local");
 
   const meetings = (await showSettingsPage(window, "meetings")).getByTestId("meetings-settings");
-  await expect(meetings.getByTestId("meetings-route")).toHaveValue("local");
   await expect(meetings.getByTestId("meetings-route-line")).toHaveText("Private and free");
 });
 
@@ -360,7 +358,7 @@ test("a provider row whose key also transcribes says both uses, and ⌘K and a r
   await setKey(window, "soniox", SONIOX_KEY);
   await choose(window, "soniox");
 
-  // ⌘K: the Meeting transcription picker in Settings › Models, focused.
+  // ⌘K: the Meeting transcription picker in Settings › AI, focused.
   await runCommand(window, "settings.transcription", "Set up meeting transcription…");
   const settings = window.getByTestId("settings");
   await expect(settings).toHaveAttribute("data-page", "ai");
@@ -397,7 +395,7 @@ test("a provider row whose key also transcribes says both uses, and ⌘K and a r
 
 // protects=the moved key rows and the picker's setup hold the layout at a narrow and a wide window, in both languages; fails_when=a row's buttons overlap its words, the form or a line runs out of its row, or the page scrolls sideways; no_claim=pixel sizes.
 for (const width of [900, 1440] as const) {
-  test(`Settings › Models and Settings › Meetings hold their layout at ${width} px in English and Chinese`, async () => {
+  test(`Settings › AI and Settings › Meetings hold their layout at ${width} px in English and Chinese`, async () => {
     const window = await launch();
     await setKey(window, "soniox", SONIOX_KEY);
     await window.evaluate(async (server) => {
@@ -450,21 +448,21 @@ for (const width of [900, 1440] as const) {
       const section = meetings.getByTestId("meetings-settings");
       await expect(section.getByTestId("transcription-key-row")).toHaveCount(0);
       await shot(window, `after-meetings-${language}-${width}`);
-      await section.getByTestId("meetings-route").selectOption("set-up:gladia");
-      const fold = section.getByTestId("transcription-key-form-gladia");
-      await expect(fold.getByTestId("transcription-key-input")).toBeFocused();
+      // Meetings says where the audio goes; the choice is made in Settings › AI, one press away.
+      await expect(section.getByTestId("meetings-route")).toHaveCount(0);
+      const change = section.getByTestId("meetings-route-change");
       const sectionBox = await section.boundingBox();
-      const consent = await fold.getByTestId("transcription-set-up-consent").boundingBox();
+      const changeBox = await change.boundingBox();
       expect(
-        sectionBox && consent && consent.x + consent.width <= sectionBox.x + sectionBox.width,
+        sectionBox && changeBox && changeBox.x + changeBox.width <= sectionBox.x + sectionBox.width,
       ).toBe(true);
-      await shot(window, `after-meetings-set-up-${language}-${width}`);
-      await window.keyboard.press("Escape");
-      await expect(fold).toHaveCount(0);
       const meetingsPage = meetings.locator('[data-testid="settings-page-meetings"]');
       expect(await meetingsPage.evaluate((each) => each.scrollWidth <= each.clientWidth)).toBe(
         true,
       );
+      await change.click();
+      await expect(settings).toHaveAttribute("data-page", "ai");
+      await expect(transcription.getByTestId("meetings-route")).toBeFocused();
     }
     await expect(settings).toBeVisible();
   });

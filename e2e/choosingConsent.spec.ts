@@ -237,7 +237,7 @@ test("before a model is chosen, a new Document's tagging waits with its line, an
   await app.close();
 });
 
-test("Settings › Models says in one line what the ChatGPT plan sends, with the full list behind Details", async () => {
+test("Settings › AI says in one line what the ChatGPT plan sends, with the full list behind Details", async () => {
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
   const plan = await openPlanPage(window, "chatgpt");
@@ -254,7 +254,7 @@ test("Settings › Models says in one line what the ChatGPT plan sends, with the
   await app.close();
 });
 
-test("in Chinese, adding a provider in Settings › Models says what goes to it above its button", async () => {
+test("in Chinese, adding a provider in Settings › AI says what goes to it above its button", async () => {
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
   const settings = await openSettings(window, "ai");

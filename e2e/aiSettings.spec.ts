@@ -175,6 +175,44 @@ for (const width of [1440, 900] as const) {
   }
 }
 
+/** Every picker that chooses a job's model or service, by the job it chooses for. */
+const JOB_PICKERS = {
+  answers: "model-default-chatModel",
+  quick: "model-default-quickTasksModel",
+  images: "model-default-imageModel",
+  organize: "models-sorting",
+  transcription: "meetings-route",
+  search: "embedding-model",
+  rerank: "rerank-choice",
+  web: "web-search-switch",
+} as const;
+
+// protects=each job is chosen in one place: Settings › AI has each job's picker once, and no other Settings page has any; fails_when=a page keeps or gains a second place to choose a job; no_claim=what the pickers offer.
+test("each job is chosen in exactly one place in Settings", async () => {
+  const window = await launch();
+  await twoKeys(window);
+  const settings = await openSettings(window, "ai");
+  await pointAndClick(window, settings.getByTestId("embedding-change"));
+  await window.getByTestId("embedding-confirm").getByTestId("embedding-confirm-switch").click();
+  await expect(settings.getByTestId("embedding-model")).toHaveValue("built-in");
+  for (const picker of Object.values(JOB_PICKERS)) {
+    await expect(settings.getByTestId(picker), picker).toHaveCount(1);
+  }
+  const pages = await settings
+    .getByTestId("settings-nav")
+    .locator('[data-testid^="settings-nav-"]')
+    .evaluateAll((each) => each.map((nav) => nav.getAttribute("data-testid")?.slice(13) ?? ""));
+  expect(pages).toContain("meetings");
+  for (const page of pages.filter((each) => each !== "ai")) {
+    await settings.getByTestId(`settings-nav-${page}`).click();
+    await expect(settings).toHaveAttribute("data-page", page);
+    await expect(settings.getByTestId(`settings-page-${page}`)).toBeVisible();
+    for (const picker of Object.values(JOB_PICKERS)) {
+      await expect(settings.getByTestId(picker), `${picker} on ${page}`).toHaveCount(0);
+    }
+  }
+});
+
 // protects=each job's picker saves the User's choice for that job alone, and it is still chosen when Settings opens again; fails_when=a choice isn't kept, lands in another job, or Document search changes without asking first; no_claim=which models a provider lists.
 test("each job's picker chooses, and keeps it", async () => {
   const window = await launch();

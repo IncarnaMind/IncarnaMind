@@ -13,7 +13,8 @@ export const settingsPageCommands: readonly Command[] = [
         id: `settings.${page}`,
         label: (_ctx, t) => t("command.settings.page", { page: t(settingsPageLabels[page]) }),
         // Models and Search are found where they went.
-        keywords: page === "ai" ? ["settings.title", "command.settings.ai.keywords"] : ["settings.title"],
+        keywords:
+          page === "ai" ? ["settings.title", "command.settings.ai.keywords"] : ["settings.title"],
         group: "open",
         reversible: true,
         run: () => useAppStore.getState().openSettings(page),
@@ -78,11 +79,7 @@ export const settingsPageCommands: readonly Command[] = [
     id: "settings.transcription",
     assistant: { never: "keys" },
     label: "command.settings.transcription",
-    keywords: [
-      "settings.title",
-      "settings.pages.ai",
-      "command.settings.transcription.keywords",
-    ],
+    keywords: ["settings.title", "settings.pages.ai", "command.settings.transcription.keywords"],
     group: "open",
     reversible: true,
     run: () => useAppStore.getState().openSettings("ai", "transcription"),

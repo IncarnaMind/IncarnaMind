@@ -76,7 +76,7 @@ test("“Stays on this computer” is ink-secondary with a computer icon in Sett
   for (const language of ["en", "zh-CN"] as const) {
     await setLanguage(window, language);
 
-    // Settings › Models: a provider on this computer, marked.
+    // Settings › AI: a provider on this computer, marked.
     await showSettingsPage(window, "ai");
     await expectOnThisComputer(
       settings.getByTestId("provider-page").getByTestId("on-this-computer"),

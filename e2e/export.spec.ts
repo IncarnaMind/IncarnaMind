@@ -656,7 +656,7 @@ test("an export saved into a Linked folder is IncarnaMind's file: its viewer say
   await bridge(window).language("en");
   await setWindowSize(app, window, WINDOW_SIZE.width, WINDOW_SIZE.height);
 
-  // Settings › Search counts such files everywhere, and a folder's own switch has nothing to do.
+  // Settings › General counts such files everywhere, and a folder's own switch has nothing to do.
   const settings = await openSettings(window, "general");
   const checks = settings.getByTestId("evidence-settings");
   const leaveOut = checks.getByRole("switch", { name: "Leave out files IncarnaMind wrote" });

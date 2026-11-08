@@ -6,9 +6,8 @@ import { useSettingsTarget } from "../../settingsTarget";
 import { useAppStore } from "../../store";
 import { DetailsLine } from "../DetailsLine";
 import { SettingsRow } from "../settings/SettingsGroup";
-import { noticeClass } from "../ui";
 import { UndoLineAt } from "../UndoLine";
-
+import { noticeClass } from "../ui";
 
 const TARGET = ["local-mode"] as const;
 /** Its Undo shows under its own words, where the switch was pressed. */

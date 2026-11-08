@@ -18,12 +18,12 @@ import {
   nameMind,
   newMind,
   openDocumentMenu,
+  openPlanPage,
   openSettings,
   removeDataFolder,
   setWindowSize,
   showSourceLocations,
   urlsOpened,
-  openPlanPage,
 } from "./app";
 
 let dataDir: string;

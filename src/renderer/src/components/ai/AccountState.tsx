@@ -6,7 +6,7 @@ export interface RowState {
 
 const DOT: Record<RowState["tone"], string> = {
   good: "bg-success",
-  problem: "bg-danger",
+  problem: "bg-warning",
   quiet: "bg-ink-placeholder",
 };
 

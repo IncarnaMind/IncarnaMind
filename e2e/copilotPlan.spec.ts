@@ -208,7 +208,7 @@ test("first run: an account GitHub says has no Copilot plan is told so where it 
   await app.close();
 });
 
-test("Settings › Models: the Copilot plan opens its notice before signing in, then shows the account with no plan tier, with Sign out", async () => {
+test("Settings › AI: the Copilot plan opens its notice before signing in, then shows the account with no plan tier, with Sign out", async () => {
   const { app, window } = await launchApp(dataDir, {
     fakeChat: true,
     copilot: github.origin,
@@ -270,7 +270,7 @@ test("Settings › Models: the Copilot plan opens its notice before signing in, 
   await app.close();
 });
 
-test("Settings › Models: signed in but with no model listed, the row says so with Try again, and isn't ready until a model is chosen", async () => {
+test("Settings › AI: signed in but with no model listed, the row says so with Try again, and isn't ready until a model is chosen", async () => {
   github.listedModels = [];
   const { app, window } = await launchApp(dataDir, {
     fakeChat: true,

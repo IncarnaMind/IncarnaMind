@@ -219,6 +219,17 @@ describe("Accounts and keys: what each row is used for (#2835)", () => {
     expect(uses.get("built-in")).toEqual(["transcription", "rerank"]);
   });
 
+  test("a Cohere account reranks on its own row: no separate reranker key", () => {
+    const cohere = provider("p-cohere", "cohere");
+    const uses = accountUses({
+      ...none,
+      providers: [...providers, cohere],
+      rerank: rerankOf("cohere"),
+    });
+    expect(uses.get(`provider:${cohere.id}`)).toEqual(["rerank"]);
+    expect(uses.has("rerank:cohere")).toBe(false);
+  });
+
   test("a search key kept from before, with no account of that company, keeps a row of its own", () => {
     const uses = accountUses({ ...none, providers: [plan], embedding: embeddingOf("openai") });
     expect(uses.get("search:openai")).toEqual(["search"]);
