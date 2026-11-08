@@ -37,8 +37,6 @@ export const CLAUDE_LOW_EFFORT: ProviderOptions = {
 // `thinking_budget`: Qwen's own API gets the same control under its own name.
 const QWEN_THINKING_BUDGET = 512;
 
-const DEEPSEEK_LOW: ProviderOptions = { deepseek: { reasoningEffort: "low" } };
-
 const PROVIDERS = [
   {
     id: "anthropic",
@@ -439,12 +437,8 @@ const PROVIDERS = [
     // (#1631): Answers finished sooner (about 5 s, then 9 s, on the everyday requests), but
     // each time an everyday request failed at low that hadn't at the default (a change claimed but
     // not made, then a write that changed nothing), and its comparison cells and its check of an
-    // Answer's sentences were judged right less often. So every kind thinks at its default, but a
-    // Meeting's notes on DeepSeek Flash, a candidate at low, to be measured (#2773).
-    request: {
-      thinkingOff: { options: { deepseek: { thinking: { type: "disabled" } } } },
-      effort: { models: { "deepseek-flash": { notes: DEEPSEEK_LOW } } },
-    },
+    // Answer's sentences were judged right less often. So every kind thinks at its default.
+    request: { thinkingOff: { options: { deepseek: { thinking: { type: "disabled" } } } } },
     roles: {
       answers: "deepseek-flash",
       strongest: "deepseek-v4-pro",

@@ -64,3 +64,22 @@ What ran isn't the change this gate describes, so it ships nothing by itself.
 - **Arms:** `notes-answer-effort` (the notes at an Answer's effort, on DeepSeek its default high, as before) against `today` (DeepSeek Flash's notes at low).
 - **Everything else as above:** the meeting-notes set in two passes on one ledger, 24 pairs, and the same guards and margins. The cap is $1.50 for the two passes.
 - **What passing changes:** the candidate stays, and DeepSeek Flash's notes think at low. If the run fails a line, the kind and the entry are taken out again.
+
+## Result of the second run (2026-11-08): it fails, so nothing changes
+
+`notes-answer-effort` against `today` at commit `1db69b8cb`, two passes on one ledger (reports `speed-paired-2026-11-08T07-46-36-521Z` and `…T08-15-30-447Z`). That makes 24 pairs, 12 a language, and in each language each arm went first in 6.
+
+| Guard, items both finished | notes-answer-effort | today (notes at low) | lost / gained | holds |
+|---|---|---|---|---|
+| Expected Passages cited | 23 | 24 | 0 / 1 | yes (2 fewer allowed) |
+| Judged right | 23 | 23 | 1 / 1 | yes |
+| Every Citation found | 24 | 24 | 0 / 0 | yes |
+| False Supported (items) | 18 | 21 | 5 / 2 | **no** |
+| Other guard failed + failed to run | 1 + 0 | 0 + 0 | | yes |
+| Duplicate Answer, change claimed | 0 | 0 | | yes |
+
+- **Faster, but that isn't enough:** notes in, median 70.6 → 57.3 s. Paired median −17.0 s, sooner in 18 of 24; English −19.2 s, Chinese −17.0 s.
+- **Reported:** false Supported sentences 63 → 56. The items with one rose in English, 8 → 11.
+- **Spend:** $1.04, the judge's included.
+
+The kind and DeepSeek Flash's entry are taken out again, so a Meeting's notes think as an Answer does, at DeepSeek's default. This gate's two runs cost $2.10.

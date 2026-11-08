@@ -97,8 +97,9 @@ export const ARMS: readonly Arm[] = [
   },
   {
     id: "notes-without-thinking",
-    label: "a Meeting's notes made with thinking off (#2773)",
-    spec: (spec) => (spec.thinking === "notes" ? { ...spec, thinking: "off" } : spec),
+    label:
+      "every call that would think as an Answer made with thinking off: in the meeting-notes set, the fill's request alone (#2773)",
+    spec: (spec) => (spec.thinking === "answer" ? { ...spec, thinking: "off" } : spec),
   },
   {
     id: "speakers-first",
@@ -110,12 +111,6 @@ export const ARMS: readonly Arm[] = [
     label:
       "a call's notes start once its words are final, while its speakers are told apart, and are written once the pass ends (#2773)",
     notes: { beforeSpeakers: true },
-  },
-  {
-    id: "notes-answer-effort",
-    label:
-      "a Meeting's notes think at the effort an Answer has, as before #2773: on DeepSeek, its default",
-    spec: (spec) => (spec.thinking === "notes" ? { ...spec, thinking: "answer" } : spec),
   },
   {
     id: "notes-low-effort",

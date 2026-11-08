@@ -2639,7 +2639,7 @@ for (const call of CALLS) {
 }
 
 describe("How a fill asks its model (#2306)", { timeout: 60_000 }, () => {
-  test("the notes think as their own kind of call, without a post-final Citation repair request", async () => {
+  test("the notes think as an Answer does without a post-final Citation repair request", async () => {
     const asked: {
       fill: boolean;
       cites: boolean;
@@ -2696,7 +2696,7 @@ describe("How a fill asks its model (#2306)", { timeout: 60_000 }, () => {
     expect(shown(client).join("\n")).not.toContain("amber lantern");
     expect(asked.filter((each) => each.fill).length).toBeGreaterThan(0);
     expect(new Set(asked.filter((each) => each.fill).map((each) => each.thinking))).toEqual(
-      new Set(["notes"]),
+      new Set(["answer"]),
     );
     expect(asked.filter((each) => each.cites)).toEqual([]);
     expectNoCitationRepair(scripted);
