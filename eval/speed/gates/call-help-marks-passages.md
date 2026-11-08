@@ -299,3 +299,23 @@ The runs are made at the commit that adds this section, whose code is a769dd5a9 
 
 `today` runs the lists as the branch has them, and the branch still listed Sonnet 5.5, so both arms took the marks path. The run was stopped after 34 of its 120 pairs, which spent $1.11 and count for nothing. Sonnet is now off `MARKS_PASSAGES`, so `today` is main's path again, and the runs above are made again on the same code. Sonnet is listed again only if this look's bar holds.
 
+
+### Result, 2026-11-08: Claude Sonnet 5.5 isn't listed; English cited fell on both sets
+
+The runs were made at 4c0d76e87, `today` on main's path, three runs of every press, judge Claude Opus 5.5, on the direct key. One-minute load 3.3 to 28.2, median 6.2; the 15-minute load stayed under 9. No press failed on either arm. Ranges are the three runs' lowest and highest, today → the step; medians over all presses.
+
+| Set | Language | First whole option | Done | False Supported | Cited | Judged right | Every Citation found |
+|---|---|---|---|---|---|---|---|
+| `call-help-documents` | en | 4.90 → 1.79 s | 4.90 → 2.51 s | 4–6 → 2–3 (15 → 7) | **11–12 → 11–11 (35 → 33)** | 11–11 → 10–11 | 11–12 → 12–12 |
+| | zh-CN | 5.00 → 1.79 s | 5.00 → 2.63 s | 4–5 → 5–6 (14 → 16) | 12–12 → 12–12 | 10–11 → 10–11 | 12–12 → 12–12 |
+| `call-help-fresh` | en | 4.25 → 1.61 s | 4.25 → 2.30 s | 1–3 → 1–2 (6 → 5) | **8–8 → 7–8 (24 → 22)** | 7–8 → 8–8 | 8–8 → 8–8 |
+| | zh-CN | 4.18 → 1.71 s | 4.19 → 2.44 s | 2–3 → 2–3 (8 → 7) | 8–8 → 7–8 | 7–8 → 7–8 | 8–8 → 8–8 |
+
+- **English cited, pooled, is below today's on both sets,** so Sonnet stays off `MARKS_PASSAGES` and the path ships switched off. Every other line holds by its rule.
+- **The four English presses that lost "cited" lost it to the reply's markers, not to the picker:**
+  - en4-check-right and en3-check-right (twice): "You said … [^1]; the agreement supports this" marked only the call's line, so the Document's line the case rests on was never named;
+  - en4-ask-sites: the option about gateways carried no marker.
+- **English false Supported fell by half on the new set,** 15 → 7 presses. Found-but-unstated: en 22 of 79 → 9 of 82 and 8 of 50 → 5 of 55; zh 16 of 69 → 22 of 81 and 8 of 47 → 14 of 57.
+- **Cases with a false Supported,** presses over three runs, today → step, among them: en4-answer-onboarding 3 → 0, en4-answer-battery 2 → 0, en4-check-right 3 → 3, en4-say-outage 2 → 2, en4-answer-phone-zh 2 → 2 (it keeps `cite`); zh4-answer-texts 2 → 3, zh4-ask-sites 1 → 3, zh4-say-outage 0 → 3, zh4-check-right 3 → 1, zh4-answer-volume 3 → 2; en3-answer-two 3 → 0, en3-check-right 0 → 3, zh3-say-support 2 → 3. The step's are a claim saying more than its quote in words no rule reads ("which would cover your early-morning calls", 不过团队版其他需求都能覆盖), and check-right's "the agreement says" over the call's line.
+- Neither arm searched again. The step took one request in 111 of 120 presses; today took two in 117.
+- **Spend:** $5.04 for this run (judge $1.33), $1.11 for the stopped one: $6.15 of this look's $10.
