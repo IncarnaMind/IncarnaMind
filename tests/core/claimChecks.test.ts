@@ -13,6 +13,7 @@ import {
   checkReply,
   isCheckRun,
   type Plan,
+  SAME_DETAIL,
   sentenceOf,
 } from "../helpers/checks";
 import {
@@ -800,7 +801,9 @@ describe("One claim check", () => {
             calls: [cite("Spring tides happen every week")],
           };
         }
-        return cites === 1 ? { calls: [cite(quote)] } : { text: "Verdict: supported\nAbsence: no" };
+        return cites === 1
+          ? { calls: [cite(quote)] }
+          : { text: `Verdict: supported\nAbsence: no\n${SAME_DETAIL}` };
       },
       { generate: checkGenerate(PLANS) },
     );
@@ -959,9 +962,11 @@ describe("A figure the Documents don't state, worked out (#707)", () => {
   ])(
     "a %s: “%s” is checked by calculation",
     async (_kind, claim, figure, stated, verdict, shown) => {
-      // The model's own verdict is the other one: the calculation decides, not the model.
-      const said = verdict === "supported" ? "contradicted" : "supported";
-      const plans = { [claim]: { verdict: said, calculation: { ...figure, stated } } } as const;
+      // The model calls each one Supported: the calculation decides only by taking that away
+      // (#1766, #1708).
+      const plans = {
+        [claim]: { verdict: "supported", calculation: { ...figure, stated } },
+      } as const;
       const { core, board } = await calculatingCheck(checkingModel(plans));
 
       const result = await core.checkClaim({ claim });
@@ -975,6 +980,35 @@ describe("A figure the Documents don't state, worked out (#707)", () => {
       for (const input of result.calculation?.figure.inputs ?? []) {
         expect(input.citation).toMatchObject({ documentId: board.id, check: "found" });
       }
+    },
+  );
+
+  // Code never overturns the model's Contradicted (#1766, #1708): a calculation that agrees is
+  // shown beside it, whatever the contradiction's confirmation says.
+  const SAYS = "The board update gives net debt of £1,234m and EBITDA of £942m.";
+  test.each<{ name: string; plan: Partial<Plan> }>([
+    { name: "no reason", plan: {} },
+    { name: "a confirmation that the quote states it", plan: { says: SAYS, judgement: "same" } },
+    {
+      name: "a strict judgement in doubt",
+      plan: { says: SAYS, judgement: "conflict", strict: { text: "neither" } },
+    },
+    {
+      name: "a confirmation that the quote is about something else",
+      plan: { says: SAYS, judgement: "neither" },
+    },
+  ])(
+    "a Contradicted reply with $name is not Supported over an agreeing calculation",
+    async ({ plan }) => {
+      const claim = "Net debt to EBITDA fell to 1.3x.";
+      const plans: Record<string, Plan> = {
+        [claim]: { verdict: "contradicted", calculation: { ...RATIO, stated: "1.3x" }, ...plan },
+      };
+      const { core } = await calculatingCheck(checkingModel(plans));
+
+      const result = await core.checkClaim({ claim });
+      expect(result.verdict).not.toBe("supported");
+      expect(result).toMatchObject({ calculation: { stated: "1.3x", agrees: true } });
     },
   );
 
@@ -1031,9 +1065,8 @@ describe("A figure the Documents don't state, worked out (#707)", () => {
       formula: "price + agent + legal + other",
       stated,
     };
-    // The model's own verdict is the other one: the calculation decides, not the model.
-    const said = verdict === "supported" ? "contradicted" : "supported";
-    const plans = { [claim]: { verdict: said, calculation } } as const;
+    // The model calls both Supported: the calculation decides only by taking that away.
+    const plans = { [claim]: { verdict: "supported", calculation } } as const;
     const setup = await setUpWithDocuments(checkingModel(plans), [completion]);
     const saved = await setup.core.saveChatProvider({
       kind: "anthropic",
@@ -1337,8 +1370,7 @@ describe("A memo's figure worked out from amounts in brackets (#978)", () => {
     ["Net sale proceeds £378,076.", "£378,076", "supported"],
     ["Net sale proceeds £391,924.", "£391,924", "contradicted"],
   ])("“%s” is %s, by taking the deductions off", async (claim, stated, verdict) => {
-    const said = verdict === "supported" ? "contradicted" : "supported";
-    const plans = { [claim]: { verdict: said, calculation: { ...NET, stated } } } as const;
+    const plans = { [claim]: { verdict: "supported", calculation: { ...NET, stated } } } as const;
     const setup = await setUpWithDocuments(checkingModel(plans), [STATEMENT]);
     const saved = await setup.core.saveChatProvider({
       kind: "anthropic",
@@ -1463,8 +1495,7 @@ describe("A limit the figure stays within, and a cost printed in brackets (#1908
     [COVERED("4.55x"), { ...COVER, stated: "4.55x" }, "supported"],
     [COVERED("5.55x"), { ...COVER, stated: "5.55x" }, "contradicted"],
   ] as const)("“%s” is %s", async (claim, calculation, verdict) => {
-    const said = verdict === "supported" ? "contradicted" : "supported";
-    const result = await checked(RESULTS, claim, calculation, said);
+    const result = await checked(RESULTS, claim, calculation, "supported");
     expect(result).toMatchObject({ verdict, calculation: { stated: calculation.stated } });
   });
 
@@ -1544,12 +1575,11 @@ describe("A limit the figure stays within, and a cost printed in brackets (#1908
     "in %s, “%s” shows the working it was judged on",
     async (language, claim, stated, verdict, shown) => {
       const relation = stated === "5x" ? { relation: "at least" as const } : {};
-      const said = verdict === "supported" ? "contradicted" : "supported";
       const result = await checked(
         RESULTS,
         claim,
         { ...COVER, stated, ...relation },
-        said,
+        "supported",
         undefined,
         language,
       );
@@ -1989,8 +2019,8 @@ describe("A limit the figure stays within, and a cost printed in brackets (#1908
             return {
               text:
                 kind === "reason"
-                  ? "Verdict: unsupported\nThe Documents do not state the 4.55x coverage multiple itself"
-                  : "Verdict: unsupported\nCovered: finance costs of (41.2)\nNot covered: the 4.55x coverage multiple itself",
+                  ? `Verdict: unsupported\n${SAME_DETAIL}\nThe Documents do not state the 4.55x coverage multiple itself`
+                  : `Verdict: unsupported\n${SAME_DETAIL}\nCovered: finance costs of (41.2)\nNot covered: the 4.55x coverage multiple itself`,
             };
           }
           return checkReply(call, plans);
@@ -2011,6 +2041,49 @@ describe("A limit the figure stays within, and a cost printed in brackets (#1908
       });
     },
   );
+
+  // A worked figure settles its number alone (#1766, #1708): a reply whose own Duty or Condition
+  // differs, or that gives neither line, isn't made Supported by it.
+  test.each([
+    {
+      name: "a Condition that differs",
+      lines:
+        "Duty: none / none, same\nCondition: none / unless the lenders waive the test, differs",
+    },
+    {
+      name: "a Duty that differs",
+      lines: "Duty: must / should, differs\nCondition: none / none, same",
+    },
+    { name: "neither line", lines: "" },
+  ])("an uncovered derived figure is not Supported over $name", async ({ lines }) => {
+    const claim = COVERED("4.55x");
+    const calculation = { ...COVER, stated: "4.55x" };
+    const plans = {
+      [claim]: { verdict: "unsupported" as const, calculation, strict: { text: "same" } },
+    };
+    const model = scriptedModel(
+      (call) => {
+        if (isCheckRun(call) && call.results.some((each) => each.tool === "calculate")) {
+          return {
+            text: `Verdict: unsupported\n${lines}\nThe Documents do not state the 4.55x coverage multiple itself`,
+          };
+        }
+        return checkReply(call, plans);
+      },
+      { generate: checkGenerate(plans) },
+    );
+    const setup = await setUpWithDocuments(model, [RESULTS]);
+    const saved = await setup.core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-haiku-5-5",
+    });
+    if (saved.service) await setup.core.allowDataFlow("checks", saved.service.id);
+
+    const result = await setup.core.checkClaim({ claim });
+    expect(result.verdict).toBe("unsupported");
+    expect(result.verdict).not.toBe("supported");
+  });
 
   const LEDGER = {
     name: "Ledger.md",
@@ -2247,7 +2320,7 @@ describe("A count of people in brackets is a count (#1023)", () => {
   test("the Answer to “What was the headcount?” says 250, “We had 250 employees.” is Supported, and an impairment in brackets is a deduction", async () => {
     const plans: Record<string, Plan> = {
       [CLAIM]: {
-        verdict: "contradicted",
+        verdict: "supported",
         calculation: {
           inputs: [{ ...input, quote: HEADCOUNT }],
           formula: "headcount",
@@ -2255,7 +2328,7 @@ describe("A count of people in brackets is a count (#1023)", () => {
         },
       },
       [DEDUCTION]: {
-        verdict: "contradicted",
+        verdict: "supported",
         calculation: {
           inputs: [
             { name: "impairment", label: "Impairment", quote: IMPAIRMENT, number: "(£1.2m)" },
@@ -2744,8 +2817,7 @@ describe("When the model can't check a sentence", () => {
 describe("A reply whose verdict is written in the turn that calls cite (#1673)", () => {
   const SPRING_QUOTE = "Spring tides happen at new moon and at full moon";
   const SAYS = "Tides says spring tides happen at new and full moon.";
-  const LINES =
-    "Verdict: supported\nAbsence: no\nScope: none, same\nTopic: found\nRoles: Spring tides come / Spring tides happen, same";
+  const LINES = `Verdict: supported\nAbsence: no\nScope: none, same\nTopic: found\nRoles: Spring tides come / Spring tides happen, same\n${SAME_DETAIL}`;
   const CONTRACT = {
     name: "劳动合同书.md",
     contents:
@@ -3003,7 +3075,7 @@ describe("A reply whose verdict is written in the turn that calls cite (#1673)",
       language: "zh-CN" as const,
       sentence: "乙方每年有15天带薪年休假。",
       quote: LEAVE_QUOTE,
-      earlier: "Verdict: supported\nScope: 乙方, same\nTopic: found\nRoles: none, same",
+      earlier: `Verdict: supported\nScope: 乙方, same\nTopic: found\nRoles: none, same\n${SAME_DETAIL}`,
       later: "Verdict: contradicted\nScope: 乙方, same\nTopic: found\nRoles: none, same",
       says: LEAVE_SAYS,
       state: "contradicted",
@@ -3727,7 +3799,7 @@ describe("A quote whose page mentions it before its Passage (#1981)", () => {
   });
 });
 
-// protects=#2576; fails_when=the check's sign comparison matches a positive sentence to the bracketed column that is its minus, or fails to match one that gives the minus; no_claim=the model's verdict, which the calculation's numbers decide.
+// protects=#2576; fails_when=the check's sign comparison matches a positive sentence to the bracketed column that is its minus, or fails to match one that gives the minus; no_claim=a judge's Contradicted, which a worked figure never overturns (#1766).
 describe("The check against a statement line's bracketed column (#2576)", () => {
   const LINES = {
     en: "Intercompany eliminations £3.6m (£3.6m)",
@@ -3745,10 +3817,11 @@ describe("The check against a statement line's bracketed column (#2576)", () => 
     async (language, claim, stated, verdict, value) => {
       const line = LINES[language];
       const bracket = language === "en" ? "(£3.6m)" : "（3.6亿元）";
-      // The model's own verdict is the other one: the calculation decides, not the model.
+      // The judge calls each one Supported, so the calculation's sign alone decides: it takes
+      // support away, and never overturns a judge's Contradicted (#1766).
       const plans = {
         [claim]: {
-          verdict: verdict === "supported" ? "contradicted" : "supported",
+          verdict: "supported",
           calculation: {
             inputs: [
               { name: "elim", label: "Intercompany eliminations", quote: line, number: bracket },

@@ -73,6 +73,14 @@ const rules = (calculate = false) => [
   `- a sentence that adds a detail the Passages don't mention${calculate ? " and calculate doesn't establish" : ""}.`,
 ];
 
+// Under Roles alone, "should" for "must" and a rule stated without its Passage's condition were
+// "same" (a side that says neither must nor may; a condition one side adds), so Claude Sonnet
+// 5.5 called every such near copy of a held-out set Supported (#1766, #1708).
+const DUTY_LINE =
+  'Duty: how each side puts it, one word each: must (a duty), should (advice, or what is expected), may (a permission or an ability), must not (a prohibition) or none (it says only what is or happens); the sentence\'s first, then " / " and the Passage\'s for that very thing, then same or differs ("Duty: should / must, differs"; "Duty: must / may, differs"; "Duty: must / must, same" for "is bound to" against "must"). "differs" when they are two different words of the first four. Anything else is "same": the same word, or a side that is none. One rule put the other way round takes the same word on both sides ("Duty: must / must, same" for "must keep it shut" against "must not leave it open").';
+const CONDITION_LINE =
+  'Condition: the condition or exception it holds on, copied as written (such as only if, unless, except, provided that, subject to, after notice; none when it has none), first as the sentence says it, then " / " and as the Passage says it for that very thing, then same or differs ("Condition: none / unless it rains, differs"; "Condition: on Sundays only / only on Sundays, same"; "Condition: none / none, same"). "differs" when one side holds it only on a condition, or with an exception, that the other leaves out or puts otherwise. Anything else is "same".';
+
 /**
  * The sentence is written in the interface's language, whatever language the
  * User's sentence or the Documents are in (#701): without this, a model that
@@ -88,10 +96,12 @@ const reply = (language: Language, calculate: boolean) =>
     // The words are an anchor for the model, not a list the app matches. Worded without them,
     // Claude Haiku 5.5 still called "must" for "may" and "可" for "须" Supported in up to 8 to 10 of
     // 20 checks, against 1 or 2 with them (#1668).
-    'Roles: the words that say who does it, for or to whom, and whether it must or may happen (such as 须, 可, must, may), copied word for word in their own order and language, first from the sentence, then " / " and from the Passage, then same, differs or other ("Roles: the Tenant must repaint / the Tenant may repaint, differs"; "Roles: the deposit must be returned / the deposit may be returned, differs"; "Roles: the Landlord insures for the Tenant / the Tenant insures for the Landlord, differs"). The first side holds only words of the sentence, leaving out the words between them, never words of the Passage. A side that names no party still has words for what happens: copy those. "other" when the first side gives it to someone the second side does not name (another person, role or group, even one the Passage names elsewhere): the Passage says nothing of them here. "differs" only when the two sides name the same parties and they are the other way round, the other party on the second side does it, or one side says it must happen where the other says it may. Anything else is "same": another word for a party (Scope weighs that), a condition one of them adds, or a side that says neither must nor may.',
+    'Roles: the words that say who does it, for or to whom, and whether it must or may happen (such as 须, 可, must, may), copied word for word in their own order and language, first from the sentence, then " / " and from the Passage, then same, differs or other ("Roles: the Tenant must repaint / the Tenant may repaint, differs"; "Roles: the deposit must be returned / the deposit may be returned, differs"; "Roles: the Landlord insures for the Tenant / the Tenant insures for the Landlord, differs"). The first side holds only words of the sentence, leaving out the words between them, never words of the Passage. A side that names no party still has words for what happens: copy those. "other" when the first side gives it to someone the second side does not name (another person, role or group, even one the Passage names elsewhere): the Passage says nothing of them here. "differs" only when the two sides name the same parties and they are the other way round, the other party on the second side does it, or one side says it must happen where the other says it may. Anything else is "same": another word for a party (Scope weighs that), a condition one of them adds (Condition weighs that), or a side that says neither must nor may (Duty weighs that).',
     // Weighed inside the verdict, a Chinese "并已安装好" (already installed) passed as an English price
     // line's "installed", which is installation included, while the Passage scheduled it later (#2311).
     'Time: whether it has already happened or is still to happen, with the words that say so copied as written (such as 已, 将, already, will, scheduled; none when it says neither), first as the sentence says it, then " / " and as the Passage says it, then same or differs ("Time: already signed / to be signed on 3 May, differs"; "Time: 已于 3 月完成 / completed in March, same"; "Time: none / none, same"). "differs" only when one says it has happened and the other that it is still to happen. Anything else is "same": a date only one of them gives, or a side that says neither.',
+    DUTY_LINE,
+    CONDITION_LINE,
     `Then, for supported or contradicted, one plain sentence in ${LANGUAGE_NAMES[language]}, whatever language the Documents and the User's sentence are in, saying what the Document says, with the markers of the deciding checked quotes at its end. For contradicted, name the thing, and give the Document's value and the sentence's.`,
     `For unsupported, one plain sentence in ${LANGUAGE_NAMES[language]} saying what the Documents don't say.`,
     // Asked for "the old words", Claude Haiku 5.5 named the whole sentence for a lease's base rent
@@ -101,7 +111,7 @@ const reply = (language: Language, calculate: boolean) =>
     'For a sentence that quantifies over a domain (all/every/always/most or a comparison across a stated set), always add Coverage: followed by one JSON object, whatever the verdict: {"unit":"stores","quantifier":"all","complete":true,"members":[{"label":"North","verdict":"supported","evidence":[1]},{"label":"South","verdict":"unsupported","evidence":[]}],"domainEvidence":[2]}. Use quantifier all or most. List every domain member, including missing outcomes. complete means the Documents establish the full membership, not that every outcome is supported: a known member with no outcome still keeps complete:true and its unsupported row. Use complete:false only when membership itself is not established; never invent members. Domain evidence establishes membership only, never an outcome. Record its quote and each supported/contradicted member\'s own outcome quote, including when the whole sentence is unsupported. Counts come from these members, not a supplied total. Ordinary independent clauses and summaries have no Coverage line.',
     "For a forecast asserted as certain, add Reason kind: forecast-certainty. For two established events without the asserted causal link, add Reason kind: unbacked-cause. Otherwise omit Reason kind. These fields are your semantic judgment, not words to match in the sentence.",
     `Add two last lines, "Covered: " and "Not covered: ", only when a Passage states part of what this sentence itself says: the same subject and the same detail, the sentence saying more than the Passage (a wider group, an added condition, more days). "Covered: " is a short phrase in ${LANGUAGE_NAMES[language]} for that part ("the speed comparison"), "Not covered: " for the rest, as a phrase of the same kind ("memory and robustness"). A Passage about a neighbouring thing (the rent for a service charge, another period, site or person) states no part of the sentence: then write neither line.`,
-    `For supported with a wider scope, the same two last lines: "Covered: " and what the Passage states for its own party, then "Not covered: " and the wider group. For supported with roles that differ, "Covered: " and what the Passage states, then "Not covered: " and what the sentence says otherwise.`,
+    `For supported with a wider scope, the same two last lines: "Covered: " and what the Passage states for its own party, then "Not covered: " and the wider group. For supported with roles, a duty or a condition that differ, "Covered: " and what the Passage states, then "Not covered: " and what the sentence says otherwise.`,
     ...(calculate
       ? [
           'Add a final "Calculation: " line for each quantity that needs arithmetic, followed by the exact quantity or limit copied from the sentence ("Calculation: 3.25x"). A claim that a calculated ratio is within a stated limit needs that calculation even when the limit itself is quoted. If no arithmetic is needed, write "Calculation: none". A found quote alone never completes missing arithmetic.',
@@ -410,18 +420,23 @@ export const CONFIRM_INSTRUCTIONS = [
   "- neither: they are about different things, or the quote doesn't settle the sentence either way.",
 ].join("\n");
 
-/** The fields-only reply of a check that disagreed with itself, asked once more (#2313). */
+/**
+ * The fields-only reply of a check that disagreed with itself, asked once more (#2313): only a
+ * field that differs, its Duty and Condition among them, is read from it (#1766, #2816).
+ */
 export const RECHECK_INSTRUCTIONS = [
   "Your last check of this sentence disagreed with itself: its verdict said contradicted or unsupported, while its own field lines said the claim is stated and the same.",
   "Check the sentence once more against the quoted words and the Passage, by those fields:",
   "- supported: the quoted words state what the sentence says;",
-  "- contradicted or unsupported: name the field that differs (Roles, Time or Scope), or the value the quote gives instead.",
+  "- contradicted or unsupported: name the field that differs (Roles, Time, Duty, Condition or Scope), or the value the quote gives instead.",
   "Reply in exactly this form, the verdict word in English:",
   "Verdict: supported, unsupported or contradicted",
   "Scope: the sentence's own word for the Passage's party or term, then same or wider",
   "Topic: found or not found",
   'Roles: the words that say who does it, copied from the sentence, then " / " and from the Passage, then same, differs or other',
   "Time: the words that say whether it has happened, the sentence's then \" / \" and the Passage's, then same or differs",
+  DUTY_LINE,
+  CONDITION_LINE,
   "Then one plain sentence saying what the Document says, and Evidence: [1] naming the quote used.",
   "Write nothing else.",
 ].join("\n");
@@ -679,6 +694,10 @@ export interface ReadVerdict {
   rolesSides?: string[];
   /** "differs": one says it has happened and the other that it is still to happen; absent when the reply doesn't say. */
   time?: "same" | "differs";
+  /** "differs": one puts it as a duty, the other as advice, a permission or a prohibition; absent when the reply doesn't say. */
+  duty?: "same" | "differs";
+  /** "differs": one holds it on a condition or with an exception the other leaves out; absent when the reply doesn't say. */
+  condition?: "same" | "differs";
   calculations?: string[];
   evidence?: number[] | null;
   coverage?: ReadCoverage | null;
@@ -711,6 +730,8 @@ const ROLES = /^[\s>*_#`"'“”-]*(?:roles|角色)[\s*_]*[:：](.*)$/i;
 const CHANGE = /^[\s>*_#`"'“”-]*change[\s*_]*(\d+)[\s*_]*[:：][\s*_]*(.*)$/i;
 const TO = /^[\s>*_#`"'“”-]*to[\s*_]*(\d+)[\s*_]*[:：][\s*_]*(.*)$/i;
 const TIME = /^[\s>*_#`"'“”-]*(?:time|时间)[\s*_]*[:：](.*)$/i;
+const DUTY = /^[\s>*_#`"'“”-]*(?:duty|义务)[\s*_]*[:：](.*)$/i;
+const CONDITION = /^[\s>*_#`"'“”-]*(?:condition|条件)[\s*_]*[:：](.*)$/i;
 const ABSENCE = /^[\s>*_#`"'“”-]*(?:absence|缺失)[\s*_]*[:：](.*)$/i;
 const CALCULATION = /^[\s>*_#`'"“”-]*(?:calculation|计算)[\s*_]*[:：][\s*_]*(.*)$/i;
 export const FIGURES = /^\s*Figures:\s*(.*)$/i;
@@ -732,6 +753,8 @@ const FIELDS = [
   CHANGE,
   TO,
   TIME,
+  DUTY,
+  CONDITION,
   ABSENCE,
   CALCULATION,
   EVIDENCE,
@@ -821,6 +844,8 @@ function jsonVerdict(reply: string): ReadVerdict | null {
       topic,
       roles,
       time,
+      duty,
+      condition,
       asserts_absence: asserted,
       calculations,
       evidence,
@@ -849,6 +874,10 @@ function jsonVerdict(reply: string): ReadVerdict | null {
       roles: rolesOf(typeof roles === "string" ? `Roles: ${roles}` : undefined),
       ...rolesSidesOf(typeof roles === "string" ? `Roles: ${roles}` : undefined),
       ...timeOf(typeof time === "string" ? `Time: ${time}` : undefined),
+      ...detailOf(
+        typeof duty === "string" ? [`Duty: ${duty}`] : [],
+        typeof condition === "string" ? [`Condition: ${condition}`] : [],
+      ),
       ...(evidence !== undefined && { evidence: markersOf(evidence) }),
       ...(declaresCoverage(coverage) && { coverage: coverageOf(coverage) }),
       ...((reasonKind === "forecast-certainty" || reasonKind === "unbacked-cause") && {
@@ -927,7 +956,7 @@ const closingOf = (word: string | undefined): Closing | null => {
 function closingWord(
   field: string,
   words: readonly Closing[],
-): { word: Closing | null; sides: string[] } {
+): { word: Closing | null; sides: string[]; placed?: true } {
   // "N/A" is a side's "none", never two sides.
   const text = field.normalize("NFKC").replace(/\bn\/a\b/gi, "none");
   if (text.length > MAX_PHRASE * 8) return { word: null, sides: [text] };
@@ -942,7 +971,7 @@ function closingWord(
     const word = closingOf(found?.[1]);
     if (!found || !word || !words.includes(word)) continue;
     if (!REASON.test(piece.slice(found[0].length))) continue;
-    return { word, sides: sides(text.slice(0, at).replace(/[/(:,;—–→、]$/, "")) };
+    return { word, sides: sides(text.slice(0, at).replace(/[/(:,;—–→、]$/, "")), placed: true };
   }
   const last = closingOf(text.match(/\b(?:same|differs?)\b/gi)?.at(-1));
   return {
@@ -1000,6 +1029,141 @@ const timeOf = (line: string | undefined): Pick<ReadVerdict, "time"> => {
   const time = field === undefined ? null : closingWord(field, ["same", "differs"]).word;
   return time === "same" || time === "differs" ? { time } : {};
 };
+
+const sideWords = (side: string) =>
+  side
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+/** A side with no letters or digits ("—", "(none)") says none, as the form's word for it does. */
+const saysNone = (side: string) => {
+  const words = sideWords(side);
+  return words === "" || NO_PHRASE.test(words);
+};
+
+/** A side without what it glosses in brackets ("must (a duty)", "none (unconditional)"). */
+const withoutGlosses = (side: string) => side.replace(/\([^)]*\)/g, " ");
+
+/**
+ * A Duty line called "same" whose sides are two different duties, in any words, what a side glosses
+ * in brackets set aside ("must (a duty)"): it recorded the difference and then denied it. A side
+ * that is none is the same, as the form says; one rule put the other way round takes the same word
+ * on both sides.
+ */
+const dutySidesDiffer = (lineSides: readonly string[]): boolean => {
+  const [own, theirs] = lineSides.map((side) => sideWords(withoutGlosses(side)));
+  return (
+    lineSides.length === 2 &&
+    own !== undefined &&
+    theirs !== undefined &&
+    own !== theirs &&
+    !saysNone(own) &&
+    !saysNone(theirs)
+  );
+};
+
+/**
+ * A Condition side that says none: whole, or in its words outside the brackets ("none
+ * (unconditional)", 无（未提条件）). A condition copied in brackets is still a condition.
+ */
+const conditionNone = (side: string) => {
+  const outside = sideWords(withoutGlosses(side));
+  return saysNone(side) || (outside !== "" && NO_PHRASE.test(outside));
+};
+
+/**
+ * A Condition line called "same" whose sides can't both hold the same condition: a side that is
+ * none beside one that holds one, counting each piece a slash in the copied words makes ("and/or",
+ * "1/4/2026"), or one side alone that holds one, where the form asks for both.
+ */
+const conditionSidesDiffer = (lineSides: readonly string[]): boolean => {
+  const none = lineSides.map(conditionNone);
+  return none.length === 1 ? none[0] === false : none.includes(true) && none.includes(false);
+};
+
+/**
+ * A Duty or Condition line's closing word. A "same" counts only where it starts a piece after the
+ * sides, never inside or at the end of the copied words ("of the same age group", "same-day"); one
+ * its own sides deny is "denied". A "differs" also counts as the field's very last word, as it only
+ * takes support away. Undefined when there is none to read.
+ */
+function detailWord(
+  label: RegExp,
+  line: string,
+  denied: (lineSides: readonly string[]) => boolean,
+): "same" | "differs" | "denied" | undefined {
+  const field = label.exec(line)?.[1];
+  if (field === undefined) return undefined;
+  const { word, sides: lineSides, placed } = closingWord(field, ["same", "differs"]);
+  if (word === "differs")
+    return placed || /\bdiffers?[\s"'`*_.。]*$/i.test(field) ? word : undefined;
+  if (word !== "same" || !placed) return undefined;
+  return denied(lineSides) ? "denied" : word;
+}
+
+/** Each detail line's label and the sides that deny its "same". */
+const DETAIL_FIELDS = [
+  [DUTY, dutySidesDiffer],
+  [CONDITION, conditionSidesDiffer],
+] as const;
+
+/** A line that takes support away whatever a later line of the field says. */
+const holdsBack = (line: string) =>
+  DETAIL_FIELDS.some(([label, denied]) => {
+    const word = detailWord(label, line, denied);
+    return word === "differs" || word === "denied";
+  });
+
+/** A reply's Duty and Condition lines that take support away whatever a later line says. */
+export const heldDetailLines = (reply: string): string[] => linesOf(reply).filter(holdsBack);
+
+/** Whether a Duty or Condition line of a reply calls its two sides the same while they differ. */
+export const deniesItself = (reply: string): boolean =>
+  linesOf(reply).some((line) =>
+    DETAIL_FIELDS.some(([label, denied]) => detailWord(label, line, denied) === "denied"),
+  );
+
+/**
+ * The Duty and Condition lines' closing words. A "differs" on any of a reply's lines holds, and a
+ * line whose sides deny its "same" leaves the field unread; else the last line's word, absent when
+ * it can't be read.
+ */
+function detailOf(
+  dutyLines: readonly string[],
+  conditionLines: readonly string[],
+): Pick<ReadVerdict, "duty" | "condition"> {
+  const read = (
+    lines: readonly string[],
+    label: RegExp,
+    denied: (lineSides: readonly string[]) => boolean,
+  ) => {
+    const words = lines.map((line) => detailWord(label, line, denied));
+    if (words.includes("differs")) return "differs";
+    const last = words.at(-1);
+    return words.includes("denied") || last === "denied" ? undefined : last;
+  };
+  const duty = read(dutyLines, DUTY, dutySidesDiffer);
+  const condition = read(conditionLines, CONDITION, conditionSidesDiffer);
+  return { ...(duty && { duty }), ...(condition && { condition }) };
+}
+
+/**
+ * Whether the reply's own fields take a Supported verdict's support away: the parties the other
+ * way round or must for may (Roles), what has happened for what is still to happen (Time),
+ * another duty (Duty) or a condition left out (Condition). The code reads their closing words
+ * only (#1668, #2311, #1766, #1708).
+ */
+export const ownDetailDiffers = (verdict: ReadVerdict): boolean =>
+  verdict.roles === "differs" ||
+  verdict.time === "differs" ||
+  verdict.duty === "differs" ||
+  verdict.condition === "differs";
+
+/** A reply that gives no Duty or Condition word to read can't be read as support. */
+export const ownDetailUnread = (verdict: ReadVerdict): boolean =>
+  verdict.duty === undefined || verdict.condition === undefined;
 
 const topicOf = (line: string | undefined): ReadVerdict["topic"] => {
   const words = line === undefined ? undefined : TOPIC.exec(line)?.[1]?.toLowerCase();
@@ -1218,6 +1382,10 @@ export function readVerdict(reply: string): ReadVerdict | null {
       roles: rolesOf(fields.findLast((each) => ROLES.test(each))),
       ...rolesSidesOf(fields.findLast((each) => ROLES.test(each))),
       ...timeOf(fields.findLast((each) => TIME.test(each))),
+      ...detailOf(
+        fields.filter((each) => DUTY.test(each)),
+        fields.filter((each) => CONDITION.test(each)),
+      ),
       ...(calculationFields.some((line) => CALCULATION.test(line)) && {
         calculations: calculationFields.reduce<string[]>((values, line) => {
           const value = CALCULATION.exec(line)?.[1]?.trim();
@@ -1272,19 +1440,24 @@ const linesOf = (turn: string): string[] =>
     .map((line) => line.trim());
 
 /**
- * A last turn with a verdict of its own keeps the Roles, Scope and Time lines it leaves out from
- * the turns set aside after the search: Claude Haiku 5.5 wrote them beside `cite` and only its
- * verdict and sentence after them, and each can only hold a verdict back ("…, other").
+ * A last turn with a verdict of its own keeps the Roles, Scope, Time, Duty and Condition lines it
+ * leaves out from the turns set aside after the search: Claude Haiku 5.5 wrote them beside `cite`
+ * and only its verdict and sentence after them. Each can hold a verdict back ("…, other"), and a
+ * kept Duty or Condition line also stands for the one a Supported reply would otherwise lack. An
+ * earlier Duty or Condition line that says "differs", or whose sides deny its "same", is kept beside
+ * the last turn's own line: what the check wrote down holds, as it does across one turn's lines.
  */
 function withFieldsSetAside(last: string, setAside: readonly string[]): string {
   const own = linesOf(last);
   const earlier = setAside.flatMap(linesOf);
-  const kept = [ROLES, SCOPE, TIME].flatMap((field) =>
+  const kept = [ROLES, SCOPE, TIME, DUTY, CONDITION].flatMap((field) =>
     own.some((line) => field.test(line))
       ? []
       : (earlier.findLast((line) => field.test(line)) ?? []),
   );
-  return kept.length === 0 ? last : `${last}\n${kept.join("\n")}`;
+  const holding = earlier.filter((line) => !kept.includes(line) && holdsBack(line));
+  const added = [...kept, ...holding];
+  return added.length === 0 ? last : `${last}\n${added.join("\n")}`;
 }
 
 /**
@@ -1313,5 +1486,12 @@ export function replyAcrossTurns(last: string, setAside: readonly string[]): str
       (figuresLine && proseOf(last).length > 0))
   )
     return last;
-  return `${earlier}\n\n${last}`;
+  // A Duty or Condition line that takes support away holds from any turn set aside, as it does
+  // beside a last turn with a verdict of its own (#1766).
+  const holding = setAside
+    .filter((_, index) => index !== at)
+    .flatMap(linesOf)
+    .filter(holdsBack);
+  const read = `${earlier}\n\n${last}`;
+  return holding.length === 0 ? read : `${read}\n${holding.join("\n")}`;
 }
