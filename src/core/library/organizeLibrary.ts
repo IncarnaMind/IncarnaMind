@@ -227,7 +227,8 @@ export function createLibraryOrganizer(options: {
    * Tags these Documents in `order` (indexes into them), through the tagging flow's gates: null
    * when an Organize may not tag. `progress` hears how many of them are done, those it may not
    * send counted from the start. For an Organize, a tagging that fails proposes no Tags and the
-   * run goes on; for the User's Re-tag (`asked`), it is thrown.
+   * run goes on; for the User's Re-tag (`asked`), it is thrown. `settle` marks its Documents
+   * tagged, once what it proposed is in the Review.
    */
   const runTags = async (
     subjects: readonly Subject[],
@@ -235,7 +236,7 @@ export function createLibraryOrganizer(options: {
     asked: boolean,
     signal: AbortSignal,
     progress: (done: number) => void,
-  ): Promise<(TagRunResult & { service: ExternalService | null }) | null> => {
+  ): Promise<TaggedRun | null> => {
     try {
       const prepared = await options.prepareTagging(asked);
       if (!prepared || signal.aborted) return null;
@@ -261,8 +262,11 @@ export function createLibraryOrganizer(options: {
         signal,
         progress: (done) => progress(skipped + done),
       });
-      prepared.tagged([...result.proposed.keys()]);
-      return { ...result, service: prepared.service };
+      return {
+        ...result,
+        service: prepared.service,
+        settle: () => prepared.tagged([...result.proposed.keys()]),
+      };
     } catch (error) {
       if (asked || signal.aborted) throw error;
       console.error("Organize couldn't tag its Documents; it proposes their Folders only.", error);
@@ -372,7 +376,7 @@ export function createLibraryOrganizer(options: {
         }
 
         let plan: LibraryPlan | null = null;
-        let tags: TagRunResult | null = null;
+        let tags: TaggedRun | null = null;
         if (readable.length > 0) {
           const classifier = await options.prepare(settings, own?.permit);
           if (!classifier.plan) throw new InvalidInputError({ key: "error.library.cantPropose" });
@@ -388,11 +392,13 @@ export function createLibraryOrganizer(options: {
               done: Math.min(placed, tagged),
               total: subjects.length,
             });
+          // A plan that fails ends the run: its tagging sends nothing more.
+          const tagStop = new AbortController();
           const tagging = runTags(
             readable,
             batchOrder(local.vectors, local.clustering.assignment),
             false,
-            signal,
+            AbortSignal.any([signal, tagStop.signal]),
             (done) => {
               tagged = done;
               report();
@@ -409,6 +415,9 @@ export function createLibraryOrganizer(options: {
               leavesOut: (error) =>
                 !gateStop(error) &&
                 ["network", "provider", "rate-limit"].includes(classifyProviderError(error).kind),
+            }).catch((error: unknown) => {
+              tagStop.abort();
+              throw error;
             }),
             tagging,
           ]);
@@ -472,6 +481,7 @@ export function createLibraryOrganizer(options: {
               },
               proposals,
             );
+        tags?.settle();
         options.settled(
           subjects.flatMap((subject) => (plan?.places.has(subject.id) ? [subject.id] : [])),
         );
@@ -557,6 +567,7 @@ export function createLibraryOrganizer(options: {
         )
           ? 0
           : options.proposeTags(own?.run ?? { origin: "retag", runId }, proposals);
+        result.settle();
         return {
           status: "done",
           runId,
@@ -574,6 +585,9 @@ export function createLibraryOrganizer(options: {
     },
   };
 }
+
+/** A tagging run inside Organize or a Re-tag, and what settles its Documents. */
+type TaggedRun = TagRunResult & { service: ExternalService | null; settle(): void };
 
 /** Left out only for want of a Folder or a Tag, not for what reading or sending it met. */
 const unfitting = (leftOut: OrganizeReviewLeftOut | null | undefined) =>

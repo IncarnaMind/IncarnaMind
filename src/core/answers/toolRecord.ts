@@ -311,13 +311,15 @@ function commandLine(call: AnswerToolCall): string {
     : "";
   // Tag with AI only proposes too (#2339): its Tags wait, and none is on a Document.
   const tags =
-    done.command === "documents.tagWithAi"
-      ? `; proposed Tags for them: ${(done.tags ?? [])
-          .map((tag) => `${quoted(tag.name)} for ${counted(tag.count, "item")}`)
-          .join(
-            ", ",
-          )}; they wait in Suggested Tags for the User's Review, and no Tag was added to any Document`
-      : "";
+    done.command !== "documents.tagWithAi"
+      ? ""
+      : done.tags?.length
+        ? `; proposed Tags for them: ${done.tags
+            .map((tag) => `${quoted(tag.name)} for ${counted(tag.count, "item")}`)
+            .join(
+              ", ",
+            )}; they wait in Suggested Tags for the User's Review, and no Tag was added to any Document`
+        : "; no Tag was proposed, and no Tag was added to any Document";
   const unsorted = done.unsorted ? `; ${counted(done.unsorted, "item")} not sorted` : "";
   const considered =
     done.considered !== undefined ? `; read ${counted(done.considered, "item")}` : "";

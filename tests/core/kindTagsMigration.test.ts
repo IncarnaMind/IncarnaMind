@@ -11,7 +11,9 @@ import { DATABASE_FILE } from "../../src/core";
 import { migrate, openDatabase } from "../../src/core/storage";
 import { migrations } from "../../src/core/storage/migrations";
 import { createTempDataFolder, startCore } from "../helpers/core";
-import { tagNamesOf } from "../helpers/tags";
+import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
+import { scriptedModels } from "../helpers/models";
+import { taggingModel, tagNamesOf, waitForTagging } from "../helpers/tags";
 
 const AT = "2026-11-01T09:00:00.000Z";
 
@@ -110,5 +112,106 @@ describe("Migration 140: kinds and uncertain Tags", () => {
     expect((await core.listTags()).find((each) => each.id === tag.contract)?.name).toBe(
       "Agreements",
     );
+  });
+
+  // protects=two Tags merged into one kind on one Document leave one link to it, the User's where one is theirs, and a kind's Tag the User took off a Document stays off; fails_when=the migration stops on two links to the kind (and the app can't start), or tagging's link puts back what the User took off; no_claim=which Tags count as a kind's.
+  test("two merged into one kind leave one link, and one the User took off stays off", async () => {
+    const dataDir = await createTempDataFolder();
+    const db = openDatabase(join(dataDir, DATABASE_FILE));
+    migrate(
+      db,
+      migrations.filter((each) => each.version <= 139),
+    );
+    const id = () => randomUUID();
+    const tag = { report: id(), reports: id(), chineseReport: id() };
+    for (const [tagId, name, preset, at] of [
+      [tag.report, "Report", "report", AT],
+      [tag.reports, "Reports", null, AT],
+      [tag.chineseReport, "报告", null, "2026-11-02T09:00:00.000Z"],
+    ] as const)
+      db.run(
+        `INSERT INTO tags (id, name, description, preset, made_by_user, colour, created_at, updated_at)
+         VALUES (?, ?, '', ?, 0, 'blue', ?, ?)`,
+        [tagId, name, preset, at, at],
+      );
+    const doc = { both: id(), mine: id(), off: id() };
+    for (const [docId, name] of [
+      [doc.both, "Q1 report"],
+      [doc.mine, "Q2 report"],
+      [doc.off, "Q3 report"],
+    ] as const)
+      db.run(
+        `INSERT INTO documents (id, content_hash, name, kind, size, status, tagging_status, created_at, updated_at)
+         VALUES (?, ?, ?, 'markdown', 10, 'ready', 'tagged', ?, ?)`,
+        [docId, `hash-${name}`, name, AT, AT],
+      );
+    const links: [string, string, string, string | null, string][] = [
+      // document, Tag, source, deleted_at, created_at
+      [doc.both, tag.reports, "automatic", null, "2026-11-03T09:00:00.000Z"],
+      [doc.both, tag.chineseReport, "automatic", null, "2026-11-02T09:00:00.000Z"],
+      [doc.mine, tag.reports, "automatic", null, AT],
+      [doc.mine, tag.chineseReport, "user", null, "2026-11-04T09:00:00.000Z"],
+      [doc.off, tag.report, "user", "2026-11-05T09:00:00.000Z", AT],
+      [doc.off, tag.reports, "automatic", null, AT],
+    ];
+    for (const [documentId, tagId, source, deletedAt, at] of links)
+      db.run(
+        `INSERT INTO document_tags (id, document_id, tag_id, source, needs_review, created_at, updated_at, deleted_at)
+         VALUES (?, ?, ?, ?, 0, ?, ?, ?)`,
+        [randomUUID(), documentId, tagId, source, at, at, deletedAt],
+      );
+    db.close();
+
+    const core = startCore(dataDir);
+    const linksOf = async (documentId: string) =>
+      (await core.listDocuments())
+        .find((each) => each.id === documentId)
+        ?.tags.map((link) => [link.tagId, link.source]);
+
+    expect(await linksOf(doc.both)).toEqual([[tag.report, "automatic"]]);
+    expect(await linksOf(doc.mine)).toEqual([[tag.report, "user"]]);
+    expect(await linksOf(doc.off)).toEqual([]);
+    expect((await core.listTags()).filter((each) => each.kind === "report")).toHaveLength(1);
+  });
+
+  // protects=in a Library from before the kinds, a kind that has no Tag yet is the User's own Tag of its name on Confirm, so the Library never holds two "Letter" Tags; fails_when=Confirm makes a second Tag named as the User's; no_claim=which kind the model picks.
+  test("Confirm uses the User's own Tag named as a kind that has no Tag yet", async () => {
+    const dataDir = await createTempDataFolder();
+    const db = openDatabase(join(dataDir, DATABASE_FILE));
+    migrate(
+      db,
+      migrations.filter((each) => each.version <= 139),
+    );
+    const letter = randomUUID();
+    db.run(
+      `INSERT INTO tags (id, name, description, preset, made_by_user, colour, created_at, updated_at)
+       VALUES (?, 'Letter', 'Letters I keep.', NULL, 1, 'green', ?, ?)`,
+      [letter, AT, AT],
+    );
+    db.close();
+    const tagging = taggingModel(["Letter"]);
+    const core = startCore(dataDir, {
+      createChatModel: scriptedModels(tagging.model).createChatModel,
+    });
+    await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+    const sources = await createSourceFolder();
+    const [document] = await addAndProcess(core, [
+      await writeSourceFile(
+        sources,
+        "To the council.txt",
+        "Dear councillor, I write about the bins.",
+      ),
+    ]);
+    if (!document) throw new Error("Nothing was added.");
+    await waitForTagging(core, [document.id]);
+    const review = await core.getOrganizeReview();
+    expect(review.items.flatMap((item) => item.tags.map((tag) => tag.name))).toEqual(["Letter"]);
+
+    await core.confirmOrganizeReview(review.items.map((item) => item.id));
+
+    const named = (await core.listTags()).filter((tag) => tag.name === "Letter");
+    expect(named).toHaveLength(1);
+    expect(named[0]).toMatchObject({ id: letter, kind: "letter", description: "Letters I keep." });
+    expect(await tagNamesOf(core, document.id)).toEqual(["Letter"]);
   });
 });

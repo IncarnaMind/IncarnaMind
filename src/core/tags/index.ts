@@ -337,6 +337,15 @@ export function createTags(db: Database, now: () => string, language: () => Lang
           [kind],
         );
         if (live) return { tag: shown(live), made: false };
+        // In a Library from before the kinds, the User's own "Letter" is the kind's Tag: Confirm
+        // makes no second one of that name.
+        const named = LANGUAGES.map((each) => holderOf(kindName(kind, each))).find(
+          (tag) => tag !== undefined && tag.kind === null,
+        );
+        if (named) {
+          db.run("UPDATE tags SET kind = ?, updated_at = ? WHERE id = ?", [kind, now(), named.id]);
+          return { tag: get(named.id), made: false };
+        }
         const id = insertTag("", "", KIND_COLOURS[kind], now(), false, kind);
         return { tag: get(id), made: true };
       });

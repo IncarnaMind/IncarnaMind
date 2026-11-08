@@ -2989,6 +2989,27 @@ export const migrations: readonly Migration[] = [
           SELECT 1 FROM kind_merges m JOIN document_tags kept ON kept.tag_id = m.into_id
           WHERE m.from_id = document_tags.tag_id AND kept.document_id = document_tags.document_id
             AND kept.deleted_at IS NULL);
+      -- Where the User took the kept Tag off a Document, what tagging gave it under another
+      -- name doesn't put it back, as a merge in the app never does.
+      UPDATE document_tags SET deleted_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+          updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        WHERE deleted_at IS NULL AND source = 'automatic'
+          AND tag_id IN (SELECT from_id FROM kind_merges) AND EXISTS (
+            SELECT 1 FROM kind_merges m JOIN document_tags decided ON decided.tag_id = m.into_id
+            WHERE m.from_id = document_tags.tag_id AND decided.document_id = document_tags.document_id
+              AND decided.source = 'user');
+      -- Two merged into one kind on a Document leave one link to it: the User's, else the oldest.
+      UPDATE document_tags SET deleted_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+          updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        WHERE deleted_at IS NULL AND tag_id IN (SELECT from_id FROM kind_merges) AND EXISTS (
+          SELECT 1 FROM document_tags other
+          JOIN kind_merges mine ON mine.from_id = document_tags.tag_id
+          JOIN kind_merges theirs ON theirs.from_id = other.tag_id AND theirs.into_id = mine.into_id
+          WHERE other.document_id = document_tags.document_id AND other.deleted_at IS NULL
+            AND other.rowid <> document_tags.rowid
+            AND ((other.source = 'user') > (document_tags.source = 'user')
+              OR ((other.source = 'user') = (document_tags.source = 'user')
+                AND (other.created_at, other.rowid) < (document_tags.created_at, document_tags.rowid))));
       UPDATE document_tags
         SET tag_id = (SELECT m.into_id FROM kind_merges m WHERE m.from_id = document_tags.tag_id),
           updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')

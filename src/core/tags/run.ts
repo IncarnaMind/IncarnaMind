@@ -151,8 +151,10 @@ export async function tagInRun(input: {
     return new Map([[only.id, choice]]);
   };
   let next = 0;
+  // A refused key or a withdrawn consent ends the run: the other workers send nothing more.
+  let ended = false;
   const worker = async () => {
-    for (let batch = batches[next++]; batch && !signal.aborted; batch = batches[next++]) {
+    for (let batch = batches[next++]; batch && !signal.aborted && !ended; batch = batches[next++]) {
       try {
         const answered = await once(() => ask(batch), signal);
         for (const each of batch) {
@@ -161,7 +163,10 @@ export async function tagInRun(input: {
         }
       } catch (error) {
         if (signal.aborted) return;
-        if (!unreached(error)) throw error;
+        if (!unreached(error)) {
+          ended = true;
+          throw error;
+        }
         for (const each of batch) unreachable.add(each.id);
       }
       done += batch.length;

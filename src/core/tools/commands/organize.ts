@@ -298,8 +298,9 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
             review: { count: review.count },
             ...(input.alsoAsked !== null && { alsoAsked: input.alsoAsked }),
           },
+          // Its Tags wait in the Review too: Undo withdraws them with its Folders (#2339).
           step:
-            placed.length === 0
+            placed.length === 0 && !fresh.some((item) => item.tags.length > 0)
               ? null
               : {
                   undo: async () => {
