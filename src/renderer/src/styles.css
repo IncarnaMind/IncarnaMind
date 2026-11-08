@@ -4877,6 +4877,13 @@
   .mind-editor .applied-line--problem {
     color: var(--color-ink-meta);
   }
+  /* Kept in sight at the top of the view, a line lies over its Block's words: the page's colour
+     under it keeps it readable, above them (#2123). */
+  .mind-editor .applied-line--floating {
+    position: relative;
+    z-index: 1;
+    background: var(--color-sheet);
+  }
   .applied-problem-dot {
     flex: none;
     width: 6px;
