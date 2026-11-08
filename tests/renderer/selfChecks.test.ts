@@ -10,10 +10,10 @@ import {
 import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
 
 /*
- * The lines under an Answer whose writes were checked before they landed
- * (#1111, #1909): "1 sentence couldn't be checked · Check" and "Checked 12 of
- * 20 sentences · Check", one action for everything left, counting every claim
- * the write holds, cited or not.
+ * The lines under an Answer whose writes are checked once they land (#1111,
+ * #1909, #2830): "Checking 5 of 40 sentences" while the check runs, then
+ * "Checked 40 sentences · 1 needs a look · Show", and "1 sentence couldn't be
+ * checked · Check", one action for everything left, one noun a line.
  */
 
 let calls = 0;
@@ -35,25 +35,106 @@ const change = (selfCheck?: MindChange["selfCheck"]): MindChange => ({
   ...(selfCheck && { selfCheck }),
 });
 
-describe("What a write's check left to do", () => {
-  // protects=a line shows only for a write whose check failed or left sentences it did not check (uncited claims or past the cap); fails_when=a write checked whole shows one, or a failed or left one doesn't; no_claim=the words.
-  test("a write whose check failed or left sentences has a line; one checked whole has none", () => {
+const say =
+  (language: "en" | "zh-CN") =>
+  (key: MessageKey, params?: MessageParams): string =>
+    translate(language, key, params);
+
+describe("How a write's check goes, and what it left to do", () => {
+  // protects=every write's check has its lines, a whole one too, as it now says how it went (#2830), but one whose write an Undo took away; fails_when=a write checked whole shows nothing, or an undone write still counts; no_claim=the words.
+  test("every write's check has its lines, but one whose write was undone", () => {
     const failed = { request: "w1", checkable: 2, cited: 2, sent: 2, checked: 1, failed: 1 };
     const left = { request: "w2", checkable: 20, cited: 13, sent: 12, checked: 12, failed: 0 };
-    const uncited = { request: "w4", checkable: 4, cited: 2, sent: 2, checked: 2, failed: 0 };
     const whole = { request: "w3", checkable: 3, cited: 3, sent: 3, checked: 3, failed: 0 };
+    const undone = { ...whole, request: "w4", undone: true as const };
     expect(
       selfChecksOf([
         call(change(failed)),
         call(change(whole)),
         call(change()),
         call(change(left)),
-        call(change(uncited)),
+        call(change(undone)),
       ]),
     ).toEqual([
       { mindId: "mind-1", ...failed },
+      { mindId: "mind-1", ...whole },
       { mindId: "mind-1", ...left },
-      { mindId: "mind-1", ...uncited },
+    ]);
+  });
+
+  // protects=the line counts live while the check runs, naming the sentence it is on so it never says the 0th, in English and Chinese (#2830's acceptance), and a check recorded as it began says nothing until the window hears how far it is; fails_when=the line says how it ended while it runs, a count is stuck at 0, or the Chinese reads 第 0 句; no_claim=how often it moves.
+  test("while the check runs, the line counts the sentences live, in English and Chinese", () => {
+    const running = {
+      mindId: "mind-1",
+      request: "w",
+      checkable: 40,
+      cited: 30,
+      sent: 40,
+      checked: 0,
+      failed: 0,
+      running: true as const,
+    };
+    const line = (language: "en" | "zh-CN", done: number, total = 40) =>
+      selfCheckLines(running, say(language), language, new Date(), null, true, { done, total }).map(
+        ({ kind, text, action }) => ({ kind, text, action }),
+      );
+
+    expect(line("en", 5)).toEqual([
+      { kind: "checking", text: "Checking 5 of 40 sentences", action: null },
+    ]);
+    expect(line("zh-CN", 5)).toEqual([
+      { kind: "checking", text: "正在核对 40 句中的第 5 句", action: null },
+    ]);
+    expect(line("en", 0)[0]?.text).toBe("Checking 1 of 40 sentences");
+    expect(line("zh-CN", 0)[0]?.text).toBe("正在核对 40 句中的第 1 句");
+    expect(line("en", 0, 1)[0]?.text).toBe("Checking 1 sentence");
+    expect(line("zh-CN", 0, 1)[0]?.text).toBe("正在核对 1 句");
+    expect(selfCheckLines(running, say("en"), "en")).toEqual([]);
+  });
+
+  // protects=once over, the line says how many it checked and how many need a look, with Show, one noun a line, live from the Note where it is open (#2830's acceptance: "Checked 40 sentences · 1 needs a look · Show"); fails_when=sentences and claims share a line, Show is offered with nothing to show, or a sentence the User settled since still counts; no_claim=where Show goes.
+  test("once over, the line says how many it checked and how many need a look, with Show", () => {
+    const ended = {
+      mindId: "mind-1",
+      request: "w",
+      checkable: 40,
+      cited: 30,
+      sent: 40,
+      checked: 40,
+      failed: 0,
+      look: 1,
+      leftOut: 0,
+    };
+    const lines = (language: "en" | "zh-CN", check = ended, look: number | null = null) =>
+      selfCheckLines(check, say(language), language, new Date(), null, true, null, look).map(
+        ({ kind, text, action }) => ({ kind, text, action }),
+      );
+
+    expect(lines("en")).toEqual([
+      {
+        kind: "checked",
+        text: "Checked 40 sentences · 1 needs a look",
+        action: { label: "Show", does: "show" },
+      },
+    ]);
+    expect(lines("zh-CN")).toEqual([
+      {
+        kind: "checked",
+        text: "已核对 40 句 · 1 句需要留意",
+        action: { label: "查看", does: "show" },
+      },
+    ]);
+    expect(lines("en", { ...ended, look: 3 })[0]?.text).toBe(
+      "Checked 40 sentences · 3 need a look",
+    );
+    expect(lines("zh-CN", { ...ended, look: 3 })[0]?.text).toBe("已核对 40 句 · 3 句需要留意");
+    // Settled since in the Note, which counts it live: nothing to show.
+    expect(lines("en", ended, 0)).toEqual([
+      { kind: "checked", text: "Checked 40 sentences", action: null },
+    ]);
+    expect(lines("en", { ...ended, checked: 38, failed: 2 }).map(({ text }) => text)).toEqual([
+      "Checked 38 sentences · 1 needs a look",
+      "2 sentences couldn’t be checked",
     ]);
   });
 
@@ -117,7 +198,7 @@ describe("What a write's check left to do", () => {
     expect(live(10)).toEqual([
       {
         kind: "left",
-        text: "Checked 10 sentences · 10 claims not checked yet",
+        text: "Checked 10 sentences · 10 not checked yet",
         details: [],
         action: { label: "Check", does: "check" },
       },
@@ -125,7 +206,7 @@ describe("What a write's check left to do", () => {
     expect(live(1)).toEqual([
       {
         kind: "left",
-        text: "Checked 10 sentences · 1 claim not checked yet",
+        text: "Checked 10 sentences · 1 not checked yet",
         details: [],
         action: { label: "Check", does: "check" },
       },
@@ -133,13 +214,13 @@ describe("What a write's check left to do", () => {
     expect(live(0)).toEqual([
       {
         kind: "left",
-        text: "Checked 10 sentences · 0 claims not checked yet",
+        text: "Checked 10 sentences · 0 not checked yet",
         details: [],
         action: null,
       },
     ]);
     // One sentence checked beside a live count: the checked phrase is singular too (English).
-    expect(live2(1)).toBe("Checked 1 sentence · 2 claims not checked yet");
+    expect(live2(1)).toBe("Checked 1 sentence · 2 not checked yet");
     expect(
       selfCheckLines(
         of({ request: "w", checkable: 20, cited: 13, sent: 12, checked: 1, failed: 0 }),
@@ -148,7 +229,7 @@ describe("What a write's check left to do", () => {
         new Date("2026-10-18T09:00:00.000Z"),
         2,
       ).find((line) => line.kind === "left")?.text,
-    ).toBe("已核对 1 句 · 2 条说法待核对");
+    ).toBe("已核对 1 句 · 还有 2 句未核对");
     // One sentence checked, with the rest of the write left and no live count to say by how much.
     expect(
       words("en", of({ request: "w", checkable: 3, cited: 1, sent: 1, checked: 1, failed: 0 })),
@@ -196,11 +277,12 @@ describe("What a write's check left to do", () => {
       failed: 2,
       stop: { reason: "plan-limit", resetsAt: "2026-10-18T14:30:00.000Z" },
     });
-    const [en] = words("en", limited);
+    const [checked, en] = words("en", limited);
+    expect(checked).toMatchObject({ kind: "checked", text: "Checked 1 sentence", action: null });
     expect(en).toMatchObject({ kind: "plan-limit", action: null });
     expect(en?.text).toBe("2 sentences couldn’t be checked: plan limit reached");
     expect(en?.details[0]).toMatch(/^Resumes at .*\d/);
-    expect(words("zh-CN", limited)[0]?.details[0]).toMatch(/ 恢复$/);
+    expect(words("zh-CN", limited)[1]?.details[0]).toMatch(/ 恢复$/);
   });
 
   // protects=sentences the User's own choice kept from being sent (sending turned off, Local mode) say so, each with its one form and no Check, the others failed still offering it; fails_when=the line reads as a plain failure, offers Check, or counts sentences that failed otherwise as blocked; no_claim=the words beyond the approved copy.

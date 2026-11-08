@@ -325,7 +325,8 @@ describe("A table the assistant writes is checked cell by cell, each with its ro
       expect(prompt).toContain(budget.caption);
       expect(prompt).toContain(`"label":"${first?.label} · ${budget.headings[1]}"`);
       expect(marksIn(client)).toEqual(LANDED);
-      expect(changesIn(answer)[0]?.selfCheck).toMatchObject({ cited: 4, sent: 4, checked: 4 });
+      // The caption, with no Citation, makes no claim the sort names: it is left out.
+      expect(changesIn(answer)[0]?.selfCheck).toMatchObject({ cited: 4, checked: 4, leftOut: 1 });
       const schedule = await core.getFigureSchedule(mindId);
       expect(schedule.rows.map((row) => [row.reading.chars, row.shown.state])).toEqual(LANDED);
       const undo = new Y.UndoManager(client.blocks, { trackedOrigins: new Set(["editor"]) });

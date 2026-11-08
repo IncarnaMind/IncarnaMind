@@ -1044,7 +1044,7 @@ const selfCheckOf = (check: WrittenCheck): NonNullable<MindChange["selfCheck"]> 
   checked: check.checked,
   failed: check.failed,
   look: check.unsupported + check.contradicted,
-  opinions: check.opinions,
+  leftOut: check.leftOut,
   ...(check.running && { running: true }),
   ...(check.undone && { undone: true }),
   ...(check.stop && { stop: check.stop }),

@@ -4,10 +4,12 @@
  *
  * Every sentence it wrote that a check reads, each with a Citation and each claim with none
  * (#1909), is checked as Check this Mind would check it (./claimCheck: the Mind's Folder, the
- * Citations' quotes sent), a few at a time, each within a time limit. Each shows as being checked
- * from the start, and its mark lands as its check ends; one that couldn't be checked (a failure,
- * a limit, the time limit, Stop) lands marked not checked, with why. A sentence the check finds
- * states only an opinion takes no mark, its opinion left out as Check this Mind leaves it. The
+ * Citations' quotes sent), a few at a time, each within a time limit; those with no Citation once
+ * the model has named the claims among them, as Check this Mind names them (./findClaims). Each
+ * shows as being checked from the start, and its mark lands as its check ends; one that couldn't
+ * be checked (a failure, a limit, the time limit, Stop) lands marked not checked, with why. A
+ * sentence that makes no claim, or states only an opinion, takes no mark, its opinion left out as
+ * Check this Mind leaves it. The
  * check only marks: a part a sentence's Citations don't support is the User's to cut, from its
  * card. Only while a sentence reads as it was written does its mark land on its words as they
  * are; one the User changed meanwhile is marked to be checked again.
@@ -72,6 +74,7 @@ import {
   runFailureOf,
 } from "./claimCheck";
 import { type FirstLook, type FirstLookResult, quickLook } from "./fastPaths";
+import { claimsAmong } from "./findClaims";
 import { recordOpinions } from "./opinions";
 import { claimsAtOnce } from "./runChecks";
 import {
@@ -88,6 +91,9 @@ const UNCHECKED: ReadonlySet<string> = new Set(["question", "codeBlock", "blockM
 
 /** How many writes Undo took away a Mind keeps, so a Redo that brings one back finds its sentences stopped. */
 const UNDONE_KEPT = 20;
+
+/** How long a write must stay gone from its Mind before its check is taken as undone. */
+const UNDONE_SETTLE_MS = 1_000;
 
 export interface WrittenCheckOptions {
   /**
@@ -151,7 +157,7 @@ export interface CheckWrittenInput {
 /**
  * What the check did: of the sentences the write holds that a check reads (`checkable`), how
  * many have a Citation (`cited`), how many it sent, how many got a verdict, how many couldn't
- * be checked, how many state only an opinion, and what stopped it; of the verdicts, how many
+ * be checked, how many make no claim to check (an opinion, or none), and what stopped it; of the verdicts, how many
  * are unsupported or contradicted. Its marks share `request`. `blocked`: the sentences the User's
  * own choice kept from being sent, among those that couldn't be checked. `running` until its last
  * mark has landed; `undone` once an Undo took its write away, which ended it.
@@ -165,7 +171,7 @@ export interface WrittenCheck {
   sent: number;
   checked: number;
   failed: number;
-  opinions: number;
+  leftOut: number;
   stop: RunStop | null;
   blocked: { reason: "consent-revoked" | "local-mode" | "consent-widened"; count: number } | null;
   unsupported: number;
@@ -455,6 +461,8 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
   const live = new Map<string, LiveCheck>();
   /** By Mind: the checks an Undo of their write ended, newest last, until a Redo brings the write back. */
   const undone = new Map<string, { request: string; ids: readonly string[] }[]>();
+  /** The Minds a check's write looked gone from, waiting a moment to see if it stays gone. */
+  const confirming = new Set<string>();
 
   /** One sentence's check, given up on once it takes longer than the time limit. */
   async function checkWithin(
@@ -549,7 +557,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       sent: sentences.length,
       checked: 0,
       failed: 0,
-      opinions: 0,
+      leftOut: 0,
       stop: null,
       blocked: null,
       unsupported: 0,
@@ -601,7 +609,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     // A Note a newer version wrote refuses every edit, so once one is refused the rest aren't tried.
     let refused = false;
     const counted = (outcome: Outcome) => {
-      if (outcome === "opinion") done.opinions++;
+      if (outcome === "opinion") done.leftOut++;
       else if (outcome === "failed") done.failed++;
       else {
         done.checked++;
@@ -683,7 +691,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         mindId,
         request,
         done: done.checked + done.failed,
-        total: sentences.length - done.opinions,
+        total: sentences.length - done.leftOut,
         running: done.running,
       });
     let over = false;
@@ -703,7 +711,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         );
       }
       // What never landed couldn't be checked: Stop, an Undo or quitting ended it first.
-      done.failed = sentences.length - done.opinions - done.checked;
+      done.failed = sentences.length - done.leftOut - done.checked;
       done.running = false;
       progress();
       input.ended?.(snapshot());
@@ -775,6 +783,11 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     const looked = new Map<Sentence, FirstLookResult>();
     const checkOne = (sentence: Sentence): Promise<Checked> =>
       asCheckWork(async () => {
+        // A write that looks gone may be undone: nothing more is sent until `mindChanged` knows.
+        if (!stillThere(mindId, input.ids)) {
+          await new Promise((resolve) => setTimeout(resolve, UNDONE_SETTLE_MS));
+          signal.throwIfAborted();
+        }
         const read = reads.get(sentence) ?? { claim: sentence.text, context: sentence.context };
         const first =
           looked.get(sentence) ??
@@ -803,26 +816,68 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         if (failure) throw new RunItemError(failure);
         return { result, by: prepared, passedOn: first?.asked ? quick : null };
       });
+    const checkAll = (items: readonly Sentence[]) =>
+      runItems(items, checkOne, {
+        concurrency: claimsAtOnce(prepared),
+        signal,
+        // The run hears a throw once and returns it, so a mark that can't land is never its
+        // sentence's failure. Refusing stays here: once one edit is refused the rest aren't tried.
+        onOutcome(sentence, outcome) {
+          try {
+            landed(sentence, outcome);
+          } catch (error) {
+            console.error(
+              `What the assistant wrote in Mind ${mindId} was checked, but marks couldn't land:`,
+              error,
+            );
+            if (error instanceof MindReadOnlyError) refused = true;
+            throw error;
+          }
+        },
+      });
+    /**
+     * The sentences with no Citation that make claims, as Check this Note names them (./findClaims):
+     * the others lose their mark, an opinion's left out as Check this Note leaves it. A sort that
+     * fails leaves each to its own check, which names its parts too.
+     */
+    const claimsOf = async (uncited: readonly Sentence[]): Promise<readonly Sentence[]> => {
+      if (uncited.length === 0) return [];
+      const found = await claimsAmong(
+        prepared,
+        uncited.map((sentence) => ({ text: reads.get(sentence)?.claim ?? sentence.text })),
+        "own",
+        signal,
+        true,
+        { slots: limit },
+      );
+      if (found.kind === "cancelled") return [];
+      if (found.kind === "failed") {
+        console.warn(
+          `The claims among what the assistant wrote in Mind ${mindId} couldn't be named, so each is checked: ${found.error.message}`,
+        );
+        return uncited;
+      }
+      const claims: Sentence[] = [];
+      for (const [index, sentence] of uncited.entries()) {
+        const parts = found.parts.get(index) ?? [];
+        if (
+          parts.some((part) => part.kind === "fact") ||
+          (reads.get(sentence)?.figures?.length ?? 0) > 0
+        )
+          claims.push(sentence);
+        else landNow({ sentence, opinion: parts }, "opinion");
+      }
+      return claims;
+    };
     const run = async () => {
       try {
-        const { stop, outcomeError } = await runItems(sentences, checkOne, {
-          concurrency: claimsAtOnce(prepared),
-          signal,
-          // The run hears a throw once and returns it, so a mark that can't land is never its
-          // sentence's failure. Refusing stays here: once one edit is refused the rest aren't tried.
-          onOutcome(sentence, outcome) {
-            try {
-              landed(sentence, outcome);
-            } catch (error) {
-              console.error(
-                `What the assistant wrote in Mind ${mindId} was checked, but marks couldn't land:`,
-                error,
-              );
-              if (error instanceof MindReadOnlyError) refused = true;
-              throw error;
-            }
-          },
-        });
+        // The cited sentences go at once; those with none, once the sort has named the claims.
+        const [cited, uncited] = await Promise.all([
+          checkAll(sentences.filter((sentence) => sentence.cited.length > 0)),
+          claimsOf(sentences.filter((sentence) => sentence.cited.length === 0)).then(checkAll),
+        ]);
+        const stop = cited.stop ?? uncited.stop;
+        const outcomeError = cited.outcomeError ?? uncited.outcomeError;
         done.stop = stop;
         if (!signal.aborted) {
           landAll(
@@ -861,14 +916,30 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
             console.error(`A check undone in Mind ${mindId} couldn't be marked stopped:`, error);
           }
         }
-        const left = ended.filter((each) => !back.includes(each));
-        for (const [request, check] of [...live]) {
-          if (check.mindId !== mindId || stillThere(mindId, check.ids)) continue;
-          left.push({ request, ids: check.ids });
-          check.end(true);
+        if (back.length > 0) {
+          const left = ended.filter((each) => !back.includes(each));
+          if (left.length > 0) undone.set(mindId, left);
+          else undone.delete(mindId);
         }
-        if (left.length > 0) undone.set(mindId, left.slice(-UNDONE_KEPT));
-        else undone.delete(mindId);
+        const gone = () =>
+          [...live].filter(
+            ([, check]) => check.mindId === mindId && !stillThere(mindId, check.ids),
+          );
+        if (confirming.has(mindId) || gone().length === 0) return;
+        // A window that draws a Block again sends its removal and its return as two changes: the
+        // write is taken as undone only once it is still gone a moment later.
+        confirming.add(mindId);
+        setTimeout(() => {
+          confirming.delete(mindId);
+          const taken = gone();
+          if (taken.length === 0) return;
+          const kept = [
+            ...(undone.get(mindId) ?? []),
+            ...taken.map(([request, check]) => ({ request, ids: check.ids })),
+          ];
+          undone.set(mindId, kept.slice(-UNDONE_KEPT));
+          for (const [, check] of taken) check.end(true);
+        }, UNDONE_SETTLE_MS);
       });
     },
 

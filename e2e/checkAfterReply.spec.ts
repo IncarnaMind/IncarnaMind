@@ -17,10 +17,11 @@ import {
 } from "./app";
 
 /*
- * A write whose Citations came in the step after it is checked once the reply has streamed
- * (#1635). Until it lands, the step line says that check is running, in the write's own words,
- * instead of the reply's Writing or Checking Citations (#1624). The scripted model holds each
- * sentence's check until the test releases it.
+ * What the assistant writes into a Note is checked right after it lands, never in front of the
+ * reply (#2830). The reply comes and the composer is free while the check runs; the line under
+ * the Answer's card and the Note's badge count it live; a message sent meanwhile is answered, and
+ * the check still finishes. The write here cites in the step after it (#1635), so its check starts
+ * as the Answer ends. The scripted model holds each sentence's check until the test releases it.
  * Set INCARNAMIND_SCREENSHOTS to a folder to also save screenshots.
  */
 
@@ -53,11 +54,17 @@ const NOTES = [
 const WORDS = {
   en: {
     ask: "Add a revenue table for checking, citing after",
-    checking: /^Checking 2 sentences in “Harbour notes”…/,
+    next: "What was revenue in Q1?",
+    checking: /^Checking 1 of 2 sentences$/,
+    badge: /^Checking 0 of 2/,
+    checked: /^Checked 2 sentences/,
   },
   "zh-CN": {
     ask: "添加核对用的收入表格，写完再引用",
-    checking: /^正在核对“Harbour notes”中的 2 句话…/,
+    next: "第一季度的收入是多少？",
+    checking: /^正在核对 2 句中的第 1 句$/,
+    badge: /^正在核对 0\/2/,
+    checked: /^已核对 2 句/,
   },
 } as const;
 
@@ -75,6 +82,7 @@ const releaseChecks = (app: ElectronApplication) =>
     incarnamindSlowCheck.release();
   });
 
+/** Asks as a person does, and gives back the Answer at once. */
 async function ask(window: Page, question: string): Promise<Locator> {
   const answers = assistantAnswers(window);
   const before = await answers.count();
@@ -89,7 +97,7 @@ async function ask(window: Page, question: string): Promise<Locator> {
 for (const language of ["en", "zh-CN"] as const) {
   const words = WORDS[language];
 
-  test(`a write cited after it says it is being checked until it lands, in ${language}`, async () => {
+  test(`the reply comes while what it wrote is checked, a message sent meanwhile is answered, and the check finishes, in ${language}`, async () => {
     test.setTimeout(120_000);
     await writeFile(join(sources, "Annual report.md"), REVENUE);
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
@@ -107,17 +115,27 @@ for (const language of ["en", "zh-CN"] as const) {
 
     await holdChecks(app);
     const answer = await ask(window, words.ask);
-    // A write cited after it isn't checked as it lands, so only the check after the reply says this.
-    await expect(answer.getByTestId("answer-writing")).toHaveText(words.checking, {
-      timeout: 60_000,
-    });
-    await expect(answer).toHaveAttribute("data-status", "streaming");
+    // The reply is in and the composer is free while every sentence it wrote is still checked.
+    await expect(answer).toHaveAttribute("data-status", "done", { timeout: 60_000 });
+    const line = answer.getByTestId("self-check-checking");
+    await expect(line).toHaveText(words.checking);
+    await expect(window.getByTestId("badge-progress")).toHaveText(words.badge);
+    await expect(window.getByTestId("composer-stop")).toHaveCount(0);
     if (SCREENSHOTS) {
-      await window.screenshot({ path: join(SCREENSHOTS, `late-write-check-${language}.png`) });
+      await window.screenshot({ path: join(SCREENSHOTS, `check-after-reply-${language}.png`) });
     }
 
+    // A message sent while the check runs is answered, and doesn't stop the check.
+    const next = await ask(window, words.next);
+    await expect(next).toHaveAttribute("data-status", "done", { timeout: 60_000 });
+    await expect(line).toHaveText(words.checking);
+
     await releaseChecks(app);
-    await expect(answer).toHaveAttribute("data-status", "done", { timeout: 30_000 });
+    await expect(answer.getByTestId("self-check-checked")).toHaveText(words.checked, {
+      timeout: 30_000,
+    });
+    await expect(line).toHaveCount(0);
+    await expect(window.getByTestId("badge-progress")).toHaveCount(0);
     await app.close();
   });
 }

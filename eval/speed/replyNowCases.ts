@@ -11,6 +11,16 @@ export interface ReplyNowCase {
   text: string;
 }
 
+/**
+ * #1635's box, asked only by its id: an eight-paragraph write, whose first paragraph shows within
+ * 8 s and whose reply ends within 25 s on Claude Sonnet 5.5. Written after the ten below were run.
+ */
+export const EIGHT_PARAGRAPHS: ReplyNowCase = {
+  id: "en-eight-paragraphs",
+  language: "en",
+  text: "Write eight paragraphs into my notes on the Vantrell Financial Group 2022 ESG Report.",
+};
+
 export const REPLY_NOW_CASES: readonly ReplyNowCase[] = [
   {
     id: "en-every-document",

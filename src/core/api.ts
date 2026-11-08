@@ -1603,7 +1603,7 @@ export interface MindChange {
    * (`checkable`), how many have a Citation (`cited`), how many it sent to be
    * checked (`sent`), how many got a verdict (`checked`), how many of those need a
    * look (`look`: unsupported or contradicted), how many couldn't be checked
-   * (`failed`) and how many state only an opinion (`opinions`), and what stopped
+   * (`failed`) and how many make no claim to check (`leftOut`: an opinion, or no claim), and what stopped
    * it, if anything did. Those it couldn't check, or didn't, are marked not
    * checked, under `request`; `blocked` says how many of them the User's own
    * choice kept from being sent (the flow turned off, or Local mode), which
@@ -1624,7 +1624,7 @@ export interface MindChange {
     failed: number;
     /** Absent on a check recorded before #2830. */
     look?: number;
-    opinions?: number;
+    leftOut?: number;
     running?: true;
     undone?: true;
     stop?: RunStop;

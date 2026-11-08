@@ -41,7 +41,7 @@ import { createWorkerEmbedder } from "../lib/embedder";
 import { openLibrary } from "../lib/library";
 import { createLog } from "../lib/log";
 import { createWorkerCrossEncoder } from "../lib/rerank";
-import { REPLY_NOW_CASES, type ReplyNowCase } from "./replyNowCases";
+import { EIGHT_PARAGRAPHS, REPLY_NOW_CASES, type ReplyNowCase } from "./replyNowCases";
 import { env, list, modelNamed, modelsAsked, spentUsd } from "./settings";
 
 const ROOT = resolve(__dirname, "../..");
@@ -370,7 +370,7 @@ test.skipIf(env("REPLY_NOW") === null)(
     if (models.length === 0) throw new Error("Set INCARNAMIND_EVAL_SPEED_MODELS.");
     const languages = list("LANGUAGES") ?? ["en", "zh-CN"];
     const items = list("ITEMS");
-    const cases = REPLY_NOW_CASES.filter(
+    const cases = (items ? [...REPLY_NOW_CASES, EIGHT_PARAGRAPHS] : REPLY_NOW_CASES).filter(
       (item) => languages.includes(item.language) && (!items || items.includes(item.id)),
     );
     const repeats = Number(env("RUNS") ?? "1");

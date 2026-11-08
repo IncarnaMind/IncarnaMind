@@ -1007,11 +1007,16 @@ describe("What the assistant writes is checked once it lands, the reply not wait
     ]);
   });
 
-  // protects=Undo of the write stops its check: nothing more is sent, the check ends as undone, and a Redo brings the sentences back shown as stopped, never as still being checked (#2830's acceptance); fails_when=the check goes on sending for text that is gone, or a Redo shows checking dots that never end; no_claim=how Undo looks in the window.
+  // protects=Undo of the write stops its check: no sentence's check starts after it, the check ends as undone, and a Redo brings the sentences back shown as stopped, never as still being checked (#2830's acceptance); fails_when=the check goes on with sentences that are gone, or a Redo shows checking dots that never end; no_claim=how Undo looks in the window, or the turns of checks already sent.
   test("Undo of the write stops its check, and a Redo shows its sentences not checked", async () => {
     let undo: (() => void) | null = null;
+    // More sentences than a cloud model checks at once: some are still to start when it is undone.
+    const sentences = Array.from(
+      { length: 10 },
+      (_, index) => `Neap tide ${index + 1} is twice as strong [^1].`,
+    );
     const { core, calls, client, progress, asked } = await writeAndReply({
-      content: `Spring tides come at new and full moon [^1]. ${UNBACKED} [^1].`,
+      content: sentences.join(" "),
       into: true,
       cloud: { kind: "anthropic", modelId: "claude-haiku-5-5" },
       check: (call) => {
@@ -1023,8 +1028,11 @@ describe("What the assistant writes is checked once it lands, the reply not wait
       },
     });
     await client.settled();
-    expect(statesIn(client)).toEqual(["checking", "checking"]);
-    const sent = calls.filter(isCheckRun).length;
+    expect(statesIn(client)).toEqual(sentences.map(() => "checking"));
+    const started = () => calls.filter((call) => isCheckRun(call) && call.results.length === 0);
+    await vi.waitFor(() => expect(started().length).toBeGreaterThan(0), { timeout: 20_000 });
+    const sent = started().length;
+    expect(sent).toBeLessThan(sentences.length);
     const history = new Y.UndoManager(client.blocks);
     const written = client.blocks.length - 1;
     undo = () => client.doc.transact(() => client.blocks.delete(written, 1));
@@ -1032,13 +1040,13 @@ describe("What the assistant writes is checked once it lands, the reply not wait
     expect(await checkEnds(progress)).toMatchObject({ running: false });
     await client.settled();
     expect(shownWithChanges(client)).toEqual(["Harbour", "Boats moor by the quay."]);
-    expect(calls.filter(isCheckRun).length).toBe(sent);
+    expect(started()).toHaveLength(sent);
     const [change] = changesIn(await storedAnswer(core, asked.conversation.id, asked.answerId));
-    expect(change?.selfCheck).toMatchObject({ undone: true, checked: 0 });
+    expect(change?.selfCheck).toMatchObject({ undone: true });
 
     history.undo();
     await client.settled();
-    await vi.waitFor(() => expect(statesIn(client)).toEqual(["not-checked", "not-checked"]), {
+    await vi.waitFor(() => expect(statesIn(client)).toEqual(sentences.map(() => "not-checked")), {
       timeout: 20_000,
     });
   });

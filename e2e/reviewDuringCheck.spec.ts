@@ -21,10 +21,10 @@ import {
 } from "./app";
 
 /*
- * What the assistant writes into a Note is checked before it lands (#1358): while that check runs,
- * the Answer's card counts only what really waits, and its Review opens that at once. The changes
- * the User asked for are drawn as applied meanwhile and are not waiting, so a Note the assistant
- * has just made shows no count and no Review until its Review changes comes with the write. The
+ * What the assistant writes into a Note is checked after its reply (#2830), and while that check
+ * runs the Answer's card counts only what really waits, and its Review opens that at once (#1358).
+ * The changes the User asked for are applied, so a Note the assistant has just made shows no
+ * count, and its Review changes shows the write while its sentences are still checked. The
  * scripted model holds each sentence's check until the test releases it.
  * Set INCARNAMIND_SCREENSHOTS to a folder to also save screenshots.
  */
@@ -68,24 +68,22 @@ const NOTES = [
 
 const WORDS = {
   en: {
-    made: "Created “Tide summary” and wrote 2 paragraphs",
-    checkingMade: /^Checking 1 sentence in “Tide summary”…/,
+    made: "Wrote “Tide summary”",
+    checking: /^Checking /,
     reviewChanges: "Review changes",
     open: "Open",
     table: "Add a revenue table for checking",
-    checkingTable: /^Checking 2 sentences in “Harbour notes”…/,
     added: "Added a table to “Harbour notes”",
     inNote: "· 2 changes waiting in this note",
     review: "Review",
     first: "Change 1 of 2",
   },
   "zh-CN": {
-    made: "已新建“Tide summary”，并写入 2 个段落",
-    checkingMade: /^正在核对“Tide summary”中的 1 句话…/,
+    made: "已写入“Tide summary”",
+    checking: /^正在核对 /,
     reviewChanges: "查看改动",
     open: "打开",
     table: "添加核对用的收入表格",
-    checkingTable: /^正在核对“Harbour notes”中的 2 句话…/,
     added: "在“Harbour notes”中添加了 1 个表格",
     inNote: "· 本笔记有 2 处修订待处理",
     review: "审阅",
@@ -146,14 +144,6 @@ async function writeNote(window: Page, title: string, lines: readonly string[]):
   ).toHaveText([...lines]);
 }
 
-/** The text of the Block the cursor is in. */
-const caretBlock = (window: Page) =>
-  window.evaluate(() => {
-    const node = document.getSelection()?.anchorNode;
-    const element = node instanceof Element ? node : node?.parentElement;
-    return element?.closest("h1, h2, h3, p, li")?.textContent ?? null;
-  });
-
 interface RowFrame {
   streaming: boolean;
   rows: number;
@@ -194,7 +184,7 @@ const stopSamplingRows = (window: Page) =>
 for (const language of ["en", "zh-CN"] as const) {
   const words = WORDS[language];
 
-  test(`a Note the assistant made says nothing waits while its write is checked, its Open goes to the write at once, and Review changes opens it once it lands, in ${language}`, async () => {
+  test(`a Note the assistant made says nothing waits while its write is checked, its Open shows the Note, and Review changes opens it, in ${language}`, async () => {
     test.setTimeout(120_000);
     const { app, window } = await start(language, "Tides.md", TIDES);
     await holdChecks(app);
@@ -202,9 +192,8 @@ for (const language of ["en", "zh-CN"] as const) {
       window,
       "Summarise my Documents into a new note called “Tide summary”",
     );
-    await expect(answer.getByTestId("answer-writing")).toHaveText(words.checkingMade, {
-      timeout: 60_000,
-    });
+    await expect(answer).toHaveAttribute("data-status", "done", { timeout: 60_000 });
+    await expect(answer.getByTestId("self-check-checking")).toHaveText(words.checking);
 
     // The write is in the Note, drawn as applied, and the card says what it did: nothing of it waits.
     const editor = window.locator('[data-testid="mind-editor"]:visible');
@@ -213,27 +202,25 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(card.getByTestId("mind-changes-title")).toHaveText(words.made);
     await screenshot(window, `made-while-checked-${language}`);
     await expect(card.getByTestId("mind-changes-left")).toHaveCount(0);
-    await expect(card.getByTestId("mind-changes-review")).toHaveCount(0);
     await expect(window.getByTestId("proposals-count")).toHaveCount(0);
 
-    // Open, while the check still runs, puts the cursor on the write's first change.
+    // Open, while the check still runs, shows the Note it made.
     const open = card.getByTestId("mind-changes-open");
     await expect(open).toHaveText(words.open);
     await expect(window.getByTestId("composer-input")).toBeFocused();
     await pointAndClick(window, open);
-    await expect(editor).toBeFocused();
-    expect(await caretBlock(window)).toBe("Summary");
-    await expect(answer).toHaveAttribute("data-status", "streaming");
+    await expect(frontMindName(window)).toHaveText("Tide summary");
 
-    // Checked, it lands, and Review changes shows it.
-    await releaseChecks(app);
-    await expect(answer).toHaveAttribute("data-status", "done", { timeout: 30_000 });
+    // Review changes shows it while its sentences are still checked, and once they are.
+    await expect(answer.getByTestId("self-check-checking")).toHaveText(words.checking);
     const review = card.getByTestId("mind-changes-review");
     await expect(review).toHaveText(words.reviewChanges);
     await pointAndClick(window, review);
     await expect(
       editor.locator(".applied-new").filter({ hasText: "Your Documents answer this" }).first(),
     ).toBeVisible();
+    await releaseChecks(app);
+    await expect(answer.getByTestId("self-check-checking")).toHaveCount(0, { timeout: 30_000 });
     await app.close();
   });
 
@@ -248,12 +235,11 @@ for (const language of ["en", "zh-CN"] as const) {
 
     await holdChecks(app);
     const answer = await ask(window, words.table);
-    await expect(answer.getByTestId("answer-writing")).toHaveText(words.checkingTable, {
-      timeout: 60_000,
-    });
+    await expect(answer).toHaveAttribute("data-status", "done", { timeout: 60_000 });
+    await expect(answer.getByTestId("self-check-checking")).toHaveText(words.checking);
     const card = answer.getByTestId("mind-changes");
     await expect(card.getByTestId("mind-changes-title")).toHaveText(words.added);
-    const review = card.getByTestId("mind-changes-review");
+    const review = card.getByTestId("mind-changes-note-review");
     await expect(review).toHaveText(words.review);
     await expect(window.getByTestId("composer-input")).toBeFocused();
     await screenshot(window, `waiting-while-checked-${language}`);
@@ -264,7 +250,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(bar).toBeVisible();
     await expect(bar).toHaveAccessibleName(words.first);
     await expect(editor).toBeFocused();
-    await expect(answer).toHaveAttribute("data-status", "streaming");
+    await expect(answer.getByTestId("self-check-checking")).toHaveText(words.checking);
     await expect(card.getByTestId("mind-changes-in-note")).toHaveText(words.inNote);
     // The table it writes applies at once: none of it is said to wait.
     await expect(card.getByTestId("mind-changes-left")).toHaveCount(0);
@@ -274,9 +260,9 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(bar).toHaveAccessibleName(words.first);
     await expect(editor).toBeFocused();
 
-    // Checked, the table lands with Undo, which takes back the table alone: the rewrite still waits.
+    // Checked, the table keeps its Undo, which takes back the table alone: the rewrite still waits.
     await releaseChecks(app);
-    await expect(answer).toHaveAttribute("data-status", "done", { timeout: 30_000 });
+    await expect(answer.getByTestId("self-check-checking")).toHaveCount(0, { timeout: 30_000 });
     await expect(editor.locator("table")).toHaveCount(1);
     await pointAndClick(window, card.getByTestId("mind-changes-undo"));
     await expect(editor.locator("table")).toHaveCount(0);
@@ -299,19 +285,17 @@ for (const language of ["en", "zh-CN"] as const) {
       window,
       "Summarise my Documents into a new note called “Tide summary”",
     );
-    await expect(answer.getByTestId("answer-writing")).toHaveText(words.checkingMade, {
-      timeout: 60_000,
-    });
+    await expect(answer).toHaveAttribute("data-status", "done", { timeout: 60_000 });
+    await expect(answer.getByTestId("self-check-checking")).toHaveText(words.checking);
     await pointAndClick(window, held.getByTestId("mind-changes-review"));
     // The Note opens while the write is checked, its two changes still waiting, the first under the cursor.
     await expect(frontMindName(window)).toHaveText("Harbour notes");
     await expect(window.getByTestId("change-bar")).toHaveAccessibleName(words.first);
     await expect(window.locator('[data-testid="mind-editor"]:visible')).toBeFocused();
-    await expect(answer).toHaveAttribute("data-status", "streaming");
 
-    // Done, the Note it made stays behind the one the User went to (#2572).
+    // Checked, the Note it made stays behind the one the User went to (#2572).
     await releaseChecks(app);
-    await expect(answer).toHaveAttribute("data-status", "done", { timeout: 30_000 });
+    await expect(answer.getByTestId("self-check-checking")).toHaveCount(0, { timeout: 30_000 });
     await expect(window.getByTestId("mind-tab").filter({ hasText: "Tide summary" })).toHaveCount(1);
     await expect(frontMindName(window)).toHaveText("Harbour notes");
     await app.close();
@@ -341,13 +325,13 @@ test("an Answer that writes in two Notes says no change of either waits while it
   await app.close();
 });
 
-test("quit while a write is checked, the Note keeps it, and what its card then says waits is what Review opens", async () => {
+test("quit while a write is checked, the Note keeps it, its sentences read not checked, and nothing of it waits", async () => {
   test.setTimeout(120_000);
   const { app, window } = await start("en", "Tides.md", TIDES);
   await holdChecks(app);
   const question = "Summarise my Documents into a new note called “Tide summary”";
   const answer = await ask(window, question);
-  await expect(answer.getByTestId("answer-writing")).toHaveText(WORDS.en.checkingMade, {
+  await expect(answer.getByTestId("self-check-checking")).toHaveText(WORDS.en.checking, {
     timeout: 60_000,
   });
   await forceQuit(app);
@@ -360,6 +344,13 @@ test("quit while a write is checked, the Note keeps it, and what its card then s
   );
   const editor = restarted.window.locator('[data-testid="mind-editor"]:visible');
   await expect(editor).toContainText("Your Documents answer this");
+  // The check that was running when IncarnaMind quit leaves no sentence shown as still checked.
+  await expect(
+    restarted.window.locator('[data-testid="claim-mark"][data-check="not-checked"]').first(),
+  ).toBeAttached();
+  await expect(
+    restarted.window.locator('[data-testid="claim-mark"][data-check="checking"]'),
+  ).toHaveCount(0);
   await restarted.window.keyboard.press("ControlOrMeta+k");
   await expect(restarted.window.getByTestId("palette")).toBeVisible();
   await restarted.window.keyboard.type(question);
@@ -370,14 +361,9 @@ test("quit while a write is checked, the Note keeps it, and what its card then s
       .getByTestId("palette-item")
       .first(),
   );
+  // Its reply had come and its change applied before the quit: none of it waits.
   const card = assistantAnswers(restarted.window).last().getByTestId("mind-changes");
-  const left = card.getByTestId("mind-changes-left");
-  await expect(left).toHaveText(/^· \d+ changes? waiting$/);
-  const count = Number(/\d+/.exec(await left.innerText())?.[0]);
-  await pointAndClick(restarted.window, card.getByTestId("mind-changes-review"));
-  await expect(restarted.window.getByTestId("change-bar")).toHaveAccessibleName(
-    `Change 1 of ${count}`,
-  );
-  await expect(editor).toBeFocused();
+  await expect(card.getByTestId("mind-changes-left")).toHaveText("· none waiting");
+  await expect(restarted.window.getByTestId("proposals-count")).toHaveCount(0);
   await restarted.app.close();
 });

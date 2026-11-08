@@ -146,7 +146,7 @@ describe("Text written into a Mind keeps its Citations", { timeout: 30_000 }, ()
     const [revised] = changesIn(second);
     expect(revised).toMatchObject({ revised: true, cited: 1 });
     expect(revised?.unrecorded).toBeUndefined();
-    expect(revised?.selfCheck).toMatchObject({ cited: 1, sent: 1 });
+    expect(revised?.selfCheck).toMatchObject({ cited: 1, failed: 0 });
     const page = await connectToMind(core, revised?.mindId ?? "");
     expect(shownWithChanges(page)).toEqual([
       "+ Tides",
@@ -202,7 +202,7 @@ describe("Text written into a Mind keeps its Citations", { timeout: 30_000 }, ()
 
     const [revised] = changesIn(second);
     expect(revised).toMatchObject({ revised: true, cited: 1 });
-    expect(revised?.selfCheck).toMatchObject({ cited: 1, sent: 1 });
+    expect(revised?.selfCheck).toMatchObject({ cited: 1, failed: 0 });
     const page = await connectToMind(core, revised?.mindId ?? "");
     expect(shownWithChanges(page)).toEqual([
       "+ Tides",
