@@ -294,3 +294,8 @@ A pre-review of this code, whose job was to break it, found more ways a quote co
 ### The runs and the bar
 
 The runs are made at the commit that adds this section, whose code is a769dd5a9 (origin/main merged at 38cf2e90a). As the second look says: Claude Sonnet 5.5 on the direct Anthropic key, judged by Claude Opus 5.5; `today` against `help-marks-passages`, three runs, false Supported counted, on `call-help-documents` and on `call-help-fresh`, with the arms' order turning per model, set and language (#2791). The bar is the second look's. Spend: about $6, within this look's $10.
+
+### The first run at 8675f554c compared the path with itself (added 2026-11-08, before the rerun)
+
+`today` runs the lists as the branch has them, and the branch still listed Sonnet 5.5, so both arms took the marks path. The run was stopped after 34 of its 120 pairs, which spent $1.11 and count for nothing. Sonnet is now off `MARKS_PASSAGES`, so `today` is main's path again, and the runs above are made again on the same code. Sonnet is listed again only if this look's bar holds.
+
