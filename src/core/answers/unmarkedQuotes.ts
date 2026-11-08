@@ -12,8 +12,7 @@
  * 2. else the Passage sentence it is a near-duplicate of: they share at
  *    least five words and 60% of their words (Dice), give the same numbers
  *    (as a multiset, "739,800" read as one) and as many negations ("not",
- *    "no", "never", "without", "cannot", "neither", "nor", "none", "n't", 不,
- *    没, 未, 无, 非), and the check finds it there.
+ *    "no", "never", "n't", 不, 没, 未, 无, 非), and the check finds it there.
  *
  * Each match becomes a Citation record, taken as structured output's are,
  * and its marker goes after the sentence (see ./markerPlacement). A marker
@@ -131,19 +130,11 @@ type Found = Omit<Match, "marker"> & { marker?: number; start?: number; end?: nu
 /** A number as written, without the separators between its groups of three: "£739,800" is "739800". */
 const LATIN_NUMBER = /\d+(?:[.,\s]\d+)*/g;
 const CHINESE_NUMBER = /[零〇一二两三四五六七八九十百千万亿]+/gu;
-const NEGATING_WORDS = "not|no|never|without|cannot|neither|nor|none";
-const NEGATING_CHARACTERS = "不没未无非";
-const NEGATION = new RegExp(
-  `\\b(?:${NEGATING_WORDS})\\b|n['’]t\\b|[${NEGATING_CHARACTERS}]`,
-  "giu",
-);
-const NEGATING = new RegExp(`^(?:${NEGATING_WORDS})$|n['’]t$|^[${NEGATING_CHARACTERS}]$`, "iu");
+const NEGATION = /\b(?:not|no|never)\b|n't\b|[不没未无非]/giu;
 
-/** How many negations a text has: "not", "no", "never", "without", "cannot", "neither", "nor", "none", "n't", 不, 没, 未, 无, 非. */
-const negationsOf = (text: string): number => text.match(NEGATION)?.length ?? 0;
-
-/** Whether a word, or a CJK character, is one of the negations `negationsOf` counts. */
-export const negates = (word: string): boolean => NEGATING.test(word);
+/** Whether a word, or a CJK character, is one of the negations `NEGATION` counts. */
+export const negates = (word: string): boolean =>
+  /^(?:not|no|never)$|n't$|^[不没未无非]$/iu.test(word);
 
 /** The numbers in a text, sorted, so two texts' can be compared as a multiset. */
 function numbersOf(text: string): string[] {
@@ -165,7 +156,7 @@ function saysTheSame(a: string, b: string): boolean {
   return (
     ours.length === theirs.length &&
     ours.every((number, index) => number === theirs[index]) &&
-    negationsOf(a) === negationsOf(b)
+    (a.match(NEGATION)?.length ?? 0) === (b.match(NEGATION)?.length ?? 0)
   );
 }
 

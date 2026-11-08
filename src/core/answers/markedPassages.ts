@@ -28,7 +28,8 @@
  *   other than the claim's.
  * - A Passage whose line most like the claim says its opposite gives it nothing, and no line saying
  *   its opposite is quoted ("doesn't include" against "is included", 不含 against 含), the
- *   negations being those ./unmarkedQuotes counts; a reply's own "No," negates nothing.
+ *   negations being those ./unmarkedQuotes counts and a few more (`MORE_NEGATIONS`); a reply's own
+ *   "No," negates nothing.
  * - A claim quotes no transcript line of another side than the one it names first: "they", "the
  *   customer", 对方 or 客户 for "Them"; "I" or "we" for "Me".
  * - A marker an earlier reply recorded is read as naming its Passage anew, under a marker of its
@@ -244,7 +245,14 @@ const CHINESE_DIGITS: Record<string, number> = {
 const CHINESE_UNITS: Record<string, number> = { 十: 10, 百: 100, 千: 1000 };
 /** After a negation, a CJK character that carries no meaning of its own: 没有, 不是, 不在. */
 const CJK_AFTER_NEGATION = new Set([..."有是在会能要用必"]);
-/** The pieces of "doesn't" and its kin, which `negates` reads whole. */
+/**
+ * Negations the picker reads beyond those ./unmarkedQuotes counts for every Answer: this path's
+ * quotes have no claim check behind them, so it reads more of them as a "not".
+ */
+const MORE_NEGATIONS = /^(?:without|cannot|neither|nor|none)$|n’t$/iu;
+const negating = (word: string) => negates(word) || MORE_NEGATIONS.test(word);
+
+/** The pieces of "doesn't" and its kin, which `negating` reads whole. */
 const CONTRACTED = new Set(
   "aren couldn didn doesn don hadn hasn haven isn mustn needn shouldn wasn weren won wouldn".split(
     " ",
@@ -376,7 +384,7 @@ const wordSet = (text: string): Set<string> =>
           (word.length > 1 &&
             !/^\d/.test(word) &&
             NUMBER_WORDS[word] === undefined &&
-            !negates(word) &&
+            !negating(word) &&
             !CONTRACTED.has(word)),
       )
       .map(folded),
@@ -401,7 +409,7 @@ interface Negated {
 
 /** Whether a word after a negation is the one it negates: no stop word, and no 有 in 没有. */
 const meaningful = (token: string) =>
-  CJK.test(token) ? !CJK_AFTER_NEGATION.has(token) && !negates(token) : wordSet(token).size > 0;
+  CJK.test(token) ? !CJK_AFTER_NEGATION.has(token) && !negating(token) : wordSet(token).size > 0;
 
 /** The words a text says with a negation just before them, in the same clause. */
 function negatedOf(text: string): Negated[] {
@@ -409,7 +417,7 @@ function negatedOf(text: string): Negated[] {
   for (const clause of text.replace(MARKER, " ").toLowerCase().split(CLAUSE_END)) {
     const tokens = [...clause.matchAll(TOKEN)].map((found) => found[0]);
     for (const [at, token] of tokens.entries()) {
-      if (!negates(token)) continue;
+      if (!negating(token)) continue;
       const index = tokens.findIndex((each, after) => after > at && meaningful(each));
       const found = tokens[index];
       if (index < 0 || found === undefined) continue;
@@ -417,7 +425,7 @@ function negatedOf(text: string): Negated[] {
       const term = cjk ? found : folded(found);
       const following = tokens[index + 1];
       const rest = tokens
-        .filter((each, other) => (other < at || other >= index) && !negates(each))
+        .filter((each, other) => (other < at || other >= index) && !negating(each))
         .map((each) => (CJK.test(each) ? each : ` ${each} `))
         .join("");
       const others = [...wordSet(rest)].filter((word) => !word.includes(term));
