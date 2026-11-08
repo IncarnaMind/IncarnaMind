@@ -12,6 +12,7 @@ import { core } from "../../core";
 import { errorMessage } from "../../errors";
 import { useT } from "../../i18n";
 import { useAppStore } from "../../store";
+import { useMounted } from "../../useMounted";
 import { KeyCharacterLine } from "../KeyCharacterLine";
 import { ProblemMark } from "../ProblemLine";
 import {
@@ -176,13 +177,7 @@ export function JevForm({
   const keyField = useRef<HTMLInputElement>(null);
   const buttons = useRef<HTMLDivElement>(null);
   const problem = useRef<HTMLDivElement>(null);
-  const mounted = useRef(true);
-  useEffect(
-    () => () => {
-      mounted.current = false;
-    },
-    [],
-  );
+  const mounted = useMounted();
 
   useEffect(() => {
     core.getSecretStorage().then(setSecretStorage, () => undefined);
@@ -221,12 +216,7 @@ export function JevForm({
         setTest(await core.testJevConnection(input()));
       } else if (sorting) {
         setTest(null);
-        const outcome = await setUpJevForSorting(
-          core,
-          settings,
-          sorting.choose,
-          () => mounted.current,
-        );
+        const outcome = await setUpJevForSorting(core, settings, sorting.choose, mounted);
         if (outcome.kind === "given-up") return;
         if (outcome.kind === "failed") {
           setTest(outcome.result);
