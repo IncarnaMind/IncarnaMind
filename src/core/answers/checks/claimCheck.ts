@@ -43,6 +43,7 @@ import type {
   CheckedVersion,
   CheckFigure,
   Citation,
+  CitationAttributes,
   CitationLocation,
   CitationSupport,
   ClaimCalculation,
@@ -682,6 +683,11 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
   // The Passages each check was given or shown, so that a text whose figures couldn't be read is
   // named by the one it came from.
   const passagesOf = new WeakMap<ClaimCheckRequest, () => readonly string[]>();
+  // A check's judgement of the quotes it was given after its verdict, for its Supported result.
+  const judgedAfter = new WeakMap<
+    ClaimCheckRequest,
+    (result: AtomicClaimCheckResult) => Promise<AtomicClaimCheckResult>
+  >();
   const check = async function checkClaim(
     request: ClaimCheckRequest,
   ): Promise<AtomicClaimCheckResult> {
@@ -1729,6 +1735,40 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
       ...new Set(namedMarkers.filter((marker) => session.finalCitation(marker) === null)),
     ];
     const givenAfter = new Set<string>();
+    // A quote the model gave only when asked for one after its verdict was found on its page, never
+    // compared with the sentence: each backs a Supported result only once the strict judgement finds,
+    // on its own, that it says what the sentence says. Judged with a quote that does, an unrelated
+    // one was carried through (#2816).
+    judgedAfter.set(request, async (result) => {
+      if (result.verdict !== "supported") return result;
+      const notGiven = <T extends CitationKeyed>(list: readonly T[]): T[] =>
+        list.filter((each) => !givenAfter.has(citationKey(each)));
+      const cited = uniqueCitations([
+        ...(result.evidence ? [result.evidence] : []),
+        ...(result.checkedEvidence ?? []),
+      ]);
+      for (const citation of cited.filter((each) => givenAfter.has(citationKey(each)))) {
+        const judged = await compare(request, citation, session, signal, STRICT_INSTRUCTIONS);
+        if (!signal.aborted && "reply" in judged && readJudgement(judged.reply) === "same")
+          continue;
+        // The Not checked result shows none of those quotes either.
+        retainedEvidence = notGiven(retainedEvidence);
+        if (retainedCoverage) {
+          retainedCoverage = {
+            ...retainedCoverage,
+            members: retainedCoverage.members.map((member) => ({
+              ...member,
+              evidence: notGiven(member.evidence),
+            })),
+            domainEvidence: notGiven(retainedCoverage.domainEvidence),
+          };
+        }
+        if (signal.aborted) return notChecked("stopped");
+        if ("failed" in judged) return failedCheck(judged.failed);
+        return notChecked("no-evidence");
+      }
+      return result;
+    });
     if (
       missing.length > 0 &&
       !namedMarkers.some((marker) => {
@@ -1845,21 +1885,17 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
       };
     };
     // The fields-only second look (#2313): a judge's own reply that said it could not state the
-    // sentence, and then said the claim is stated and the same, is asked once more; a still
-    // inconsistent reply is Not checked rather than Supported or cut.
+    // sentence, and then said the claim is stated and the same, is asked once more. Only a field
+    // of its second reply that differs counts, and it lowers the sentence to Unsupported; a second
+    // reply that calls it supported is Not checked, as an inconsistent one is: on held-out
+    // sentences whose Passage gives only a goal, a draft or another contract's terms, it called
+    // them supported with every field the same (#2816).
     const rechecked = async (
       again: ReadVerdict | null,
       shown: Citation | null,
-    ): Promise<ClaimCheckResult> => {
-      if (!again) return notChecked("malformed");
-      const fieldDiffers =
-        again.roles === "differs" ||
-        again.time === "differs" ||
-        again.scope === "wider" ||
-        again.condition === "differs";
-      if (again.verdict === "supported") {
-        if (fieldDiffers)
-          return unsupported(
+    ): Promise<ClaimCheckResult> =>
+      again && (again.roles === "differs" || again.time === "differs" || again.scope === "wider")
+        ? unsupported(
             {
               reason: again.says,
               covered: again.covered,
@@ -1868,64 +1904,8 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
             },
             shown,
             null,
-          );
-        // Each line it is asked for must be read, and its Absence must not disagree with the first
-        // reply's: a missing, unknown or contradicting line backs nothing (#2816).
-        if (
-          again.absence !== "no" ||
-          verdict.absence === "yes" ||
-          again.scope !== "same" ||
-          again.topic !== "found" ||
-          again.roles !== "same" ||
-          again.time !== "same" ||
-          again.condition !== "same" ||
-          !again.evidence?.length ||
-          comparesOtherWords(again, request.claim, true)
-        )
-          return notChecked("malformed");
-        if (again.coverage) {
-          const backed = again.coverage.members.filter(
-            (member) => member.verdict === "supported",
-          ).length;
-          const enough =
-            again.coverage.quantifier === "most"
-              ? backed > again.coverage.members.length / 2
-              : backed === again.coverage.members.length;
-          if (!again.coverage.complete || !enough)
-            return unsupported(
-              {
-                reason: again.says,
-                covered: again.covered,
-                uncovered: again.uncovered,
-                found: true,
-              },
-              shown,
-              null,
-            );
-        }
-        return {
-          verdict: "supported",
-          evidence: shown,
-          says: null,
-          unsupported: null,
-          calculation: worked?.calculation ?? null,
-          ...citedCase(shown),
-          ...facts(),
-        };
-      }
-      if (fieldDiffers)
-        return unsupported(
-          {
-            reason: again.says,
-            covered: again.covered,
-            uncovered: again.uncovered,
-            found: true,
-          },
-          shown,
-          null,
-        );
-      return notChecked("malformed");
-    };
+          )
+        : notChecked("malformed");
     session.check();
     if (verdict.reasonKind) {
       return unsupported(
@@ -1945,7 +1925,7 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
     }
     if (verdict.verdict === "unsupported" && !byCalculation) {
       // Its fields say the claim is stated and the same, while its verdict says otherwise: ask
-      // once more, and a still inconsistent reply is Not checked (#2313).
+      // once more, and only a field that differs settles it (#2313, #2816).
       const stated = namedEvidence[0] ?? null;
       if (
         stated !== null &&
@@ -2095,7 +2075,7 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
       // A part whose quote states it on its own, and whose own Roles, Time and Scope agree: the
       // reply's contradiction was about words outside the part, as a sentence's figure is for a
       // part about when it happened. Its fields disagree with its verdict, so it is asked once
-      // more; its own second reply decides (#2313).
+      // more; its second reply can only lower it (#2313, #2816).
       const sentence = request.originalClaim;
       if (
         confirmation.kind === "states" &&
@@ -2137,19 +2117,6 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
           )
         : null;
     const decided = corrected?.evidence ?? evidence;
-    const backing = uniqueCitations([decided, ...namedEvidence]);
-    if (
-      verdict.verdict === "supported" &&
-      backing.some((citation) => givenAfter.has(citationKey(citation)))
-    ) {
-      // A quote the model gave only when asked for one after its verdict was found on its page,
-      // never compared with the sentence: it backs a Supported sentence only once a judge finds
-      // the quotes say what the sentence says (#2816).
-      const judged = await compare(request, backing, session, signal, STRICT_INSTRUCTIONS);
-      if (signal.aborted) return notChecked("stopped");
-      if ("failed" in judged) return failedCheck(judged.failed);
-      if (readJudgement(judged.reply) !== "same") return notChecked("no-evidence");
-    }
     return {
       verdict: verdict.verdict,
       evidence: decided,
@@ -2163,7 +2130,8 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
   };
   return async function checkClaim(request: ClaimCheckRequest): Promise<AtomicClaimCheckResult> {
     try {
-      const result = await check(request);
+      const checked = await check(request);
+      const result = (await judgedAfter.get(request)?.(checked)) ?? checked;
       return result.verdict === "supported"
         ? withDollarClause(deps, request.claim, result)
         : result;
@@ -3170,7 +3138,12 @@ function decidingCitation(finalCitation: (marker: number) => Citation | null): C
   return null;
 }
 
-const citationKey = (citation: Citation) =>
+type CitationKeyed = Pick<
+  CitationAttributes,
+  "documentId" | "contentHash" | "passageId" | "pageFrom" | "pageTo" | "location" | "quote"
+>;
+
+const citationKey = (citation: CitationKeyed) =>
   JSON.stringify([
     citation.documentId,
     citation.contentHash,
