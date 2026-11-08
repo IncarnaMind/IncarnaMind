@@ -162,8 +162,11 @@ async function recorded(
     speakerSeparator,
     lines = { mine: MY_LINES, theirs: THEIR_LINES },
     createChatModel,
+    stop = (core, meetingId) => core.stopMeeting(meetingId),
   }: {
     speakerSeparator?: SpeakerSeparator;
+    /** How Stop is pressed. */
+    stop?: (core: Core, meetingId: string) => Promise<unknown>;
     lines?: { mine: readonly string[]; theirs: readonly string[] };
     /** Models made from each spec, around `model`. */
     createChatModel?: ChatModelFactory;
@@ -189,7 +192,7 @@ async function recorded(
     const live = (await core.listMeetings()).find((each) => each.id === meeting.id);
     expect(live?.transcript?.lines ?? 0).toBeGreaterThanOrEqual(5);
   });
-  await core.stopMeeting(meeting.id);
+  await stop(core, meeting.id);
   return { core, meeting, client, dataDir };
 }
 
@@ -929,10 +932,19 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
       {},
       { seen: (call) => fillRun(call) && fills++ },
     );
-    const { core, meeting, client } = await recorded(model, NOTES);
-    await expect(core.stopMeeting(meeting.id)).rejects.toThrow(
-      "That Meeting isn’t being recorded.",
-    );
+    let stops: PromiseSettledResult<unknown>[] = [];
+    const { core, meeting, client } = await recorded(model, NOTES, undefined, undefined, {
+      stop: async (core, meetingId) => {
+        stops = await Promise.allSettled([
+          core.stopMeeting(meetingId),
+          core.stopMeeting(meetingId),
+        ]);
+      },
+    });
+    expect(stops.map((each) => each.status).sort()).toEqual(["fulfilled", "rejected"]);
+    expect(
+      stops.flatMap((each) => (each.status === "rejected" ? [String(each.reason)] : [])),
+    ).toEqual([expect.stringContaining("That Meeting isn’t being recorded.")]);
     expect(await settledFill(core, meeting)).toMatchObject({ state: "filled" });
     expect(fills).toBe(1);
     expect(

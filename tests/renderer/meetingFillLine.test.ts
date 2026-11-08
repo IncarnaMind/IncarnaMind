@@ -546,6 +546,17 @@ describe.each(["en", "zh-CN"] as const)("existing fill behavior in %s", (languag
     expect(line?.querySelector(".answer-writing")).not.toBeNull();
   });
 
+  // protects=a voice memo keeps its own waiting words with no live dot, since its Transcript's own line already says it is being finished (#2773); fails_when=the memo shows "Finishing the transcript…" twice; no_claim=a call's line, which the test above covers.
+  test("a voice memo waiting for its Transcript keeps its own words", async () => {
+    const line = await show({ ...meetingOf(fillOf({ state: "waiting" })), kind: "memo" });
+    expect(line?.textContent).toBe(
+      language === "en"
+        ? "Your note is written once the transcript is saved…"
+        : "转写稿保存后写入笔记…",
+    );
+    expect(line?.querySelector(".answer-writing")).toBeNull();
+  });
+
   // protects=a Transcript that stopped with a problem says why in its own line, so the note's line doesn't claim it is being finished (#2773); fails_when=the line says "Finishing the transcript…" with the live dot while nothing is being finished; no_claim=the Transcript's problem line, which TranscriptLines' tests cover.
   test("a Transcript that stopped leaves the note waiting, with no live dot", async () => {
     const meeting = meetingOf(fillOf({ state: "waiting" }));
