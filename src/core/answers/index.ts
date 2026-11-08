@@ -176,6 +176,7 @@ import type {
   Turn,
 } from "../conversations";
 import type { WindowedPassage } from "../documents/search";
+import { detectLanguage } from "../documents/textLanguage";
 import { ChatNotReadyError, InvalidInputError, isRecord, NotFoundError } from "../errors";
 import type { createEventHub } from "../events";
 import type { ExecAccess } from "../execution";
@@ -3425,7 +3426,17 @@ export function createAnswers(options: AnswersOptions) {
       // A model cites as the write-then-cite list says, whichever way it searches, so it never
       // cites in a way that list didn't admit it to (#1633).
       const writeFirst = options.writesThenCites?.(prepared, flow) ?? false;
-      const marks = help !== undefined && (options.marksPassages?.(prepared, flow) ?? false);
+      // A quote is picked by the words its claim shares with the Passage, and a reply in another
+      // language than a Passage it was given shares none, so such a press keeps `cite` (#2526).
+      const replyLanguage =
+        callLanguage ?? (options.interfaceLanguage() === "zh-CN" ? "Chinese" : "English");
+      const marks =
+        help !== undefined &&
+        (options.marksPassages?.(prepared, flow) ?? false) &&
+        session.shownPassages().every((passage) => {
+          const language = detectLanguage(passage.text);
+          return language === null || language === replyLanguage;
+        });
       for await (const event of engine.generate({
         instructions: (
           mode,

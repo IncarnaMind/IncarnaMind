@@ -44,19 +44,36 @@ function helpingModel(calls: ModelCall[]) {
 }
 
 /**
- * A model that answers in the options' shape, naming the first Passage found ahead in its first
- * option's marker and a Passage it wasn't given in its second's.
+ * A model that answers in the options' shape, its first option `said` with a marker naming the
+ * first Passage found ahead, and a second option with a marker naming a Passage it wasn't given.
  */
-function namingModel(calls: ModelCall[]) {
-  return scriptedModel((call) => {
-    calls.push(call);
-    const [found] = shownPassages(block(call.prompt, "found-in-documents") ?? "");
-    const named = found ? `[^${found.id.slice(1)}]` : "";
-    return {
-      text: `★ Yes, Enterprise is $45 a seat with single sign-on ${named}\n→ answers at once\n\nI'll send the price sheet today [^99]\n→ buys time`,
-    };
-  });
-}
+const namingModelSaying =
+  (said = "Yes, Enterprise is $45 a seat with single sign-on") =>
+  (calls: ModelCall[]) =>
+    scriptedModel((call) => {
+      calls.push(call);
+      const [found] = shownPassages(block(call.prompt, "found-in-documents") ?? "");
+      const named = found ? `[^${found.id.slice(1)}]` : "";
+      return {
+        text: `★ ${said} ${named}\n→ answers at once\n\nI'll send the price sheet today [^99]\n→ buys time`,
+      };
+    });
+const namingModel = namingModelSaying();
+
+/** Adds the price sheet to the Library, `name` with `text`, and waits until it is read. */
+const priceSheet =
+  (
+    name = "Price sheet.txt",
+    text = `Price sheet 2026\n\nTeam plan: $25 per seat a month.\n${PRICE}\nThe launch moves to the eighteenth of November for every plan.`,
+  ) =>
+  async (core: Core) => {
+    const sources = await createSourceFolder();
+    const added = await core.addDocuments([await writeSourceFile(sources, name, text)]);
+    await waitForProcessing(
+      core,
+      added.documents.map((document) => document.id),
+    );
+  };
 
 interface SetUpOptions {
   model?: typeof helpingModel;
@@ -198,32 +215,17 @@ describe("Help during the call", { timeout: 60_000 }, () => {
     ]);
   });
 
-  // protects=on the path that names Passages in markers, a press's reply is written in one request offered no cite, each marker naming a Passage it was given becomes that Passage's Citation, quoting the sentence most like its claim and found, and a marker naming none becomes none; fails_when=cite is offered, a second request is made, a named Passage isn't cited or is cited by another sentence, or a marker naming no Passage is kept; no_claim=what a real model writes (eval/speed/gates/call-help-marks-passages.md) (#2526).
-  test("on the path that names Passages in markers, a press is offered no cite, and each marker naming a Passage becomes its Citation, quoting its sentence most like the claim", async () => {
+  // protects=on the path that names Passages in markers, a press's reply is written in one request offered no cite, each marker naming a Passage it was given becomes that Passage's Citation, quoting the sentence holding its claim and found, and a marker naming none becomes none, with no request after the reply to ask for it; fails_when=cite is offered, a second request is made, a named Passage isn't cited or is cited by another sentence, or a marker naming no Passage is kept; no_claim=what a real model writes (eval/speed/gates/call-help-marks-passages.md) (#2526).
+  test("on the path that names Passages in markers, a press is offered no cite, and each marker naming a Passage becomes its Citation, quoting its sentence holding the claim", async () => {
     const { core, meeting, calls } = await setUp(
-      async (before) => {
-        const sources = await createSourceFolder();
-        const added = await before.addDocuments([
-          await writeSourceFile(
-            sources,
-            "Price sheet.txt",
-            `Price sheet 2026\n\nTeam plan: $25 per seat a month.\n${PRICE}\nThe launch moves to the eighteenth of November for every plan.`,
-          ),
-        ]);
-        await waitForProcessing(
-          before,
-          added.documents.map((document) => document.id),
-        );
-      },
+      priceSheet(),
       {},
       { model: namingModel, answerPaths: { marksPassages: () => true } },
     );
 
     const { answer } = await press(core, meeting, "answer");
 
-    // The reply in one request; the request after it, offered no Tool, asks for the Citation the
-    // marker naming no Passage left out, as for any marker without a record.
-    expect(calls.filter((call) => call.tools.length > 0)).toHaveLength(1);
+    expect(calls).toHaveLength(1);
     expect(calls[0]?.tools).toContain("search_documents");
     expect(calls[0]?.tools).not.toContain("cite");
     expect(calls[0]?.system).toContain("write [^3] to cite P3");
@@ -232,6 +234,45 @@ describe("Help during the call", { timeout: 60_000 }, () => {
     ]);
     expect(answer.text).toContain("I'll send the price sheet today");
     expect(answer.text).not.toContain("[^99]");
+  });
+
+  // protects=on the path that names Passages in markers, a claim giving a figure no line of its Passage holds ends with no Citation, so the panel never shows "$39 a seat" checked against a line saying "$45 per seat", and no request after the reply asks for one; fails_when=the line most like the claim is quoted and found, or a model is asked for the Citation the picker refused (#2526).
+  test("on the path that names Passages in markers, a claim whose figure no line holds ends uncited, never found", async () => {
+    const { core, meeting, calls } = await setUp(
+      priceSheet(),
+      {},
+      {
+        model: namingModelSaying(
+          "Yes, Enterprise is $39 a seat a month, with single sign-on included",
+        ),
+        answerPaths: { marksPassages: () => true },
+      },
+    );
+
+    const { answer } = await press(core, meeting, "answer");
+
+    expect(calls).toHaveLength(1);
+    expect(answer.citations).toEqual([]);
+    expect(answer.text).toContain(
+      "Yes, Enterprise is $39 a seat a month, with single sign-on included\n",
+    );
+  });
+
+  // protects=a press whose Documents are in another language than the call keeps cite on the path that names Passages in markers, since its quotes are picked by shared words and a reply in another language shares none; fails_when=cite is taken away from a cross-language press; no_claim=which models take the path (answerPaths.test.ts) (#2526).
+  test("a press whose Document is in another language than the call is offered cite on the path that names Passages in markers", async () => {
+    const { core, meeting, calls } = await setUp(
+      priceSheet(
+        "价目表.txt",
+        "价目表\n\n团队版：每席位每月 180 元。\n企业版：每席位每月 320 元，含单点登录。",
+      ),
+      {},
+      { model: namingModel, answerPaths: { marksPassages: () => true } },
+    );
+
+    await press(core, meeting, "answer");
+
+    expect(calls[0]?.tools).toContain("cite");
+    expect(calls[0]?.system).not.toContain("write [^3] to cite P3");
   });
 
   // protects=a button pressed while the live text is behind and has no line yet is answered with one plain line saying so, in the User's language, without asking the model; fails_when=the model is asked and may tell the User to retype what was said; no_claim=the panel's drawing of it (the smoke test) (#1366).

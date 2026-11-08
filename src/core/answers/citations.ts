@@ -1670,6 +1670,8 @@ export function createCitationSession(
   const handleOf = new Map<string, string>();
   /** Each Passage's text as the model was given it, by its short id. */
   const shownTexts = new Map<string, string>();
+  /** The name of each shown Passage's Document, by its short id. */
+  const shownNames = new Map<string, string>();
   const records = new Map<number, Accepted>();
   /** Markers whose last record from a `cite` call was refused or came back with a problem to fix. */
   const toFix = new Set<number>();
@@ -2212,7 +2214,10 @@ export function createCitationSession(
       const text = withUnsureMarks(plain, units);
       const notCited = documents.citationSource(passage.passageId)?.notCited ?? false;
       // What later requests offer for citing is what was shown here: never a Passage no record may name.
-      if (!notCited && !measuring) shownTexts.set(id, plain);
+      if (!notCited && !measuring) {
+        shownTexts.set(id, plain);
+        shownNames.set(id, passage.documentName);
+      }
       if (!measuring) {
         read.push({
           documentId: passage.documentId,
@@ -2429,7 +2434,7 @@ export function createCitationSession(
     shownPassages: () =>
       [...handleOf.values()].flatMap((id) => {
         const text = shownTexts.get(id);
-        return text === undefined ? [] : [{ id, text }];
+        return text === undefined ? [] : [{ id, text, name: shownNames.get(id) ?? "" }];
       }),
 
     quoteFound(passage: string, quote: string): boolean {

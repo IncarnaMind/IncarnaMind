@@ -291,8 +291,11 @@ export interface AnswerTools {
    * then cited Answer is complete. Absent: nothing.
    */
   owed?(text: string, figured?: (marker: number) => boolean): Owed;
-  /** The Passages the model was given in this Answer, by the id it cites them by, as it read them. */
-  shownPassages?(): readonly { id: string; text: string }[];
+  /**
+   * The Passages the model was given in this Answer, by the id it cites them by, as it read them,
+   * each with its Document's name.
+   */
+  shownPassages?(): readonly { id: string; text: string; name?: string }[];
   /**
    * Whether the Citation check would find `quote` in the Passage named `passage`
    * ("P3"), read as structured output's records are (see `CiteOptions`).
@@ -2137,8 +2140,14 @@ async function* toolLoop(
         keptText = figured;
         if (!request.meetingFacts) {
           const placed = yield* missingMarkerEvents(keptText, cited, request.documents);
-          yield* citeUnmarked(request, placed, temperature, budget, () =>
-            nudges.take("unmarked-quotes"),
+          // On the marks path every Citation is one IncarnaMind picked by its rules: a model asked
+          // for the rest could quote a line for a claim those rules refused (#2526).
+          yield* citeUnmarked(
+            request,
+            placed,
+            temperature,
+            budget,
+            () => !request.marksPassages && nudges.take("unmarked-quotes"),
           );
         }
       }

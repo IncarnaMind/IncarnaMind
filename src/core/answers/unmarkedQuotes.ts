@@ -132,6 +132,9 @@ const LATIN_NUMBER = /\d+(?:[.,\s]\d+)*/g;
 const CHINESE_NUMBER = /[零〇一二两三四五六七八九十百千万亿]+/gu;
 const NEGATION = /\b(?:not|no|never)\b|n't\b|[不没未无非]/giu;
 
+/** How many negations a text has: "not", "no", "never", "n't", 不, 没, 未, 无, 非. */
+export const negationsOf = (text: string): number => text.match(NEGATION)?.length ?? 0;
+
 /** The numbers in a text, sorted, so two texts' can be compared as a multiset. */
 function numbersOf(text: string): string[] {
   const latin = [...text.matchAll(LATIN_NUMBER)].map((found) =>
@@ -152,7 +155,7 @@ function saysTheSame(a: string, b: string): boolean {
   return (
     ours.length === theirs.length &&
     ours.every((number, index) => number === theirs[index]) &&
-    (a.match(NEGATION)?.length ?? 0) === (b.match(NEGATION)?.length ?? 0)
+    negationsOf(a) === negationsOf(b)
   );
 }
 
