@@ -79,6 +79,7 @@ function readPress(press: Press) {
     : [];
   let lostByPanel = false;
   let takenBackByCore = false;
+  let moveGone = false;
   let emptiedWhileWritten = false;
   let shownBefore = false;
   for (const items of shownWhileWritten) {
@@ -87,6 +88,15 @@ function readPress(press: Press) {
     if (!done) continue;
     for (const item of items) {
       const lead = comparable(pieceText(item.lead));
+      // An option or reading shown with its "→" line that is still there at the end, but without one (#2778).
+      const kept = atEnd.filter((end) => comparable(pieceText(end.lead)).startsWith(lead));
+      if (
+        item.effect &&
+        comparable(pieceText(item.effect)) !== "" &&
+        kept.length > 0 &&
+        kept.every((end) => end.effect === null)
+      )
+        moveGone = true;
       if (lead === "" || endLeads.some((end) => end.startsWith(lead))) continue;
       if (replyLeads.some((end) => end.startsWith(lead))) lostByPanel = true;
       else takenBackByCore = true;
@@ -100,6 +110,7 @@ function readPress(press: Press) {
     vanished: done && showedWords && atEnd.length === 0,
     lostByPanel,
     takenBackByCore,
+    moveGone,
     emptiedWhileWritten,
   };
 }
@@ -113,6 +124,7 @@ const COUNTED = [
   ["emptyAtEnd", "no item at the end"],
   ["lostByPanel", "an item shown, then hidden though the reply has it"],
   ["takenBackByCore", "an item shown, then taken back by the core"],
+  ["moveGone", "a → line shown, then gone at the end"],
   ["emptiedWhileWritten", "emptied while written"],
 ] as const satisfies readonly (readonly [keyof Read, string])[];
 
@@ -125,16 +137,23 @@ function report(presses: readonly Press[], heading: string): string {
     const ofCell = read.filter(
       ({ press }) => `${press.model} · ${press.language} · ${press.kind}` === cell,
     );
-    return `| ${cell} | ${ofCell.length} | ${COUNTED.map(([key]) => ofCell.filter((each) => each.read[key]).length).join(" | ")} |`;
+    const ends = ofCell
+      .filter(({ read: each }) => each.done)
+      .map(({ press }) => press.writes.at(-1)?.ms ?? 0)
+      .sort((a, b) => a - b);
+    const median =
+      ends.length > 0 ? ((ends[Math.floor((ends.length - 1) / 2)] ?? 0) / 1000).toFixed(2) : "–";
+    return `| ${cell} | ${ofCell.length} | ${COUNTED.map(([key]) => ofCell.filter((each) => each.read[key]).length).join(" | ")} | ${median} s |`;
   });
   const flagged = read.filter(
-    ({ read: each }) => each.vanished || each.emptyAtEnd || each.lostByPanel || each.failed,
+    ({ read: each }) =>
+      each.vanished || each.emptyAtEnd || each.lostByPanel || each.moveGone || each.failed,
   );
   return [
     heading,
     "",
-    `| Model · language · button | presses | ${COUNTED.map(([, label]) => label).join(" | ")} |`,
-    `|---|---|${COUNTED.map(() => "---").join("|")}|`,
+    `| Model · language · button | presses | ${COUNTED.map(([, label]) => label).join(" | ")} | done, median |`,
+    `|---|---|${COUNTED.map(() => "---").join("|")}|---|`,
     ...rows,
     "",
     "## Replies the panel ended with nothing, or with less, or that failed",

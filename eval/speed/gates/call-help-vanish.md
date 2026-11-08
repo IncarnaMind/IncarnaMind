@@ -48,3 +48,25 @@ Over every write of the 240 replies, read item by item with nothing left out (th
 - **The cause, in both presses main's panel hid an item at the end:** Haiku wrote two readings, each with its "→" line, then recorded its Citations; the core's judgement of the model's working took back the last reading's "→" line, and main's panel drops an item with no "→" line once the reply ends. A reply of one option or reading that loses its "→" line this way ends with only the heading, which is #2767's report; none of these 240 replies was of one item, so none ended empty on either panel. The unit tests read these two replies, and four one-item replies (a reading and an option in each language) made from recorded ones with their "→" line taken back, each red on main.
 - **The press that fails line 2 on the branch** (Haiku, `en-want`): between its two readings the model wrote "Actually, a more explicit reading of their last lines:", drawn for 0.1 s as the line being written and left out as a remark once the next reading came. Main draws it the same way. While a line after the first option is written, the panel can't tell a remark from the second option, and #2728's tests hold that the second option shows as it is written. Line 2 stays failed for this cell as written; whether this ships is not decided here.
 - **What the branch shows that main didn't:** a line after the last option, with no "→" line, now stays once the reply ends, as it showed while it was written: an option or reading whose "→" line was taken back, and also a closing remark when there is room for it (none of these 240 replies had one under the two-option cap). Leaving such a remark out once the reply ends is what made a reply vanish.
+
+## A "→" line the panel showed stays (#2778), written before its runs
+
+Written and committed on 2026-11-08, with the check's new count, before the change it gates and before any run that reads it.
+
+- **What changes.** The core judges as a model's working (#2371) only the text of a help reply before its first option: its first "★" line, or in short lines its first "- " line (#2526). Nothing after it is judged, so no "→" line of a written option is taken back. A help reply with no such line yet is judged as before. The panel shows Pin and Add to note only under something to pin or add, and a help Answer stopped before its first option says so with Try again.
+- **The new count:** "a → line shown, then gone at the end": an option or reading the panel showed with its "→" line, still shown at the end but without one.
+- **The replay (no model):** the 240 kept replies above, read by main's panel at this commit, then by the branch's. Every count is the same on both, the new one too: the panel's change touches only a stopped Answer, and none of the 240 is.
+- **The fresh run:** at the branch's head, the same four cases (`en-want`, `en-ask-agents`, `zh-want`, `zh-ask-agents`), each pressed 15 times on Claude Haiku 5.5 (a direct Anthropic key) and on DeepSeek V4.1 Flash 1017 (`deepseek-flash`): 120 presses, 30 a cell. Held by `INCARNAMIND_EVAL_SPEED_STOP_USD=2`, this work's cap.
+
+### The bar, on each model and language of the fresh run
+
+- "a → line shown, then gone at the end": none.
+- "words, then none at the end" and "no item at the end": none.
+- "an item shown, then taken back by the core": none. The core may now take back only text before the first option, which the panel never draws (#2728).
+- "an item shown, then hidden though the reply has it": each press counted is read and named. One that is a remark drawn for a moment between two options while it was written is the failure this check already holds as a dated exception (above); any other fails this bar.
+
+A line that fails keeps the change from shipping, and the numbers go on the issue.
+
+### Reported, not held
+
+The done time's median per cell, beside main's over the 240: a reply with nothing to judge no longer waits for the judgement's request.
