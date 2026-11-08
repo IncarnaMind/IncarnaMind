@@ -393,6 +393,13 @@ test("a provider row whose key also transcribes says both uses, and ⌘K and a r
   await expect(settings).toHaveAttribute("data-page", "ai");
   const form = keyRow(settings, "soniox").getByTestId("transcription-key-form-soniox");
   await expect(form.getByTestId("transcription-key-input")).toBeFocused();
+
+  // With the form closed, its row says the key was refused, not "Key works".
+  await form.getByTestId("transcription-key-input").press("Escape");
+  await expect(form).toHaveCount(0);
+  const state = keyRow(settings, "soniox").getByTestId("account-state");
+  await expect(state).toHaveText("Key refused");
+  await expect(state).toHaveAttribute("data-tone", "problem");
 });
 
 // protects=the moved key rows and the picker's setup hold the layout at a narrow and a wide window, in both languages; fails_when=a row's buttons overlap its words, the form or a line runs out of its row, or the page scrolls sideways; no_claim=pixel sizes.
