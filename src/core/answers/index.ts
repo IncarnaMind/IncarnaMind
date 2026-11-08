@@ -2446,28 +2446,26 @@ export function createAnswers(options: AnswersOptions) {
         ? "off"
         : (input.thinking ?? (input.task ? "task" : careful ? "careful" : "answer"));
       const helpModel = help ? (options.helpModel?.(model) ?? null) : null;
-      // A provider that refuses call help's model has the press answered on the Answers model,
-      // with nothing said in the panel (#2526).
-      const helpRefused = (refused: ChatModelChoice, error: unknown) => {
-        if (writtenBy !== null) {
-          writtenBy = model;
-          writeSoon();
-        }
-        options.helpModelRefused?.(refused, model, error);
-      };
       try {
         prepared = await options.prepareModel(model, thinking);
         if (helpModel) {
           try {
             const quick = await options.prepareModel(helpModel, thinking);
-            const answers = prepared.model;
+            // Where the provider refuses call help's model, or it is busy, the press goes on with
+            // the Answers model, with nothing said in the panel (#2526).
             prepared = {
               ...quick,
-              model: refusedGoesTo(quick.model, answers, (error) => helpRefused(helpModel, error)),
+              model: refusedGoesTo(quick.model, prepared.model, {
+                switched: () => {
+                  writtenBy = model;
+                  writeSoon();
+                },
+                refused: (error) => options.helpModelRefused?.(helpModel, model, error),
+              }),
             };
             writtenBy = helpModel;
           } catch (error) {
-            helpRefused(helpModel, error);
+            options.reportError(error);
           }
         }
       } catch (error) {
@@ -3210,7 +3208,7 @@ export function createAnswers(options: AnswersOptions) {
       if (prepared.loaded) void watchLoading(prepared.loaded);
       else showPhase();
 
-      const learntKey = modelKey(model, prepared);
+      const learntKey = modelKey(writtenBy ?? model, prepared);
       const prepareQuick = options.prepareQuickModel;
       let outcome: Outcome = { status: "stopped" };
       let mindsNow: { id: string; name: string }[] | null = null;

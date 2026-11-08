@@ -2198,9 +2198,17 @@ export function createCore(adapters: CoreAdapters): Core {
     reportError: (mindId, error) =>
       console.error(`AI use recording failed for Mind ${mindId}:`, error),
   });
-  /** Call help's models their provider refused, by provider and model (#2526). */
+  /**
+   * Call help's models their provider refused, by provider and model (#2526), until the provider
+   * is saved again, so each press doesn't wait on the refusal first.
+   */
   const refusedHelp = new Set<string>();
   const helpKey = ({ providerId, modelId }: ChatModelChoice) => `${providerId}\n${modelId}`;
+  /** The fastest model call help answers on under `answers`: its provider's quick model unless refused. */
+  const fastestHelp = (answers: ChatModelChoice | null): ChatModelChoice | null => {
+    const fastest = chat.fastestHelpModel(answers);
+    return fastest && answers && refusedHelp.has(helpKey(fastest)) ? answers : fastest;
+  };
   const answers = createAnswers({
     content,
     changes,
@@ -2230,13 +2238,10 @@ export function createCore(adapters: CoreAdapters): Core {
     prepareModel: (choice, thinking) => chat.prepareModel(choice, "chat", thinking),
     helpModel(answers) {
       if (settings.get().user.callHelpModel === "answers") return null;
-      const fastest = chat.fastestHelpModel(answers);
-      if (!fastest || fastest.modelId === answers.modelId || refusedHelp.has(helpKey(fastest)))
-        return null;
-      return fastest;
+      const fastest = fastestHelp(answers);
+      return fastest && helpKey(fastest) !== helpKey(answers) ? fastest : null;
     },
     helpModelRefused(model, answers, error) {
-      // Kept until IncarnaMind restarts, so each press doesn't wait on the refusal first.
       refusedHelp.add(helpKey(model));
       const { kind, status } = classifyProviderError(error);
       (adapters.log ?? silentLogger).warn("callHelp.modelRefused", {
@@ -6221,6 +6226,10 @@ export function createCore(adapters: CoreAdapters): Core {
     listChatProviders: () => chat.list(),
     saveChatProvider: async (input) => {
       const provider = await chat.save(input);
+      // A new key or plan may reach the quick model it refused before.
+      for (const key of refusedHelp) {
+        if (key.startsWith(`${provider.id}\n`)) refusedHelp.delete(key);
+      }
       await cloudTranscription.refreshKeys(provider.catalogId);
       transcriptionGateChanged();
       settingsChanged();
@@ -6249,7 +6258,7 @@ export function createCore(adapters: CoreAdapters): Core {
     getModelRoles: async () => ({
       quickTasks: chat.quickTasksModel(),
       images: chat.imageModel(),
-      callHelp: chat.fastestHelpModel(),
+      callHelp: fastestHelp(chat.modelInUse(null)),
     }),
     getChatReadiness: () => chat.readiness(),
     listChatModels: () => chat.listModels(),

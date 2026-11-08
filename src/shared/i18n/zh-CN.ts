@@ -6881,7 +6881,7 @@ export const zhCN = {
   "meetings.settings.panelBody": "录制时，一个帮助按钮面板浮在会议应用上方。",
   "meetings.settings.hidden": "共享屏幕时不显示浮窗",
   "meetings.settings.helpModel": "模型",
-  "meetings.settings.helpModel.tip": "最快：同一 AI 服务的快速模型，使用同一个密钥。",
+  "meetings.settings.helpModel.tip": "最快：使用同一 AI 服务的快速模型。",
   "meetings.settings.helpModel.fastest": "最快（{model}）",
   "meetings.settings.helpModel.fastestUnnamed": "最快",
   "meetings.settings.helpModel.answers": "与回答相同（{model}）",

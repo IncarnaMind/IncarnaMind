@@ -137,19 +137,44 @@ describe("Call help's model", { timeout: 60_000 }, () => {
         fields: { model: HAIKU, answeredOn: SONNET, kind: "model", status: 404 },
       },
     ]);
+    expect((await core.getModelRoles()).callHelp).toEqual({
+      providerId: provider.id,
+      modelId: SONNET,
+    });
+
+    // A new key may reach it: the next press asks the quick model again.
+    await core.saveChatProvider({ kind: "anthropic", modelId: SONNET, apiKey: "sk-ant-new" });
+    await press(core, meeting);
+    expect(haiku.doStreamCalls).toHaveLength(2);
   });
 
-  test("a quick model that is only busy isn't swapped: the press fails as any Answer would", async () => {
+  test("a quick model that is busy has that press answered on the Answers model with nothing said, and the next tries it again", async () => {
     const haiku = failingStreamModel(429, "rate limited");
     const sonnet = saying("Sonnet's line");
-    const { core, meeting, warned } = await setUp({ [HAIKU]: haiku, [SONNET]: sonnet });
+    const { core, meeting, provider, warned } = await setUp({ [HAIKU]: haiku, [SONNET]: sonnet });
+
+    const first = await press(core, meeting);
+    const second = await press(core, meeting);
+
+    for (const { answer } of [first, second]) {
+      expect(answer.status).toBe("done");
+      expect(answer.errorKind).toBeNull();
+      expect(answer.model).toEqual({ providerId: provider.id, modelId: SONNET });
+    }
+    expect(haiku.doStreamCalls).toHaveLength(2);
+    expect(warned).toEqual([]);
+  });
+
+  test("a quick model refused while the Answers model fails too: the press says the Answers model's problem, naming it", async () => {
+    const haiku = failingStreamModel(404, "model: claude-haiku-5-5 not found");
+    const sonnet = failingStreamModel(402, "Your credit balance is too low");
+    const { core, meeting, provider, warned } = await setUp({ [HAIKU]: haiku, [SONNET]: sonnet });
 
     const { answer } = await press(core, meeting);
 
     expect(answer.status).toBe("failed");
-    expect(answer.errorKind).toBe("rate-limit");
-    expect(answer.model?.modelId).toBe(HAIKU);
-    expect(answerRequests(sonnet)).toHaveLength(0);
+    expect(answer.errorKind).toBe("out-of-credit");
+    expect(answer.model).toEqual({ providerId: provider.id, modelId: SONNET });
     expect(warned).toEqual([]);
   });
 
@@ -161,6 +186,28 @@ describe("Call help's model", { timeout: 60_000 }, () => {
 
     expect(answer.status).toBe("done");
     expect(answer.model).toEqual({ providerId: provider.id, modelId: HAIKU });
+  });
+
+  test("a model on this computer keeps call help, even with a cloud model of the same Ollama set for quick tasks", async () => {
+    const local = saying("Local line");
+    const cloud = saying("Cloud line");
+    const { core, meeting } = await setUp(
+      { [SONNET]: saying("Sonnet's line"), "local-model": local, "gpt-oss:120b-cloud": cloud },
+      {
+        before: async (core) => {
+          const here = await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+          await core.updateSettings({
+            user: { quickTasksModel: { providerId: here.id, modelId: "gpt-oss:120b-cloud" } },
+          });
+        },
+      },
+    );
+
+    const { answer } = await press(core, meeting);
+
+    expect(answer.text).toContain("Local line");
+    expect(answer.model?.modelId).toBe("local-model");
+    expect(answerRequests(cloud)).toHaveLength(0);
   });
 
   test("a model on this computer keeps call help, even with a cloud quick model set", async () => {

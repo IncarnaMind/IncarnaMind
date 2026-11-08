@@ -12,6 +12,7 @@ import { SAYS_HIDDEN_FROM_SHARES } from "../../../../shared/meetingPanel";
 import { keysHere } from "../../commands/keymap";
 import { core, files } from "../../core";
 import { useT } from "../../i18n";
+import { useModelInUse } from "../../modelInUse";
 import { useModelNames } from "../../modelNames";
 import { useSettingsTarget } from "../../settingsTarget";
 import { useAppStore } from "../../store";
@@ -189,8 +190,7 @@ function ShortcutRow({ kind, device }: { kind: HelpShortcut; device: Settings["d
 const MODEL_TARGET = ["call-help-model"] as const;
 
 /** The fastest model call help can answer on, as the core works it out, asked again when the models change. */
-function useFastestHelpModel(): ChatModelChoice | null {
-  const chatModel = useAppStore((state) => state.settings?.user.chatModel);
+function useFastestHelpModel(answers: ChatModelChoice | null): ChatModelChoice | null {
   const quickTasksModel = useAppStore((state) => state.settings?.user.quickTasksModel);
   const [fastest, setFastest] = useState<ChatModelChoice | null>(null);
   // biome-ignore lint/correctness/useExhaustiveDependencies: asked again whenever they change.
@@ -199,7 +199,7 @@ function useFastestHelpModel(): ChatModelChoice | null {
       (roles) => setFastest(roles.callHelp),
       (failure: unknown) => console.error("Couldn't read call help's fastest model:", failure),
     );
-  }, [chatModel, quickTasksModel]);
+  }, [answers?.providerId, answers?.modelId, quickTasksModel]);
   return fastest;
 }
 
@@ -211,9 +211,10 @@ function CallHelpModelRow() {
   const t = useT();
   const labelId = useId();
   const chosen = useAppStore((state) => state.settings?.user.callHelpModel);
-  const answers = useAppStore((state) => state.settings?.user.chatModel ?? null);
+  // A new meeting's Note answers on the model last chosen, as any new Note does.
+  const answers = useModelInUse(null);
   const updateSettings = useAppStore((state) => state.updateSettings);
-  const fastest = useFastestHelpModel();
+  const fastest = useFastestHelpModel(answers);
   const names = useModelNames();
   const row = useSettingsTarget<HTMLDivElement>(MODEL_TARGET, chosen !== undefined, () =>
     queueMicrotask(() =>

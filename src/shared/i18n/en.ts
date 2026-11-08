@@ -7258,8 +7258,7 @@ export const en = {
     "While recording, a panel of help buttons floats above the meeting app.",
   "meetings.settings.hidden": "Keep the panel out of my screen share",
   "meetings.settings.helpModel": "Model",
-  "meetings.settings.helpModel.tip":
-    "Fastest is your AI provider’s quick model, with the same key.",
+  "meetings.settings.helpModel.tip": "Fastest uses the quick model of your AI’s own provider.",
   "meetings.settings.helpModel.fastest": "Fastest ({model})",
   "meetings.settings.helpModel.fastestUnnamed": "Fastest",
   "meetings.settings.helpModel.answers": "Same as Answers ({model})",
