@@ -71,6 +71,20 @@ npm run eval:everyday
 
 ## Results
 
+### 2026-11-08: change claims held to the change log (#2769, #2770)
+
+On `main` at `010cfcd12`, one run of 41 requests found three honest replies flagged as claiming changes the change log backs, a reply judged to name a Note it didn't make, a summary judged not longer, and a Citation marker left with no Citation. Each was read from its record (`gates/change-claims.md` says which were the app's and which this evaluation's):
+
+- the app's check read what an edit did to the User's sentences as counts, so a Chinese rewrite read as no rewrite (`edit-rewrite-paragraph-zh`, flagged in every replay), and it knew which Notes changed but not which part, so it could neither back a part changed after a failed try nor catch one whose every edit failed (`owner-2`);
+- a request said to be done was backed only by a command, and a Note made "beside" the User's read as an app claim no call made, which asked the model again into a reply the check flagged too (`notes-on-documents-en`, `notes-on-documents-zh`);
+- this evaluation named a filled empty Note by its title, which it has none of, and counted only the paragraphs a summary had before (`owner-lib-empty-en`, `own-summary-longer-zh`);
+- a dead marker before a colon was read as a footnote definition (`research-attention-long`).
+
+At the branch's head, the seven three times each (Claude Haiku 5.5 and DeepSeek V4.1 Flash as the User's model, claims judged by Claude Sonnet 5.5):
+
+| Model | Arm | At their floor | Runs passed | Asked again inside the turn |
+|---|---|---|---|---|
+MAINTABLE
 ### 2026-11-02: the claim check reads Chinese denials and the app's own marks (#1559)
 
 Three of ten Chinese replies to "把摘要写长一点。" had `claimed-action` set after the `edit_mind`
