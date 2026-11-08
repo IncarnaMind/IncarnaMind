@@ -183,8 +183,7 @@ export const CALL_HELP_CHINESE: readonly CallHelpCase[] = [
       { who: "them", text: "我们财务每个月对账都要花三天。" },
     ],
     documents: [RECEIPTS],
-    answer:
-      "一个用电子回单回应的选项：回单在签收后 10 分钟内生成，对账单可导出 Excel 和 PDF。",
+    answer: "一个用电子回单回应的选项：回单在签收后 10 分钟内生成，对账单可导出 Excel 和 PDF。",
     rests: [[line(RECEIPTS, "签收后"), line(RECEIPTS, "对账单")]],
     avoid: "电子回单文档没有的承诺，比如自动对账或对接财务系统",
   },
@@ -226,8 +225,7 @@ export const CALL_HELP_CHINESE: readonly CallHelpCase[] = [
       { who: "them", text: "我们明年可能还要再开几个新仓。" },
     ],
     documents: [PLANS_2026],
-    answer:
-      "问他们明年一共会有几个仓库，因为专业套餐含 5 个仓库，每增加 1 个仓库每月 1,500 元。",
+    answer: "问他们明年一共会有几个仓库，因为专业套餐含 5 个仓库，每增加 1 个仓库每月 1,500 元。",
     rests: [[line(PLANS_2026, "专业套餐"), line(PLANS_2026, "每增加")]],
   },
   {
@@ -260,8 +258,12 @@ export const CALL_HELP_CHINESE: readonly CallHelpCase[] = [
       { who: "me", text: QUOTE },
     ],
     documents: [PLANS_2026],
-    answer: "先在华东两个仓试点，下周一开始装传感器；对方对接人是周颖；用户这边周四前把报价单发给周颖。",
-    rests: [[said(PILOT), said(INSTALL)], [said(CONTACT), said(QUOTE)]],
+    answer:
+      "先在华东两个仓试点，下周一开始装传感器；对方对接人是周颖；用户这边周四前把报价单发给周颖。",
+    rests: [
+      [said(PILOT), said(INSTALL)],
+      [said(CONTACT), said(QUOTE)],
+    ],
   },
   {
     id: "zh7-check-wrong",
@@ -292,7 +294,8 @@ export const CALL_HELP_CHINESE: readonly CallHelpCase[] = [
       { who: "them", text: "好，这个我们法务能接受。" },
     ],
     documents: [AFTER_SALES],
-    answer: "有依据：售后条款写明因系统原因导致延误，按当单运费的 20% 赔付，每月赔付总额不超过当月服务费。",
+    answer:
+      "有依据：售后条款写明因系统原因导致延误，按当单运费的 20% 赔付，每月赔付总额不超过当月服务费。",
     rests: [[line(AFTER_SALES, "延误")]],
   },
 ];
