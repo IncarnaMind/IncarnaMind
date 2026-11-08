@@ -34,8 +34,13 @@ export interface LoopbackRedirectOptions {
    * accept any loopback port (RFC 8252 §7.3).
    */
   port: number;
-  /** The redirect path, e.g. "/auth/callback". */
+  /** The redirect path, e.g. "/auth/callback"; "" for the bare address. */
   path: string;
+  /**
+   * The host name the redirect URI names. The server listens on 127.0.0.1 either way; a
+   * registration that allows only `http://localhost` (Microsoft's public clients) needs that name.
+   */
+  host?: LoopbackHost;
   /** What the browser tab shows when sign-in finishes, or fails. */
   pages: { success: OAuthPage; failure: OAuthPage };
   /** Defaults to five minutes. */
@@ -46,9 +51,12 @@ export interface LoopbackRedirectOptions {
   stateBytes?: number;
 }
 
+/** How a loopback redirect URI names this computer (RFC 8252 §7.3). */
+export type LoopbackHost = "127.0.0.1" | "localhost";
+
 export type RedirectShape =
   /** A loopback server (`openLoopbackRedirect`); pasting the browser's address is the fallback. */
-  | { kind: "loopback"; port: number; path: string }
+  | { kind: "loopback"; port: number; path: string; host?: LoopbackHost }
   /**
    * A page of the authorization server's own, which shows the code to copy:
    * the User pastes it, as "code#state" or as the page's address.
@@ -599,7 +607,7 @@ export async function openLoopbackRedirect(
 
   const { port } = server.address() as AddressInfo;
   const opened = waitForRedirect({
-    redirectUri: `http://${LOOPBACK_HOST}:${port}${options.path}`,
+    redirectUri: `http://${options.host ?? LOOPBACK_HOST}:${port}${options.path}`,
     pages: options.pages,
     acceptsCode: false,
     ...(options.timeoutMs !== undefined && { timeoutMs: options.timeoutMs }),
@@ -629,6 +637,7 @@ export async function authorizeInBrowser(
       ? await openLoopbackRedirect({
           port: options.redirect.port,
           path: options.redirect.path,
+          ...(options.redirect.host && { host: options.redirect.host }),
           pages: options.pages,
           ...(options.timeoutMs !== undefined && { timeoutMs: options.timeoutMs }),
           ...(signal && { signal }),

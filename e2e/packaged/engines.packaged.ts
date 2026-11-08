@@ -27,6 +27,7 @@ const expected = (platform: NodeJS.Platform): string[] => [
   "IncarnaMind speakers: sherpa-onnx-node",
   ...(platform === "win32" ? [] : ["main process: @anthropic-ai/sandbox-runtime"]),
   ...(platform === "linux" ? ["main process: sandbox-runtime's seccomp helper"] : []),
+  ...(platform === "darwin" ? ["main process: the calendar helper"] : []),
   "Analyses window: Pyodide, numpy, pandas, scipy, statsmodels, scikit-learn and matplotlib",
 ];
 

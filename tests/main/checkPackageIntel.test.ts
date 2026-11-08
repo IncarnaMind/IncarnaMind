@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, copyFile, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -170,3 +170,45 @@ test("the runtime's archive inside the app fails the check", async () => {
     `FAIL: ${archive} is run_code's Python, which the app downloads and never ships`,
   ]);
 });
+
+/** The package check's failures about the Mac calendar helper (#190). */
+function calendarHelperFailures(): string[] {
+  const { stderr } = spawnSync(process.execPath, [SCRIPT, join(folder, "dist")], {
+    encoding: "utf8",
+  });
+  return stderr.split("\n").filter((line) => /calendar helper|calendar-helper/.test(line));
+}
+
+test("a macOS app without an executable calendar helper beside app.asar fails the check", async () => {
+  await packApp("mac-arm64");
+  const helper = join(resourcesOf("mac-arm64"), "calendar-helper");
+  expect(calendarHelperFailures()).toEqual([
+    `FAIL: ${join(resourcesOf("mac-arm64"), "app.asar")} has no executable calendar-helper beside it (#190)`,
+  ]);
+  await writeFile(helper, "");
+  expect(calendarHelperFailures()).toHaveLength(1);
+  await chmod(helper, 0o755);
+  expect(calendarHelperFailures()).toEqual([]);
+});
+
+test("a calendar helper in an app for another system fails the check", async () => {
+  const resources = join(folder, "dist", "linux-unpacked", "resources");
+  await mkdir(resources, { recursive: true });
+  await createPackage(join(folder, "app"), join(resources, "app.asar"));
+  await writeFile(join(resources, "calendar-helper"), "");
+  expect(calendarHelperFailures()).toEqual([
+    `FAIL: ${join(resources, "calendar-helper")} is the Mac calendar helper, in an app for another system`,
+  ]);
+});
+
+test.skipIf(lipo.status !== 0 || lipo.stdout.trim() !== "arm64")(
+  "on macOS a calendar helper built for Intel Macs too fails the check",
+  async () => {
+    await packApp("mac-arm64");
+    const helper = join(resourcesOf("mac-arm64"), "calendar-helper");
+    // A system program built for both Intel and Apple silicon.
+    await copyFile("/usr/bin/true", helper);
+    await chmod(helper, 0o755);
+    expect(calendarHelperFailures().join("\n")).toContain("not Apple silicon alone");
+  },
+);
