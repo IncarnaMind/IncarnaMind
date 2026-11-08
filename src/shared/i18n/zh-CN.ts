@@ -5622,6 +5622,8 @@ export const zhCN = {
   "error.meeting.noAudioToKeep": "这场会议没有可保留的音频。",
   "error.meeting.keepAudioChoice": "说明是否保留这场会议的音频。",
   "error.meeting.recordingPath": "选择录音的保存位置。",
+  "error.meeting.recordingTooLong": "这段录音超过 37 小时，无法存成一个文件。",
+  "error.meeting.audioNotDeleted": "这场会议的部分音频未能删除。IncarnaMind 会在一分钟后重试。",
   "error.meeting.saveWhileRecording": "停止录制后才能另存录音。",
   "error.meeting.savingRecording": "这段录音正在另存。",
   "error.meeting.joinMoved": "这场会议之后已移动，无法撤销。",

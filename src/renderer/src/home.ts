@@ -159,17 +159,6 @@ export function useHomeNeeds(): { reading: number; suggestions: number } {
   return { reading, suggestions };
 }
 
-const MINUTE_MS = 60_000;
-
-export function useMinuteClock(): Date {
-  const [now, setNow] = useState(() => new Date());
-  useEffect(() => {
-    const timer = setInterval(() => setNow(new Date()), MINUTE_MS);
-    return () => clearInterval(timer);
-  }, []);
-  return now;
-}
-
 /**
  * A click on a Recent row or a Folder card: ⌘-click (Ctrl-click) and Shift-click select, as in
  * the sidebar (`useSelectable`). A plain click opens it and leaves nothing selected on Home, which

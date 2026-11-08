@@ -58,7 +58,7 @@ async function recordOnClose(app: ElectronApplication, window: Page, name: strin
 const WORDS = {
   en: {
     notice: "Audio stays on this computer; deleted within a day.",
-    until: /^Audio kept until \d{1,2}:\d{2}( [ap]m)? tomorrow$/,
+    until: /^Audio kept until \d{1,2}:\d{2}( ?[ap]\.?m\.?)? tomorrow$/i,
     keep: "Keep audio",
     kept: "Audio kept",
     keptLine: "Keeping this meeting’s audio",
@@ -71,7 +71,7 @@ const WORDS = {
   },
   "zh-CN": {
     notice: "音频只存在这台电脑上，一天内删除。",
-    until: /^音频保留到明天 \d{1,2}:\d{2}$/,
+    until: /^音频保留到明天 (上午|下午)?\d{1,2}:\d{2}$/,
     keep: "保留音频",
     kept: "音频已保留",
     keptLine: "已保留这场会议的音频",

@@ -8,6 +8,7 @@ import {
   formatTime,
 } from "../../shared/dates";
 import type { MessageKey, MessageParams } from "../../shared/i18n";
+import { useMinuteClock } from "./minuteClock";
 
 type Translate = (key: MessageKey, params?: MessageParams) => string;
 
@@ -44,6 +45,11 @@ export function audioSaid(
         time: formatDateTime(audio.expiresAt, language, dates),
       });
   }
+}
+
+/** `audioSaid` as the window shows it: read again every minute, so "today" turns over at midnight. */
+export function useAudioSaid(meeting: Meeting, t: Translate, language: Language): string {
+  return audioSaid(meeting, t, language, { now: useMinuteClock() });
 }
 
 /** Keep audio is offered while the audio is on this computer and would go a day after. */

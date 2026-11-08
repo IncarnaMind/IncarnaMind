@@ -3,7 +3,7 @@ import type { Meeting } from "../../../core/api";
 import { commands } from "../commands/registry";
 import { useDismissOnEscape } from "../escapeDismiss";
 import { useGap, useLanguage, useT } from "../i18n";
-import { audioSaid, canKeepAudio } from "../meetingAudioWords";
+import { canKeepAudio, useAudioSaid } from "../meetingAudioWords";
 import { isLive, useMeetingOf, useMeetings } from "../meetings";
 import { clockTime } from "../meetingTime";
 import { showMeetingDetails, useMeetingNoteView } from "../meetingViews";
@@ -225,6 +225,8 @@ function MeetingAudioLine({ meeting, className = "" }: { meeting: Meeting; class
   const asked = useRequests((state) => state.deleteAudio?.meetingId === meeting.id);
   const { audio } = meeting;
   const asking = asked && audio.kept;
+  const said = useAudioSaid(meeting, t, language);
+  const problem = useMeetings((state) => state.audioProblems[meeting.id]);
   useDismissOnEscape(asking, () => keepAudio(meeting.id));
   // Asked about while this line wasn't on screen, it is a question nobody saw.
   useEffect(() => {
@@ -265,6 +267,14 @@ function MeetingAudioLine({ meeting, className = "" }: { meeting: Meeting; class
   }
   const run = (id: "meeting.keepAudio" | "meeting.deleteAudio") => () =>
     void commands.run(id, { focus: { kind: "mind", id: meeting.mindId } });
+  // Until the sweep that tries again has deleted it.
+  if (problem && audio.kept) {
+    return (
+      <ProblemLine role="alert" testId="meeting-audio-problem" className={className}>
+        {problem}
+      </ProblemLine>
+    );
+  }
   return (
     <MetaLine
       role="status"
@@ -273,7 +283,7 @@ function MeetingAudioLine({ meeting, className = "" }: { meeting: Meeting; class
       parts={[
         meeting.status === "stopped" &&
           t("meetings.audio.recorded", { time: clockTime(meeting.recordedMs) }),
-        audioSaid(meeting, t, language),
+        said,
         canKeepAudio(meeting) && (
           <LineAction
             key="keep"

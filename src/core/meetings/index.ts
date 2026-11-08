@@ -60,12 +60,13 @@ import {
   type MeetingSourceState,
   type Mind,
 } from "../api";
-import { InvalidInputError, isRecord, NotFoundError } from "../errors";
+import { InvalidInputError, isRecord, NotFoundError, TranslatableError } from "../errors";
 import type { Language } from "../language";
 import { parseFolderChoice } from "../minds";
 import type { Database } from "../storage";
 import {
   listParts,
+  MAX_RECORDING_MS,
   meetingFolder,
   msOf,
   PART_SAMPLES,
@@ -652,6 +653,15 @@ export function createMeetings(options: MeetingsOptions) {
       : null;
   };
 
+  /**
+   * When the audio goes once a stretch ends or another begins: a delete the User asked for that
+   * didn't finish stays due, so the next sweep tries it again (#687).
+   */
+  const dueOr = (row: Pick<MeetingRow, "audio_expires_at">, otherwise: string | null) =>
+    row.audio_expires_at !== null && row.audio_expires_at <= now()
+      ? row.audio_expires_at
+      : otherwise;
+
   const recordedOf = (periods: Period[]) => {
     const last = periods.at(-1);
     return last ? last.offsetMs + (last.durationMs ?? 0) : 0;
@@ -815,7 +825,7 @@ export function createMeetings(options: MeetingsOptions) {
         status: "paused",
         paused_by: "interrupted",
         periods: JSON.stringify(periods),
-        audio_expires_at: expiryOf(row, periods),
+        audio_expires_at: dueOr(row, expiryOf(row, periods)),
       });
       log.warn("meeting.recovered", {
         meetingId: row.id,
@@ -999,7 +1009,7 @@ export function createMeetings(options: MeetingsOptions) {
         status: "paused",
         paused_by: "user",
         periods: JSON.stringify(periods),
-        audio_expires_at: expiryOf(row, periods),
+        audio_expires_at: dueOr(row, expiryOf(row, periods)),
       });
       log.info("meeting.paused", { meetingId: row.id });
       changed();
@@ -1021,7 +1031,7 @@ export function createMeetings(options: MeetingsOptions) {
         status: "recording",
         paused_by: null,
         periods: JSON.stringify([...periods, period]),
-        audio_expires_at: null,
+        audio_expires_at: dueOr(row, null),
       });
       begin(rowOf(row.id), period);
       log.info("meeting.resumed", { meetingId: row.id });
@@ -1041,7 +1051,7 @@ export function createMeetings(options: MeetingsOptions) {
         paused_by: null,
         periods: JSON.stringify(periods),
         stopped_at: now(),
-        audio_expires_at: expiryOf(row, periods),
+        audio_expires_at: dueOr(row, expiryOf(row, periods)),
       });
       transcripts?.stop(row.id);
       help.delete(row.id);
@@ -1105,8 +1115,8 @@ export function createMeetings(options: MeetingsOptions) {
     },
 
     /**
-     * Keeps a Meeting's audio until the User deletes it, or with `kept` false lets it go a day
-     * after its last stretch again, as Undo does: then, past that, at the next sweep (#687).
+     * Keeps a Meeting's audio until the User deletes it, or with `kept` false, as its Undo does,
+     * lets it go a day from now: never at once, however long it was kept (#687).
      */
     keepAudio(input: unknown): Meeting {
       const { meetingId, kept: keep } = isRecord(input) ? input : {};
@@ -1117,12 +1127,12 @@ export function createMeetings(options: MeetingsOptions) {
       if (keep && !hasAudio(row.id)) {
         throw new InvalidInputError({ key: "error.meeting.noAudioToKeep" });
       }
-      const audioKeptAt = keep ? (row.audio_kept_at ?? now()) : null;
+      const at = now();
       save(row.id, {
-        audio_kept_at: audioKeptAt,
+        audio_kept_at: keep ? (row.audio_kept_at ?? at) : null,
         audio_expires_at:
-          row.status === "paused" || row.status === "stopped"
-            ? expiryOf({ id: row.id, audio_kept_at: audioKeptAt }, periodsOf(row))
+          !keep && (row.status === "paused" || row.status === "stopped") && hasAudio(row.id)
+            ? new Date(Date.parse(at) + MEETING_AUDIO_KEPT_MS).toISOString()
             : null,
       });
       log.info("meeting.audioKept", { meetingId: row.id, kept: keep });
@@ -1147,15 +1157,14 @@ export function createMeetings(options: MeetingsOptions) {
         throw new InvalidInputError({ key: "error.meeting.savingRecording" });
       }
       if (!hasAudio(row.id)) throw new NotFoundError({ key: "error.meeting.audioGone" });
+      const durationMs = recordedOf(periodsOf(row));
+      if (durationMs > MAX_RECORDING_MS) {
+        throw new InvalidInputError({ key: "error.meeting.recordingTooLong" });
+      }
       const write = { stop: false };
       writing.set(row.id, write);
       try {
-        const written = await writeRecording(
-          folderOf(row.id),
-          recordedOf(periodsOf(row)),
-          path,
-          () => write.stop,
-        );
+        const written = await writeRecording(folderOf(row.id), durationMs, path, () => write.stop);
         if (!written) throw new NotFoundError({ key: "error.meeting.audioGone" });
         log.info("meeting.recordingSaved", { meetingId: row.id });
       } finally {
@@ -1163,9 +1172,20 @@ export function createMeetings(options: MeetingsOptions) {
       }
     },
 
+    /**
+     * Delete now. Asked for first, as the audio's day ending now: a removal that fails part-way is
+     * tried again by the sweep and at the next start, kept or not, and its error is thrown.
+     */
     deleteAudio(meetingId: unknown): Meeting {
       const row = rowOf(meetingId);
-      deleteAudio(row.id, "user");
+      save(row.id, { audio_kept_at: null, audio_expires_at: now() });
+      try {
+        deleteAudio(row.id, "user");
+      } catch (error) {
+        log.error("meeting.deleteAudioFailed", { meetingId: row.id, code: codeOf(error) });
+        changed();
+        throw new TranslatableError({ key: "error.meeting.audioNotDeleted" }, { cause: error });
+      }
       save(row.id, { audio_deleted_at: now(), audio_expires_at: null });
       changed();
       return toMeeting(rowOf(row.id));

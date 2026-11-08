@@ -1,6 +1,9 @@
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { DOMParser } from "linkedom";
+import { act, createElement } from "react";
+import { createRoot } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { Meeting } from "../../src/core/api";
-import { audioSaid, canKeepAudio } from "../../src/renderer/src/meetingAudioWords";
+import { audioSaid, canKeepAudio, useAudioSaid } from "../../src/renderer/src/meetingAudioWords";
 import { translate } from "../../src/shared/i18n";
 
 const en = (key: Parameters<typeof translate>[1], params?: Parameters<typeof translate>[2]) =>
@@ -47,5 +50,40 @@ describe("A Meeting's audio line (#687)", () => {
     expect(audioSaid(deleted, zh, "zh-CN", now)).toBe("音频已于10月14日删除");
     expect(canKeepAudio(deleted)).toBe(false);
     expect(audioSaid(meeting({ kept: false }), en, "en", now)).toBe("No audio was recorded");
+  });
+});
+
+describe("The audio line across midnight (#687)", () => {
+  const zone = process.env.TZ;
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    if (zone === undefined) delete process.env.TZ;
+    else process.env.TZ = zone;
+  });
+
+  // protects=the line shown reads the clock again every minute, so "tomorrow" becomes "today" at midnight with nothing else changing; fails_when=the line keeps the day it was first drawn on; no_claim=the popover's own drawing, which the window spec covers.
+  test('"tomorrow" turns to "today" at midnight on its own', async () => {
+    process.env.TZ = "Europe/London";
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    vi.setSystemTime(new Date("2026-10-14T23:58:30+01:00"));
+    const document = new DOMParser().parseFromString("<html><body></body></html>", "text/html");
+    vi.stubGlobal("document", document);
+    vi.stubGlobal("window", document.defaultView);
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const container = document.createElement("div", {});
+    document.body.append(container);
+    const kept = meeting({ expiresAt: "2026-10-15T09:54:00+01:00" });
+    function Line() {
+      return createElement("p", null, useAudioSaid(kept, en, "en"));
+    }
+    const root = createRoot(container);
+    await act(() => root.render(createElement(Line)));
+    expect(container.textContent).toMatch(/ tomorrow$/);
+    await act(() => {
+      vi.advanceTimersByTime(2 * 60_000);
+    });
+    expect(container.textContent).toMatch(/ today$/);
+    await act(() => root.unmount());
   });
 });

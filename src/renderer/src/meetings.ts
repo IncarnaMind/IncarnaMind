@@ -16,6 +16,8 @@ interface MeetingsState {
   meetings: Meeting[];
   /** What went wrong with the last thing done to a Meeting, by its id, until the next try. */
   problems: Readonly<Record<string, string>>;
+  /** What went wrong deleting or keeping a Meeting's audio, said on its audio line (#687). */
+  audioProblems: Readonly<Record<string, string>>;
   /** The Meeting whose Start, or the voice memo, waits for the one-time recording notice. */
   noticeFor: { meetingId: string; systemAudio: boolean } | { memo: true } | null;
   starting: Readonly<Record<string, true>>;
@@ -86,6 +88,20 @@ export const useMeetings = create<MeetingsState>()((set, get) => {
     }
   };
 
+  const onAudio = async (meetingId: string, action: () => Promise<unknown>) => {
+    set((state) => ({ audioProblems: withoutKey(state.audioProblems, meetingId) }));
+    try {
+      await action();
+    } catch (error) {
+      set((state) => ({
+        audioProblems: {
+          ...state.audioProblems,
+          [meetingId]: errorMessage(error, translateNow),
+        },
+      }));
+    }
+  };
+
   // Asked for twice quickly, a memo is made once.
   let makingMemo = false;
   const memoNow = async () => {
@@ -129,6 +145,7 @@ export const useMeetings = create<MeetingsState>()((set, get) => {
   return {
     meetings: [],
     problems: {},
+    audioProblems: {},
     noticeFor: null,
     cantRecord: false,
     starting: {},
@@ -269,9 +286,9 @@ export const useMeetings = create<MeetingsState>()((set, get) => {
       // The block it leaves had the focus: the Mind stays as a note, and its text takes the cursor.
       if (mindId && !(meetingId in get().problems)) useAppStore.setState({ bodyToFocus: mindId });
     },
-    deleteAudio: (meetingId) => attempt(meetingId, () => core.deleteMeetingAudio(meetingId)),
+    deleteAudio: (meetingId) => onAudio(meetingId, () => core.deleteMeetingAudio(meetingId)),
     keepAudio: (meetingId) =>
-      attempt(meetingId, async () => {
+      onAudio(meetingId, async () => {
         const keep = (kept: boolean) => async () => {
           await core.keepMeetingAudio({ meetingId, kept });
         };

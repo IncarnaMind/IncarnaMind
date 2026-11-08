@@ -4,7 +4,7 @@ import { captureLines } from "../captureHealth";
 import { commands } from "../commands/registry";
 import { useLanguage, useT } from "../i18n";
 import { currentTabOf } from "../layoutSlice";
-import { audioSaid, canKeepAudio } from "../meetingAudioWords";
+import { canKeepAudio, useAudioSaid } from "../meetingAudioWords";
 import { useMeetings } from "../meetings";
 import { clockTime } from "../meetingTime";
 import {
@@ -23,6 +23,7 @@ import {
   ChevronRightLineIcon,
   PulseLineIcon,
 } from "./lineIcons";
+import { ProblemMark } from "./ProblemLine";
 import { menuFrameClass, menuItemClass, menuRuleClass } from "./ui";
 import { usePopoverMenu } from "./usePopoverMenu";
 
@@ -158,6 +159,8 @@ function AudioRow({ meeting, asked, open }: { meeting: Meeting; asked: boolean; 
   const id = useId();
   const { audio } = meeting;
   const asking = asked && audio.kept;
+  const said = useAudioSaid(meeting, t, language);
+  const problem = useMeetings((state) => state.audioProblems[meeting.id]);
   const confirm = useRef<HTMLButtonElement>(null);
   // The User just asked to delete: the choice takes the focus, once the popover shows.
   useEffect(() => {
@@ -206,8 +209,19 @@ function AudioRow({ meeting, asked, open }: { meeting: Meeting; asked: boolean; 
         data-gone={audio.kept ? undefined : ""}
         className="py-1 pr-2 pl-8 text-[13px] leading-5 text-ink-meta"
       >
-        {audioSaid(meeting, t, language)}
+        {said}
       </p>
+      {/* Until the sweep that tries again has deleted it. */}
+      {problem && audio.kept && (
+        <p
+          role="alert"
+          data-testid="meeting-audio-problem"
+          className="py-1 pr-2 pl-8 text-[13px] leading-5 text-ink"
+        >
+          <ProblemMark />
+          {problem}
+        </p>
+      )}
       {canKeepAudio(meeting) && (
         <button
           type="button"
