@@ -10,6 +10,7 @@ import { MockLanguageModelV4 } from "ai/test";
 import { afterEach, describe, expect, test } from "vitest";
 import { newestStretch } from "../../eval/speed/arms";
 import { callHelpSet } from "../../eval/speed/callHelp";
+import { CALL_HELP_AGREES } from "../../eval/speed/callHelpAgrees";
 import { CALL_HELP_CASES, callOf, TRANSCRIPT } from "../../eval/speed/callHelpCases";
 import { CALL_HELP_CHECKS } from "../../eval/speed/callHelpChecks";
 import { CALL_HELP_DOCUMENTS } from "../../eval/speed/callHelpDocuments";
@@ -146,6 +147,7 @@ describe("The call-help cases", () => {
     ["fresh", CALL_HELP_FRESH, 8],
     ["documents", CALL_HELP_DOCUMENTS, 12],
     ["checks", CALL_HELP_CHECKS, 10],
+    ["agrees", CALL_HELP_AGREES, 12],
   ] as const)(
     "%s set: as many cases in each language, each with ids of its own, Documents of its own, and the lines it rests on in them",
     (_, cases, perLanguage) => {
@@ -181,6 +183,11 @@ describe("The call-help cases", () => {
       "the checks slice",
       CALL_HELP_CHECKS,
       [CALL_HELP_CASES, CALL_HELP_HELD_OUT, CALL_HELP_FRESH, CALL_HELP_DOCUMENTS],
+    ],
+    [
+      "the agrees slice",
+      CALL_HELP_AGREES,
+      [CALL_HELP_CASES, CALL_HELP_HELD_OUT, CALL_HELP_FRESH, CALL_HELP_DOCUMENTS, CALL_HELP_CHECKS],
     ],
   ])("%s shares no case and no Document with a set before it", (_, cases, before) => {
     const ids = new Set(before.flat().map((each) => each.id));

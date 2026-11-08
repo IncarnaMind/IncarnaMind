@@ -33,6 +33,7 @@ import {
 } from "../../tests/helpers/transcription";
 import type { EvalDocument } from "../lib/evaluationSet";
 import { openLibrary } from "../lib/library";
+import { CALL_HELP_AGREES } from "./callHelpAgrees";
 import {
   CALL_HELP_CASES,
   type CallHelpCase,
@@ -528,7 +529,8 @@ type CallHelpSet =
   | "call-help-held-out"
   | "call-help-fresh"
   | "call-help-documents"
-  | "call-help-checks";
+  | "call-help-checks"
+  | "call-help-agrees";
 
 const CASES: Readonly<Record<CallHelpSet, readonly CallHelpCase[]>> = {
   "call-help": CALL_HELP_CASES,
@@ -536,6 +538,7 @@ const CASES: Readonly<Record<CallHelpSet, readonly CallHelpCase[]>> = {
   "call-help-fresh": CALL_HELP_FRESH,
   "call-help-documents": CALL_HELP_DOCUMENTS,
   "call-help-checks": CALL_HELP_CHECKS,
+  "call-help-agrees": CALL_HELP_AGREES,
 };
 
 /** One group a case: its own Library, its own Meeting heard before the press. */

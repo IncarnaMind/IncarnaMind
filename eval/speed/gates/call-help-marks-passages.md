@@ -362,3 +362,58 @@ The run was made at dd50c809c, `today` on main's path, three runs of every press
 - **False Supported,** presses over three runs, today → step: en5-check-overtime 0 → 3, en5-check-warranty 2 → 3, en5-no-forecasts 0 → 3, en5-answer-growth 3 → 0; zh5-answer-offline 1 → 3, zh5-answer-growth 2 → 3, zh5-check-photos 0 → 2, zh5-check-warranty 2 → 0. Found-but-unstated: en 13 of 64 → 19 of 77, zh 8 of 57 → 14 of 78.
 - One request in 55 of 60 presses on the step; today took two in 55.
 - **Spend:** $2.72 (judge $0.68), so $8.88 for this look's three runs together.
+
+## Fifth look: IncarnaMind finds the Document's line for a check that says a Document agrees (added 2026-11-08, committed with its slice before the code and before any run)
+
+The fourth look's records were read press by press (posted on #2526). Every press that lost "cited" said a Document agreed while marking only the call's line ("You said … [1]; the payroll export document agrees."). Of the step's 26 presses with a false Supported, 8 came from those sentences and 5 from the picker:
+
+- a compound sentence's other clause ("…含人工成本预测；入门版…另收 99 元") kept the right line out as one about other figures, and an overview line naming no plan was quoted;
+- "I'll" gave the word "ll", so two words in common passed the floor;
+- the transcript window a marker named won with a weak line over a neighbouring window's better one;
+- "2-business-day" was read as a bare 2.
+
+The rest were a table row read without its header or a total worked out with `calculate`, which the judge flags on today's arm too, and replies adding an inference or a promise to their quote.
+
+### What changes
+
+The picker's rules stay, and code never records a line that doesn't hold its claim. `src/core/answers/markedPassages.ts` says each rule.
+
+- **A sentence that says a Document agrees.** A sentence's markers may name only the call's lines while its words after them name a Document (by its name, or as "the document" or 文档) with no negation. For such a sentence, IncarnaMind looks in the Documents given for the line that holds what was said, under the picker's rules: every figure by kind and unit, never the opposite, never a heading, and a row's name in the quote. It records that line under a marker of its own after those words. When no line holds it, the sentence's markers go and it shows uncited.
+- **A compound sentence about two rows** is read clause by clause, split at its semicolon, when each clause names a row of its own.
+- **The line holding the most of the claim wins** across the Passages of one Document or transcript, not the first Passage with any line that passes.
+- **No word from a contraction's end:** "I'll", "we're" and "they've" give no "ll", "re" or "ve". A unit after a hyphenated "business" or "working" is read: "2-business-day" is two days.
+
+The slice below was written and committed before this code. The rules come from the fourth look's replies and from no press of this slice.
+
+### The slice
+
+`../callHelpAgrees.ts` (`call-help-agrees`) holds 12 English and 12 Chinese presses. They are set at a hotel laundry service selling to a hotel group. Each language has four Documents: plans with a table, a volume price and a compound sentence about two plans; collection and delivery; damage and loss; billing terms. None of them is in a set before it.
+
+Each language has:
+
+- four presses checking what was said against a Document that agrees, one of them with a claim the other side made and with figures said in words;
+- one press checking against a Document that disagrees on two claims;
+- one press where the Document agrees with one claim and not the other;
+- three answers with a near-miss figure;
+- one no and one say;
+- one answer from a Document in the other language, which keeps `cite` on both arms.
+
+No run, prompt or probe has seen the slice.
+
+### The run
+
+- Claude Sonnet 5.5 on the direct Anthropic key, judged by Claude Opus 5.5.
+- `today` (main's path: no model is on `MARKS_PASSAGES`) against `help-marks-passages`, paired, three runs, false Supported counted. The arms' order turns per model, set and language (#2791).
+- Main is merged first, and the run starts at a 15-minute load of 24 or less.
+- Spend: about $3.50, within this look's $10.
+
+### The bar
+
+Sonnet is listed only if all of these hold in each language, on counts pooled over the three runs:
+
+- **Cited, judged right and every Citation found:** the step's presses are no fewer than today's.
+- **False Supported:** the step's presses are no more than today's.
+- **Sooner:** the step's medians of the first whole option and of done are below today's.
+- **None new:** no more Tool calls left as text, replies that showed nothing, replies written while the live text was behind, or presses failing to run.
+
+If any line fails, nothing ships, and the numbers go on #2526.
