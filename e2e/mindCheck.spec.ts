@@ -218,12 +218,16 @@ for (const language of ["en", "zh-CN"] as const) {
       await mindCheckFinished(window, 2);
       const checked = card.getByTestId("health-checked-all");
       await expect(checked).toContainText(
-        language === "en" ? "Couldn’t tell if 1 sentence is a claim" : "1 句未能判断是否为说法",
+        language === "en"
+          ? "Couldn’t tell whether 1 sentence needs checking"
+          : "无法判断 1 句是否需要核对",
       );
-      // A count only: the card's own Check runs the check again, and the count shows once, on
-      // this line, not also as a row of its own (#2313).
+      // Named on this line with no action of its own (#2313), and counted under not checked, so
+      // the rows add up to the sentences (#2831): the card's own Check runs the check again.
       await expect(checked.getByRole("button")).toHaveCount(0);
-      await expect(card.getByTestId("health-toCheck")).toHaveCount(0);
+      await expect(card.getByTestId("health-toCheck")).toContainText(
+        language === "en" ? "1 not checked" : "1 句未核对",
+      );
       for (const width of [900, 1600]) {
         await setWindowSize(app, window, width, 800);
         await expect(checked).toBeVisible();
@@ -354,7 +358,7 @@ test("The card's one Check: the price line first on a cloud model under a cap, t
     window.getByTestId("palette-item").filter({ hasText: "Checks this note" }).first(),
   );
   const ask = window.getByTestId("check-card").getByTestId("mind-check-ask");
-  await expect(ask).toContainText("Check this note’s claim against your Documents?");
+  await expect(ask).toContainText("Check this note’s sentence against your Documents?");
   await expect(marks(window).and(window.locator('[data-check="needs-recheck"]'))).toHaveCount(1);
   await pointAndClick(window, ask.getByTestId("mind-check-check"));
   await expect(marks(window).and(window.locator('[data-check="needs-recheck"]'))).toHaveCount(0);
@@ -369,7 +373,7 @@ test("The card's one Check: the price line first on a cloud model under a cap, t
   );
   // Check every sentence again re-checks the 15 claims; the 5 the first run found make none stay out.
   await expect(window.getByTestId("check-card").getByTestId("mind-check-ask")).toContainText(
-    "Check this note’s 15 claims against your Documents?",
+    "Check this note’s 15 sentences against your Documents?",
   );
 });
 
@@ -910,7 +914,7 @@ test("Check with nothing changed sends nothing: the marks stay and the card says
   await window.keyboard.press("Enter");
   const ask = card.getByTestId("mind-check-ask");
   // Every sentence again re-checks the 15 claims; the 5 the first run found make none stay out.
-  await expect(ask).toContainText("Check this note’s 15 claims against your Documents?");
+  await expect(ask).toContainText("Check this note’s 15 sentences against your Documents?");
   await expect(unchanged).toHaveCount(0);
   expect(await modelRequests(window)).toBe(sent);
   await pointAndClick(window, ask.getByTestId("mind-check-check"));

@@ -2539,13 +2539,16 @@ export async function checkCard(
       }).toPass();
     } else {
       const chinese = (await window.evaluate(() => document.documentElement.lang)) === "zh-CN";
-      const command = chinese ? "说法和引用" : "Claims and Citations";
+      // The card's old name still finds its command, now named Checks (#2831).
       await window.keyboard.press("ControlOrMeta+k");
       await expect(window.getByTestId("palette-search")).toBeFocused();
-      await window.keyboard.type(command);
+      await window.keyboard.type(chinese ? "说法和引用" : "Claims and Citations");
       await pointAndClick(
         window,
-        window.getByTestId("palette-item").filter({ hasText: command }).first(),
+        window
+          .getByTestId("palette-item")
+          .filter({ hasText: chinese ? "核对" : "Checks" })
+          .first(),
       );
     }
   }
