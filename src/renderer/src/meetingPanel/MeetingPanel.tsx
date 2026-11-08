@@ -29,6 +29,7 @@ import { ProblemLine } from "../components/ProblemLine";
 import { ReadinessExplanation } from "../components/providers/ChatReadinessNotice";
 import { core } from "../core";
 import { errorMessage } from "../errors";
+import { helpToKeep } from "../helpReply";
 import { translateNow, useT } from "../i18n";
 import { addHelpToNotes, askHelp, useMeetingHelp } from "../meetingHelp";
 import { isLive, isWaitingForPermission, useMeetings, useMeetingTime } from "../meetings";
@@ -442,6 +443,7 @@ function Suggestion({
       </div>
     );
   }
+  const keeps = helpToKeep(answer, help.kind);
   const addToNotes = async () => {
     setProblem(null);
     try {
@@ -464,7 +466,7 @@ function Suggestion({
         answer={answer}
         onRetry={() => void askHelp(meeting, help.kind)}
       />
-      {answer.status === "done" && (
+      {(keeps || pinned) && answer.status !== "streaming" && (
         <div className="panel-actions">
           <button
             type="button"
@@ -475,24 +477,29 @@ function Suggestion({
           >
             {t(pinned ? "meetings.help.unpin" : "meetings.help.pin")}
           </button>
-          {added ? (
-            <p role="status" data-testid="help-added" className="panel-line">
-              {t("meetings.help.added")}
-              <span aria-hidden="true"> · </span>
-              <button type="button" onClick={() => undoAdd(added.blockIds)} className="panel-link">
-                {t("move.undo")}
+          {keeps &&
+            (added ? (
+              <p role="status" data-testid="help-added" className="panel-line">
+                {t("meetings.help.added")}
+                <span aria-hidden="true"> · </span>
+                <button
+                  type="button"
+                  onClick={() => undoAdd(added.blockIds)}
+                  className="panel-link"
+                >
+                  {t("move.undo")}
+                </button>
+              </p>
+            ) : (
+              <button
+                type="button"
+                data-testid="help-add"
+                onClick={() => void addToNotes()}
+                className="panel-ghost"
+              >
+                {t("meetings.help.addToNotes")}
               </button>
-            </p>
-          ) : (
-            <button
-              type="button"
-              data-testid="help-add"
-              onClick={() => void addToNotes()}
-              className="panel-ghost"
-            >
-              {t("meetings.help.addToNotes")}
-            </button>
-          )}
+            ))}
         </div>
       )}
       {problem && (

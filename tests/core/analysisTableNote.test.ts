@@ -48,6 +48,7 @@ import { resolveChanges } from "../helpers/minds";
 import {
   type GenerateCall,
   type ModelCall,
+  type ScriptedReply,
   scriptedModel,
   scriptedModels,
 } from "../helpers/models";
@@ -1108,6 +1109,45 @@ describe.each(["en", "zh-CN"] as const)("%s: an Analysis figure's sentence (#237
     );
     expect(mended.mark?.state).toBe("supported");
     expect(mended.rows).toEqual(["supported"]);
+  });
+
+  test("asked again, a reply whose Figures line can't be read leaves the cell Not checked, never the Supported its first reply gave (#2591)", async () => {
+    const supportedWithFigures = (call: ModelCall): ScriptedReply => {
+      const items = requestedFigures(call).map(({ id, reading }) => ({
+        id,
+        names: "same",
+        verdict: "supported",
+        scope: "same",
+        topic: "found",
+        roles: "same",
+        says: null,
+        reading,
+        relation: "equals",
+        source: null,
+        calculation: null,
+      }));
+      return { text: `Verdict: supported\nAbsence: no\nFigures: ${JSON.stringify({ items })}` };
+    };
+    const { core, madeId, client } = await walked(
+      language,
+      lines(words.right),
+      false,
+      null,
+      withFigures(),
+      null,
+      () => ({
+        reply: (call: ModelCall): ScriptedReply =>
+          call.prompt.includes("Your Figures line gives no remainder")
+            ? { text: "Verdict: supported\nAbsence: no" }
+            : supportedWithFigures(call),
+      }),
+    );
+    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
+    await client.settled();
+    expect(stateOf(client, words.right)).toMatchObject({ state: "not-checked" });
+    expect(await scheduleStates(core, madeId)).toEqual(["not-checked"]);
+    expect((await reading(core, client))?.kind).not.toBe("checked");
+    core.close();
   });
 
   test("one verdict everywhere: a reply with no remainder leaves the sentence, its marker and its row all Not checked", async () => {

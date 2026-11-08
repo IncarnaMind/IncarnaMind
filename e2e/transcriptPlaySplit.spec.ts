@@ -15,6 +15,7 @@ import {
   runCommand,
   setLanguage,
   setWindowSize,
+  turnOf,
   useLocalChatModel,
 } from "./app";
 import { encode, film } from "./feel";
@@ -90,6 +91,9 @@ async function spanOf(line: Locator): Promise<{ startMs: number; endMs: number }
   const [start, end] = ((await line.getAttribute("data-line")) ?? "").split("-");
   return { startMs: Number(start), endMs: Number(end) };
 }
+
+/** Who speaks a line, as its turn says. */
+const speakerOf = (line: Locator) => turnOf(line).getByTestId("transcript-speaker");
 
 /** Where the player says it is, in ms, to the second it shows. */
 async function playerAt(player: Locator): Promise<number> {
@@ -223,7 +227,7 @@ for (const language of ["en", "zh-CN"] as const) {
       const rest = lines.nth(2);
       await expect(head.locator("[data-word]")).toHaveText(before.slice(0, 3));
       await expect(rest.locator("[data-word]")).toHaveText(before.slice(3));
-      await expect(rest.getByTestId("transcript-speaker")).toHaveText(words.name);
+      await expect(speakerOf(rest)).toHaveText(words.name);
       expect((await spanOf(rest)).startMs).toBeGreaterThan(startMs);
       await expect(window.getByTestId("undo-line")).toContainText(words.split);
       await expect(rest).toBeFocused();
@@ -236,7 +240,7 @@ for (const language of ["en", "zh-CN"] as const) {
 
       // The keyboard: Right puts the caret on the line's words, Enter splits there, and Esc in
       // the menu keeps the rest with the same Speaker.
-      const speaker = await lines.nth(1).getByTestId("transcript-speaker").innerText();
+      const speaker = await speakerOf(lines.nth(1)).innerText();
       await lines.nth(1).focus();
       await window.keyboard.press("ArrowRight");
       await expect(lines.nth(1).locator("[data-word]").first()).toHaveAttribute(
@@ -256,7 +260,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await window.keyboard.press("Escape");
       await expect(menu).toHaveCount(0);
       await expect(lines).toHaveCount(count + 1);
-      await expect(lines.nth(2).getByTestId("transcript-speaker")).toHaveText(speaker);
+      await expect(speakerOf(lines.nth(2))).toHaveText(speaker);
       await window.keyboard.press("ControlOrMeta+z");
       await expect(lines).toHaveCount(count);
 

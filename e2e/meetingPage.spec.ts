@@ -307,7 +307,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await setWindowSize(app, window, 900, 660);
     await expectBarOneRow(bar);
     const widths = await transcript
-      .getByTestId("transcript-line")
+      .getByTestId("transcript-turn")
       .first()
       .evaluate((line) => ({
         line: line.getBoundingClientRect().width,

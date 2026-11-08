@@ -3495,6 +3495,22 @@ export interface DeviceSettings {
   meetingPanelHidden: boolean;
   /** The help buttons' global shortcuts the User changed; the others keep their defaults. */
   meetingHelpKeys: HelpKeys;
+  /**
+   * Settings › General › "Keep running in the menu bar" (in the tray on Windows and Linux, #189):
+   * its icon stays, and closing the window leaves IncarnaMind running. Turned on when the User sets
+   * up Meetings.
+   */
+  keepRunning: boolean;
+  /** Settings › General › Notifications: the offer to take notes before a calendar meeting (#207). */
+  calendarOffers: boolean;
+  /**
+   * Settings › General › Notifications: the offer to take notes when a call app takes the
+   * microphone (#208). Off until the User sets up Meetings, whose sheet says it turns on; someone
+   * who set them up before this was built is asked once, on Home.
+   */
+  callOffers: boolean;
+  /** The call apps the User turned offers off for ("Don't ask for Zoom"), by id (src/shared/meetingApps.ts). */
+  callOffersOff: string[];
   /** How the window moves here (Settings → General → Motion): see `MotionPreference`. */
   motion: MotionPreference;
   /** Light or dark here (Settings → General → Appearance): see `Appearance`. */
@@ -3505,6 +3521,45 @@ export interface DeviceSettings {
    * they choose, and again once its provider is removed: they follow `UserSettings.chatModel` then.
    */
   lastChatModel: ChatModelChoice | null;
+}
+
+/**
+ * Why this computer can't tell when a call starts (#208): PulseAudio's `pactl` is missing (Linux),
+ * Windows, which has no watcher yet, or the watcher couldn't run or stopped.
+ */
+export type CallWatchProblem = "no-pactl" | "not-on-windows" | "unavailable";
+
+/** An offer to take notes in a call that isn't on the calendar (#208): a call app took the microphone. */
+export interface CallOffer {
+  id: string;
+  /** The call app's id (src/shared/meetingApps.ts). */
+  app: string;
+  /** When the app took the microphone (ISO 8601). */
+  at: string;
+}
+
+/** A Meeting taken from a call offer whose call app let go of the microphone: it stops at `stopsAt` (ISO 8601) unless kept. */
+export interface CallEnding {
+  meetingId: string;
+  app: string;
+  stopsAt: string;
+}
+
+/** The offers to take notes as they are now (#208). */
+export interface MeetingOffers {
+  offer: CallOffer | null;
+  ending: CallEnding | null;
+  /** Why calls can't be noticed here; null while they can, or while offers for calls are off. */
+  problem: CallWatchProblem | null;
+}
+
+/** Whether IncarnaMind opens at login on this computer (#189). */
+export interface OpenAtLogin {
+  /** This copy can: false in a build the system can't open at login. */
+  supported: boolean;
+  on: boolean;
+  /** macOS waits for the User to allow it in System Settings › Login Items. */
+  needsApproval: boolean;
 }
 
 /**
@@ -3543,6 +3598,8 @@ export interface TranscriptionServiceStatus {
   dataUse: { summary: Localized; url: Localized } | null;
   /** "provider": it uses the key of the chat provider of the same name in Settings › Models. */
   key: "provider" | "own";
+  /** The saved chat provider whose key it uses, for a `key` "provider" route that has one; null otherwise. */
+  providerId: string | null;
   hasKey: boolean;
   liveSpeakers: boolean;
   keyUrl: string | null;
@@ -14234,6 +14291,23 @@ export interface CoreApi {
    * marks the stretch; the computer's sound goes on. Every Meeting starts with its microphone on.
    */
   setMeetingMicrophone(input: SetMeetingMicrophoneInput): Promise<Meeting>;
+  /** The offer to take notes in a call, and a call's end waiting to stop its Meeting (#208). */
+  getMeetingOffers(): Promise<MeetingOffers>;
+  /**
+   * Take notes: records the call offered in a new Note, opened in the main window. The click is
+   * what records: nothing else starts a Meeting from an offer. NotFoundError once the offer is gone.
+   */
+  takeMeetingOffer(offerId: string): Promise<Meeting>;
+  /** Not now, or with `always` "Don't ask for {app}": the offer goes, and nothing is recorded. */
+  declineMeetingOffer(input: { offerId: string; always: boolean }): Promise<void>;
+  /** Keep recording: the Meeting whose call app let go of the microphone doesn't stop. */
+  keepRecordingAfterCall(meetingId: string): Promise<void>;
+  /** Whether IncarnaMind opens at login on this computer (#189). */
+  getOpenAtLogin(): Promise<OpenAtLogin>;
+  /** Registers IncarnaMind to open at login, or stops it, through the system. */
+  setOpenAtLogin(on: boolean): Promise<OpenAtLogin>;
+  /** Opens the system's settings where opening at login waits for the User's approval (macOS). */
+  openLoginItemSettings(): Promise<void>;
 
   /** Outside agents (#351, experimental): the setting, what pauses them, and every pairing. */
   getAgents(): Promise<AgentSettings>;
@@ -14514,6 +14588,13 @@ export interface CoreEvents {
   "meetings.level": MeetingLevel;
   /** A notification that a Meeting's notes were filled in was clicked: its Mind is shown (#142). */
   "meetings.notesShown": { mindId: string };
+  /** The offer to take notes in a call, or a call's end, came or went (#208). */
+  "meetings.offers": MeetingOffers;
+  /**
+   * Sent by the host, not the core: the User clicked an offer's notification where no menu can
+   * show it (#208). Home, which holds the offer with Take notes, comes in front.
+   */
+  "meetings.offerShown": null;
   /**
    * Connecting agents was turned on or off, Local mode paused or resumed them, or a pairing
    * was made, changed, used or removed: as `getAgents` now returns it.
@@ -14971,6 +15052,13 @@ const methods: Record<CoreApiMethod, true> = {
   askMeetingHelp: true,
   setMeetingTemplate: true,
   setMeetingMicrophone: true,
+  getMeetingOffers: true,
+  takeMeetingOffer: true,
+  declineMeetingOffer: true,
+  keepRecordingAfterCall: true,
+  getOpenAtLogin: true,
+  setOpenAtLogin: true,
+  openLoginItemSettings: true,
   getAgents: true,
   setAgentsEnabled: true,
   connectAgent: true,

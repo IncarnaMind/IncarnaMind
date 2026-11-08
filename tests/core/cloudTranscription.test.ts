@@ -538,16 +538,27 @@ describe("Cloud transcription with the User's own key", { timeout: 60_000 }, () 
     });
   });
 
-  test("OpenAI uses the key of the OpenAI provider in Models", async () => {
+  // protects=Your providers says which provider row's key also transcribes; fails_when=the list names no provider, another one, or one for a service with its own key; no_claim=the row's words, which e2e/liveRoutes.spec.ts covers.
+  test("OpenAI uses the key of the OpenAI provider in Models, and the list names that provider", async () => {
     const dataDir = await createTempDataFolder();
     const { core, record } = await transcribingCore(dataDir);
-    await core.saveChatProvider({ kind: "openai", apiKey: "sk-test", modelId: "gpt-5.4-mini" });
-    expect((await core.listTranscriptionServices()).services[0]).toMatchObject({
+    const before = (await core.listTranscriptionServices()).services[0];
+    expect(before).toMatchObject({ route: "openai", hasKey: false, providerId: null });
+    const provider = await core.saveChatProvider({
+      kind: "openai",
+      apiKey: "sk-test",
+      modelId: "gpt-5.4-mini",
+    });
+    await core.setTranscriptionKey({ route: "soniox", apiKey: SONIOX_KEY });
+    const listed = (await core.listTranscriptionServices()).services;
+    expect(listed[0]).toMatchObject({
       route: "openai",
       model: "gpt-live-transcribe",
       hasKey: true,
+      providerId: provider.id,
       perHour: { currency: "USD", amount: 1.02 },
     });
+    expect(listed[1]).toMatchObject({ route: "soniox", hasKey: true, providerId: null });
     await core.updateSettings({ device: { transcriptionRoute: "openai" } });
     const meeting = await core.createMeeting();
     await core.startMeeting({ meetingId: meeting.id });
