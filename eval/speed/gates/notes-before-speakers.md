@@ -44,7 +44,7 @@ Measured in the built app on test builds of `b2ae19bf8` (main) and `c66d4bcb7` (
 
 The speaker pass renamed no one in any run, so every branch run made its notes once, from the Transcript as the pass left it. In every run the request started 5.6–7.1 s sooner. It still fails these lines:
 
-- **The same notes, Claude Haiku 5.5 in Chinese.** Both branch runs left their items out (6 and 7). These are the Chinese notes the branch writes for a Chinese call; main wrote English ones (#2770). Outside the app, 9 more fills of this call on each code left most items out in 3 of 9 on the branch and 2 of 9 on main. Each such fill either wrote timestamps where the line addresses go or wrote its records as text instead of calling `cite`.
+- **The same notes, Claude Haiku 5.5 in Chinese.** Both branch runs left their items out (6 and 7). These are the Chinese notes the branch writes for a Chinese call; main wrote English ones (#2770). Outside the app, 9 more fills of this call on each code left most items out in 3 of 9 on the branch and 2 of 9 on main. Two of the branch's wrote timestamps where the line addresses go. One of main's wrote its records as text instead of calling `cite`. In the other two, one on each code, none of the items' quotes could be checked.
 - **The same notes, DeepSeek.** It gave one fact fewer in each language. In the Chinese run, the engine had transcribed that line as "�".
 - **No new unstated sentence, Claude Haiku 5.5 in English.** One sentence was flagged: "The Great Enterprise plan…", made from "Great. Enterprise is…".
 - **Faster, DeepSeek in English.** In one branch run its thinking took 62.9 s, against 24.0 s in main's, so the median came later.
