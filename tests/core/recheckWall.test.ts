@@ -35,7 +35,7 @@ async function start() {
     await core.assignDocumentGroup(document.id, folder.id);
     return { folder, document };
   };
-  const a = await walled("Client A", "Client A lease.md");
+  const a = await walled("客户甲", "客户甲租约.md");
   const b = await walled("Client B", "Client B lease.md");
   // A conversation in Client B's wall, with no Note: its Answers' Citations are judged there.
   const answer = await askAssistant(core, { text: "What is the term?" });
@@ -55,7 +55,7 @@ test("a Citation in a walled conversation isn't read again from a Document behin
 
   expect(
     await core.recheckCitation({ ...quote(a.document), mindId: null, conversationId }),
-  ).toEqual({ keptInside: "Client A" });
+  ).toEqual({ keptInside: "客户甲" });
 });
 
 test("from the wall the conversation is in, and from browsing, the Citation is checked again", async () => {

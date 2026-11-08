@@ -3141,8 +3141,9 @@ export function createCore(adapters: CoreAdapters): Core {
     if (place.mindId === null && place.conversationId === null) return true;
     try {
       return wall === turnWall(place);
-    } catch {
-      return false;
+    } catch (error) {
+      if (error instanceof NotFoundError) return false;
+      throw error;
     }
   };
   /**

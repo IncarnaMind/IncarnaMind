@@ -1,10 +1,11 @@
 /**
  * A Citation's card in an Answer asks its conversation's wall when it is checked again (#2782):
- * the recheck names the conversation, so the core can refuse a Document that conversation may not
- * read. The Answer's text hands the card its conversation (`ConversationIdContext`).
+ * the Answer's text hands the card its conversation (`ConversationIdContext`), and the card names
+ * it to the core, so the core can refuse a Document that conversation may not read. The card at
+ * its count of a document whose version moved on is the one the User would see.
  */
 import { DOMParser } from "linkedom";
-import { act, createElement } from "react";
+import { act, type ComponentType, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, expect, test, vi } from "vitest";
 
@@ -17,10 +18,13 @@ const bridge = () =>
         calls.push(input);
         return null;
       },
+      on: () => () => undefined,
     },
     {
       get: (each, name) =>
-        name in each ? each[name as keyof typeof each] : () => Promise.resolve(undefined),
+        name in each
+          ? each[name as keyof typeof each]
+          : () => Promise.resolve(String(name).startsWith("list") ? [] : undefined),
     },
   );
 
@@ -31,7 +35,7 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-test("a Citation in an Answer is rechecked with the conversation it is shown in", async () => {
+test("a Citation's card in an Answer asks the core with the Answer's conversation", async () => {
   const parsed = new DOMParser().parseFromString("<html><body></body></html>", "text/html");
   Object.defineProperty(parsed, "styleSheets", { value: [] });
   const window = parsed.defaultView;
@@ -51,6 +55,7 @@ test("a Citation in an Answer is rechecked with the conversation it is shown in"
       unobserve() {}
       disconnect() {}
     },
+    CSS: { escape: (text: string) => text },
     getComputedStyle: () => ({ fontStyle: "", fontWeight: "", fontSize: "", fontFamily: "" }),
     IS_REACT_ACT_ENVIRONMENT: true,
   };
@@ -58,25 +63,51 @@ test("a Citation in an Answer is rechecked with the conversation it is shown in"
   const container = parsed.createElement("div", {});
   parsed.body.append(container);
   const root = createRoot(container);
-  const { useCitationRecheck } = await import("../../src/renderer/src/citationVersion");
+  const { useAppStore } = await import("../../src/renderer/src/store");
+  useAppStore.setState({
+    status: { kind: "ready" },
+    documents: [{ id: "document", name: "Lease", contentHash: "version 2" }],
+    library: null,
+    minds: [],
+    keptCitationTexts: [],
+  } as never);
+  const { ConversationIdContext } = await import("../../src/renderer/src/editor/mindContext");
+  // Loaded by path, as the other component tests are: the node typecheck reads no JSX.
+  const viewPath = "../../src/renderer/src/editor/CitationView";
+  const { CitationView }: { CitationView: ComponentType<Record<string, unknown>> } = await import(
+    viewPath
+  );
 
-  function Probe() {
-    useCitationRecheck(
-      {
-        documentId: "document",
-        contentHash: "version 1",
-        pageFrom: 1,
-        pageTo: 1,
-        quote: "The term is 60 days from the start.",
-      },
-      true,
-      "version 2",
-      null,
-      "the conversation",
-    );
-    return null;
-  }
-  await act(() => root.render(createElement(Probe)));
+  await act(() =>
+    root.render(
+      createElement(
+        ConversationIdContext.Provider,
+        { value: "the conversation" },
+        createElement(CitationView, {
+          node: {
+            attrs: {
+              passageId: null,
+              documentId: "document",
+              documentName: "Lease",
+              contentHash: "version 1",
+              pageFrom: 1,
+              pageTo: 1,
+              location: { kind: "page", from: 1, to: 1 },
+              quote: "The term is 60 days from the start.",
+              check: "found",
+              checkReason: null,
+            },
+          },
+          editor: { isEditable: false },
+          getPos: () => 0,
+          deleteNode: () => undefined,
+          updateAttributes: () => undefined,
+          decorations: [],
+        } as never),
+      ),
+    ),
+  );
+
   await vi.waitFor(() => expect(calls).toHaveLength(1));
   expect(calls[0]).toMatchObject({
     documentId: "document",

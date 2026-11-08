@@ -9,7 +9,7 @@ import { useAnswers } from "../../answers";
 import { useAnswerWait } from "../../answerWait";
 import { useApprovals, waitingFor } from "../../approvals";
 import { repliesOnlyRefusals } from "../../commandFacts";
-import { regenerateAnswer, useOpenConversation } from "../../conversations";
+import { regenerateAnswer } from "../../conversations";
 import {
   AnswerError,
   ApprovalCard,
@@ -87,8 +87,7 @@ export function AssistantAnswer({
   doc: Y.Doc | null;
 }) {
   const t = useT();
-  const conversation = useOpenConversation();
-  const { id, analyses, text, citations, figures, status } = answer;
+  const { id, conversationId, analyses, text, citations, figures, status } = answer;
   const blocks = useMemo(
     () => answerBlocks({ id, analyses, text, citations, figures, status }),
     [id, analyses, text, citations, figures, status],
@@ -150,7 +149,7 @@ export function AssistantAnswer({
       <CoverageLine answer={answer} question={question} />
       {!streaming && <WrittenFromLine answer={answer} />}
       {(written || streaming) && (
-        <ConversationIdContext.Provider value={conversation?.id ?? null}>
+        <ConversationIdContext.Provider value={conversationId}>
           <AnswerText
             answerId={answer.id}
             blocks={blocks}
