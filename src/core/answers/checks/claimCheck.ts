@@ -638,6 +638,7 @@ function runStart(request: CheckStart, language: Language, calculating: boolean)
         (request.figures?.length ?? 0) > 0,
         request.findsParts === true,
         request.library === true,
+        request.claim,
       ),
     prompt: (citedShown: string | null) => claimPrompt({ ...request, citedShown, language }),
   };
