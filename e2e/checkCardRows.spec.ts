@@ -142,6 +142,8 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(foot).toHaveText(words.foot(4 - left));
     await expect.poll(() => rowsTogether(card)).toBe(4);
     expect((await countOf(card, "supported")) + (await countOf(card, "look"))).toBe(4 - left);
+    // The rows say what moved: no line under them counts the landed sentences a second time.
+    await expect(card.locator(".check-card-note")).toHaveCount(0);
 
     await releaseChecks(app);
     await expect(card.getByTestId("health-checking")).toHaveCount(0);

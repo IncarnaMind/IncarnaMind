@@ -1,7 +1,7 @@
 import type { Editor } from "@tiptap/core";
 import { TextSelection } from "@tiptap/pm/state";
 import { useEditorState } from "@tiptap/react";
-import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import type * as Y from "yjs";
 import { ANALYSIS_TABLE_ATTRIBUTE, type CitationAttributes } from "../../../core/api";
 import { liveVersions, tableShownIn } from "../../../shared/analysisTables";
@@ -16,7 +16,6 @@ import {
   setOpenClaim,
   useChecks,
 } from "../checks";
-import { MetaLine } from "../components/MetaLine";
 import { type ProblemAction, ProblemLine } from "../components/ProblemLine";
 import {
   ReadinessExplanation,
@@ -298,34 +297,6 @@ export function HealthCard({
     setOpenClaim(place, claim.check.id);
   };
 
-  // While a run is on, the note line carries only the verdicts that landed since it started: the
-  // rows above already name the Mind's whole counts, and an earlier verdict did not just land.
-  const landedRows = ["look", "supported"] as const;
-  const beforeRun = useRef<readonly (readonly [CheckRow, number])[] | null>(null);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: the counts are kept as the run found them, not refreshed.
-  useLayoutEffect(() => {
-    beforeRun.current =
-      running === undefined
-        ? null
-        : (beforeRun.current ?? landedRows.map((row) => [row, placesOf(row).length] as const));
-  }, [running]);
-  const landed =
-    running === undefined || beforeRun.current === null
-      ? []
-      : landedRows
-          .map(
-            (row) =>
-              [
-                row,
-                Math.max(
-                  placesOf(row).length -
-                    (beforeRun.current?.find(([each]) => each === row)?.[1] ?? 0),
-                  0,
-                ),
-              ] as const,
-          )
-          .filter(([, count]) => count > 0)
-          .map(([row, count]) => rowText(row, count));
   const summary = healthSummary(health, {
     running: running !== undefined,
     problem: problem !== undefined,
@@ -364,12 +335,11 @@ export function HealthCard({
     );
   };
 
-  // What the note line says: what has landed so far while a run is on, then when it was checked.
-  // With nothing to say it takes no line, so no empty line is reserved.
+  // What the note line says: when the Note was last checked. While a run is on it says nothing:
+  // the rows show each sentence move as its check ends, and a line of what landed would count
+  // them twice (#2831). With nothing to say it takes no line, so no empty line is reserved.
   const note =
-    running !== undefined ? (
-      landed.length > 0 && <MetaLine parts={landed} />
-    ) : checkedAll != null && health.checking.length === 0 ? (
+    running === undefined && checkedAll != null && health.checking.length === 0 ? (
       // The health is counted a moment after the record lands: until no claim says it is being
       // checked, the line would name a check a row still says is running (#2313).
       <CheckedWhen
