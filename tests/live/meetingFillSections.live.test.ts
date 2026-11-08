@@ -3675,6 +3675,13 @@ describe.skipIf(LOADER_PREFLIGHT || (!KEY && !LOCAL_MODEL))(
               ourKept: (call.named?.kept ?? []).filter((pattern) =>
                 aiText.some((text) => pattern.test(text)),
               ).length,
+              // The owner's rule (2026-11-08): "our" for the User's side never becomes their name's.
+              ourAsName: aiText.filter((text) =>
+                new RegExp(
+                  `${literally(userName)}(?:['’]s|\\s*的)\\s*(?:team|studio|group|side|团队|工作室|小组)`,
+                  "iu",
+                ).test(text),
+              ).length,
               possessive: (call.named?.possessive ?? []).filter((pattern) =>
                 aiText.some((text) => pattern.test(text)),
               ).length,
@@ -3891,7 +3898,7 @@ describe.skipIf(LOADER_PREFLIGHT || (!KEY && !LOCAL_MODEL))(
           expect(named.outside, "The app's own words never carry the User's name").toBe(0);
           if (!named.saidInCall)
             expect(named.holding, "A Settings name never said in the call is never sent").toBe(0);
-          expect(named.ourKept, "Our stays our").toBe(call.named?.kept.length ?? 0);
+          expect(named.ourAsName, "Our never becomes the User's name's").toBe(0);
           expect(named.possessive, "My becomes the name's").toBe(
             call.named?.possessive.length ?? 0,
           );
