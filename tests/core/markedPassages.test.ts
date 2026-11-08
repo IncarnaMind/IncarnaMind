@@ -896,7 +896,7 @@ describe("Records for a reply that names its Passages in its markers", () => {
   });
 });
 
-describe("A check that says a Document agrees, a sentence about two rows, and the line holding the most", () => {
+describe("A check that says a Document agrees, and a sentence about two rows", () => {
   const call = {
     id: "P1",
     name: "Transcript · Meeting",
@@ -912,38 +912,36 @@ describe("A check that says a Document agrees, a sentence about two rows, and th
     name: "Data and privacy",
     text: "# Data and privacy\n\nAdmins sign in with single sign-on on Chain; on Starter and Growth they use two-factor authentication.",
   };
+  const CALLED =
+    "Overtime counts after 40 hours a week, unless you switch a location to daily overtime after 8 hours.";
   const OVERTIME =
     "Overtime is worked out after 40 hours a week by default; a location can set it to daily overtime after 8 hours instead.";
+  const SAID = "You said overtime counts after 40 hours a week, or after 8 hours daily";
 
-  // protects=a sentence whose marker names only the call's line, and whose words after it say a Document agrees, gets the Document's line holding what was said, under a marker of its own after those words, by the word for Documents or the Document's whole name, in English and Chinese; fails_when=only the call's line is recorded, so the sentence shows the call's line as the Document's word, or the Document's marker goes elsewhere; no_claim=what a real model writes (the gate) (#2526).
+  // protects=a sentence whose marker names only the call's line, and whose words after it say a Document agrees, gets the Document's line holding the whole sentence, under a marker of its own before the sentence's closing punctuation (a bold one too), by the word for Documents or the Document's whole name, in English and Chinese, and a Document's lines on two sentences when each holds a figure; fails_when=only the call's line is recorded, so the sentence shows the call's line as the Document's word, or the Document's marker goes after the closing punctuation; no_claim=what a real model writes (the gate) (#2526).
   test("a check marking only the call's line while it says a Document agrees gets the Document's line", () => {
     expect(
       markedPassages(
-        "You said overtime counts after 40 hours a week, or after 8 hours daily if a location switches [^1]; the payroll export document agrees.",
+        `${SAID} [^1]; the payroll export document agrees.`,
         [call, payroll, privacy],
         everywhere,
         none,
       ),
     ).toEqual({
-      text: "You said overtime counts after 40 hours a week, or after 8 hours daily if a location switches [^1]; the payroll export document agrees [^2].",
+      text: `${SAID} [^1]; the payroll export document agrees [^2].`,
       records: [
-        {
-          marker: 1,
-          passage: "P1",
-          quote:
-            "Overtime counts after 40 hours a week, unless you switch a location to daily overtime after 8 hours.",
-        },
+        { marker: 1, passage: "P1", quote: CALLED },
         { marker: 2, passage: "P2", quote: OVERTIME },
       ],
     });
     expect(
       markedPassages(
-        "Overtime after 40 hours a week, or daily after 8 hours [^1], as the Payroll export says",
+        `**${SAID} [^1]; the Payroll export supports this.**`,
         [call, payroll, privacy],
         everywhere,
         none,
-      ).records.map((record) => record.passage),
-    ).toEqual(["P1", "P2"]);
+      ).text,
+    ).toBe(`**${SAID} [^1]; the Payroll export supports this [^2].**`);
     const sundays = {
       id: "P5",
       name: "Overtime rules",
@@ -957,7 +955,7 @@ describe("A check that says a Document agrees, a sentence about two rows, and th
         none,
       ).records.map((record) => record.quote),
     ).toEqual([
-      "Overtime counts after 40 hours a week, unless you switch a location to daily overtime after 8 hours.",
+      CALLED,
       "On Sundays, it starts after 8 hours.",
       "Overtime is worked out after 40 hours a week.",
     ]);
@@ -980,36 +978,86 @@ describe("A check that says a Document agrees, a sentence about two rows, and th
     ).toBe("你说加班默认每周超过 40 小时、门店可改为每天超过 8 小时 [^1]；文档一致 [^2]");
   });
 
-  // protects=such a sentence shows uncited when no line of the Documents holds what was said, with no figure the call said standing in for the line's, and a sentence saying a Document doesn't cover it keeps the call's line and gets no Document's; fails_when=the call's line stays found under a sentence saying the Document agrees, a line giving another figure or another row is recorded, or a negated verdict takes the call's line away (#2526).
-  test("such a sentence goes uncited when no line holds what was said, and a verdict that the Documents don't cover it is left as it is", () => {
+  // protects=such a sentence shows uncited when no line of the Documents it names holds all of it: a figure only the call said, another row, a figure it adds after saying the Document agrees, or a line only another Document holds; fails_when=the call's line stays found under a sentence the Document doesn't support, or a line holding part of it is recorded at its end (#2526).
+  test("such a sentence goes uncited when no line of the Document it names holds all of it", () => {
     const said = {
       id: "P1",
       text: "[0:02 Them] So admins on Growth get single sign-on, overtime counts after 45 hours, and it costs $10 an hour, right?",
     };
+    const prices = { id: "P4", name: "Price sheet", text: "Growth is $89 a location a month." };
     for (const reply of [
       "They said admins on Growth get single sign-on [^1]; the document agrees.",
       "They said overtime counts after 45 hours [^1]; the Payroll export supports this.",
       "They said overtime counts after 40 hours a week and costs $10 an hour [^1]; the document agrees.",
+      `${SAID} [^1]; the payroll export agrees, though drivers start at 45 hours.`,
+      `${SAID} [^1]; the price sheet agrees.`,
     ]) {
-      expect(markedPassages(reply, [said, payroll, privacy], everywhere, none), reply).toEqual({
+      expect(
+        markedPassages(reply, [said, call, payroll, privacy, prices], everywhere, none),
+        reply,
+      ).toEqual({ text: reply.replace(" [^1]", ""), records: [] });
+    }
+  });
+
+  // protects=a Document line recorded for a check no model named it for says all of the sentence: each figure of its kind and unit exactly, each unit of time it names, no row it doesn't name, and no "only" or "but" it doesn't say; fails_when="a month" is recorded from "a year", "40 hours" from "40 shifts", "every hour" from "every night", "every plan" from "Chain only", or "on Starter" from "every plan but Starter" (#2526).
+  test("a Document line recorded for such a check says all of it, its units, rows and limits too", () => {
+    for (const [said, line] of [
+      ["it's $45 a seat a month", "Enterprise: $45 a seat a year, single sign-on included."],
+      ["overtime starts after 40 hours a week", "Overtime pay starts after 40 hours a year."],
+      ["overtime starts after 40 hours", "Overtime starts after 40 shifts."],
+      [
+        "overtime starts after 40 hours a week",
+        "Overtime starts after 40 each week, counted in hours.",
+      ],
+      ["exports run every hour", "Exports run every night at 2 a.m."],
+      ["single sign-on is included on every plan", "Single sign-on is included on Chain."],
+      ["forecasts are included on Starter", "Forecasts are included on every plan but Starter."],
+    ]) {
+      const heard = { id: "P1", text: `[0:02 Me] ${said}.` };
+      const document = { id: "P2", name: "Terms", text: `${line}\n\n| Chain | $139 |` };
+      const reply = `You said ${said} [^1]; the document agrees.`;
+      expect(markedPassages(reply, [heard, document], everywhere, none), reply).toEqual({
         text: reply.replace(" [^1]", ""),
         records: [],
       });
     }
-    expect(
-      markedPassages(
-        "They said that matches what their payroll lead expected [^1]; the Documents don't cover what the payroll lead expected.",
-        [call, payroll, privacy],
-        everywhere,
-        none,
-      ).records,
-    ).toEqual([
-      { marker: 1, passage: "P1", quote: "Okay, that matches what our payroll lead expected." },
-    ]);
   });
 
-  // protects=a Passage's sentence of two clauses naming different rows is read clause by clause, so another row's fact is never quoted ("Admins on Growth get single sign-on" from "…single sign-on on Chain; on Starter and Growth they use two-factor authentication"), one row's figure keeps no other row's fact out (成长版含人工成本预测 from its clause, not an overview line), and a clause naming no row stands for the row the clause before it names; fails_when=the whole sentence is quoted for another row's fact, the overview line is quoted, or a nameless clause stands for another row (#2526).
-  test("a sentence of two clauses about two rows is quoted clause by clause, a nameless clause about the row before it", () => {
+  // protects=a sentence whose words after the call's line don't say a Document agrees is left as it is: one saying the Documents don't cover it, one saying a Document differs, and one already citing the Document, whose text gets no second marker; fails_when=the call's line is taken away, or a Document's line or a second marker is added (#2526).
+  test("a verdict that doesn't say a Document agrees, or one already citing it, is left as it is", () => {
+    for (const reply of [
+      "They said that matches what their payroll lead expected [^1]; the Documents don't cover what the payroll lead expected.",
+      `${SAID} [^1]; the payroll export differs for drivers.`,
+      `${SAID} [^1]; the payroll export doesn't support this.`,
+    ]) {
+      expect(markedPassages(reply, [call, payroll, privacy], everywhere, none).text, reply).toBe(
+        reply,
+      );
+    }
+    const zh = "你说加班默认每周超过 40 小时 [^1]；工资导出文档不一致";
+    expect(
+      markedPassages(
+        zh,
+        [
+          { id: "P1", text: "[0:02 Me] 加班默认按每周超过 40 小时算。" },
+          { id: "P2", name: "工资导出", text: "加班默认按每周超过 40 小时计算。" },
+        ],
+        everywhere,
+        none,
+      ).text,
+    ).toBe(zh);
+    const both = `${SAID} [^1][^2]; the payroll export agrees.`;
+    expect(markedPassages(both, [call, payroll, privacy], everywhere, none)).toEqual({
+      text: both,
+      records: [
+        { marker: 1, passage: "P1", quote: CALLED },
+        { marker: 2, passage: "P2", quote: OVERTIME },
+      ],
+    });
+  });
+
+  // protects=a Passage's sentence whose clauses each name rows of their own is read clause by clause, so another row's fact is never quoted ("Admins on Growth get single sign-on" from "…single sign-on on Chain; on Starter and Growth they use two-factor authentication") and one row's figure keeps no other row's fact out (成长版含人工成本预测 from its clause, not an overview line); a call's line and a sentence with a clause naming no row stay whole; fails_when=the whole sentence is quoted for another row's fact, the overview line is quoted, or a call's line or a clause about "the others" is quoted alone (#2526).
+  test("a sentence whose clauses each name their own rows is quoted clause by clause", () => {
     expect(
       markedPassages("Admins on Growth get single sign-on [^3]", [call, privacy], everywhere, none),
     ).toEqual({ text: "Admins on Growth get single sign-on", records: [] });
@@ -1040,51 +1088,74 @@ describe("A check that says a Document agrees, a sentence about two rows, and th
         none,
       ).records.map((record) => record.quote),
     ).toEqual(["20 家门店起，连锁版降到每家每月 749 元。", "成长版和连锁版含人工成本预测"]);
-    const sheet = {
-      id: "P2",
-      text: "Team plan: $29 a seat; Enterprise plan: $45 a seat; includes single sign-on.",
-    };
-    const basic = { id: "P3", text: "| Basic | $9 a seat |" };
-    expect(
-      markedPassages("Basic includes single sign-on [^2]", [sheet, basic], everywhere, none)
-        .records,
-    ).toEqual([]);
-    expect(
-      markedPassages(
-        "Enterprise includes single sign-on [^2]",
-        [sheet, basic],
-        everywhere,
-        none,
-      ).records.map((record) => record.quote),
-    ).toContain("includes single sign-on.");
-  });
-
-  // protects=of a transcript's windows, the one whose line holds the most of the claim gives its quote, not the window named when it has only a weak line, and "I'll" gives no word "ll", so two lines sharing "I'll" and one word aren't a quote of each other; fails_when=the named window's line sharing two words wins, or "I'll put it in writing" is quoted for "I'll send the prices in writing" (#2526).
-  test("the window holding the most of the claim gives its quote, and I'll gives no word", () => {
-    const early = {
+    const heard = {
       id: "P1",
-      name: "Transcript · Meeting",
-      text: "[3:20 Them] We pick two people early in the week.",
+      text: "[0:02 Them] We want Team for 20 seats; Enterprise for 5 admins.",
     };
-    const later = {
-      id: "P4",
-      name: "Transcript · Meeting",
-      text: "[5:20 Them] We'll pick up the trolleys early every morning from the loading bay.",
+    const sheet = { id: "P2", text: "| Team | $29 |\n| Enterprise | $45 |" };
+    expect(
+      markedPassages("They want Enterprise for 5 admins [^1]", [heard, sheet], everywhere, none)
+        .records,
+    ).toEqual([
+      { marker: 1, passage: "P1", quote: "We want Team for 20 seats; Enterprise for 5 admins." },
+    ]);
+    const others = {
+      id: "P2",
+      text: "| Starter | $49 |\n| Growth | $89 |\n\nForecasts are included on Growth; the others pay $99 a store a month.",
     };
     expect(
       markedPassages(
-        "They'll pick up the trolleys early every morning [^1]",
-        [early, later],
+        "On Growth forecasts are included, and the others pay $99 a store a month [^2]",
+        [others],
         everywhere,
         none,
       ).records,
     ).toEqual([
       {
-        marker: 1,
-        passage: "P4",
-        quote: "We'll pick up the trolleys early every morning from the loading bay.",
+        marker: 2,
+        passage: "P2",
+        quote: "Forecasts are included on Growth; the others pay $99 a store a month.",
       },
     ]);
+  });
+
+  // protects=a clause of a sentence saying the claim's opposite is never quoted for it, and a line naming only rows other than the claim's gives it nothing, as a first quote or a further one; fails_when=a clause is quoted where its whole sentence says the opposite, or another row's clause or line is quoted beside the claim's own (#2526).
+  test("no clause of a sentence saying the opposite, and no line about other rows only", () => {
+    const features = {
+      id: "P2",
+      text: "| Feature | Starter | Growth | Chain |\n|---|---|---|---|\n| Kiosks | yes | yes | yes |\n\nLabour forecasts and shift templates are included on Growth and Chain; Starter doesn't include forecasts.",
+    };
+    expect(
+      markedPassages(
+        "Labour forecasts and shift templates are included on Starter [^2]",
+        [features],
+        everywhere,
+        none,
+      ).records,
+    ).toEqual([]);
+    const exports = {
+      id: "P2",
+      text: "Exports run nightly from Monday to Thursday; on Friday they run at noon.",
+    };
+    expect(
+      markedPassages("Exports run at noon on Friday [^2]", [exports], everywhere, none).records,
+    ).toEqual([{ marker: 2, passage: "P2", quote: "on Friday they run at noon." }]);
+    const forecasts = {
+      id: "P2",
+      text: "| Starter | $49 |\n| Growth | $89 |\n| Chain | $139 |\n\nStarter pays $99 a store a month for forecasts; Growth and Chain include forecasts with shift templates.",
+    };
+    expect(
+      markedPassages(
+        "On Growth, forecasts with shift templates cost $99 a store a month [^2]",
+        [forecasts],
+        everywhere,
+        none,
+      ).records,
+    ).toEqual([]);
+  });
+
+  // protects="I'll" gives no word "ll", so two lines sharing "I'll" and one word aren't a quote of each other; fails_when="I'll put the dates in writing" is quoted for "I'll send the prices in writing" (#2526).
+  test("I'll gives no word", () => {
     const promise = { id: "P1", text: "[1:00 Me] I'll put the dates in writing." };
     expect(
       markedPassages("I'll send the prices in writing [^1]", [promise], everywhere, none),
