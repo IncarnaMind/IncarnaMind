@@ -365,6 +365,7 @@ const FELL_BACK: Record<
 };
 
 const MICROPHONE_LINES: Partial<Record<MeetingSourceState, MessageKey>> = {
+  silent: "meetings.line.microphoneSilent",
   denied: "meetings.line.microphoneDenied",
   unavailable: "meetings.line.microphoneUnavailable",
   ended: "meetings.line.microphoneEnded",

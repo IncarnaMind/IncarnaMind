@@ -152,7 +152,7 @@ export interface LaunchOptions {
    * What the Meeting's fake microphone does: makes a tone (by default), is denied and says so,
    * or waits for the system's permission prompt until the test answers it.
    */
-  microphone?: "allowed" | "denied" | "waiting";
+  microphone?: "allowed" | "denied" | "waiting" | "silent";
   /**
    * Where the guide for a permission added by hand opens, whatever the screen: in a window
    * beside System Settings, or as text in the app's window. Without it, the system decides.
