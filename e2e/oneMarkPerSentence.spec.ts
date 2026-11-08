@@ -62,7 +62,7 @@ const LANGUAGES = {
       "Needs a look · Contradicted",
       "Supported",
     ].map((state) => `Sentence check: ${state}`),
-    health: { found: "3 Citations found", notFound: "2 Citations not found" },
+    health: { look: "3 need a look", supported: "1 supported" },
   },
   "zh-CN": {
     found: /已在.*找到引文/,
@@ -72,7 +72,7 @@ const LANGUAGES = {
     marks: ["有依据", "需要留意：无依据", "需要留意：与文档矛盾", "有依据"].map(
       (state) => `句子核对：${state}`,
     ),
-    health: { found: "3 处引用已找到", notFound: "2 处引用未找到" },
+    health: { look: "3 句需要留意", supported: "1 句有依据" },
   },
 } as const;
 
@@ -332,40 +332,32 @@ for (const language of ["en", "zh-CN"] as const) {
     await window.keyboard.press("Escape");
     await expect(window.getByTestId("claim-card")).toHaveCount(0);
 
-    // The health card counts every Citation, whatever its sentence's verdict, and each row goes
-    // round them, the caret just after the marker, never selecting it.
+    // The card counts sentences, each once by its state, and no Citation (#2831): the supported
+    // sentence whose Citation isn't found needs a look, with the unsupported and contradicted ones.
+    // Each row goes round its sentences, the caret at the sentence's start.
     const caret = () =>
       editor.evaluate((dom) => {
         const { view } = (dom as unknown as { editor: Editor }).editor;
         const { $from, empty } = view.state.selection;
-        return { empty, block: $from.index(0), after: $from.nodeBefore?.attrs.check ?? null };
+        return { empty, block: $from.index(0), start: $from.parentOffset === 0 };
       });
     const card = await checkCard(window);
-    await expect(card.getByTestId("health-found")).toContainText(words.health.found);
-    await expect(card.getByTestId("health-notFound")).toContainText(words.health.notFound);
-    const next = async (part: "found" | "notFound") =>
-      pointAndClick(window, (await checkCard(window)).getByTestId(`health-${part}`));
-    await next("notFound");
-    await expect.poll(caret).toEqual({ empty: true, block: 3, after: "not-found" });
-    await next("notFound");
-    await expect.poll(caret).toEqual({ empty: true, block: 4, after: "not-found" });
-    await next("notFound");
-    await expect.poll(caret).toEqual({ empty: true, block: 3, after: "not-found" });
-    await next("found");
-    await expect.poll(caret).toEqual({ empty: true, block: 0, after: "found" });
-    // Two Citations side by side: each is reached.
-    await next("found");
-    await expect.poll(caret).toEqual({ empty: true, block: 1, after: "found" });
-    const first = await editor.evaluate(
-      (dom) => (dom as unknown as { editor: Editor }).editor.state.selection.from,
-    );
-    await next("found");
-    await expect.poll(caret).toEqual({ empty: true, block: 1, after: "found" });
-    expect(
-      await editor.evaluate(
-        (dom) => (dom as unknown as { editor: Editor }).editor.state.selection.from,
-      ),
-    ).toBe(first + 1);
+    await expect(card.getByTestId("health-look")).toContainText(words.health.look);
+    await expect(card.getByTestId("health-supported")).toContainText(words.health.supported);
+    await expect(card.getByTestId("health-found")).toHaveCount(0);
+    await expect(card.getByTestId("health-notFound")).toHaveCount(0);
+    await editor.evaluate((dom) => {
+      (dom as unknown as { editor: Editor }).editor.commands.setTextSelection(1);
+    });
+    const next = async (row: "look" | "supported") =>
+      pointAndClick(window, (await checkCard(window)).getByTestId(`health-${row}`));
+    for (const block of [1, 2, 3, 1]) {
+      await next("look");
+      await expect.poll(caret).toEqual({ empty: true, block, start: true });
+      await window.keyboard.press("Escape");
+    }
+    await next("supported");
+    await expect.poll(caret).toEqual({ empty: true, block: 0, start: true });
     await app.close();
   });
 }

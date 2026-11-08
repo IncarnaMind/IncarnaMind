@@ -182,7 +182,7 @@ function MindBadge({
         />
       }
     >
-      <p className="check-card-title">{t("health.label")}</p>
+      <p className="check-card-title">{t("checks.card.title")}</p>
       <HealthCard
         editor={editor}
         doc={doc}
@@ -516,7 +516,7 @@ function BadgeFrame({
           anchor={anchor}
           placement="top-end"
           middleware={placing}
-          aria-label={t("health.label")}
+          aria-label={t("checks.card.title")}
           data-testid="check-card"
           className="check-card"
           onDismiss={(how) => close(how)}

@@ -80,7 +80,7 @@ test("a Note of plain notes says its state; its card, from ⌘K, has one count p
   await expect(badge).toHaveAttribute("data-state", "not-checked");
   await expect(badge.locator(".check-badge-words")).toHaveText("Claims not checked");
   const card = await checkCard(window);
-  await expect(card.getByTestId("health-toCheck")).toContainText("1 claim not checked yet");
+  await expect(card.getByTestId("health-toCheck")).toContainText("1 not checked");
   await expect(card.getByTestId("health-noCitation")).toHaveCount(0);
   // One action, and nothing under it: Check for contradictions is in ⌘K and the page menu.
   await expect(card.getByTestId("badge-check-mind")).toHaveText("Check");
@@ -295,8 +295,8 @@ test("each row's Next goes through its sentences in order and round to the first
   await pointAndClick(window, card.getByTestId("badge-check-mind"));
   const marks = window.getByTestId("claim-mark");
   await expect(marks.and(window.locator('[data-check="unsupported"]'))).toHaveCount(2);
-  const unsupported = async () => (await checkCard(window)).getByTestId("health-unsupported");
-  await expect(await unsupported()).toContainText("2 claims need a look");
+  const unsupported = async () => (await checkCard(window)).getByTestId("health-look");
+  await expect(await unsupported()).toContainText("2 need a look");
   // Each Next ends as a click on the sentence's mark does: its card open, the badge's card closed.
   const sentenceCard = window.getByTestId("claim-card");
   await pointAndClick(window, await unsupported());
