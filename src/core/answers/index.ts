@@ -191,7 +191,7 @@ import {
 import type { AnswerFlow } from "../providers/catalog/answerPaths";
 import type { ThinkingKind } from "../providers/catalog/types";
 import type { PreparedChatModel } from "../providers/chat";
-import { refusedGoesTo } from "../providers/modelRefusal";
+import { type GaveWay, refusedGoesTo } from "../providers/modelRefusal";
 import type { ModelCallKind } from "../providers/outputLimits";
 import { classifyProviderError } from "../providers/providerErrors";
 import type { WebResult } from "../providers/webSearch";
@@ -667,8 +667,18 @@ export interface AnswersOptions {
    * `answers` itself.
    */
   helpModel?(answers: ChatModelChoice): ChatModelChoice | null;
-  /** `model`, call help's, was refused by its provider, and the press went to `answers` instead. */
-  helpModelRefused?(model: ChatModelChoice, answers: ChatModelChoice, error: unknown): void;
+  /**
+   * `model`, call help's, gave way to `answers` for a press, on `error`: refused by its provider,
+   * busy, or not prepared. Heard as the press goes to `answers`, whatever `answers` does next.
+   */
+  helpModelGaveWay?(
+    model: ChatModelChoice,
+    answers: ChatModelChoice,
+    error: unknown,
+    why: GaveWay | "not-prepared",
+  ): void;
+  /** `model`, call help's, was refused by its provider, and `answers` took the press instead. */
+  helpModelRefused?(model: ChatModelChoice): void;
   /**
    * The model for the calls that don't write the Answer, asked to skip thinking:
    * the quick-tasks model for an Answer asked with `answers`, which may be
@@ -2465,16 +2475,17 @@ export function createAnswers(options: AnswersOptions) {
             prepared = {
               ...quick,
               model: refusedGoesTo(quick.model, prepared.model, {
-                switched: () => {
+                switched: (error, why) => {
+                  options.helpModelGaveWay?.(helpModel, model, error, why);
                   writtenBy = model;
                   writeSoon();
                 },
-                refused: (error) => options.helpModelRefused?.(helpModel, model, error),
+                refused: () => options.helpModelRefused?.(helpModel),
               }),
             };
             writtenBy = helpModel;
           } catch (error) {
-            options.reportError(error);
+            options.helpModelGaveWay?.(helpModel, model, error, "not-prepared");
           }
         }
       } catch (error) {

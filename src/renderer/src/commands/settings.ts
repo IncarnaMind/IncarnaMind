@@ -60,9 +60,15 @@ export const settingsPageCommands: readonly Command[] = [
       "command.settings.callHelpModel.keywords",
     ],
     group: "open",
-    when: () =>
-      useCallHelpOffer.getState().fastest !== null ||
-      useAppStore.getState().settings?.user.callHelpModel === "fastest",
+    when: () => {
+      if (useCallHelpOffer.getState().fastest !== null) return true;
+      const settings = useAppStore.getState().settings;
+      // Kept while Fastest is chosen, so it can be undone, where there is a model for its row.
+      return (
+        settings?.user.callHelpModel === "fastest" &&
+        (settings.device.lastChatModel ?? settings.user.chatModel) !== null
+      );
+    },
     reversible: true,
     run: () => useAppStore.getState().openSettings("meetings", "call-help-model"),
   },

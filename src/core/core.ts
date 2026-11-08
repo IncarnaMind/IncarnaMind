@@ -2269,16 +2269,17 @@ export function createCore(adapters: CoreAdapters): Core {
       if (settings.get().user.callHelpModel !== "fastest") return null;
       return offeredHelp(answers);
     },
-    helpModelRefused(model, answers, error) {
-      refusedHelp.add(helpKey(model));
+    helpModelGaveWay(model, answers, error, why) {
       const { kind, status } = classifyProviderError(error);
-      (adapters.log ?? silentLogger).warn("callHelp.modelRefused", {
+      (adapters.log ?? silentLogger).warn("callHelp.modelGaveWay", {
         model: model.modelId,
         answeredOn: answers.modelId,
+        why,
         kind,
         status,
       });
     },
+    helpModelRefused: (model) => void refusedHelp.add(helpKey(model)),
     writesThenCites: ({ provider, modelId }, flow) =>
       writesThenCites({ catalogId: provider.catalogId, modelId }, flow, adapters.answerPaths),
     retrievesFirst: ({ provider, modelId }, flow) =>

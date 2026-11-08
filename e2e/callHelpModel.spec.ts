@@ -62,7 +62,7 @@ test("call help's model: Same as Answers by default, Fastest offered on Anthropi
   const row = settings.getByTestId("call-help-model-row");
   const button = row.getByTestId("call-help-model");
   await expect(row).toContainText("Model");
-  await expect(row).toContainText("Fastest replies in about a second, but cites less carefully.");
+  await expect(row).toContainText("Fastest: a second or two, less complete, cites less carefully.");
   await expect(button).toHaveText("Same as Answers (Claude Sonnet 5.5)");
   await button.click();
   const options = window.getByTestId("call-help-model-menu").getByRole("menuitemradio");
@@ -94,7 +94,7 @@ test("call help's model: Same as Answers by default, Fastest offered on Anthropi
   await bridge.evaluate((core) => core.updateSettings({ user: { language: "zh-CN" } }));
   await setWindowSize(app, window, 900, 700);
   await expect(row).toContainText("模型");
-  await expect(row).toContainText("“最快”约 1 秒回复，但引用没那么严谨。");
+  await expect(row).toContainText("最快：一两秒回复，不够完整，引用不够严谨。");
   await expect(button).toHaveText("与回答相同（Claude Sonnet 5.5）");
   await button.click();
   await expect(options).toHaveText(["与回答相同（Claude Sonnet 5.5）", "最快（Claude Haiku 5.5）"]);
@@ -106,14 +106,23 @@ test("call help's model: Same as Answers by default, Fastest offered on Anthropi
   if (!rowBox || !control) throw new Error("The row isn't laid out.");
   expect(control.x + control.width).toBeLessThanOrEqual(rowBox.x + rowBox.width);
   await shot(settings.getByTestId("help-settings"), "call-help-model-row-zh-900");
-  await bridge.evaluate((core) => core.updateSettings({ user: { language: "en" } }));
+  await bridge.evaluate((core) =>
+    core.updateSettings({ user: { language: "en", callHelpModel: "fastest" } }),
+  );
   await closeSettings(window);
 
-  // A provider not offered yet: no row and no command.
+  // A provider not offered yet, with Fastest chosen: the row stays, says so, and sets it back.
   await bridge.evaluate((core) =>
     core.saveChatProvider({ kind: "openai", apiKey: "sk-test", modelId: "gpt-6.1-sol" }),
   );
   await openSettings(window, "meetings");
+  await expect(row).toContainText(/Fastest isn’t offered for .+, so call help uses it\./);
+  await expect(button).toHaveText("Fastest");
+  await button.click();
+  await options.first().click();
+  await expect.poll(chosen).toBe("answers");
+
+  // Set back, there is no row and no command.
   await expect(settings.getByTestId("help-settings")).toBeVisible();
   await expect(row).toHaveCount(0);
   await shot(settings.getByTestId("help-settings"), "call-help-model-not-offered-en-900");

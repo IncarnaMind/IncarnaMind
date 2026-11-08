@@ -5,7 +5,7 @@
  * computer keeps it; a quick model the provider refuses, or that is busy, gives way to the Answers
  * model with nothing said.
  */
-import type { MockLanguageModelV4 } from "ai/test";
+import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
 import type { ChatModelFactory, Core, Meeting, SaveChatProviderInput } from "../../src/core";
 import type { Logger } from "../../src/core/adapters";
@@ -28,6 +28,12 @@ const saying = (words: string) => scriptedModel(() => ({ text: `â˜… ${words}\nâ†
 
 /** A warning the core logged, with its fields. */
 type Logged = { event: string; fields: Record<string, unknown> | undefined };
+
+/** The line logged as Claude Haiku 5.5 gives way to Claude Sonnet 5.5 for a press. */
+const gaveWay = (why: string, kind: string, status: number): Logged => ({
+  event: "callHelp.modelGaveWay",
+  fields: { model: HAIKU, answeredOn: SONNET, why, kind, status },
+});
 
 /**
  * A meeting recording, with `answers` saved as the Answers model; `models`, the model each id
@@ -178,12 +184,7 @@ describe("Call help's model", { timeout: 60_000 }, () => {
     }
     expect(refusals).toBe(1);
     expect(haiku.doStreamCalls).toHaveLength(1);
-    expect(warned).toEqual([
-      {
-        event: "callHelp.modelRefused",
-        fields: { model: HAIKU, answeredOn: SONNET, kind: "model", status: 404 },
-      },
-    ]);
+    expect(warned).toEqual([gaveWay("refused", "model", 404)]);
 
     expect((await core.getModelRoles()).callHelp).toBeNull();
 
@@ -211,7 +212,47 @@ describe("Call help's model", { timeout: 60_000 }, () => {
       expect(answer.model).toEqual({ providerId: provider.id, modelId: SONNET });
     }
     expect(haiku.doStreamCalls).toHaveLength(2);
-    expect(warned).toEqual([]);
+    expect(warned).toEqual([
+      gaveWay("busy", "rate-limit", 429),
+      gaveWay("busy", "rate-limit", 429),
+    ]);
+  });
+
+  test("a quick model whose stream opens with Anthropic's Overloaded has that press answered on the Answers model, logged", async () => {
+    const haiku = scriptedModel(() => ({ text: "Haiku's line" }));
+    const overloaded = new MockLanguageModelV4({
+      doStream: async (options) => {
+        const { stream, ...rest } = await haiku.doStream(options);
+        const parts = stream.getReader();
+        return {
+          ...rest,
+          stream: new ReadableStream({
+            async start(controller) {
+              const first = await parts.read();
+              if (!first.done) controller.enqueue(first.value);
+              controller.enqueue({
+                type: "error",
+                error: { type: "overloaded_error", message: "Overloaded" },
+              });
+              controller.close();
+              await parts.cancel();
+            },
+          }),
+        };
+      },
+    });
+    const sonnet = saying("Sonnet's line");
+    const { core, meeting, provider, warned } = await setUp({
+      [HAIKU]: overloaded,
+      [SONNET]: sonnet,
+    });
+
+    const { answer } = await press(core, meeting);
+
+    expect(answer.status).toBe("done");
+    expect(answer.text).toContain("Sonnet's line");
+    expect(answer.model).toEqual({ providerId: provider.id, modelId: SONNET });
+    expect(warned).toEqual([gaveWay("busy", "provider", 529)]);
   });
 
   test("a quick model refused while the Answers model fails too: the press says the Answers model's problem, naming it", async () => {
@@ -224,7 +265,7 @@ describe("Call help's model", { timeout: 60_000 }, () => {
     expect(answer.status).toBe("failed");
     expect(answer.errorKind).toBe("out-of-credit");
     expect(answer.model).toEqual({ providerId: provider.id, modelId: SONNET });
-    expect(warned).toEqual([]);
+    expect(warned).toEqual([gaveWay("refused", "model", 404)]);
   });
 
   test("with Claude Haiku 5.5 as the Answers model, it answers as before, with nothing to choose", async () => {

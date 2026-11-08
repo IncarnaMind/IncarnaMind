@@ -59,6 +59,7 @@ export function PopUpButton<Value extends string>({
         id={id}
         aria-labelledby={labelledBy ? `${labelledBy} ${id}` : undefined}
         aria-describedby={describedBy}
+        title={chosen?.label}
         data-testid={testId}
         data-value={value}
         disabled={disabled}

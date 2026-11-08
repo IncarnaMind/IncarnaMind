@@ -6,7 +6,13 @@ import { APICallError, generateText, streamText } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
 import { refusedGoesTo } from "../../src/core/providers/modelRefusal";
-import { failingModel, failingStreamModel, replyingModel, streamingModel } from "../helpers/models";
+import {
+  failingModel,
+  failingStreamModel,
+  replyingModel,
+  streamedReply,
+  streamingModel,
+} from "../helpers/models";
 
 const refusal = (statusCode: number, message: string) =>
   new APICallError({
@@ -21,11 +27,43 @@ const refusal = (statusCode: number, message: string) =>
 function goingTo(own: MockLanguageModelV4, instead: MockLanguageModelV4) {
   const heard: string[] = [];
   const model = refusedGoesTo(own, instead, {
-    switched: () => heard.push("switched"),
+    switched: (_error, why) => heard.push(`switched ${why}`),
     refused: (error) => heard.push(`refused ${error instanceof Error ? error.message : ""}`),
   });
   return { model, heard };
 }
+
+type StreamPart =
+  Awaited<ReturnType<MockLanguageModelV4["doStream"]>>["stream"] extends ReadableStream<infer Part>
+    ? Part
+    : never;
+
+/** A model whose stream opens with `opening`, then streams `reply` unless an error part ended it. */
+function openingWith(opening: StreamPart[], reply = "") {
+  return new MockLanguageModelV4({
+    doStream: async ({ abortSignal }) => {
+      const rest = streamedReply(reply, abortSignal).getReader();
+      return {
+        stream: new ReadableStream<StreamPart>({
+          start(controller) {
+            for (const part of opening) controller.enqueue(part);
+          },
+          async pull(controller) {
+            const read = await rest.read();
+            if (read.done) controller.close();
+            else if (read.value.type !== "stream-start") controller.enqueue(read.value);
+          },
+        }),
+      };
+    },
+  });
+}
+
+/** Anthropic's "Overloaded", as its stream sends it once the reply has begun: a record, no status. */
+const overloaded = {
+  type: "error",
+  error: { type: "overloaded_error", message: "Overloaded" },
+} as const;
 
 describe("A refused model", () => {
   test("a model not found: the request and every one after it go to the other, which is told once", async () => {
@@ -39,7 +77,7 @@ describe("A refused model", () => {
     expect([first, second]).toEqual(["From the other", "From the other"]);
     expect(own.doStreamCalls).toHaveLength(1);
     expect(instead.doStreamCalls).toHaveLength(2);
-    expect(heard).toEqual(["switched", "refused model: claude-haiku-5-5 not found"]);
+    expect(heard).toEqual(["switched refused", "refused model: claude-haiku-5-5 not found"]);
   });
 
   test("a request that isn't streamed goes to the other too", async () => {
@@ -50,7 +88,7 @@ describe("A refused model", () => {
     const { text } = await generateText({ model, prompt: "Hi" });
 
     expect(text).toBe("From the other");
-    expect(heard).toEqual(["switched", "refused This key can't use this model"]);
+    expect(heard).toEqual(["switched refused", "refused This key can't use this model"]);
   });
 
   test("refused on a later request, it goes to the other from that one", async () => {
@@ -69,7 +107,7 @@ describe("A refused model", () => {
     const second = await streamText({ model, prompt: "Again" }).text;
 
     expect([first, second]).toEqual(["From its own", "From the other"]);
-    expect(heard).toEqual(["switched", "refused model not found"]);
+    expect(heard).toEqual(["switched refused", "refused model not found"]);
   });
 
   test("busy: the request goes to the other, which isn't told the model was refused", async () => {
@@ -78,7 +116,7 @@ describe("A refused model", () => {
     const { model, heard } = goingTo(own, instead);
 
     expect(await streamText({ model, prompt: "Hi", maxRetries: 0 }).text).toBe("From the other");
-    expect(heard).toEqual(["switched"]);
+    expect(heard).toEqual(["switched busy"]);
   });
 
   test("refused there too: the other's failure stands, and the model isn't counted as refused", async () => {
@@ -94,7 +132,7 @@ describe("A refused model", () => {
     }).consumeStream();
 
     expect(failure).toMatchObject({ statusCode: 402 });
-    expect(heard).toEqual(["switched"]);
+    expect(heard).toEqual(["switched refused"]);
   });
 
   test.each([
@@ -130,4 +168,62 @@ describe("A refused model", () => {
       expect(heard).toEqual([]);
     },
   );
+
+  test("a stream that opens with Anthropic's Overloaded goes to the other before any of it shows", async () => {
+    const own = openingWith(
+      [
+        { type: "stream-start", warnings: [] },
+        { type: "response-metadata", id: "msg_1", modelId: "claude-haiku-5-5" },
+        overloaded,
+      ],
+      "From its own",
+    );
+    const instead = streamingModel(["From the other"]);
+    const { model, heard } = goingTo(own, instead);
+
+    expect(await streamText({ model, prompt: "Hi", maxRetries: 0 }).text).toBe("From the other");
+    expect(heard).toEqual(["switched busy"]);
+  });
+
+  test("an error part after the reply has begun stays: what was shown isn't taken over by another model", async () => {
+    const own = new MockLanguageModelV4({
+      doStream: async () => ({
+        stream: new ReadableStream<StreamPart>({
+          start(controller) {
+            controller.enqueue({ type: "stream-start", warnings: [] });
+            controller.enqueue({ type: "text-start", id: "a" });
+            controller.enqueue({ type: "text-delta", id: "a", delta: "From its own" });
+            controller.enqueue(overloaded);
+            controller.close();
+          },
+        }),
+      }),
+    });
+    const instead = streamingModel(["From the other"]);
+    const { model, heard } = goingTo(own, instead);
+    let failure: unknown = null;
+
+    const result = streamText({
+      model,
+      prompt: "Hi",
+      maxRetries: 0,
+      onError: ({ error }) => (failure = error),
+    });
+    await result.consumeStream();
+
+    expect(await Promise.resolve(result.text).catch(() => "")).not.toContain("From the other");
+    expect(failure).not.toBeNull();
+    expect(instead.doStreamCalls).toHaveLength(0);
+    expect(heard).toEqual([]);
+  });
+
+  test("a stream that opens with its reply passes through whole", async () => {
+    const own = streamingModel(["From its own"]);
+    const instead = streamingModel(["From the other"]);
+    const { model, heard } = goingTo(own, instead);
+
+    expect(await streamText({ model, prompt: "Hi" }).text).toBe("From its own");
+    expect(instead.doStreamCalls).toHaveLength(0);
+    expect(heard).toEqual([]);
+  });
 });

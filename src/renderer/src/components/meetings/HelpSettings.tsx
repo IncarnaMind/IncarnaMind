@@ -222,7 +222,11 @@ function CallHelpModelRow() {
       label={t("meetings.settings.helpModel")}
       labelId={labelId}
       tip={t("meetings.settings.helpModel.tip")}
-      detail={t("meetings.settings.helpModel.trade")}
+      detail={
+        fastest
+          ? t("meetings.settings.helpModel.trade")
+          : t("meetings.settings.helpModel.notOffered", { model: nameOf(answers) })
+      }
       detailId={detailId}
       control={
         <PopUpButton<CallHelpModel>
