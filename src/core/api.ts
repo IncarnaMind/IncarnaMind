@@ -1598,20 +1598,19 @@ export interface MindChange {
   /** How many of its text's markers had no Citation recorded, and were left out. Absent: none. */
   unrecorded?: number;
   /**
-   * How many of the sentences it wrote are being checked against their Citations now, before
-   * they land (#1111). Absent: none, or the check is over.
-   */
-  checking?: number;
-  /**
    * The check of the sentences it wrote that a check reads (#1909: every claim,
-   * cited or not), once over: how many there were (`checkable`), how many have a
-   * Citation (`cited`), how many it sent to be checked (`sent`), how many got a
-   * verdict (`checked`) and how many couldn't be checked (`failed`), and what
-   * stopped it, if anything did. Those it couldn't check, or didn't, are marked
-   * not checked, under `request`; `blocked` says how many of them the User's own
+   * cited or not), which runs after the write lands (#2830): how many there were
+   * (`checkable`), how many have a Citation (`cited`), how many it sent to be
+   * checked (`sent`), how many got a verdict (`checked`), how many of those need a
+   * look (`look`: unsupported or contradicted), how many couldn't be checked
+   * (`failed`) and how many state only an opinion (`opinions`), and what stopped
+   * it, if anything did. Those it couldn't check, or didn't, are marked not
+   * checked, under `request`; `blocked` says how many of them the User's own
    * choice kept from being sent (the flow turned off, or Local mode), which
    * checking again can't change, or how many wait for the User to allow what
-   * checks send now ("consent-widened"). Absent: none was checked.
+   * checks send now ("consent-widened"). `running` as it began, its counts not
+   * final yet; `undone` once an Undo took the write away and ended it. Absent:
+   * none was checked.
    */
   selfCheck?: {
     request: string;
@@ -1623,9 +1622,27 @@ export interface MindChange {
     sent: number;
     checked: number;
     failed: number;
+    /** Absent on a check recorded before #2830. */
+    look?: number;
+    opinions?: number;
+    running?: true;
+    undone?: true;
     stop?: RunStop;
     blocked?: { reason: "consent-revoked" | "local-mode" | "consent-widened"; count: number };
   };
+}
+
+/**
+ * How far the check of what the assistant wrote into a Mind is (#2830), as its marks land and
+ * once more as it ends: `done` of `total` sentences have their mark (a verdict or Not checked);
+ * `total` leaves out those found to state only an opinion, which take none.
+ */
+export interface WrittenCheckProgress {
+  mindId: string;
+  request: string;
+  done: number;
+  total: number;
+  running: boolean;
 }
 
 /** What a call of `read_web_page` came to (see `AnswerToolCall.webPage`). */
@@ -14434,6 +14451,8 @@ export interface CoreEvents {
   "documentCheck.progress": DocumentCheckProgress;
   /** A Check this Note run's sentences checked before it marks them (`MindCheckEarly`). */
   "mindCheck.early": MindCheckEarly;
+  /** How far the check of what the assistant wrote into a Mind is, as it runs and as it ends (#2830). */
+  "writtenCheck.progress": WrittenCheckProgress;
   /** How far a Mind's `checkReferences` is: `done` of `total` entries looked up. */
   "referenceCheck.progress": { mindId: string; done: number; total: number };
   /** `importReferences` has matched `done` of `total` references. */

@@ -571,10 +571,6 @@ export function liveStep({
   if (phase === "searching" || running.some(isSearch)) return { kind: "searching" };
   const call = running.find((each) => !isSearch(each));
   if (call) return { kind: "call", call };
-  // A write whose Citations came after it is checked once the reply has streamed (#1635): the
-  // line words it as its call still at work, while its row keeps what the call did.
-  const checking = answer.toolCalls.find((each) => (each.mindChange?.checking ?? 0) > 0);
-  if (checking) return { kind: "call", call: { ...checking, status: "running" } };
   if (answer.text.trim()) {
     const markers = markersIn(answer.text);
     const cited = new Set(answer.citations.map((citation) => citation.marker));

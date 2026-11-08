@@ -2925,6 +2925,15 @@ export function createAnswers(options: AnswersOptions) {
                   writeSoon();
                 }
               },
+              checkEnded: (toolCallId, change) => {
+                if (mindChanges.has(toolCallId)) mindChanges.set(toolCallId, change);
+                const call = toolCalls.find((each) => each.id === toolCallId);
+                // A call whose change was taken back has no card to say it on.
+                if (!call?.mindChange) return;
+                call.mindChange = change;
+                if (finished) options.conversations.writeToolCalls(answerId, toolCalls);
+                else writeSoon();
+              },
               failed: (toolCallId, problem) => {
                 mindProblems.set(toolCallId, problem);
                 // Whatever it wrote as its input came in was taken back: nothing of it counts.

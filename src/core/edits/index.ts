@@ -553,35 +553,6 @@ async function streamEdit(
   return { raw, failure };
 }
 
-/**
- * The new text Edit with AI gives for a passage that isn't in a Mind yet (#1111: a sentence
- * the assistant is about to write), its Citations as numbered markers: the same request and
- * the same reading of the reply, with no Proposals. Null when the model fails, gives nothing,
- * or the passage is more than it can take at once.
- */
-export async function editText(
-  prepared: PreparedChatModel,
-  ask: Pick<Ask, "action" | "instruction">,
-  passage: { text: string; context: string; quotes: readonly string[] },
-  signal: AbortSignal,
-): Promise<string | null> {
-  const call = editCall(prepared, ask, {
-    ...passage,
-    before: "",
-    after: "",
-    characters: passage.text.length,
-  });
-  if (!call) return null;
-  const { raw, failure } = await streamEdit(prepared, call, signal);
-  if (signal.aborted) return null;
-  if (failure !== null) {
-    console.warn(`Edit with AI (${ask.action}) of a passage not in a Mind failed:`, failure);
-    return null;
-  }
-  const text = textOf(readEditReply(raw, passage.text));
-  return text === "" ? null : text;
-}
-
 export function createEdits(options: EditsOptions) {
   const { chat, content } = options;
   const running = new Map<string, AbortController>();

@@ -212,7 +212,7 @@ import { findUnreadDocuments } from "./documents/unread";
 import { createViewing } from "./documents/viewing";
 import { fsWatchFolder } from "./documents/watcher";
 import { createWebPages, wallKey } from "./documents/web";
-import { createEdits, editText } from "./edits";
+import { createEdits } from "./edits";
 import { BUILT_IN_EMBEDDING_MODEL, createEmbeddingModel } from "./embedding";
 import { createActiveEmbedding } from "./embedding/active";
 import { createModelSources, MODEL_COPIES, modelCopyUrl } from "./embedding/modelSources";
@@ -752,6 +752,7 @@ export function createCore(adapters: CoreAdapters): Core {
       checkpoints.edited(mindId);
       mindIndex.contentStored(mindId);
       comparisons.mindChanged(mindId);
+      checks.mindChanged(mindId);
       noteConversations.changed(mindId);
       const renamed = minds.setAutoTitle(mindId, content.peek(mindId, firstLineOf));
       if (renamed) {
@@ -3113,7 +3114,6 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     engine: answerEngine,
     retention,
-    editText,
     recheckCitation: (citation) => recheckCitation(documents, citation),
     estimateRead(model, read) {
       const metered = chat.metered(model ?? undefined);
@@ -3128,6 +3128,7 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     documentCheckProgress: (event) => events.emit("documentCheck.progress", event),
     checkingEarly: (event) => events.emit("mindCheck.early", event),
+    writtenProgress: (event) => events.emit("writtenCheck.progress", event),
     now: () => adapters.now?.() ?? new Date(),
   });
 

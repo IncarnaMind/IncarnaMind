@@ -160,12 +160,6 @@ export function mindCallText(t: Translate, call: AnswerToolCall, mind: string): 
   const change = call.mindChange;
   if (call.status === "running") {
     if (call.tool === "read_mind") return t("mindCall.reading", { mind });
-    const checking = change?.checking ?? 0;
-    if (checking > 0) {
-      return checking === 1
-        ? t("mindCall.checking.one", { mind })
-        : t("mindCall.checking", { mind, count: checking });
-    }
     if (call.tool === "create_mind") {
       return mind ? t("mindCall.creating", { mind }) : t("mindCall.creating.new");
     }

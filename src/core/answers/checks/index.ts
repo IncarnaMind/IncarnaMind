@@ -324,10 +324,10 @@ export interface ChecksOptions
   documentCheckProgress(event: DocumentCheckProgress): void;
   /** A Check this Note run's sentences checked before it marks them. */
   checkingEarly(event: MindCheckEarly): void;
+  /** How far the check of what the assistant wrote is (./written). */
+  writtenProgress: WrittenCheckOptions["progress"];
   engine: AnswerEngine;
   retention: Pick<VersionRetention, "retain" | "retainedBy">;
-  /** Edit with AI's new text for a passage not in a Mind, for what the assistant writes (#1111). */
-  editText: WrittenCheckOptions["editText"];
   now(): Date;
 }
 
@@ -1602,7 +1602,7 @@ export function createChecks(options: ChecksOptions) {
     versionNow: (documentId) => options.documents.live([documentId])[0]?.contentHash ?? null,
   });
 
-  const checkWritten = createWrittenCheck({
+  const written = createWrittenCheck({
     ...options,
     prepare: (answer) =>
       prepareQuietly({ providerId: answer.provider.id, modelId: answer.modelId }, WRITTEN_SENDS),
@@ -1616,6 +1616,9 @@ export function createChecks(options: ChecksOptions) {
     read: (mindId, look) => content.read(mindId, look),
     retainEvidence,
     claimTimeLimitMs: options.watch.claimTimeLimitMs,
+    track,
+    settleStopped,
+    progress: options.writtenProgress,
   });
 
   /**
@@ -1689,8 +1692,11 @@ export function createChecks(options: ChecksOptions) {
   return {
     ...verify,
 
-    /** What the assistant wrote in a Mind, checked before it lands (./written). */
-    checkWritten,
+    /** What the assistant wrote in a Mind, checked once it lands, the turn not waiting (./written). */
+    checkWritten: written.checkWritten,
+
+    /** A Mind changed: the check of a write an Undo took away ends (./written). */
+    mindChanged: written.mindChanged,
 
     /** An Answer's sentences with Citations, checked before it ends (./answerCheck). */
     checkAnswer: answerCheck.check,
@@ -2075,6 +2081,7 @@ export function createChecks(options: ChecksOptions) {
     /** Stops every request, as IncarnaMind quits: their sentences not checked yet say "stopped". */
     stopAll(): void {
       watch.close();
+      written.stopAll();
       for (const [requestId, { controller, mindId }] of running) {
         controller.abort();
         try {

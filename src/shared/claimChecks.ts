@@ -48,7 +48,10 @@ import { parseLocation } from "./locations";
 import { folderScope, hasSearchScope, sameScope } from "./searchScope";
 import { comparableCheckSentence, comparableSentence, isClaim } from "./sentences";
 
-/** The most sentences with Citations one write of the assistant's has checked as it lands (#1111): past it, a long draft would wait minutes and cost dozens of requests. */
+/**
+ * The most sentences with Citations one write of the assistant's had checked before its reply
+ * (#1111): what a sentence marked "too-many" then says. Since #2830 a write checks every sentence.
+ */
 export const SENTENCES_CHECKED_AT_MOST = 12;
 
 const STATES: readonly ClaimCheckAttributes["state"][] = [

@@ -1,46 +1,35 @@
 /**
- * What the assistant writes into a Mind, checked before it lands (#1111).
+ * What the assistant writes into a Mind, checked right after it lands, never in front of the
+ * reply (#1111, #2830).
  *
- * The sentences it wrote with Citations, the first `SENTENCES_CHECKED_AT_MOST`
- * of them, are checked as Check this Mind would check them (./claimCheck: the
- * Mind's Folder, the Citations' quotes sent), a few at a time, each within a
- * time limit. The claims it wrote with no Citation are left to the one count
- * and Check the rest (#1909). The words are still the assistant's changes
- * then, not the Mind's.
+ * Every sentence it wrote that a check reads, each with a Citation and each claim with none
+ * (#1909), is checked as Check this Mind would check it (./claimCheck: the Mind's Folder, the
+ * Citations' quotes sent), a few at a time, each within a time limit. Each shows as being checked
+ * from the start, and its mark lands as its check ends; one that couldn't be checked (a failure,
+ * a limit, the time limit, Stop) lands marked not checked, with why. A sentence the check finds
+ * states only an opinion takes no mark, its opinion left out as Check this Mind leaves it. The
+ * check only marks: a part a sentence's Citations don't support is the User's to cut, from its
+ * card. Only while a sentence reads as it was written does its mark land on its words as they
+ * are; one the User changed meanwhile is marked to be checked again.
  *
- * - A part its Citations don't support, as the check names it, is taken out
- *   with Edit with AI's own request (`cut-unsupported`); the Citations stay on
- *   what is left, each word keeps its own formatting, and the sentence shows
- *   it needs a check again, as after the card's cut. A cut that would lose
- *   every Citation, add one or leave no claim isn't used, nor one that does
- *   more than take words out (#1397), nor one its Citations don't support once
- *   cut: the sentence then lands as written, marked.
- * - A sentence the check covered, supported included, lands with its check's
- *   mark, so Check this Mind doesn't find it again later and the count that
- *   must close after a write counts it once (#1909).
- * - One that couldn't be checked (a failure, a limit, the time limit, or past
- *   the first `SENTENCES_CHECKED_AT_MOST`) lands marked not checked, with why.
+ * The check runs on its own once begun: the turn doesn't wait for it, and a new message doesn't
+ * stop it. Stop on the Note's badge (`track`), an Undo that takes the write away (`mindChanged`)
+ * and quitting (`stopAll`) end it; what it hadn't checked then lands not checked.
  *
- * Only the sentences cut or marked are written, and only while each reads as
- * it was written: one the User changed meanwhile keeps their words, marked to
- * be checked again.
+ * Before its check, a sentence with one Citation may be found Supported by a plain yes from the
+ * provider's quick-tasks model, the same service (./fastPaths, #1667). Anything else goes on to
+ * its check.
  *
- * Before its check, a sentence with one Citation may be found Supported by a plain
- * yes from the provider's quick-tasks model, the same service (./fastPaths,
- * #1667). Anything else goes on to its check.
- *
- * One check per sentence, and one edit per sentence it cuts, on the Answer's
- * model prepared for the checks flow: each request checks that flow's consent
- * as it is sent, so turning it off stops the rest at once (#1206), as the cost
- * cap and a plan's limit do. Nothing is checked when the flow is off as it
- * starts, or on a model on this computer too small to judge reliably (#680).
- * Allowed before checks sent more, the flow isn't asked about here: each
- * sentence lands not checked, waiting for the User to allow the more (#2525).
+ * One check per sentence, on the Answer's model prepared for the checks flow: each request checks
+ * that flow's consent as it is sent, so turning it off stops the rest at once (#1206), as the
+ * cost cap and a plan's limit do. Nothing is checked when the flow is off as it starts, or on a
+ * model on this computer too small to judge reliably (#680). Allowed before checks sent more, the
+ * flow isn't asked about here: each sentence lands not checked, waiting for the User to allow the
+ * more (#2525).
  */
 import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
 import { citationAttributesOf } from "../../../shared/citations";
-import { SENTENCES_CHECKED_AT_MOST } from "../../../shared/claimChecks";
 import { planOf } from "../../../shared/claimParts";
 import { beginFigureCheck } from "../../../shared/figureChecks";
 import { readTableBinding } from "../../../shared/figureRuns";
@@ -65,9 +54,9 @@ import {
   type ClaimCheckFailure,
   type ClaimCheckResult,
   type ClaimPartPlan,
-  type EditAction,
   type RecordAiUseInput,
   type RunStop,
+  type WrittenCheckProgress,
 } from "../../api";
 import { MindReadOnlyError } from "../../errors";
 import type { PreparedChatModel } from "../../providers/chat";
@@ -75,7 +64,7 @@ import type { RecordCitePlace } from "../../recordCites/referents";
 import { asCheckWork } from "../../reranking/order";
 import { type ItemOutcome, RunItemError, runItems, type Slots, slots } from "../../runs/stop";
 import { inStep } from "../../timing/flows";
-import { type MarkJSON, type NodeJSON, syncContent, topLevelBlocks } from "../blocks";
+import { type NodeJSON, topLevelBlocks } from "../blocks";
 import {
   type CheckedCitation,
   type ClaimCheckRequest,
@@ -85,10 +74,20 @@ import {
 import { type FirstLook, type FirstLookResult, quickLook } from "./fastPaths";
 import { recordOpinions } from "./opinions";
 import { claimsAtOnce } from "./runChecks";
-import { checkText, citedQuoteOf, figuresByBlock, markSentence, sentenceOf } from "./sentences";
+import {
+  checkText,
+  citedQuoteOf,
+  figuresByBlock,
+  markSentence,
+  sentenceOf,
+  unmarkSentence,
+} from "./sentences";
 import type { CheckScope } from "./verify";
 
 const UNCHECKED: ReadonlySet<string> = new Set(["question", "codeBlock", "blockMath", "heading"]);
+
+/** How many writes Undo took away a Mind keeps, so a Redo that brings one back finds its sentences stopped. */
+const UNDONE_KEPT = 20;
 
 export interface WrittenCheckOptions {
   /**
@@ -115,18 +114,17 @@ export interface WrittenCheckOptions {
   read<T>(mindId: string, look: (blocks: Y.XmlFragment) => T): T;
   retainEvidence(mindId: string): void;
   recordAiUse(inputs: RecordAiUseInput[]): void;
-  /** Edit with AI's new text for a passage not in a Mind (../../edits, `editText`). */
-  editText(
-    prepared: PreparedChatModel,
-    ask: { action: EditAction; instruction: string },
-    passage: { text: string; context: string; quotes: readonly string[] },
-    signal: AbortSignal,
-  ): Promise<string | null>;
   /** The quick model that looks first at a write's sentences under the checks' model (./fastPaths); null: none. */
   quickModel(prepared: PreparedChatModel): Promise<PreparedChatModel | null>;
   firstLook(look: FirstLook): Promise<FirstLookResult>;
   /** How long one check may take, as contradiction watch gives one claim: a reply may never come. */
   claimTimeLimitMs: number;
+  /** Registers a check under its request, so the Note's Stop and quitting reach it (./index `track`). */
+  track(requestId: string, mindId: string): { signal: AbortSignal; done(): void };
+  /** Marks the request's sentences still being checked as stopped (./index `settleStopped`). */
+  settleStopped(mindId: string, request: string): void;
+  /** How far a check is, as its marks land, and once more as it ends. */
+  progress(event: WrittenCheckProgress): void;
   now(): Date;
 }
 
@@ -137,25 +135,26 @@ export interface CheckWrittenInput {
   /** The ids of the top-level Blocks they were written as, in their order. */
   ids: readonly string[];
   prepared: PreparedChatModel;
+  /** The Answer's: aborted before the check begins, nothing is checked. */
   signal: AbortSignal;
   /**
-   * The Answer failed before its text could be checked: each cited sentence lands not checked,
-   * and nothing is sent to the provider that just failed.
+   * The Answer failed before its text could be checked: each sentence lands not checked, and
+   * nothing is sent to the provider that just failed.
    */
   answerFailed?: boolean;
-  /** How many sentences are being checked, as the check starts. */
-  checking(count: number): void;
   /** Changes the Mind's content, in one transaction. */
   edit(change: (blocks: Y.XmlFragment) => void): void;
+  /** Hears the check once it is over, when `checkWritten` resolved with it still running; a short one may end first. */
+  ended?(check: WrittenCheck): void;
 }
 
 /**
- * What the check did: of the claims the write holds (`checkable`), how many
- * have a Citation and were checked (`cited`), how many it sent, how many got a
- * verdict and how many couldn't be checked, and what stopped it; each part it
- * cut, as it named it; how many land marked. Its marks share `request`.
- * `blocked`: the sentences the User's own choice kept from being sent, among
- * those that couldn't be checked.
+ * What the check did: of the sentences the write holds that a check reads (`checkable`), how
+ * many have a Citation (`cited`), how many it sent, how many got a verdict, how many couldn't
+ * be checked, how many state only an opinion, and what stopped it; of the verdicts, how many
+ * are unsupported or contradicted. Its marks share `request`. `blocked`: the sentences the User's
+ * own choice kept from being sent, among those that couldn't be checked. `running` until its last
+ * mark has landed; `undone` once an Undo took its write away, which ended it.
  */
 export interface WrittenCheck {
   request: string;
@@ -166,11 +165,13 @@ export interface WrittenCheck {
   sent: number;
   checked: number;
   failed: number;
+  opinions: number;
   stop: RunStop | null;
   blocked: { reason: "consent-revoked" | "local-mode" | "consent-widened"; count: number } | null;
-  cut: string[];
   unsupported: number;
   contradicted: number;
+  running: boolean;
+  undone: boolean;
 }
 
 interface Sentence {
@@ -188,7 +189,7 @@ interface Sentence {
   citations: Partial<CitationAttributes>[];
   /** Where it is in what was written, for whether the quick model may look first (./fastPaths). */
   place: FirstLook["place"];
-  /** In a table's cell, whose words are a figure, not a clause a cut could take out. */
+  /** In a table's cell, whose figures are footed against the table's other cells as they land. */
   inCell: boolean;
 }
 
@@ -300,217 +301,9 @@ export function checkableSentences(blocks: readonly NodeJSON[]): Sentence[] {
   return found;
 }
 
-const MARKER = /\[(\d{1,3})\]/g;
-
-/** Null when the sentence holds an inline node a marker can't stand for (a formula, a footnote), which a cut would lose. */
-function asMarked(
-  content: readonly NodeJSON[],
-  from: number,
-  to: number,
-): { passage: string; context: string; citations: Map<number, NodeJSON> } | null {
-  const citations = new Map<number, NodeJSON>();
-  let context = "";
-  let passage = "";
-  for (const { node, start } of inlineLayout(content)) {
-    let piece: string;
-    if (node.type === "text") piece = node.text ?? "";
-    else if (node.type === "hardBreak") piece = "\n";
-    else if (node.type === CITATION_NODE) {
-      citations.set(citations.size + 1, node);
-      piece = `[${citations.size}]`;
-    } else if (start >= from && start < to) return null;
-    else piece = "";
-    context += piece;
-    if (node.type === "text") {
-      const text = node.text ?? "";
-      passage += text.slice(Math.max(0, from - start), Math.max(0, to - start));
-    } else if (start >= from && start < to) passage += piece;
-  }
-  return { passage: passage.trim(), context, citations };
-}
-
-const sameMarks = (a: readonly MarkJSON[], b: readonly MarkJSON[]) =>
-  JSON.stringify(a) === JSON.stringify(b);
-
-/** Each character of the sentence's words, with its own marks, but a check's. */
-function lettersOf(
-  content: readonly NodeJSON[],
-  from: number,
-  to: number,
-): { text: string; marks: MarkJSON[][] } {
-  let text = "";
-  const marks: MarkJSON[][] = [];
-  for (const { node, start } of inlineLayout(content)) {
-    if (node.type !== "text") continue;
-    const own = (node.marks ?? []).filter((mark) => mark.type !== CLAIM_CHECK_MARK);
-    const words = (node.text ?? "").slice(Math.max(0, from - start), Math.max(0, to - start));
-    text += words;
-    for (let index = 0; index < words.length; index++) marks.push(own);
-  }
-  return { text, marks };
-}
-
-// One Chinese, Japanese or Korean character, a run of letters or digits, or one mark.
-const WORD = String.raw`[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]|[\p{L}\p{N}]+|[^\s]`;
-
-const TOKEN = new RegExp(`${WORD}|\\s+`, "gu");
-
-/**
- * The cut's words as text nodes, each word with the marks it had in the
- * sentence; a word the sentence didn't have takes the marks all its words share.
- */
-function wordsWithMarks(words: string, letters: ReturnType<typeof lettersOf>): NodeJSON[] {
-  const [first, ...rest] = letters.marks;
-  const shared = (first ?? []).filter((mark) =>
-    rest.every((marks) => marks.some((each) => sameMarks([each], [mark]))),
-  );
-  const nodes: NodeJSON[] = [];
-  let cursor = 0;
-  for (const match of words.matchAll(TOKEN)) {
-    const token = match[0];
-    const at = letters.text.indexOf(token, cursor);
-    const marks = at < 0 ? shared : (letters.marks[at] ?? shared);
-    if (at >= 0) cursor = at + token.length;
-    const last = nodes.at(-1);
-    if (last && sameMarks(last.marks ?? [], marks)) last.text = `${last.text ?? ""}${token}`;
-    else nodes.push({ type: "text", text: token, ...(marks.length > 0 && { marks }) });
-  }
-  return nodes;
-}
-
-const PIECE = new RegExp(`\\[\\d{1,3}\\]|${WORD}`, "gu");
-
-const CITATION_PIECE = /^\[\d{1,3}\]$/;
-
-const STOP = /^[.!?。！？]$/u;
-
-const TRAILING_MARK = /^[,;:，；：、]$/u;
-
-const capitalised = (word: string) => `${word.charAt(0).toLocaleUpperCase()}${word.slice(1)}`;
-
-/**
- * Whether each Citation still follows some of the words it was written after,
- * those since the Citation before it, so none comes to back another part's
- * words: a Citation goes only when all its words go too. Citations side by
- * side share the words before them.
- */
-function citationsKeepTheirWords(pieces: readonly string[], kept: ReadonlySet<number>): boolean {
-  let ownKept = false;
-  let afterCitation = false;
-  for (const [at, piece] of pieces.entries()) {
-    if (CITATION_PIECE.test(piece)) {
-      if (kept.has(at) !== ownKept) return false;
-      afterCitation = true;
-      continue;
-    }
-    if (afterCitation) {
-      ownKept = false;
-      afterCitation = false;
-    }
-    if (kept.has(at) && /[\p{L}\p{N}]/u.test(piece)) ownKept = true;
-  }
-  return true;
-}
-
-/** The sentence's own full stop, looking back past any Citations written after it, or -1. */
-function stopOf(pieces: readonly RegExpExecArray[]): number {
-  let at = pieces.length - 1;
-  while (at >= 0 && CITATION_PIECE.test(pieces[at]?.[0] ?? "")) at--;
-  return at >= 0 && STOP.test(pieces[at]?.[0] ?? "") ? at : -1;
-}
-
-/**
- * The passage with only what the cut left out taken out (#1397): each word,
- * mark and marker it keeps, and the spaces between them, as the passage has
- * them; where words went, a space if the cut has one there; and its own full
- * stop, in its place. Null when the cut rewords, reorders or adds anything,
- * keeps a Citation but none of its words, or takes nothing out.
- */
-function takenOut(passage: string, cut: string): string | null {
-  const pieces = [...passage.matchAll(PIECE)];
-  const keptAt = new Set<number>();
-  const spaced = new Set<number>();
-  let last = -1;
-  let cutAt = 0;
-  for (const wanted of cut.matchAll(PIECE)) {
-    const [text] = wanted;
-    // With the first words gone, the sentence may start with the next one's capital.
-    const fits = (piece: string) => piece === text || (last < 0 && capitalised(piece) === text);
-    let at = last + 1;
-    while (at < pieces.length && !fits(pieces[at]?.[0] ?? "")) at++;
-    const piece = pieces[at];
-    if (!piece) return null;
-    if (last >= 0 && at > last + 1 && /\s/u.test(cut.slice(cutAt, wanted.index))) spaced.add(at);
-    last = at;
-    keptAt.add(at);
-    cutAt = wanted.index + text.length;
-  }
-  if (keptAt.size === 0) return null;
-  const stop = stopOf(pieces);
-  if (stop >= 0 && !keptAt.has(stop)) {
-    keptAt.add(stop);
-    const before = [...keptAt].filter((at) => at < stop).sort((a, b) => b - a)[0];
-    // The stop takes the place of a comma or colon the cut kept before it.
-    if (before !== undefined && TRAILING_MARK.test(pieces[before]?.[0] ?? ""))
-      keptAt.delete(before);
-  }
-  if (keptAt.size === pieces.length) return null;
-  if (
-    !citationsKeepTheirWords(
-      pieces.map(([piece]) => piece),
-      keptAt,
-    )
-  )
-    return null;
-  let kept = "";
-  let previous = -1;
-  for (const at of [...keptAt].sort((a, b) => a - b)) {
-    const piece = pieces[at];
-    if (!piece) return null;
-    const after = pieces[previous];
-    if (after) {
-      kept +=
-        at === previous + 1
-          ? passage.slice(after.index + after[0].length, piece.index)
-          : spaced.has(at)
-            ? " "
-            : "";
-    }
-    // A sentence whose first words went starts with the next word's capital.
-    kept += previous < 0 && at > 0 ? capitalised(piece[0]) : piece[0];
-    previous = at;
-  }
-  return kept;
-}
-
-/** Null when the cut keeps no Citation, adds or repeats one, or leaves no claim of its own (a label, as in "Crime:"). */
-function cutNodes(
-  cut: string,
-  sentence: readonly number[],
-  citations: ReadonlyMap<number, NodeJSON>,
-  letters: ReturnType<typeof lettersOf>,
-): NodeJSON[] | null {
-  const used = new Set<number>();
-  const nodes: NodeJSON[] = [];
-  let last = 0;
-  for (const match of cut.matchAll(MARKER)) {
-    const number = Number(match[1]);
-    const citation = citations.get(number);
-    if (!citation || !sentence.includes(number) || used.has(number)) return null;
-    used.add(number);
-    const at = match.index ?? 0;
-    nodes.push(...wordsWithMarks(cut.slice(last, at), letters), citation);
-    last = at + match[0].length;
-  }
-  nodes.push(...wordsWithMarks(cut.slice(last), letters));
-  return used.size === 0 || !isClaim(cut.replace(MARKER, "")) ? null : nodes;
-}
-
 /** A sentence's check: `by`, the model whose verdict it is, the quick model's or the checks' own. */
 interface Checked {
   result: ClaimCheckResult;
-  uncovered: string | null;
-  nodes: NodeJSON[] | null;
   by: PreparedChatModel;
   /** The quick model that read the sentence first and passed it on to its check. */
   passedOn: PreparedChatModel | null;
@@ -522,60 +315,17 @@ interface Checked {
  */
 const FIRST_LOOK_SHARE = 0.1;
 
+/** What a landing counts as: a verdict, a sentence that couldn't be checked, or one that states only an opinion. */
+type Outcome = "checked" | "unsupported" | "contradicted" | "failed" | "opinion";
+
 type Landing =
   | {
       sentence: Sentence;
-      /** The cut, in place of the sentence's own words; null: they stay. */
-      nodes: NodeJSON[] | null;
       /** Its mark, made where it lands: a figure's result is footed against the table it is in. */
       mark(blocks: Y.XmlFragment): ClaimCheckAttributes;
     }
   /** A sentence with no fact: no mark, and its opinion is left out as Check this Note leaves it. */
   | { sentence: Sentence; opinion: readonly ClaimPartPlan[] };
-
-const withMark = (nodes: readonly NodeJSON[], mark: ClaimCheckAttributes): NodeJSON[] =>
-  nodes.map((node) =>
-    node.type === "text"
-      ? {
-          ...node,
-          marks: [
-            ...(node.marks ?? []).filter((each) => each.type !== CLAIM_CHECK_MARK),
-            { type: CLAIM_CHECK_MARK, attrs: { ...mark } },
-          ],
-        }
-      : node,
-  );
-
-/** A paragraph's content with the sentence `from`..`to` in it put as `nodes`. */
-function replaced(
-  content: readonly NodeJSON[],
-  from: number,
-  to: number,
-  nodes: readonly NodeJSON[],
-): NodeJSON[] {
-  const out: NodeJSON[] = [];
-  let placed = false;
-  const place = () => {
-    if (placed) return;
-    placed = true;
-    out.push(...nodes);
-  };
-  for (const { node, start } of inlineLayout(content)) {
-    if (node.type !== "text") {
-      if (start >= from && start < to) place();
-      else out.push(node);
-      continue;
-    }
-    const text = node.text ?? "";
-    const before = text.slice(0, Math.max(0, from - start));
-    const after = text.slice(Math.max(0, to - start));
-    if (before) out.push({ ...node, text: before });
-    if (start + text.length > from && start < to) place();
-    if (after && start + text.length > to) out.push({ ...node, text: after });
-  }
-  place();
-  return out;
-}
 
 /** A paragraph's inline content as it is in the Mind now. */
 function inlineOf(parent: Y.XmlElement): NodeJSON[] {
@@ -638,9 +388,9 @@ function placeOf(
 }
 
 /**
- * Lands one sentence in the Mind: cut or marked while it reads as it was
- * written; once the User has changed it, only marked, so its words stay and
- * its check shows it needs doing again.
+ * Lands one sentence in the Mind: marked where it is, its words as they are; once the User has
+ * changed them, its mark shows its check needs doing again. A sentence of opinion only loses
+ * the mark it was checked under.
  */
 function land(blocks: Y.XmlFragment, ids: readonly string[], landing: Landing): void {
   const { sentence } = landing;
@@ -648,21 +398,14 @@ function land(blocks: Y.XmlFragment, ids: readonly string[], landing: Landing): 
   const place = element ? placeOf(element, sentence) : null;
   if (!element || !place) return;
   if ("opinion" in landing) {
+    unmarkSentence(element, place.from, place.to, "check-against-documents");
     const blockId = element.getAttribute(BLOCK_ID_ATTRIBUTE);
     if (!place.same || typeof blockId !== "string" || landing.opinion.length === 0) return;
     const now = sentenceOf(element, blockId, place, figuresByBlock(blocks));
     recordOpinions(blocks, [{ ...now, parts: landing.opinion }]);
     return;
   }
-  const mark = landing.mark(blocks);
-  if (place.same && landing.nodes) {
-    syncContent(
-      element,
-      replaced(inlineOf(element), place.from, place.to, withMark(landing.nodes, mark)),
-    );
-    return;
-  }
-  markSentence(element, place.from, place.to, mark);
+  markSentence(element, place.from, place.to, landing.mark(blocks));
 }
 
 // Read as Check this Mind reads it, a table cell with its headings and each figure with its own
@@ -700,58 +443,18 @@ const notChecked = (
   at: string,
 ): ClaimCheckAttributes => ({ ...mark, state: "not-checked", reason, detail, checkedAt: at });
 
+/** A check of a write still running: its Mind, its write's Blocks, and how to end it at once. */
+interface LiveCheck {
+  mindId: string;
+  ids: readonly string[];
+  /** Ends it as it is: what it hadn't checked lands not checked; `undone`, an Undo took its write away. */
+  end(undone?: boolean): void;
+}
+
 export function createWrittenCheck(options: WrittenCheckOptions) {
-  async function cutOf(
-    blocks: readonly NodeJSON[],
-    mindId: string,
-    sentence: Sentence,
-    uncovered: string,
-    prepared: PreparedChatModel,
-    scope: CheckScope,
-    limit: Slots,
-    signal: AbortSignal,
-  ): Promise<NodeJSON[] | null> {
-    const content = paragraphAt(blocks, sentence.path)?.content ?? [];
-    const marked = asMarked(content, sentence.from, sentence.to);
-    if (!marked) return null;
-    const numbers = [...marked.passage.matchAll(MARKER)].map((match) => Number(match[1]));
-    const cut = await options.editText(
-      prepared,
-      { action: "cut-unsupported", instruction: uncovered },
-      {
-        text: marked.passage,
-        context: marked.context,
-        quotes: [...marked.citations.values()].map(
-          (node) => citedQuoteOf(node.attrs ?? {})?.quote ?? "",
-        ),
-      },
-      signal,
-    );
-    const kept = cut === null ? null : takenOut(marked.passage, cut);
-    if (kept === null) return null;
-    const letters = lettersOf(content, sentence.from, sentence.to);
-    const nodes = cutNodes(kept, numbers, marked.citations, letters);
-    if (!nodes) return null;
-    // Words a cut takes out must not change what the sentence says, so the cut is checked once, as it would land.
-    const cited = [...kept.matchAll(MARKER)].flatMap((match) => {
-      const node = marked.citations.get(Number(match[1]));
-      const quote = node ? citedQuoteOf(node.attrs ?? {}) : null;
-      return quote ? [quote] : [];
-    });
-    const { projection } = projectedContent(nodes);
-    const claim = projection.text;
-    const checked = await checkWithin(
-      { ...sentence, text: claim, cited, projection },
-      { claim, context: sentence.context, projection },
-      mindId,
-      scope,
-      prepared,
-      limit,
-      signal,
-    );
-    recordJudged(options.recordAiUse, mindId, prepared, checked, options.now().toISOString());
-    return checked.verdict === "supported" ? nodes : null;
-  }
+  const live = new Map<string, LiveCheck>();
+  /** By Mind: the checks an Undo of their write ended, newest last, until a Redo brings the write back. */
+  const undone = new Map<string, { request: string; ids: readonly string[] }[]>();
 
   /** One sentence's check, given up on once it takes longer than the time limit. */
   async function checkWithin(
@@ -795,15 +498,27 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     };
   }
 
-  // Null when there was nothing to check, or it couldn't be checked here.
-  return (input: CheckWrittenInput) => inStep("written-check", () => checkWritten(input));
+  /** Whether any of the write's top-level Blocks is still in its Mind. */
+  const stillThere = (mindId: string, ids: readonly string[]) => {
+    try {
+      return options.read(mindId, (note) =>
+        topLevelBlocks(note).some((each) =>
+          ids.includes(String(each.getAttribute(BLOCK_ID_ATTRIBUTE))),
+        ),
+      );
+    } catch {
+      return false;
+    }
+  };
 
+  /**
+   * Null when there was nothing to check, or it couldn't be checked here. Resolves once the check
+   * has begun, each sentence it reads shown as being checked; `input.ended` hears its end.
+   */
   async function checkWritten(input: CheckWrittenInput): Promise<WrittenCheck | null> {
-    const { mindId, blocks, signal } = input;
-    if (judgesUnreliably(input.prepared)) return null;
-    const checkable = checkableSentences(blocks);
-    // The claims with no Citation are left to the one count and Check the rest (#1909).
-    const sentences = checkable.filter((sentence) => sentence.cited.length > 0);
+    const { mindId, blocks } = input;
+    if (judgesUnreliably(input.prepared) || input.signal.aborted) return null;
+    const sentences = checkableSentences(blocks);
     if (sentences.length === 0) return null;
     const allowed = await options.prepare(input.prepared);
     const waiting = !allowed && options.widened(input.prepared);
@@ -812,11 +527,10 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     const prepared = allowed ?? input.prepared;
     const { searchable, check: scope } = options.scopeOf(mindId);
     if (searchable === 0) return null;
-    const sending = sentences.slice(0, SENTENCES_CHECKED_AT_MOST);
     const reads = options.read(mindId, (note) => {
       const figures = figuresByBlock(note);
       return new Map(
-        sending.map((sentence) => {
+        sentences.map((sentence) => {
           const place = notePlace(note, input.ids, sentence);
           const read = readAsChecked(note, input.ids, sentence, figures);
           return [sentence, place ? { ...read, place } : read];
@@ -824,78 +538,35 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       );
     });
     const holding = waiting || input.answerFailed === true;
-    if (!holding) input.checking(sending.length);
     const request = randomUUID();
     const startedAt = options.now().toISOString();
-    const limit = slots(claimsAtOnce(prepared));
-    const quick = holding
-      ? null
-      : await options.quickModel(prepared).catch((error: unknown) => {
-          console.warn(
-            `No quick model looks first at what the assistant wrote in Mind ${mindId}: ${error instanceof Error ? error.message : String(error)}`,
-          );
-          return null;
-        });
-    // A sentence its check asks about again, after a rate limit, keeps its first look's answer:
-    // asked again, a quick model's later yes would stand.
-    const looked = new Map<Sentence, FirstLookResult>();
-    // What the Note holds just before the write: its first paragraph follows that.
-    const beforeWrite =
-      quick &&
-      options.read(mindId, (note): FirstLook["place"]["after"] => {
-        const top = topLevelBlocks(note);
-        const at = top.findIndex((each) => each.getAttribute(BLOCK_ID_ATTRIBUTE) === input.ids[0]);
-        const previous = at > 0 ? top[at - 1] : undefined;
-        if (at === 0) return { kind: "start" };
-        return previous?.nodeName === "heading"
-          ? { kind: "heading", text: paragraphText(inlineOf(previous)).replaceAll(INLINE_NODE, "") }
-          : { kind: "unknown" };
-      });
+    const markIds = new Map(sentences.map((sentence) => [sentence, randomUUID()]));
     const done: WrittenCheck = {
       request,
       blocks: [...input.ids],
-      checkable: checkable.length,
-      cited: sentences.length,
-      sent: sending.length,
+      checkable: sentences.length,
+      cited: sentences.filter((sentence) => sentence.cited.length > 0).length,
+      sent: sentences.length,
       checked: 0,
       failed: 0,
+      opinions: 0,
       stop: null,
       blocked: null,
-      cut: [],
       unsupported: 0,
       contradicted: 0,
+      running: !holding,
+      undone: false,
     };
-    // A Note a newer version wrote refuses every edit, so once one is refused the rest aren't tried.
-    let refused = false;
-    const landAll = (landings: readonly Landing[]) => {
-      if (landings.length === 0 || refused) return;
-      input.edit((note) => {
-        for (const landing of landings) land(note, input.ids, landing);
-      });
-      options.retainEvidence(mindId);
-    };
-    const couldNotLand = (error: unknown) =>
-      console.error(
-        `What the assistant wrote in Mind ${mindId} was checked, but marks couldn't land:`,
-        error,
-      );
-    // A sentence lands as its check ends, so its verdict shows while the others are checked. Two
-    // wait, and land together after every check, in their order: a table's, as its marks are
-    // footed against each other as they land (a total against its cells), and a cut, as it
-    // changes the Note's words, which a later sentence's `Id.` reads and every place was found in.
-    const held: { index: number; landing: Landing }[] = [];
-    const landNow = (landing: Landing) => {
-      const { sentence } = landing;
-      if (sentence.inCell || ("nodes" in landing && landing.nodes !== null))
-        held.push({ index: sending.indexOf(sentence), landing });
-      else landAll([landing]);
-    };
-    const cuts: { index: number; uncovered: string }[] = [];
+    const snapshot = (): WrittenCheck => ({
+      ...done,
+      blocks: [...done.blocks],
+      ...(done.blocked && { blocked: { ...done.blocked } }),
+    });
     const markOf = (
       sentence: Sentence,
       by: PreparedChatModel = prepared,
     ): ClaimCheckAttributes => ({
-      id: randomUUID(),
+      id: markIds.get(sentence) ?? randomUUID(),
       request,
       action: "check-against-documents",
       state: "checking",
@@ -927,26 +598,135 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
           )
         : markOf(sentence, by);
     };
-    const failed = (sentence: Sentence, reason: ClaimCheckFailure, detail: string | null) => {
-      done.failed++;
-      if (reason === "consent-revoked" || reason === "local-mode" || reason === "consent-widened") {
-        done.blocked = {
-          reason: done.blocked?.reason ?? reason,
-          count: (done.blocked?.count ?? 0) + 1,
-        };
+    // A Note a newer version wrote refuses every edit, so once one is refused the rest aren't tried.
+    let refused = false;
+    const counted = (outcome: Outcome) => {
+      if (outcome === "opinion") done.opinions++;
+      else if (outcome === "failed") done.failed++;
+      else {
+        done.checked++;
+        if (outcome !== "checked") done[outcome]++;
       }
+    };
+    const landAll = (landings: readonly { landing: Landing; outcome: Outcome | null }[]) => {
+      if (landings.length === 0 || refused) return;
+      input.edit((note) => {
+        for (const { landing } of landings) land(note, input.ids, landing);
+      });
+      const outcomes = landings.flatMap(({ outcome }) => (outcome ? [outcome] : []));
+      for (const outcome of outcomes) counted(outcome);
+      if (outcomes.length > 0) options.retainEvidence(mindId);
+    };
+    const blockedBy = (reason: ClaimCheckFailure) => {
+      if (reason !== "consent-revoked" && reason !== "local-mode" && reason !== "consent-widened")
+        return;
+      done.blocked = {
+        reason: done.blocked?.reason ?? reason,
+        count: (done.blocked?.count ?? 0) + 1,
+      };
+    };
+    const failedLanding = (
+      sentence: Sentence,
+      reason: ClaimCheckFailure,
+      detail: string | null,
+    ): Landing => {
+      blockedBy(reason);
       console.warn(
-        `A sentence the assistant wrote in Mind ${mindId} couldn't be checked before it landed: ${reason}${detail ? ` (${detail})` : ""}`,
+        `A sentence the assistant wrote in Mind ${mindId} couldn't be checked: ${reason}${detail ? ` (${detail})` : ""}`,
       );
       const at = options.now().toISOString();
-      landNow({
-        sentence,
-        nodes: null,
-        mark: () => notChecked(markOf(sentence), reason, detail, at),
-      });
+      return { sentence, mark: () => notChecked(markOf(sentence), reason, detail, at) };
     };
+
+    if (holding) {
+      landAll(
+        sentences.map((sentence) => ({
+          landing: failedLanding(sentence, waiting ? "consent-widened" : "answer-failed", null),
+          outcome: "failed" as const,
+        })),
+      );
+      return snapshot();
+    }
+
+    const quick = await options.quickModel(prepared).catch((error: unknown) => {
+      console.warn(
+        `No quick model looks first at what the assistant wrote in Mind ${mindId}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return null;
+    });
+    if (input.signal.aborted) return null;
+    // What the Note holds just before the write: its first paragraph follows that.
+    const beforeWrite =
+      quick &&
+      options.read(mindId, (note): FirstLook["place"]["after"] => {
+        const top = topLevelBlocks(note);
+        const at = top.findIndex((each) => each.getAttribute(BLOCK_ID_ATTRIBUTE) === input.ids[0]);
+        const previous = at > 0 ? top[at - 1] : undefined;
+        if (at === 0) return { kind: "start" };
+        return previous?.nodeName === "heading"
+          ? { kind: "heading", text: paragraphText(inlineOf(previous)).replaceAll(INLINE_NODE, "") }
+          : { kind: "unknown" };
+      });
+    // Each sentence shows as being checked until its own mark lands.
+    landAll(
+      sentences.map((sentence) => ({
+        landing: { sentence, mark: () => begun(sentence, prepared) },
+        outcome: null,
+      })),
+    );
+
+    const tracked = options.track(request, mindId);
+    const ending = new AbortController();
+    const signal = AbortSignal.any([tracked.signal, ending.signal]);
+    const progress = () =>
+      options.progress({
+        mindId,
+        request,
+        done: done.checked + done.failed,
+        total: sentences.length - done.opinions,
+        running: done.running,
+      });
+    let over = false;
+    const end = (undone = false) => {
+      if (over) return;
+      over = true;
+      done.undone = undone;
+      ending.abort();
+      live.delete(request);
+      tracked.done();
+      try {
+        options.settleStopped(mindId, request);
+      } catch (error) {
+        console.error(
+          `The sentences still checked in Mind ${mindId} couldn't be marked stopped:`,
+          error,
+        );
+      }
+      // What never landed couldn't be checked: Stop, an Undo or quitting ended it first.
+      done.failed = sentences.length - done.opinions - done.checked;
+      done.running = false;
+      progress();
+      input.ended?.(snapshot());
+    };
+    live.set(request, { mindId, ids: input.ids, end });
+    progress();
+
+    // A sentence lands as its check ends, so its verdict shows while the others are checked. A
+    // table's wait, and land together after every check, in their order, as their marks are
+    // footed against each other as they land (a total against its cells).
+    const held: { index: number; landing: Landing; outcome: Outcome }[] = [];
+    const landNow = (landing: Landing, outcome: Outcome) => {
+      if (landing.sentence.inCell)
+        held.push({ index: sentences.indexOf(landing.sentence), landing, outcome });
+      else {
+        landAll([{ landing, outcome }]);
+        progress();
+      }
+    };
+    const failed = (sentence: Sentence, reason: ClaimCheckFailure, detail: string | null) =>
+      landNow(failedLanding(sentence, reason, detail), "failed");
     const landed = (sentence: Sentence, outcome: ItemOutcome<Checked>) => {
-      if (signal.aborted || outcome.status === "stopped") return;
+      if (over || signal.aborted || outcome.status === "stopped") return;
       if (outcome.status === "not-checked") {
         failed(sentence, outcome.stop.reason, null);
         return;
@@ -960,12 +740,9 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         );
         return;
       }
-      const { result, uncovered, nodes, by, passedOn } = outcome.value;
+      const { result, by, passedOn } = outcome.value;
       if (result.parts && !result.parts.some((part) => part.kind === "fact")) {
-        landNow({
-          sentence,
-          opinion: result.parts.map(planOf),
-        });
+        landNow({ sentence, opinion: result.parts.map(planOf) }, "opinion");
         return;
       }
       const at = options.now().toISOString();
@@ -976,7 +753,6 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         failed(sentence, result.reason, result.detail);
         return;
       }
-      done.checked++;
       const mark = (note: Y.XmlFragment) =>
         options.withResult(
           begun(sentence, by),
@@ -986,110 +762,119 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
           mindId,
           reads.get(sentence)?.claim,
         );
-      if (result.verdict === "supported") {
-        landNow({ sentence, nodes: null, mark });
-        return;
-      }
-      if (nodes && uncovered) {
-        cuts.push({ index: sending.indexOf(sentence), uncovered });
-        landNow({ sentence, nodes, mark });
-        return;
-      }
-      done[result.verdict]++;
-      landNow({ sentence, nodes: null, mark });
+      landNow(
+        { sentence, mark },
+        result.verdict === "unsupported" || result.verdict === "contradicted"
+          ? result.verdict
+          : "checked",
+      );
     };
-    const { stop, outcomeError } = await runItems(
-      holding ? [] : sending,
-      (sentence): Promise<Checked> =>
-        asCheckWork(async () => {
-          const read = reads.get(sentence) ?? { claim: sentence.text, context: sentence.context };
-          const first =
-            looked.get(sentence) ??
-            (quick &&
-              (await options.firstLook({
-                claim: read.claim,
-                figures: read.figures?.length ?? 0,
-                inCell: sentence.inCell,
-                place:
-                  sentence.place.after.kind === "start" && beforeWrite
-                    ? { ...sentence.place, after: beforeWrite }
-                    : sentence.place,
-                paragraph: sentence.context,
-                citations: sentence.citations,
-                scope: scope.scope,
-                ask: (asked, until) => quickLook(quick, asked, until),
-                signal: AbortSignal.any([
-                  signal,
-                  AbortSignal.timeout(options.claimTimeLimitMs * FIRST_LOOK_SHARE),
-                ]),
-              })));
-          if (quick && first?.result) {
-            return {
-              result: first.result,
-              uncovered: null,
-              nodes: null,
-              by: quick,
-              passedOn: null,
-            };
-          }
-          if (first) looked.set(sentence, first);
-          const result = await checkWithin(sentence, read, mindId, scope, prepared, limit, signal);
-          const failure = runFailureOf(result);
-          if (failure) throw new RunItemError(failure);
-          // Asked to cut what a cell's Citations don't state, Edit with AI rewrote its figure.
-          const uncovered =
-            result.verdict === "unsupported" && result.unsupported?.covered && !sentence.inCell
-              ? result.unsupported.uncovered
-              : null;
-          const nodes = uncovered
-            ? await cutOf(blocks, mindId, sentence, uncovered, prepared, scope, limit, signal)
-            : null;
-          return { result, uncovered, nodes, by: prepared, passedOn: first?.asked ? quick : null };
-        }),
-      {
-        concurrency: claimsAtOnce(prepared),
-        signal,
-        // The run hears a throw once and returns it, so a mark that can't land is never its
-        // sentence's failure; the check fails after the marks that can land have, so none counts
-        // as checked. Refusing stays here: once one edit is refused the rest aren't tried.
-        onOutcome(sentence, outcome) {
-          try {
-            landed(sentence, outcome);
-          } catch (error) {
-            couldNotLand(error);
-            if (error instanceof MindReadOnlyError) refused = true;
-            throw error;
-          }
-        },
-      },
-    );
-    if (signal.aborted) return null;
-    if (waiting) for (const sentence of sending) failed(sentence, "consent-widened", null);
-    else if (holding) for (const sentence of sending) failed(sentence, "answer-failed", null);
-    const at = options.now().toISOString();
-    landAll([
-      ...held.sort((a, b) => a.index - b.index).map(({ landing }) => landing),
-      ...sentences.slice(SENTENCES_CHECKED_AT_MOST).map(
-        (sentence): Landing => ({
-          sentence,
-          nodes: null,
-          mark: () => notChecked(markOf(sentence), "too-many", null, at),
-        }),
-      ),
-    ]);
-    if (outcomeError !== null) throw outcomeError.error;
-    done.stop = stop;
-    done.cut = cuts.sort((a, b) => a.index - b.index).map(({ uncovered }) => uncovered);
-    return done;
+    const limit = slots(claimsAtOnce(prepared));
+    // A sentence its check asks about again, after a rate limit, keeps its first look's answer:
+    // asked again, a quick model's later yes would stand.
+    const looked = new Map<Sentence, FirstLookResult>();
+    const checkOne = (sentence: Sentence): Promise<Checked> =>
+      asCheckWork(async () => {
+        const read = reads.get(sentence) ?? { claim: sentence.text, context: sentence.context };
+        const first =
+          looked.get(sentence) ??
+          (quick &&
+            (await options.firstLook({
+              claim: read.claim,
+              figures: read.figures?.length ?? 0,
+              inCell: sentence.inCell,
+              place:
+                sentence.place.after.kind === "start" && beforeWrite
+                  ? { ...sentence.place, after: beforeWrite }
+                  : sentence.place,
+              paragraph: sentence.context,
+              citations: sentence.citations,
+              scope: scope.scope,
+              ask: (asked, until) => quickLook(quick, asked, until),
+              signal: AbortSignal.any([
+                signal,
+                AbortSignal.timeout(options.claimTimeLimitMs * FIRST_LOOK_SHARE),
+              ]),
+            })));
+        if (quick && first?.result) return { result: first.result, by: quick, passedOn: null };
+        if (first) looked.set(sentence, first);
+        const result = await checkWithin(sentence, read, mindId, scope, prepared, limit, signal);
+        const failure = runFailureOf(result);
+        if (failure) throw new RunItemError(failure);
+        return { result, by: prepared, passedOn: first?.asked ? quick : null };
+      });
+    const run = async () => {
+      try {
+        const { stop, outcomeError } = await runItems(sentences, checkOne, {
+          concurrency: claimsAtOnce(prepared),
+          signal,
+          // The run hears a throw once and returns it, so a mark that can't land is never its
+          // sentence's failure. Refusing stays here: once one edit is refused the rest aren't tried.
+          onOutcome(sentence, outcome) {
+            try {
+              landed(sentence, outcome);
+            } catch (error) {
+              console.error(
+                `What the assistant wrote in Mind ${mindId} was checked, but marks couldn't land:`,
+                error,
+              );
+              if (error instanceof MindReadOnlyError) refused = true;
+              throw error;
+            }
+          },
+        });
+        done.stop = stop;
+        if (!signal.aborted) {
+          landAll(
+            held
+              .sort((a, b) => a.index - b.index)
+              .map(({ landing, outcome }) => ({ landing, outcome })),
+          );
+        }
+        if (outcomeError !== null) throw outcomeError.error;
+      } catch (error) {
+        console.error(`What the assistant wrote in Mind ${mindId} couldn't be checked:`, error);
+      } finally {
+        end();
+      }
+    };
+    void run();
+    return snapshot();
   }
-}
 
-function paragraphAt(blocks: readonly NodeJSON[], path: readonly number[]): NodeJSON | undefined {
-  let nodes: readonly NodeJSON[] | undefined = blocks;
-  let node: NodeJSON | undefined;
-  for (const index of path) {
-    node = nodes?.[index];
-    nodes = node?.content;
-  }
-  return node;
+  return {
+    checkWritten: (input: CheckWrittenInput) => inStep("written-check", () => checkWritten(input)),
+
+    /**
+     * A Mind changed: a check whose write is no longer there (an Undo took it away, or the Mind
+     * went) ends, and a write an Undo took away that a Redo brought back has its sentences shown
+     * as stopped rather than still being checked.
+     */
+    mindChanged(mindId: string): void {
+      queueMicrotask(() => {
+        const ended = undone.get(mindId) ?? [];
+        const back = ended.filter((each) => stillThere(mindId, each.ids));
+        for (const { request } of back) {
+          try {
+            options.settleStopped(mindId, request);
+          } catch (error) {
+            console.error(`A check undone in Mind ${mindId} couldn't be marked stopped:`, error);
+          }
+        }
+        const left = ended.filter((each) => !back.includes(each));
+        for (const [request, check] of [...live]) {
+          if (check.mindId !== mindId || stillThere(mindId, check.ids)) continue;
+          left.push({ request, ids: check.ids });
+          check.end(true);
+        }
+        if (left.length > 0) undone.set(mindId, left.slice(-UNDONE_KEPT));
+        else undone.delete(mindId);
+      });
+    },
+
+    /** Ends every check at once, as IncarnaMind quits: what each hadn't checked lands not checked. */
+    stopAll(): void {
+      for (const check of [...live.values()]) check.end();
+    },
+  };
 }

@@ -17,9 +17,9 @@
  *   Question's Search scope when that is one Folder, else in none, holding
  *   the text the model wrote, if any.
  *
- * The sentences with Citations a call writes, new or as `edit_mind`'s
- * content, are checked against them before they land, and what they don't
- * support is taken out or marked (../../answers/checks/written, #1111).
+ * The sentences a call writes, new or as `edit_mind`'s content, are checked
+ * once they land, and marked as each check ends; the call and the reply don't
+ * wait for it (../../answers/checks/written, #1111, #2830).
  *
  * A Mind is named by its name; left out, it is the one in focus. A call that
  * changed a Mind says so on its card (`MindChange`), and one that changed
@@ -221,7 +221,7 @@ export interface MindsForTools {
     reason: string | null;
     revised: { blockIds: string[] } | null;
   }>;
-  /** Checks the cited sentences a call wrote before they land (../../answers/checks/written). */
+  /** Begins the check of the sentences a call wrote, which goes on after it (../../answers/checks/written). */
   checkWritten(input: CheckWrittenInput): Promise<WrittenCheck | null>;
 }
 
@@ -321,6 +321,8 @@ export interface MindToolsOptions {
   };
   /** A call changed a Mind: its card says so, as soon as it does, also while it writes. */
   changed(toolCallId: string, change: MindChange): void;
+  /** The check of what a call wrote ended, after the call and maybe after the Answer: its card says so then. */
+  checkEnded(toolCallId: string, change: MindChange): void;
   /** A call changed nothing, and whatever it wrote as its input came was taken back. */
   failed(toolCallId: string, problem: MindProblem): void;
   /** The Answer's: once it aborts, calls still writing stop. */
@@ -1021,45 +1023,33 @@ interface Written {
   blocks: { mindId: string; ids: readonly string[]; blocks: readonly NodeJSON[] };
 }
 
-const sentencesWord = (count: number) => (count === 1 ? "1 sentence" : `${count} sentences`);
-
-function checkedNotes(checked: WrittenCheck | null): string[] {
-  if (!checked) return [];
-  const { cited, sent, checked: judged, failed, cut, unsupported, contradicted } = checked;
-  const are = (count: number) => (count === 1 ? "is" : "are");
-  return [
-    ...(judged > 0
-      ? [
-          `Before it went in, ${sentencesWord(judged)} with Citations ${judged === 1 ? "was" : "were"} checked against them.`,
-        ]
-      : []),
-    ...(cut.length > 0
-      ? [
-          `What their Citations don't support was taken out: ${cut.map((part) => `“${part}”`).join(", ")}. Don't state it in your reply.`,
-        ]
-      : []),
-    ...(unsupported > 0
-      ? [
-          `${sentencesWord(unsupported)} ${are(unsupported)} still not supported by ${unsupported === 1 ? "its" : "their"} Citations, and marked so in the Note: say so.`,
-        ]
-      : []),
-    ...(contradicted > 0
-      ? [
-          `${sentencesWord(contradicted)} ${contradicted === 1 ? "contradicts" : "contradict"} a Document, and ${are(contradicted)} marked so in the Note: say so.`,
-        ]
-      : []),
-    ...(failed > 0
-      ? [
-          `${sentencesWord(failed)} couldn't be checked, and ${are(failed)} marked so in the Note: say so.`,
-        ]
-      : []),
-    ...(sent < cited
-      ? [
-          `Only the first ${sent} of its ${cited} sentences with Citations were checked; the rest are marked not checked in the Note: say so.`,
-        ]
-      : []),
-  ];
+/**
+ * What the model reads of the check of what it wrote: nothing of how it goes, which the Note and
+ * the line under the card say as its marks land (#2830), only that it is no part of the reply.
+ */
+function checkingNotes(checked: WrittenCheck | null): string[] {
+  return checked?.running
+    ? [
+        "IncarnaMind checks these sentences against the Documents itself, after your reply, and marks each one in the Note: don't say in your reply that they were checked, verified or supported, or what a check found.",
+      ]
+    : [];
 }
+
+const selfCheckOf = (check: WrittenCheck): NonNullable<MindChange["selfCheck"]> => ({
+  request: check.request,
+  blocks: check.blocks,
+  checkable: check.checkable,
+  cited: check.cited,
+  sent: check.sent,
+  checked: check.checked,
+  failed: check.failed,
+  look: check.unsupported + check.contradicted,
+  opinions: check.opinions,
+  ...(check.running && { running: true }),
+  ...(check.undone && { undone: true }),
+  ...(check.stop && { stop: check.stop }),
+  ...(check.blocked && { blocked: check.blocked }),
+});
 
 function writtenNotes({ notFound, unrecorded, searchTalk, pointersBack }: Written) {
   return [
@@ -2041,8 +2031,12 @@ export function mindTools(options: MindToolsOptions): {
   ): Promise<WrittenCheck | null> => {
     const { mindId, ids, blocks } = written.blocks;
     if (ids.length !== blocks.length) return null;
-    let reported = false;
+    const recorded = (check: WrittenCheck) => {
+      written.change = { ...written.change, selfCheck: selfCheckOf(check) };
+    };
     let checked: WrittenCheck | null = null;
+    // A short check can end before the call goes on: its end is then what the card says.
+    let ended: WrittenCheck | null = null;
     try {
       checked = await minds.checkWritten({
         mindId,
@@ -2051,39 +2045,31 @@ export function mindTools(options: MindToolsOptions): {
         prepared: options.prepared,
         signal,
         ...(answerFailed && { answerFailed }),
-        checking: (count) => {
-          reported = true;
-          options.changed(toolCallId, { ...written.change, checking: count });
-        },
         edit: (change) => minds.edit(mindId, change),
+        ended: (check) => {
+          ended = check;
+          try {
+            redrawCharts(mindId, ids);
+          } catch (error) {
+            console.error(
+              `The charts of what the assistant wrote in Mind ${mindId} couldn't be drawn again:`,
+              error,
+            );
+          }
+          recorded(check);
+          options.checkEnded(toolCallId, written.change);
+        },
       });
     } catch (error) {
       // A check that fails never takes back what the call wrote: it stands, unchecked.
-      console.error(
-        `What the assistant wrote in Mind ${mindId} couldn't be checked before it landed:`,
-        error,
-      );
+      console.error(`What the assistant wrote in Mind ${mindId} couldn't be checked:`, error);
     }
-    if (checked) {
-      redrawCharts(mindId, ids);
-      const { request, blocks, checkable, cited, sent, failed, stop, blocked } = checked;
-      written.change = {
-        ...written.change,
-        selfCheck: {
-          request,
-          blocks,
-          checkable,
-          cited,
-          sent,
-          checked: checked.checked,
-          failed,
-          ...(stop && { stop }),
-          ...(blocked && { blocked }),
-        },
-      };
+    if (checked && !ended) {
+      if (!checked.running) redrawCharts(mindId, ids);
+      recorded(checked);
+      options.changed(toolCallId, written.change);
     }
-    if (reported || checked) options.changed(toolCallId, written.change);
-    return checked;
+    return ended ?? checked;
   };
 
   /** By call: text written with markers `cite` hadn't recorded yet. */
@@ -2224,10 +2210,10 @@ export function mindTools(options: MindToolsOptions): {
       };
     }
     // Its Citations weren't in as it landed, so it wasn't checked then (#1635): unchecked, its
-    // sentences would show found Citations and no mark, which reads as checked. One write's
-    // check at a time, as each holds as many requests at once as a write's check does.
+    // sentences would show found Citations and no mark, which reads as checked. It landed before
+    // any Stop, so a Stop since doesn't keep it from being checked (#2830).
     for (const { toolCallId, written } of settled) {
-      await checkBlocks(toolCallId, written, options.signal, failed);
+      await checkBlocks(toolCallId, written, new AbortController().signal, failed);
     }
   };
 
@@ -2247,7 +2233,7 @@ export function mindTools(options: MindToolsOptions): {
       outcome,
       ...writtenNotes(written),
       ...(written.charted ? [written.charted] : []),
-      ...checkedNotes(checked),
+      ...checkingNotes(checked),
     ].join(" ");
   };
 
@@ -2630,7 +2616,7 @@ export function mindTools(options: MindToolsOptions): {
           ...tableNotes(written.change),
           ...writtenNotes(written),
           ...droppedSaid(written.dropped),
-          ...checkedNotes(checked),
+          ...checkingNotes(checked),
           // Asked once already: what lands bare is said, so the reply never calls it all cited.
           ...(added.length > 0
             ? [
@@ -2906,7 +2892,7 @@ export function mindTools(options: MindToolsOptions): {
       outcomeOf(mind, written.change.request),
       ...tableNotes(written.change),
       ...writtenNotes(written),
-      ...checkedNotes(checked),
+      ...checkingNotes(checked),
     ].join(" ");
   };
 
