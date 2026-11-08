@@ -1254,7 +1254,7 @@
       "properties": {
        "title": {
         "type": "string",
-        "description": "A short title, from the User's words, in their language."
+        "description": "A short title, from the User's words, in English, the language of their request, whatever language the Documents are in."
        },
        "chart": {
         "type": "object",
@@ -1796,7 +1796,7 @@
       "properties": {
        "title": {
         "type": "string",
-        "description": "A short title, from the User's words, in their language."
+        "description": "A short title, from the User's words, in English, the language of their request, whatever language the Documents are in."
        },
        "chart": {
         "type": "object",
@@ -2371,7 +2371,7 @@
       "properties": {
        "title": {
         "type": "string",
-        "description": "A short title, from the User's words, in their language."
+        "description": "A short title, from the User's words, in English, the language of their request, whatever language the Documents are in."
        },
        "chart": {
         "type": "object",
@@ -2908,7 +2908,7 @@
       "properties": {
        "title": {
         "type": "string",
-        "description": "A short title, from the User's words, in their language."
+        "description": "A short title, from the User's words, in English, the language of their request, whatever language the Documents are in."
        },
        "chart": {
         "type": "object",
@@ -3474,7 +3474,7 @@
       "properties": {
        "title": {
         "type": "string",
-        "description": "A short title, from the User's words, in their language."
+        "description": "A short title, from the User's words, in English, the language of their request, whatever language the Documents are in."
        },
        "chart": {
         "type": "object",
@@ -4073,7 +4073,7 @@
       "properties": {
        "title": {
         "type": "string",
-        "description": "A short title, from the User's words, in their language."
+        "description": "A short title, from the User's words, in English, the language of their request, whatever language the Documents are in."
        },
        "chart": {
         "type": "object",

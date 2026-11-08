@@ -290,6 +290,23 @@ describe("The assistant changes Minds as Proposals", { timeout: 30_000 }, () => 
     ]);
   });
 
+  // protects=create_mind asks for the new Note's name in the request's language, named outright, English for an English request and Simplified Chinese for a Chinese one (#2770); fails_when=it asks for "their language" alone, which gave an English request a Chinese name; no_claim=the name a real model gives (the pull request's runs).
+  test.each([
+    ["Write notes on these documents.", "English"],
+    ["为这些文档写笔记。", "Simplified Chinese"],
+  ])("a new Note's name is asked for in the request's language: %s", async (text, language) => {
+    const model = toolModel(null, "Done.");
+    const { core, mind } = await setUp(model);
+
+    await ask(core, { text, mindId: mind.id });
+
+    const create = model.doStreamCalls[0]?.tools?.find((each) => each.name === "create_mind");
+    if (create?.type !== "function") throw new Error("create_mind is not a function tool.");
+    expect(JSON.stringify(create.inputSchema)).toContain(
+      `in ${language}, the language of their request, whatever language the Documents are in.`,
+    );
+  });
+
   // protects=a request for a new note makes a Mind in the Search scope's Folder, its draft as Proposals with checked Citations; fails_when=the Mind is made elsewhere, its text is accepted outright, or a Citation isn't checked; no_claim=how a real model drafts.
   test("a request for a new note makes a Mind in the Folder, its draft as changes with checked Citations", async () => {
     const SPRING = "Spring tides happen just after a new moon or a full moon.";

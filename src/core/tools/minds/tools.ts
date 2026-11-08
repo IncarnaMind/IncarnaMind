@@ -108,7 +108,7 @@ import {
   type WritingPlace,
 } from "../../api";
 import { detectLanguage } from "../../documents/textLanguage";
-import { LANGUAGES, type Language } from "../../language";
+import { LANGUAGE_NAMES, LANGUAGES, type Language } from "../../language";
 import { plainText } from "../../mindText";
 import { insertBlocks } from "../../noteAdding";
 import {
@@ -2853,7 +2853,8 @@ export function mindTools(options: MindToolsOptions): {
       properties: {
         title: {
           type: "string",
-          description: "A short title, from the User's words, in their language.",
+          // "Their language" alone gave an English request's Note a Chinese name (#2770).
+          description: `A short title, from the User's words, in ${LANGUAGE_NAMES[options.language]}, the language of their request, whatever language the Documents are in.`,
         },
         ...chartProperty,
         content: contentProperty,
