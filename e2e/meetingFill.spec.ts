@@ -110,8 +110,9 @@ const MACHINE_CONTROLS = /HEADINGS:|FACT P\d+_F|END OVERVIEW|"citations":|"super
 
 const documentBlocks = (notes: Locator) => notes.locator(":scope > [data-id]");
 
-const paragraphsIn = (notes: Locator) =>
-  notes.locator(":scope > p[data-id]").evaluateAll((all) =>
+/** The Note's lines in order: its paragraphs and the items of its bullet lists. */
+const linesIn = (notes: Locator) =>
+  notes.locator(":scope > p[data-id], :scope > ul > li").evaluateAll((all) =>
     all.map((each) => ({
       text: each.textContent,
       generated: each.querySelector(".generated-text") !== null,
@@ -340,7 +341,7 @@ async function ownTranscriptRoundTrip(
 }
 
 for (const language of ["en", "zh-CN"] as const) {
-  // protects=after Stop, the call's action is written whole under the typed Action items heading and each typed line gets a pointer to it, all cited AI text, Summary and Decisions follow, and one Undo restores the heading and lines in English and Chinese (#142, #2306); fails_when=a section is missing or repeated, typed text changes, additions are uncited or not AI text, or Undo leaves an addition; no_claim=a real model's wording or allocation of facts.
+  // protects=after Stop, the call's action is written whole, as a bullet, under the typed Action items heading and each typed line gets a pointer to it, all cited AI text, Summary and Decisions follow, and one Undo restores the heading and lines in English and Chinese (#142, #2306); fails_when=a section is missing or repeated, typed text changes, additions are uncited or not AI text, or Undo leaves an addition; no_claim=a real model's wording or allocation of facts.
   test(`after Stop, typed lines and an Action items heading are filled in place, sections follow, and one Undo restores them (${language})`, async () => {
     const words = LINES[language];
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
@@ -389,12 +390,12 @@ for (const language of ["en", "zh-CN"] as const) {
       LINES.en.decisions,
     ]);
     await expect(heading).toHaveText(words.actions);
-    const actions = notes.locator("h2:not(:has(.generated-text)) + p");
+    const actions = notes.locator("h2:not(:has(.generated-text)) + ul > li");
     await expect(actions).toHaveCount(1);
     await expect(actions.locator(".generated-text")).not.toHaveCount(0);
     await expect(actions.getByTestId("citation")).toHaveCount(1);
     await shot(window, `meeting-fill-sections-${language}`);
-    const paragraphs = await paragraphsIn(notes);
+    const paragraphs = await linesIn(notes);
     for (const text of words.notes) {
       const userAt = paragraphs.findIndex((each) => each.text === text);
       expect(userAt).toBeGreaterThanOrEqual(0);
@@ -508,7 +509,7 @@ for (const language of ["en", "zh-CN"] as const) {
           if (!addedBlockIds?.length)
             throw new Error("Expected the retained fill's added Block IDs");
           await expectFillPlace(notes, addedBlockIds);
-          const paragraphs = await paragraphsIn(notes);
+          const paragraphs = await linesIn(notes);
           for (const text of [control, ...words.notes]) {
             expect(paragraphs.filter((paragraph) => paragraph.text === text)).toEqual([
               { text, generated: false, prose: "", citations: 0 },
@@ -520,7 +521,7 @@ for (const language of ["en", "zh-CN"] as const) {
           );
           expect(canonical).toHaveLength(1);
           expect(canonical[0]?.citations).toBe(1);
-          const action = notes.locator("h2:not(:has(.generated-text)) + p");
+          const action = notes.locator("h2:not(:has(.generated-text)) + ul > li");
           await expect(action).toHaveCount(1);
           await expect(action.getByTestId("citation")).toHaveAttribute("data-check", "found");
           expect((await action.locator(".generated-text").allTextContents()).join("")).toBe(
