@@ -53,7 +53,7 @@ Within this phase's $5, held by the runner's ledger (`INCARNAMIND_EVAL_SPEED_LED
 | Claude Haiku 5.5 | 12 of 12 | 81.0 → 41.4 s | −35.0 s (−41.9 / −27.8) | 0 of 12 |
 | DeepSeek V4.1 Flash | 12 of 12 | 112.0 → 66.8 s | −37.8 s (−42.7 / −37.8) | 0 of 12 |
 
-- **Made once.** The stand-in pass renamed no line, so no fill was dropped and made again, and every pair's first request was the same.
+- **Made once,** by construction rather than counted: a fill is made again only after the pass renames a line, and the stand-in renamed none. The core logs each fill made again (`meeting.fillRedone`); the runner doesn't count them.
 - **Reported, as the gate says**, on the items both arms finished, speakers-first → notes-before-speakers:
   - Claude Haiku 5.5: cited 7 → 9, judged right 5 → 9, every Citation found 10 → 10, items with a false Supported 9 → 10, notes only partly filled in 9 → 4. Failed to run 0 → 2: in both, none of what the model wrote could be checked against the Transcript.
   - DeepSeek: cited 10 → 9, judged right 10 → 9, every Citation found 10 → 10, items with a false Supported 7 → 6, partly filled in 0 → 1. Failed to run 1 → 1: nothing checkable on one side, a reply cut at its 16,000-token limit on the other.

@@ -444,8 +444,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
    */
   const told = new Map<string, SpeakersTold>();
   const again = new Set<string>();
-  /** Fills made before their speakers were told apart and cut short by the Note's deletion. */
-  const cutShort = new Set<string>();
+  let closed = false;
 
   const set = (meetingId: string, change: Partial<StoredFill>): Meeting => {
     const before = meetings.storedFill(meetingId) ?? {
@@ -517,10 +516,12 @@ export function createMeetingFill(options: MeetingFillOptions) {
     transcriptId: string,
     route: Routed,
     signal: AbortSignal,
+    /** The speaker pass under way as they start, if any. */
+    speakers: SpeakersTold | null,
   ): Promise<Written> {
     const lines = content.read(meeting.mindId, (blocks) => userLines(blocks));
     const mode = lines.length > 0 ? "notes" : "sections";
-    set(meeting.id, {
+    const filling: Partial<StoredFill> = {
       state: "filling",
       mode,
       local: route.local,
@@ -528,7 +529,24 @@ export function createMeetingFill(options: MeetingFillOptions) {
       omitted: 0,
       unfinishedParts: 0,
       blocks: [],
-    });
+    };
+    if (speakers) {
+      // Until the pass ends they stay "waiting", so a quit or the Note's deletion leaves them
+      // waiting for the Transcript, as if they hadn't started.
+      void renamedOrStopped(speakers, signal)
+        .then((renamed) => {
+          if (renamed || signal.aborted || meetings.isDeleted(meeting.id)) return;
+          if (meetings.storedFill(meeting.id)?.state === "waiting") set(meeting.id, filling);
+        })
+        .catch((error: unknown) => {
+          log.error("meeting.fillStateFailed", {
+            meetingId: meeting.id,
+            message: error instanceof Error ? error.message : String(error),
+          });
+        });
+    } else {
+      set(meeting.id, filling);
+    }
     const passages = await passagesOf(transcriptId);
     const parts = partsFor(passages, route);
     // The notes, their section titles and the question that steers an Answer's language are in
@@ -781,7 +799,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
     running.set(meetingId, controller);
     try {
       // A model on this computer would share it with the pass, and a request dropped after a
-      // rename costs it minutes: it waits for the pass, as before.
+      // rename costs it minutes: it waits for the pass.
       if (pass && "model" in route && route.local) {
         if (await renamedOrStopped(pass, controller.signal)) again.add(meetingId);
         if (controller.signal.aborted || again.has(meetingId)) {
@@ -791,7 +809,13 @@ export function createMeetingFill(options: MeetingFillOptions) {
       const written =
         meeting.kind === "memo" || "problem" in route
           ? await memo(meeting, transcriptId, route, controller.signal)
-          : await notes(meeting, transcriptId, route, controller.signal);
+          : await notes(
+              meeting,
+              transcriptId,
+              route,
+              controller.signal,
+              pass && told.get(meetingId) === pass ? pass : null,
+            );
       if (pass && (await renamedOrStopped(pass, controller.signal))) again.add(meetingId);
       if (controller.signal.aborted || again.has(meetingId)) {
         throw new FillProblemError({ kind: "stopped", message: "" });
@@ -819,8 +843,6 @@ export function createMeetingFill(options: MeetingFillOptions) {
       });
       options.filled(done);
     } catch (error) {
-      // Made again from the renamed Transcript: nothing of this one is kept or said.
-      if (again.has(meetingId)) return;
       const problem =
         error instanceof FillProblemError
           ? error.problem
@@ -828,11 +850,23 @@ export function createMeetingFill(options: MeetingFillOptions) {
               kind: "model" as const,
               message: error instanceof Error ? error.message : String(error),
             };
+      // Made again from the renamed Transcript: nothing of this one is kept or said.
+      if (again.has(meetingId)) {
+        log.info("meeting.fillRedone", { meetingId, kind: problem.kind });
+        return;
+      }
       log.warn("meeting.fillFailed", { meetingId, kind: problem.kind, message: problem.message });
-      // In Recently deleted it stays "filling": once back, it says it stopped (`restored`). One
-      // made while its call's speakers were told apart waits again, as it did before it started.
-      if (meetings.isDeleted(meetingId)) {
-        if (pass) cutShort.add(meetingId);
+      // In Recently deleted it stays as it was: once back, "filling" says it stopped and
+      // "waiting" starts (`restored`).
+      if (meetings.isDeleted(meetingId)) return;
+      // Stopped while its call's speakers were told apart, its notes still wait: the Note came
+      // back before this one ended, so they start again.
+      if (
+        controller.signal.aborted &&
+        !closed &&
+        meetings.storedFill(meetingId)?.state === "waiting"
+      ) {
+        again.add(meetingId);
         return;
       }
       set(meetingId, { state: "failed", problem, blocks: [] });
@@ -885,7 +919,8 @@ export function createMeetingFill(options: MeetingFillOptions) {
       })
       .finally(() => {
         starting.delete(meetingId);
-        if (!again.delete(meetingId)) return;
+        // Deleted meanwhile, its notes wait for the Note to come back (`restored`).
+        if (!again.delete(meetingId) || closed || meetings.isDeleted(meetingId)) return;
         try {
           start(meetingId);
         } catch (error) {
@@ -897,25 +932,11 @@ export function createMeetingFill(options: MeetingFillOptions) {
       });
   }
 
-  /**
-   * A fill no longer under way wrote nothing, and says so, unless it was cut short before its
-   * call's speakers were told apart: that one waits for them again. One waiting for a saved
-   * Transcript starts.
-   */
+  /** A fill no longer under way wrote nothing, and says so; one waiting for a saved Transcript starts. */
   function pickUp(meetingId: string, fill: StoredFill): void {
-    let { state } = fill;
-    if (state === "filling" && !running.has(meetingId) && !starting.has(meetingId)) {
-      const waits =
-        meetings.get(meetingId).transcript?.separating === true || cutShort.delete(meetingId);
-      state = waits ? "waiting" : "failed";
-      set(
-        meetingId,
-        waits
-          ? { state: "waiting", problem: null, blocks: [] }
-          : { state: "failed", problem: { kind: "stopped", message: "" }, blocks: [] },
-      );
-    }
-    if (state === "waiting") {
+    if (fill.state === "filling" && !running.has(meetingId) && !starting.has(meetingId)) {
+      set(meetingId, { state: "failed", problem: { kind: "stopped", message: "" }, blocks: [] });
+    } else if (fill.state === "waiting") {
       const transcript = meetings.get(meetingId).transcript;
       if (transcript?.state === "saved" && !transcript.separating) start(meetingId);
     }
@@ -1027,6 +1048,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
 
     /** Stops every fill under way: nothing of it is written. */
     close(): void {
+      closed = true;
       for (const controller of running.values()) controller.abort();
       running.clear();
     },
