@@ -113,3 +113,5 @@ The done time's median, main's 240 → the head's 240 (reported, not held; the e
 
 **The rule narrowed after an independent review, 2026-11-08.** The review found that the form, kept whole from its first option to its last "→" line, spared a model's notes between options, before "Am I leading them?"'s lead-in, among short lines and in a numbered plan, which main took back. The core now spares only a reply's own lines (`helpOwnLines`): an option's or reading's sentence through its "→" line, a "★" line still waiting for its "→" line, a short line, and "Am I leading them?"'s lead-in. Every "→" line is still one of them, so this check's bar is untouched; the runs above were made at the wider rule. Its quality is checked in `call-help-form-kept.md`.
 
+
+**A third fresh run, written before it, 2026-11-08:** the same 240 presses (30 a case) at 08749fe6e, the narrowed rule, with the same bar and `INCARNAMIND_EVAL_SPEED_STOP_USD=0.5`, inside the $3 approved for the quality check.
