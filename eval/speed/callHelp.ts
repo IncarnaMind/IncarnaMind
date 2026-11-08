@@ -41,6 +41,7 @@ import {
   TRANSCRIPT,
 } from "./callHelpCases";
 import { CALL_HELP_CHECKS } from "./callHelpChecks";
+import { CALL_HELP_CHINESE } from "./callHelpChinese";
 import { CALL_HELP_DOCUMENTS } from "./callHelpDocuments";
 import { CALL_HELP_FRESH } from "./callHelpFresh";
 import { CALL_HELP_HELD_OUT } from "./callHelpHeldOut";
@@ -528,7 +529,8 @@ type CallHelpSet =
   | "call-help-held-out"
   | "call-help-fresh"
   | "call-help-documents"
-  | "call-help-checks";
+  | "call-help-checks"
+  | "call-help-chinese";
 
 const CASES: Readonly<Record<CallHelpSet, readonly CallHelpCase[]>> = {
   "call-help": CALL_HELP_CASES,
@@ -536,6 +538,7 @@ const CASES: Readonly<Record<CallHelpSet, readonly CallHelpCase[]>> = {
   "call-help-fresh": CALL_HELP_FRESH,
   "call-help-documents": CALL_HELP_DOCUMENTS,
   "call-help-checks": CALL_HELP_CHECKS,
+  "call-help-chinese": CALL_HELP_CHINESE,
 };
 
 /** One group a case: its own Library, its own Meeting heard before the press. */
