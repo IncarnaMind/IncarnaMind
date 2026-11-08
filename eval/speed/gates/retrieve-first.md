@@ -27,6 +27,8 @@ A guard over fewer items counts its own items: 29 of them allow none. The rule i
 And none new, on every set:
 
 - no new false Supported (the run stops at the first);
+
+*Added on 2026-11-08, before any run it changes (#2720): false Supported is measured, not read as 0. Each sentence of an Answer shown with a found Citation is judged once, against all its found quotes together, by the judge above: a sentence that states as so something its quoted words don't say (a figure, a date, a period, a name, a term, a yes or a no), or says it in other words or another language, is stated. A sentence with several found Citations counts once, and a Citation not found shows as not checked, so it can't make one (`eval/speed/unstated.ts`, the same measure as every Questions set). A judge reply that can't be read twice counts as an item failure (`false-supported-unread`), never as none.*
 - no new duplicate Answer;
 - no new change claimed that no Tool made, and no new other everyday guard failed;
 - no new Tool call left as text;
