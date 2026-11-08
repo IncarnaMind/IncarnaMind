@@ -382,7 +382,7 @@ describe("What the record tells the check of a part and a rewrite (#2769)", () =
     );
   });
 
-  // protects=a request said to be done is backed by a change to a Note only when every call that changes something did it: beside a failed write in the same Note or another, a stopped write, a failed command or a change waiting for the User, main's sentence goes, while every call applied, or a failure its later call of the same Tool on the same Note and part retried, backs it (#2769's review); fails_when=one applied change backs "done" for the whole Answer; no_claim=the judge's verdicts (the probes and runs).
+  // protects=a request said to be done is backed by a change to a Note only when every call that changes something did it: beside a failed write in the same Note or another, a stopped write, one the stop cut short after it wrote (#2834), a failed command or a change waiting for the User, main's sentence goes, while every call applied, or a failure its later call of the same Tool on the same Note and part retried, backs it (#2769's review); fails_when=one applied change backs "done" for the whole Answer; no_claim=the judge's verdicts (the probes and runs).
   test("done is backed by a Note change only when nothing was left undone", async () => {
     const sentTo = async (calls: AnswerToolCall[], waiting = "") => {
       const model = judge({ claims: [] });
@@ -403,6 +403,11 @@ describe("What the record tells the check of a part and a rewrite (#2769)", () =
       ...partCall("s", null, null),
       mindProblem: { kind: "stopped", mindId: "q3" },
     };
+    const cut: AnswerToolCall = {
+      ...partCall("c", "Risks", { cited: 1 }),
+      status: "failed",
+      mindProblem: { kind: "stopped", mindId: "q3" },
+    };
     const command: AnswerToolCall = {
       id: "cmd",
       tool: "run_command",
@@ -419,6 +424,8 @@ describe("What the record tells the check of a part and a rewrite (#2769)", () =
       [added, partCall("f", "Risks", null)],
       [applied, elsewhere],
       [applied, stopped],
+      [applied, cut],
+      [cut],
       [applied, command],
     ]) {
       const prompt = await sentTo(calls);

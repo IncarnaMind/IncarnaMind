@@ -179,6 +179,7 @@ function doneByNoteChange(calls: readonly AnswerToolCall[], states?: ChangeState
   const applied = (call: AnswerToolCall) => {
     const change = call.mindChange;
     return (
+      call.status === "done" &&
       change !== undefined &&
       (change.proposals > 0 || change.revised === true) &&
       states?.(change)?.applied === true
