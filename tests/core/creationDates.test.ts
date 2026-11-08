@@ -255,7 +255,7 @@ describe("New Documents get their creation date while they're processed", {
     expect(dates).toEqual({ "Budget.docx": "2016", "Plain.docx": null });
   });
 
-  test("Markdown, text and CSV files take the latest year written in their first Unit", async () => {
+  test("Markdown and text files take the latest year written in their first Unit, and a sheet's number cells are no year (#2462)", async () => {
     const { dates } = await datesOf({
       "Annual review.md":
         "# Annual review 2021\n\nCompared with 2019, tides rose.\n\n# Outlook\n\nTargets for 2025.\n",
@@ -267,7 +267,8 @@ describe("New Documents get their creation date while they're processed", {
     expect(dates).toEqual({
       "Annual review.md": "2021",
       "Minutes.txt": "2022",
-      "Revenue.csv": "2019",
+      // 2019 is a cell's number, and no rule tells a Year column from an amount column.
+      "Revenue.csv": null,
       "Undated.md": null,
     });
   });
@@ -295,6 +296,56 @@ describe("New Documents get their creation date while they're processed", {
       documents.map(() => ["ready", null]),
     );
     expect(Object.values(dates)).toEqual(documents.map(() => "2012"));
+  });
+
+  test("a sheet's amount is never its year: a cell that is only a number gives no date, while a year in a title or a date cell still does (#2462)", async () => {
+    const { dates } = await datesOf({
+      "补贴.xlsx": xlsxOf([
+        {
+          name: "补贴",
+          rows: [
+            ["差旅补贴", 300, 20, 6000],
+            ["通讯补贴", 100, 20, 2000],
+          ],
+        },
+      ]),
+      "Subsidy.xlsx": xlsxOf([
+        {
+          name: "Subsidy",
+          rows: [
+            ["Travel allowance", 300, 20, 6000],
+            ["Phone allowance", 100, 20, 2000],
+          ],
+        },
+      ]),
+      "Subsidy.csv": "Travel allowance,300,20,6000\nPhone allowance,100,20,2000\n",
+      "Budget 2024.xlsx": xlsxOf([
+        {
+          name: "Budget",
+          rows: [
+            ["2024 Budget", "Amount"],
+            ["Travel", 2000],
+          ],
+        },
+      ]),
+      "Dated.xlsx": xlsxOf([
+        {
+          name: "Dated",
+          rows: [
+            ["Date", "2019-03-04"],
+            ["Amount", 2000],
+          ],
+        },
+      ]),
+    });
+
+    expect(dates).toEqual({
+      "补贴.xlsx": null,
+      "Subsidy.xlsx": null,
+      "Subsidy.csv": null,
+      "Budget 2024.xlsx": "2024",
+      "Dated.xlsx": "2019",
+    });
   });
 
   test("a file's new version brings its own creation date", async () => {

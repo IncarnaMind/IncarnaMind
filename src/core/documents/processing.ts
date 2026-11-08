@@ -23,7 +23,7 @@ import {
   xmpProperties,
 } from "../referenceRecords/read";
 import { BOILERPLATE_PARAMETERS, stripBoilerplate } from "./boilerplate";
-import { creationDate, ownDate, pdfDate, w3cDate } from "./creationDate";
+import { creationDate, ownDate, pdfDate, sheetYearText, w3cDate } from "./creationDate";
 import { addDepositionAnchors, hasPrintedLines } from "./deposition";
 import { ExtractionError, extractText, type PageReading, pdfMetadata } from "./extract";
 import { readableText } from "./fileProperties";
@@ -585,7 +585,7 @@ export async function readMetadata(job: MetadataJob, password?: string): Promise
     const firstPages = job.firstUnit === null ? [] : [job.firstUnit];
     return {
       outcome: "read",
-      creationDate: creationDate([], job.firstUnit, thisYear()),
+      creationDate: creationDate([], yearTextOf(job.kind, job.firstUnit), thisYear()),
       title: documentTitle(null, job.firstUnit),
       reference: readReference({ kind: job.kind, firstPages }),
       properties: recordsNone(job.kind) ? NO_PROPERTIES : null,
@@ -608,6 +608,10 @@ const hasMetadata = (kind: DocumentKind) =>
 
 /** The local calendar year now: no later creation date is plausible. */
 const thisYear = () => new Date().getFullYear();
+
+/** A sheet's first Unit without its number-only cells, as the creation date reads it (#2462). */
+const yearTextOf = (kind: DocumentKind, firstUnit: string | null) =>
+  firstUnit !== null && (kind === "xlsx" || kind === "csv") ? sheetYearText(firstUnit) : firstUnit;
 
 const NO_PROPERTIES: FileProperties = { created: null, modified: null, author: null, sheets: null };
 
@@ -706,7 +710,7 @@ async function readMetadataOf(
     // Unusual or malformed: the year comes from the first Unit.
   }
   return {
-    creationDate: creationDate(fromMetadata, firstUnit, thisYear()),
+    creationDate: creationDate(fromMetadata, yearTextOf(kind, firstUnit), thisYear()),
     title: documentTitle(property, firstUnit),
     reference: readReference(parts),
     properties,
