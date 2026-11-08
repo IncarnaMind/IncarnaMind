@@ -212,3 +212,33 @@ test.skipIf(lipo.status !== 0 || lipo.stdout.trim() !== "arm64")(
     expect(calendarHelperFailures().join("\n")).toContain("not Apple silicon alone");
   },
 );
+
+/** The package check's failures about the call watcher (#208). */
+function callWatcherFailures(): string[] {
+  const { stderr } = spawnSync(process.execPath, [SCRIPT, join(folder, "dist")], {
+    encoding: "utf8",
+  });
+  return stderr.split("\n").filter((line) => /call watcher|call-watcher/.test(line));
+}
+
+test("a macOS app without an executable call watcher beside app.asar fails the check", async () => {
+  await packApp("mac-arm64");
+  const watcher = join(resourcesOf("mac-arm64"), "call-watcher");
+  expect(callWatcherFailures()).toEqual([
+    `FAIL: ${join(resourcesOf("mac-arm64"), "app.asar")} has no executable call-watcher beside it (#208)`,
+  ]);
+  await writeFile(watcher, "");
+  expect(callWatcherFailures()).toHaveLength(1);
+  await chmod(watcher, 0o755);
+  expect(callWatcherFailures()).toEqual([]);
+});
+
+test("a call watcher in an app for another system fails the check", async () => {
+  const resources = join(folder, "dist", "linux-unpacked", "resources");
+  await mkdir(resources, { recursive: true });
+  await createPackage(join(folder, "app"), join(resources, "app.asar"));
+  await writeFile(join(resources, "call-watcher"), "");
+  expect(callWatcherFailures()).toEqual([
+    `FAIL: ${join(resources, "call-watcher")} is the Mac call watcher, in an app for another system`,
+  ]);
+});

@@ -37,6 +37,10 @@ const ICONSET: ReadonlyArray<readonly [string, number]> = [
 ];
 const WINDOWS_SIZES = [16, 24, 32, 48, 64, 256];
 const LINUX_SIZES = [16, 24, 32, 48, 64, 128, 256, 512, 1024];
+const TRAY = [
+  ["tray", "trayTemplate"],
+  ["tray-recording", "trayRecordingTemplate"],
+] as const;
 
 interface Drawn {
   size: number;
@@ -269,6 +273,18 @@ try {
       join(linux, `${size}x${size}.png`),
       (await draw(page, roundedDrawing(size), size)).png,
     );
+  }
+
+  // The menu bar's icon (#189): template images, which macOS colours for the bar.
+  const tray = join(ICON, "tray");
+  mkdirSync(tray, { recursive: true });
+  for (const [drawing, file] of TRAY) {
+    for (const [scale, suffix] of [
+      [1, ""],
+      [2, "@2x"],
+    ] as const) {
+      writeFileSync(join(tray, `${file}${suffix}.png`), (await draw(page, drawing, 16 * scale)).png);
+    }
   }
 
   const bundle = join(ICON, "AppIcon.icon");

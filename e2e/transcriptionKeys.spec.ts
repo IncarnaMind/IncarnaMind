@@ -152,6 +152,16 @@ test("a Soniox key set up from Defaults' Meeting transcription is checked, chose
   await expect(form.getByTestId("transcription-key-save")).toHaveText("Use this");
   await shot(window, "after-models-set-up-soniox-en-1440");
 
+  // A character keys don't use is said in place, in plain words, and nothing can be sent (#1357).
+  await input.fill("soniox\u2013test-key");
+  const stray = form.getByTestId("key-character-line");
+  await expect(stray).toHaveText("This key has a character keys don’t use (–). Paste it again.");
+  await expect(input).toHaveAttribute("aria-invalid", "true");
+  await expect(form.getByTestId("transcription-key-save")).toBeDisabled();
+  await setLanguage(window, "zh-CN");
+  await expect(stray).toHaveText("密钥里有一个不该有的字符（–）。重新粘贴密钥。");
+  await setLanguage(window, "en");
+
   // A key the service refuses is said where it was typed; nothing is kept or chosen.
   await input.fill("soniox-wrong-key");
   await input.press("Enter");
@@ -161,8 +171,10 @@ test("a Soniox key set up from Defaults' Meeting transcription is checked, chose
   expect((await bridge(window)).route).not.toBe("soniox");
   await expect(settings.getByTestId("transcription-key-row")).toHaveCount(0);
 
-  // The key it takes is kept and Soniox chosen in one press: the consent, named for Soniox.
-  await input.fill(SONIOX_KEY);
+  // The key it takes, pasted with blanks at its ends, which are cleaned off, is kept and Soniox
+  // chosen in one press: the consent, named for Soniox.
+  await input.fill(` ${SONIOX_KEY}\u200b\n`);
+  await expect(stray).toHaveCount(0);
   await pointAndClick(window, form.getByTestId("transcription-key-save"));
   await expect(form).toHaveCount(0);
   await expect(picker).toHaveValue("soniox");

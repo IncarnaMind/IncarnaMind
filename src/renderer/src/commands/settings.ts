@@ -64,6 +64,22 @@ export const settingsPageCommands: readonly Command[] = [
     run: () => useAppStore.getState().openSettings("models", "transcription"),
   },
   {
+    id: "settings.background",
+    label: "settings.background",
+    keywords: ["settings.title", "command.settings.background.keywords"],
+    group: "open",
+    reversible: true,
+    run: () => useAppStore.getState().openSettings("general", "background"),
+  },
+  {
+    id: "settings.callOffers",
+    label: "settings.callOffers",
+    keywords: ["settings.title", "settings.notifications", "command.settings.callOffers.keywords"],
+    group: "open",
+    reversible: true,
+    run: () => useAppStore.getState().openSettings("general", "call-offers"),
+  },
+  {
     id: "settings.addProvider",
     assistant: { never: "keys" },
     label: "command.settings.addProvider",
