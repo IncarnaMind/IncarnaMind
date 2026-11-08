@@ -95,3 +95,40 @@ Bars 1 to 4 are the first try's, per cell, read the same way. Bar 1 must hold on
 ### What decides
 
 The step ships if every cell holds bars 1 to 4 and every quality line holds. If a quality line fails, it doesn't ship. If the quality lines hold and the first change on Sonnet doesn't move, the result says so plainly and recommends closing the pull request. Either way, what ships is decided in a dated note below, not by reading these bars again.
+
+### Result, 2026-11-07 and 08
+
+All 36 runs ran on one route per model: Claude Sonnet 5.5 and Claude Haiku 5.5 on the direct Anthropic route, DeepSeek V4.1 Flash 1017 on DeepSeek's API; `main` at bcb1f6b51, the step at 179d60867 (the change above and this file). 15-minute load 5.4 to 8.0. Seconds; medians of three runs, over the runs whose page changed.
+
+| Cell | First change, `main` → step (runs that changed the page) | First new text that stays | Done | Content calls that streamed, `main` → step | Bars it fails |
+|---|---|---|---|---|---|
+| Sonnet, English | 15.4 → 10.8 (3 → 3) | 15.4 → 12.3 | 32.1 → 26.5 | 0 of 6 → 4 of 5 | none |
+| Sonnet, Chinese | 15.1 → 14.4 (3 → 2) | 15.1 → 14.4 | 27.7 → 29.4 | 0 of 3 → 1 of 2 | 1 and 3: one step run answered in the panel and wrote nothing |
+| Haiku, English | – → 12.9 (0 → 3) | – → 16.1 | 26.8 → 30.2 | 0 of 3 → 0 of 5 | none (`main` never changed the page) |
+| Haiku, Chinese | 20.4 → 22.4 (2 → 3) | 20.4 → 22.4 | 34.1 → 37.5 | 0 of 3 → 2 of 7 | 1, and 3 (refused calls 2 → 4) |
+| DeepSeek, English | 47.7 → – (1 → 0) | 47.7 → – | 65.1 → 56.3 | 0 of 7 → 0 of 9 | 1 and 3: DeepSeek wrote its summary into a new Note of its own and lengthened that, in 2 of 3 `main` runs and all 3 step runs |
+| DeepSeek, Chinese | 34.6 → 35.8 (3 → 3) | 34.6 → 48.2 | 60.0 → 66.3 | 0 of 6 → 4 of 5 | 1 |
+
+- **Calls that streamed:** of the `edit_mind` calls with content, 5 of Sonnet's 7, 2 of Haiku's 12 and 4 of DeepSeek's 14 on the step (the first try: 1 of 10, 0 of 8, 5 of 12). Most that didn't name no `part` and were refused for giving content over the whole Note, or gave content of one paragraph: Haiku's summary is mostly one paragraph, which can't come in before the call ends.
+- **Sooner where it streamed:** Sonnet in English, 4.6 s sooner to the first change and 3.1 s to the first new text that stays, the 2 to 3 s the issue asks. Not in Chinese, and not on Haiku or DeepSeek.
+- **Text that came in and went:** 5 calls on the step (Sonnet English 2, Haiku Chinese 1, DeepSeek Chinese 2) came in and were refused once whole (off the length asked for, or sentences added without a Citation), so the new text showed and then went back to the old. That is why DeepSeek's first new text that stays came later in Chinese (34.6 → 48.2 s).
+- **Bar 2** holds in every cell. **Bar 4** holds: the whole-call tests pass unchanged.
+
+Quality, on every step run:
+
+- **Text in its place:** the User's note stayed the page's first line in every state of every run, and no state showed new text beside the old text it replaces (new lines always sat together where old ones went). The line as written, that the page never has more lines than at the call's start or end, fails on 4 calls: each was refused once whole and taken back, and its new text had more paragraphs than the old, so while it came in the page was longer than at either end.
+- **No claimed-but-unmade edit:** none on the step; one on `main` (Sonnet, Chinese, run 1), which the app flagged. Every step run whose Briefing didn't change replied truthfully: Sonnet's Chinese run 3 wrote the longer summary in the panel and claimed no change to the Note, and DeepSeek's English runs lengthened the Note DeepSeek had made itself and said so.
+- **Undo in one step:** in all 14 step runs whose page changed, rejecting the Answer's change requests gave back exactly the page before the Answer. Checkpoints: one per landed call, plus one for each call that came in and was taken back (7, two of them Haiku calls that came in only as far as their heading). On `main`, one run (DeepSeek, Chinese, run 1) didn't come back exactly: a sentence stayed after rejecting; it has nothing of the step in it.
+- **Checks unchanged:** every landed `edit_mind` write of cited text had its written check, with every cited sentence sent, on both arms. The share checked: Sonnet 23 of 26 → 19 of 21, Haiku 9 of 11 → 24 of 33, DeepSeek 31 of 34 → 28 of 34. So the line fails on Haiku and DeepSeek. The sentences not checked were the check's own verdicts on the text written (no evidence found, an unreadable reply, the read limit), on both arms; no request failed.
+
+The gate fails: bar 1 in four cells, bar 3 in three, and two quality lines as written. Spent: $3.00 (Sonnet $2.47, Haiku $0.22, DeepSeek $0.31).
+
+After the 36 runs, an independent review of the step found five things, fixed in 329dc1adb: text showed in the Note in focus when the Note's name came after the content; two `edit_mind` calls in one step took back each other's text and both reported a stop; a streamed call that never ran still counted as a change when the Answer then replied with nothing; with `part` after the content, the content's last paragraph waited for the call; and no test held the wait for a Note the User is asked about first. Now the engine tells a Tool when a streamed call's input is over (`inputEnded`), and only a call that never ran is taken back.
+
+- **The pull request's head, one run per model and language** (9121768a0, with those fixes and `main` at bf75bd5fe merged): Sonnet English 14.5 s to the first change, Chinese 14.8; Haiku Chinese 17.6 (23.9 to text that stays, 3 of 4 content calls streamed, 2 of them taken back); DeepSeek Chinese 27.5; Haiku and DeepSeek in English changed no Briefing. Sonnet's calls there gave one paragraph, or no `part`, so nothing came in before the call ended. Every quality line held but one: on one of Haiku's two taken-back calls the page grew past both ends, as above. The app flagged one DeepSeek reply ("the sentence … has gone from the Note") as claiming a removal no call made; the call had replaced that paragraph, so the reply was true.
+- **Stop runs, first set** (9121768a0, Stop pressed inside the Note's change event at the page's first change while an `edit_mind` call was open; Haiku in English made no `edit_mind` call, so 5 runs stopped): in 3, Stop came while a call's text was still coming in, and the paragraph going in stayed in the Note, because the take-back on Stop ran before that paragraph was recorded. In the other 2 the call had run, and Stop kept what it wrote. **The quality line fails there.** Fixed in 121392bae, with a test that presses Stop the same way and goes red without the fix.
+- **Stop runs, second set** (121392bae, the same way): all 5 hold. In 2 (Haiku Chinese, Sonnet English) Stop came while the text was coming in, and the Note was exactly as at the call's start, with no change on the card; in 3 the call had run, and what it wrote stayed.
+- The engine's word that a streamed input is over comes only at its step's end (bc8e5ef98): a word at a refused call's failure came after the step's other calls had run, so it changed nothing. So a streamed call whose input is refused and another call over the same text in the same step leave that second call refused as waiting; it goes in when the model calls it again in the next step.
+- Spent after the 36 runs: $0.63 on the head's runs and $0.49 on the Stop runs; $4.11 in all, within the $6 cap.
+
+By this gate's own rule the step doesn't ship: quality lines fail as written, and the first change moved only for Sonnet in English. The recommendation is to close the pull request and keep its branch for a next try that keeps refused text from showing (each paragraph held to the length and Citation checks as it comes) and shows a one-paragraph text a sentence at a time. What ships is the dated decision below.
