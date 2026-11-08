@@ -234,6 +234,8 @@ export interface Ran {
   done: Omit<CommandDone, "command" | "run">;
   step: CommandStep | null;
   said: string;
+  /** The app writes what it did as the reply: a call marked done ends the turn with no model reply. */
+  shown?: true;
 }
 
 /**
@@ -438,8 +440,6 @@ export interface CommandPlace {
   wallId: string | null;
   /** The Documents, Notes, Folders, Tags and deleted things on the turn's side of the wall. */
   findable(): Promise<Findable>;
-  /** The Answer's language, which a command's example of what to say is in. */
-  language: Language;
 }
 
 export type Checker = (

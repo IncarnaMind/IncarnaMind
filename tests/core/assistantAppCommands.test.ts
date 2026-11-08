@@ -508,17 +508,16 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
       .map((each) => each.id)
       .sort();
     expect(await proposedInto(core, "Leases")).toEqual(aboutRent);
-    // The reply names what it proposes, and no Document the run left where it was.
-    expect(answer.text).toContain("Organize only proposed Folders for 3 Documents");
+    // The app says what it proposes, and no Document the run left where it was.
+    expect(answer.text).toContain(
+      "Proposed 1 Folder for 3 Documents: “Leases” (3). Nothing has moved yet: review them to file them.",
+    );
     // The record counts every Document it read, so a reply's "3 of the 4" adds up, and how many
     // wait, for its Review button.
     expect(commandCalls(answer).at(-1)?.command?.considered).toBe(4);
     expect(commandCalls(answer).at(-1)?.command?.review).toEqual({ count: 3 });
     expect(answer.text).toContain("Leases");
     expect(answer.text).not.toContain("Q3 commentary");
-    // The reply already names the Folder, so the app doesn't say it a second time; what the reply
-    // leaves out, the couldn't-be-sorted count, the app still says.
-    expect(answer.text).not.toContain("Proposed Folders for 3 Documents");
     expect(answer.text).toContain("1 Document couldn’t be sorted.");
 
     // Undo takes back the Tags Organize added, and Redo adds them again.
@@ -1712,10 +1711,12 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
     expect(commandCalls(answer).at(-1)?.approval).not.toBe("denied");
   });
 
-  // protects="把讲租金的文档归到一起" does the same in Chinese: proposals, nothing moved, one Undo takes them back; fails_when=it files a Document, asks for a small Organize, or Undo leaves a proposal; no_claim=the Folder's name.
-  test("Organize proposes in Chinese too", async () => {
+  // protects="把讲租金的文档归到一起" does the same in Chinese: proposals, nothing moved, one Undo takes them back, and the reply is the app's own, with no word from the model after its call (#1569); fails_when=it files a Document, asks for a small Organize, Undo leaves a proposal, or the model writes after the call; no_claim=the Folder's name.
+  test("Organize proposes in Chinese too, and the app writes the reply", async () => {
+    let asked = 0;
     const answers = scriptedModel(
       (call) => {
+        asked++;
         const ran = call.results.filter((each) => each.tool === "run_command");
         return ran.length === 0
           ? {
@@ -1726,11 +1727,12 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
                     command: "documents.organize",
                     folder: "租赁",
                     about: "租约和租金",
+                    done: true,
                   },
                 },
               ],
             }
-          : { text: (ran.at(-1)?.text ?? "").split("。")[0] ?? "" };
+          : { text: "已把 3 个文档放进“租赁”。" };
       },
       {
         generate: ({ prompt }) => {
@@ -1775,9 +1777,10 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
     expect((await core.getLibrary()).assignments.filter((each) => each.groupId !== null)).toEqual(
       [],
     );
-    expect(answer.text).toContain("租赁");
-    expect(answer.text).not.toContain("已为 3 个文档建议文件夹");
-    expect(answer.text).toContain("1 个文档未能整理。");
+    expect(answer.text).toBe(
+      "已建议 1 个文件夹，共 3 个文档：“租赁”（3 个）。还没有移动任何文档：查看并确认后才会归入文件夹。1 个文档未能整理。",
+    );
+    expect(asked).toBe(1);
 
     await core.undoCommands(runOf(answer));
     expect(await proposedInto(core, "租赁")).toEqual([]);
@@ -2189,10 +2192,12 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
     expect(await tagsOf(mill.id)).toEqual(["Harbour"]);
   });
 
-  // protects=the app ends the reply with the full recap when the model's own sentence leaves the Folders out (#2252); fails_when=the reply has no Folder or count; no_claim=which Folder the classifier picks.
-  test("the app's summary names the Folders when the reply doesn't", async () => {
+  // protects=an Organize-only request, its call marked done, ends with the app's reply: the Folder by its path, its count, that nothing has moved, and no word from the model after the call (#1569); fails_when=the model is asked again or its text follows, or the Folder loses its parent; no_claim=which Folder the classifier picks.
+  test("an Organize-only turn is the app's reply, a subfolder by its path", async () => {
+    let asked = 0;
     const model = scriptedModel(
       (call) => {
+        asked++;
         const ran = call.results.filter((each) => each.tool === "run_command");
         return ran.length === 0
           ? {
@@ -2203,11 +2208,12 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
                     command: "documents.organize",
                     folder: "Leases",
                     about: "Lease papers",
+                    done: true,
                   },
                 },
               ],
             }
-          : { text: "Done." };
+          : { text: "Filed the leases." };
       },
       {
         generate: ({ prompt }) => {
@@ -2228,6 +2234,8 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
       },
     );
     const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
+    const contracts = await core.createLibraryGroup({ name: "Contracts", description: "" });
+    await core.createLibraryGroup({ name: "Leases", description: "", parentId: contracts.id });
     const provider = (await core.listChatProviders())[0];
     if (!provider) throw new Error("No provider.");
     const settings = (await core.getLibrary()).settings;
@@ -2238,14 +2246,18 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
     approvals(core, "allow-once");
 
     const answer = await askAssistant(core, {
-      text: "Re organise the files",
+      text: "Put the lease papers together",
       mindId: mind.id,
       ...FROM_WINDOW,
     });
 
-    expect(answer.text).toContain("Proposed Folders for 3 Documents: 3 → Leases.");
-    expect(answer.text).toContain("1 Document couldn’t be sorted.");
-    expect(answer.text).not.toContain("Organize filed");
+    expect(answer.text).toBe(
+      "Proposed 1 Folder for 3 Documents: “Contracts › Leases” (3). Nothing has moved yet: review them to file them. 1 Document couldn’t be sorted.",
+    );
+    expect(asked).toBe(1);
+    expect((await core.getLibrary()).assignments.filter((each) => each.groupId !== null)).toEqual(
+      [],
+    );
   });
 
   // protects=the app's count is added when the model's number only ends with its digits: "14 Documents couldn't be sorted." doesn't say "4 Documents couldn't be sorted.", in English and Chinese; fails_when=the longer number is read as the app's line and the true count is left out; no_claim=which Folder the classifier picks.
@@ -2319,120 +2331,6 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
       core.close();
     },
   );
-
-  // protects=a Folder named inside a longer word doesn't hide the app's summary, including a decomposed accent: "Rental" doesn't name "Rent", and "Café" (Cafe + U+0301) doesn't name "Cafe" (#2252); fails_when=the reply shows only the couldn't-be-sorted line; no_claim=which Folder the classifier picks.
-  test.each([
-    ["Rent", "Rental agreements are filed now."],
-    ["Cafe", "Cafe\u0301 papers are filed now."],
-  ])("a Folder named inside a longer word still gets the summary: %s", async (folder, reply) => {
-    const model = scriptedModel(
-      (call) => {
-        const ran = call.results.filter((each) => each.tool === "run_command");
-        return ran.length === 0
-          ? {
-              calls: [
-                {
-                  tool: "run_command",
-                  input: { command: "documents.organize", folder, about: `${folder} papers` },
-                },
-              ],
-            }
-          : { text: reply };
-      },
-      {
-        generate: ({ prompt }) => {
-          const data = JSON.parse(prompt) as {
-            groups?: { id: string; name: string }[];
-            document?: { text?: string };
-          };
-          if (!data.groups) return { text: JSON.stringify({ tags: [] }) };
-          const into = data.groups.find((each) => each.name === folder);
-          const leases = !/Q3/i.test(JSON.stringify(data.document ?? {}));
-          return {
-            text: JSON.stringify({
-              groupId: leases && into ? into.id : "__unsorted__",
-              tags: [],
-            }),
-          };
-        },
-      },
-    );
-    const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
-    await core.createLibraryGroup({ name: folder, description: "" });
-    const provider = (await core.listChatProviders())[0];
-    if (!provider) throw new Error("No provider.");
-    const settings = (await core.getLibrary()).settings;
-    await core.saveLibrarySettings({
-      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "local-model" } },
-      automatic: settings.automatic,
-    });
-    approvals(core, "allow-once");
-
-    const answer = await askAssistant(core, {
-      text: "Re organise the files",
-      mindId: mind.id,
-      ...FROM_WINDOW,
-    });
-
-    expect(answer.text).toContain(reply);
-    expect(answer.text).toContain(`Proposed Folders for 3 Documents: 3 → ${folder}.`);
-    expect(answer.text).toContain("1 Document couldn’t be sorted.");
-  });
-
-  // protects=a Folder whose name is copied with a straight apostrophe counts as named, so the app adds no summary, while a name one letter different doesn't; fails_when=the apostrophe's form decides, or another name counts; no_claim=which Folder the classifier picks.
-  test.each([
-    ["Bob's deals are filed now.", true],
-    ["Rob's deals are filed now.", false],
-  ])("a Folder's name with a straight apostrophe: %s", async (reply, said) => {
-    const folder = "Bob’s deals";
-    const model = scriptedModel(
-      (call) => {
-        const ran = call.results.filter((each) => each.tool === "run_command");
-        return ran.length === 0
-          ? {
-              calls: [
-                {
-                  tool: "run_command",
-                  input: { command: "documents.organize", folder, about: "Deal papers" },
-                },
-              ],
-            }
-          : { text: reply };
-      },
-      {
-        generate: ({ prompt }) => {
-          const data = JSON.parse(prompt) as {
-            groups?: { id: string; name: string }[];
-          };
-          if (!data.groups) return { text: JSON.stringify({ tags: [] }) };
-          const into = data.groups.find((each) => each.name === folder);
-          return { text: JSON.stringify({ groupId: into?.id ?? "__unsorted__", tags: [] }) };
-        },
-      },
-    );
-    const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
-    await core.createLibraryGroup({ name: folder, description: "" });
-    const provider = (await core.listChatProviders())[0];
-    if (!provider) throw new Error("No provider.");
-    const settings = (await core.getLibrary()).settings;
-    await core.saveLibrarySettings({
-      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "local-model" } },
-      automatic: settings.automatic,
-    });
-    approvals(core, "allow-once");
-
-    const answer = await askAssistant(core, {
-      text: "Re organise the files",
-      mindId: mind.id,
-      ...FROM_WINDOW,
-    });
-
-    const summary = translate("en", "answer.commands.proposed", {
-      count: 4,
-      parts: translate("en", "library.review.part", { count: 4, folder }),
-    });
-    expect(answer.text).toBe(said ? reply : `${reply}\n\n${summary}.`);
-  });
 
   // protects=a Tag merge that fails on the second Tag puts the first merge back, so the User is not left with half of it (#2252); fails_when=the first merge stays or the failure is swallowed; no_claim=how the error reads.
   test("a Tag merge that fails halfway puts the first one back", async () => {

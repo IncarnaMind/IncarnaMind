@@ -47,7 +47,7 @@ async function setUp(planned: OrganizeLibraryResult | null) {
     const checked = await organizeChecker(
       parseCommandInput({ command: "documents.organize", ...input }),
       host,
-      { wallId, filing: () => null, findable: async () => NOTHING, language: "en" },
+      { wallId, filing: () => null, findable: async () => NOTHING },
     );
     return checked.run(null, new AbortController().signal);
   };

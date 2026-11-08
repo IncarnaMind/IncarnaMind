@@ -39,6 +39,7 @@ import {
   outputTokensFor,
 } from "../../src/core/providers/ollamaModels";
 import { openDatabase } from "../../src/core/storage";
+import { proposedText } from "../../src/core/tools/commands/organize";
 import { type OfferedCommand, sameWords, type Yours, yoursLine } from "../../src/shared/commands";
 import { translate } from "../../src/shared/i18n";
 import { createTempDataFolder, spentBy, startCore } from "../helpers/core";
@@ -386,32 +387,26 @@ const SAYS_IT_MOVED = new RegExp(
 const organizeRuns = (seen: Seen) =>
   ran(seen).filter((done) => done.command === "documents.organize");
 
-/** The line the app adds after a reply that doesn't name every Folder an Organize run proposed (#2252). */
-function appsFolderLine(language: Language, folders: readonly { name: string; count: number }[]) {
-  const count = folders.reduce((sum, folder) => sum + folder.count, 0);
-  const line = translate(
-    language,
-    count === 1 ? "answer.commands.proposed.one" : "answer.commands.proposed",
-    {
-      count,
-      parts: folders
-        .map((folder) =>
-          translate(language, "library.review.part", { count: folder.count, folder: folder.name }),
-        )
-        .join(translate(language, "library.review.separator")),
-    },
-  );
-  return language === "zh-CN" ? `${line}。` : `${line}.`;
+/** What the app writes after an Organize run, in either language (#1569): not the model's words. */
+function appsLines(language: Language, done: ReturnType<typeof organizeRuns>[number]): string[] {
+  const lines = done.folders?.length ? [proposedText(language, done.folders)] : [];
+  for (const [key, count] of [
+    ["answer.commands.unsorted", done.unsorted],
+    ["answer.commands.untouched", done.untouched],
+  ] as const) {
+    if (count) lines.push(translate(language, count === 1 ? `${key}.one` : key, { count }));
+  }
+  return lines;
 }
 
-/** The reply in the model's own words: the app's line would name the Folders for it. */
+/** The reply in the model's own words: what the app wrote after it taken out. */
 function ownWords(seen: Seen): { text: string; appAdded: boolean } {
   let text = seen.answer.text;
   for (const done of organizeRuns(seen)) {
     for (const language of LANGUAGES)
-      text = text.replace(appsFolderLine(language, done.folders ?? []), "");
+      for (const line of appsLines(language, done)) text = text.replace(line, "");
   }
-  return { text, appAdded: text !== seen.answer.text };
+  return { text: text.trim(), appAdded: text !== seen.answer.text };
 }
 
 /** The Folders the request's Organize proposed, as Suggestions shows them, each with its count. */
@@ -422,9 +417,9 @@ const proposedBy = ({ before, after }: Pick<Seen, "before" | "after">) =>
 
 /**
  * "Re organise the files": Organize runs and only proposes (#1569). No Folder is made and nothing
- * is filed, the proposals wait in Suggestions, and the reply, in the model's own words, names each
- * Folder proposed there with its count, says nothing moves until the User reviews them, and never
- * says they moved. Nothing it says is flagged.
+ * is filed, and the proposals wait in Suggestions. The reply is the app's: it names each Folder
+ * proposed there with its count and says nothing has moved, and the model's own words, if any,
+ * never say they moved. Nothing it says is flagged.
  */
 const organized: Check = (seen) => {
   expect(organizeRuns(seen).length).toBeGreaterThan(0);
@@ -432,14 +427,23 @@ const organized: Check = (seen) => {
   expect(seen.after.review).toBeGreaterThan(seen.before.review);
   const proposed = proposedBy(seen);
   expect(proposed.length).toBeGreaterThan(0);
-  const { text } = ownWords(seen);
   for (const folder of proposed) {
-    expect(namesWithCount(text, folder), folder.name).toBe(true);
+    expect(namesWithCount(seen.answer.text, folder), folder.name).toBe(true);
   }
-  expect(text).toMatch(SAYS_IT_WAITS);
-  expect(text).not.toMatch(SAYS_IT_MOVED);
+  expect(seen.answer.text).toMatch(SAYS_IT_WAITS);
+  expect(ownWords(seen).text).not.toMatch(SAYS_IT_MOVED);
   expect(seen.answer.steps?.unbackedCommands ?? []).toEqual([]);
   expect(seen.answer.steps?.unbackedClaims ?? []).toEqual([]);
+};
+
+/**
+ * Organize and something more in one request ("…and tell me the rent in each"): Organize only
+ * proposes, the app says what, and the model's own words do the rest without saying anything
+ * moved.
+ */
+const organizedAndMore: Check = (seen) => {
+  organized(seen);
+  expect(ownWords(seen).text).not.toBe("");
 };
 
 /** Organize after a standing no: the card says it sends this time only, and the run still proposes. */
@@ -1063,6 +1067,43 @@ const REQUESTS: {
     check: movedInto("Finance", ["Lease Harbour Street"]),
     folders: ["Finance"],
   },
+  // Held out for #1569's mixed requests: written before any run of the app writing Organize's reply.
+  {
+    id: "mixed-en",
+    text: "Put the lease papers together and tell me the rent in each",
+    check: organizedAndMore,
+    more: MORE_TO_SORT,
+  },
+  {
+    id: "mixed-en-2",
+    text: "Organize my documents into folders and summarize the board minutes",
+    check: organizedAndMore,
+    more: MORE_TO_SORT,
+  },
+  {
+    id: "mixed-en-3",
+    text: "Group the rent documents and list how often each rent is paid",
+    check: organizedAndMore,
+    more: MORE_TO_SORT,
+  },
+  {
+    id: "mixed-zh",
+    text: "把租约整理到一起，再告诉我每份的租金",
+    check: organizedAndMore,
+    more: MORE_TO_SORT,
+  },
+  {
+    id: "mixed-zh-2",
+    text: "帮我整理一下这些文件，顺便总结一下董事会纪要",
+    check: organizedAndMore,
+    more: MORE_TO_SORT,
+  },
+  {
+    id: "mixed-zh-3",
+    text: "把讲房租的文档归到一起，并说说每份多久交一次租",
+    check: organizedAndMore,
+    more: MORE_TO_SORT,
+  },
   { id: "held-permanent-en", text: "Permanently get rid of the Q3 memo", check: neverForGood },
   {
     id: "held-permanent-en-2",
@@ -1326,7 +1367,7 @@ describe.each(LIVE)("The assistant does what the User can in the app, live: $nam
           const proposed = proposedBy(seen);
           const filed = JSON.stringify(seen.after.folders) !== JSON.stringify(before.folders);
           if (proposed.length > 0 || seen.after.review !== before.review || filed)
-            line += `\n  proposed: ${proposed.map((each) => `${each.name} ${each.count}`).join(", ") || "none"}; in Suggestions ${before.review} → ${seen.after.review}; Folders ${filed ? `changed to ${JSON.stringify(seen.after.folders)}` : "as before"}; the app's Folder line ${ownWords(seen).appAdded ? "added" : "not needed"}`;
+            line += `\n  proposed: ${proposed.map((each) => `${each.name} ${each.count}`).join(", ") || "none"}; in Suggestions ${before.review} → ${seen.after.review}; Folders ${filed ? `changed to ${JSON.stringify(seen.after.folders)}` : "as before"}; the model's own words: ${ownWords(seen).text.length} characters`;
           // What the claim check left under the reply (#2407).
           const flagged = [
             ...(answer.steps?.unbackedCommands ?? []),

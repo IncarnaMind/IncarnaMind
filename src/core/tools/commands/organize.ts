@@ -119,18 +119,45 @@ function leftOutReason(items: readonly OrganizeReviewItem[]): string | null {
 }
 
 /**
- * How a reply says what Organize proposed, in the Answer's language and the Review's own words:
- * models wrote "filed" and "moved" of proposals that wait (#1569).
+ * What the model reads once Organize proposed (#1569): the app writes the proposals as the reply,
+ * since models that narrated them wrote "filed" and "moved" of Documents that only wait.
  */
-function replyExample(language: Language, folders: readonly { name: string; count: number }[]) {
-  const [first, ...rest] = folders.slice(0, 2);
-  if (!first) return "";
-  const nothingMoved = translate(language, "organizeReview.nothingMoved");
-  const suggested = translate(language, "organizeReview.title");
-  const review = translate(language, "library.review");
-  if (language === "zh-CN")
-    return `整理建议把 ${first.count} 个文档放进“${first.name}”${rest.map((each) => `，${each.count} 个放进“${each.name}”`).join("")}。${nothingMoved}：它们在“${suggested}”中，等你用“${review}”确认。`;
-  return `Organize suggests “${first.name}” for ${plural(first.count, "Document")}${rest.map((each) => ` and “${each.name}” for ${each.count}`).join("")}. ${nothingMoved}: they wait in ${suggested} until you confirm them with ${review}.`;
+const PROPOSALS_SHOWN =
+  "IncarnaMind has already shown the User what Organize proposed, and that nothing has moved. Your reply must not describe, repeat or summarize it.";
+
+/** What Organize proposed, as the reply says it in `language`: the app writes it, not the model. */
+export function proposedText(
+  language: Language,
+  folders: readonly { name: string; count: number }[],
+): string {
+  const count = folders.reduce((sum, folder) => sum + folder.count, 0);
+  const proposed = translate(language, "answer.commands.proposed", {
+    folders: translate(
+      language,
+      folders.length === 1
+        ? "answer.commands.proposed.folders.one"
+        : "answer.commands.proposed.folders",
+      { count: folders.length },
+    ),
+    documents: translate(
+      language,
+      count === 1 ? "organizeReview.documents.one" : "organizeReview.documents",
+      { count },
+    ),
+    parts: folders
+      .map((folder) =>
+        translate(language, "answer.commands.proposed.part", {
+          folder: folder.name,
+          count: folder.count,
+        }),
+      )
+      .join(translate(language, "answer.commands.proposed.separator")),
+  });
+  const wait = translate(
+    language,
+    count === 1 ? "answer.commands.proposed.wait.one" : "answer.commands.proposed.wait",
+  );
+  return language === "zh-CN" ? `${proposed}${wait}` : `${proposed} ${wait}`;
 }
 
 /** What the model is told of a plan that would cost more than IncarnaMind spends unshown. */
@@ -142,7 +169,7 @@ function costSaid(count: number, estimate: RunEstimate): string {
   return `Organizing ${plural(count, "Document")} would cost ${amount} on the Organize model, so nothing was sent and nothing was proposed. Tell the User they can start Organize from the Library, which shows the cost before it runs.`;
 }
 
-export const organizeChecker: Checker = async (input, host, { wallId, language }) => {
+export const organizeChecker: Checker = async (input, host, { wallId }) => {
   const { core } = host;
   const requested = input.folder;
   const documents =
@@ -261,31 +288,32 @@ export const organizeChecker: Checker = async (input, host, { wallId, language }
               proposed.push(at);
         }
         const { groups: groupsNow } = await core.getLibrary();
-        const nameOf = (item: OrganizeReviewItem) => {
-          const { placement } = item;
-          if (placement.kind === "folder")
-            return {
-              name: groupsNow.find((group) => group.id === placement.folderId)?.name ?? "",
-              made: false,
-            };
-          if (placement.kind === "newFolder")
-            return {
-              name:
-                review.folders.find((folder) => folder.id === placement.newFolderId)?.name ?? "",
-              made: true,
-            };
-          return null;
+        // A subfolder goes by its path, as the Review heads its card: "Contracts › Leases".
+        const pathOf = (id: string | null): string[] => {
+          const group = groupsNow.find((each) => each.id === id);
+          return group ? [...pathOf(group.parentId), group.name] : [];
         };
-        const counts = new Map<string, { count: number; made: boolean }>();
-        for (const item of placed) {
-          const folder = nameOf(item);
-          if (!folder) continue;
-          const was = counts.get(folder.name);
-          counts.set(folder.name, { count: (was?.count ?? 0) + 1, made: folder.made });
+        const proposedPathOf = (id: string): string[] => {
+          const folder = review.folders.find((each) => each.id === id);
+          if (!folder) return [];
+          const parent =
+            folder.parentNewFolderId === null
+              ? pathOf(folder.parentId)
+              : proposedPathOf(folder.parentNewFolderId);
+          return [...parent, folder.name];
+        };
+        const counts = new Map<string, { name: string; count: number }>();
+        for (const { placement } of placed) {
+          const at =
+            placement.kind === "folder"
+              ? { id: placement.folderId, path: pathOf(placement.folderId) }
+              : placement.kind === "newFolder"
+                ? { id: placement.newFolderId, path: proposedPathOf(placement.newFolderId) }
+                : null;
+          if (!at) continue;
+          const was = counts.get(at.id);
+          counts.set(at.id, { name: at.path.join(" › "), count: (was?.count ?? 0) + 1 });
         }
-        const parts = [...counts].map(([name, { count, made }]) =>
-          made ? `“${name}” (a new Folder) for ${count}` : `“${name}” for ${count}`,
-        );
         // What Organize reached and couldn't place; the rest it never read.
         const unsorted = ids.length - untouched - placed.length;
         const placedIds = new Set(placed.map((item) => item.documentId));
@@ -311,10 +339,10 @@ export const organizeChecker: Checker = async (input, host, { wallId, language }
                 : { kind: "document" as const, id: item.documentId, name: item.documentId };
             }),
             ...(named !== null &&
-              counts.has(named.name) && {
+              counts.has(named.id) && {
                 into: { kind: "folder" as const, id: named.id, name: named.name, made: false },
               }),
-            folders: [...counts].map(([name, { count }]) => ({ name, count })),
+            folders: [...counts.values()],
             ...(unsorted > 0 && { unsorted }),
             ...(untouched > 0 && { untouched }),
             considered: ids.length,
@@ -337,15 +365,13 @@ export const organizeChecker: Checker = async (input, host, { wallId, language }
                     await revertTags(core, ids, tagChanges, "again");
                   },
                 },
+          ...(placed.length > 0 && { shown: true as const }),
           said:
             placed.length === 0 && unsorted === 0 && untouched > 0
               ? `Organize stopped at “${reason ?? "a failure"}” before reading any Document; the other ${plural(untouched, "Document")} stayed as they were.`
               : placed.length === 0
                 ? `Organize proposed no Folder for any Document: ${reason ?? "no Folder fitted"}. Nothing moved.`
-                : `Organize only proposed Folders for ${plural(placed.length, "Document")}: ${parts.join(", ")}. Nothing has been filed or moved: they wait in Suggested Folders, ${plural(review.count, "Document")} in all, until the User confirms them in the Review.${unsorted > 0 ? ` ${plural(unsorted, "Document")} got no Folder: ${reason ?? "no Folder fitted"}.` : ""}${untouched > 0 ? ` It stopped at “${reason ?? "a failure"}”; the other ${plural(untouched, "Document")} stayed as they were.` : ""} In your reply, name each Folder with its count, and say nothing has moved yet. Never say the Documents were filed, moved, grouped or put anywhere. Say it like this: “${replyExample(
-                    language,
-                    [...counts].map(([name, { count }]) => ({ name, count })),
-                  )}”`,
+                : PROPOSALS_SHOWN,
         };
       }),
       documents.length > 0 ? "organize" : null,

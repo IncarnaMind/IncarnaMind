@@ -354,9 +354,10 @@ export function commandTools(options: CommandToolsOptions): {
     providerTool: COMMAND_TOOLS.run,
     effects: commandEffects,
     untrustedResult: false,
-    // Only a window's command or a refusal the model marked as the request's last ends the turn,
-    // so a request that asked for more goes on to it. After a refusal the model, told IncarnaMind
-    // says it, still said it again, and that the place was opened for the User (#2252).
+    // Only a window's command, a refusal or what the app writes itself (Organize's proposals) the
+    // model marked as the request's last ends the turn, so a request that asked for more goes on
+    // to it. After a refusal the model, told IncarnaMind says it, still said it again, and that the
+    // place was opened for the User (#2252); of Organize's proposals it wrote "filed" (#1569).
     endsTurn: (result, input) => input.done === true && oneLine.has(result),
     async call(_input, { toolCallId, signal }) {
       const command = checked.get(toolCallId);
@@ -397,7 +398,7 @@ export function commandTools(options: CommandToolsOptions): {
       if (ran.step) options.steps.add(options.runId, ran.step);
       const done = { ...ran.done, command: command.command, run: options.runId };
       options.ran(toolCallId, done);
-      if (ran.done.window || ran.done.yours) oneLine.add(ran.said);
+      if (ran.done.window || ran.done.yours || ran.shown) oneLine.add(ran.said);
       if (ran.done.window?.running) {
         goingOn.set(toolCallId, done);
         const early = endedEarly.get(toolCallId);
@@ -419,7 +420,6 @@ export function commandTools(options: CommandToolsOptions): {
           findable: () => options.findable(options.focusedMindId, options.wallId),
           wallId: options.wallId ?? null,
           filing: options.filing,
-          language: options.language,
           answerId: options.answerId,
           runId: options.runId,
           toolCallId,
