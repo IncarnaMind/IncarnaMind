@@ -1752,7 +1752,14 @@ function unitsOf(doc: ProseMirrorNode): Unit[] {
 const SECTIONS = ["summary", "decisions", "actions", "questions", "claims"] as const;
 /** A request that fills the notes in; every other one a fill sends checks a claim. */
 const FILL_REQUEST = /Fill them in from the transcript|The User took no notes/;
-const SENTENCES = /[^.!?。！？]+[.!?。！？]+/gu;
+/** A sentence's end: a Chinese one, or a Latin one before a space or the text's end, never a decimal point. */
+const SENTENCE_END = /[.!?](?=\s|$)|[。！？]/gu;
+const sentencesIn = (text: string) => {
+  const ends = [...text.trim().matchAll(SENTENCE_END)];
+  const last = ends.at(-1);
+  const tail = last ? text.trim().slice(last.index + last[0].length) : text;
+  return ends.length + (tail.trim() === "" ? 0 : 1);
+};
 
 /** A part of the note under one heading, as the User reads it: its lines and bullets in order. */
 interface NotePart {
@@ -1852,7 +1859,7 @@ function structureOf(doc: ProseMirrorNode, call: Call) {
     summaryFirst:
       call.sectionHeadings?.summary !== undefined || firstAdded?.heading === titles.summary,
     summaryParts: summary.length,
-    summarySentences: (summary[0]?.text.match(SENTENCES) ?? []).length,
+    summarySentences: summary[0] ? sentencesIn(summary[0].text) : 0,
     summaryCited: summary.length > 0 && summary.every((item) => item.cited && !item.bullet),
     topics: topics.map((each) => each.heading),
     // A topic that was all decisions or tasks shows in those sections, not under a heading of its own.
@@ -1864,7 +1871,7 @@ function structureOf(doc: ProseMirrorNode, call: Call) {
       )
       .map((topic) => topic.name),
     topicItems: topicItems.length,
-    topicSentences: topicItems.map((item) => (item.text.match(SENTENCES) ?? []).length),
+    topicSentences: topicItems.map((item) => sentencesIn(item.text)),
     // What fills in a typed line under the User's heading stays a paragraph under it.
     topicNotBullets: topicItems.filter((item) => !item.bullet && !item.typedAbove).length,
     topicUncited: topicItems.filter((item) => !item.cited).length,
@@ -2568,6 +2575,15 @@ test.each(["en", "zh-CN"] as const)(
     expect(hasGeneratedOverview([unit], [`### ACTIONS\n${text} [^1]\n`])).toBe(false);
   },
 );
+
+test.each([
+  ["The cups cost 8.4 pence. Lids are 2.9 pence each.", 2],
+  ["合同总价18.6万元。付款分三笔。", 2],
+  ["One sentence without a stop", 1],
+  ["", 0],
+])("meeting scores count %j as %i sentences, never splitting at a decimal point", (text, count) => {
+  expect(sentencesIn(text)).toBe(count);
+});
 
 test("meeting scores accept the literal production OVERVIEW frame", () => {
   const reply = [
