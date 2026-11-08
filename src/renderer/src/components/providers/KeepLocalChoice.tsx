@@ -1,7 +1,7 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useState } from "react";
 import { core } from "../../core";
 import { useT } from "../../i18n";
-import { checkBoxClass, checkHintClass, checkRowClass } from "../ui";
+import { SettingsSwitchRow } from "../settings/SettingsGroup";
 
 /** What Local mode would pause: the cloud services set up, and the connected agents. */
 interface CloudSetUp {
@@ -68,6 +68,7 @@ export function useKeepLocal(active: boolean) {
 
 export type KeepLocal = ReturnType<typeof useKeepLocal>;
 
+/** A row of the Ollama page's group: its switch at the end, and what it would pause under its label. */
 export function KeepLocalChoice({
   keepLocal,
   disabled,
@@ -76,7 +77,6 @@ export function KeepLocalChoice({
   disabled: boolean;
 }) {
   const t = useT();
-  const id = useId();
   const { setUp } = keepLocal;
   if (setUp === null) return null;
 
@@ -99,23 +99,20 @@ export function KeepLocalChoice({
         : t("localMode.keep.list.last", { rest: parts.join(t("providers.list.separator")), last });
 
   return (
-    <div data-testid="keep-local" className="flex flex-col gap-1">
-      <label htmlFor={id} className={checkRowClass}>
-        <input
-          id={id}
-          type="checkbox"
-          className={checkBoxClass}
-          data-testid="keep-local-box"
-          aria-describedby={`${id}-line`}
-          checked={keepLocal.checked}
-          disabled={disabled}
-          onChange={(event) => keepLocal.choose(event.target.checked)}
-        />
-        {t("localMode.keep.label")}
-      </label>
-      <p id={`${id}-line`} data-testid="keep-local-line" className={checkHintClass}>
-        {keepLocal.nothing ? t("localMode.keep.nothing") : t("localMode.keep.pauses", { services })}
-      </p>
-    </div>
+    <SettingsSwitchRow
+      testId="keep-local"
+      switchTestId="keep-local-box"
+      label={t("localMode.keep.label")}
+      detail={
+        <span data-testid="keep-local-line">
+          {keepLocal.nothing
+            ? t("localMode.keep.nothing")
+            : t("localMode.keep.pauses", { services })}
+        </span>
+      }
+      checked={keepLocal.checked}
+      disabled={disabled}
+      onChange={keepLocal.choose}
+    />
   );
 }

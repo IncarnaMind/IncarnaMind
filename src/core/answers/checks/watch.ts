@@ -289,7 +289,7 @@ export function createContradictionWatch(options: WatchOptions) {
     const runId = randomUUID();
     let checked = 0;
     let contradicted = 0;
-    const { stop } = await runItems(
+    const { stop, outcomeError } = await runItems(
       ready.claims,
       (claim) =>
         asCheckWork(() =>
@@ -318,12 +318,20 @@ export function createContradictionWatch(options: WatchOptions) {
         onOutcome(claim, outcome) {
           if (outcome.status !== "done" || signal.aborted) return;
           const result = outcome.value;
-          if (result.verdict !== "not-checked") checked++;
-          if (result.verdict === "contradicted") contradicted++;
-          write(mindId, request, ready.folderId, claim, result, prepared);
+          if (write(mindId, request, ready.folderId, claim, result, prepared)) {
+            if (result.verdict !== "not-checked") checked++;
+            if (result.verdict === "contradicted") contradicted++;
+          }
         },
       },
     );
+    if (outcomeError !== null) {
+      options.log.error("contradictions.markFailed", {
+        mindId,
+        error: nameOf(outcomeError.error),
+      });
+      throw outcomeError.error;
+    }
     return {
       claims: ready.claims.length,
       checked,
@@ -422,6 +430,19 @@ export function createContradictionWatch(options: WatchOptions) {
     let checked = 0;
     let contradicted = 0;
     let stop: RunStop | null = null;
+    /** The first mark this run couldn't write: said once, with the Note's id. */
+    let markFailed = false;
+    const mark = (claim: Claim, result: ClaimCheckResult): boolean => {
+      try {
+        return write(mindId, request, ready.folderId, claim, result, prepared);
+      } catch (error) {
+        if (!markFailed) {
+          markFailed = true;
+          options.log.error("contradictions.markFailed", { mindId, error: nameOf(error) });
+        }
+        return false;
+      }
+    };
     const record = (end: WatchStop | null) => {
       try {
         options.requireMind(mindId);
@@ -491,10 +512,12 @@ export function createContradictionWatch(options: WatchOptions) {
             else if (failure?.kind === "plan-limit")
               stop = { reason: "plan-limit", resetsAt: null };
             else {
-              if (result.verdict !== "not-checked") checked++;
-              if (result.verdict === "contradicted") contradicted++;
               options.requireMind(mindId);
-              write(mindId, request, ready.folderId, claim, result, prepared);
+              // A sentence whose mark couldn't be written isn't checked (#2543).
+              if (mark(claim, result)) {
+                if (result.verdict !== "not-checked") checked++;
+                if (result.verdict === "contradicted") contradicted++;
+              }
             }
           } finally {
             // A run that gives way or closes ends without finishing: its record says so, so a

@@ -17,26 +17,14 @@ import { DetailsLine } from "../DetailsLine";
 import { KeyCharacterLine } from "../KeyCharacterLine";
 import { ProblemMark } from "../ProblemLine";
 import { SettingsAdvanced } from "../SettingsAdvanced";
+import { PopUpSelect } from "../settings/PopUpButton";
 import {
-  buttonClass,
-  choiceListClass,
-  compactChoiceRadioClass,
-  compactChoiceRowClass,
-  errorTextClass,
-  fieldLabelClass,
-  ghostButtonClass,
-  hintClass,
-  inputClass,
-  noticeClass,
-  primaryButtonClass,
-  rowButtonsClass,
-  rowTextClass,
-  ruledListClass,
-  ruledRow,
-  ruledRowClass,
-  sectionNoteClass,
-  sectionTitleClass,
-} from "../ui";
+  SettingsGroup,
+  SettingsHelp,
+  SettingsRow,
+  SettingsSection,
+} from "../settings/SettingsGroup";
+import { buttonStyle, errorTextClass, hintClass, noticeClass, rowFieldClass } from "../ui";
 import { SecretStorageNotice, TestResult } from "./ProviderForm";
 import { useProviderKey } from "./shared";
 
@@ -75,46 +63,35 @@ export function RerankSettingsSection() {
   if (!rerank) return null;
   const service = rerank.service?.name ?? "";
   const builtIn = rerank.kind === "built-in";
+  const notices = rerank.enabled
+    ? [
+        rerank.paused && t("rerank.settings.paused"),
+        !builtIn && !rerank.hasApiKey && t("rerank.settings.keyMissing", { service }),
+      ].filter((notice) => typeof notice === "string")
+    : [];
   return (
-    <section data-testid="rerank-settings" className="flex flex-col">
-      <h4 className={sectionTitleClass}>{t("rerank.settings.title")}</h4>
-      <DetailsLine
-        testId="rerank-settings-body"
-        className={sectionNoteClass}
-        details={t("rerank.settings.body.details")}
-      >
-        {t("rerank.settings.body")}
-      </DetailsLine>
-
+    <SettingsSection title={t("rerank.settings.title")} testId="rerank-settings">
       {!editing && (
-        <>
-          <div className={ruledListClass}>
-            <div className={rerank.enabled ? ruledRowClass : ruledRow("center", true)}>
-              <div className="flex min-w-0 flex-col gap-0.5">
-                <p data-testid="rerank-state" className="text-ui text-ink">
-                  {rerank.enabled
-                    ? builtIn
-                      ? t("rerank.settings.stateOn")
-                      : t("rerank.settings.stateSent", { service })
-                    : t("privacy.traffic.off")}
-                </p>
-                {rerank.enabled && rerank.paused && (
-                  <p className={`mt-1.5 ${noticeClass}`}>{t("rerank.settings.paused")}</p>
-                )}
-                {rerank.enabled && !builtIn && !rerank.hasApiKey && (
-                  <p className={`mt-1.5 ${noticeClass}`}>
-                    {t("rerank.settings.keyMissing", { service })}
-                  </p>
-                )}
-                {rerank.enabled && builtIn && <BuiltInModelState model={rerank.model} />}
-              </div>
-              <div className={rowButtonsClass}>
+        <SettingsGroup>
+          <SettingsRow
+            label={
+              <span data-testid="rerank-state">
+                {rerank.enabled
+                  ? builtIn
+                    ? t("rerank.settings.stateOn")
+                    : t("rerank.settings.stateSent", { service })
+                  : t("privacy.traffic.off")}
+              </span>
+            }
+            detail={rerank.enabled && builtIn && <BuiltInModelState model={rerank.model} />}
+            control={
+              <>
                 {builtIn && rerank.model.state === "failed" && (
                   <button
                     type="button"
                     data-testid="rerank-retry"
                     onClick={() => void run(() => core.downloadRerankingModel())}
-                    className={buttonClass}
+                    className={buttonStyle("secondary", "sm")}
                   >
                     {t("rerank.settings.retry")}
                   </button>
@@ -125,7 +102,7 @@ export function RerankSettingsSection() {
                       type="button"
                       data-testid="rerank-change"
                       onClick={() => setEditing(true)}
-                      className={buttonClass}
+                      className={buttonStyle("secondary", "sm")}
                     >
                       {t("rerank.settings.change")}
                     </button>
@@ -133,7 +110,7 @@ export function RerankSettingsSection() {
                       type="button"
                       data-testid="rerank-remove"
                       onClick={() => void run(() => core.removeRerankSettings())}
-                      className={buttonClass}
+                      className={buttonStyle("secondary", "sm")}
                     >
                       {t("rerank.settings.remove")}
                     </button>
@@ -143,47 +120,72 @@ export function RerankSettingsSection() {
                     type="button"
                     data-testid="rerank-set-up"
                     onClick={() => setEditing(true)}
-                    className={buttonClass}
+                    className={buttonStyle("secondary", "sm")}
                   >
                     {t("rerank.settings.setUp")}
                   </button>
                 )}
+              </>
+            }
+          >
+            {notices.length > 0 && (
+              <div className="flex flex-col gap-2">
+                {notices.map((notice) => (
+                  <p key={notice} className={noticeClass}>
+                    {notice}
+                  </p>
+                ))}
               </div>
-            </div>
-          </div>
+            )}
+          </SettingsRow>
+        </SettingsGroup>
+      )}
+      <SettingsHelp>
+        <DetailsLine testId="rerank-settings-body" details={t("rerank.settings.body.details")}>
+          {t("rerank.settings.body")}
+        </DetailsLine>
+      </SettingsHelp>
 
-          {rerank.enabled && (
-            <SettingsAdvanced testId="rerank-advanced">
-              {builtIn ? (
-                <>
-                  <p data-testid="rerank-current" className="text-[13px] leading-5 text-ink">
+      {!editing && rerank.enabled && (
+        <SettingsAdvanced testId="rerank-advanced">
+          <SettingsGroup>
+            {builtIn ? (
+              <SettingsRow
+                label={
+                  <span data-testid="rerank-current">
                     {t(
                       rerank.byDefault
                         ? "rerank.settings.builtInDefault"
                         : "rerank.settings.builtInUse",
                       { model: rerank.modelId ?? "" },
                     )}
-                  </p>
-                  {rerank.runsOn && (
-                    <p data-testid="rerank-runs-on" className={rowTextClass}>
-                      {t("rerank.settings.runsOn", {
-                        device: rerank.runsOn === "gpu" ? "GPU" : "CPU",
-                      })}
-                    </p>
-                  )}
-                  <p className={rowTextClass}>{t("rerank.settings.builtInNote")}</p>
-                </>
-              ) : (
-                <>
-                  <p data-testid="rerank-current" className="text-[13px] leading-5 text-ink">
+                  </span>
+                }
+                detail={
+                  <>
+                    {rerank.runsOn && (
+                      <p data-testid="rerank-runs-on">
+                        {t("rerank.settings.runsOn", {
+                          device: rerank.runsOn === "gpu" ? "GPU" : "CPU",
+                        })}
+                      </p>
+                    )}
+                    <p>{t("rerank.settings.builtInNote")}</p>
+                  </>
+                }
+              />
+            ) : (
+              <SettingsRow
+                label={
+                  <span data-testid="rerank-current">
                     {t("rerank.settings.inUse", { service, model: rerank.modelId ?? "" })}
-                  </p>
-                  <p className={rowTextClass}>{t("rerank.settings.sends", { service })}</p>
-                </>
-              )}
-            </SettingsAdvanced>
-          )}
-        </>
+                  </span>
+                }
+                detail={t("rerank.settings.sends", { service })}
+              />
+            )}
+          </SettingsGroup>
+        </SettingsAdvanced>
       )}
 
       {editing && (
@@ -197,7 +199,7 @@ export function RerankSettingsSection() {
           onCancel={() => setEditing(false)}
         />
       )}
-    </section>
+    </SettingsSection>
   );
 }
 
@@ -206,14 +208,14 @@ function BuiltInModelState({ model }: { model: RerankingModelStatus }) {
   const t = useT();
   if (model.state === "not-downloaded") {
     return (
-      <p data-testid="rerank-model-state" className={`mt-1.5 ${rowTextClass}`}>
+      <p data-testid="rerank-model-state">
         {t("rerank.settings.notDownloaded", { total: megabytes(model.totalBytes) })}
       </p>
     );
   }
   if (model.state === "downloading") {
     return (
-      <p data-testid="rerank-model-state" className={`mt-1.5 ${rowTextClass}`}>
+      <p data-testid="rerank-model-state">
         {t("rerank.settings.downloading", {
           downloaded: megabytes(model.downloadedBytes),
           total: megabytes(model.totalBytes),
@@ -224,12 +226,7 @@ function BuiltInModelState({ model }: { model: RerankingModelStatus }) {
   if (model.state === "failed" && model.error) {
     const { kind, message } = model.error;
     return (
-      <p
-        role="alert"
-        data-testid="rerank-model-state"
-        className={`mt-1.5 ${errorTextClass}`}
-        title={message}
-      >
+      <p role="alert" data-testid="rerank-model-state" className={errorTextClass} title={message}>
         <ProblemMark />
         {kind === "load"
           ? t("rerank.settings.loadFailed")
@@ -331,90 +328,112 @@ function RerankForm({
     }
   };
 
+  const kindId = `${id}-kind`;
+  const keyId = `${id}-key`;
+  const modelFieldId = `${id}-model`;
+
   return (
-    <form data-testid="rerank-form" onSubmit={submit} className="flex flex-col gap-3">
-      <fieldset>
-        <legend className={`mb-1.5 ${fieldLabelClass}`}>{t("rerank.form.label")}</legend>
-        <div className={choiceListClass}>
-          {rerankProviderKinds.map((option) => (
-            <label key={option} className={compactChoiceRowClass}>
-              <input
-                type="radio"
-                name={`${id}-kind`}
-                value={option}
-                checked={kind === option}
-                disabled={localOnly && option !== "built-in"}
-                onChange={() => {
+    <form data-testid="rerank-form" onSubmit={submit} className="mt-4 flex flex-col gap-3">
+      <div>
+        <SettingsGroup>
+          <SettingsRow
+            label={t("rerank.form.label")}
+            htmlFor={kindId}
+            detail={
+              builtIn && (
+                <p data-testid="rerank-built-in-note">
+                  {t("rerank.form.builtInNote", {
+                    model: current.model.name,
+                    size: megabytes(current.model.totalBytes),
+                  })}
+                </p>
+              )
+            }
+            control={
+              <PopUpSelect
+                id={kindId}
+                value={kind}
+                onChange={(event) => {
+                  const option = rerankProviderKinds.find((each) => each === event.target.value);
+                  if (!option) return;
                   // A key typed for one provider is never sent to another.
                   if (option !== kind) key.clear();
                   setKind(option);
                   setTest(null);
                 }}
-                className={compactChoiceRadioClass}
+              >
+                {rerankProviderKinds.map((option) => (
+                  <option key={option} value={option} disabled={localOnly && option !== "built-in"}>
+                    {t(`rerank.kind.${option}`)}
+                  </option>
+                ))}
+              </PopUpSelect>
+            }
+          />
+          {!builtIn && (
+            <>
+              <SettingsRow
+                label={t("providers.form.apiKey")}
+                htmlFor={keyId}
+                control={
+                  <input
+                    id={keyId}
+                    type="password"
+                    value={apiKey}
+                    onChange={(event) => key.type(event.target.value)}
+                    autoComplete="off"
+                    spellCheck={false}
+                    aria-invalid={key.stray ? true : undefined}
+                    aria-describedby={key.stray ? `${id}-stray` : undefined}
+                    className={`${rowFieldClass} w-64`}
+                  />
+                }
+              >
+                {(key.stray || keySaved) && (
+                  <>
+                    {key.stray && <KeyCharacterLine id={`${id}-stray`} stray={key.stray} />}
+                    {keySaved && <p className={hintClass}>{t("providers.form.apiKeySaved")}</p>}
+                  </>
+                )}
+              </SettingsRow>
+              <SettingsRow
+                label={t("rerank.form.model")}
+                htmlFor={modelFieldId}
+                control={
+                  <input
+                    id={modelFieldId}
+                    value={model}
+                    onChange={(event) => setModel(event.target.value)}
+                    placeholder={DEFAULT_RERANK_MODELS[kind]}
+                    spellCheck={false}
+                    className={`${rowFieldClass} w-64`}
+                  />
+                }
               />
-              {t(`rerank.kind.${option}`)}
-            </label>
-          ))}
-        </div>
-        {localOnly && (
-          <p data-testid="rerank-local-only" className={hintClass}>
-            {t("rerank.settings.localOnly")}
-          </p>
-        )}
-      </fieldset>
-
-      {builtIn ? (
-        <p data-testid="rerank-built-in-note" className={hintClass}>
-          {t("rerank.form.builtInNote", {
-            model: current.model.name,
-            size: megabytes(current.model.totalBytes),
-          })}
-        </p>
-      ) : (
-        <>
-          <label className={fieldLabelClass}>
-            {t("providers.form.apiKey")}
-            <input
-              type="password"
-              value={apiKey}
-              onChange={(event) => key.type(event.target.value)}
-              autoComplete="off"
-              spellCheck={false}
-              aria-invalid={key.stray ? true : undefined}
-              aria-describedby={key.stray ? `${id}-stray` : undefined}
-              className={inputClass}
-            />
-            {key.stray && <KeyCharacterLine id={`${id}-stray`} stray={key.stray} />}
-            {keySaved && <span className={hintClass}>{t("providers.form.apiKeySaved")}</span>}
-          </label>
-
-          {secretStorage && !secretStorage.canSave && (
-            <SecretStorageNotice status={secretStorage} onAccept={() => void acceptPlainText()} />
+            </>
           )}
+        </SettingsGroup>
+        {(localOnly || !builtIn) && (
+          <SettingsHelp>
+            {localOnly && <p data-testid="rerank-local-only">{t("rerank.settings.localOnly")}</p>}
+            {!builtIn && (
+              <p data-testid="rerank-sends">
+                {t("rerank.settings.sends", { service: t(`rerank.kind.${kind}`) })}
+              </p>
+            )}
+          </SettingsHelp>
+        )}
+      </div>
 
-          <label className={fieldLabelClass}>
-            {t("rerank.form.model")}
-            <input
-              value={model}
-              onChange={(event) => setModel(event.target.value)}
-              placeholder={DEFAULT_RERANK_MODELS[kind]}
-              spellCheck={false}
-              className={inputClass}
-            />
-          </label>
-        </>
+      {!builtIn && secretStorage && !secretStorage.canSave && (
+        <SecretStorageNotice status={secretStorage} onAccept={() => void acceptPlainText()} />
       )}
 
-      {!builtIn && (
-        <p data-testid="rerank-sends" className={hintClass}>
-          {t("rerank.settings.sends", { service: t(`rerank.kind.${kind}`) })}
-        </p>
-      )}
       <div className="flex flex-wrap items-center gap-2">
         <button
           type="submit"
           disabled={!hasKey || keyBlocked || busy !== null}
-          className={primaryButtonClass}
+          className={buttonStyle("primary", "sm")}
         >
           {busy === "saving" ? t("providers.form.saving") : t("rerank.form.save")}
         </button>
@@ -423,12 +442,12 @@ function RerankForm({
             type="button"
             disabled={!hasKey || busy !== null}
             onClick={() => void run("testing")}
-            className={buttonClass}
+            className={buttonStyle("secondary", "sm")}
           >
             {busy === "testing" ? t("providers.form.testing") : t("providers.form.test")}
           </button>
         )}
-        <button type="button" onClick={onCancel} className={ghostButtonClass}>
+        <button type="button" onClick={onCancel} className={buttonStyle("ghost", "sm")}>
           {t("providers.settings.cancel")}
         </button>
       </div>

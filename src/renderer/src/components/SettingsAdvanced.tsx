@@ -11,7 +11,7 @@ export function SettingsAdvanced({ testId, children }: { testId: string; childre
     <details data-testid={testId} className="mt-3">
       <summary
         data-testid={`${testId}-toggle`}
-        className="cursor-default text-[13px] leading-5 font-semibold text-ink-secondary select-none hover:text-ink"
+        className="cursor-default px-4 text-[13px] leading-5 font-semibold text-ink-secondary select-none hover:text-ink"
       >
         {t("settings.advanced")}
       </summary>

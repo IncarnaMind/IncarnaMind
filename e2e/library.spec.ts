@@ -258,7 +258,7 @@ test("Organize proposes a Folder that Confirm files, keeps the User's correction
       await form.getByLabel("Model name", { exact: true }).fill("small-classifier");
     });
     // On by default; turned off here, so the Document waits for Organize.
-    const automatic = settings.getByRole("checkbox", {
+    const automatic = settings.getByRole("switch", {
       name: /^Tag and sort new Documents automatically/,
     });
     await expect(automatic).toBeChecked();
@@ -353,7 +353,7 @@ test("⌘Z takes Organize's Confirm back and ⇧⌘Z files them again in one ste
       await form.getByLabel("Model name", { exact: true }).fill("small-classifier");
     });
     await settings
-      .getByRole("checkbox", { name: /^Tag and sort new Documents automatically/ })
+      .getByRole("switch", { name: /^Tag and sort new Documents automatically/ })
       .uncheck();
     await closeSettings(window);
     const names = ["Research notes A", "Research notes B", "Research notes C"];
@@ -823,7 +823,7 @@ test("Auto routes text and scans with tags, reports failures, retries and preser
     settings = await taggingSettings(window, { chosen: true });
     const form = settings.getByTestId("tagging-other-form");
     await expect(form.getByLabel("Connection", { exact: true })).toHaveValue("auto");
-    const images = form.getByRole("checkbox", { name: /Up to 3 PDF page images/ });
+    const images = form.getByRole("switch", { name: /Up to 3 PDF page images/ });
     await chooseOtherModel(settings, async () => {
       await form.getByLabel("Connection", { exact: true }).selectOption("ollama");
       await form.getByLabel("Model name", { exact: true }).fill("clef-flash");
@@ -1249,7 +1249,7 @@ test("a Library whose automatic tagging and sorting went off for a cloud model s
     const tagging = window.getByTestId("tagging-settings");
     await expect(tagging).toBeVisible();
     await expect(
-      tagging.getByRole("checkbox", { name: /^Tag and sort new Documents automatically/ }),
+      tagging.getByRole("switch", { name: /^Tag and sort new Documents automatically/ }),
     ).not.toBeChecked();
     await closeSettings(window);
     await expect(window.getByTestId("library-automatic-off")).toHaveCount(0);

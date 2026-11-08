@@ -1,8 +1,13 @@
 import { join } from "node:path";
-import { expect, type Locator, type Page, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 import { paragraph, run, wordFile } from "../tests/helpers/word";
 import {
   askInAssistant,
+  boxBottom,
+  boxesOverlap,
+  boxOf,
+  boxRight,
+  changeOnScreen,
   createDataFolder,
   dismissChatSetup,
   enterContent,
@@ -27,57 +32,6 @@ import {
 const SHORT = "Tides rise twice a day.";
 const LONG =
   "The harbour office posts the times each week, and the boats leave on the morning tide when there is enough water over the bar to clear it, so the schedule moves with the moon rather than the clock.";
-
-interface Box {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-const right = (box: Box) => box.x + box.width;
-const bottom = (box: Box) => box.y + box.height;
-const overlaps = (a: Box, b: Box) =>
-  a.x < right(b) && b.x < right(a) && a.y < bottom(b) && b.y < bottom(a);
-
-async function boxOf(locator: Locator): Promise<Box> {
-  const box = await locator.boundingBox();
-  if (!box) throw new Error("The element isn't on screen.");
-  return box;
-}
-
-/** What a change shows, as one box over all of its lines, and the line after it when it has one. */
-async function onScreen(
-  editor: Locator,
-  insert: Locator,
-): Promise<{ change: Box; next: Box | null }> {
-  const id = await insert.getAttribute("data-proposal-id");
-  if (!id) throw new Error("The change has no id.");
-  return editor.evaluate((board, proposalId) => {
-    const parts = [...board.querySelectorAll(`[data-proposal-id="${proposalId}"]`)];
-    let change: Box | null = null;
-    for (const part of parts) {
-      const rect = part.getBoundingClientRect();
-      if (rect.width < 1 || rect.height < 1) continue;
-      const left: number = change ? Math.min(change.x, rect.x) : rect.x;
-      const top: number = change ? Math.min(change.y, rect.y) : rect.y;
-      const right: number = change ? Math.max(change.x + change.width, rect.right) : rect.right;
-      const bottom: number = change ? Math.max(change.y + change.height, rect.bottom) : rect.bottom;
-      change = { x: left, y: top, width: right - left, height: bottom - top };
-    }
-    if (!change) throw new Error("The change doesn't show.");
-    const last = parts.at(-1);
-    const block = last?.closest("p, h1, h2, h3, li, blockquote, pre");
-    const next = block?.nextElementSibling?.getBoundingClientRect();
-    return {
-      change,
-      next:
-        next && next.width > 0 && next.height > 0
-          ? { x: next.x, y: next.y, width: next.width, height: next.height }
-          : null,
-    };
-  }, id);
-}
 
 const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
 const screenshot = async (window: Page, name: string) => {
@@ -154,29 +108,29 @@ test("a change's card sits in the margin beside it, or at the page's foot, never
     await expect(card).toHaveAccessibleName(
       language === "en" ? "Change 1 of 2" : "第 1 处修订，共 2 处",
     );
-    const beside = await onScreen(editor, inserts.nth(0));
+    const beside = await changeOnScreen(editor, inserts.nth(0));
     const atMargin = await boxOf(card);
-    expect(atMargin.x).toBeGreaterThanOrEqual(right(beside.change));
-    expect(overlaps(atMargin, beside.change)).toBe(false);
-    if (beside.next) expect(overlaps(atMargin, beside.next)).toBe(false);
+    expect(atMargin.x).toBeGreaterThanOrEqual(boxRight(beside.change));
+    expect(boxesOverlap(atMargin, beside.change)).toBe(false);
+    if (beside.next) expect(boxesOverlap(atMargin, beside.next)).toBe(false);
     expect(atMargin.x).toBeGreaterThanOrEqual(page.x);
-    expect(right(atMargin)).toBeLessThanOrEqual(right(page) + 1);
-    expect(bottom(atMargin)).toBeLessThan(bottom(page) - 48);
+    expect(boxRight(atMargin)).toBeLessThanOrEqual(boxRight(page) + 1);
+    expect(boxBottom(atMargin)).toBeLessThan(boxBottom(page) - 48);
     await screenshot(window, `review-card-margin-${language}-${width}`);
 
     await inserts.nth(1).hover();
     await expect(card).toHaveAccessibleName(
       language === "en" ? "Change 2 of 2" : "第 2 处修订，共 2 处",
     );
-    const wide = await onScreen(editor, inserts.nth(1));
+    const wide = await changeOnScreen(editor, inserts.nth(1));
     const docked = await boxOf(card);
-    expect(overlaps(docked, wide.change)).toBe(false);
-    if (wide.next) expect(overlaps(docked, wide.next)).toBe(false);
-    expect(bottom(wide.change)).toBeLessThanOrEqual(docked.y);
+    expect(boxesOverlap(docked, wide.change)).toBe(false);
+    if (wide.next) expect(boxesOverlap(docked, wide.next)).toBe(false);
+    expect(boxBottom(wide.change)).toBeLessThanOrEqual(docked.y);
     expect(docked.x).toBeGreaterThanOrEqual(page.x);
-    expect(right(docked)).toBeLessThanOrEqual(right(page) + 1);
-    expect(bottom(docked)).toBeLessThanOrEqual(bottom(page) + 1);
-    expect(bottom(docked)).toBeGreaterThanOrEqual(bottom(page) - 48);
+    expect(boxRight(docked)).toBeLessThanOrEqual(boxRight(page) + 1);
+    expect(boxBottom(docked)).toBeLessThanOrEqual(boxBottom(page) + 1);
+    expect(boxBottom(docked)).toBeGreaterThanOrEqual(boxBottom(page) - 48);
     await screenshot(window, `review-card-dock-${language}-${width}`);
   }
 });
@@ -195,11 +149,11 @@ test("a docked card scrolls its change above it only while the cursor is in the 
     // The change at the page's foot: its card has nowhere to go but the foot, over it.
     await change.scrollIntoViewIfNeeded();
     const page = await boxOf(window.locator(".mind-tab-page:visible"));
-    const below = bottom(page) - 30 - bottom(await boxOf(change));
+    const below = boxBottom(page) - 30 - boxBottom(await boxOf(change));
     await window.mouse.move(page.x + page.width / 2, page.y + page.height / 2);
     await window.mouse.wheel(0, -below);
     await expect
-      .poll(async () => bottom(page) - bottom(await boxOf(change)))
+      .poll(async () => boxBottom(page) - boxBottom(await boxOf(change)))
       .toBeLessThanOrEqual(60);
 
     // Only pointed at, nothing scrolls under the pointer.
@@ -212,9 +166,11 @@ test("a docked card scrolls its change above it only while the cursor is in the 
     // Clicked, the cursor is in the change: the card docks and the change moves above it.
     // Its centre, which the card at the foot doesn't cover.
     await pointAndClick(window, change);
-    await expect.poll(async () => bottom(await boxOf(change)) <= (await boxOf(card)).y).toBe(true);
+    await expect
+      .poll(async () => boxBottom(await boxOf(change)) <= (await boxOf(card)).y)
+      .toBe(true);
     expect(await scrolled(window)).toBeGreaterThan(before);
-    expect(overlaps(await boxOf(card), await boxOf(change))).toBe(false);
+    expect(boxesOverlap(await boxOf(card), await boxOf(change))).toBe(false);
   } finally {
     await removeDataFolder(files);
   }
@@ -244,7 +200,7 @@ test("the card keeps its change while the pointer crosses another change to reac
     const card = window.getByTestId("change-bar");
     await wide.hover();
     await expect(card).toHaveAccessibleName("Change 1 of 2");
-    expect(bottom(between)).toBeLessThan((await boxOf(card)).y);
+    expect(boxBottom(between)).toBeLessThan((await boxOf(card)).y);
 
     // Its Accept, reached past the other change, applies the change the card opened on.
     await pointAndClick(window, card.getByTestId("change-accept"));

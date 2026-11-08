@@ -579,6 +579,25 @@
     }
   }
 
+  /*
+   * A Settings group (components/settings/): one rounded sheet of rows. A hairline runs between
+   * rows from the text edge (`--row-inset`, 16px unless a row has an icon before its words) to the
+   * group's edge, and none shows under the last.
+   */
+  .settings-row {
+    position: relative;
+  }
+  .settings-row + .settings-row::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    right: 0;
+    left: var(--row-inset, 16px);
+    height: 1px;
+    background: var(--color-rule);
+    pointer-events: none;
+  }
+
   :root:not([data-motion="on"]) :is(.pane-divider, .switch),
   :root:not([data-motion="on"]) .pane-divider::before {
     transition: none;
@@ -4928,9 +4947,13 @@
   }
   .change-bar-row {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 6px;
     min-width: 0;
+  }
+  /* A part joined to the one before it by a dot, as a `.meta-line` joins its parts (#684). */
+  .change-bar-dotted {
+    flex-shrink: 0;
   }
   /* Why the assistant made the change (#202), under the bar while the cursor is in it. */
   .change-bar-why {
@@ -4938,18 +4961,10 @@
     text-overflow: ellipsis;
     color: var(--color-ink-secondary);
   }
-  .change-bar-position {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
   .change-bar-drops {
     color: var(--color-warning);
   }
   .change-bar-author {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
     color: var(--color-ink-secondary);
   }
   /* An outside agent's sentences with no Citation (#352): quiet, as a chart's "1 with no Citation". */

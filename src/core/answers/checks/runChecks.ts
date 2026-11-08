@@ -170,9 +170,12 @@ export function earlyChecks(
   }
   const started = new Map<string, Early[]>();
   return {
-    /** `readNow` says what the check reads besides its request (the Library, the Note's record choices): it is taken only if that is unchanged. */
-    start(claim: QueuedClaim, readNow: () => string): void {
-      if (limit.free() === 0) return;
+    /**
+     * `readNow` says what the check reads besides its request (the Library, the Note's record
+     * choices): it is taken only if that is unchanged. False when no place was free to start it.
+     */
+    start(claim: QueuedClaim, readNow: () => string): boolean {
+      if (limit.free() === 0) return false;
       const stop = new AbortController();
       const request = checkRequestOf(claim, run, limit, AbortSignal.any([run.signal, stop.signal]));
       const key = requestKey(request);
@@ -188,6 +191,7 @@ export function earlyChecks(
         console.error(`A check started early for Note ${run.mindId} failed:`, error);
       });
       started.set(key, [...(started.get(key) ?? []), early]);
+      return true;
     },
     /** Stops at once the early checks of claims the run won't send as they were sent. */
     keep(queued: readonly QueuedClaim[]): void {
@@ -233,11 +237,12 @@ export async function runChecks(
     id: string,
     change: (check: ClaimCheckAttributes, blocks: Y.XmlFragment) => ClaimCheckAttributes,
   ) => {
-    if (signal.aborted) return;
+    if (signal.aborted) return false;
     const kept = options.content.edit(mindId, (blocks) =>
       updateCheck(blocks, id, (check) => change(check, blocks)),
     );
     if (kept) options.retainEvidence(mindId);
+    return kept;
   };
   const notChecked =
     (reason: ClaimCheckAttributes["reason"], detail: string | null = null) =>
@@ -261,7 +266,7 @@ export async function runChecks(
   let checked = 0;
   const atOnce = claimsAtOnce(prepared);
   const limit = run.slots ?? slots(atOnce);
-  const { stop } = await runItems(
+  const { stop, outcomeError } = await runItems(
     run.queued,
     async (claim) => {
       const result = await checkClaim(
@@ -278,9 +283,8 @@ export async function runChecks(
       onOutcome(claim, outcome) {
         if (outcome.status === "done") {
           const at = options.now().toISOString();
-          if (outcome.value.verdict !== "not-checked") checked++;
           recordJudged(options.recordAiUse, mindId, prepared, outcome.value, at);
-          write(claim.id, (each, blocks) =>
+          const landed = write(claim.id, (each, blocks) =>
             options.withResult(
               each,
               outcome.value,
@@ -291,6 +295,7 @@ export async function runChecks(
               claim.priorParts,
             ),
           );
+          if (landed && outcome.value.verdict !== "not-checked") checked++;
         } else if (outcome.status === "not-checked") {
           write(claim.id, notChecked(outcome.stop.reason));
         } else if (outcome.status === "failed") {
@@ -306,5 +311,9 @@ export async function runChecks(
       },
     },
   );
+  if (outcomeError !== null) {
+    console.error(`A mark for Note ${mindId} couldn't be written:`, outcomeError.error);
+    throw outcomeError.error;
+  }
   return { checked, stop };
 }

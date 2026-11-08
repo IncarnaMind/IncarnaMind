@@ -26,7 +26,8 @@ import { useAppStore } from "../../store";
 import { DetailsLine } from "../DetailsLine";
 import { ChevronDownLineIcon, ChevronRightLineIcon, CopyLineIcon } from "../lineIcons";
 import { ProblemMark } from "../ProblemLine";
-import { buttonStyle, rowButtonsClass, rowTextClass, rowTitleClass, ruledRowClass } from "../ui";
+import { SettingsRow } from "../settings/SettingsGroup";
+import { buttonStyle } from "../ui";
 
 const TARGET = ["copilot"] as const;
 
@@ -116,7 +117,7 @@ export function CopilotPlanRow() {
   const open = useCopilot((state) => state.open);
   const failure = useCopilot((state) => state.failure);
   const providerSaved = useCopilot((state) => state.providerSaved);
-  const row = useSettingsTarget<HTMLLIElement>(TARGET, offered !== null);
+  const row = useSettingsTarget<HTMLDivElement>(TARGET, offered !== null);
   const signOut = useRef<HTMLButtonElement>(null);
   const status = offered?.status;
   const signedIn = status?.account.state === "signed-in" && !status.signingIn;
@@ -133,15 +134,20 @@ export function CopilotPlanRow() {
   const { account } = status;
   const expanded = open || status.signingIn || failure !== null;
   return (
-    <li ref={row} data-testid="plans-copilot" className={ruledRowClass}>
-      <div className="flex min-w-0 flex-col gap-0.5">
-        <span className={`flex flex-wrap items-center gap-x-2 ${rowTitleClass}`}>
+    <SettingsRow
+      ref={row}
+      role="listitem"
+      data-testid="plans-copilot"
+      label={
+        <span className="flex flex-wrap items-center gap-x-2">
           {t("plans.copilot.title")}
           {copilotTagged(status) && <ExperimentalTag />}
         </span>
-        {account.state === "signed-in" ? (
+      }
+      detail={
+        account.state === "signed-in" ? (
           <>
-            <span data-testid="plans-copilot-account" className={rowTextClass}>
+            <p data-testid="plans-copilot-account">
               {account.profile === "own"
                 ? account.login
                   ? t("copilot.signedIn.own", { account: account.login })
@@ -152,66 +158,67 @@ export function CopilotPlanRow() {
                   ]
                     .filter(Boolean)
                     .join(" · ")}
-            </span>
-            {ready && <span className={rowTextClass}>{t("copilot.signedIn.usage")}</span>}
+            </p>
+            {ready && <p>{t("copilot.signedIn.usage")}</p>}
           </>
         ) : (
-          <span className={rowTextClass}>
+          <p>
             {t(
               account.state === "expired" ? "copilot.problem.signInExpired" : "plans.copilot.line",
             )}
-          </span>
-        )}
-      </div>
-      <div className={rowButtonsClass}>
-        {signedIn && !ready && !expanded && (
-          <button
-            type="button"
-            data-testid="plans-copilot-use"
-            onClick={() => void chooseCopilotPlan({ keepDefault: true })}
-            className={buttonStyle("primary", "sm")}
-          >
-            {t("copilot.use")}
-          </button>
-        )}
-        {signedIn ? (
-          <button
-            ref={signOut}
-            type="button"
-            data-testid="plans-copilot-sign-out"
-            onClick={() =>
-              void core
-                .signOutOfCopilot()
-                .then((next) => useCopilot.setState({ status: next }))
-                .catch((error: unknown) => useAppStore.getState().reportError(error))
-            }
-            className={buttonStyle("secondary", "sm")}
-          >
-            {t("copilot.signOut")}
-          </button>
-        ) : (
-          !expanded && (
-            <button
-              type="button"
-              data-testid="plans-copilot-sign-in"
-              onClick={openCopilotNotice}
-              className={buttonStyle("secondary", "sm")}
-            >
-              {t(
-                account.state === "expired"
-                  ? "signInRoute.wayBack.signInAgain"
-                  : "copilot.wayBack.signIn",
-              )}
-            </button>
-          )
-        )}
-      </div>
+          </p>
+        )
+      }
+      control={
+        signedIn || !expanded ? (
+          <>
+            {signedIn && !ready && !expanded && (
+              <button
+                type="button"
+                data-testid="plans-copilot-use"
+                onClick={() => void chooseCopilotPlan({ keepDefault: true })}
+                className={buttonStyle("primary", "sm")}
+              >
+                {t("copilot.use")}
+              </button>
+            )}
+            {signedIn ? (
+              <button
+                ref={signOut}
+                type="button"
+                data-testid="plans-copilot-sign-out"
+                onClick={() =>
+                  void core
+                    .signOutOfCopilot()
+                    .then((next) => useCopilot.setState({ status: next }))
+                    .catch((error: unknown) => useAppStore.getState().reportError(error))
+                }
+                className={buttonStyle("secondary", "sm")}
+              >
+                {t("copilot.signOut")}
+              </button>
+            ) : (
+              <button
+                type="button"
+                data-testid="plans-copilot-sign-in"
+                onClick={openCopilotNotice}
+                className={buttonStyle("secondary", "sm")}
+              >
+                {t(
+                  account.state === "expired"
+                    ? "signInRoute.wayBack.signInAgain"
+                    : "copilot.wayBack.signIn",
+                )}
+              </button>
+            )}
+          </>
+        ) : undefined
+      }
+    >
       {expanded && (
-        <div className="col-span-2 pt-1">
-          <SignInPanel place="settings" status={status} experimental={offered.experimental} />
-        </div>
+        <SignInPanel place="settings" status={status} experimental={offered.experimental} />
       )}
-    </li>
+    </SettingsRow>
   );
 }
 

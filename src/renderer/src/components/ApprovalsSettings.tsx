@@ -4,21 +4,15 @@ import { core } from "../core";
 import { useT } from "../i18n";
 import { skillTitle } from "../skills";
 import { useAppStore } from "../store";
-import {
-  buttonStyle,
-  pageIntroClass,
-  rowStatusClass,
-  rowTitleClass,
-  ruledListClass,
-  ruledRow,
-} from "./ui";
+import { SettingsGroup, SettingsHelp, SettingsRow } from "./settings/SettingsGroup";
+import { buttonStyle } from "./ui";
 
 /**
  * Settings → Privacy → Approvals: every policy that replaces a default, so the User
  * can tighten permissions later. Each Tool always allowed, each Tool set to
  * ask every time (even one its Connector says only reads), and (#41) each
  * Skill whose scripts always run; each can be revoked, back to the default.
- * Rows split by rules, with the policy on the right.
+ * One row each, with the policy at its end.
  */
 export function ApprovalsSettings() {
   const t = useT();
@@ -36,15 +30,12 @@ export function ApprovalsSettings() {
     });
 
   return (
-    <section data-testid="approvals-settings" className="flex flex-col gap-4">
-      <p className={pageIntroClass}>{t("approvals.settings.body")}</p>
-      {policies.length === 0 ? (
-        <p className={`${rowStatusClass} border-y border-rule py-3.5`}>
-          {t("approvals.settings.empty")}
-        </p>
-      ) : (
-        <ul className={ruledListClass}>
-          {policies.map((policy) => {
+    <div data-testid="approvals-settings">
+      <SettingsGroup role={policies.length === 0 ? undefined : "list"}>
+        {policies.length === 0 ? (
+          <SettingsRow label={t("approvals.settings.empty")} />
+        ) : (
+          policies.map((policy) => {
             const { subject } = policy;
             const name =
               subject.kind === "tool"
@@ -59,42 +50,46 @@ export function ApprovalsSettings() {
                     ? t("approvals.policy.off")
                     : t("approvals.policy.ask");
             return (
-              <li
+              <SettingsRow
                 key={policy.id}
+                role="listitem"
                 data-testid="approval-policy"
                 data-policy={policy.policy}
-                className={ruledRow("center")}
-              >
-                <span className={`min-w-0 truncate ${rowTitleClass}`} title={name}>
-                  {subject.kind === "tool" ? (
-                    <>
-                      {policy.ownerName}
-                      <span className="font-normal text-ink-meta"> · </span>
-                      <span className="font-mono text-[13px] font-medium">{subject.tool}</span>
-                    </>
-                  ) : (
-                    name
-                  )}
-                </span>
-                <span className="flex items-center gap-3">
-                  <span data-testid="approval-policy-value" className={rowStatusClass}>
-                    {value}
+                label={
+                  <span className="break-words" title={name}>
+                    {subject.kind === "tool" ? (
+                      <>
+                        {policy.ownerName}
+                        <span className="text-ink-meta"> · </span>
+                        <span className="font-mono text-[13px] font-medium">{subject.tool}</span>
+                      </>
+                    ) : (
+                      name
+                    )}
                   </span>
-                  <button
-                    type="button"
-                    data-testid="approval-policy-revoke"
-                    aria-label={t("approvals.settings.revokeLabel", { name })}
-                    onClick={() => void revoke(policy)}
-                    className={buttonStyle("secondary", "sm")}
-                  >
-                    {t("approvals.settings.revoke")}
-                  </button>
-                </span>
-              </li>
+                }
+                control={
+                  <>
+                    <span data-testid="approval-policy-value" className="text-ui text-ink-meta">
+                      {value}
+                    </span>
+                    <button
+                      type="button"
+                      data-testid="approval-policy-revoke"
+                      aria-label={t("approvals.settings.revokeLabel", { name })}
+                      onClick={() => void revoke(policy)}
+                      className={buttonStyle("secondary", "sm")}
+                    >
+                      {t("approvals.settings.revoke")}
+                    </button>
+                  </>
+                }
+              />
             );
-          })}
-        </ul>
-      )}
-    </section>
+          })
+        )}
+      </SettingsGroup>
+      <SettingsHelp>{t("approvals.settings.body")}</SettingsHelp>
+    </div>
   );
 }

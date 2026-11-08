@@ -88,6 +88,7 @@ import {
   type DocumentCheckPlan,
   type DocumentCheckProgress,
   type ExternalService,
+  type MindCheckEarly,
   type Money,
   type RewriteFromDocumentsResult,
   type RunEstimate,
@@ -321,6 +322,8 @@ export interface ChecksOptions
   capLeft(): Money | null;
   /** How far a whole read is, as it goes (#1554). */
   documentCheckProgress(event: DocumentCheckProgress): void;
+  /** A Check this Note run's sentences checked before it marks them. */
+  checkingEarly(event: MindCheckEarly): void;
   engine: AnswerEngine;
   retention: Pick<VersionRetention, "retain" | "retainedBy">;
   /** Edit with AI's new text for a passage not in a Mind, for what the assistant writes (#1111). */
