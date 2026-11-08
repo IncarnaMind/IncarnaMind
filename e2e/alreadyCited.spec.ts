@@ -292,7 +292,11 @@ test("Check on a note whose sentences cite their Passages: the ones that already
     await expect(card.getByTestId("claim-add-citation")).toHaveClass(
       /citation-card-action--primary/,
     );
-    await expectReadable(window, card.getByTestId("claim-add-citation"), "add-as-citation-hover-en");
+    await expectReadable(
+      window,
+      card.getByTestId("claim-add-citation"),
+      "add-as-citation-hover-en",
+    );
     if (index === 3) await screenshot(window, "add-as-citation-en");
     await pointAndClick(window, card.getByTestId("claim-add-citation"));
     await expect(lines.nth(index).getByTestId("citation")).toHaveCount(2);
