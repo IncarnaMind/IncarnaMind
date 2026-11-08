@@ -120,10 +120,11 @@ test.each([
     expect(named).toContain(
       "Write the User, who reads these notes, as {{me}}, exactly so in every language, even when the call gave their name",
     );
-    expect(named).toContain("Their possessive (my) is {{me}}'s, and {{me}}的 in Chinese.");
+    expect(named).toContain("Where they said my, write {{me}}'s ({{me}}的 in Chinese).");
     expect(named).toContain(
-      "Never write I, me, my, 我 or a name for them, but keep we or our (我们) where they spoke for their side.",
+      "Where they spoke for their side, keep we or our (我们) as said, never {{me}}'s.",
     );
+    expect(named).toContain("Never write I, me, my, 我 or a name for them.");
     expect(named).toContain("Me is always {{me}}.");
     expect(named).toContain("in Simplified Chinese Them is 对方");
     expect(named).not.toContain("in the first person");

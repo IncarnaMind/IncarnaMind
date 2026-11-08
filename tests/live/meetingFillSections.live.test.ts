@@ -1737,24 +1737,34 @@ function namedCall(call: Call, name: string): Call {
   return { ...call, facts };
 }
 
+/** What a model wrote in a reply, whole: its raw record holds its reasoning in streamed pieces. */
+const writtenIn = (raw: string): string[] => [
+  raw,
+  [...raw.matchAll(/\{"type":"reasoning(?:-delta)?","text":("(?:[^"\\]|\\.)*")\}/g)]
+    .map((match) => String(JSON.parse(match[1] ?? '""')))
+    .join(""),
+];
+
 /**
- * Of the requests a call made, how many held the User's `name`, and how many times it was outside
- * words the call itself said or the model wrote back (`said`): the app's own words never carry it.
+ * Of the requests a call made, how many held the User's `name`, and where it was outside words the
+ * call itself said or the model wrote (`said`): the app's own words never carry it.
  */
 function nameInRequests(prompts: readonly string[], name: string, said: readonly string[]) {
   const sources = said.flatMap((text) => [text, JSON.stringify(text).slice(1, -1)]);
-  let outside = 0;
+  const outside: string[] = [];
   for (const prompt of prompts) {
     for (let at = prompt.indexOf(name); at >= 0; at = prompt.indexOf(name, at + name.length)) {
       const before = prompt.slice(Math.max(0, at - 12), at + name.length);
       const after = prompt.slice(at, at + name.length + 12);
-      if (!sources.some((source) => source.includes(before) || source.includes(after))) outside++;
+      if (!sources.some((source) => source.includes(before) || source.includes(after)))
+        outside.push(prompt.slice(Math.max(0, at - 60), at + name.length + 60));
     }
   }
   return {
     requests: prompts.length,
     holding: prompts.filter((prompt) => prompt.includes(name)).length,
-    outside,
+    outside: outside.length,
+    outsideAt: outside.slice(0, 5),
   };
 }
 
@@ -3130,15 +3140,27 @@ test("meeting scores tell the app's own use of the name from the call's", () => 
   const fill = JSON.stringify([
     { role: "user", content: `[0:02 Me] ${said}\nWrite the User as {{me}}.` },
   ]);
-  expect(nameInRequests([fill], "Imogen", [said])).toEqual({ requests: 1, holding: 1, outside: 0 });
+  expect(nameInRequests([fill], "Imogen", [said])).toMatchObject({
+    requests: 1,
+    holding: 1,
+    outside: 0,
+  });
   const told = JSON.stringify([
     { role: "system", content: "The User set their name as Imogen Hart." },
   ]);
-  expect(nameInRequests([fill, told], "Imogen", [said])).toEqual({
+  expect(nameInRequests([fill, told], "Imogen", [said])).toMatchObject({
     requests: 2,
     holding: 2,
     outside: 1,
+    outsideAt: [expect.stringContaining("set their name as Imogen Hart")],
   });
+  const thought = ["Imo", "gen is the User, so she sends the bill."]
+    .map((text) => JSON.stringify({ type: "reasoning-delta", text }))
+    .join("");
+  const reasoned = JSON.stringify([
+    { role: "assistant", content: "Imogen is the User, so she sends the bill." },
+  ]);
+  expect(nameInRequests([reasoned], "Imogen", writtenIn(thought))).toMatchObject({ outside: 0 });
   const unit = (text: string, ai: boolean): Unit => ({
     text,
     ai,
@@ -3372,7 +3394,7 @@ describe.skipIf(LOADER_PREFLIGHT || (!KEY && !LOCAL_MODEL))(
               settingsName: USER_NAME,
               ...nameInRequests(ledger.prompts, USER_NAME, [
                 ...call.turns.map((turn) => turn.text),
-                ...usage.replies.map((reply) => reply.raw),
+                ...usage.replies.flatMap((reply) => writtenIn(reply.raw)),
               ]),
               rawTokens: rawTokens(units),
             }

@@ -111,7 +111,7 @@ const everyoneElse =
 
 const userRule = (named: boolean) =>
   named
-    ? `- Write the User, who reads these notes, as ${USER_TOKEN}, exactly so in every language, even when the call gave their name: the app puts the name they set in its place. Their possessive (my) is ${USER_TOKEN}'s, and ${USER_TOKEN}的 in Chinese. Never write I, me, my, 我 or a name for them, but keep we or our (我们) where they spoke for their side. ${everyoneElse}`
+    ? `- Write the User, who reads these notes, as ${USER_TOKEN}, exactly so in every language, even when the call gave their name: the app puts the name they set in its place. Where they said my, write ${USER_TOKEN}'s (${USER_TOKEN}的 in Chinese). Where they spoke for their side, keep we or our (我们) as said, never ${USER_TOKEN}'s. Never write I, me, my, 我 or a name for them. ${everyoneElse}`
     : `- Write the User, who reads these notes, in the first person (I, my; 我 in Chinese), even when the call gave their name, and as we or our (我们) where they spoke for their side. ${everyoneElse}`;
 
 /**
