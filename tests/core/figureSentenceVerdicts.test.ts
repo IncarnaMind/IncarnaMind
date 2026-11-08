@@ -1086,10 +1086,10 @@ test("a re-asked reply that reads the figure another way decides it, whatever th
   ]);
 });
 
-test("a run whose replies read alike keeps its Supported, and asks nothing (#2591)", async () => {
+test("a run whose reply corrects its verdict is Not checked, and asks nothing (#2591, #2817)", async () => {
   const checked = await checkSentence("The salary is 61,500 a year.");
-  expect(checked.check).toMatchObject({ state: "supported" });
-  expect(checked.check?.figures?.map((figure) => figure.state)).toEqual(["supported"]);
+  expect(checked.check).toMatchObject({ state: "not-checked" });
+  expect(checked.check?.figures?.map((figure) => figure.state)).toEqual(["not-checked"]);
   expect(checked.asked).toHaveLength(0);
 });
 
