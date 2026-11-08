@@ -51,6 +51,7 @@ export function JobsSection({
           job="chatModel"
           label={t("ai.jobs.answers")}
           line={t("ai.jobs.answers.line")}
+          tip={t("ai.jobs.answers.tip")}
           groups={groups}
           providers={providers}
           roles={roles}
@@ -96,6 +97,7 @@ function ModelRow({
   job,
   label,
   line,
+  tip,
   groups,
   providers,
   roles,
@@ -105,6 +107,7 @@ function ModelRow({
   job: Role;
   label: string;
   line: string;
+  tip?: string;
   groups: readonly ChatModelGroup[];
   providers: readonly ChatProvider[];
   roles: ModelRoles | null;
@@ -124,6 +127,8 @@ function ModelRow({
       htmlFor={id}
       detail={line}
       detailId={`${id}-line`}
+      tip={tip}
+      tipId={`${id}-tip`}
       control={
         <RoleSelect
           id={id}
@@ -131,7 +136,7 @@ function ModelRow({
           groups={groups}
           providers={providers}
           roles={roles}
-          describedBy={`${id}-line`}
+          describedBy={tip === undefined ? `${id}-line` : `${id}-line ${id}-tip`}
         />
       }
     >

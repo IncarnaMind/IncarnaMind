@@ -619,7 +619,7 @@ test("⌘J focuses the composer from the note; Shift+Enter breaks the Question's
   await app.close();
 });
 
-test("the model chip chooses the model for one Mind, which remembers it after a restart, and a new Mind starts on the last one chosen", async () => {
+test("the model chip chooses the model for one Mind, which remembers it after a restart, and a new Mind starts on the Answers default", async () => {
   // Listed a second late, so the menu opens before its models are there, as on a slow machine
   // or with a provider far away: the current one still takes the focus once it is listed.
   const ollama = await ollamaListing(["fake-model", "other-model"], { delayMs: 1000 });
@@ -651,7 +651,9 @@ test("the model chip chooses the model for one Mind, which remembers it after a 
     await expect(options.first()).toHaveAttribute("aria-checked", "true");
     await expect(options.first()).toBeFocused();
     await expect(menu).not.toContainText("For this note’s Questions.");
-    await expect(menu).toContainText("Default for new notes: fake-model · Change in Settings");
+    await expect(menu.getByTestId("composer-model-default")).toHaveText(
+      "New notes use fake-model, from Settings › AI.",
+    );
     // What stays on this computer says so with its icon, in ink-secondary: green is for checks.
     const stays = menu.getByTestId("on-this-computer").first();
     await expect(stays).toHaveCSS("color", "rgb(74, 79, 87)");
@@ -673,20 +675,21 @@ test("the model chip chooses the model for one Mind, which remembers it after a 
     await pointAndClick(window, window.getByTestId("plus-menu"));
     await pointAndClick(window, window.getByTestId("plus-new-mind"));
     await nameMind(window, "Default model");
-    await expect(chip).toHaveText("other-model");
+    await expect(chip).toHaveText("fake-model");
     await expect(menu).toBeHidden();
     await chip.focus();
     await window.keyboard.press("Enter");
     await expect(menu).toBeVisible();
-    await expect(options.nth(1)).toBeFocused();
-    await window.keyboard.press("ArrowUp");
     await expect(options.first()).toBeFocused();
+    await window.keyboard.press("ArrowDown");
+    await expect(options.nth(1)).toBeFocused();
     await window.keyboard.press("Escape");
     await expect(menu).toBeHidden();
     await expect(chip).toBeFocused();
-    await expect(chip).toHaveText("other-model");
+    await expect(chip).toHaveText("fake-model");
     await window.keyboard.press("Enter");
-    await expect(options.nth(1)).toBeFocused();
+    await expect(options.first()).toBeFocused();
+    await window.keyboard.press("ArrowDown");
     await window.keyboard.press("ArrowUp");
     await window.keyboard.press("Enter");
     await expect(menu).toBeHidden();
@@ -713,8 +716,10 @@ test("the model chip chooses the model for one Mind, which remembers it after a 
     await expect(window.getByTestId("composer-input")).toHaveAttribute("placeholder", "追问…");
     await pointAndClick(window, window.getByTestId("composer-model"));
     const menuZh = window.getByTestId("composer-model-menu");
-    await expect(menuZh.getByRole("group", { name: "在本机运行" })).toBeVisible();
-    await expect(menuZh).toContainText("新笔记的默认模型：fake-model · 在设置中更改");
+    await expect(menuZh.getByRole("group", { name: "在这台电脑上" })).toBeVisible();
+    await expect(menuZh.getByTestId("composer-model-default")).toHaveText(
+      "新笔记使用 fake-model，在“设置 › AI”中设置。",
+    );
     await screenshot(window, "composer-model-menu-zh");
     await window.keyboard.press("Escape");
     await screenshot(window, "composer-zh");

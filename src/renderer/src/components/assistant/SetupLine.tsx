@@ -10,7 +10,7 @@ import { CloseLineIcon } from "../lineIcons";
 
 /**
  * What is still to set up after a model works, in one line just above the composer (#2310): the
- * steps left by name, Set up to open the next one, and ✕ to keep them in Settings › Models. The
+ * steps left by name, Set up to open the next one, and ✕ to keep them in Settings › AI. The
  * composer and ⌘J keep their place throughout.
  */
 export function SetupLine() {

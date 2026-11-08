@@ -163,7 +163,7 @@ export function finishSetupStep(step: SetupStep, choice: string): void {
   } else useModelSetup.setState({ done: nextDone, step: next });
 }
 
-/** The line's ✕: what is left waits in Settings › Models, and the composer takes the cursor (#2310). */
+/** The line's ✕: what is left waits in Settings › AI, and the composer takes the cursor (#2310). */
 export function skipSetupSteps(): void {
   handComposerTheCursor();
   useModelSetup.setState({ wanted: false, step: null });

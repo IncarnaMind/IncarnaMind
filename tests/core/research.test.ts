@@ -24,6 +24,7 @@ import {
 import type { ChatModelSpec } from "../../src/core/providers/models";
 import { CostCapError } from "../../src/core/providers/providerErrors";
 import { openDatabase } from "../../src/core/storage";
+import { mindModelOf } from "../../src/shared/mindModel";
 import { cutTitle } from "../../src/shared/naming";
 import { aiUseOfAccepted, pendingProposals, resolveProposals } from "../../src/shared/proposals";
 import { shownPassages } from "../helpers/citations";
@@ -360,6 +361,26 @@ describe("Research", { timeout: 30_000 }, () => {
     if (!second.started) throw new Error(`Research didn't start: ${second.reason}`);
     expect(second.task.mindId).toBe(made?.id);
     await core.stopTask(second.task.id);
+  });
+
+  test("with no Mind in focus, the Mind it makes goes on with the conversation's model, unless that is the Answers default (#2836)", async () => {
+    const { core, folder, provider } = await setUp(researcher([]));
+    const sonnet = { providerId: provider.id, modelId: "claude-sonnet-5-5" };
+    const startOn = async (model: { providerId: string; modelId: string } | null) => {
+      const task = await started(
+        core,
+        startInput(null, folder.id, {
+          sources: { web: false, library: true },
+          writeInto: { newMind: true },
+          model,
+        }),
+      );
+      await core.stopTask(task.id);
+      return mindModelOf((await connectToMind(core, task.mindId ?? "")).doc);
+    };
+
+    expect(await startOn(sonnet)).toEqual(sonnet);
+    expect(await startOn((await core.getSettings()).user.chatModel)).toBeNull();
   });
 
   test("with no Mind in focus it makes its own Mind, and once its pages are filed that Mind is in their Folder", async () => {

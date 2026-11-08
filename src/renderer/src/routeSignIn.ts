@@ -1,7 +1,7 @@
 /**
  * "Sign in again" for a route signed in with the User's own account (a Claude account, a Copilot
  * plan), from a problem line: the route's own sign-in, which resolves true once signed in so the
- * line can try again. A route whose sign-in isn't built here opens Settings › Models at its row.
+ * line can try again. A route whose sign-in isn't built here opens Settings › AI at its row.
  */
 import { useEffect } from "react";
 import { create } from "zustand";

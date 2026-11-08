@@ -22,8 +22,8 @@ export interface TranscriptionSetUpRows {
 }
 
 /**
- * Where meeting audio is transcribed, one setting wherever it is shown (Settings › Models,
- * Settings › Meetings, the first-run list). Unchosen it reads as this computer, and choosing that
+ * Where meeting audio is transcribed, one setting wherever it is shown (Settings › AI,
+ * the first-run list). Unchosen it reads as this computer, and choosing that
  * stores it: a choice made on purpose is not the same as none (the first meeting asks only for none).
  * A cloud service is offered once there is a key for it (#141); choosing it is the consent to send
  * it meeting audio. Where it is a setting, `setUp` ends the list with the services still to set up.

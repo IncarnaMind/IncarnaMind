@@ -256,7 +256,7 @@ const appCommands: readonly Command[] = [
     group: "main",
     reversible: true,
     when: claudeSignInOffered,
-    // The words come before any request, so it opens the Claude row in Settings › Models.
+    // The words come before any request, so it opens the Claude row in Settings › AI.
     run: () => useAppStore.getState().openSettings("ai", "claude-account"),
   },
   {

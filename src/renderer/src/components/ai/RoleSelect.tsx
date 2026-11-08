@@ -7,6 +7,7 @@ import type {
 } from "../../../../core/api";
 import { core } from "../../core";
 import { useLanguage, useT } from "../../i18n";
+import { setAnswersModel } from "../../modelInUse";
 import { useModelNames } from "../../modelNames";
 import { useAppStore } from "../../store";
 import { providerName } from "../providers/ProviderPage";
@@ -128,17 +129,12 @@ export function RoleSelect({
     const choice = choiceOf(next);
     if (job === "chatModel" && !choice) return;
     setValue(next);
-    void updateSettings(
-      job === "chatModel"
-        ? // Choosing Answers sets the jobs that follow it back to following it.
-          {
-            user: { chatModel: choice, quickTasksModel: null, imageModel: null },
-            device: { lastChatModel: choice },
-          }
-        : {
-            user: job === "quickTasksModel" ? { quickTasksModel: choice } : { imageModel: choice },
-          },
-    );
+    if (job === "chatModel" && choice) void setAnswersModel(choice);
+    else {
+      void updateSettings({
+        user: job === "quickTasksModel" ? { quickTasksModel: choice } : { imageModel: choice },
+      });
+    }
   };
 
   return (

@@ -49,7 +49,7 @@ export function TranscriptionRouteLine({ id, read }: { id?: string; read: Servic
 }
 
 /**
- * Where a job list offers the Meetings choice (first run, Settings › Models): before a cloud
+ * Where a job list offers the Meetings choice (first run, Settings › AI): before a cloud
  * service is chosen, what choosing one sends, so the choice is the consent (ADR-0022); after,
  * where the audio goes. Nothing while no service has a key, as nothing else is offered.
  */

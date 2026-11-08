@@ -100,7 +100,7 @@ async function servicesNow(): Promise<TranscriptionServiceStatus[]> {
 }
 
 /**
- * Where a route's key is changed, in Settings › Models: a key of its own on its row in Your
+ * Where a route's key is changed, in Settings › AI: a key of its own on its row in Your
  * providers, opened to Change key, or the Meeting transcription picker once it is gone; a
  * provider's key in Your providers.
  */
