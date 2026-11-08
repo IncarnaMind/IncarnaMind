@@ -33,7 +33,7 @@ import { CHECK_RUN, fakeAbsence, fakePresence, fakeSentenceBatch } from "./check
 import { fakeClaims, findsClaims } from "./claims";
 import { fakeConfirm, fakeRewrite } from "./confirm";
 import { editParts, fakeEdit } from "./edit";
-import { withNotesFirst } from "./meetingHelp";
+import { helpModelParts } from "./meetingHelp";
 import { asksForPlan, fakePlan } from "./plan";
 import {
   type GenerateOptions,
@@ -340,9 +340,7 @@ export const createFakeChatModel: ChatModelFactory = (spec) => {
         ? searchParts(search.name, lastQuestion(prompt))
         : edit
           ? editParts(edit.text)
-          : spec.modelId.endsWith("-notes-first")
-            ? withNotesFirst(prompt, replyParts(prompt, tools ?? []))
-            : replyParts(prompt, tools ?? []);
+          : helpModelParts(spec.modelId, prompt, replyParts(prompt, tools ?? []));
       // A check of a sentence that says "slowly" reports slowly too, as a Question asked slowly
       // does, so a spec can open its card while the check still runs.
       const checked = /<sentence>\n([\s\S]*?)\n<\/sentence>/.exec(lastUserText(prompt))?.[1] ?? "";
