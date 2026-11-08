@@ -2888,6 +2888,7 @@ export const zhCN = {
   "settings.language.zh-CN": "简体中文",
   "settings.authorName": "你的名字",
   "settings.authorName.tip": "Word 文件以修订显示你的修改时，使用这个名字。",
+  "settings.authorName.meetings": "输入名字后，会议笔记会用这个名字称呼你。",
   "settings.motion": "动效",
   "settings.motion.tip": "“减弱”只用短暂淡入淡出；“关”则立即变化。",
   "settings.motion.on": "开",
