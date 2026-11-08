@@ -5,7 +5,7 @@ import { useT } from "../i18n";
 import { useCitedAreaFailure } from "./citedArea";
 import type { LoadedFile } from "./useDocumentFile";
 import { ViewerHeader } from "./ViewerHeader";
-import { FileGone, ViewerMessage } from "./ViewerMessage";
+import { FileGone, OpeningDocument, ViewerMessage } from "./ViewerMessage";
 
 /**
  * A view while its file isn't ready to show: loading, gone (the quote is
@@ -38,7 +38,7 @@ export function FileStates<T>({
       return (
         <>
           <ViewerHeader />
-          <ViewerMessage>{t("viewer.loading")}</ViewerMessage>
+          <OpeningDocument retry={reload} />
         </>
       );
     case "missing":

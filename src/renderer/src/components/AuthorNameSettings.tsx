@@ -10,8 +10,9 @@ const TARGET = ["author-name"] as const;
 /**
  * Settings → General → Your name (#107): the name the User's edits go under
  * when a Word file shows them as tracked changes, the name the computer knows
- * them by until they type another. Edited in place: Enter or leaving the field
- * saves, Esc puts it back, and an empty field goes back to the computer's.
+ * them by until they type another; once typed, their own items in meeting
+ * notes too (#2306). Edited in place: Enter or leaving the field saves, Esc
+ * puts it back, and an empty field goes back to the computer's.
  */
 export function AuthorNameSettings() {
   const t = useT();
@@ -51,6 +52,8 @@ export function AuthorNameSettings() {
           htmlFor={id}
           tip={t("settings.authorName.tip")}
           tipId={`${id}-note`}
+          detail={t("settings.authorName.meetings")}
+          detailId={`${id}-meetings`}
           control={
             <input
               ref={field}
@@ -59,7 +62,7 @@ export function AuthorNameSettings() {
               data-testid="author-name"
               value={draft}
               maxLength={200}
-              aria-describedby={`${id}-note`}
+              aria-describedby={`${id}-meetings ${id}-note`}
               onChange={(event) => setDraft(event.target.value)}
               onBlur={commit}
               onKeyDown={onKeyDown}

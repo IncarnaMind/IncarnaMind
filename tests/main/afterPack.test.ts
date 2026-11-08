@@ -59,7 +59,11 @@ describe("the packager's step for the Windows speech package", () => {
     await lay("x64");
     const packager = { appInfo: { productFilename: "IncarnaMind" } };
     for (const electronPlatformName of ["darwin", "linux"]) {
-      await afterPack({ electronPlatformName, appOutDir: app, packager }, async () => true);
+      await afterPack(
+        { electronPlatformName, appOutDir: app, packager },
+        async () => true,
+        async () => true,
+      );
     }
     expect(await readFile(join(speechPackage("x64"), "onnxruntime.dll"), "utf8")).toBe(
       "speech x64 1.28.2",
@@ -91,41 +95,50 @@ describe("the packager's step for the Windows speech package", () => {
   });
 });
 
-describe("the packager's step for the Mac calendar helper (#190)", () => {
+describe("the packager's step for the Mac calendar helper (#190) and call watcher (#208)", () => {
   const packager = { appInfo: { productFilename: "IncarnaMind" } };
 
-  it("builds it into the macOS app's resources, beside app.asar, before the app is signed", async () => {
+  it("builds both into the macOS app's resources, beside app.asar, before the app is signed", async () => {
     const built: { output: string; platform: string }[] = [];
-    await afterPack(
-      { electronPlatformName: "darwin", appOutDir: app, packager },
-      async (output, platform) => {
-        built.push({ output, platform });
-        return true;
-      },
-    );
+    const record = async (output: string, platform: string) => {
+      built.push({ output, platform });
+      return true;
+    };
+    await afterPack({ electronPlatformName: "darwin", appOutDir: app, packager }, record, record);
+    const resources = join(app, "IncarnaMind.app", "Contents", "Resources");
     expect(built).toEqual([
-      {
-        output: join(app, "IncarnaMind.app", "Contents", "Resources", "calendar-helper"),
-        platform: "darwin",
-      },
+      { output: join(resources, "calendar-helper"), platform: "darwin" },
+      { output: join(resources, "call-watcher"), platform: "darwin" },
     ]);
     expect(macHelperPath(app, "IncarnaMind")).toBe(built[0]?.output);
   });
 
-  it("stops the build when the helper couldn't be built, rather than ship an app without it", async () => {
+  it("stops the build when a helper couldn't be built, rather than ship an app without it", async () => {
     await expect(
-      afterPack({ electronPlatformName: "darwin", appOutDir: app, packager }, async () => false),
+      afterPack(
+        { electronPlatformName: "darwin", appOutDir: app, packager },
+        async () => false,
+        async () => true,
+      ),
     ).rejects.toThrow(/calendar helper wasn't built/);
+    await expect(
+      afterPack(
+        { electronPlatformName: "darwin", appOutDir: app, packager },
+        async () => true,
+        async () => false,
+      ),
+    ).rejects.toThrow(/call watcher wasn't built/);
   });
 
   it("builds nothing for Windows or Linux", async () => {
     await lay("x64");
     let builds = 0;
+    const count = async () => {
+      builds += 1;
+      return true;
+    };
     for (const electronPlatformName of ["win32", "linux"]) {
-      await afterPack({ electronPlatformName, appOutDir: app, packager }, async () => {
-        builds += 1;
-        return true;
-      });
+      await afterPack({ electronPlatformName, appOutDir: app, packager }, count, count);
     }
     expect(builds).toBe(0);
   });

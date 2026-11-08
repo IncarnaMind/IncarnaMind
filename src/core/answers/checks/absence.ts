@@ -40,8 +40,11 @@ interface AbsenceContext {
   fits: boolean;
   notChecked(reason: ClaimCheckFailure, detail?: string | null): ClaimCheckResult;
   failedCheck(error: ProviderError): ClaimCheckResult;
-  /** Whether two looks at the quote a window's judgement gives find the absent thing there. */
-  lookAt(evidence: Citation, absent: string | null): Promise<Presence>;
+  /**
+   * Whether two looks at the quote a window's judgement gives find the absent thing there; with
+   * `first`, only the first look.
+   */
+  lookAt(evidence: Citation, absent: string | null, first?: boolean): Promise<Presence>;
 }
 
 export type Presence =
@@ -213,6 +216,7 @@ export async function checkAbsence({
     });
     reply = text;
   } catch (error) {
+    if (signal.aborted) return notChecked("stopped");
     return failedCheck(classifyProviderError(error));
   }
   const value = await replyJson(reply);
@@ -232,10 +236,30 @@ export async function checkAbsence({
     versions: read,
     excluded,
   });
-  const absent = typeof value.absent === "string" ? value.absent : null;
+  const absent =
+    typeof value.absent === "string" && value.absent.trim() !== "" ? value.absent : null;
+  if (absent === null) return notChecked("malformed");
   let absence: ClaimJudgment;
-  if (value.absence === "holds") absence = judgment("supported", null);
-  else if (value.absence === "contained") {
+  if (value.absence === "holds") {
+    // Live reads offered a quote beside "holds" (#1443). It holds only when each quote it offers is
+    // found and a look finds it doesn't state the thing: one that does says the read is wrong
+    // (#2816).
+    const given = value.citations ?? [];
+    for (const entry of Array.isArray(given) ? given : [given]) {
+      if (isRecord(entry) && String(entry.quote ?? "").trim() === "") continue;
+      const [offered] = parseRecords([entry]);
+      if (!offered?.quote.trim()) return notChecked("malformed");
+      if (!session.tools.cite([offered]).startsWith("Recorded")) return notChecked("no-evidence");
+      session.check();
+      const quoted = session.finalCitation(offered.marker);
+      if (quoted?.check !== "found") return notChecked("no-evidence");
+      const presence = await lookAt(quoted, absent, true);
+      if ("failed" in presence) return failedCheck(presence.failed);
+      if (presence.kind === "stopped") return notChecked("stopped");
+      if (presence.kind !== "not") return notChecked("malformed");
+    }
+    absence = judgment("supported", null);
+  } else if (value.absence === "contained") {
     const citations = parseRecords(value.citations ?? []).filter((each) => each.marker === 1);
     if (citations.length === 0) return notChecked("no-evidence");
     if (!session.tools.cite(citations).startsWith("Recorded")) return notChecked("no-evidence");

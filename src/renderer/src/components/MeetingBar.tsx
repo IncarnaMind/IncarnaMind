@@ -16,6 +16,7 @@ import {
   checkTranscriptionKey,
   ROUTE_LABELS,
 } from "../transcriptionServices";
+import { CallEndingLine } from "./CallEndingLine";
 import { CaptureDetailsToggle } from "./CaptureDetails";
 import {
   BookmarkLineIcon,
@@ -60,6 +61,7 @@ export function MeetingBar({
     >
       <MeetingControls meeting={meeting} />
       <MeetingLines meeting={meeting} />
+      <CallEndingLine meeting={meeting} />
       <TranscriptLines meeting={meeting} over />
       {children}
     </section>

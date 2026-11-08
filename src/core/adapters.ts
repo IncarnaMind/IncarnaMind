@@ -19,10 +19,12 @@ import type { AgentLauncher } from "./agents";
 import type { AnswerEngine } from "./answers/engine";
 import type {
   AudioSource,
+  CallWatchProblem,
   CopilotProfileId,
   DecisionHost,
   EngineSwitchReason,
   ExternalService,
+  OpenAtLogin,
   SandboxLevel,
   SandboxProblem,
   SecretProtection,
@@ -716,6 +718,36 @@ export interface AudioCapture {
 }
 
 /**
+ * Tells which call apps are using the microphone (#208), as the system says, and nothing else:
+ * no audio, no window titles, no browser tabs. The desktop app asks Core Audio on macOS, the
+ * per-app microphone record Windows keeps, and PulseAudio's recording streams on Linux.
+ */
+export interface CallWatcher {
+  /**
+   * Starts watching: `apps` gets the ids of the call apps using the microphone now
+   * (src/shared/meetingApps.ts), then again each time that changes; `problem` once this computer
+   * can't tell. A watcher that stopped says nothing until it runs again: no apps is never what it
+   * means. `exact` is false where the system can't say when one app lets go of the microphone
+   * (macOS 12 and 13), so an app missing then may still be in its call. Returns what stops watching.
+   */
+  watch(listener: {
+    apps(ids: readonly string[], exact: boolean): void;
+    problem(problem: CallWatchProblem): void;
+  }): () => void;
+}
+
+/**
+ * Whether the system opens IncarnaMind when the User logs in (#189): macOS's and Windows's login
+ * items, a Linux desktop's autostart entry.
+ */
+export interface LoginItem {
+  get(): OpenAtLogin;
+  set(on: boolean): OpenAtLogin;
+  /** Opens the system's settings where the User approves IncarnaMind opening at login. */
+  openSettings(): Promise<void>;
+}
+
+/**
  * Draws a cited page with the Document viewer's view for its kind, off
  * screen, so it can be saved (#133): every kind but PDF, whose pages the core
  * draws itself. Rejects when the page can't be drawn, and when `signal` aborts.
@@ -1300,6 +1332,10 @@ export interface CoreAdapters {
    * at its Mind. Absent: Tasks notify nobody.
    */
   notifications?: SystemNotifications;
+  /** Which call apps use the microphone, for the offers to take notes (#208). Absent: no offers. */
+  callWatcher?: CallWatcher;
+  /** Opening at login (#189). Absent: Settings doesn't offer it. */
+  loginItem?: LoginItem;
   /** Kinds of Task the host adds to the core's own (`Core.startTask`): a test build's scripted one. */
   taskKinds?: readonly TaskKind[];
   /**
@@ -1334,6 +1370,11 @@ export interface CoreAdapters {
    * (#2773), instead of after them; unset, they do. Only tests and the evaluation pass one.
    */
   notesBeforeSpeakers?: () => boolean | undefined;
+  /**
+   * Whether call help's own form may be judged the model's working, as before #2778; unset, it
+   * isn't. Only tests and the evaluation pass one.
+   */
+  helpFormJudged?: () => boolean | undefined;
   /**
    * Tunes and watches the search Tool for Answers' searches (reranking depth,
    * Passages handed, a callback with each search's timings). Only the

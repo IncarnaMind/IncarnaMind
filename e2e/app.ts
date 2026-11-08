@@ -1237,6 +1237,9 @@ export async function openTranscriptBeside(
   await expect(window.getByTestId("viewer-transcript")).toBeVisible();
 }
 
+/** The turn of a Transcript a line is in: its Speaker, its time and its Add to note. */
+export const turnOf = (line: Locator): Locator => line.locator("xpath=ancestor::*[@data-turn][1]");
+
 /** Starts recording from the start block; the first time, through the one-time notice. */
 export async function startRecording(window: Page, start: Locator, { notice = false } = {}) {
   const record = start.getByTestId("meeting-start-record");
@@ -2072,6 +2075,17 @@ export async function setSilentWaitMs(window: Page, ms: number): Promise<void> {
       (globalThis as { incarnamindTestHooks?: TestHooks }).incarnamindTestHooks?.setSilentWaitMs(
         value,
       ),
+    ms,
+  );
+}
+
+/** How long a Document may take to open before the viewer says it couldn't (15 seconds), so a test needn't wait that long. */
+export async function setViewerOpenLimitMs(window: Page, ms: number): Promise<void> {
+  await window.evaluate(
+    (value) =>
+      (
+        globalThis as { incarnamindTestHooks?: TestHooks }
+      ).incarnamindTestHooks?.setViewerOpenLimitMs(value),
     ms,
   );
 }

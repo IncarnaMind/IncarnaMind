@@ -10,6 +10,7 @@
  */
 import type { CloudLoss } from "../../adapters";
 import { cleanSpeech } from "../speechText";
+import { endsAfter, endsBefore } from "./lineEnds";
 import { closedLoss, createLiveStream, joinWords, type LiveLink, pcmBytes } from "./live";
 import type { CloudStreamHandle, CloudStreamOptions } from "./stream";
 
@@ -18,8 +19,6 @@ export { SPEECHMATICS_MODEL } from "./protocol";
 export const SPEECHMATICS_URL = "wss://global.rt.speechmatics.com/v2";
 /** Mandarin and English, as said in the same meeting. */
 const LANGUAGE_PACK = "cmn_en";
-/** A line this long ends even without a pause, so its final text never waits long. */
-const LONGEST_LINE_MS = 20_000;
 
 /**
  * An error by its type or close code: the key, the account's usage quota (the nearest the API
@@ -117,16 +116,12 @@ export function createSpeechmaticsStream(options: CloudStreamOptions): CloudStre
     if (line && line.speaker !== null && word.speaker !== null && word.speaker !== line.speaker) {
       close();
     }
-    if (
-      line &&
-      line.words.length > 0 &&
-      word.end - (line.words[0] as Word).start > LONGEST_LINE_MS
-    ) {
-      close();
-    }
+    const first = line?.words[0];
+    if (first && endsBefore(word.end - first.start, true)) close();
     line ??= { id: nextId++, words: [], speaker: null };
     line.words.push(word);
     line.speaker ??= word.speaker;
+    if (endsAfter(textOf(line.words), word.end - (line.words[0] as Word).start, true)) close();
   }
 
   function partial(pending: readonly Word[]): void {

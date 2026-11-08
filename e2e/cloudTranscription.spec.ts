@@ -60,23 +60,19 @@ test("with a Soniox key, the first recording's sheet offers it under Other ways�
   await useOutputLocation(window, sources);
   await acceptPlainTextKeys(window);
 
-  // Settings › Meetings: a Soniox key of its own, checked before it is kept.
+  // A Soniox key of its own, kept in Your providers (e2e/transcriptionKeys.spec.ts sets one up
+  // from the pickers). Offered, not chosen: this computer stays until the User picks, and the
+  // line stays this computer's.
+  await window.evaluate(async () => {
+    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    await bridge.setTranscriptionKey({ route: "soniox", apiKey: "soniox-test-key" });
+  });
   const settings = await openSettings(window, "meetings");
-  const row = settings.getByTestId("transcription-key-soniox");
-  await row.getByTestId("transcription-key-add").click();
-  const input = row.getByTestId("transcription-key-input");
-  await expect(input).toBeFocused();
-  await input.fill("soniox-wrong-key");
-  await input.press("Enter");
-  await expect(row.getByTestId("transcription-key-problem")).toContainText(
-    "Soniox didn’t accept this key.",
-  );
-  await input.fill("soniox-test-key");
-  await row.getByTestId("transcription-key-save").click();
-  await expect(row.getByTestId("transcription-key-saved")).toHaveText("Saved");
-  // Offered, not chosen: this computer stays until the User picks, and the line stays this computer's.
   const route = settings.getByTestId("meetings-route");
-  await expect(route.locator("option:not([hidden])")).toHaveText(["On this computer", "Soniox"]);
+  await expect(route.locator(":scope > option:not([hidden])")).toHaveText([
+    "On this computer",
+    "Soniox",
+  ]);
   await expect(route).toHaveValue("local");
   await expect(settings.getByTestId("meetings-route-line")).toHaveText("Private and free");
   await shot(window, "settings-meetings-key-en");
@@ -271,7 +267,10 @@ test("Settings › Meetings' line describes the route chosen: this computer's li
     settings = await openSettings(window, "meetings");
     route = settings.getByTestId("meetings-route");
     line = settings.getByTestId("meetings-route-line");
-    await expect(route.locator("option:not([hidden])")).toHaveText(["On this computer", "Soniox"]);
+    await expect(route.locator(":scope > option:not([hidden])")).toHaveText([
+      "On this computer",
+      "Soniox",
+    ]);
     await expect(route).toHaveValue("local");
     await expect(line).toHaveText("Private and free");
     await shot(window, "route-line-key-saved-en-1600");

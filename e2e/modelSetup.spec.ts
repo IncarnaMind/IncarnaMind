@@ -1092,7 +1092,7 @@ const SORTING_MODELS = [
 
 for (const language of ["en", "zh-CN"] as const) {
   for (const { modelId, model } of SORTING_MODELS) {
-    test(`a sorting choice saved on ${model} says where it goes once the list is read when another is the chat default, and says nothing when its provider is gone (${language})`, async () => {
+    test(`a sorting choice saved on ${model} says where it goes once the list is read when another is the chat default, and goes back to Automatic when its provider is gone (${language})`, async () => {
       const { app, window } = await launchApp(dataDir, { fakeChat: true });
       try {
         await setWindowSize(app, window, 1280, 800);
@@ -1139,18 +1139,20 @@ for (const language of ["en", "zh-CN"] as const) {
         expect(words).toContain(sends);
         expect(words).not.toContain(translate(language, "setup.sorting.chatHere", { model }));
 
-        // Anthropic is removed: the choice names a model that is gone. Nothing is said about where
-        // it goes, and it can't be used, once the list shows it isn't there.
+        // Anthropic is removed: sorting goes back to Automatic (#2693), and the step names
+        // Automatic's pick, never the model that is gone.
         await removeAnthropic(window);
+        await expect
+          .poll(async () => (await bridge(window).library()).classifier.kind)
+          .toBe("automatic");
         await pointAndClick(window, card.getByTestId("setup-step-transcription-open"));
         await pointAndClick(window, card.getByTestId("setup-step-sorting-open"));
-        await expect(
-          card
-            .getByTestId("models-sorting")
-            .locator("option", { hasText: translate(language, "models.sorting.chat") }),
-        ).toHaveCount(1);
-        await expect(card.getByTestId("setup-sorting-use")).toBeDisabled();
-        expect(await sortingWords(card)).toBe("");
+        await expect
+          .poll(() => sortingWords(card))
+          .toContain(translate(language, "setup.sorting.sends", { service: "OpenAI" }));
+        const after = await sortingWords(card);
+        expect(after).not.toContain(model);
+        expect(after).not.toContain(sends);
       } finally {
         await app.close();
       }
@@ -1192,10 +1194,20 @@ for (const language of ["en", "zh-CN"] as const) {
         );
         expect(words).not.toContain(translate(language, "setup.sorting.chatHere", { model }));
 
-        // Anthropic is removed with Settings open: the list is read again, and the line says
-        // nothing about a choice whose model is gone.
+        // Anthropic is removed with Settings open: sorting goes back to Automatic (#2693), and the
+        // line names Automatic's pick, never the model that is gone.
         await removeAnthropic(window);
-        await expect.poll(() => sortingWords(settings)).toBe("");
+        await expect
+          .poll(() => sortingWords(settings))
+          .toContain(translate(language, "setup.sorting.sendsWhenOn", { service: "OpenAI" }));
+        const after = await sortingWords(settings);
+        expect(after).not.toContain(model);
+        expect(after).not.toContain("Anthropic");
+        const classifier = await window.evaluate(async () => {
+          const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+          return (await core.getLibrary()).settings.classifier;
+        });
+        expect(classifier).toEqual({ kind: "automatic" });
       } finally {
         await app.close();
       }
@@ -1490,6 +1502,15 @@ async function settingsOnMeetings(window: Page): Promise<Locator> {
   return showSettingsPage(window, "meetings");
 }
 
+/** Opens Settings on Models with the keyboard, where Your providers keeps the transcription keys. */
+async function settingsOnModels(window: Page): Promise<Locator> {
+  await window.keyboard.press("ControlOrMeta+,");
+  return showSettingsPage(window, "models");
+}
+
+const sonioxRow = (settings: Locator) =>
+  settings.locator('[data-testid="transcription-key-row"][data-host="soniox"]');
+
 async function closeSettingsDialog(window: Page): Promise<void> {
   await window.getByTestId("settings-close").click();
   await expect(window.getByTestId("settings")).toBeHidden();
@@ -1504,7 +1525,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await setLanguage(window, language);
       // Settings › Meetings has read the list, and is closed with it kept.
       const first = await settingsOnMeetings(window);
-      await expect(first.getByTestId("transcription-key-soniox")).toBeVisible();
+      await expect(first.getByTestId("meetings-route-line")).toBeVisible();
       await closeSettingsDialog(window);
 
       // The model works, and the setup card's own read of the list is held.
@@ -1519,14 +1540,15 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(card.getByTestId("setup-services-reading")).toBeVisible();
       await expect(card.getByTestId("setup-step-transcription")).toHaveCount(0);
 
-      // Meetings is opened again, its reads held too, and a key the service refuses is tried.
+      // Meetings is opened again, its reads held too, and a key the service refuses is tried
+      // from its picker's fold.
       const settings = await settingsOnMeetings(window);
-      const row = settings.getByTestId("transcription-key-soniox");
-      await row.getByTestId("transcription-key-add").click();
-      const input = row.getByTestId("transcription-key-input");
+      await settings.getByTestId("meetings-route").selectOption("set-up:soniox");
+      const form = settings.getByTestId("transcription-key-form-soniox");
+      const input = form.getByTestId("transcription-key-input");
       await input.fill("soniox-wrong-key");
       await input.press("Enter");
-      await expect(row.getByTestId("transcription-key-problem")).toBeVisible();
+      await expect(form.getByTestId("transcription-key-problem")).toBeVisible();
       await expect.poll(() => controlReads(app, SERVICES, {})).toBeGreaterThanOrEqual(2);
 
       // Every read ends: the failed save changed nothing, so the steps open.
@@ -1547,7 +1569,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await setLanguage(window, language);
       // Settings › Meetings has read the list, and is closed with it kept.
       const first = await settingsOnMeetings(window);
-      await expect(first.getByTestId("transcription-key-soniox")).toBeVisible();
+      await expect(first.getByTestId("meetings-route-line")).toBeVisible();
       await closeSettingsDialog(window);
 
       // Meetings and Models are opened again: their two refresh reads are held, and Settings is
@@ -1602,46 +1624,52 @@ for (const language of ["en", "zh-CN"] as const) {
         await core.updateSettings({ device: { transcriptionRoute: "soniox" } });
       }, OWN_KEY);
       await dismissChatSetup(window);
+      // The picker's own routes, without the services its foot sets up.
       const offered = (scope: Locator) =>
         scope
           .getByTestId("meetings-route")
-          .evaluate((select) => [...(select as HTMLSelectElement).options].map((o) => o.value));
+          .evaluate((select) =>
+            [...select.children].flatMap((each) =>
+              each instanceof HTMLOptionElement ? [each.value] : [],
+            ),
+          );
 
       // Every read of the list fails as Settings opens: Meetings says so once, and offers only the
-      // route that is saved, with no key rows.
+      // route that is saved.
       await controlReads(app, SERVICES, { failing: true });
       const dialog = await settingsOnMeetings(window);
       const meetings = dialog.getByTestId("meetings-settings");
       const problem = meetings.getByTestId("meetings-route-problem");
       await expect(problem).toContainText(translate(language, "setup.services.failed"));
-      await expect(meetings.getByTestId("transcription-key-soniox")).toHaveCount(0);
       await expect.poll(() => offered(meetings)).toEqual(["local", "soniox"]);
-      // Settings › Models reads for itself when it is first shown, and fails as well.
-      const models = (await showSettingsPage(window, "models")).getByTestId("model-defaults");
+      // Settings › Models reads once for its page when it is first shown, and fails as well: its
+      // picker offers the saved route, and Your providers lists no transcription key.
+      await showSettingsPage(window, "models");
+      const models = dialog.getByTestId("model-defaults");
       const modelsProblem = models.getByTestId("meetings-route-problem");
       await expect(modelsProblem).toBeVisible();
       await expect.poll(() => offered(models)).toEqual(["local", "soniox"]);
+      await expect(sonioxRow(dialog)).toHaveCount(0);
       await showSettingsPage(window, "meetings");
 
-      // The core is back, and the one Try again brings back all of it.
+      // The core is back, and the one Try again brings back all of Meetings.
       await controlReads(app, SERVICES, { failing: false });
       await pointAndClick(window, meetings.getByTestId("meetings-route-problem-retry"));
       await expect(problem).toHaveCount(0);
       await expect(meetings.getByTestId("meetings-route-line")).toContainText(
         translate(language, "meetings.route.cloudLine", { provider: "Soniox" }),
       );
-      await expect(
-        meetings.getByTestId("transcription-key-soniox").getByTestId("transcription-key-saved"),
-      ).toBeVisible();
       await expect.poll(() => offered(meetings)).toEqual(["local", "openai", "soniox"]);
 
-      // Settings › Models read for itself, so its failure stands until it is tried again.
+      // Settings › Models read for itself, so its failure stands until it is tried again; its
+      // Try again brings back the picker and the key row together.
       await showSettingsPage(window, "models");
       await expect(modelsProblem).toBeVisible();
       await expect.poll(() => offered(models)).toEqual(["local", "soniox"]);
       await pointAndClick(window, models.getByTestId("meetings-route-problem-retry"));
       await expect(modelsProblem).toHaveCount(0);
       await expect.poll(() => offered(models)).toEqual(["local", "openai", "soniox"]);
+      await expect(sonioxRow(dialog)).toBeVisible();
     } finally {
       await app.close();
     }
@@ -1653,25 +1681,31 @@ for (const language of ["en", "zh-CN"] as const) {
       await setWindowSize(app, window, 1280, 800);
       await acceptPlainTextKeys(window);
       await setLanguage(window, language);
-      const first = await settingsOnMeetings(window);
-      const row = first.getByTestId("transcription-key-soniox");
-      await row.getByTestId("transcription-key-add").click();
-      await row.getByTestId("transcription-key-input").fill(OWN_KEY);
+      const first = await settingsOnModels(window);
+      await first
+        .getByTestId("model-default-row-transcription")
+        .getByTestId("meetings-route")
+        .selectOption("set-up:soniox");
+      const form = first.getByTestId("transcription-key-form-soniox");
+      await form.getByTestId("transcription-key-input").fill(OWN_KEY);
 
-      // Save is pressed and held before the core has it; Meetings is closed and opened again, and
-      // its newer reads say there is no key.
+      // Use this is pressed and held before the core has the key; Models is closed and opened
+      // again, and its newer reads say there is no key.
       await controlReads(app, "core:setTranscriptionKey", { hold: 1 });
-      await row.getByTestId("transcription-key-save").click();
+      await form.getByTestId("transcription-key-save").click();
       await expect.poll(() => controlReads(app, "core:setTranscriptionKey", {})).toBe(1);
       await closeSettingsDialog(window);
-      const again = await settingsOnMeetings(window);
-      const reopened = again.getByTestId("transcription-key-soniox");
-      await expect(reopened.getByTestId("transcription-key-add")).toBeVisible();
-      await expect(reopened.getByTestId("transcription-key-saved")).toHaveCount(0);
+      const again = await settingsOnModels(window);
+      await expect(again.getByTestId("your-providers")).toBeVisible();
+      await expect(sonioxRow(again)).toHaveCount(0);
 
-      // The core keeps the key: the row says so, though the reads that came back are newer.
+      // The core keeps the key: Your providers lists it, though the reads that came back are
+      // newer. The form went with Settings, so nothing was chosen.
       await controlReads(app, "core:setTranscriptionKey", { settle: "resolve" });
-      await expect(reopened.getByTestId("transcription-key-saved")).toBeVisible();
+      await expect(sonioxRow(again)).toBeVisible();
+      await expect(
+        again.getByTestId("model-default-row-transcription").getByTestId("meetings-route"),
+      ).toHaveValue("local");
     } finally {
       await app.close();
     }
@@ -1687,24 +1721,21 @@ for (const language of ["en", "zh-CN"] as const) {
         const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
         await core.setTranscriptionKey({ route: "soniox", apiKey });
       }, OWN_KEY);
-      const first = await settingsOnMeetings(window);
-      const row = first.getByTestId("transcription-key-soniox");
-      await expect(row.getByTestId("transcription-key-saved")).toBeVisible();
+      const first = await settingsOnModels(window);
+      await expect(sonioxRow(first)).toBeVisible();
 
-      // Remove is pressed and held before the core has it; Meetings is closed and opened again,
-      // and its newer reads still have the key.
+      // Remove key is pressed and held before the core has it; Models is closed and opened
+      // again, and its newer reads still have the key.
       await controlReads(app, "core:removeTranscriptionKey", { hold: 1 });
-      await row.getByTestId("transcription-key-remove").click();
+      await sonioxRow(first).getByTestId("transcription-key-remove").click();
       await expect.poll(() => controlReads(app, "core:removeTranscriptionKey", {})).toBe(1);
       await closeSettingsDialog(window);
-      const again = await settingsOnMeetings(window);
-      const reopened = again.getByTestId("transcription-key-soniox");
-      await expect(reopened.getByTestId("transcription-key-saved")).toBeVisible();
+      const again = await settingsOnModels(window);
+      await expect(sonioxRow(again)).toBeVisible();
 
-      // The core forgets the key: the row says so.
+      // The core forgets the key: its row goes.
       await controlReads(app, "core:removeTranscriptionKey", { settle: "resolve" });
-      await expect(reopened.getByTestId("transcription-key-saved")).toHaveCount(0);
-      await expect(reopened.getByTestId("transcription-key-add")).toBeVisible();
+      await expect(sonioxRow(again)).toHaveCount(0);
     } finally {
       await app.close();
     }
@@ -1722,26 +1753,22 @@ for (const language of ["en", "zh-CN"] as const) {
         const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
         await core.setTranscriptionKey({ route: "soniox", apiKey });
       }, OWN_KEY);
-      const first = await settingsOnMeetings(window);
-      await expect(
-        first.getByTestId("transcription-key-soniox").getByTestId("transcription-key-saved"),
-      ).toBeVisible();
+      const first = await settingsOnModels(window);
+      await expect(sonioxRow(first)).toBeVisible();
       await closeSettingsDialog(window);
 
-      // Meetings is opened again: the core answers its reads with the key, and they are held.
+      // Models is opened again: the core answers its reads with the key, and they are held.
       await controlReads(app, SERVICES, { hold: 50, after: true });
-      const again = await settingsOnMeetings(window);
-      const row = again.getByTestId("transcription-key-soniox");
+      const again = await settingsOnModels(window);
+      const row = sonioxRow(again);
       await expect.poll(() => controlReads(app, SERVICES, {})).toBeGreaterThanOrEqual(1);
       await row.getByTestId("transcription-key-remove").click();
-      await expect(row.getByTestId("transcription-key-add")).toBeVisible();
-      await expect(row.getByTestId("transcription-key-saved")).toHaveCount(0);
+      await expect(row).toHaveCount(0);
 
       // The held answers, older than the removal, arrive: nothing changes.
       await controlReads(app, SERVICES, { settle: "resolveAll" });
       await paints(window);
-      await expect(row.getByTestId("transcription-key-saved")).toHaveCount(0);
-      await expect(row.getByTestId("transcription-key-add")).toBeVisible();
+      await expect(row).toHaveCount(0);
     } finally {
       await app.close();
     }
@@ -1858,13 +1885,19 @@ for (const language of ["en", "zh-CN"] as const) {
             );
           }
 
-          // Its provider is removed: the core can't say, so nothing is said and it can't be used.
+          // Its provider is removed: sorting goes back to Automatic (#2693), and the step names
+          // Automatic's pick, never the model that is gone.
           if (chatDefault === "another") {
             await removeOllama(window);
+            await expect
+              .poll(async () => (await bridge(window).library()).classifier.kind)
+              .toBe("automatic");
             await pointAndClick(window, card.getByTestId("setup-step-transcription-open"));
             await pointAndClick(window, card.getByTestId("setup-step-sorting-open"));
-            await expect(card.getByTestId("setup-sorting-use")).toBeDisabled();
-            expect(await sortingWords(card)).toBe("");
+            await expect
+              .poll(() => sortingWords(card))
+              .toContain(translate(language, "setup.sorting.sends", { service: "OpenAI" }));
+            expect(await sortingWords(card)).not.toContain(shown);
           }
         } finally {
           await app.close();
