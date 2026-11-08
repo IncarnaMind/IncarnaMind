@@ -258,26 +258,46 @@ export function observeCheckUnread(doc: Y.Doc, listener: () => void): () => void
 
 /**
  * What could change the files a Search scope couldn't read: each Document that failed, has no text
- * or was read in part, and each Linked folder's count of files in a format not read. A Document
- * that is ready changes none of it, so an import doesn't make every Answer shown ask again at each
- * new Document (#2772).
+ * or was read in part, each Linked folder's count of files in a format not read, and how many
+ * Documents the Linked folders holding such files have. A Folder of the Library names those files
+ * from the folders on disk its Documents are in, so a Document added to or taken from such a Linked
+ * folder can change them; one added anywhere else can't, so an import doesn't make every Answer
+ * shown ask again at each new Document (#2772).
  */
 export function unreadAskKey(
-  documents: readonly Pick<Document, "id" | "status" | "failure" | "fileStatus" | "unreadParts">[],
+  documents: readonly Pick<
+    Document,
+    | "id"
+    | "status"
+    | "failure"
+    | "fileStatus"
+    | "unreadParts"
+    | "unreadPartsUnknown"
+    | "linkedFolderId"
+  >[],
   linkedFolders: readonly Pick<LinkedFolder, "id" | "unsupportedFiles">[],
 ): string {
+  const holdingUnread = new Set(
+    linkedFolders.filter((each) => each.unsupportedFiles > 0).map((each) => each.id),
+  );
   return [
     ...documents
       .filter(
         (each) =>
-          each.status === "failed" || each.status === "no-text" || each.unreadParts !== null,
+          each.status === "failed" ||
+          each.status === "no-text" ||
+          each.unreadParts !== null ||
+          each.unreadPartsUnknown,
       )
       .map(
         (each) =>
           `${each.id}:${each.status}:${each.failure?.reason ?? ""}:${each.fileStatus}:${
-            each.unreadParts ? JSON.stringify(each.unreadParts) : ""
+            each.unreadParts ? JSON.stringify(each.unreadParts) : each.unreadPartsUnknown ? "?" : ""
           }`,
       ),
     ...linkedFolders.map((each) => `${each.id}:${each.unsupportedFiles}`),
+    documents.filter(
+      (each) => each.linkedFolderId !== null && holdingUnread.has(each.linkedFolderId),
+    ).length,
   ].join("|");
 }
