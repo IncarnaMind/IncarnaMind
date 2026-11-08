@@ -927,15 +927,14 @@ export function createChat(options: {
 
     /**
      * Soft-deletes the provider and deletes its key. The quick-tasks and image models it held
-     * go back to Automatic, and the model last chosen on it is forgotten; the default model it
-     * held moves to another provider's, when one is left. Deleting one that doesn't exist does nothing.
+     * go back to Automatic; the default model it held moves to another provider's, when one is
+     * left. Deleting one that doesn't exist does nothing.
      */
     async delete(id: unknown): Promise<void> {
       if (typeof id !== "string") throw new InvalidInputError("A provider id must be text.");
       if (!rowById(id)) return;
       const at = now();
-      const { user, device } = settings.get();
-      const { chatModel, quickTasksModel, imageModel } = user;
+      const { chatModel, quickTasksModel, imageModel } = settings.get().user;
       db.transaction(() => {
         db.run("UPDATE chat_providers SET deleted_at = ?, updated_at = ? WHERE id = ?", [
           at,
@@ -947,10 +946,7 @@ export function createChat(options: {
           ...(quickTasksModel?.providerId === id && { quickTasksModel: null }),
           ...(imageModel?.providerId === id && { imageModel: null }),
         };
-        const lastPick = device.lastChatModel?.providerId === id ? { lastChatModel: null } : {};
-        if (Object.keys(held).length > 0 || Object.keys(lastPick).length > 0) {
-          settings.update({ user: held, device: lastPick });
-        }
+        if (Object.keys(held).length > 0) settings.update({ user: held });
       });
       await secrets.delete(keyName(id));
       if (chatModel?.providerId !== id) return;
@@ -967,9 +963,8 @@ export function createChat(options: {
 
     /** The model a request in a Mind whose own pick is `own` is asked with (see `modelInUse`). */
     modelInUse(own: ChatModelChoice | null): ChatModelChoice | null {
-      const { device, user } = settings.get();
       return modelInUse(
-        { own, last: device.lastChatModel, fallback: user.chatModel },
+        { own, fallback: settings.get().user.chatModel },
         (id) => rowById(id) !== undefined,
       );
     },
@@ -1071,6 +1066,26 @@ export function createChat(options: {
         "quickTasks",
         answers === undefined ? settings.get().user.chatModel : answers,
       );
+    },
+
+    /**
+     * The fastest model call help can answer on under Answers asked with `answers` (the default
+     * model when left out), #2526: the quick-tasks model of the Answers model's own provider, the
+     * User's where they set one there, else the catalog's. It is the same service, so nothing goes
+     * anywhere the User hasn't chosen. A model on this computer, or in Ollama anywhere, keeps call
+     * help, as a second one would push it out of memory. The Answers model itself where its
+     * provider has no quick model; null with no Answers model.
+     */
+    fastestHelpModel(answers?: ChatModelChoice | null): ChatModelChoice | null {
+      const base = answers === undefined ? settings.get().user.chatModel : answers;
+      const described = base && describeModel(base);
+      if (!base || !described || described.service === null || described.kind === "ollama") {
+        return base;
+      }
+      const own = settings.get().user.quickTasksModel;
+      if (own?.providerId === base.providerId) return own;
+      const role = catalogRoleModel(described, "quickTasks");
+      return role ? { providerId: base.providerId, modelId: role } : base;
     },
 
     /**

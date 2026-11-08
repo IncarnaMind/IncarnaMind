@@ -135,7 +135,7 @@ const QUESTIONS: Record<
   recheck: {
     reply: lines(readRecheck),
     right:
-      "Verdict: unsupported\nScope: none, same\nTopic: found\nRoles: the Tenant / the Landlord, differs\nTime: none / none, same\nThe lease has the Landlord pay. Evidence: [1]",
+      "Verdict: unsupported\nScope: none, same\nTopic: found\nRoles: the Tenant / the Landlord, differs\nTime: none / none, same\nDuty: pays / pays, same\nCondition: none / none, same\nThe lease has the Landlord pay. Evidence: [1]",
     read: expect.objectContaining({ verdict: "unsupported", roles: "differs", time: "same" }),
     unreadable:
       "Verdict: unsupported\nScope: none, same\nTopic: found\nRoles: the Tenant / the Landlord, differs\nThe lease has the Landlord pay. Evidence: [1]",

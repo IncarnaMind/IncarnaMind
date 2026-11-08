@@ -3,7 +3,7 @@ import { periodCounts, statedFigure } from "../../src/core/answers/checks/calcul
 import { readClaimParts } from "../../src/core/answers/checks/claims";
 import { readEvidence, readVerdict } from "../../src/core/answers/checks/prompt";
 import { wholeNumberWords } from "../../src/shared/numberWords";
-import { listedSentences, sentenceOf } from "../helpers/checks";
+import { listedSentences, SAME_DETAIL, sentenceOf } from "../helpers/checks";
 import { setUpWithDocuments, shownPassages } from "../helpers/citations";
 import {
   comparesAQuote,
@@ -30,6 +30,8 @@ type Outcome = {
   repair?: Outcome["calculation"];
   /** An empty calculate list sent beside the cite, as Claude Haiku 5.5 sends one. */
   emptyCalculate?: boolean;
+  /** `reply` is sent as written; otherwise one with no Duty line gets the same Duty and Condition. */
+  asWritten?: true;
   /** The fields-only second reply of a check that disagreed with itself. */
   again?: string;
   /** What a judgement of the sentence beside a quote says, by the quote; `judgement` when absent. */
@@ -124,10 +126,11 @@ async function check(
           ],
         };
       }
+      const text =
+        outcome.reply ??
+        `Verdict: supported\nAbsence: no\nScope: none, same\nTopic: found\nRoles: ${sentenceOf(call)} / ${outcome.quotes.join(" ")}, same\nThe Documents establish this.\nEvidence: ${JSON.stringify(outcome.quotes.map((_, index) => index + 1))}\nCalculation: ${outcome.repair?.stated ?? outcome.calculation?.stated ?? "none"}`;
       return {
-        text:
-          outcome.reply ??
-          `Verdict: supported\nAbsence: no\nScope: none, same\nTopic: found\nRoles: ${sentenceOf(call)} / ${outcome.quotes.join(" ")}, same\nThe Documents establish this.\nEvidence: ${JSON.stringify(outcome.quotes.map((_, index) => index + 1))}\nCalculation: ${outcome.repair?.stated ?? outcome.calculation?.stated ?? "none"}`,
+        text: outcome.asWritten || /^Duty:/m.test(text) ? text : `${text}\n${SAME_DETAIL}`,
       };
     },
     {
@@ -157,7 +160,7 @@ async function check(
           return {
             text:
               outcomes[target]?.again ??
-              `Verdict: supported\nAbsence: no\nScope: none, same\nTopic: found\nRoles: ${target} / ${target}, same\nThe Documents establish this.\nEvidence: [1]`,
+              `Verdict: supported\nAbsence: no\nScope: none, same\nTopic: found\nRoles: ${target} / ${target}, same\n${SAME_DETAIL}\nThe Documents establish this.\nEvidence: [1]`,
           };
         }
         if (call.question === "evidence" || call.question === "covered-evidence") {
@@ -533,12 +536,8 @@ describe("literal sentence parts", () => {
       ],
       {
         [first]: { quotes: ["The leverage was 3.25x."] },
-        [part]: {
-          quotes: ["The leverage was 3.25x."],
-          calculation,
-          reply: `Verdict: contradicted\nRoles: ${part} / ${part}, same\nThe Document gives it another way.\nCalculation: 3.25x\nEvidence: [1]`,
-          judgement: "same",
-        },
+        // The judge's own Supported: a working never overturns its Contradicted (#1766, #1708).
+        [part]: { quotes: ["The leverage was 3.25x."], calculation },
       },
     );
 
@@ -1000,7 +999,7 @@ describe("literal sentence parts", () => {
       result.parts?.find((each) => claim.slice(each.span.start, each.span.end) === part);
 
     const agreedRun = await run(
-      `Verdict: supported\nAbsence: no\nScope: none, same\nTopic: found\nRoles: ${part} / ${part}, same\nThe Document states it.\nEvidence: [1]`,
+      `Verdict: supported\nAbsence: no\nScope: none, same\nTopic: found\nRoles: ${part} / ${part}, same\n${SAME_DETAIL}\nThe Document states it.\nEvidence: [1]`,
     );
     expect(judged(agreedRun.result)?.verdict).toBe("not-checked");
     expect(agreedRun.looks.get(part)).toBe(1);
@@ -1018,7 +1017,7 @@ describe("literal sentence parts", () => {
     const explained = judged(
       (
         await run(
-          `Verdict: contradicted\nScope: none, same\nTopic: found\nRoles: ${part} / the redesign, differs\nTime: none / none, same\nThe Document gives it another way.\nEvidence: [1]`,
+          `Verdict: contradicted\nScope: none, same\nTopic: found\nRoles: ${part} / the redesign, differs\nTime: none / none, same\n${SAME_DETAIL}\nThe Document gives it another way.\nEvidence: [1]`,
         )
       ).result,
     );
@@ -1072,7 +1071,7 @@ describe("literal sentence parts", () => {
       ).toBe("not-checked");
       expect(
         await judged(
-          `Verdict: supported\nAbsence: no\nScope: none, same\nTopic: found\nRoles: ${part} / ${part}, same\nTime: has happened / is still to happen, differs\nThe Document states it.\nEvidence: [1]`,
+          `Verdict: supported\nAbsence: no\nScope: none, same\nTopic: found\nRoles: ${part} / ${part}, same\nTime: has happened / is still to happen, differs\n${SAME_DETAIL}\nThe Document states it.\nEvidence: [1]`,
         ),
       ).toBe("unsupported");
     },
@@ -1141,6 +1140,7 @@ describe("literal sentence parts", () => {
         scope ?? "Scope: none, same",
         topic ?? "Topic: found",
         roles ?? `Roles: ${part} / ${part}, same`,
+        SAME_DETAIL,
         time ?? "The Document states it.",
         evidence ?? "Evidence: [1]",
       ].join("\n");
@@ -1165,7 +1165,7 @@ describe("literal sentence parts", () => {
           quotes: [quote],
           reply: `Verdict: contradicted\nRoles: ${part} / ${part}, same\nThe Document gives 4.2 per cent.\nEvidence: [1]`,
           judgement: "same",
-          again: `Verdict: supported\nScope: none, same\nTopic: found\nRoles: ${part} / ${part}, same\nThe Document states it.\nEvidence: [1]`,
+          again: `Verdict: supported\nScope: none, same\nTopic: found\nRoles: ${part} / ${part}, same\n${SAME_DETAIL}\nThe Document states it.\nEvidence: [1]`,
         },
         "Customer churn fell to 3.9 per cent": { quotes: [quote] },
       },
@@ -1406,12 +1406,7 @@ describe("literal sentence parts", () => {
         ],
         {
           [first]: { quotes: [quote] },
-          [extraClaim.slice(first.length + 1)]: {
-            quotes: [quote],
-            calculation,
-            reply: `Verdict: contradicted\nThe Document gives the leverage without the rise.\nCalculation: 3.25x\nEvidence: [1]`,
-            judgement: "same",
-          },
+          [extraClaim.slice(first.length + 1)]: { quotes: [quote], calculation },
         },
       );
 
@@ -2663,5 +2658,147 @@ describe.each([
       verdict: "unsupported",
       parts: [{ kind: "opinion", verdict: "unsupported", span: { start: 0, end: opinion.length } }],
     });
+  });
+});
+
+describe("a part the quote states keeps its own duty and condition (#1766, #1708)", () => {
+  const claim = "The berth costs 40 pounds a night, and berth holders may run a generator.";
+  const first = "The berth costs 40 pounds a night";
+  const part = "berth holders may run a generator";
+  const quote =
+    "The berth costs 30 pounds a night, and berth holders may run a generator only if the harbour master agrees.";
+  const run = (fields: string, again?: string, said = quote) =>
+    check(
+      claim,
+      [
+        { kind: "fact", text: first },
+        { kind: "fact", text: part },
+      ],
+      {
+        [first]: { quotes: [said] },
+        [part]: {
+          quotes: [said],
+          reply: `Verdict: contradicted\nRoles: berth holders may run / berth holders may run, same\nTime: none / none, same\nScope: none, same\n${fields}\nThe Document gives another price.\nEvidence: [1]`,
+          judgement: "same",
+          asWritten: true,
+          ...(again !== undefined && { again }),
+        },
+      },
+    );
+  const looked = (lines: string) =>
+    `Verdict: supported\nAbsence: no\nScope: none, same\nTopic: found\nRoles: ${part} / ${part}, same\nTime: none / none, same\n${lines}\nThe Document states it.\nEvidence: [1]`;
+  const both = "Duty: may / may, same\nCondition: none / none, same";
+  const judged = (
+    parts: readonly { span: { start: number; end: number }; verdict: string | null }[],
+  ) => parts.find((each) => claim.slice(each.span.start, each.span.end) === part)?.verdict;
+
+  test.each([
+    {
+      name: "a condition the part leaves out",
+      said: "Duty: may / may, same\nCondition: none / only if the harbour master agrees, differs",
+    },
+    { name: "no Duty or Condition line", said: "" },
+    {
+      name: "a Condition line with no closing word",
+      said: "Duty: may / may, same\nCondition: none",
+    },
+  ])("$name is not asked again and is never Supported", async ({ said }) => {
+    const { result, looks } = await run(said);
+    expect(judged(result.parts ?? [])).not.toBe("supported");
+    expect(looks.get(part) ?? 0).toBe(0);
+    // Paired: with its own duty and condition the same, the reply disagrees with itself and is
+    // asked once more.
+    expect((await run(both)).looks.get(part)).toBe(1);
+  });
+
+  test.each([
+    {
+      name: "a Condition that differs",
+      lines: "Duty: may / may, same\nCondition: none / only if the harbour master agrees, differs",
+      verdict: "unsupported",
+    },
+    {
+      name: "a Duty that differs",
+      lines: "Duty: may / must, differs\nCondition: none / none, same",
+      verdict: "unsupported",
+    },
+    {
+      name: "a Condition that differs but no Duty line, which its form asks for",
+      lines: "Condition: none / only if the harbour master agrees, differs",
+      verdict: "not-checked",
+    },
+    {
+      name: "a Duty that differs but no Time line, which its form asks for",
+      lines: "Duty: may / must, differs\nCondition: none / none, same",
+      verdict: "not-checked",
+      withoutTime: true,
+    },
+  ])(
+    "a Supported second look with $name is never Supported",
+    async ({ lines, verdict, withoutTime }) => {
+      const again = looked(lines);
+      const { result, looks } = await run(
+        both,
+        withoutTime ? again.replace("Time: none / none, same\n", "") : again,
+      );
+      expect(looks.get(part)).toBe(1);
+      expect(judged(result.parts ?? [])).toBe(verdict);
+    },
+  );
+
+  test("a Supported second look with both lines the same is Not checked: a second look only lowers (#2816)", async () => {
+    const stated = "The berth costs 30 pounds a night, and berth holders may run a generator.";
+    const { result, looks } = await run(both, looked(both), stated);
+    expect(looks.get(part)).toBe(1);
+    expect(judged(result.parts ?? [])).toBe("not-checked");
+  });
+
+  test("a part whose own reply is Supported, both lines the same, is Supported as the judge said", async () => {
+    const stated = "The berth costs 30 pounds a night, and berth holders may run a generator.";
+    const { result, looks } = await check(
+      claim,
+      [
+        { kind: "fact", text: first },
+        { kind: "fact", text: part },
+      ],
+      {
+        [first]: { quotes: [stated] },
+        // The scripted judge's own Supported reply, its Duty and Condition lines the same.
+        [part]: { quotes: [stated] },
+      },
+    );
+    const probe = result.parts?.find(
+      (each) => claim.slice(each.span.start, each.span.end) === part,
+    );
+    expect(probe?.verdict, `${probe?.reason}: ${probe?.detail}`).toBe("supported");
+    expect(looks.get(part) ?? 0).toBe(0);
+  });
+});
+
+describe("a part the judge didn't call Supported stays as it said, its Duty and Condition the same (#1766, #1708)", () => {
+  test("an Unsupported part reply with both lines the same stays Unsupported", async () => {
+    const claim = "The berth costs 40 pounds a night, and berth holders may run a generator.";
+    const part = "berth holders may run a generator";
+    const quote = "Berth holders may store a dinghy on the slipway.";
+    const { result } = await check(
+      claim,
+      [
+        { kind: "fact", text: "The berth costs 40 pounds a night" },
+        { kind: "fact", text: part },
+      ],
+      {
+        "The berth costs 40 pounds a night": { quotes: [quote] },
+        [part]: {
+          quotes: [quote],
+          reply: `Verdict: unsupported\nRoles: berth holders may run / berth holders may store, same\nTime: none / none, same\nScope: none, same\nDuty: may / may, same\nCondition: none / none, same\nThe Document says nothing of a generator.\nEvidence: [1]`,
+          asWritten: true,
+        },
+      },
+    );
+    const judged = result.parts?.find(
+      (each) => claim.slice(each.span.start, each.span.end) === part,
+    );
+    expect(judged?.verdict).toBe("unsupported");
+    expect(judged?.verdict).not.toBe("supported");
   });
 });

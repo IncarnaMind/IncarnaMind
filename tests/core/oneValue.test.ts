@@ -54,6 +54,20 @@ describe("A check's reply that gives a field twice", () => {
     expect(readVerdict(`${once}\n${again}`)).toBeNull();
   });
 
+  test.each([
+    ["Duty", "Duty: may / may, same", "Duty: may / may"],
+    ["Condition", "Condition: none / none, same", "Condition: none / none"],
+  ])("leaves %s unread when one of its lines gives no word", (field, said, unsaid) => {
+    const key = field.toLowerCase();
+    const reply = "Verdict: supported\nIt says so.";
+    expect(readVerdict(`${reply}\n${said}\n${said}`)).toMatchObject({ [key]: "same" });
+    expect(readVerdict(`${reply}\n${unsaid}\n${said}`)).not.toHaveProperty(key);
+    // A line that says it differs still holds over one that says it is the same.
+    expect(readVerdict(`${reply}\n${said}\n${field}: may / must, differs`)).toMatchObject({
+      [key]: "differs",
+    });
+  });
+
   test("gives it twice alike, and is read", () => {
     expect(
       readVerdict(

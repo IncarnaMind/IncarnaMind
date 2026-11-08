@@ -22,6 +22,7 @@ import { MAX_CHART_VALUES } from "../../src/shared/charts";
 import { readFigures } from "../../src/shared/figures";
 import { translate } from "../../src/shared/i18n";
 import type { UnitText } from "../../src/shared/units";
+import { SAME_DETAIL } from "../helpers/checks";
 import { unsupportedWorkbook, WorkbookBuilder } from "../helpers/financeWorkbooks";
 import { type ModelCall, scriptedModel } from "../helpers/models";
 
@@ -54,8 +55,11 @@ const asSent = (text: string, sent: readonly CheckFigure[]) =>
       written.replaceAll(JSON.stringify(figure.id), JSON.stringify(figureHandle(index))),
     text,
   );
-const reply = (items: unknown[], remainder: unknown = null) =>
+/** A reply as the turns that read it across turns see it: its verdict, then its Figures line. */
+const bareReply = (items: unknown[], remainder: unknown = null) =>
   `Verdict: supported\nAbsence: no\nFigures: ${JSON.stringify({ items, remainder })}`;
+const reply = (items: unknown[], remainder: unknown = null) =>
+  `Verdict: supported\nAbsence: no\n${SAME_DETAIL}\nFigures: ${JSON.stringify({ items, remainder })}`;
 
 test("a complete same-run reply binds only the exact requested occurrence ids", () => {
   expect(readFigureReply(asSent(reply([item()]), figures), figures, claim)).toMatchObject({
@@ -157,16 +161,16 @@ test("a quote copied from a sheet row with its raw tabs is read", () => {
 });
 
 test("the Figures line is the JSON one, not a line of prose that starts the same way", () => {
-  const prose = `Verdict: supported\nFigures: the revenue figure is £20, as the accounts give it.\n${reply([item()]).replace("Verdict: supported\nAbsence: no\n", "")}`;
+  const prose = `Verdict: supported\nFigures: the revenue figure is £20, as the accounts give it.\n${bareReply([item()]).replace("Verdict: supported\nAbsence: no\n", "")}`;
   expect(readFigureReply(asSent(prose, figures), figures, claim)?.items[0]?.id).toBe("f1");
 });
 
 test.each([
-  { final: "Verdict: unsupported", aside: [reply([item()])] },
-  { final: "I'm sorry, I can't help with that.", aside: [reply([item()])] },
+  { final: "Verdict: unsupported", aside: [bareReply([item()])] },
+  { final: "I'm sorry, I can't help with that.", aside: [bareReply([item()])] },
   {
     final: "The quote states the revenue.",
-    aside: [reply([item()]).replace("Verdict: supported\nAbsence: no\n", "")],
+    aside: [bareReply([item()]).replace("Verdict: supported\nAbsence: no\n", "")],
   },
 ])("a stale or refused preamble cannot replace $final", ({ final, aside }) => {
   expect(replyAcrossTurns(final, aside)).toBe(final);
@@ -1694,7 +1698,7 @@ test.each([undefined, []])(
       figures,
       claim: "Revenue in 2024 was £20.",
       quotes: ["Revenue in 2024 was £20"],
-      text: "Verdict: supported\nAbsence: no\nScope: same\nTopic: found\nRoles: same\nSays: Revenue in 2024 was £20.\nCalculation: none",
+      text: `Verdict: supported\nAbsence: no\nScope: same\nTopic: found\nRoles: same\n${SAME_DETAIL}\nSays: Revenue in 2024 was £20.\nCalculation: none`,
     });
     expect(result.verdict).toBe("supported");
     expect(result).not.toHaveProperty("figures");

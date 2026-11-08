@@ -18,6 +18,7 @@ import {
   checkReply,
   isCheckRun,
   type Plan,
+  SAME_DETAIL,
   sentenceOf,
   unsupportedReply,
 } from "../helpers/checks";
@@ -277,7 +278,9 @@ const englishEvidence =
         ],
       };
     }
-    return { text: `Verdict: supported\nAbsence: no\nThe Document says: ${MOON} [^1]` };
+    return {
+      text: `Verdict: supported\nAbsence: no\n${SAME_DETAIL}\nThe Document says: ${MOON} [^1]`,
+    };
   };
 
 /** A core with the tides line in a Folder, and a Mind there with a heading and a line. */

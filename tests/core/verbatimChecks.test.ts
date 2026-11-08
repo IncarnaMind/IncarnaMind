@@ -10,7 +10,13 @@
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
-import { checkGenerate, isCheckRun, requestedFigures, sentenceOf } from "../helpers/checks";
+import {
+  checkGenerate,
+  isCheckRun,
+  requestedFigures,
+  SAME_DETAIL,
+  sentenceOf,
+} from "../helpers/checks";
 import { shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
@@ -164,6 +170,7 @@ const verdictLines = (says: string, sentence: string) =>
     "Topic: found",
     `Roles: ${sentence} / ${sentence}, same`,
     "Time: none / none, same",
+    SAME_DETAIL,
     "",
     says,
     "",

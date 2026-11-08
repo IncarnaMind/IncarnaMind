@@ -23,6 +23,9 @@ import {
   unscripted,
 } from "./models";
 
+/** A check reply's Duty and Condition lines for a sentence that puts its clause as the clause does. */
+export const SAME_DETAIL = "Duty: none / none, same\nCondition: none / none, same";
+
 /** How the scripted model checks a sentence: what it cites, and how it replies. */
 export interface Plan {
   verdict?: "supported" | "unsupported" | "contradicted";
@@ -224,7 +227,7 @@ export function checkReply(call: ModelCall, plans: Record<string, Plan>): Script
       calls: [{ tool: "cite", input: { citations: [{ marker: 1, passage: passage?.id, quote }] } }],
     };
   }
-  const verdict = `Verdict: ${plan.verdict}${plan.roles ? `\nRoles: ${plan.roles}` : ""}${plan.absence === null ? "" : `\nAbsence: ${plan.absence ? "yes" : "no"}`}${plan.says ? `\n${plan.says} [^1]` : ""}`;
+  const verdict = `Verdict: ${plan.verdict}${plan.roles ? `\nRoles: ${plan.roles}` : ""}${plan.absence === null ? "" : `\nAbsence: ${plan.absence ? "yes" : "no"}`}\n${SAME_DETAIL}${plan.says ? `\n${plan.says} [^1]` : ""}`;
   const figures = requestedFigures(call);
   if (figures.length === 0) return { text: verdict };
   // An Analysis's figure is never looked for in the Passages, as the check's instructions say.

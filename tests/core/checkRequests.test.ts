@@ -18,6 +18,7 @@ import {
   isCheckRun,
   listedSentences,
   type Plan,
+  SAME_DETAIL,
   sentenceOf,
 } from "../helpers/checks";
 import { shownPassages } from "../helpers/citations";
@@ -195,7 +196,7 @@ function quoting(
       calls: [{ tool: "cite", input: { citations: [{ marker: 1, passage: passage?.id, quote }] } }],
     };
   }
-  return { text: "Verdict: supported\nAbsence: no\nThe Document says so. [^1]" };
+  return { text: `Verdict: supported\nAbsence: no\n${SAME_DETAIL}\nThe Document says so. [^1]` };
 }
 
 /** A check Run whose first turn names `parts` of its sentence, then checks as `plans` say. */

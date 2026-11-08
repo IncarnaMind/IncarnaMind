@@ -15,7 +15,13 @@ import { measureFinding, readMeasure } from "../../src/core/answers/checks/figur
 import type { FigureCheckAttributes } from "../../src/core/api";
 import type { Language } from "../../src/core/language";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
-import { isCheckRun, listedSentences, requestedFigures, sentenceOf } from "../helpers/checks";
+import {
+  isCheckRun,
+  listedSentences,
+  requestedFigures,
+  SAME_DETAIL,
+  sentenceOf,
+} from "../helpers/checks";
 import { shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
@@ -154,6 +160,7 @@ function checking(replies: (call: ModelCall) => Reply, calls: ModelCall[]) {
           "Topic: found",
           "Roles: none, same",
           "Time: none / none, same",
+          SAME_DETAIL,
           `The Document gives ${planned.number} [^1].`,
           `Figures: ${JSON.stringify({ items, remainder: null })}`,
         ].join("\n"),

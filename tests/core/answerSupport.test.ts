@@ -4,7 +4,14 @@ import { checkableSentences } from "../../src/core/answers/checks/written";
 import { pageBlocks, withAnswerChecks } from "../../src/shared/answerBlocks";
 import type { NodeJSON } from "../../src/shared/blockJson";
 import { citedSentences } from "../../src/shared/citedSentences";
-import { checkGenerate, checkingModel, checkReply, isCheckRun, type Plan } from "../helpers/checks";
+import {
+  checkGenerate,
+  checkingModel,
+  checkReply,
+  isCheckRun,
+  type Plan,
+  SAME_DETAIL,
+} from "../helpers/checks";
 import { answerJudged, setUpWithDocuments, shownPassages } from "../helpers/citations";
 import { nextTurn, startCore } from "../helpers/core";
 import {
@@ -617,6 +624,7 @@ describe("a check names whether a thing has happened or is still to happen", () 
       "Topic: found",
       `Roles: ${roles}`,
       `Time: ${time}`,
+      SAME_DETAIL,
       `${says} [^1]`,
       "Covered: the price of two K9 kilns",
       "Not covered: that they are already installed",

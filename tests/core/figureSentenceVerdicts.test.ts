@@ -12,6 +12,7 @@ import {
   isCheckRun,
   type Plan,
   requestedFigures,
+  SAME_DETAIL,
   sentenceOf,
 } from "../helpers/checks";
 import { shownPassages } from "../helpers/citations";
@@ -726,13 +727,15 @@ function replying(calls: ModelCall[], judged: GenerateCall[], evidence: Generate
             },
           ],
         };
-      if (asked && !planned.repair)
+      if (asked && !planned.repair) {
+        const prose = typeof planned.prose === "function" ? planned.prose(call) : planned.prose;
         return {
           text:
-            typeof planned.prose === "function"
-              ? planned.prose(call)
-              : (planned.prose ?? CANT_REWRITE),
+            prose && /^Verdict:/m.test(prose)
+              ? `${prose}\n${SAME_DETAIL}`
+              : (prose ?? CANT_REWRITE),
         };
+      }
       const items = requestedFigures(call).map(({ id }) => ({
         id,
         says: null,
@@ -745,7 +748,11 @@ function replying(calls: ModelCall[], judged: GenerateCall[], evidence: Generate
         ? { items }
         : { items, remainder: planned.remainder ?? null };
       const figures = `Figures: ${JSON.stringify(line)}`;
-      return { text: asked ? figures : `${planned.lines}\n\n${figures}` };
+      // Every verdict these replies give puts the clause's duty and condition as the sentence does.
+      const lines = /^Verdict:/m.test(planned.lines)
+        ? `${planned.lines}\n${SAME_DETAIL}`
+        : planned.lines;
+      return { text: asked ? figures : `${lines}\n\n${figures}` };
     },
     {
       generate(call) {

@@ -131,11 +131,15 @@ import {
   checkInstructions,
   claimPrompt,
   confirmParts,
+  deniesItself,
   EVIDENCE_INSTRUCTIONS,
   evidenceParts,
   givesNoEvidence,
+  heldDetailLines,
   NEAREST_INSTRUCTIONS,
   namesNothing,
+  ownDetailDiffers,
+  ownDetailUnread,
   ownWords,
   PRESENCE_INSTRUCTIONS,
   partInstructions,
@@ -355,7 +359,8 @@ const figureSourcesNote = (problems: readonly string[], unrecorded: readonly num
  * Unsupported, since asked to cite a number its quote doesn't hold, Claude Haiku 5.5 often wrote
  * prose in place of its reply (#2184). A remainder is asked for only when the reply's own verdict
  * is Supported: a stricter one stands for the sentence's other words (`withSentenceVerdict`).
- * `asking` is told each reply asked about.
+ * `asking` is told each reply asked about, read across its turns by `across`, which keeps the
+ * Duty and Condition lines held back across an earlier ask (#1766).
  */
 function figuresReplied(
   request: ClaimCheckRequest,
@@ -363,6 +368,7 @@ function figuresReplied(
   searched: () => boolean,
   recorded: (marker: number) => boolean,
   asking: (text: string) => void,
+  across: (last: string, setAside?: readonly string[]) => string,
 ): TurnCheck[] {
   const figures = request.figures ?? [];
   const asked = (text: string) => figures.length > 0 && searched() && readVerdict(text) !== null;
@@ -374,7 +380,7 @@ function figuresReplied(
     {
       name: "figures-line",
       check(last, setAside = []) {
-        const text = replyAcrossTurns(last, setAside);
+        const text = across(last, setAside);
         if (!asked(text)) return null;
         const read = readFigureReply(text, figures, request.claim);
         if (!read) return ask(text, { claims: [], note: FIGURES_LINE });
@@ -388,7 +394,7 @@ function figuresReplied(
       // The judge decides an Analysis figure: a reply whose fields disagree is asked once (#2378).
       name: "analysis-names",
       check(last, setAside = []) {
-        const text = replyAcrossTurns(last, setAside);
+        const text = across(last, setAside);
         const read = asked(text) ? readFigureReply(text, figures, request.claim) : null;
         if (!read) return null;
         const problems = read.items.flatMap((item) => {
@@ -408,7 +414,7 @@ function figuresReplied(
     {
       name: "figures-sources",
       check(last, setAside = []) {
-        const text = replyAcrossTurns(last, setAside);
+        const text = across(last, setAside);
         const read = asked(text) ? readFigureReply(text, figures, request.claim) : null;
         if (!read) return null;
         // A supported figure with no source must record its quote, not only write it in prose:
@@ -1222,6 +1228,12 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
       request.findParts(text);
     };
     let setAside: readonly string[] = [];
+    // The Duty and Condition lines that took support away before an ask about something else: the
+    // engine sets aside no turn across an ask, and a difference the check wrote down holds (#1766).
+    // An ask for those very lines drops them, as the reply written again answers it.
+    let heldBack: readonly string[] = [];
+    const across = (last: string, aside: readonly string[] = []) =>
+      replyAcrossTurns(last, heldBack.length > 0 ? [heldBack.join("\n"), ...aside] : aside);
     // Set by any reply that compared other words than the sentence's, whether or not the ask was
     // still free: a later reply that gives none is held back as one that gives other words.
     let askedForOwnWords = false;
@@ -1318,6 +1330,7 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
           (text) => {
             askedAbout = text;
           },
+          across,
         ),
         {
           name: "calculate-first",
@@ -1336,14 +1349,39 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
         {
           name: "roles-own-words",
           check: (text, aside) => {
-            const read = replyAcrossTurns(text, aside ?? []);
+            const read = across(text, aside);
             const verdict = readVerdict(read);
             if (!verdict || !comparesOtherWords(verdict, request.claim, false)) return null;
             askedForOwnWords = true;
             return { claims: [], writeOnly: true, note: ROLES_OWN_WORDS };
           },
         },
+        {
+          name: "own-detail",
+          check: (text, aside) => {
+            const read = across(text, aside);
+            const verdict = readVerdict(read);
+            // One line that already differs takes the support away: no ask can give it back.
+            if (
+              verdict?.verdict !== "supported" ||
+              ownDetailDiffers(verdict) ||
+              !ownDetailUnread(verdict)
+            )
+              return null;
+            return {
+              claims: [],
+              writeOnly: true,
+              note: deniesItself(read) ? DETAIL_DENIED : DETAIL_LINES,
+            };
+          },
+        },
       ],
+      onAsk: (note, last, aside) => {
+        heldBack =
+          note === DETAIL_LINES || note === DETAIL_DENIED
+            ? []
+            : heldDetailLines(across(last, aside));
+      },
       signal,
     })) {
       if (event.type === "text-delta") {
@@ -1355,13 +1393,13 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
       else if (event.type === "finished") finished = true;
     }
     if (!failed) hear(heard);
-    deps.fileProperties?.replied(replyAcrossTurns(reply, setAside));
-    deps.libraryFacts?.replied(replyAcrossTurns(reply, setAside));
+    deps.fileProperties?.replied(across(reply, setAside));
+    deps.libraryFacts?.replied(across(reply, setAside));
     if (signal.aborted) return notChecked("stopped");
     if (failed) return failedCheck(failed);
     if (request.figures?.length) {
       if (!finished || reply.trim() === "") return notChecked("empty");
-      const written = replyAcrossTurns(reply, setAside);
+      const written = across(reply, setAside);
       // Its last word changed its mind: neither verdict, nor an earlier reply's, stands (#2817).
       if (changesItsMind(written)) return notChecked("malformed");
       // Asked about its Figures line, a model that can't do what it was asked may write prose
@@ -1538,6 +1576,12 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
         if (declined && verdict.verdict === "supported") return unchecked("refused");
         if (comparesOtherWords(verdict, request.claim, askedForOwnWords))
           return unchecked("malformed");
+        if (
+          verdict.verdict === "supported" &&
+          ownDetailUnread(verdict) &&
+          !ownDetailDiffers(verdict)
+        )
+          return unchecked("malformed");
         const evidence =
           cited ??
           (verdict.verdict === "contradicted"
@@ -1692,7 +1736,7 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
     );
     // A sentence the reply's Roles line gives to someone its Passages don't name is no sentence of
     // theirs: no figure worked out from their numbers backs or contradicts it (#1766).
-    const elsewhere = readVerdict(replyAcrossTurns(reply, setAside))?.roles === "other";
+    const elsewhere = readVerdict(across(reply, setAside))?.roles === "other";
     const worked = elsewhere
       ? null
       : (checked.find(({ calculation }) => !calculation.agrees) ?? checked[0] ?? null);
@@ -1711,7 +1755,7 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
     }
     if (!finished || reply.trim() === "") return notChecked("empty");
     const refused = readsAsRefusal(reply);
-    let verdict = readVerdict(replyAcrossTurns(reply, setAside));
+    let verdict = readVerdict(across(reply, setAside));
     if (!verdict) return notChecked(refused ? "refused" : "malformed");
     if (!looked()) return notChecked("unread");
     // Whatever its verdict line says: a contradiction's judgements compared only the figures
@@ -1833,23 +1877,30 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
     }
     if (comparesOtherWords(verdict, request.claim, askedForOwnWords))
       return notChecked("malformed");
+    // A Supported reply that gives no Duty or Condition word, even asked again, compared neither;
+    // one whose other line differs is Unsupported below.
+    if (verdict.verdict === "supported" && ownDetailUnread(verdict) && !ownDetailDiffers(verdict))
+      return notChecked("malformed");
     const absence = await absenceFor(verdict.absence ?? null, verdict.verdict);
     if (absence) return absence;
     if (await requiresCalculation(verdict))
       return confirmationFailure ? unjudged(confirmationFailure) : notChecked("no-evidence");
-    const byCalculation: ClaimCheckResult | null = worked
-      ? (await requiresCalculation({ ...verdict, verdict: "supported" }))
-        ? notChecked("no-evidence")
-        : {
-            verdict: "supported",
-            evidence: worked.evidence,
-            says: null,
-            unsupported: null,
-            calculation: worked.calculation,
-            ...citedCase(worked.evidence),
-            ...facts(),
-          }
-      : null;
+    // A worked figure settles its number alone: never Supported over a reply that records another
+    // duty or a dropped condition, or gives neither line (#1766, #1708).
+    const byCalculation: ClaimCheckResult | null =
+      worked && !ownDetailDiffers(verdict) && !ownDetailUnread(verdict)
+        ? (await requiresCalculation({ ...verdict, verdict: "supported" }))
+          ? notChecked("no-evidence")
+          : {
+              verdict: "supported",
+              evidence: worked.evidence,
+              says: null,
+              unsupported: null,
+              calculation: worked.calculation,
+              ...citedCase(worked.evidence),
+              ...facts(),
+            }
+        : null;
     if (confirmationFailure) return unjudged(confirmationFailure);
     /** Unsupported, with the nearest line when it states another value for the same thing (#770). */
     const unsupported = async (
@@ -1898,15 +1949,15 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
     };
     // The fields-only second look (#2313): a judge's own reply that said it could not state the
     // sentence, and then said the claim is stated and the same, is asked once more. Only a field
-    // of its second reply that differs counts, and it lowers the sentence to Unsupported; a second
-    // reply that calls it supported is Not checked, as an inconsistent one is: on held-out
-    // sentences whose Passage gives only a goal, a draft or another contract's terms, it called
-    // them supported with every field the same (#2816).
+    // of its second reply that differs counts, its Duty and Condition among them (#1766, #1708),
+    // and it lowers the sentence to Unsupported; a second reply that calls it supported is Not
+    // checked, as an inconsistent one is: on held-out sentences whose Passage gives only a goal, a
+    // draft or another contract's terms, it called them supported with every field the same (#2816).
     const rechecked = async (
       again: ReadVerdict,
       shown: Citation | null,
     ): Promise<ClaimCheckResult> =>
-      again.roles === "differs" || again.time === "differs" || again.scope === "wider"
+      ownDetailDiffers(again) || again.scope === "wider"
         ? unsupported(
             {
               reason: again.says,
@@ -1945,6 +1996,8 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
         verdict.scope === "same" &&
         verdict.roles === "same" &&
         (verdict.time === undefined || verdict.time === "same") &&
+        !ownDetailDiffers(verdict) &&
+        !ownDetailUnread(verdict) &&
         verdict.absence === "no" &&
         !unstatedUnit(
           [stated, ...retainedEvidence],
@@ -2038,8 +2091,9 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
     // other way round, or must for may is no support at all: Claude Haiku 5.5 called "must pay"
     // Supported against "may pay", then named the difference (#1668). The reply says each in a
     // field of its own, so the verdict doesn't rest on the model weighing it; so is whether a thing
-    // has happened or is still to happen (#2311).
-    const differs = verdict.roles === "differs" || verdict.time === "differs";
+    // has happened or is still to happen (#2311), and a duty or a condition put otherwise (#1766,
+    // #1708).
+    const differs = ownDetailDiffers(verdict);
     if (verdict.verdict === "supported" && (verdict.scope === "wider" || differs)) {
       const part = await parts(deciding);
       if (signal.aborted) return notChecked("stopped");
@@ -2051,21 +2105,11 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
       // Parts that can't be read still leave the sentence wider than its Passage: never Supported.
       return unsupported({ ...UNBACKED, reason: verdict.says });
     }
-    if (
-      byCalculation &&
-      onlyCalculation &&
-      verdict.verdict === "contradicted" &&
-      verdict.says === null &&
-      verdict.covered === null &&
-      verdict.uncovered === null
-    )
-      return byCalculation;
     if (verdict.verdict === "contradicted") {
       // The judgements disagree with the check: the card shows the part the quote states
       // (DESIGN.md › Checks).
       const inDoubt = async (): Promise<ClaimCheckResult> => {
         if (unit) return unsupported(unit, unitProblem?.quote ?? null, null);
-        if (byCalculation) return byCalculation;
         if (verdict.topic === "not found") return unsupported();
         const part = await parts(deciding);
         if (signal.aborted) return notChecked("stopped");
@@ -2081,19 +2125,19 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
       if (confirmation.kind === "unrelated") {
         return unit
           ? unsupported(unit, unitProblem?.quote ?? null, null)
-          : (byCalculation ?? unsupported(verdict.topic === "not found" ? undefined : UNBACKED));
+          : unsupported(verdict.topic === "not found" ? undefined : UNBACKED);
       }
-      // A part whose quote states it on its own, and whose own Roles, Time and Scope agree: the
-      // reply's contradiction was about words outside the part, as a sentence's figure is for a
-      // part about when it happened. Its fields disagree with its verdict, so it is asked once
-      // more; its second reply can only lower it (#2313, #2816).
+      // A part whose quote states it on its own, and whose own Roles, Time, Duty, Condition and
+      // Scope agree: the reply's contradiction was about words outside the part, as a sentence's
+      // figure is for a part about when it happened. Its fields disagree with its verdict, so it is
+      // asked once more; its second reply can only lower it (#2313, #2816).
       const sentence = request.originalClaim;
       if (
         confirmation.kind === "states" &&
         !unit &&
         !byCalculation &&
-        verdict.roles !== "differs" &&
-        verdict.time !== "differs" &&
+        !ownDetailDiffers(verdict) &&
+        !ownDetailUnread(verdict) &&
         verdict.scope !== "wider" &&
         !comparesOtherWords({ ...verdict, verdict: "supported" }, request.claim, true) &&
         sentence !== undefined &&
@@ -2230,6 +2274,19 @@ function unreadPlaceOf(deps: ClaimCheckDependencies, source: CitationSource): Un
  */
 const ROLES_OWN_WORDS =
   "Your Roles line's first side isn't the sentence's own words. Copy from the sentence, word for word and in its own order, the words that say who does it, for or to whom, and whether it must or may happen, or, when it names no one, the words for what happens; then \" / \" and the Passage's words; then same, differs or other. Then give your whole reply again.";
+
+/**
+ * How a Supported reply whose Duty or Condition line is missing or can't be read is asked for it
+ * again. It names the Duty line's words: a line with the same duty in two words ("has to / must,
+ * same") can't be read, and the form's word on each side can (#1766).
+ */
+const DETAIL_FORM =
+  "your whole reply again in the form asked for: its Duty line gives each side as one of must, should, may, must not or none, and its Condition line each side's condition as written, or none; each line ends with same or differs.";
+
+const DETAIL_LINES = `Your reply has no Duty or Condition line that can be read. Write ${DETAIL_FORM}`;
+
+/** A reply whose own Duty or Condition sides deny its "same" is told so: the ask names what is wrong. */
+const DETAIL_DENIED = `Your reply's Duty or Condition line says same while its two sides differ: two different duties, or a condition on one side and none on the other. Compare the two sides again and write ${DETAIL_FORM}`;
 
 /**
  * `asked`: a reply of this check has already given other words than the sentence's. A Roles line
