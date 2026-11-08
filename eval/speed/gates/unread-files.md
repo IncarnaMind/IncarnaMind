@@ -50,3 +50,10 @@ On both arms, from these runs:
   - The runs read each Answer's unread line once it is done, not from its first showing.
   - In these runs every Question is asked in a new Note outside any Folder, so the unread-line bar covers Answers over all Documents. Folder scopes are covered by the core test above.
   - Four runs and four step 4s at about $0.25 each come to about $2.00.
+
+## Amended again on 2026-11-08, before any run of the arm it describes
+
+- **What the second review found:** the key above still asks again at each Document imported into a Linked folder that holds a file in a format not read, such as a `.doc` or `.xls`, from every Answer shown. The runs' 2,000 hold no such file, so they couldn't show it.
+- **The change now also shares one request** among the Answers that ask over the same scope at the same moment. Such an import asks once for each change and scope, not once for each Answer. An import into any other folder asks nothing again. `tests/core/unreadAsk.test.ts` now files the added Documents into the Folder, so its core half can fail.
+- **`ask` is now commit 135486889.** The runs of 5eea30e32 (one whole, and one stopped in its first step) are kept apart and not used. `main`'s first run is kept; the order goes on: `ask`, `main`, `ask`.
+- **What the bar on calls covers:** in step 2 the 2,000 hold no file not read, so it shows the key; in step 4 the Answers in the Note share a scope, so it shows both. Spent on this gate so far, with the runs set aside and a check of step 4's harness, about $0.95; the three runs left add about $1.10.
