@@ -3499,12 +3499,6 @@ export interface DeviceSettings {
   motion: MotionPreference;
   /** Light or dark here (Settings → General → Appearance): see `Appearance`. */
   appearance: Appearance;
-  /**
-   * The model the User last chose here, in a composer or as the Answers default: a Mind with no
-   * pick of its own and the assistant with no Mind in focus use it (`modelInUse`). Null until
-   * they choose, and again once its provider is removed: they follow `UserSettings.chatModel` then.
-   */
-  lastChatModel: ChatModelChoice | null;
 }
 
 /**

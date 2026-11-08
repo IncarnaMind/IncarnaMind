@@ -288,7 +288,7 @@ describe("Help during the call", { timeout: 60_000 }, () => {
     expect(messages.at(-2)).toMatchObject({ kind: "question", text: "接下来问什么" });
   });
 
-  test("the help Question is asked with the model in use in the Meeting's Mind: its own pick, else the last pick, else the Answers default", async () => {
+  test("the help Question is asked with the model in use in the Meeting's Mind: its own pick, else the Answers default", async () => {
     const { core, meeting } = await setUp();
     const openai = await core.saveChatProvider({
       kind: "openai",
@@ -306,14 +306,14 @@ describe("Help during the call", { timeout: 60_000 }, () => {
       if (provider.service) await core.allowDataFlow("chat", provider.service.id);
     }
     const answers = (await core.getSettings()).user.chatModel;
-    const last = { providerId: claude.id, modelId: "claude-haiku-5-5" };
+    const other = { providerId: claude.id, modelId: "claude-haiku-5-5" };
     const own = { providerId: openai.id, modelId: "gpt-6-luna" };
     const writtenBy = async () => (await press(core, meeting, "no")).answer.model;
 
     expect(await writtenBy()).toEqual(answers);
 
-    await core.updateSettings({ device: { lastChatModel: last } });
-    expect(await writtenBy()).toEqual(last);
+    await core.updateSettings({ user: { chatModel: other } });
+    expect(await writtenBy()).toEqual(other);
 
     const client = await connectToMind(core, meeting.mindId);
     setMindModel(client.doc, own);

@@ -927,15 +927,14 @@ export function createChat(options: {
 
     /**
      * Soft-deletes the provider and deletes its key. The quick-tasks and image models it held
-     * go back to Automatic, and the model last chosen on it is forgotten; the default model it
-     * held moves to another provider's, when one is left. Deleting one that doesn't exist does nothing.
+     * go back to Automatic; the default model it held moves to another provider's, when one is
+     * left. Deleting one that doesn't exist does nothing.
      */
     async delete(id: unknown): Promise<void> {
       if (typeof id !== "string") throw new InvalidInputError("A provider id must be text.");
       if (!rowById(id)) return;
       const at = now();
-      const { user, device } = settings.get();
-      const { chatModel, quickTasksModel, imageModel } = user;
+      const { chatModel, quickTasksModel, imageModel } = settings.get().user;
       db.transaction(() => {
         db.run("UPDATE chat_providers SET deleted_at = ?, updated_at = ? WHERE id = ?", [
           at,
@@ -947,10 +946,7 @@ export function createChat(options: {
           ...(quickTasksModel?.providerId === id && { quickTasksModel: null }),
           ...(imageModel?.providerId === id && { imageModel: null }),
         };
-        const lastPick = device.lastChatModel?.providerId === id ? { lastChatModel: null } : {};
-        if (Object.keys(held).length > 0 || Object.keys(lastPick).length > 0) {
-          settings.update({ user: held, device: lastPick });
-        }
+        if (Object.keys(held).length > 0) settings.update({ user: held });
       });
       await secrets.delete(keyName(id));
       if (chatModel?.providerId !== id) return;
@@ -967,9 +963,8 @@ export function createChat(options: {
 
     /** The model a request in a Mind whose own pick is `own` is asked with (see `modelInUse`). */
     modelInUse(own: ChatModelChoice | null): ChatModelChoice | null {
-      const { device, user } = settings.get();
       return modelInUse(
-        { own, last: device.lastChatModel, fallback: user.chatModel },
+        { own, fallback: settings.get().user.chatModel },
         (id) => rowById(id) !== undefined,
       );
     },

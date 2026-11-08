@@ -318,6 +318,7 @@ import { createCopilotAccount } from "./providers/copilot/account";
 import { COPILOT_PROFILES } from "./providers/copilot/config";
 import { createAiSdkEmbeddingModel } from "./providers/embeddings";
 import { defaultOllamaUrl, ollamaBaseUrl } from "./providers/kinds";
+import { keepLastPickInNotes } from "./providers/lastPick";
 import { createLocalServers } from "./providers/localServers";
 import { createAiSdkChatModel } from "./providers/models";
 import {
@@ -5412,6 +5413,13 @@ export function createCore(adapters: CoreAdapters): Core {
     }
     return { converted: converted.bytes, name: converted.name };
   };
+  keepLastPickInNotes({
+    db,
+    settings,
+    content,
+    saved: (providerId) => chat.exists(providerId),
+    log: adapters.log ?? silentLogger,
+  });
   mindIndex.start();
 
   // Everything a Task needs is up: those a quit or a crash left go on, or wait for the User.
@@ -5735,16 +5743,10 @@ export function createCore(adapters: CoreAdapters): Core {
     getLayout: async (windowId) => layouts.get(windowId),
     changeLayout: async (windowId, change) => layouts.change(windowId, change),
     updateSettings: async (patch) => {
-      // Each chat model chosen (default, last, quick tasks, images) must be on a saved provider.
+      // Each chat model chosen (default, quick tasks, images) must be on a saved provider.
       const user = isRecord(patch) && isRecord(patch.user) ? patch.user : {};
-      const device = isRecord(patch) && isRecord(patch.device) ? patch.device : {};
       const chatModel = user.chatModel;
-      for (const choice of [
-        chatModel,
-        user.quickTasksModel,
-        user.imageModel,
-        device.lastChatModel,
-      ]) {
+      for (const choice of [chatModel, user.quickTasksModel, user.imageModel]) {
         if (isChatModelChoice(choice) && !chat.exists(choice.providerId)) {
           throw new InvalidInputError("That chat provider doesn't exist.");
         }

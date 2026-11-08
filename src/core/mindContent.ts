@@ -471,6 +471,32 @@ export function createMindContent(
       return result as T;
     },
 
+    /**
+     * Changes the Mind's own choices as stored, for an upgrade the User didn't make: no edit is
+     * reported, so the Note keeps its edited time, its title and its index. A Mind in Recently
+     * deleted (`deletedAt`) gets the change stored deleted with it, so its restore brings it back.
+     * A Mind a newer version wrote is left as it is. Only for a Mind that isn't loaded, as when
+     * the core starts.
+     */
+    upgradeStoredSettings(
+      mindId: string,
+      deletedAt: string | null,
+      change: (settings: Y.Map<unknown>) => void,
+    ): void {
+      if (loaded.has(mindId)) throw new Error(`Mind ${mindId} is loaded: change it as an edit.`);
+      const { doc } = fromStorage(mindId, deletedAt !== null);
+      try {
+        if (contentVersionOf(doc) > CONTENT_SCHEMA_VERSION) return;
+        const updates: Uint8Array[] = [];
+        doc.on("update", (update: Uint8Array) => updates.push(update));
+        doc.transact(() => change(doc.getMap(MIND_SETTINGS_FIELD)), CORE_ORIGIN);
+        const at = now();
+        for (const update of updates) insert(mindId, update, at, deletedAt);
+      } finally {
+        doc.destroy();
+      }
+    },
+
     isLoaded(mindId: string): boolean {
       return loaded.has(mindId);
     },

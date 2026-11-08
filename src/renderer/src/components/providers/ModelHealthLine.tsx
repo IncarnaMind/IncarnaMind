@@ -1,11 +1,11 @@
 import { AnswerError } from "../../editor/AnswerView";
 import { useModelHealth } from "../../modelHealth";
-import { useModelInUse } from "../../modelInUse";
+import { useAnswersModel } from "../../modelInUse";
 import { useAppStore } from "../../store";
 
-/** The failure of the model in use that the line says, for the row that makes room for it. */
+/** The failure of the Answers model that the line says, for the row that makes room for it. */
 export function useModelHealthFailure() {
-  const choice = useModelInUse(null);
+  const choice = useAnswersModel();
   const failure = useModelHealth((state) =>
     choice ? state.failures[choice.providerId] : undefined,
   );

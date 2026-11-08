@@ -422,7 +422,7 @@ function PlanProblem({
   mindId: string;
   card: Card;
   model: ChatModelChoice | null;
-  /** The model picked in the Mind; null when it follows the last pick or the default. */
+  /** The model picked in the Mind, or in the assistant with none; null: it follows the default. */
   chosen: ChatModelChoice | null;
 }) {
   const t = useT();
