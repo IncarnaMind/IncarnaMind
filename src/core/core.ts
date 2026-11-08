@@ -7403,21 +7403,15 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     setMeetingMicrophone: async (input) => meetings.setMicrophonePaused(input),
     getMeetingOffers: async () => meetingOffers.get(),
-    takeMeetingOffer: async (offerId) => {
-      if (typeof offerId !== "string") throw new InvalidInputError("offerId must be a string.");
-      return meetings.get(meetingOffers.take(offerId));
-    },
+    takeMeetingOffer: async (offerId) => meetings.get(meetingOffers.take(String(offerId))),
     declineMeetingOffer: async (input) => {
-      if (
-        !isRecord(input) ||
-        typeof input.offerId !== "string" ||
-        typeof input.always !== "boolean"
-      )
-        throw new InvalidInputError("Give the offer's id and whether to ask for its app again.");
+      const offerId = isRecord(input) ? String(input.offerId) : "";
+      const always = isRecord(input) && input.always === true;
       const app = meetingOffers.get().offer?.app;
-      meetingOffers.decline(input.offerId, input.always);
+      if (meetingOffers.get().offer?.id !== offerId) return;
+      meetingOffers.decline(offerId, always);
       const off = settings.get().device.callOffersOff;
-      if (!input.always || !app || off.includes(app)) return;
+      if (!always || !app || off.includes(app)) return;
       events.emit(
         "settings.changed",
         settings.update({ device: { callOffersOff: [...off, app] } }),
@@ -7427,10 +7421,9 @@ export function createCore(adapters: CoreAdapters): Core {
       meetingOffers.keepRecording(meetings.get(meetingId).id),
     getOpenAtLogin: async () => loginItemState(),
     setOpenAtLogin: async (on) => {
-      if (typeof on !== "boolean") throw new InvalidInputError("on must be true or false.");
       const loginItem = adapters.loginItem;
       if (!loginItem) throw new InvalidInputError({ key: "error.openAtLogin.unsupported" });
-      return loginItem.set(on);
+      return loginItem.set(on === true);
     },
     openLoginItemSettings: async () => {
       await adapters.loginItem?.openSettings();

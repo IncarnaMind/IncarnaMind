@@ -6568,7 +6568,7 @@ export const en = {
   "offers.end.stopNow": "Stop now",
   "offers.end.keep": "Keep recording",
   "tray.tooltip.recording": "IncarnaMind · Recording {time}",
-  "tray.recording": "Recording · {note}",
+  "tray.recording": "Recording · {name}",
   "tray.stopRecording": "Stop Recording",
   "tray.open": "Open IncarnaMind",
   "tray.settings": "Settings…",

@@ -6222,7 +6222,7 @@ export const zhCN = {
   "offers.end.stopNow": "立即停止",
   "offers.end.keep": "继续录制",
   "tray.tooltip.recording": "IncarnaMind · 正在录制 {time}",
-  "tray.recording": "正在录制 · {note}",
+  "tray.recording": "正在录制 · {name}",
   "tray.stopRecording": "停止录制",
   "tray.open": "打开 IncarnaMind",
   "tray.settings": "设置…",

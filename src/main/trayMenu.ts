@@ -55,7 +55,7 @@ export function trayMenu(
     items.push(
       {
         id: "tray.recording",
-        label: `${t("tray.recording", { note: recording.note })}  ${clockTime(meetingTimeAt(meeting, now))}`,
+        label: `${t("tray.recording", { name: recording.note })}  ${clockTime(meetingTimeAt(meeting, now))}`,
         click: () => actions.openRecording(meeting.id),
       },
       {
