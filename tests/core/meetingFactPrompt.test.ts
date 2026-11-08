@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { notesContext, sectionsContext } from "../../src/core/meetings/fillPrompt";
+import { callLanguage, notesContext, sectionsContext } from "../../src/core/meetings/fillPrompt";
 
 test.each(["price and next steps", "价格与后续分工"])(
   "meeting facts keep the User's line and request one identity per fact: %s",
@@ -59,4 +59,18 @@ test("a section-only fill uses the same fact and overview protocol", () => {
   expect(prompt).toContain("### FACT P1_F1");
   expect(prompt).toContain("### OVERVIEW");
   expect(prompt).not.toContain("HEADINGS: H1=ACTIONS");
+});
+
+// protects=the call's language is told from what was said, its time and speaker marks left out, so a short English call isn't taken for the interface's language and a Chinese one with English marks is Chinese (#2770); fails_when=the marks' English words decide it, or a short call is unknown; no_claim=languages the notes have no titles in, which fall back to the interface's.
+test.each([
+  ["[0:01 Them] 企业版如果按年付费，每个席位每月多少钱？\n[0:05 Me] 可以打九折。", "Chinese"],
+  ["[0:01 Them] Is the price fixed?", "English"],
+  [
+    "[0:01 Speaker 1] Can we start the trial in December?\n[0:04 Speaker 2] 可以，十二月一号开始试用。",
+    "Chinese",
+  ],
+  ["[0:01 Them] Le prix est fixé pour une année avec les mises à jour.", null],
+  ["[0:01 Them] 45, 270, SSO.", null],
+] as const)("a call that says %j is held in %s", (text, language) => {
+  expect(callLanguage([{ text }])).toBe(language);
 });

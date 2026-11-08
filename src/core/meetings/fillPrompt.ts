@@ -95,7 +95,8 @@ export function callLanguage(passages: readonly { text: string }[]): CallLanguag
     .map((passage) => passage.text.replace(LINE_MARK, " "))
     .join("\n")
     .slice(0, LANGUAGE_SAMPLE);
-  const language = detectLanguage(said);
+  // What was said is all speech, with no names or figures of a Document's: one common word tells it.
+  const language = detectLanguage(said, 1);
   return isCallLanguage(language) ? language : null;
 }
 
