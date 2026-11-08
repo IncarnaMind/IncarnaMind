@@ -76,7 +76,7 @@ test("the ready Question names the Document it waits for, and asking answers onc
   );
   // Listed and still being read: the Question says what it waits for.
   const ready = await vi.waitFor(async () => {
-    const now = await core.readyQuestion();
+    const { ready: now } = await core.readyQuestion();
     expect(now).not.toBeNull();
     expect(now?.waitingFor).not.toBeNull();
     return now;
@@ -99,7 +99,7 @@ test("answered once its Documents are read, it waits for nothing", async () => {
   const core = await startWith();
   await vi.waitFor(
     async () => {
-      const now = await core.readyQuestion();
+      const { ready: now } = await core.readyQuestion();
       expect(now?.waitingFor).toBeNull();
     },
     { timeout: 30_000 },
@@ -118,7 +118,7 @@ test("Stop while it waits keeps the Question and a stopped Answer, with no text"
   );
   // Listed and still being read: the press waits, and this is the wait Stop ends.
   await vi.waitFor(async () => {
-    const now = await core.readyQuestion();
+    const { ready: now } = await core.readyQuestion();
     expect(now).not.toBeNull();
     expect(now?.waitingFor).not.toBeNull();
   });
@@ -150,7 +150,7 @@ test("a read that never ends says so, rather than waiting for ever", async () =>
     examples,
   );
   await vi.waitFor(async () => {
-    const now = await core.readyQuestion();
+    const { ready: now } = await core.readyQuestion();
     expect(now).not.toBeNull();
     expect(now?.waitingFor).not.toBeNull();
   });
@@ -167,14 +167,16 @@ const exampleDocumentsOf = async (core: Core) => {
 
 test("a deleted example Document takes the Question away, with nothing to wait for", async () => {
   const core = await startWith();
-  await vi.waitFor(async () => expect((await core.readyQuestion())?.waitingFor).toBeNull(), {
+  await vi.waitFor(async () => expect((await core.readyQuestion()).ready?.waitingFor).toBeNull(), {
     timeout: 30_000,
   });
   const [document] = await exampleDocumentsOf(core);
   if (!document) throw new Error("The example has no Documents.");
   await core.deleteDocument(document.id);
   // Gone, not still reading: no button, rather than twenty seconds of "Reading…" and a refusal.
-  await vi.waitFor(async () => expect(await core.readyQuestion()).toBeNull(), { timeout: 30_000 });
+  await vi.waitFor(async () => expect((await core.readyQuestion()).ready).toBeNull(), {
+    timeout: 30_000,
+  });
   await expect(core.askExampleReadyQuestion()).rejects.toMatchObject({
     wording: { key: "error.examples.gone" },
   });
@@ -200,7 +202,7 @@ test("a Document deleted while it waits says why, rather than still reading", as
     return listed;
   });
   await vi.waitFor(async () => {
-    const now = await core.readyQuestion();
+    const { ready: now } = await core.readyQuestion();
     expect(now).not.toBeNull();
     expect(now?.waitingFor).not.toBeNull();
   });
@@ -214,7 +216,7 @@ test("a Document deleted while it waits says why, rather than still reading", as
 
 test("a Document of the User's own named like the example's is never cited as the example's", async () => {
   const core = await startWith();
-  await vi.waitFor(async () => expect((await core.readyQuestion())?.waitingFor).toBeNull(), {
+  await vi.waitFor(async () => expect((await core.readyQuestion()).ready?.waitingFor).toBeNull(), {
     timeout: 30_000,
   });
   const sources = await createTempDataFolder();
@@ -250,7 +252,7 @@ test("an example Document with no text to read takes the Question away", async (
     },
     { timeout: 30_000 },
   );
-  expect(await core.readyQuestion()).toBeNull();
+  expect((await core.readyQuestion()).ready).toBeNull();
   await expect(core.askExampleReadyQuestion()).rejects.toMatchObject({
     wording: { key: "error.examples.unreadable" },
   });
@@ -305,7 +307,7 @@ test("a Document that can't be read takes the Question away, and asking says why
     },
     { timeout: 30_000 },
   );
-  expect(await core.readyQuestion()).toBeNull();
+  expect((await core.readyQuestion()).ready).toBeNull();
   await expect(core.askExampleReadyQuestion()).rejects.toMatchObject({
     wording: { key: "error.examples.unreadable" },
   });

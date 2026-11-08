@@ -572,7 +572,10 @@ function WorkingInput({
   const quote = useReadableQuote(input.citation);
   const location = citationLocation(input.citation);
   const where = location
-    ? formatLocation(location, t, { speakers: citedSpeakers(input.citation, documents) })
+    ? formatLocation(location, t, {
+        speakers: citedSpeakers(input.citation, documents),
+        quote: input.citation.quote,
+      })
     : null;
   const source = [
     shownDocumentName(input.citation, documents),
@@ -762,7 +765,10 @@ export function ClaimCard({
   const documents = useAppStore((store) => store.documents);
   const where =
     location && evidence
-      ? formatLocation(location, t, { speakers: citedSpeakers(evidence, documents) })
+      ? formatLocation(location, t, {
+          speakers: citedSpeakers(evidence, documents),
+          quote: evidence.quote,
+        })
       : null;
   const decisionUnchecked = partRows
     ? partRows.some(

@@ -2426,6 +2426,59 @@ describe("who's who in a Transcript (#138)", () => {
     expect(shownNow()).toEqual(dana);
   });
 
+  // protects=a split and who speaks its rest are one step: one Undo sets the line back whole, Redo makes both again, and the Edit menu names it "Split the line"; a choice once something else was done is a step of its own; fails_when=the rest's Speaker is a second step, Undo leaves the split, Redo loses the Speaker, or a late choice amends an older step; no_claim=the menu that asks, which the window spec covers.
+  test("a split and who speaks the rest are one Undo step", async () => {
+    const split = {
+      labels: {},
+      lines: { "4100 Speaker 1": "Speaker 1" },
+      splits: { "2000 Speaker 1": { text: "We sign. No.", parts: [{ at: 9, ms: 4100 }] } },
+    };
+    const told = {
+      ...split,
+      labels: { "Speaker 3": "Sam" },
+      lines: { "4100 Speaker 1": "Speaker 3" },
+    };
+    // As the core keeps it: who's who with nothing in it is none.
+    method("setTranscriptSpeakers").mockImplementation(async (input) => {
+      const { speakers } = input as { speakers: NonNullable<Document["speakers"]> };
+      return { ...transcript, speakers: Object.keys(speakers.lines).length > 0 ? speakers : null };
+    });
+    const step = await useAppStore.getState().setTranscriptSpeakers(
+      "t",
+      split,
+      (t) => t("transcript.split.done"),
+      (t) => t("undo.name.splitLine"),
+    );
+    expect(step).not.toBeNull();
+    await step?.amend(told);
+    expect(shownNow()).toEqual(told);
+    expect(useUndo.getState().done).toHaveLength(1);
+    expect(said(top())).toBe("Split the line");
+    expect(named(top())).toBe("Split the line");
+    await useUndo.getState().undo();
+    expect(method("setTranscriptSpeakers")).toHaveBeenLastCalledWith({
+      documentId: "t",
+      speakers: { labels: {}, lines: {} },
+    });
+    expect(shownNow()).toBeNull();
+    await useUndo.getState().redo();
+    expect(shownNow()).toEqual(told);
+
+    // Once another change is the last step, a choice for an older split is a step of its own.
+    const again = await useAppStore.getState().setTranscriptSpeakers(
+      "t",
+      split,
+      (t) => t("transcript.split.done"),
+      (t) => t("undo.name.splitLine"),
+    );
+    await useAppStore
+      .getState()
+      .setTranscriptSpeakers("t", dana, (t) => t("transcript.speaker.change"));
+    await again?.amend(told);
+    expect(useUndo.getState().done).toHaveLength(4);
+    expect(shownNow()).toEqual(told);
+  });
+
   // protects=a name the core refuses goes from the screen again, says why, and leaves no step to undo; fails_when=the refused name stays shown, or Undo offers to take back what never happened; no_claim=the wording of the core's refusal.
   test("a name the core refuses goes again, with the reason, and no step to undo", async () => {
     method("setTranscriptSpeakers").mockRejectedValue(new Error("The disk is full."));

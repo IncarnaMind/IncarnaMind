@@ -766,6 +766,11 @@ export interface SpeechSegment {
   failed?: true;
   /** Who said it, as the engine tells speakers apart within the stream ("1", "2"): Soniox does. */
   speaker?: string;
+  /**
+   * Its words and when each started, in ms of its stream's audio, where the service says
+   * (#138): a final segment's, in order. The text may write them otherwise (spaces, case).
+   */
+  words?: { text: string; ms: number }[];
 }
 
 /**

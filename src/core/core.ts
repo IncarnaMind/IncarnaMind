@@ -129,6 +129,7 @@ import {
   type ExportMindOptions,
   type ExternalService,
   type FigureSchedule,
+  type FirstOpenQuestion,
   type MarkAiTextChoice,
   type Meeting,
   type MeetingHelpKind,
@@ -144,7 +145,6 @@ import {
   type PassageSearchPlace,
   type ProviderError,
   RECENTLY_DELETED_DAYS,
-  type ReadyQuestion,
   type RecheckCitationInput,
   type RecheckResult,
   type SavedExport,
@@ -4457,7 +4457,7 @@ export function createCore(adapters: CoreAdapters): Core {
   });
   events.on("document.status", () => examples.documentChanged());
   isExampleDocument = (documentId) => examples.made().documentIds.includes(documentId);
-  const readyQuestionNow = (): ReadyQuestion | null => {
+  const readyQuestionNow = (): FirstOpenQuestion => {
     const exampleDocuments = new Set(examples.made().documentIds);
     return readyQuestionOf({
       own: documents.rows().filter((each) => !exampleDocuments.has(each.id)),
@@ -7052,6 +7052,7 @@ export function createCore(adapters: CoreAdapters): Core {
       return meetingFill.followUndo(id, input.undone);
     },
     deleteMeetingAudio: async (meetingId) => meetings.deleteAudio(meetingId),
+    readMeetingAudio: async (input) => meetings.readAudio(input),
     retryTranscript: async (meetingId) => meetings.retryTranscript(meetingId),
     listTranscriptionServices: () => cloudTranscription.list(),
     setTranscriptionKey: async (input) => {

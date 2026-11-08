@@ -69,6 +69,7 @@ export function createSonioxStream(options: CloudStreamOptions): CloudStreamHand
       final: true,
       decodeMs: 0,
       ...(done.speaker !== null && { speaker: done.speaker }),
+      words: done.tokens.map((token) => ({ text: token.text, ms: token.start })),
     });
   }
 

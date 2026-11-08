@@ -1,5 +1,14 @@
 import type { KeyboardEvent, ReactNode } from "react";
-import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useContext,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { Document, Meeting } from "../../../core/api";
 import {
   type Cue,
@@ -10,27 +19,39 @@ import {
   type TranscriptGap,
   transcriptUnits,
 } from "../../../core/documents/formats/vtt";
-import { clockTime, paddedClockTime } from "../../../shared/clock";
+import { paddedClockTime } from "../../../shared/clock";
 import type { MessageKey } from "../../../shared/i18n";
-import { shownSpeaker, speakerName, type TranscriptLine } from "../../../shared/speakers";
+import {
+  type FileLine,
+  partsOf,
+  speakerName,
+  type TranscriptLine,
+  withLineSplit,
+} from "../../../shared/speakers";
+import { timeAt } from "../../../shared/wordTimes";
 import { transcriptHandle, useHandle } from "../commands/handles";
-import { MicOffLineIcon, PlusLineIcon } from "../components/lineIcons";
+import { MicOffLineIcon } from "../components/lineIcons";
 import { MetaLine } from "../components/MetaLine";
-import { SpeakerMenu } from "../components/meetings/SpeakerMenu";
 import { LineAction } from "../components/ProblemLine";
+import { Tip } from "../components/Tip";
 import { useDismissOnEscape } from "../escapeDismiss";
-import { useT } from "../i18n";
+import { useLanguage, useT } from "../i18n";
 import { isLive, useMeetings } from "../meetings";
 import { durationLabel } from "../meetingTime";
-import type { ViewerTarget } from "../store";
+import { type SpeakersStep, useAppStore, type ViewerTarget } from "../store";
+import { closeTip, useFeatureTip } from "../tips";
 import { addLineToNote, type LineAdded } from "../transcriptNotes";
+import { useTranscriptPlayer } from "../transcriptPlayer";
 import { useCitedArea } from "./citedArea";
 import { loadDocumentBytes, MissingDocumentError } from "./documentBytes";
 import { markQuote, textNodes, unmarkQuote } from "./domQuote";
 import { FileStates } from "./FileStates";
 import { CitationMark, marginRoom, markTopFor, quoteMarkOf, quoteTone } from "./quoteMark";
+import { TranscriptPlayerBar } from "./TranscriptPlayerBar";
+import { type PartRow, TranscriptRow } from "./TranscriptRow";
+import { piecesBetween, wordPieces } from "./transcriptWords";
 import type { LoadedFile } from "./useDocumentFile";
-import { ViewerHeader } from "./ViewerHeader";
+import { ViewerFrameContext, ViewerHeader } from "./ViewerHeader";
 import { ViewerMessage } from "./ViewerMessage";
 
 /** Within this of the bottom, the view follows new lines as they come. */
@@ -174,7 +195,7 @@ export function MeetingTranscriptView({
 }
 
 type Row =
-  | { kind: "cue"; cue: Cue }
+  | ({ kind: "cue" } & PartRow)
   | { kind: "gap"; gap: TranscriptGap }
   | { kind: "microphone"; fromMs: number };
 
@@ -182,7 +203,33 @@ type Row =
 const ADDED_SHOWN_MS = 3000;
 
 /** Names a line: two can start together, so its start alone doesn't. */
-const lineId = (cue: Cue) => `${cue.startMs}-${cue.endMs}-${cue.speaker ?? ""}`;
+const lineId = (startMs: number, endMs: number, speaker: string | null) =>
+  `${startMs}-${endMs}-${speaker ?? ""}`;
+
+const fileLineOf = (cue: Cue): FileLine => ({
+  startMs: cue.startMs,
+  endMs: cue.endMs,
+  text: cue.text,
+  label: cue.speaker ?? "",
+});
+
+/** The word before or after the caret, or the line's first or last when it has none. */
+function wordBeside(
+  list: HTMLElement,
+  line: HTMLElement,
+  at: number | null,
+  direction: 1 | -1,
+): HTMLElement | null {
+  if (at === null) {
+    const own = [...line.querySelectorAll<HTMLElement>("[data-word]")];
+    return (direction === 1 ? own[0] : own.at(-1)) ?? null;
+  }
+  const words = [...list.querySelectorAll<HTMLElement>("[data-word]")];
+  const index = words.findIndex(
+    (word) => word.closest("[data-line]") === line && Number(word.dataset.at) === at,
+  );
+  return index < 0 ? null : (words[index + direction] ?? null);
+}
 
 const speakerButtonOf = (line: Element | null | undefined) =>
   line?.querySelector<HTMLButtonElement>("[data-speaker-button]") ?? null;
@@ -213,6 +260,7 @@ function TranscriptContent({
   aside?: ReactNode;
 }) {
   const t = useT();
+  const language = useLanguage();
   const meeting = useMeetings((state) => state.meetings.find((each) => each.id === meetingId));
   const live = meeting?.status === "recording";
   const state = meeting?.transcript?.state;
@@ -227,23 +275,48 @@ function TranscriptContent({
   const [markRoom, setMarkRoom] = useState(0);
   const mark = quoteMarkOf(target.citation);
   const hintId = useId();
+  const owner = useId();
   // The line the User is on, by its id: the one Enter, the button and ⌘K add.
   const [active, setActive] = useState<string | null>(null);
-  const activeRef = useRef<Cue | null>(null);
+  const activeId = useRef<string | null>(null);
+  // The word a click or Left and Right put the caret before (#138): Enter splits the line there.
+  const [caret, setCaret] = useState<{ line: string; at: number } | null>(null);
+  const caretRef = useRef(caret);
+  caretRef.current = caret;
+  const [rest, setRest] = useState<{ line: string; step: SpeakersStep; done(): void } | null>(null);
   const [added, setAdded] = useState<LineAdded | null>(null);
 
   const microphonePausedAtMs = meeting?.microphonePausedAtMs ?? null;
   const resumeMicrophone = () => {
     if (meetingId) void useMeetings.getState().setMicrophonePaused(meetingId, false);
   };
+  const speakers = document?.speakers ?? null;
+  const pieces = useMemo(
+    () => new Map(transcript.cues.map((cue) => [cue, wordPieces(cue.text, language)])),
+    [transcript, language],
+  );
+  const parts = useMemo<PartRow[]>(
+    () =>
+      transcript.cues.flatMap((cue) =>
+        partsOf(speakers, fileLineOf(cue)).map((part, index, all) => ({
+          id: lineId(part.startMs, part.endMs, cue.speaker),
+          part,
+          cue,
+          pieces: piecesBetween(
+            pieces.get(cue) ?? [],
+            part.at,
+            all[index + 1]?.at ?? cue.text.length,
+          ),
+        })),
+      ),
+    [transcript, speakers, pieces],
+  );
+  const partsRef = useRef(parts);
+  partsRef.current = parts;
   const rows = useMemo<Row[]>(
     () =>
       [
-        ...transcript.cues.map((cue): Row & { at: number } => ({
-          kind: "cue",
-          cue,
-          at: cue.startMs,
-        })),
+        ...parts.map((row): Row & { at: number } => ({ kind: "cue", ...row, at: row.cue.startMs })),
         ...listedGaps(transcript.gaps).map((gap): Row & { at: number } => ({
           kind: "gap",
           gap,
@@ -259,15 +332,15 @@ function TranscriptContent({
               },
             ]),
       ].sort((a, b) => a.at - b.at),
-    [transcript, microphonePausedAtMs],
+    [parts, transcript, microphonePausedAtMs],
   );
   const units = useMemo(() => transcriptUnits(transcript), [transcript]);
   const lines = useMemo<TranscriptLine[]>(
     () =>
-      transcript.cues.flatMap((cue) =>
-        cue.speaker === null ? [] : [{ startMs: cue.startMs, label: cue.speaker }],
+      parts.flatMap(({ cue, part }) =>
+        cue.speaker === null ? [] : [{ startMs: part.startMs, label: part.label }],
       ),
-    [transcript],
+    [parts],
   );
   // Who speaks is said on a Meeting's saved Transcript, once the speaker pass has settled (#138).
   const nameable =
@@ -278,7 +351,24 @@ function TranscriptContent({
     document?.kind === "transcript"
       ? document
       : null;
-  const speakers = document?.speakers ?? null;
+  // A saved Transcript plays while its audio is kept; never while it records (#138).
+  const playable =
+    meeting?.status === "stopped" && state === "saved" && meeting.audio.kept && document !== null;
+  const playerOpen = useTranscriptPlayer((player) => player.playback?.owner === owner);
+  // In a Meeting's page, where the prototype has it; a Document's toolbar has no room for it.
+  const { embedded } = useContext(ViewerFrameContext);
+  const tipShown = useFeatureTip("transcript-word", meetingId ?? "", playable && embedded === true);
+  useEffect(() => {
+    const player = useTranscriptPlayer.getState();
+    if (!playable && player.playback?.owner === owner) player.stop();
+  }, [playable, owner]);
+  useEffect(
+    () => () => {
+      const player = useTranscriptPlayer.getState();
+      if (player.playback?.owner === owner) player.stop();
+    },
+    [owner],
+  );
 
   /** The lines of the cited Units, by the time they start. */
   const citedLines = useCallback(() => {
@@ -304,8 +394,9 @@ function TranscriptContent({
   }, [citedLines]);
   useCitedArea(units.length > 0, citedArea);
 
+  // A part's own words, cited at its file's line, whose quote shows it as the part (#138).
   const addLine = useCallback(
-    async (cue: Cue) => {
+    async ({ cue, part }: PartRow) => {
       if (!meetingId || !document) return;
       const unit = units.find(
         ({ label }) =>
@@ -314,7 +405,14 @@ function TranscriptContent({
           cue.startMs >= label.from &&
           cue.startMs <= label.to,
       );
-      setAdded(await addLineToNote({ document, meetingId, cue, page: unit?.page ?? null }));
+      setAdded(
+        await addLineToNote({
+          document,
+          meetingId,
+          cue: { ...cue, text: part.text },
+          page: unit?.page ?? null,
+        }),
+      );
     },
     [document, meetingId, units],
   );
@@ -324,32 +422,144 @@ function TranscriptContent({
     return () => clearTimeout(timer);
   }, [added]);
   useDismissOnEscape(added !== null && added !== "failed", () => setAdded(null));
+
+  const durationMs = meeting?.recordedMs ?? 0;
+  const playFrom = useCallback(
+    (ms: number) => {
+      if (!playable || !meetingId) return;
+      void useTranscriptPlayer.getState().play(meetingId, ms, durationMs, owner);
+    },
+    [playable, meetingId, durationMs, owner],
+  );
+  const focusLine = useCallback((id: string) => {
+    list.current?.querySelector<HTMLElement>(`[data-line="${CSS.escape(id)}"]`)?.focus();
+  }, []);
+  /** Where the caret is in the line, if it is in it. */
+  const caretIn = (row: PartRow) =>
+    caretRef.current?.line === row.id ? caretRef.current.at : null;
+  /** Splits there unless it is the part's first word: who speaks the rest is asked at once. */
+  const splitAt = useCallback(
+    async (row: PartRow, at: number) => {
+      const first = row.pieces.find((piece) => piece.word);
+      if (!nameable || row.cue.speaker === null || !first || at <= first.at) return;
+      const line = fileLineOf(row.cue);
+      const next = withLineSplit(nameable.speakers, line, at, timeAt(row.cue, at), lines);
+      const made = partsOf(next, line).find((part) => part.at === at);
+      if (!made) return;
+      setCaret(null);
+      const step = await useAppStore.getState().setTranscriptSpeakers(
+        nameable.id,
+        next,
+        (t) => t("transcript.split.done"),
+        (t) => t("undo.name.splitLine"),
+      );
+      if (!step) return;
+      const id = lineId(made.startMs, made.endMs, row.cue.speaker);
+      setRest({
+        line: id,
+        step,
+        done: () => {
+          setRest(null);
+          focusLine(id);
+        },
+      });
+    },
+    [nameable, focusLine, lines],
+  );
+
+  const activeRow = useCallback(
+    () => partsRef.current.find((row) => row.id === activeId.current) ?? null,
+    [],
+  );
   const lend = useMemo(
     () => ({
-      hasLine: () => meetingId !== null && activeRef.current !== null,
+      hasLine: () => meetingId !== null && activeRow() !== null,
       addLine: async () => {
-        if (activeRef.current) await addLine(activeRef.current);
+        const row = activeRow();
+        if (row) await addLine(row);
       },
-      canChangeSpeaker: () => nameable !== null && activeRef.current?.speaker != null,
+      canChangeSpeaker: () => nameable !== null && activeRow()?.cue.speaker != null,
       changeSpeaker: () => {
-        const active = activeRef.current;
-        if (!active) return;
+        const row = activeRow();
+        if (!row) return;
         speakerButtonOf(
-          list.current?.querySelector(`[data-line="${CSS.escape(lineId(active))}"]`),
+          list.current?.querySelector(`[data-line="${CSS.escape(row.id)}"]`),
         )?.click();
       },
+      canPlay: (): true | MessageKey =>
+        playable
+          ? true
+          : meeting?.status === "stopped" && !meeting.audio.kept
+            ? "meetings.command.noAudio"
+            : "meetings.command.playAfterStop",
+      play: () => {
+        const row = activeRow();
+        if (!row) return;
+        const at = caretRef.current?.line === row.id ? caretRef.current.at : null;
+        playFrom(at === null ? row.part.startMs : timeAt(row.cue, at));
+      },
+      playing: () => {
+        const playback = useTranscriptPlayer.getState().playback;
+        return playback?.owner === owner ? playback.playing : null;
+      },
+      togglePlayback: () => useTranscriptPlayer.getState().toggle(),
+      canSplit: (): true | MessageKey => {
+        const row = activeRow();
+        if (!nameable) return "meetings.command.noSpeaker";
+        const at = row && caretRef.current?.line === row.id ? caretRef.current.at : null;
+        const first = row?.pieces.find((piece) => piece.word);
+        return row && at !== null && first && at > first.at ? true : "meetings.command.noWord";
+      },
+      split: async () => {
+        const row = activeRow();
+        if (row && caretRef.current?.line === row.id) await splitAt(row, caretRef.current.at);
+      },
     }),
-    [addLine, meetingId, nameable],
+    [activeRow, addLine, meeting, meetingId, nameable, owner, playFrom, playable, splitAt],
   );
   useHandle(transcriptHandle, lend);
-  const first = transcript.cues[0];
-  const firstId = first ? lineId(first) : undefined;
+  const firstId = parts[0]?.id;
 
-  const onLineKey = (event: KeyboardEvent<HTMLElement>, cue: Cue) => {
-    if (event.target !== event.currentTarget) return;
-    if (event.key === "Enter") {
+  const onFocusRow = (row: PartRow) => {
+    setActive(row.id);
+    activeId.current = row.id;
+    if (caretRef.current && caretRef.current.line !== row.id) setCaret(null);
+  };
+
+  const onWord = (row: PartRow, at: number) => {
+    if (nameable) setCaret({ line: row.id, at });
+    if (!playable) return;
+    if (tipShown) closeTip("transcript-word");
+    playFrom(timeAt(row.cue, at));
+  };
+
+  const onLineKey = (event: KeyboardEvent<HTMLElement>, row: PartRow) => {
+    if (event.target !== event.currentTarget || event.nativeEvent.isComposing) return;
+    if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+    const at = caretIn(row);
+    const player = useTranscriptPlayer.getState();
+    const playing = player.playback?.owner === owner;
+    if (event.key === " " && playing) {
       event.preventDefault();
-      void addLine(cue);
+      void player.toggle();
+    } else if (event.key === "Escape" && (playing || at !== null)) {
+      event.preventDefault();
+      if (playing) player.stop();
+      else setCaret(null);
+    } else if ((event.key === "ArrowRight" || event.key === "ArrowLeft") && nameable) {
+      const direction = event.key === "ArrowRight" ? 1 : -1;
+      const word = list.current && wordBeside(list.current, event.currentTarget, at, direction);
+      const line = word?.closest<HTMLElement>("[data-line]");
+      if (!word || !line?.dataset.line) return;
+      event.preventDefault();
+      // Focus first: a line focused drops a caret in another, and this one goes there after.
+      if (line !== event.currentTarget) line.focus();
+      setCaret({ line: line.dataset.line, at: Number(word.dataset.at) });
+      word.scrollIntoView({ block: "nearest" });
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      if (at !== null) void splitAt(row, at);
+      else void addLine(row);
     } else if (event.key === "F2" && nameable) {
       const button = speakerButtonOf(event.currentTarget);
       if (!button) return;
@@ -464,6 +674,11 @@ function TranscriptContent({
             count: transcript.cues.length,
           })}
         </span>
+        {tipShown && (
+          <Tip id="transcript-word" onClose={() => closeTip("transcript-word")}>
+            {t("transcript.word.tip")}
+          </Tip>
+        )}
         {aside}
       </ViewerHeader>
       <div className="relative flex min-h-0 flex-1">
@@ -474,7 +689,10 @@ function TranscriptContent({
           onScroll={onScroll}
           className="viewer-backdrop viewer-text-backdrop min-h-0 min-w-0 flex-1 overflow-auto select-text"
         >
-          <article className="viewer-page viewer-text-page transcript-page">
+          <article
+            data-player={playerOpen || undefined}
+            className="viewer-page viewer-text-page transcript-page"
+          >
             <div ref={column} className="relative">
               {rows.length === 0 && partials.length === 0 && (
                 <p data-testid="transcript-empty" className="transcript-empty">
@@ -483,7 +701,7 @@ function TranscriptContent({
               )}
               {meetingId && (
                 <p id={hintId} className="sr-only">
-                  {t("transcript.line.hint")}
+                  {t(nameable ? "transcript.line.hintSplit" : "transcript.line.hint")}
                 </p>
               )}
               <ol
@@ -495,63 +713,23 @@ function TranscriptContent({
               >
                 {rows.map((row) =>
                   row.kind === "cue" ? (
-                    <li
-                      key={`c${lineId(row.cue)}`}
-                      data-testid="transcript-line"
-                      data-start={row.cue.startMs}
-                      data-line={lineId(row.cue)}
-                      tabIndex={
-                        meetingId ? ((active ?? firstId) === lineId(row.cue) ? 0 : -1) : undefined
-                      }
-                      aria-describedby={meetingId ? hintId : undefined}
-                      onFocus={() => {
-                        setActive(lineId(row.cue));
-                        activeRef.current = row.cue;
-                      }}
-                      onKeyDown={meetingId ? (event) => onLineKey(event, row.cue) : undefined}
-                      className="transcript-line group"
-                    >
-                      <span data-quote-skip="" className="transcript-time">
-                        {paddedClockTime(row.cue.startMs)}
-                      </span>
-                      <div className="min-w-0">
-                        {row.cue.speaker &&
-                          (nameable ? (
-                            <SpeakerMenu
-                              document={nameable}
-                              lines={lines}
-                              line={{ startMs: row.cue.startMs, label: row.cue.speaker }}
-                            />
-                          ) : (
-                            <p
-                              data-testid="transcript-speaker"
-                              data-quote-skip=""
-                              className="transcript-speaker"
-                            >
-                              {shownSpeaker(speakers, row.cue.startMs, row.cue.speaker, t)}
-                            </p>
-                          ))}
-                        <p className="transcript-text">{row.cue.text}</p>
-                      </div>
-                      {meetingId && (
-                        <button
-                          type="button"
-                          tabIndex={-1}
-                          data-testid="transcript-add"
-                          data-quote-skip=""
-                          aria-label={t("transcript.addToNote.line", {
-                            time: clockTime(row.cue.startMs),
-                            text: row.cue.text,
-                          })}
-                          title={t("transcript.addToNote")}
-                          onClick={() => void addLine(row.cue)}
-                          className="transcript-add"
-                        >
-                          <PlusLineIcon className="size-3.5" />
-                          <span className="transcript-add-word">{t("transcript.addToNote")}</span>
-                        </button>
-                      )}
-                    </li>
+                    <TranscriptRow
+                      key={`c${row.id}`}
+                      row={row}
+                      meetingId={meetingId}
+                      focusable={(active ?? firstId) === row.id}
+                      hintId={hintId}
+                      nameable={nameable}
+                      lines={lines}
+                      speakers={speakers}
+                      playable={playable}
+                      caretAt={caret?.line === row.id ? caret.at : null}
+                      rest={rest?.line === row.id ? rest : null}
+                      onFocus={onFocusRow}
+                      onKeyDown={onLineKey}
+                      onWord={onWord}
+                      onAdd={(each) => void addLine(each)}
+                    />
                   ) : row.kind === "microphone" ? (
                     <li
                       key="microphone-paused"
@@ -648,6 +826,7 @@ function TranscriptContent({
             {t("transcript.follow")}
           </button>
         )}
+        <TranscriptPlayerBar owner={owner} />
       </div>
     </>
   );

@@ -49,6 +49,7 @@ import {
   type AudioSource,
   MEETING_AUDIO_KEPT_MS,
   type Meeting,
+  type MeetingAudioStretch,
   type MeetingFill,
   type MeetingGap,
   type MeetingHelp,
@@ -67,12 +68,16 @@ import {
   meetingFolder,
   msOf,
   PART_SAMPLES,
+  readStretch,
   removeAudio,
   removeUnfinished,
   writePart,
 } from "./audioFiles";
 import type { CaptureHealthRecords } from "./health";
 import type { Transcripts } from "./transcript";
+
+/** The longest stretch of audio read at once for playing: the player asks for the next as it goes. */
+const MAX_STRETCH_MS = 30_000;
 
 /** Samples arriving this much later than the ones before them could have: a new run starts where they belong. */
 const DISCONTINUITY_MS = 1000;
@@ -1062,6 +1067,26 @@ export function createMeetings(options: MeetingsOptions) {
       if (!transcripts) throw new InvalidInputError("This copy of IncarnaMind can't transcribe.");
       transcripts.retry(row.id);
       return toMeeting(rowOf(row.id));
+    },
+
+    /**
+     * A stretch of a stopped Meeting's audio for playing it from a word (#138): see
+     * `readStretch`. NotFoundError once its audio is deleted or its files are gone.
+     */
+    readAudio(input: unknown): MeetingAudioStretch {
+      const { meetingId, fromMs, toMs } = isRecord(input) ? input : {};
+      if (typeof fromMs !== "number" || typeof toMs !== "number" || !(toMs > fromMs)) {
+        throw new InvalidInputError({ key: "error.meeting.audioStretch" });
+      }
+      const row = rowOf(meetingId);
+      const from = Math.max(0, fromMs);
+      const to = Math.min(toMs, from + MAX_STRETCH_MS);
+      const samples =
+        row.audio_deleted_at === null && row.status === "stopped"
+          ? readStretch(folderOf(row.id), from, to)
+          : null;
+      if (!samples) throw new NotFoundError({ key: "error.meeting.audioGone" });
+      return { fromMs: from, toMs: to, sampleRate: MEETING_SAMPLE_RATE, samples };
     },
 
     deleteAudio(meetingId: unknown): Meeting {

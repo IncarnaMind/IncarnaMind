@@ -283,14 +283,15 @@ export function createFakeCloud(options: FakeCloudOptions = {}): CloudConnect {
                       },
                     }
                   : {
+                      // A token a word, each timed evenly over the line, as Soniox times them.
                       tokens: [
-                        {
-                          text,
-                          start_ms: start,
-                          end_ms: end,
+                        ...text.split(" ").map((word, index, words) => ({
+                          text: index === 0 ? word : ` ${word}`,
+                          start_ms: start + Math.round(((end - start) * index) / words.length),
+                          end_ms: start + Math.round(((end - start) * (index + 1)) / words.length),
                           is_final: true,
                           speaker,
-                        },
+                        })),
                         { text: "<end>", is_final: true },
                       ],
                       final_audio_proc_ms: end,

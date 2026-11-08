@@ -98,6 +98,7 @@ export function createXaiStream(options: CloudStreamOptions): CloudStreamHandle 
       final: true,
       decodeMs: 0,
       ...(done.speaker !== null && { speaker: done.speaker }),
+      words: done.words.map((word) => ({ text: word.text, ms: word.start })),
     });
   }
 
