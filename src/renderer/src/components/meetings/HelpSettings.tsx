@@ -9,8 +9,9 @@ import {
   isGlobalKeys,
 } from "../../../../shared/meetingHelp";
 import { SAYS_HIDDEN_FROM_SHARES } from "../../../../shared/meetingPanel";
+import { loadCallHelpOffer, useCallHelpOffer } from "../../callHelpOffer";
 import { keysHere } from "../../commands/keymap";
-import { core, files } from "../../core";
+import { files } from "../../core";
 import { useT } from "../../i18n";
 import { useModelInUse } from "../../modelInUse";
 import { useModelNames } from "../../modelNames";
@@ -189,45 +190,30 @@ function ShortcutRow({ kind, device }: { kind: HelpShortcut; device: Settings["d
 
 const MODEL_TARGET = ["call-help-model"] as const;
 
-/** The fastest model call help can answer on, as the core works it out, asked again when the models change. */
-function useFastestHelpModel(answers: ChatModelChoice | null): ChatModelChoice | null {
-  const quickTasksModel = useAppStore((state) => state.settings?.user.quickTasksModel);
-  const [fastest, setFastest] = useState<ChatModelChoice | null>(null);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: asked again whenever they change.
-  useEffect(() => {
-    core.getModelRoles().then(
-      (roles) => setFastest(roles.callHelp),
-      (failure: unknown) => console.error("Couldn't read call help's fastest model:", failure),
-    );
-  }, [answers?.providerId, answers?.modelId, quickTasksModel]);
-  return fastest;
-}
-
 /**
- * Which model call help answers on (#2526): the fastest, the Answers model's provider's quick
- * model, by default; or the Answers model itself. Each option names its model.
+ * Which model call help answers on (#2526): the Answers model, by default, or its provider's quick
+ * model, which replies in about a second but cites less carefully. Shown only where a quick model
+ * is offered for the model a new Note answers on; each option names its model.
  */
 function CallHelpModelRow() {
   const t = useT();
   const labelId = useId();
+  const detailId = useId();
   const chosen = useAppStore((state) => state.settings?.user.callHelpModel);
-  // A new meeting's Note answers on the model last chosen, as any new Note does.
   const answers = useModelInUse(null);
   const updateSettings = useAppStore((state) => state.updateSettings);
-  const fastest = useFastestHelpModel(answers);
+  const fastest = useCallHelpOffer((state) => state.fastest);
+  useEffect(loadCallHelpOffer, []);
   const names = useModelNames();
-  const row = useSettingsTarget<HTMLDivElement>(MODEL_TARGET, chosen !== undefined, () =>
+  const row = useSettingsTarget<HTMLDivElement>(MODEL_TARGET, fastest !== null, () =>
     queueMicrotask(() =>
       row.current
         ?.querySelector<HTMLButtonElement>('[data-testid="call-help-model"]')
         ?.focus({ preventScroll: true }),
     ),
   );
-  if (!chosen) return null;
-  const nameOf = (choice: ChatModelChoice | null) =>
-    choice && names(choice.modelId, choice.providerId).name;
-  const fastestName = nameOf(fastest);
-  const answersName = nameOf(answers);
+  if (!chosen || !fastest || !answers) return null;
+  const nameOf = ({ modelId, providerId }: ChatModelChoice) => names(modelId, providerId).name;
   return (
     <SettingsRow
       ref={row}
@@ -235,21 +221,19 @@ function CallHelpModelRow() {
       label={t("meetings.settings.helpModel")}
       labelId={labelId}
       tip={t("meetings.settings.helpModel.tip")}
+      detail={t("meetings.settings.helpModel.trade")}
+      detailId={detailId}
       control={
         <PopUpButton<CallHelpModel>
           value={chosen}
           options={[
             {
-              value: "fastest",
-              label: fastestName
-                ? t("meetings.settings.helpModel.fastest", { model: fastestName })
-                : t("meetings.settings.helpModel.fastestUnnamed"),
+              value: "answers",
+              label: t("meetings.settings.helpModel.answers", { model: nameOf(answers) }),
             },
             {
-              value: "answers",
-              label: answersName
-                ? t("meetings.settings.helpModel.answers", { model: answersName })
-                : t("meetings.settings.helpModel.answersUnnamed"),
+              value: "fastest",
+              label: t("meetings.settings.helpModel.fastest", { model: nameOf(fastest) }),
             },
           ]}
           onChange={(callHelpModel) => void updateSettings({ user: { callHelpModel } })}

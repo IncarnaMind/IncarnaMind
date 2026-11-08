@@ -304,7 +304,7 @@ import { createPrivacy, type NetworkTrafficRegistry } from "./privacy";
 import { createChanges } from "./proposals/apply";
 import { KeyCharacterError, storedApiKey } from "./providers/apiKey";
 import { readsImages } from "./providers/capabilities";
-import { retrievesFirst, writesThenCites } from "./providers/catalog/answerPaths";
+import { offersQuickHelp, retrievesFirst, writesThenCites } from "./providers/catalog/answerPaths";
 import {
   DECISION_HOST_ENTRIES,
   DECISION_HOSTS,
@@ -2208,10 +2208,23 @@ export function createCore(adapters: CoreAdapters): Core {
    */
   const refusedHelp = new Set<string>();
   const helpKey = ({ providerId, modelId }: ChatModelChoice) => `${providerId}\n${modelId}`;
-  /** The fastest model call help answers on under `answers`: its provider's quick model unless refused. */
-  const fastestHelp = (answers: ChatModelChoice | null): ChatModelChoice | null => {
+  /**
+   * The quick model call help may be set to answer on under `answers`, where the list beside the
+   * catalog offers one for its provider (#2526); null where none is.
+   */
+  const offeredHelp = (answers: ChatModelChoice | null): ChatModelChoice | null => {
     const fastest = chat.fastestHelpModel(answers);
-    return fastest && answers && refusedHelp.has(helpKey(fastest)) ? answers : fastest;
+    if (!answers || !fastest || helpKey(fastest) === helpKey(answers)) return null;
+    const asked = chat.describeModel(answers);
+    const quick = chat.describeModel(fastest);
+    return asked &&
+      quick &&
+      offersQuickHelp(
+        { catalogId: asked.catalogId, modelId: answers.modelId },
+        { catalogId: quick.catalogId, modelId: fastest.modelId },
+      )
+      ? fastest
+      : null;
   };
   const answers = createAnswers({
     content,
@@ -2241,9 +2254,9 @@ export function createCore(adapters: CoreAdapters): Core {
     readiness: async (choice) => chat.readiness(await chat.answeringModel(choice)),
     prepareModel: (choice, thinking) => chat.prepareModel(choice, "chat", thinking),
     helpModel(answers) {
-      if (settings.get().user.callHelpModel === "answers") return null;
-      const fastest = fastestHelp(answers);
-      return fastest && helpKey(fastest) !== helpKey(answers) ? fastest : null;
+      if (settings.get().user.callHelpModel !== "fastest") return null;
+      const fastest = offeredHelp(answers);
+      return fastest && !refusedHelp.has(helpKey(fastest)) ? fastest : null;
     },
     helpModelRefused(model, answers, error) {
       refusedHelp.add(helpKey(model));
@@ -6303,7 +6316,7 @@ export function createCore(adapters: CoreAdapters): Core {
     getModelRoles: async () => ({
       quickTasks: chat.quickTasksModel(),
       images: chat.imageModel(),
-      callHelp: fastestHelp(chat.modelInUse(null)),
+      callHelp: offeredHelp(chat.modelInUse(null)),
     }),
     getChatReadiness: () => chat.readiness(),
     listChatModels: () => chat.listModels(),

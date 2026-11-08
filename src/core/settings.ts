@@ -175,7 +175,7 @@ const userScope: Scope<UserSettings> = {
     chatModel: null,
     quickTasksModel: null,
     imageModel: null,
-    callHelpModel: "fastest",
+    callHelpModel: "answers",
     suggestWhileWriting: false,
     leaveOutOwnFiles: true,
     // Word is the deliverable most asked for; the deliverables leave the Questions out.

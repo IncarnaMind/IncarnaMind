@@ -6967,9 +6967,8 @@ export const zhCN = {
   "meetings.settings.helpModel": "模型",
   "meetings.settings.helpModel.tip": "最快：使用同一 AI 服务的快速模型。",
   "meetings.settings.helpModel.fastest": "最快（{model}）",
-  "meetings.settings.helpModel.fastestUnnamed": "最快",
   "meetings.settings.helpModel.answers": "与回答相同（{model}）",
-  "meetings.settings.helpModel.answersUnnamed": "与回答相同",
+  "meetings.settings.helpModel.trade": "“最快”约 1 秒回复，但引用没那么严谨。",
   "meetings.settings.keys": "快捷键",
   "meetings.settings.keysBody.mac": "会议应用在前台时也能使用，仅在录制时有效。",
   "meetings.settings.keysBody.other":

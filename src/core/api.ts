@@ -3344,8 +3344,8 @@ export interface UserSettings {
    */
   imageModel: ChatModelChoice | null;
   /**
-   * The model call help answers on (#2526): "fastest", its Answers model's provider's quick
-   * model (`ModelRoles.callHelp`), by default; "answers", the Answers model itself.
+   * The model call help answers on (#2526): "answers", the Answers model itself, by default;
+   * "fastest", its provider's quick model where one is offered (`ModelRoles.callHelp`).
    */
   callHelpModel: CallHelpModel;
   /**
@@ -6696,9 +6696,9 @@ export interface ModelRoles {
   /** Null when no model reads images. */
   images: ChatModelChoice | null;
   /**
-   * The model call help answers on when the User leaves it on the fastest: the quick model of
-   * the Answers model's own provider, or the Answers model itself where there is none. Null with
-   * no Answers model.
+   * The quick model call help may be set to answer on (`UserSettings.callHelpModel`), for the
+   * model a new Note answers on: its provider's own, where that provider's is offered. Null where
+   * none is: no Answers model, a model on this computer, or a provider not offered yet.
    */
   callHelp: ChatModelChoice | null;
 }

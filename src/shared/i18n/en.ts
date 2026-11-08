@@ -7347,9 +7347,9 @@ export const en = {
   "meetings.settings.helpModel": "Model",
   "meetings.settings.helpModel.tip": "Fastest uses the quick model of your AI’s own provider.",
   "meetings.settings.helpModel.fastest": "Fastest ({model})",
-  "meetings.settings.helpModel.fastestUnnamed": "Fastest",
   "meetings.settings.helpModel.answers": "Same as Answers ({model})",
-  "meetings.settings.helpModel.answersUnnamed": "Same as Answers",
+  "meetings.settings.helpModel.trade":
+    "Fastest replies in about a second, but cites less carefully.",
   "meetings.settings.keys": "Shortcuts",
   "meetings.settings.keysBody.mac": "They work over the meeting app, only while recording.",
   "meetings.settings.keysBody.other":
