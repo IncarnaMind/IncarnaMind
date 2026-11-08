@@ -11,6 +11,7 @@ import {
   openPlanPage,
   removeDataFolder,
   setLanguage,
+  setupWay,
   setWindowSize,
   urlsOpened,
 } from "./app";
@@ -123,7 +124,7 @@ test("first run, in Chinese: an earlier sign-in's address is refused, and the ad
     await window.keyboard.type("我的文档里有什么？");
     await window.keyboard.press("Enter");
     const setup = window.getByTestId("model-setup");
-    await setup.getByTestId("setup-chatgpt").click();
+    await (await setupWay(window, setup, "setup-chatgpt")).click();
     const address = await addressAfterApproving(app);
 
     await expect(setup).toContainText("没有回到 IncarnaMind？粘贴浏览器地址栏里的地址");

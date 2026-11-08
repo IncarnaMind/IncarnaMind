@@ -26,7 +26,13 @@ import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { formatDate } from "../../src/shared/dates";
 import { readFigures } from "../../src/shared/figures";
 import { onThisClock } from "../../src/shared/fileProperties";
-import { checkGenerate, isCheckRun, requestedFigures, sentenceOf } from "../helpers/checks";
+import {
+  checkGenerate,
+  isCheckRun,
+  requestedFigures,
+  SAME_DETAIL,
+  sentenceOf,
+} from "../helpers/checks";
 import { shownPassages } from "../helpers/citations";
 import { createTempDataFolder, queryDatabase, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
@@ -134,6 +140,7 @@ function propertyModel(plans: Record<string, Plan>, calls: ModelCall[]) {
         ...(property === null ? [] : [`Property: ${property}`]),
         "Absence: no",
         "Topic: found",
+        SAME_DETAIL,
         ...(plan.says ? [`${plan.says}${quote ? " [^1]" : ""}`] : []),
         ...(plan.change ? [`Change 1: ${plan.change[0]}`, `To 1: ${plan.change[1]} [^1]`] : []),
         ...(plan.covered ? [`Covered: ${plan.covered[0]}`, `Not covered: ${plan.covered[1]}`] : []),
