@@ -1217,8 +1217,8 @@ export const useAppStore = create<AppState>()((set, get) => {
         set({
           ...fresh,
           examples,
-          readyQuestion: firstOpen.ready,
-          readyReading: firstOpen.reading,
+          readyQuestion: firstOpen?.ready ?? null,
+          readyReading: firstOpen?.reading ?? null,
           otherExamples: otherExamples.filter(isMade),
           askedOwnAtLaunch: settings.device.gettingStarted.askedOwn,
           status: { kind: "ready" },
@@ -2323,7 +2323,10 @@ useAppStore.subscribe((state, before) => {
   ) {
     core.readyQuestion().then(
       (firstOpen) =>
-        useAppStore.setState({ readyQuestion: firstOpen.ready, readyReading: firstOpen.reading }),
+        useAppStore.setState({
+          readyQuestion: firstOpen?.ready ?? null,
+          readyReading: firstOpen?.reading ?? null,
+        }),
       (error: unknown) => console.error("Couldn't read the first open's ready Question.", error),
     );
   }
