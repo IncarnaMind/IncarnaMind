@@ -319,3 +319,31 @@ The runs were made at 4c0d76e87, `today` on main's path, three runs of every pre
 - **Cases with a false Supported,** presses over three runs, today → step, among them: en4-answer-onboarding 3 → 0, en4-answer-battery 2 → 0, en4-check-right 3 → 3, en4-say-outage 2 → 2, en4-answer-phone-zh 2 → 2 (it keeps `cite`); zh4-answer-texts 2 → 3, zh4-ask-sites 1 → 3, zh4-say-outage 0 → 3, zh4-check-right 3 → 1, zh4-answer-volume 3 → 2; en3-answer-two 3 → 0, en3-check-right 0 → 3, zh3-say-support 2 → 3. The step's are a claim saying more than its quote in words no rule reads ("which would cover your early-morning calls", 不过团队版其他需求都能覆盖), and check-right's "the agreement says" over the call's line.
 - Neither arm searched again. The step took one request in 111 of 120 presses; today took two in 117.
 - **Spend:** $5.04 for this run (judge $1.33), $1.11 for the stopped one: $6.15 of this look's $10.
+
+## Fourth look: a check names both lines (added 2026-11-08, committed before any run on its slice)
+
+The third look's English "cited" fell where a reply checking what was said against a Document named only the call's line ("You said … [^1]; the agreement supports this"), so the Document's line the press rests on went uncited.
+
+### What changes
+
+- **The marks path's instructions** (`MARKS_PASSAGES` in `src/core/answers/prompt.ts`) add one line: "When a sentence checks what was said in the call against a Document: if the Document supports it, put both markers right after what was said, the call line's and the Document's, as "you said X [^1][^4]"; if the Document contradicts it, put the call line's marker after what was said and the Document's after what the Document says." Its example names no press of any set.
+- The picker is as the third look ran it. Its extra negations ("without", "cannot", "neither", "nor", "none") are now its own; `unmarkedQuotes.ts` counts the same negations as on main, so nothing outside the switched-off path changes.
+
+### The slice
+
+`../callHelpChecks.ts` (`call-help-checks`), 10 English and 10 Chinese presses written for this look: a shift-scheduling vendor and a restaurant group, four Documents a language (plans with a table and a volume price, kiosks, payroll export, data and privacy), none in a set before it. Each language has three presses checking what was said against a Document that supports it, one checking two claims the Document contradicts, three answers, and one each of say, ask and no. No run, prompt or probe has seen it; the picker's rules were not looked at against it.
+
+### The run
+
+- Claude Sonnet 5.5 on the direct Anthropic key, judged by Claude Opus 5.5.
+- `today` (main's path: no model is on `MARKS_PASSAGES`) against `help-marks-passages`, paired, three runs, false Supported counted, the arms' order turning per model, set and language (#2791).
+- Started at a 15-minute load of 24 or less. Spend: about $3.50, within the $8 for this look.
+
+### The bar
+
+Sonnet is listed only if, in each language:
+
+- **Cited and false Supported** hold on counts pooled over the three runs: the step's presses with the expected Passages cited no fewer than today's, its presses with a false Supported no more.
+- **Judged right and every Citation found** hold by the range rule ("The bar" above).
+- **Sooner:** the step's medians of the first whole option and of done are below today's.
+- **None new:** no more Tool calls left as text, replies that showed nothing, replies written while the live text was behind, or presses failing to run.

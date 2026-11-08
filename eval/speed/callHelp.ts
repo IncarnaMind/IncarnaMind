@@ -40,6 +40,7 @@ import {
   callOf,
   TRANSCRIPT,
 } from "./callHelpCases";
+import { CALL_HELP_CHECKS } from "./callHelpChecks";
 import { CALL_HELP_DOCUMENTS } from "./callHelpDocuments";
 import { CALL_HELP_FRESH } from "./callHelpFresh";
 import { CALL_HELP_HELD_OUT } from "./callHelpHeldOut";
@@ -522,13 +523,19 @@ export async function openCall(
   }
 }
 
-type CallHelpSet = "call-help" | "call-help-held-out" | "call-help-fresh" | "call-help-documents";
+type CallHelpSet =
+  | "call-help"
+  | "call-help-held-out"
+  | "call-help-fresh"
+  | "call-help-documents"
+  | "call-help-checks";
 
 const CASES: Readonly<Record<CallHelpSet, readonly CallHelpCase[]>> = {
   "call-help": CALL_HELP_CASES,
   "call-help-held-out": CALL_HELP_HELD_OUT,
   "call-help-fresh": CALL_HELP_FRESH,
   "call-help-documents": CALL_HELP_DOCUMENTS,
+  "call-help-checks": CALL_HELP_CHECKS,
 };
 
 /** One group a case: its own Library, its own Meeting heard before the press. */

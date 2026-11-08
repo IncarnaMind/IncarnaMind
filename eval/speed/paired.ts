@@ -48,6 +48,7 @@ export const SET_IDS = [
   "call-help-held-out",
   "call-help-fresh",
   "call-help-documents",
+  "call-help-checks",
   "meeting-notes",
 ] as const;
 export type SetId = (typeof SET_IDS)[number];
