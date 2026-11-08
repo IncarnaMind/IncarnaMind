@@ -601,6 +601,7 @@ for (const cloud of [true, false] as const) {
     // The flows aren't known: the line names the service, or none on this computer, and opens no popover.
     await expect(label).toHaveText(cloud ? LINES.en.cloud : LINES.en.local);
     await label.hover();
+    await expect(label).not.toHaveAttribute("type", "button");
     await expect(window.getByTestId("status-sends")).toHaveCount(0);
 
     await releaseFlowList(app);

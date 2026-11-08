@@ -155,6 +155,21 @@ export const ARMS: readonly Arm[] = [
     }),
   },
   {
+    id: "help-answers-model",
+    label: "call help on the Answers model: Settings › Meetings' Same as Answers, as before #2526",
+    prepare: async (core) => {
+      await core.updateSettings({ user: { callHelpModel: "answers" } });
+    },
+  },
+  {
+    id: "help-fastest",
+    label:
+      "call help on the quick model of the Answers model's provider: Settings › Meetings' Fastest, the User's choice since #2526",
+    prepare: async (core) => {
+      await core.updateSettings({ user: { callHelpModel: "fastest" } });
+    },
+  },
+  {
     id: "help-form-judged",
     label:
       "call help's own options, readings and short lines judged as the model's working, as before #2778",

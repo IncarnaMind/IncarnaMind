@@ -115,21 +115,44 @@ export function errorDoing(t: Translate, language: Language, call: string): stri
 }
 
 /**
+ * What a notice's line says, in the interface language: the sentence the failure carries, or the
+ * plain Problem for one this window's own code raised, whose sentence names code (#2823).
+ */
+export function errorLine(
+  t: Translate,
+  notice: Pick<ErrorNotice, "message" | "wording" | "reason" | "programError">,
+): string {
+  if (notice.programError) return t("error.action.plain");
+  const said = notice.wording
+    ? t(notice.wording.key, notice.wording.values)
+    : notice.reason
+      ? t(notice.reason)
+      : notice.message;
+  return t("error.action", { message: said });
+}
+
+/**
  * A notice's Details, in plain words and never an internal name: what was said, what was being
  * done, and what to do. The method and the class that failed go to the log (`ErrorNotice.log`).
  */
 export function errorDetails(
   t: Translate,
   language: Language,
-  notice: Pick<ErrorNotice, "message" | "wording" | "reason" | "call">,
+  notice: Pick<ErrorNotice, "message" | "wording" | "reason" | "call" | "programError" | "stale">,
 ): string[] {
-  const said = notice.wording
-    ? t(notice.wording.key, notice.wording.values)
-    : notice.reason
-      ? t(notice.reason)
-      : notice.message;
+  const said = notice.programError
+    ? t("error.details.internal")
+    : notice.wording
+      ? t(notice.wording.key, notice.wording.values)
+      : notice.reason
+        ? t(notice.reason)
+        : notice.message;
   const doing = notice.call ? errorDoing(t, language, notice.call) : null;
   const tried = doing ? t("error.details.tried", { doing }) : t("error.details.tried.unknown");
-  const todo = (notice.reason && WHAT_TO_DO[notice.reason]) || "error.details.todo";
+  const todo = notice.programError
+    ? notice.stale
+      ? "error.details.todo.stale"
+      : "error.details.todo"
+    : (notice.reason && WHAT_TO_DO[notice.reason]) || "error.details.todo";
   return [said, tried, t(todo)];
 }

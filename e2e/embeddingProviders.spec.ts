@@ -81,7 +81,7 @@ test("off by default; Turn on… and a switch to a cloud model each ask first, a
   await picker.selectOption("openai");
   await expect(confirm).toContainText("Switch to OpenAI · text-embedding-3-small?");
   await expect(confirm.getByTestId("embedding-confirm-cloud")).toHaveText(
-    "OpenAI will receive the full text of all your Documents, and every search you make.",
+    "OpenAI will receive the full text of all your Documents, each passage with its Document’s name, and every search you make.",
   );
   await confirm.getByTestId("embedding-confirm-cancel").click();
   await expect(picker).toHaveValue("built-in");

@@ -171,7 +171,11 @@ describe("Accounts and keys: what each row is used for (#2835)", () => {
     const uses = accountUses({
       ...none,
       chatModel: { providerId: openai.id, modelId: "gpt-6-luna" },
-      roles: { quickTasks: { providerId: openai.id, modelId: "gpt-6-luna" }, images: null },
+      roles: {
+        quickTasks: { providerId: openai.id, modelId: "gpt-6-luna" },
+        images: null,
+        callHelp: null,
+      },
       transcriptionRoute: "openai",
       services: [service("openai", "provider", openai.id)],
       embedding: embeddingOf("openai"),

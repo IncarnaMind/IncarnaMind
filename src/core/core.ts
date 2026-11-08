@@ -306,7 +306,8 @@ import { createPrivacy, type NetworkTrafficRegistry } from "./privacy";
 import { createChanges } from "./proposals/apply";
 import { KeyCharacterError, storedApiKey } from "./providers/apiKey";
 import { readsImages } from "./providers/capabilities";
-import { retrievesFirst, writesThenCites } from "./providers/catalog/answerPaths";
+import { withoutDateSuffix } from "./providers/catalog";
+import { offersQuickHelp, retrievesFirst, writesThenCites } from "./providers/catalog/answerPaths";
 import {
   DECISION_HOST_ENTRIES,
   DECISION_HOSTS,
@@ -335,6 +336,7 @@ import {
 import { isCloudModelName } from "./providers/ollamaCloud";
 import { createOllamaModels } from "./providers/ollamaModels";
 import { outputTokens } from "./providers/outputLimits";
+import { classifyProviderError } from "./providers/providerErrors";
 import { createAiSdkRerankingModel, createRerank } from "./providers/rerank";
 import { createQuestions } from "./questions";
 import { createRecentlyDeleted } from "./recentlyDeleted";
@@ -1623,10 +1625,16 @@ export function createCore(adapters: CoreAdapters): Core {
       ? tunedSearch(tuning, query, options, (tuned) => documents.searchTool(query, tuned))
       : documents.searchTool(query, options);
   };
+  /** Whether a scope names Folders inside `wallId` only: a Note behind a wall reads such a scope itself (#2427). */
+  const scopeInsideWall = (scope: SearchScope, wallId: string): boolean =>
+    scope.tagIds.length === 0 &&
+    scope.documentIds.length === 0 &&
+    scope.folderIds.length > 0 &&
+    scope.folderIds.every((id) => library.wallOf(id) === wallId);
   const constrainedScope = (scope: SearchScope, mindId: string | null = null): SearchScope => {
     const own = mindId !== null && mindExists(mindId) ? minds.get(mindId).folderId : null;
     const ownWall = own === null ? null : library.wallOf(own);
-    if (ownWall !== null) return folderScope(ownWall);
+    if (ownWall !== null) return scopeInsideWall(scope, ownWall) ? scope : folderScope(ownWall);
     return { ...scope, folderIds: scope.folderIds.filter((id) => library.wallOf(id) === null) };
   };
   const resolveScope = (scope: SearchScope | null, mindId: string | null = null) => {
@@ -1880,7 +1888,6 @@ export function createCore(adapters: CoreAdapters): Core {
   const searchedScope = (scope: SearchScope | null, mindId: string | null) => {
     const folderId = mindId !== null && mindExists(mindId) ? minds.get(mindId).folderId : null;
     const wall = walledFolderId(folderId);
-    if (wall !== null) return folderScope(wall);
     const holds =
       folderId !== null &&
       documents
@@ -1891,7 +1898,11 @@ export function createCore(adapters: CoreAdapters): Core {
       folderId,
       holds,
     );
-    return hasSearchScope(searched) ? searched : null;
+    // A Note behind a wall reads its own Folder or a Folder inside the wall, never one beside it;
+    // with nothing of its own to search, the wall stands for every Document (#2427).
+    if (hasSearchScope(searched))
+      return wall === null ? searched : constrainedScope(searched, mindId);
+    return wall === null ? null : folderScope(wall);
   };
   // A scope's Folder is a Library Folder, or one of a Linked folder's (the "@" picker offers both).
   const scopeItemName = (kind: ScopeKind, id: string): string | null =>
@@ -2205,6 +2216,38 @@ export function createCore(adapters: CoreAdapters): Core {
     reportError: (mindId, error) =>
       console.error(`AI use recording failed for Mind ${mindId}:`, error),
   });
+  /**
+   * Call help's models their provider refused, by provider and model (#2526), until the provider
+   * is saved again, so each press doesn't wait on the refusal first.
+   */
+  const refusedHelp = new Set<string>();
+  const helpKey = ({ providerId, modelId }: ChatModelChoice) => `${providerId}\n${modelId}`;
+  /**
+   * The quick model call help may be set to answer on under `answers`, where the list beside the
+   * catalog offers one for its provider (#2526); null where none is, or the provider refused it.
+   */
+  const offeredHelp = (answers: ChatModelChoice | null): ChatModelChoice | null => {
+    const fastest = chat.fastestHelpModel(answers);
+    if (
+      !answers ||
+      !fastest ||
+      (fastest.providerId === answers.providerId &&
+        withoutDateSuffix(fastest.modelId) === withoutDateSuffix(answers.modelId)) ||
+      refusedHelp.has(helpKey(fastest))
+    ) {
+      return null;
+    }
+    const asked = chat.describeModel(answers);
+    const quick = chat.describeModel(fastest);
+    return asked &&
+      quick &&
+      offersQuickHelp(
+        { catalogId: asked.catalogId, modelId: answers.modelId },
+        { catalogId: quick.catalogId, modelId: fastest.modelId },
+      )
+      ? fastest
+      : null;
+  };
   const answers = createAnswers({
     content,
     changes,
@@ -2233,6 +2276,21 @@ export function createCore(adapters: CoreAdapters): Core {
     readsImages: (choice) => chat.readsImages(choice),
     readiness: async (choice) => chat.readiness(await chat.answeringModel(choice)),
     prepareModel: (choice, thinking) => chat.prepareModel(choice, "chat", thinking),
+    helpModel(answers) {
+      if (settings.get().user.callHelpModel !== "fastest") return null;
+      return offeredHelp(answers);
+    },
+    helpModelGaveWay(model, answers, error, why) {
+      const { kind, status } = classifyProviderError(error);
+      (adapters.log ?? silentLogger).warn("callHelp.modelGaveWay", {
+        model: model.modelId,
+        answeredOn: answers.modelId,
+        why,
+        kind,
+        status,
+      });
+    },
+    helpModelRefused: (model) => void refusedHelp.add(helpKey(model)),
     writesThenCites: ({ provider, modelId }, flow) =>
       writesThenCites({ catalogId: provider.catalogId, modelId }, flow, adapters.answerPaths),
     retrievesFirst: ({ provider, modelId }, flow) =>
@@ -6292,6 +6350,10 @@ export function createCore(adapters: CoreAdapters): Core {
     listChatProviders: () => chat.list(),
     saveChatProvider: async (input) => {
       const provider = await chat.save(input);
+      // A new key or plan may reach the quick model it refused before.
+      for (const key of refusedHelp) {
+        if (key.startsWith(`${provider.id}\n`)) refusedHelp.delete(key);
+      }
       await cloudTranscription.refreshKeys(provider.catalogId);
       transcriptionGateChanged();
       settingsChanged();
@@ -6317,7 +6379,11 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     testChatConnection: (input) => loggingTest("chat")(chat.test(input)),
     testChatProvider: (providerId) => loggingTest("chat")(chat.testProvider(providerId)),
-    getModelRoles: async () => ({ quickTasks: chat.quickTasksModel(), images: chat.imageModel() }),
+    getModelRoles: async () => ({
+      quickTasks: chat.quickTasksModel(),
+      images: chat.imageModel(),
+      callHelp: offeredHelp(chat.modelInUse(null)),
+    }),
     getChatReadiness: () => chat.readiness(),
     listChatModels: () => chat.listModels(),
     setChatModelInMenu: async (input) => chat.setInMenu(input),
