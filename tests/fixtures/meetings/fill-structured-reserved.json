@@ -4025,7 +4025,7 @@
       {
         "name": "Venue is Mill Yard",
         "kind": "decision",
-        "pattern": ["Mill Yard", "venue|settled|chose|choice|agreed|decid|go(?:ing)? with|picked"],
+        "pattern": ["Mill Yard", "settled|chose|agreed|decid|go(?:ing)? with|picked"],
         "subject": ["venue|Mill Yard|location"],
         "said": [4, 5],
         "underLine": "Spring meetup venue"
@@ -4237,7 +4237,10 @@
       {
         "name": "Pitch the paper-cut concept",
         "kind": "decision",
-        "pattern": ["paper.?cut", "pitch|decid|agreed|chose|choice|go(?:ing)? with|settled|drop"],
+        "pattern": [
+          "paper.?cut",
+          "decid|agree|chose|go(?:ing)? with|settled|drop|pitch(?:es|ing)? the|(?:will|to) pitch"
+        ],
         "subject": ["concept|direction|pitch|style"],
         "said": [4, 5]
       },

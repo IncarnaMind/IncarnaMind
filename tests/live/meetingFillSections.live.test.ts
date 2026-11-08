@@ -1758,7 +1758,8 @@ const SENTENCES = /[^.!?。！？]+[.!?。！？]+/gu;
 interface NotePart {
   heading: string;
   generated: boolean;
-  items: { text: string; bullet: boolean; ai: boolean; cited: boolean }[];
+  /** `typedAbove`: a line the User typed comes earlier under the same heading. */
+  items: { text: string; bullet: boolean; ai: boolean; cited: boolean; typedAbove: boolean }[];
 }
 
 function partsOf(doc: ProseMirrorNode): NotePart[] {
@@ -1784,6 +1785,7 @@ function partsOf(doc: ProseMirrorNode): NotePart[] {
     bullet,
     ai: generated(node),
     cited: cited(node),
+    typedAbove: current.items.some((each) => !each.ai),
   });
   let current: NotePart = { heading: "", generated: false, items: [] };
   const parts = [current];
@@ -1858,7 +1860,8 @@ function structureOf(doc: ProseMirrorNode, call: Call) {
       .map((topic) => topic.name),
     topicItems: topicItems.length,
     topicSentences: topicItems.map((item) => (item.text.match(SENTENCES) ?? []).length),
-    topicNotBullets: topicItems.filter((item) => !item.bullet).length,
+    // What fills in a typed line under the User's heading stays a paragraph under it.
+    topicNotBullets: topicItems.filter((item) => !item.bullet && !item.typedAbove).length,
     topicUncited: topicItems.filter((item) => !item.cited).length,
     topicPointers: topicItems.filter((item) => isPointer(item.text)).length,
     sectionNotBullets: sectionItems.filter((item) => !item.bullet).length,
@@ -2261,6 +2264,12 @@ function placements(
   call: Call,
   cues: readonly Cue[],
 ): { count: number; inPlace: boolean; cited: boolean } {
+  // A decision or an action is written whole in its section; the typed line it answers then has
+  // a short pointer citing the same turn (#2306).
+  const pointers = (["above", "below"] as const).map((direction) =>
+    translate(call.language, `meetings.fill.reference.${direction}`, { topic: "" }).trim(),
+  );
+  const isPointer = (unit: Unit) => pointers.some((pointer) => unit.text.trim().endsWith(pointer));
   const found = units
     .filter((unit) => unit.ai && says(fact, unit.text))
     .map((unit) => ({ units: [unit], count: occurrences(fact, unit.text) }));
@@ -2276,8 +2285,10 @@ function placements(
       run = [];
     };
     for (const unit of units) {
+      // A pointer names its fact's topic, and is never a part of it.
       const isPart =
         unit.ai &&
+        !isPointer(unit) &&
         !says(fact, unit.text) &&
         parts(fact).some((pattern) => pattern.test(unit.text)) &&
         !call.notDecided?.some((pattern) => pattern.test(unit.text));
@@ -2291,16 +2302,11 @@ function placements(
     }
     close();
   }
-  // A decision or an action is written whole in its section; the typed line it answers then has
-  // a short pointer citing the same turn (#2306).
-  const pointers = (["above", "below"] as const).map((direction) =>
-    translate(call.language, `meetings.fill.reference.${direction}`, { topic: "" }).trim(),
-  );
   const pointed = units.some(
     (unit) =>
       unit.ai &&
       unit.afterLine === fact.underLine &&
-      pointers.some((pointer) => unit.text.trim().endsWith(pointer)) &&
+      isPointer(unit) &&
       citesRightly(unit, fact, call, cues),
   );
   return {
