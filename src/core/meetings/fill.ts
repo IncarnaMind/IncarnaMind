@@ -394,15 +394,17 @@ export function transcriptParts(
   return parts;
 }
 
-/** What `promise` gives, or `stopped` as soon as the fill is stopped. */
-function orStopped<T>(promise: Promise<T>, signal: AbortSignal, stopped: T): Promise<T> {
+/**
+ * What `promise` gives, or `stopped` as soon as the fill is stopped. Its listener goes once
+ * `promise` settles: a fill checks dozens of claims on one signal.
+ */
+export function orStopped<T>(promise: Promise<T>, signal: AbortSignal, stopped: T): Promise<T> {
   if (signal.aborted) return Promise.resolve(stopped);
-  return Promise.race([
-    promise,
-    new Promise<T>((resolve) => {
-      signal.addEventListener("abort", () => resolve(stopped), { once: true });
-    }),
-  ]);
+  return new Promise<T>((resolve, reject) => {
+    const stop = () => resolve(stopped);
+    signal.addEventListener("abort", stop, { once: true });
+    promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", stop));
+  });
 }
 
 /** Whether the speaker pass renamed anyone, once it ends; false if the fill is stopped first. */
