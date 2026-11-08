@@ -400,7 +400,7 @@
     box-shadow: var(--shadow-popover);
   }
   .transcript-player-toggle {
-    @apply inline-flex size-8 shrink-0 items-center justify-center rounded-lg bg-ink text-white hover:bg-ink-strong disabled:opacity-50;
+    @apply inline-flex size-8 shrink-0 items-center justify-center rounded-lg bg-ink text-on-primary hover:bg-ink-strong disabled:opacity-50;
   }
   .transcript-player-track {
     @apply block h-1 min-w-10 flex-auto overflow-hidden rounded-sm bg-rule;
