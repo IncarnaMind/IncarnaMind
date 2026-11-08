@@ -1483,6 +1483,55 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     core.close();
   });
 
+  // protects=Try again pressed while a call's speakers are still told apart, after notes made early failed, says at once that the notes are under way again, and they are written once, after the pass (#2773); fails_when=the line keeps the old problem until the notes land, or they are written before the pass ends or twice; no_claim=which provider error it was.
+  test("Try again during the speaker pass, after notes made early failed, waits for the pass and fills them in once", async () => {
+    let release = () => {};
+    const holds = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let failing = true;
+    let passing = true;
+    const model = fillingModel(
+      PRICING_REPLY,
+      { 1: MY_LINES[0] as string },
+      {},
+      { failing: () => failing },
+    );
+    const { separator } = fakeSeparator({ holds, voiceOf: () => 0 });
+    const writtenWhile: boolean[] = [];
+    const { core, meeting, client } = await recorded(
+      model,
+      NOTES,
+      async (core) => {
+        core.on("meetings.changed", (meetings) => {
+          const fill = meetings.find((each) => each.kind === "meeting")?.fill;
+          if (fill?.state === "filled" && writtenWhile.length === 0) writtenWhile.push(passing);
+        });
+      },
+      undefined,
+      { speakerSeparator: separator, cloud: true },
+    );
+    expect(await settledFill(core, meeting)).toMatchObject({
+      state: "failed",
+      problem: { kind: "model" },
+    });
+    failing = false;
+    expect((await core.fillMeetingNotes(meeting.id)).fill).toMatchObject({
+      state: "waiting",
+      problem: null,
+    });
+    passing = false;
+    release();
+    expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", omitted: 0 });
+    expect(writtenWhile).toEqual([false]);
+    expect(
+      shown(client).filter(
+        (line) => line === "«The enterprise price is 45 dollars a seat »\uFFFC«.»",
+      ),
+    ).toHaveLength(1);
+    core.close();
+  });
+
   // protects=quitting while the notes are filled in leaves the Mind as it was, and the next start says so with Try again; fails_when=anything half-written stays, or the Meeting says it is still filling; no_claim=none beyond protects.
   test("a quit while it fills in leaves nothing written, and the next start says so", async () => {
     const held = new Promise<void>(() => {});

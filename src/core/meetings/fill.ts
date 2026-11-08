@@ -440,7 +440,8 @@ export function createMeetingFill(options: MeetingFillOptions) {
   const running = new Map<string, AbortController>();
   /**
    * Fills started while their call's speakers are told apart (#2773): each writes only once the
-   * pass has ended, and one whose pass renamed a line is made again (`again`).
+   * pass has ended. One whose pass renamed a line is made again (`again`), as is one stopped by
+   * its Note's deletion when the Note is back before it ended.
    */
   const told = new Map<string, SpeakersTold>();
   const again = new Set<string>();
@@ -855,20 +856,24 @@ export function createMeetingFill(options: MeetingFillOptions) {
         log.info("meeting.fillRedone", { meetingId, kind: problem.kind });
         return;
       }
-      log.warn("meeting.fillFailed", { meetingId, kind: problem.kind, message: problem.message });
-      // In Recently deleted it stays as it was: once back, "filling" says it stopped and
-      // "waiting" starts (`restored`).
-      if (meetings.isDeleted(meetingId)) return;
+      // At a quit it is left as it was: the next start says it stopped, or starts it (`resume`).
+      if (closed) return;
+      const deleted = meetings.isDeleted(meetingId);
       // Stopped while its call's speakers were told apart, its notes still wait: the Note came
       // back before this one ended, so they start again.
       if (
+        !deleted &&
         controller.signal.aborted &&
-        !closed &&
         meetings.storedFill(meetingId)?.state === "waiting"
       ) {
+        log.info("meeting.fillRedone", { meetingId, kind: problem.kind });
         again.add(meetingId);
         return;
       }
+      log.warn("meeting.fillFailed", { meetingId, kind: problem.kind, message: problem.message });
+      // In Recently deleted it stays as it was: once back, "filling" says it stopped and
+      // "waiting" starts (`restored`).
+      if (deleted) return;
       set(meetingId, { state: "failed", problem, blocks: [] });
     } finally {
       if (running.get(meetingId) === controller) running.delete(meetingId);
@@ -992,6 +997,8 @@ export function createMeetingFill(options: MeetingFillOptions) {
     retry(meetingId: string): Meeting {
       const fill = meetings.storedFill(meetingId);
       if (fill?.state === "failed" || fill?.state === "off" || fill?.state === "undone") {
+        // While the speakers are told apart, the notes it starts wait for them, as at Stop.
+        if (told.has(meetingId)) set(meetingId, { state: "waiting", problem: null, blocks: [] });
         start(meetingId);
       }
       return meetings.get(meetingId);
