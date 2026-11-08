@@ -692,7 +692,7 @@ export function createCore(adapters: CoreAdapters): Core {
   };
   const mindsChanged = () => events.emit("minds.changed", minds.list());
   function renameJoinedTranscripts(mind: Mind): void {
-    const transcripts = documents.list().filter((each) => each.meetingMindId === mind.id);
+    const transcripts = documents.rows().filter((each) => each.meetingMindId === mind.id);
     if (transcripts.length === 0) return;
     const displayed = mindName(mind).trim();
     const name = displayed
@@ -2906,7 +2906,7 @@ export function createCore(adapters: CoreAdapters): Core {
   }
 
   const documentVersions = () =>
-    new Map(documents.summaries().map((document) => [document.id, document.contentHash]));
+    new Map(documents.rows().map((document) => [document.id, document.contentHash]));
 
   function readFigureSchedule(mindId: string) {
     const mind = minds.get(mindId);
@@ -2940,7 +2940,7 @@ export function createCore(adapters: CoreAdapters): Core {
     libraryState: () =>
       JSON.stringify(
         documents
-          .summaries()
+          .rows()
           .map((document) => [
             document.id,
             document.name,
@@ -4448,7 +4448,7 @@ export function createCore(adapters: CoreAdapters): Core {
   const readyQuestionNow = (): ReadyQuestion | null => {
     const exampleDocuments = new Set(examples.made().documentIds);
     return readyQuestionOf({
-      own: documents.summaries().filter((each) => !exampleDocuments.has(each.id)),
+      own: documents.rows().filter((each) => !exampleDocuments.has(each.id)),
       example: examples.readyQuestion(),
       language: settings.get().language,
     });

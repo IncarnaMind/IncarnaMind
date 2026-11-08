@@ -209,11 +209,11 @@ interface DocumentRow {
 }
 
 /**
- * A Document as its own row tells it, for the readers the window asks again on every change to a
- * Note or to the Library: a whole `Document` also reads its Tags, reference, source and imported
- * Note, a query each, which on a Library of thousands held the main process for seconds (#2772).
+ * A Document as its own row tells it, for the readers that run again on every change to a Note or
+ * to the Library: a whole `Document` also reads its Tags, reference, source and imported Note, a
+ * query each, which on a Library of thousands held the main process for seconds (#2772).
  */
-export type DocumentSummary = Pick<
+type DocumentFromRow = Pick<
   Document,
   | "id"
   | "name"
@@ -224,12 +224,13 @@ export type DocumentSummary = Pick<
   | "notCited"
   | "ownFile"
   | "readHiddenSheets"
+  | "meetingMindId"
 >;
 
-const SUMMARY_COLUMNS = `id, name, title, content_hash, status, failure_reason, file_status,
-  not_cited, own_file, counted_as_evidence, read_hidden_sheets`;
+const ROW_COLUMNS = `id, name, title, content_hash, status, failure_reason, file_status,
+  not_cited, own_file, counted_as_evidence, read_hidden_sheets, meeting_mind_id`;
 
-type SummaryRow = Pick<
+type ReadRow = Pick<
   DocumentRow,
   | "id"
   | "name"
@@ -242,6 +243,7 @@ type SummaryRow = Pick<
   | "own_file"
   | "counted_as_evidence"
   | "read_hidden_sheets"
+  | "meeting_mind_id"
 >;
 
 /** A stored Unit (a `document_pages` row), as read for the check and the viewer. */
@@ -2316,12 +2318,12 @@ export function createDocuments(options: DocumentsOptions) {
       .map(toDocument);
   };
 
-  /** As `list`, each Document as its own row tells it (`DocumentSummary`). */
-  const summaries = (filter: DocumentFilter = {}): DocumentSummary[] => {
+  /** As `list`, each Document as its own row tells it (`DocumentFromRow`). */
+  const rows = (filter: DocumentFilter = {}): DocumentFromRow[] => {
     const { where, params } = filterWhere(filter);
     return db
-      .all<SummaryRow>(
-        `SELECT ${SUMMARY_COLUMNS} FROM documents WHERE ${where} ORDER BY created_at DESC, rowid DESC`,
+      .all<ReadRow>(
+        `SELECT ${ROW_COLUMNS} FROM documents WHERE ${where} ORDER BY created_at DESC, rowid DESC`,
         params,
       )
       .map((row) => ({
@@ -2334,6 +2336,7 @@ export function createDocuments(options: DocumentsOptions) {
         notCited: row.not_cited === 1,
         ownFile: ownFileOf(row),
         readHiddenSheets: row.read_hidden_sheets === 1,
+        meetingMindId: row.meeting_mind_id,
       }));
   };
 
@@ -3231,7 +3234,7 @@ export function createDocuments(options: DocumentsOptions) {
     announce,
 
     list,
-    summaries,
+    rows,
     names,
     speakersOf,
     ids,
