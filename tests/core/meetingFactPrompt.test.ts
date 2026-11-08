@@ -74,3 +74,21 @@ test.each([
 ] as const)("a call that says %j is held in %s", (text, language) => {
   expect(callLanguage([{ text }])).toBe(language);
 });
+
+// protects=with no ordinary line to point to, the model is told lines is empty, never the transcript's times, which left every fact out for its metadata on Claude Haiku 5.5 (#2773); fails_when=a note with no typed lines, or only headings, is told to list L addresses; no_claim=a real model's reply, which the PR's real-model runs cover.
+test.each([
+  ["no notes", []],
+  ["only a heading", [{ marker: "H1", text: "Action items", heading: true }]],
+] as const)("with %s, lines is always empty", (_, lines) => {
+  const prompt = JSON.stringify(notesContext(lines, "Write the notes").messages);
+  expect(prompt).toContain("The User wrote no ordinary L lines, so lines is always []");
+  expect(prompt).not.toContain("lines lists related ordinary L addresses");
+});
+
+test("with a typed line, lines lists its L address", () => {
+  const prompt = JSON.stringify(
+    notesContext([{ marker: "L1", text: "price", heading: false }], "Fill the note").messages,
+  );
+  expect(prompt).toContain("lines lists related ordinary L addresses");
+  expect(prompt).not.toContain("lines is always []");
+});
