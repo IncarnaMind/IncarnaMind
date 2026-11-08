@@ -347,3 +347,18 @@ Sonnet is listed only if, in each language:
 - **Judged right and every Citation found** hold by the range rule ("The bar" above).
 - **Sooner:** the step's medians of the first whole option and of done are below today's.
 - **None new:** no more Tool calls left as text, replies that showed nothing, replies written while the live text was behind, or presses failing to run.
+
+### Result, 2026-11-08: not listed; cited fell in both languages and false Supported rose
+
+The run was made at dd50c809c, `today` on main's path, three runs of every press, judge Claude Opus 5.5, on the direct key. One-minute load 2.1 to 17.5, median 3.9; the 15-minute load stayed under 6. No press failed on either arm. Ranges are the three runs' lowest and highest, today → the step, pooled counts in brackets; medians over all presses.
+
+| Language | First whole option | Done | False Supported | Cited | Judged right | Every Citation found |
+|---|---|---|---|---|---|---|
+| en | 4.87 → 1.70 s | 4.87 → 2.48 s | **3–5 → 4–6 (11 → 15)** | **10–10 → 8–9 (30 → 26)** | 10–10 → 10–10 | 10–10 → 10–10 |
+| zh-CN | 4.88 → 2.18 s | 4.88 → 2.73 s | **2–3 → 3–5 (7 → 11)** | **9–10 → 9–9 (29 → 27)** | 10–10 → 8–10 (30 → 27) | 9–10 → 8–10 |
+
+- **Sonnet stays off `MARKS_PASSAGES`.** Cited and false Supported fail in both languages; the times and the range lines hold.
+- **The new line didn't change how Sonnet marks a check.** Six of the seven presses that lost "cited" are check-overtime (both languages, all three runs) and one check-warranty: the reply says "the payroll export document agrees" with only the call's line marked, as in the third look.
+- **False Supported,** presses over three runs, today → step: en5-check-overtime 0 → 3, en5-check-warranty 2 → 3, en5-no-forecasts 0 → 3, en5-answer-growth 3 → 0; zh5-answer-offline 1 → 3, zh5-answer-growth 2 → 3, zh5-check-photos 0 → 2, zh5-check-warranty 2 → 0. Found-but-unstated: en 13 of 64 → 19 of 77, zh 8 of 57 → 14 of 78.
+- One request in 55 of 60 presses on the step; today took two in 55.
+- **Spend:** $2.72 (judge $0.68), so $8.88 for this look's three runs together.
