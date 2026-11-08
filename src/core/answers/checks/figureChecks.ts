@@ -23,7 +23,7 @@ import { type CalculationSession, documentFigureContext, whole } from "../calcul
 import { namingHolds } from "./analysisNaming";
 import { agreesAtShownPrecision, comparedFigure } from "./calculated";
 import { type FigureMeasure, measureFinding, readMeasure } from "./figureMeasures";
-import { FIGURES, figureHandle, type ReadVerdict, readVerdict } from "./prompt";
+import { FIGURES, figureHandle, ownDetailDiffers, type ReadVerdict, readVerdict } from "./prompt";
 import type { BoundNumber } from "./units";
 
 export interface FigureReplyItem extends ReadVerdict {
@@ -280,7 +280,8 @@ export function absenceFigureResults(
 }
 
 /**
- * A wider word, another party or another topic takes a Supported verdict's support away; for a
+ * A wider word, another party, another duty, a condition left out, what has happened for what is
+ * still to happen, or another topic takes a Supported verdict's support away; for a
  * contradiction the parties the other way round are what contradicts, and its quote is judged. A
  * sentence about someone the Passage gives no part in it is neither backed nor contradicted (#1766).
  */
@@ -294,7 +295,7 @@ export function figureJudgment(
     reply.verdict === "unsupported" ||
     reply.roles === "other" ||
     (reply.verdict === "supported" &&
-      (reply.scope === "wider" || reply.roles === "differs" || reply.topic === "not found"))
+      (reply.scope === "wider" || ownDetailDiffers(reply) || reply.topic === "not found"))
   )
     return {
       verdict: "unsupported",
