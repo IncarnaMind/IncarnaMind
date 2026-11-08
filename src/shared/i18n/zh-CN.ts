@@ -402,7 +402,7 @@ export const zhCN = {
   "command.settings.addProvider": "添加 AI 模型服务…",
   "command.settings.transcription": "设置会议转写…",
   "command.settings.transcription.keywords":
-    "转写 密钥 语音转文字 会议 录音 云端 zhuanxie miyao yuyin huiyi luyin",
+    "转写 密钥 会议 云端 zhuanxie miyao huiyi",
   "command.settings.meetingWords.keywords": "名字 热词 词表 转写 会议 mingzi reci zhuanxie huiyi",
   "command.settings.localMode.keywords": "本地 离线 隐私 云端 关闭 设置 bendi lixian yinsi",
   "palette.label": "搜索",
