@@ -302,11 +302,11 @@
   .transcript-lines[data-hours] {
     --transcript-time: 54px;
   }
-  .transcript-line,
+  .transcript-turn,
   .transcript-gap {
     @apply grid grid-cols-[var(--transcript-time)_minmax(0,1fr)] gap-x-3 border-b border-rule py-1.5;
   }
-  .transcript-line:last-child,
+  .transcript-turn:last-child,
   .transcript-gap:last-child {
     @apply border-b-0;
   }
@@ -330,17 +330,32 @@
   .transcript-text {
     @apply m-0 text-[14px] leading-[22px] break-words text-ink;
   }
+  /* A turn's paragraphs, a line's height apart: one Speaker's words read on, as in a script. */
+  .transcript-text + .transcript-text {
+    @apply mt-2;
+  }
+  /* A line of a turn: the arrow keys and Enter act on it, and the focus rings it in place. */
+  .transcript-sentence {
+    @apply rounded-[3px] outline-offset-2 focus-visible:outline-2 focus-visible:outline-accent;
+  }
+  /* The line Add to note adds, while it is shown. */
+  .transcript-turn:is(:hover, :focus-within) .transcript-sentence[data-aimed] {
+    @apply bg-hover;
+  }
+  .transcript-sentence--partial {
+    @apply text-ink-placeholder;
+  }
   /*
    * Add to note: in a column of its own at the line's end, reserved always so the
    * words never move or sit under it; shown while pointed at or focused. Enter does it too.
    */
-  .transcript-line {
-    @apply relative -mx-2 grid-cols-[var(--transcript-time)_minmax(0,1fr)_auto] rounded-sm px-2 outline-offset-[-2px] focus-visible:outline-2 focus-visible:outline-accent;
+  .transcript-turn {
+    @apply relative -mx-2 grid-cols-[var(--transcript-time)_minmax(0,1fr)_auto] rounded-sm px-2;
   }
   .transcript-add {
     @apply inline-flex h-7 items-center gap-1.5 self-start rounded-md border border-rule bg-sheet px-2 font-sans text-[12px] leading-5 font-semibold whitespace-nowrap text-ink-secondary opacity-0 shadow-sm hover:bg-hover hover:text-ink focus-visible:opacity-100 group-focus-within:opacity-100 group-hover:opacity-100;
   }
-  .transcript-line--partial .transcript-text {
+  .transcript-turn--partial .transcript-text {
     @apply text-ink-placeholder;
   }
   /*
