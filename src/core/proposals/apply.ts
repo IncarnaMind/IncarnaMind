@@ -7,7 +7,7 @@
  * - **One check, in one order** (`refusalOf`). A part refused refuses the whole change: what it
  *   wrote is taken back, it writes nothing more, and the writer is told the one reason.
  * - **Only Proposals.** A write may add Proposals and nothing else: the User's text, accepted text
- *   whoever wrote it, reads as it did (`usersText`), or the change is refused as "changed". The only
+ *   whoever wrote it, reads as it did (`usersBlocks`), or the change is refused as "changed". The only
  *   Blocks it may take out whole are those its revision keeps for rejecting it to put back.
  * - **A target on every Proposal** (`ProposalRef.target`), so one over text the User has edited
  *   since is out of date, whichever feature made it.
@@ -16,7 +16,8 @@
  * - **A Checkpoint exactly when the Note's text changes.** A change that applies at once, with
  *   its Undo, saves one just before it first reaches the Note, whoever wrote it and however much
  *   it takes out; one that waits for the User saves none, and accepting or applying it saves one
- *   then.
+ *   then. Its writer saves it (`ChangeInput.checkpoint`): as its first write reaches the Note, or,
+ *   for a staged change that may end waiting, at its end once it knows (#2814).
  *
  * Most writers write a change at once (`start`): each write goes into a copy of the Note as it is,
  * then again into the Note itself, as its own client, so a refusal leaves the Note untouched and
@@ -99,8 +100,9 @@ export interface ChangeInput {
   request: string;
   made: Made;
   /**
-   * Given, the change applies at once, with its Undo, and this saves a Checkpoint of the Note
-   * just before the change first reaches it; absent, the change waits for the User.
+   * Given, this saves a Checkpoint of the Note just before the change first reaches it: for a
+   * writer whose change applies at once as it starts (`add_to_mind`, a revision of waiting text).
+   * A staged writer that may end waiting saves its own, once it knows (#2814, ./apply in edits).
    */
   checkpoint?(): void;
 }
