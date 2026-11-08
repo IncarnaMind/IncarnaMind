@@ -218,6 +218,12 @@ export const ARMS: readonly Arm[] = [
     request: userText(marksAsBefore),
   },
   {
+    id: "help-own-only",
+    label:
+      "call help's Citations only where the model marked them or its record's quote holds the words, its form worded as before #2847",
+    request: userText(marksAsBefore),
+  },
+  {
     id: "retrieve-first",
     label:
       "the Question searched before the first call, answered from those Passages unless it needs more (#1633)",
