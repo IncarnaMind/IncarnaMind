@@ -29,6 +29,7 @@ import { ProblemLine } from "../components/ProblemLine";
 import { ReadinessExplanation } from "../components/providers/ChatReadinessNotice";
 import { core } from "../core";
 import { errorMessage } from "../errors";
+import { helpItems } from "../helpReply";
 import { translateNow, useT } from "../i18n";
 import { addHelpToNotes, askHelp, useMeetingHelp } from "../meetingHelp";
 import { isLive, isWaitingForPermission, useMeetings, useMeetingTime } from "../meetings";
@@ -464,7 +465,7 @@ function Suggestion({
         answer={answer}
         onRetry={() => void askHelp(meeting, help.kind)}
       />
-      {answer.status === "done" && (
+      {answer.status === "done" && helpItems(answer, help.kind).length > 0 && (
         <div className="panel-actions">
           <button
             type="button"

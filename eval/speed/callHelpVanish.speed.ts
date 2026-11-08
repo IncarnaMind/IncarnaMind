@@ -11,12 +11,11 @@ import { join, resolve } from "node:path";
 import { test } from "vitest";
 import type { ConversationAnswer, Core, MeetingHelpKind } from "../../src/core";
 import {
+  helpItems,
   type ReplyItem,
   type ReplyPiece,
   readHelpReply,
-  shownItems,
 } from "../../src/renderer/src/helpReply";
-import { HELP_SHAPE } from "../../src/shared/meetingHelp";
 import { answerEnded } from "../../tests/helpers/citations";
 import { commitOf } from "../lib/commit";
 import { readConfig } from "../lib/config";
@@ -58,11 +57,14 @@ const words = (item: ReplyItem) =>
   comparable([item.lead, ...item.notes, item.effect ?? []].map(pieceText).join(""));
 
 function panel(write: Write, kind: MeetingHelpKind): ReplyItem[] {
-  return shownItems(readHelpReply(write.text), {
-    shape: HELP_SHAPE[kind],
-    leadIn: kind === "leading" || write.textBehind,
-    streaming: write.status === "streaming",
-  }).filter((item) => words(item) !== "");
+  return helpItems(
+    {
+      text: write.text,
+      status: write.status,
+      steps: write.textBehind ? { textBehind: true } : null,
+    },
+    kind,
+  ).filter((item) => words(item) !== "");
 }
 
 /** How the panel showed one press, from its first write to its end. */
