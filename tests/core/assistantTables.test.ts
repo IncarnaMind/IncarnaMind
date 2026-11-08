@@ -224,6 +224,13 @@ describe("A table the assistant writes into a Mind is a table", { timeout: 30_00
         proposals: 2,
         tables: 1,
         cited: 1,
+        citations: [
+          expect.objectContaining({
+            documentName: "Tides",
+            quote: "Spring tides happen at new moon and at full moon",
+            check: "found",
+          }),
+        ],
         // The one cited claim was checked before it landed; the other claim, with no Citation, is left
         // to the one Check (#1111, #1909). A header cell names its column and counts as no claim (#2378).
         selfCheck: {
