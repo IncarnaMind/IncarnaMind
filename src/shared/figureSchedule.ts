@@ -338,7 +338,8 @@ export function quotedSourceText(figure: FigureFinding): string | null {
 /** A row's source value in the note's terms, or null when there is none. */
 export function sourceValueText(row: FigureScheduleRow): string | null {
   // A what-if is no Document's number (#2347), whatever an older row kept as its source value.
-  if (row.sourceValue === null || row.calculated?.figure.workbook?.change) return null;
+  if (row.sourceValue === null || (row.calculated?.figure.workbook?.changes.length ?? 0) > 0)
+    return null;
   if (!row.sourceInput) return row.sourceShown;
   return writtenLike(row.reading, row.sourceValue, sourceDecimals(row));
 }
@@ -448,7 +449,7 @@ export const notCheckedYet = (row: FigureScheduleRow): boolean =>
   row.shown.state === "not-checked" || row.shown.state === "checking";
 
 /**
- * A workbook figure's formula (#2347), naming a what-if's change so it never reads as the
+ * A workbook figure's formula (#2347), naming a what-if's changes so it never reads as the
  * workbook's own figure: "What-if: DCF!E5 = E4*Margin, with Revenue growth at 3.0% (5.0% in the
  * workbook)". Null for any other figure.
  */
@@ -456,16 +457,23 @@ export function workbookFormulaText(figure: CalculatedFigure, language: Language
   const book = figure.workbook;
   if (!book) return null;
   const cell = `${book.cell.sheet}!${book.cell.ref}`;
-  const changed = book.change
-    ? figure.inputs.find((input) => input.name === book.change?.input)
-    : undefined;
-  if (!book.change || !changed) return `${cell} = ${book.cell.formula}`;
+  const changes = book.changes.flatMap((change) => {
+    const input = figure.inputs.find((each) => each.name === change.input);
+    return input
+      ? [
+          translate(language, "figures.workbook.whatIfChange", {
+            input: input.label,
+            from: input.number.chars,
+            to: change.shown,
+          }),
+        ]
+      : [];
+  });
+  if (changes.length === 0) return `${cell} = ${book.cell.formula}`;
   return translate(language, "figures.workbook.whatIfFormula", {
     cell,
     formula: book.cell.formula,
-    input: changed.label,
-    from: changed.number.chars,
-    to: book.change.shown,
+    changes: new Intl.ListFormat(language, { type: "conjunction" }).format(changes),
   });
 }
 
@@ -489,8 +497,9 @@ export function lineShows(line: ScheduleLine, language: Language): LineShows {
       difference: null,
       status: null,
     };
-  const change = parent.calculated?.figure.workbook?.change;
-  if (line.input && change?.input === line.input.name) {
+  const changes = parent.calculated?.figure.workbook?.changes ?? [];
+  const change = line.input ? changes.find((each) => each.input === line.input?.name) : undefined;
+  if (line.input && change) {
     // A what-if's changed input: the value it was given, never the cell's as if it were found.
     return {
       name: line.input.label,

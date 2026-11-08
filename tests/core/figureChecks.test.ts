@@ -1795,6 +1795,24 @@ async function planUnits(growth: number): Promise<UnitText[]> {
   return (await extractXlsx(new Uint8Array(book.xlsx()))).units;
 }
 
+/** A plan whose 2027 sales are worked out from two assumptions: its growth and its margin. */
+async function twoDriverUnits(growth: number, margin: number): Promise<UnitText[]> {
+  const book = new WorkbookBuilder();
+  book
+    .sheet("Plan")
+    .text("A1", "Line")
+    .text("B1", "2026")
+    .text("C1", "2027")
+    .text("A2", "Sales")
+    .number("B2", 400)
+    .formula("C2", "B2*(1+B4)*B5", 400 * (1 + growth) * margin)
+    .text("A4", "Growth")
+    .number("B4", growth, "percent")
+    .text("A5", "Margin")
+    .number("B5", margin, "percent");
+  return (await extractXlsx(new Uint8Array(book.xlsx()))).units;
+}
+
 /** A workbook's Tools over `units`, read as one Passage, and the figures they record. */
 function workbookPassage(units: UnitText[], language: "en" | "zh-CN") {
   const source: CitationSource = {
@@ -1827,7 +1845,12 @@ async function planFigures(units: UnitText[], language: "en" | "zh-CN") {
   const { trace, whatIf, context, recorded } = workbookPassage(units, language);
   await trace.call({ passage: "P1", cell: "Plan!C2", label: "Sales 2027" }, context);
   await whatIf.call(
-    { passage: "P1", cell: "Plan!C2", label: "Sales 2027", input: "Plan!B4", value: "10%" },
+    {
+      passage: "P1",
+      cell: "Plan!C2",
+      label: "Sales 2027",
+      changes: [{ input: "Plan!B4", value: "10%" }],
+    },
     context,
   );
   const [traced, changed] = recorded;
@@ -1872,11 +1895,9 @@ describe.each([
     expect(whatIf?.sourceInput).toBeNull();
     const worked = whatIf?.result.verdict === "supported" ? whatIf.result.calculation : null;
     expect(worked?.figure.value).toBeCloseTo(440, 9);
-    expect(worked?.figure.workbook?.change).toEqual({
-      input: "Plan_B4",
-      value: 0.1,
-      shown: "10.0%",
-    });
+    expect(worked?.figure.workbook?.changes).toEqual([
+      { input: "Plan_B4", value: 0.1, shown: "10.0%" },
+    ]);
   });
 
   test("a figure its cell doesn't give is Contradicted, with the cell's number beside it", async () => {
@@ -1900,6 +1921,55 @@ describe.each([
     expect(translate(language, "claim.reason.workbook-changed")).toContain(
       language === "en" ? "workbook’s cells" : "工作簿现在的单元格",
     );
+  });
+
+  test("a what-if that changes two inputs at once is checked by working both out again", async () => {
+    const units = await twoDriverUnits(0.05, 0.9);
+    const { trace, whatIf, context, recorded } = workbookPassage(units, language);
+    await trace.call({ passage: "P1", cell: "Plan!C2", label: "Sales 2027" }, context);
+    await whatIf.call(
+      {
+        passage: "P1",
+        cell: "Plan!C2",
+        label: "Sales 2027",
+        changes: [
+          { input: "Plan!B4", value: "10%" },
+          { input: "Plan!B5", value: "100%" },
+        ],
+      },
+      context,
+    );
+    const [traced, changed] = recorded;
+    if (!traced || !changed) throw new Error("The workbook's figures weren't recorded.");
+    expect([traced.shown, changed.shown]).toEqual(["378", "440"]);
+    expect(changed.workbook?.changes).toHaveLength(2);
+    const sentence =
+      language === "en"
+        ? "Sales in 2027 were 378, or 440 at 10% growth and a 100% margin."
+        : "2027 年销售额为 378，增长率为 10%、利润率为 100% 时为 440。";
+    const { result } = await checkWith({
+      figures: [saved("f1", traced), saved("f2", changed)],
+      claim: sentence,
+      units,
+      body: units.map((unit) => unit.text).join("\n"),
+      text: reply(
+        [1, 2].map((id) => ({
+          ...item(`f${id}`),
+          source: null,
+        })),
+      ),
+    });
+    expect(result.figures?.map((figure) => figure.result.verdict)).toEqual([
+      "supported",
+      "supported",
+    ]);
+    const worked = result.figures?.[1];
+    const calculation = worked?.result.verdict === "supported" ? worked.result.calculation : null;
+    expect(calculation?.figure.value).toBeCloseTo(440, 9);
+    expect(calculation?.figure.workbook?.changes).toEqual([
+      { input: "Plan_B4", value: 0.1, shown: "10.0%" },
+      { input: "Plan_B5", value: 1, shown: "100.0%" },
+    ]);
   });
 });
 

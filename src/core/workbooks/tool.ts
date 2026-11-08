@@ -1,11 +1,12 @@
 /**
  * The Answer's Tools for a workbook's formulas (#2347): `trace_formulas`
  * shows how a figure is worked out, down to the inputs that drive it, and
- * `what_if` works it out again with one input changed, on a copy in memory.
- * Each records a calculated figure (ADR-0021) whose inputs are cited to their
- * cells; a what-if's names the input it changed. Neither ever writes the
- * User's file: the model is built from the Units the workbook was stored as.
+ * `what_if` works it out again with one or more inputs changed, on a copy in
+ * memory. Each records a calculated figure (ADR-0021) whose inputs are cited
+ * to their cells; a what-if's names the inputs it changed. Neither ever writes
+ * the User's file: the model is built from the Units the workbook was stored as.
  */
+import { MAX_INPUTS_PER_FIGURE } from "../../shared/calculatedFigures";
 import { readFigures } from "../../shared/figures";
 import { FORMULA_VERSION, type ResultUnit, showResult } from "../../shared/formula";
 import { translate } from "../../shared/i18n";
@@ -21,6 +22,7 @@ import type {
   WorkbookKeptCell,
 } from "../api";
 import type { CitationSource } from "../documents";
+import { isRecord } from "../errors";
 import type { Language } from "../language";
 import { type Tool, type ToolProviderInfo, WORKBOOK_TOOLS } from "../tools";
 import { hasFormulas, type WorkbookCell, type WorkbookModel, workbookModel } from "./model";
@@ -415,7 +417,7 @@ export function workbookTools(options: WorkbookToolOptions): Tool[] {
     label: string,
     value: number,
     inputs: FigureInput[],
-    change: FigureFromWorkbook["change"],
+    changes: FigureFromWorkbook["changes"],
   ): { marker: number; figure: CalculatedFigure } | string => {
     const target = chain.target;
     if (typeof target.saved !== "number")
@@ -443,7 +445,7 @@ export function workbookTools(options: WorkbookToolOptions): Tool[] {
         moreInputs: chain.moreInputs,
         saved: target.saved,
         savedShown: target.shown || String(target.saved),
-        change,
+        changes,
         kept: chain.dependsOn.map(keptCell),
         engine: WORKBOOK_ENGINE_VERSION,
       },
@@ -496,7 +498,7 @@ export function workbookTools(options: WorkbookToolOptions): Tool[] {
     provider: PROVIDER,
     providerTool: WORKBOOK_TOOLS.trace,
     description:
-      'Shows how a figure of an Excel workbook is worked out: the formulas from its cell down to the inputs (cells holding numbers, such as assumptions) it is worked out from, worked out again and checked against the values Excel saved. A workbook\'s Passages show only values, never formulas; one marked formulas="rows 4–12" holds, in those rows, values its formulas worked out, which only this Tool explains. Call it before an Answer says how such a figure is worked out, or how it relates to other cells or to its assumptions, even when the rows\' labels seem to show it. Give the figure as calculate takes an input, its Passage, its row copied as quote and the number: {"passage": "P3", "quote": "Sales\\t410.0\\t455.2\\t503.8", "number": "455.2", "label": "Sales 2026"}; or a cell a result of this Tool named, {"passage": "P3", "cell": "Model!D12", "label": "Sales 2026"}. It records the figure as [=n], its inputs cited to their cells: write [=n] in the Answer where the figure\'s number goes, and name its inputs. How much an input changes the figure is what_if\'s to work out, one call per input.',
+      'Shows how a figure of an Excel workbook is worked out: the formulas from its cell down to the inputs (cells holding numbers, such as assumptions) it is worked out from, worked out again and checked against the values Excel saved. A workbook\'s Passages show only values, never formulas; one marked formulas="rows 4–12" holds, in those rows, values its formulas worked out, which only this Tool explains. Call it before an Answer says how such a figure is worked out, or how it relates to other cells or to its assumptions, even when the rows\' labels seem to show it. Give the figure as calculate takes an input, its Passage, its row copied as quote and the number: {"passage": "P3", "quote": "Sales\\t410.0\\t455.2\\t503.8", "number": "455.2", "label": "Sales 2026"}; or a cell a result of this Tool named, {"passage": "P3", "cell": "Model!D12", "label": "Sales 2026"}. It records the figure as [=n], its inputs cited to their cells: write [=n] in the Answer where the figure\'s number goes, and name its inputs. How much an input changes the figure is what_if\'s to work out, in one call naming each input the Question supposes.',
     inputSchema: {
       type: "object",
       properties: {
@@ -544,7 +546,7 @@ export function workbookTools(options: WorkbookToolOptions): Tool[] {
       if (typeof value !== "number")
         return `Nothing was recorded: ${ref} holds ${scalarText(chain.target.saved)}, not a number.`;
       const label = text(input.label) || chain.target.label;
-      const recorded = record(book, chain, label, value, inputs, null);
+      const recorded = record(book, chain, label, value, inputs, []);
       if (typeof recorded === "string") return `Nothing was recorded: ${recorded}`;
       counted?.(1);
       const head =
@@ -555,7 +557,7 @@ export function workbookTools(options: WorkbookToolOptions): Tool[] {
         head,
         ...[setAsideLine(book, chain.target, "the figure")].filter((line) => line !== null),
         ...chainLines(book, chain, inputs),
-        `Write [=${recorded.marker}] in the Answer where ${recorded.figure.shown} goes, never the number itself and never a Citation marker for it. To see the figure with one input changed, call ${WORKBOOK_TOOLS.whatIf} with that input's cell.`,
+        `Write [=${recorded.marker}] in the Answer where ${recorded.figure.shown} goes, never the number itself and never a Citation marker for it. To see the figure with inputs changed, call ${WORKBOOK_TOOLS.whatIf} with each input's cell and its new value.`,
       ].join("\n");
     },
   };
@@ -599,7 +601,7 @@ export function workbookTools(options: WorkbookToolOptions): Tool[] {
     name: WORKBOOK_TOOLS.whatIf,
     provider: PROVIDER,
     providerTool: WORKBOOK_TOOLS.whatIf,
-    description: `Work a figure of an Excel workbook out again with one input changed (a what-if), through every formula between the input and the figure, on a copy in memory: the User's file is never changed. Call it, never calculate, whenever the Answer gives a workbook's figure under a value the Question supposes for one of its inputs: arithmetic on the values a Passage shows leaves out the formulas between them. Give the figure as ${WORKBOOK_TOOLS.trace} takes it, the input to change (its cell as ${WORKBOOK_TOOLS.trace} lists it, "Inputs!C7", or its defined name, "Rate") and its new value ("4%", "1250"). It records the result as [=n], naming the input changed; it refuses when the figure depends on a formula it can't work out.`,
+    description: `Work a figure of an Excel workbook out again with one or more inputs changed (a what-if), through every formula between the inputs and the figure, on a copy in memory: the User's file is never changed. Call it, never calculate, whenever the Answer gives a workbook's figure under values the Question supposes for one or more of its inputs: arithmetic on the values a Passage shows leaves out the formulas between them. Give the figure as ${WORKBOOK_TOOLS.trace} takes it, and changes: each input to change (its cell as ${WORKBOOK_TOOLS.trace} lists it, "Inputs!C7", or its defined name, "Rate") with its new value ("4%", "1250"), all in one call. It records the result as [=n], naming every input changed; it refuses when the figure depends on a formula it can't work out.`,
     inputSchema: {
       type: "object",
       properties: {
@@ -613,21 +615,41 @@ export function workbookTools(options: WorkbookToolOptions): Tool[] {
         citation: { type: "number" },
         label: {
           type: "string",
-          description: 'What the figure is, with the change: "Sales 2026 at a 4% rate".',
+          description: 'What the figure is, with the changes: "Sales 2026 at a 4% rate".',
         },
-        input: {
-          type: "string",
-          description: 'The input to change: "Inputs!C7" or "Rate".',
+        changes: {
+          type: "array",
+          description:
+            'The inputs to change and their new values, together in this one call: [{"input": "Inputs!C7", "value": "4%"}, {"input": "Rate", "value": "1250"}].',
+          items: {
+            type: "object",
+            properties: {
+              input: {
+                type: "string",
+                description: 'The input to change: "Inputs!C7" or "Rate".',
+              },
+              value: { type: "string", description: 'Its new value: "4%".' },
+            },
+            required: ["input", "value"],
+          },
         },
-        value: { type: "string", description: 'Its new value: "4%".' },
       },
-      required: ["passage", "label", "input", "value"],
+      required: ["passage", "label", "changes"],
     },
-    shownInput: ({ label, input, value }) => ({
-      label: text(label),
-      input: text(input),
-      value: typeof value === "number" ? String(value) : text(value),
-    }),
+    shownInput: ({ label, changes }) => {
+      const asked = Array.isArray(changes)
+        ? changes.flatMap((each) => {
+            if (!isRecord(each)) return [];
+            const input = text(each.input);
+            const value = typeof each.value === "number" ? String(each.value) : text(each.value);
+            return input ? [`${input} = ${value}`] : [];
+          })
+        : [];
+      return {
+        label: text(label),
+        ...(asked.length > 0 ? { changes: asked.join("; ") } : {}),
+      };
+    },
     effects: () => [{ action: "read", scope: { kind: "documents" } }],
     untrustedResult: true,
     async call(input, { signal, counted }) {
@@ -637,46 +659,69 @@ export function workbookTools(options: WorkbookToolOptions): Tool[] {
       if (typeof book === "string") return `Nothing was recorded: ${book}`;
       const target = figureCell(book, input);
       if (typeof target === "string") return `Nothing was recorded: ${target}`;
-      const changedName = text(input.input);
-      if (!changedName)
-        return "Nothing was recorded: give input, the cell or defined name to change.";
+      const asked = Array.isArray(input.changes) ? input.changes : [];
+      if (asked.length === 0)
+        return "Nothing was recorded: give changes, each with an input's cell or defined name and its new value.";
+      if (asked.length > MAX_INPUTS_PER_FIGURE)
+        return `Nothing was recorded: give at most ${MAX_INPUTS_PER_FIGURE} inputs to change at once.`;
       const chain = await traceChain(book.engine, target.key, signal);
-      let changed = cellNamed(book, changedName, target.sheet);
-      if (typeof changed === "string") {
-        const byLabel = chain.inputs.filter(
-          (each) => each.label.toLowerCase() === changedName.toLowerCase(),
-        );
-        const only = byLabel.length === 1 ? byLabel[0] : undefined;
-        const sheet = only ? book.model.byName.get(only.sheet.toUpperCase()) : undefined;
-        if (!only || !sheet) return `Nothing was recorded: ${changed}`;
-        changed = { key: placeKey(sheet, only.row, only.column), sheet: only.sheet };
-      }
       const ref = where(chain.target.sheet, chain.target.ref);
-      const listed = cellOfChain(book.engine, changed.key);
-      if (!listed)
-        return `Nothing was recorded: ${changedName} is an empty cell; give one of the inputs ${ref} depends on.`;
-      const changedChain: ChainCell = { ...listed, label: listed.label };
-      const inputCell = listed.cell;
-      const value = parseValue(input.value, changedChain);
-      if (typeof value === "string") return `Nothing was recorded: ${value}${inputsList(chain)}`;
-      const outcome = await whatIf(book.engine, target.key, changed.key, value, signal);
-      const inputRef = where(changedChain.sheet, changedChain.ref);
+      const changed = new Map<number, { cell: ChainCell; value: number }>();
+      for (const each of asked) {
+        if (!isRecord(each))
+          return "Nothing was recorded: give each change with input, the cell or defined name to change, and value, its new value.";
+        const changedName = text(each.input);
+        if (!changedName)
+          return "Nothing was recorded: give each change with input, the cell or defined name to change, and value, its new value.";
+        let named = cellNamed(book, changedName, target.sheet);
+        if (typeof named === "string") {
+          const byLabel = chain.inputs.filter(
+            (input) => input.label.toLowerCase() === changedName.toLowerCase(),
+          );
+          const only = byLabel.length === 1 ? byLabel[0] : undefined;
+          const sheet = only ? book.model.byName.get(only.sheet.toUpperCase()) : undefined;
+          if (!only || !sheet) return `Nothing was recorded: ${named}`;
+          named = { key: placeKey(sheet, only.row, only.column), sheet: only.sheet };
+        }
+        const listed = cellOfChain(book.engine, named.key);
+        if (!listed)
+          return `Nothing was recorded: ${changedName} is an empty cell; give one of the inputs ${ref} depends on.`;
+        const value = parseValue(each.value, listed);
+        if (typeof value === "string") return `Nothing was recorded: ${value}${inputsList(chain)}`;
+        if (changed.has(named.key))
+          return `Nothing was recorded: ${where(listed.sheet, listed.ref)} is given twice; give each input once.`;
+        changed.set(named.key, { cell: listed, value });
+      }
+      const inputRef = (key: number) => {
+        const entry = changed.get(key);
+        return entry ? where(entry.cell.sheet, entry.cell.ref) : "";
+      };
+      const outcome = await whatIf(
+        book.engine,
+        target.key,
+        [...changed].map(([input, each]) => ({ input, value: each.value })),
+        signal,
+      );
       if (!outcome.ok) {
         const why = outcome.why;
         switch (why.kind) {
-          case "input-is-formula":
-            return `Nothing was recorded: ${inputRef} is worked out by a formula (${inputCell.formula}). Change one of the inputs it depends on: ${why.inputs
+          case "input-is-formula": {
+            const entry = changed.get(why.input);
+            return `Nothing was recorded: ${inputRef(why.input)} is worked out by a formula (${entry?.cell.cell.formula}). Change one of the inputs it depends on: ${why.inputs
               .slice(0, 8)
               .map((each) => `${where(each.sheet, each.ref)} ${each.label}`)
               .join("; ")}.`;
-          case "input-not-number":
-            return `Nothing was recorded: ${inputRef} holds ${inputCell.shown || "nothing"}, not a number.`;
+          }
+          case "input-not-number": {
+            const entry = changed.get(why.input);
+            return `Nothing was recorded: ${inputRef(why.input)} holds ${entry?.cell.shown || "nothing"}, not a number.`;
+          }
           case "target-not-formula":
             return `Nothing was recorded: ${ref} holds a number typed in, not a formula, so no input changes it.`;
           case "not-a-number":
             return `Nothing was recorded: ${ref} doesn't work out to a number.`;
           case "unrelated":
-            return `Nothing was recorded: ${ref} (${chain.target.label}) doesn't depend on ${inputRef}, so changing it leaves the figure as it is.${inputsList(chain)}`;
+            return `Nothing was recorded: ${ref} (${chain.target.label}) doesn't depend on ${inputRef(why.input)}, so changing it leaves the figure as it is.${inputsList(chain)}`;
           case "depends":
             return `Nothing was recorded: ${chain.target.label} (${ref}) depends on cells that keep the values the workbook saved, so a what-if would mix values worked out again with values that should have changed: ${why.on.map(dependenceText).join("; ")}. Say so in the Answer rather than working it out.`;
           case "too-many":
@@ -686,35 +731,69 @@ export function workbookTools(options: WorkbookToolOptions): Tool[] {
         }
       }
       const taken = new Set<string>();
-      const changedInput = inputOf(book, changedChain, taken);
-      if (!changedInput)
-        return `Nothing was recorded: ${inputRef} shows no number to quote, so the change can't be cited.`;
+      const changedInputs: {
+        chain: ChainCell;
+        input: FigureInput;
+        value: number;
+        after: string;
+      }[] = [];
+      for (const each of changed.values()) {
+        const cited = inputOf(book, each.cell, taken);
+        if (!cited)
+          return `Nothing was recorded: ${where(each.cell.sheet, each.cell.ref)} shows no number to quote, so the change can't be cited.`;
+        changedInputs.push({
+          chain: each.cell,
+          input: cited,
+          value: each.value,
+          after: shown(book, each.cell, each.value).shown,
+        });
+      }
+      const changedCells = new Set(changedInputs.map((each) => each.chain.cell));
       const others = chain.inputs
-        .filter((each) => each.cell !== inputCell)
+        .filter((each) => !changedCells.has(each.cell))
         .flatMap((each) => inputOf(book, each, taken) ?? [])
-        .slice(0, 29);
-      const after = shown(book, changedChain, value).shown;
+        .slice(0, Math.max(0, MAX_INPUTS_PER_FIGURE - changedInputs.length));
+      const changesText = new Intl.ListFormat(options.language, { type: "conjunction" }).format(
+        changedInputs.map((each) =>
+          translate(options.language, "figures.workbook.whatIfAt", {
+            input: each.input.label,
+            value: each.after,
+          }),
+        ),
+      );
       const given = text(input.label) || chain.target.label;
       // A what-if must never read as the workbook's own figure, whatever label the model gave.
-      const label = given.includes(after)
+      const label = changedInputs.every((each) => given.includes(each.after))
         ? given
         : translate(options.language, "figures.workbook.whatIfLabel", {
             label: given,
-            input: changedInput.label,
-            value: after,
+            changes: changesText,
           });
-      const recorded = record(book, chain, label, outcome.after, [changedInput, ...others], {
-        input: changedInput.name,
-        value,
-        shown: after,
-      });
+      const recorded = record(
+        book,
+        chain,
+        label,
+        outcome.after,
+        [...changedInputs.map((each) => each.input), ...others],
+        changedInputs.map((each) => ({
+          input: each.input.name,
+          value: each.value,
+          shown: each.after,
+        })),
+      );
       if (typeof recorded === "string") return `Nothing was recorded: ${recorded}`;
       counted?.(1);
       const before = shown(book, chain.target, outcome.before).shown;
+      const changedText = new Intl.ListFormat("en", { type: "conjunction" }).format(
+        changedInputs.map(
+          (each) =>
+            `${each.input.label} (${where(each.chain.sheet, each.chain.ref)}) at ${each.after} instead of ${each.chain.shown}`,
+        ),
+      );
       return [
-        `Recorded [=${recorded.marker}] = ${recorded.figure.shown}: ${chain.target.label} (${ref}) with ${changedInput.label} (${inputRef}) at ${after} instead of ${changedChain.shown}, worked out again from the workbook's ${outcome.formulaCells} formula${outcome.formulaCells === 1 ? "" : "s"} on a copy in memory; the User's file is unchanged, and the workbook as it is gives ${before}. Write [=${recorded.marker}] in the Answer where ${recorded.figure.shown} goes, never the number itself, and say which input was changed.`,
+        `Recorded [=${recorded.marker}] = ${recorded.figure.shown}: ${chain.target.label} (${ref}) with ${changedText} changed, worked out again from the workbook's ${outcome.formulaCells} formula${outcome.formulaCells === 1 ? "" : "s"} on a copy in memory; the User's file is unchanged, and the workbook as it is gives ${before}. Write [=${recorded.marker}] in the Answer where ${recorded.figure.shown} goes, never the number itself, and say which ${changedInputs.length === 1 ? "input was" : "inputs were"} changed.`,
         setAsideLine(book, chain.target, "the figure"),
-        setAsideLine(book, changedChain, "the input changed"),
+        ...changedInputs.map((each) => setAsideLine(book, each.chain, "the input changed")),
       ]
         .filter((line) => line !== null)
         .join("\n");

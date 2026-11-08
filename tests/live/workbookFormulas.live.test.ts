@@ -171,9 +171,9 @@ const HELD_OUT: Asked[] = RENTAL_HELD_OUT.map(({ question, cell, change, also })
 const answersAs = (figure: MarkedFigure, expected: Accepted): boolean => {
   const book = figure.workbook;
   if (!book || `${book.cell.sheet}!${book.cell.ref}` !== expected.cell) return false;
-  if (!expected.change) return book.change === null;
+  if (!expected.change) return book.changes.length === 0;
   return (
-    book.change?.value === expected.change.value &&
+    book.changes[0]?.value === expected.change.value &&
     Math.abs((figure.value as number) - expected.change.result) <=
       1e-9 * Math.abs(expected.change.result)
   );
@@ -363,7 +363,7 @@ test.skipIf(KEY === undefined).each([
         `> ${answer.text.replace(/\s+/g, " ")}`,
         ...answer.figures.map(
           (figure) =>
-            `- [=${figure.marker}] ${figure.shown}: ${figure.label}${figure.workbook ? ` (${figure.workbook.cell.sheet}!${figure.workbook.cell.ref} = ${figure.workbook.cell.formula}${figure.workbook.change ? `; ${figure.workbook.change.input} → ${figure.workbook.change.shown}` : ""}; ${figure.inputs.length} inputs cited${figure.workbook.kept.length > 0 ? `; kept ${figure.workbook.kept.length}` : ""})` : ` = ${figure.formula}`}`,
+            `- [=${figure.marker}] ${figure.shown}: ${figure.label}${figure.workbook ? ` (${figure.workbook.cell.sheet}!${figure.workbook.cell.ref} = ${figure.workbook.cell.formula}${figure.workbook.changes.length > 0 ? `; ${figure.workbook.changes.map((change) => `${change.input} → ${change.shown}`).join(", ")}` : ""}; ${figure.inputs.length} inputs cited${figure.workbook.kept.length > 0 ? `; kept ${figure.workbook.kept.length}` : ""})` : ` = ${figure.formula}`}`,
         ),
         "",
       );

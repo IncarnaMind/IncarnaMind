@@ -373,8 +373,13 @@ export interface CreateMindInput {
  *   would then be re-run by a Note move or a scope comparison, so it opens
  *   these Notes read-only. Older content is version 54 content as it is: a
  *   mark without it was checked by this Note itself.
+ * - 56: a workbook's what-if figure keeps its changed inputs as a list
+ *   (`changes`, #2403), where it kept one as `change`. An older version reads
+ *   a what-if as the workbook's own figure, so it opens these Notes read-only.
+ *   Older content is version 55 content as it is: a figure without it is the
+ *   workbook's own, or a what-if of the one input it names.
  */
-export const CONTENT_SCHEMA_VERSION = 55;
+export const CONTENT_SCHEMA_VERSION = 56;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -2982,9 +2987,9 @@ export interface WorkbookFigureStep {
 
 /**
  * A figure worked out from a workbook's own formulas (#2347): a cell of it, or
- * that cell worked out again with one input changed (what-if), in memory,
- * never in the User's file. Its inputs are the cells holding numbers that
- * drive it, each cited to its cell.
+ * that cell worked out again with one or more inputs changed (what-if), in
+ * memory, never in the User's file. Its inputs are the cells holding numbers
+ * that drive it, each cited to its cell.
  */
 export interface FigureFromWorkbook {
   /**
@@ -3001,8 +3006,11 @@ export interface FigureFromWorkbook {
   saved: number;
   /** That value as the cell shows it: "254.7". */
   savedShown: string;
-  /** A what-if's one changed input: its name among the inputs, and the value it was given. */
-  change: { input: string; value: number; shown: string } | null;
+  /**
+   * A what-if's changed inputs, each one's name among the inputs and the value it was given;
+   * empty for a figure the workbook gives.
+   */
+  changes: { input: string; value: number; shown: string }[];
   /**
    * The cells it depends on that can't be worked out here, so they and it keep the values the
    * workbook saved, the first few; empty when every formula was worked out again.

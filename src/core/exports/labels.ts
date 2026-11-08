@@ -47,7 +47,7 @@ export interface ExportLabels {
 export type FigureWorked =
   | { formula: string }
   | { analysis: string }
-  | { cell: string; workbookFormula: string; change: { input: string; value: string } | null };
+  | { cell: string; workbookFormula: string; change: { input: string; value: string }[] | null };
 
 export interface FigureNoteSource {
   inputs: readonly string[];
@@ -233,8 +233,15 @@ export function exportLabels(language: Language): ExportLabels {
               ? t("export.figure.whatIf", {
                   cell: worked.cell,
                   formula: worked.workbookFormula,
-                  input: worked.change.input,
-                  value: worked.change.value,
+                  changes: listOf(
+                    worked.change.map((change) =>
+                      t("export.figure.whatIfChange", {
+                        input: change.input,
+                        value: change.value,
+                      }),
+                    ),
+                    language,
+                  ),
                   figure,
                 })
               : t("export.figure.workbook", {

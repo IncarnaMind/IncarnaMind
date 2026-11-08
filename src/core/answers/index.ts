@@ -1656,7 +1656,7 @@ export function createAnswers(options: AnswersOptions) {
      * what-if to the input it changed, never to the cell whose number it isn't.
      */
     const recordWorkbookFigure = (figure: CalculatedFigure): number => {
-      const change = figure.workbook?.change;
+      const [change] = figure.workbook?.changes ?? [];
       const cell = change
         ? figure.inputs.find((input) => input.name === change.input)?.citation
         : figure.workbook?.cell.input.citation;

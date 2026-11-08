@@ -469,11 +469,15 @@ async function replayWorkbook(
   }
   const { documentId, contentHash } = cell.citation;
   const stored = { documentId, contentHash, units: options.units(cell.citation) };
-  const { change } = book;
-  if (change) {
-    const changed = inputs.find((input) => input.name === change.input)?.cell;
-    if (!changed) return "workbook-changed";
-    const value = await whatIfAgain(stored, book.cell, changed, change.value, options.signal);
+  const { changes } = book;
+  if (changes.length > 0) {
+    const places: { sheet: string | null; ref: string; value: number }[] = [];
+    for (const change of changes) {
+      const changed = inputs.find((input) => input.name === change.input)?.cell;
+      if (!changed) return "workbook-changed";
+      places.push({ sheet: changed.sheet, ref: changed.ref, value: change.value });
+    }
+    const value = await whatIfAgain(stored, book.cell, places, options.signal);
     if (value !== saved.value) return "workbook-changed";
   } else {
     // Its cell's number backs it only when every formula behind it is worked out here and gives
@@ -667,7 +671,7 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
         rows.push({ ...finding(target), result: unavailable(again) });
         continue;
       }
-      if (savedFigure.workbook.change) calculation = again.figure;
+      if (savedFigure.workbook.changes.length > 0) calculation = again.figure;
       else sourceInput = again.cell;
     } else if (replayed) {
       calculation = replay(target, calculations);

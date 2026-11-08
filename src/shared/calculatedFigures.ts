@@ -320,6 +320,38 @@ function keptOf(value: unknown): WorkbookKeptCell | null {
   return { sheet: value.sheet, ref, reason, name };
 }
 
+function workbookChangeOf(
+  value: unknown,
+  inputs: readonly FigureInput[],
+): FigureFromWorkbook["changes"][number] | null {
+  if (!isRecord(value) || !named(value.input) || !finite(value.value) || !named(value.shown))
+    return null;
+  return inputs.some((input) => input.name === value.input)
+    ? { input: value.input, value: value.value, shown: value.shown }
+    : null;
+}
+
+/**
+ * A what-if's changed inputs; empty for the workbook's own figure. A figure kept before a
+ * what-if could change several inputs at once holds its one as `change`.
+ */
+function workbookChangesOf(
+  value: Record<string, unknown>,
+  inputs: readonly FigureInput[],
+): FigureFromWorkbook["changes"] | undefined {
+  const raw = value.changes ?? (value.change == null ? [] : [value.change]);
+  if (!Array.isArray(raw) || raw.length > MAX_INPUTS_PER_FIGURE) return undefined;
+  const changes: FigureFromWorkbook["changes"] = [];
+  const names = new Set<string>();
+  for (const each of raw) {
+    const change = workbookChangeOf(each, inputs);
+    if (!change || names.has(change.input)) return undefined;
+    changes.push(change);
+    names.add(change.input);
+  }
+  return changes;
+}
+
 function workbookOf(
   value: unknown,
   inputs: readonly FigureInput[],
@@ -330,17 +362,7 @@ function workbookOf(
   const own = readFigureInput(value.cell.input);
   const steps = value.steps.map(workbookStepOf);
   const kept = Array.isArray(value.kept) ? value.kept.map(keptOf) : null;
-  const change = value.change;
-  const changed =
-    change == null
-      ? null
-      : isRecord(change) &&
-          named(change.input) &&
-          finite(change.value) &&
-          named(change.shown) &&
-          inputs.some((input) => input.name === change.input)
-        ? { input: change.input, value: change.value, shown: change.shown }
-        : undefined;
+  const changes = workbookChangesOf(value, inputs);
   if (
     !cell ||
     !own ||
@@ -350,7 +372,7 @@ function workbookOf(
     !index(value.moreInputs) ||
     !finite(value.saved) ||
     !named(value.savedShown) ||
-    changed === undefined ||
+    !changes ||
     !kept ||
     kept.length > MAX_WORKBOOK_STEPS ||
     kept.some((each) => each === null) ||
@@ -364,7 +386,7 @@ function workbookOf(
     moreInputs: value.moreInputs,
     saved: value.saved,
     savedShown: value.savedShown,
-    change: changed,
+    changes,
     kept: kept as WorkbookKeptCell[],
     engine: value.engine,
   };

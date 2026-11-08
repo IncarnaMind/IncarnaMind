@@ -36,6 +36,10 @@ const at = (model: WorkbookModel, sheet: string, row: number, column: number) =>
   return placeKey(found, row, column);
 };
 
+/** One input changed, as `whatIf` takes it. */
+const oneInput = (engine: WorkbookEngine, target: number, input: number, value: number) =>
+  whatIf(engine, target, [{ input, value }]);
+
 function formulaKeys(model: WorkbookModel): number[] {
   return model.sheets.flatMap((sheet) =>
     [...sheet.cells.values()]
@@ -132,27 +136,69 @@ describe("a workbook's formulas, worked out again", () => {
   test("a what-if on growth works the figure out again, in memory, and leaves the model as it was", async () => {
     const { model, engine } = await modelOf(libreOfficeFixture("dcf"));
     const growth = at(model, "Assumptions", 4, 1);
-    const outcome = await whatIf(engine, at(model, "DCF", 5, 4), growth, 0.03);
+    const outcome = await oneInput(engine, at(model, "DCF", 5, 4), growth, 0.03);
     expect(outcome).toMatchObject({ ok: true, before: 254.6775 });
     if (!outcome.ok) throw new Error("refused");
     expect(outcome.after).toBeCloseTo(240.39994, 9);
-    const perShare = await whatIf(engine, at(model, "DCF", 21, 1), growth, 0.03);
+    const perShare = await oneInput(engine, at(model, "DCF", 21, 1), growth, 0.03);
     expect(perShare).toMatchObject({ ok: true, before: 18.93, after: 17.38 });
     // The model still holds the saved inputs: a second run starts from them.
-    const again = await whatIf(engine, at(model, "DCF", 5, 4), growth, 0.05);
+    const again = await oneInput(engine, at(model, "DCF", 5, 4), growth, 0.05);
     expect(again).toMatchObject({ ok: true, before: 254.6775, after: 254.6775 });
+  });
+
+  test("a what-if that changes two inputs at once works them out together, and leaves the model as it was", async () => {
+    const { model, engine } = await modelOf(libreOfficeFixture("dcf"));
+    const valuePerShare = at(model, "DCF", 21, 1);
+    const wacc = at(model, "Assumptions", 10, 1);
+    const margin = at(model, "Assumptions", 5, 1);
+    const outcome = await whatIf(engine, valuePerShare, [
+      { input: wacc, value: 0.08 },
+      { input: margin, value: 0.25 },
+    ]);
+    expect(outcome).toMatchObject({ ok: true, before: 18.93 });
+    if (!outcome.ok) throw new Error("refused");
+    expect(outcome.after).toBe(27.73);
+    // The model still holds the saved inputs: a later run starts from them, not from these.
+    const one = await oneInput(engine, valuePerShare, wacc, 0.08);
+    expect(one).toMatchObject({ ok: true, before: 18.93 });
+    if (!one.ok) throw new Error("refused");
+    expect(one.after).not.toBe(27.73);
+  });
+
+  test("a two-input what-if names which input is a formula, and which doesn't drive the figure", async () => {
+    const { model, engine } = await modelOf(libreOfficeFixture("dcf"));
+    const valuePerShare = at(model, "DCF", 21, 1);
+    const wacc = at(model, "Assumptions", 10, 1);
+    const revenue = at(model, "DCF", 4, 3);
+    const valuationDate = at(model, "Assumptions", 14, 1);
+    expect(
+      await whatIf(engine, valuePerShare, [
+        { input: wacc, value: 0.08 },
+        { input: revenue, value: 1200 },
+      ]),
+    ).toMatchObject({ ok: false, why: { kind: "input-is-formula", input: revenue } });
+    expect(
+      await whatIf(engine, valuePerShare, [
+        { input: wacc, value: 0.08 },
+        { input: valuationDate, value: 46022 },
+      ]),
+    ).toMatchObject({ ok: false, why: { kind: "unrelated", input: valuationDate } });
+    expect(await whatIf(engine, valuePerShare, [{ input: wacc, value: 0.08 }])).toMatchObject({
+      ok: true,
+    });
   });
 
   test("an input the figure doesn't depend on, and one worked out by a formula, are refused, named", async () => {
     const { model, engine } = await modelOf(libreOfficeFixture("dcf"));
     const ebitda = at(model, "DCF", 5, 4);
-    expect(await whatIf(engine, ebitda, at(model, "Assumptions", 12, 1), 400)).toMatchObject({
+    expect(await oneInput(engine, ebitda, at(model, "Assumptions", 12, 1), 400)).toMatchObject({
       ok: false,
       why: { kind: "unrelated" },
     });
-    const viaFormula = await whatIf(engine, ebitda, at(model, "DCF", 4, 3), 1200);
+    const viaFormula = await oneInput(engine, ebitda, at(model, "DCF", 4, 3), 1200);
     expect(viaFormula).toMatchObject({ ok: false, why: { kind: "input-is-formula" } });
-    expect(await whatIf(engine, ebitda, at(model, "Assumptions", 5, 1), 0.2)).toMatchObject({
+    expect(await oneInput(engine, ebitda, at(model, "Assumptions", 5, 1), 0.2)).toMatchObject({
       ok: true,
     });
   });
@@ -175,13 +221,13 @@ describe("a workbook's formulas, worked out again", () => {
       const figure = at(model, "Cases", row, 3);
       const chain = await traceChain(engine, figure);
       expect(chain.dependsOn.map((each) => each.problem)).toContainEqual(problem);
-      expect(await whatIf(engine, figure, at(model, "Cases", row, 1), 99)).toMatchObject({
+      expect(await oneInput(engine, figure, at(model, "Cases", row, 1), 99)).toMatchObject({
         ok: false,
         why: { kind: "depends" },
       });
       // In the same workbook, a figure with nothing to keep is worked out.
       expect(
-        await whatIf(engine, at(model, "Cases", 13, 3), at(model, "Cases", 13, 1), 7),
+        await oneInput(engine, at(model, "Cases", 13, 3), at(model, "Cases", 13, 1), 7),
       ).toMatchObject({
         ok: true,
         before: 18,
@@ -193,7 +239,7 @@ describe("a workbook's formulas, worked out again", () => {
   test("OFFSET with every argument written in the formula is worked out", async () => {
     const { model, engine } = await modelOf(unsupportedWorkbook());
     expect(
-      await whatIf(engine, at(model, "Cases", 12, 3), at(model, "Cases", 12, 1), 5),
+      await oneInput(engine, at(model, "Cases", 12, 3), at(model, "Cases", 12, 1), 5),
     ).toMatchObject({
       ok: true,
       before: 9,
@@ -204,7 +250,7 @@ describe("a workbook's formulas, worked out again", () => {
   test("a hidden sheet read with the workbook is worked out; left out, it is named", async () => {
     const hidden = await modelOf(unsupportedWorkbook(), {}, true);
     expect(
-      await whatIf(
+      await oneInput(
         hidden.engine,
         at(hidden.model, "Cases", 11, 3),
         at(hidden.model, "Cases", 11, 1),
@@ -228,7 +274,7 @@ describe("a workbook's formulas, worked out again", () => {
   test("a workbook saved with no results is refused; the same one with them works", async () => {
     const bare = await modelOf(dcfWorkbook(), { withoutResults: true });
     const growth = at(bare.model, "Assumptions", 4, 1);
-    expect(await whatIf(bare.engine, at(bare.model, "DCF", 5, 4), growth, 0.03)).toMatchObject({
+    expect(await oneInput(bare.engine, at(bare.model, "DCF", 5, 4), growth, 0.03)).toMatchObject({
       ok: false,
       why: {
         kind: "depends",
@@ -239,7 +285,7 @@ describe("a workbook's formulas, worked out again", () => {
     });
     const saved = await modelOf(libreOfficeFixture("dcf"));
     expect(
-      await whatIf(
+      await oneInput(
         saved.engine,
         at(saved.model, "DCF", 5, 4),
         at(saved.model, "Assumptions", 4, 1),
@@ -257,7 +303,7 @@ describe("a workbook's formulas, worked out again", () => {
       tickedDuring = running;
     }, 0);
     const total = at(model, "Model", 102, 120);
-    const outcome = await whatIf(engine, total, at(model, "Drivers", 2, 1), 0.002);
+    const outcome = await oneInput(engine, total, at(model, "Drivers", 2, 1), 0.002);
     running = false;
     expect(tickedDuring).toBe(true);
     expect(outcome).toMatchObject({ ok: true, formulaCells: 12_001 });
@@ -299,7 +345,7 @@ describe("a workbook's formulas, worked out again", () => {
     const cell = model.byName.get("RATES")?.cells.get(cellIndex(1, 0));
     expect(cell?.shown).toBe("1");
     expect(cell?.saved).toBe(1.0000000000000002);
-    const outcome = await whatIf(engine, at(model, "Rates", 1, 1), at(model, "Rates", 1, 0), 0.5);
+    const outcome = await oneInput(engine, at(model, "Rates", 1, 1), at(model, "Rates", 1, 0), 0.5);
     expect(outcome).toMatchObject({ ok: true, before: 2.0000000000000004, after: 1 });
   });
 
@@ -308,7 +354,7 @@ describe("a workbook's formulas, worked out again", () => {
     book.calc.manual = true;
     const { model, engine } = await modelOf(book);
     expect(model.manual).toBe(true);
-    const outcome = await whatIf(
+    const outcome = await oneInput(
       engine,
       at(model, "DCF", 5, 4),
       at(model, "Assumptions", 4, 1),
@@ -321,7 +367,7 @@ describe("a workbook's formulas, worked out again", () => {
     stale.get("Assumptions").number("B4", 0.06, "percent");
     const kept = await modelOf(stale);
     expect(
-      await whatIf(
+      await oneInput(
         kept.engine,
         at(kept.model, "DCF", 5, 4),
         at(kept.model, "Assumptions", 4, 1),
@@ -362,13 +408,13 @@ describe("a workbook's formulas, worked out again", () => {
     expect(chained.dependsOn.map((each) => each.problem)).toEqual([
       { kind: "too-many", limit: 40_000 },
     ]);
-    expect(await whatIf(engine, target, at(model, "Chain", 1, 0), 2)).toMatchObject({
+    expect(await oneInput(engine, target, at(model, "Chain", 1, 0), 2)).toMatchObject({
       ok: false,
       why: { kind: "too-many" },
     });
     // A figure nearer the start depends on fewer, and is worked out.
     expect(
-      await whatIf(engine, at(model, "Chain", 100, 0), at(model, "Chain", 1, 0), 2),
+      await oneInput(engine, at(model, "Chain", 100, 0), at(model, "Chain", 1, 0), 2),
     ).toMatchObject({ ok: true, before: 100, after: 101 });
   });
 });

@@ -997,10 +997,11 @@ export const en = {
   "figures.workbook.formulas": "{count} formulas worked out in all",
   "figures.workbook.change": "Changed {input} ({cell}) from {from} to {to}",
   "figures.workbook.inWorkbook": "In the workbook as it is: {value}",
-  "figures.workbook.whatIfFormula":
-    "What-if: {cell} = {formula}, with {input} at {to} ({from} in the workbook)",
+  "figures.workbook.whatIfFormula": "What-if: {cell} = {formula}, with {changes}",
+  "figures.workbook.whatIfChange": "{input} at {to} ({from} in the workbook)",
   "figures.workbook.whatIfInput": "Changed for the what-if",
-  "figures.workbook.whatIfLabel": "{label} (what-if: {input} at {value})",
+  "figures.workbook.whatIfLabel": "{label} (what-if: {changes})",
+  "figures.workbook.whatIfAt": "{input} at {value}",
   "figures.workbook.moreInputs": "{count} more inputs not listed",
   "figures.workbook.keptNote":
     "This is the value the workbook saved: IncarnaMind couldn’t work it out again, for the reason above. Each input is cited to its cell.",
@@ -5118,7 +5119,8 @@ export const en = {
   "export.figure.workbook":
     "Worked out from the workbook’s formulas ({cell} = {formula}): {figure}.",
   "export.figure.whatIf":
-    "Worked out from the workbook’s formulas ({cell} = {formula}) with {input} changed to {value}: {figure}.",
+    "Worked out from the workbook’s formulas ({cell} = {formula}) with {changes} changed: {figure}.",
+  "export.figure.whatIfChange": "{input} to {value}",
   "export.figure.inputs": "{inputs}: {source}.",
   "export.figure.cluster": "calculated from {cluster}",
   "export.figure.cluster.note": "Calculated from {cluster}",
