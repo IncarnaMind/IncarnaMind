@@ -8,6 +8,7 @@ import { recordUsage, useAppStore } from "../store";
 import { AppearanceRow } from "./AppearanceSettings";
 import { AuthorNameSettings } from "./AuthorNameSettings";
 import { AgentsSettings } from "./agents/AgentsSettings";
+import { BackgroundSettings } from "./BackgroundSettings";
 import { ConnectorsSettings } from "./connectors/ConnectorsSettings";
 import { EvidenceSettings } from "./EvidenceSettings";
 import { CloseLineIcon } from "./lineIcons";
@@ -145,6 +146,7 @@ function PageContent({ page }: { page: SettingsPage }) {
         <Page>
           <InterfaceSettings />
           <SpendingCapSettings />
+          <BackgroundSettings />
           <TaskNotificationSettings />
           <SuggestionSettings />
           <OutputLocationSettings />

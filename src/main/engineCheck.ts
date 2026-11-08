@@ -21,6 +21,7 @@ import {
   type EngineModuleCheck,
 } from "../core/engineModules";
 import type { AnalysisEnd } from "../shared/analysis";
+import { callWatcherCheck } from "./calls/macWatcher";
 import { EMBEDDING_PROCESS } from "./embedder";
 import { type EngineProcess, startEngineProcess } from "./engineProcess";
 import type { FileLogger } from "./log";
@@ -89,14 +90,14 @@ function checkProcess(engine: EngineProcess): Promise<EngineCheck[]> {
 
 /**
  * What the main process loads itself: the OS sandbox, where there is one (./platform), and on
- * macOS the calendar helper it runs (#190).
+ * macOS the calendar helper (#190) and the call watcher (#208) it runs.
  */
 function mainModules(log: FileLogger): EngineModule[] {
   if (process.platform !== "darwin" && process.platform !== "linux") return [];
   const helper = seccompHelper();
   return [
     SANDBOX_RUNTIME,
-    ...(process.platform === "darwin" ? [calendarHelperCheck(log)] : []),
+    ...(process.platform === "darwin" ? [calendarHelperCheck(log), callWatcherCheck()] : []),
     ...(helper === undefined
       ? []
       : [

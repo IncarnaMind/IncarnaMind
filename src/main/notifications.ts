@@ -24,9 +24,14 @@ export function createSystemNotifications(windows: () => BrowserWindow[]): Syste
       decide();
       return;
     }
-    waiting.push(decide);
     const first = windows()[0];
-    if (!first) return;
+    // Started at login without a window (#189): no window is about to show anything.
+    if (!first) {
+      shown = true;
+      decide();
+      return;
+    }
+    waiting.push(decide);
     const ready = () => {
       if (shown) return;
       shown = true;
