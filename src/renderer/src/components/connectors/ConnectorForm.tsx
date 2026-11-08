@@ -7,20 +7,26 @@ import { useT } from "../../i18n";
 import { FieldProblem, type FieldProblems, useFieldProblems } from "../FieldProblem";
 import { ProblemMark } from "../ProblemLine";
 import { SecretStorageNotice } from "../providers/ProviderForm";
+import { SettingsPopUpRow } from "../settings/PopUpButton";
+import { SettingsGroup, SettingsHelp, SettingsRow } from "../settings/SettingsGroup";
 import { TypingTextarea } from "../TypingTextarea";
 import {
-  choiceListClass,
-  compactChoiceRadioClass,
-  compactChoiceRowClass,
   errorTextClass,
-  fieldLabelClass,
+  fieldClass,
   ghostButtonClass,
-  hintClass,
-  inputClass,
   primaryButtonClass,
+  rowFieldClass,
 } from "../ui";
 import { splitCommandLine } from "./commandLine";
 import { ConnectorKeyFields, HeaderNameField, keyHeader } from "./RemoteKey";
+import { ClientFields } from "./RemoteSignIn";
+
+/** A multi-line field under its row's label, as wide as the group. */
+const textAreaClass = `block w-full ${fieldClass}`;
+
+/** What opens a part of the form that most Connectors don't need: quiet, like a section title. */
+const disclosureClass =
+  "cursor-pointer px-4 text-[13px] leading-5 font-semibold text-ink-secondary select-none hover:text-ink";
 
 /** Non-empty lines, trimmed. */
 const lines = (text: string) =>
@@ -63,6 +69,7 @@ export function ConnectorForm({
   prefill?: { name: string; command: string; args: string[]; env: string[] };
 }) {
   const t = useT();
+  const id = useId();
   const [chosenKind, setKind] = useState<"local" | "remote">("local");
   const kind = fixedKind ?? chosenKind;
   const [name, setName] = useState(editing?.name ?? prefill?.name ?? "");
@@ -147,116 +154,121 @@ export function ConnectorForm({
       data-testid="connector-form"
       onSubmit={(event) => void submit(event)}
       {...problems.form}
-      className="flex flex-col gap-3"
+      className="flex flex-col gap-4"
     >
-      <fieldset hidden={editing !== undefined || fixedKind !== undefined}>
-        <legend className={`mb-1.5 ${fieldLabelClass}`}>{t("remoteConnectors.form.kind")}</legend>
-        <div className={choiceListClass}>
-          {(["local", "remote"] as const).map((each) => (
-            <label key={each} className={compactChoiceRowClass}>
-              <input
-                type="radio"
-                name="connector-kind"
-                value={each}
-                checked={kind === each}
-                onChange={() => setKind(each)}
-                className={compactChoiceRadioClass}
-              />
-              {t(`remoteConnectors.form.kind.${each}`)}
-            </label>
-          ))}
-        </div>
-      </fieldset>
-      <label className={fieldLabelClass}>
-        {t("connectors.form.name")}
-        <input
-          required
-          {...problems.field("connector-name")}
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          placeholder={remote ? "Linear" : "GitHub"}
-          className={inputClass}
-        />
-        {problems.fault("connector-name") && (
-          <FieldProblem id={problems.lineId("connector-name")}>
-            {t("error.connector.nameEmpty")}
-          </FieldProblem>
-        )}
-      </label>
-      {remote ? (
-        <>
-          <label className={fieldLabelClass}>
-            {t("remoteConnectors.form.url")}
+      <div hidden={editing !== undefined || fixedKind !== undefined}>
+        <SettingsGroup>
+          <SettingsPopUpRow<"local" | "remote">
+            label={t("remoteConnectors.form.kind")}
+            value={kind}
+            options={(["local", "remote"] as const).map((each) => ({
+              value: each,
+              label: t(`remoteConnectors.form.kind.${each}`),
+            }))}
+            onChange={setKind}
+          />
+        </SettingsGroup>
+      </div>
+      <SettingsGroup>
+        <SettingsRow
+          label={t("connectors.form.name")}
+          htmlFor={`${id}-name`}
+          control={
             <input
               required
-              type="url"
-              {...problems.field("connector-url")}
-              value={url}
-              onChange={(event) => setUrl(event.target.value)}
-              placeholder="https://mcp.example.com/mcp"
-              spellCheck={false}
-              className={`${inputClass} font-mono`}
+              {...problems.field("connector-name")}
+              id={`${id}-name`}
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder={remote ? "Linear" : "GitHub"}
+              className={`${rowFieldClass} w-72`}
             />
-            <span className={hintClass}>{t("remoteConnectors.form.urlHint")}</span>
-            {problems.fault("connector-url") && (
-              <FieldProblem id={problems.lineId("connector-url")}>
-                {problems.fault("connector-url") === "missing"
-                  ? t("error.connector.urlMissing")
-                  : t("error.connector.urlInvalid", { url: nameInLine(url) })}
-              </FieldProblem>
-            )}
-          </label>
-          <ConnectorKeyFields value={key} onChange={setKey} />
-          <details className="text-[13px] leading-5 text-ink-secondary">
-            <summary className="cursor-pointer select-none hover:text-ink">
-              {t("remoteConnectors.key.options")}
-            </summary>
+          }
+        >
+          {problems.fault("connector-name") && (
+            <FieldProblem id={problems.lineId("connector-name")}>
+              {t("error.connector.nameEmpty")}
+            </FieldProblem>
+          )}
+        </SettingsRow>
+        {remote ? (
+          <>
+            <SettingsRow
+              label={t("remoteConnectors.form.url")}
+              htmlFor={`${id}-url`}
+              detail={t("remoteConnectors.form.urlHint")}
+              detailId={`${id}-url-hint`}
+              control={
+                <input
+                  required
+                  type="url"
+                  {...problems.field("connector-url")}
+                  aria-describedby={
+                    problems.fault("connector-url")
+                      ? problems.lineId("connector-url")
+                      : `${id}-url-hint`
+                  }
+                  id={`${id}-url`}
+                  value={url}
+                  onChange={(event) => setUrl(event.target.value)}
+                  placeholder="https://mcp.example.com/mcp"
+                  spellCheck={false}
+                  className={`${rowFieldClass} w-72 font-mono`}
+                />
+              }
+            >
+              {problems.fault("connector-url") && (
+                <FieldProblem id={problems.lineId("connector-url")}>
+                  {problems.fault("connector-url") === "missing"
+                    ? t("error.connector.urlMissing")
+                    : t("error.connector.urlInvalid", { url: nameInLine(url) })}
+                </FieldProblem>
+              )}
+            </SettingsRow>
+            <ConnectorKeyFields value={key} onChange={setKey} />
+          </>
+        ) : (
+          <LocalFields
+            id={id}
+            command={command}
+            setCommand={setCommand}
+            args={args}
+            setArgs={setArgs}
+            env={env}
+            setEnv={setEnv}
+            envInvalid={variables === null}
+            savedEnv={editing?.env ?? []}
+            problems={problems}
+          />
+        )}
+      </SettingsGroup>
+      {remote && (
+        <>
+          <details>
+            <summary className={disclosureClass}>{t("remoteConnectors.key.options")}</summary>
             <div className="mt-2">
-              <HeaderNameField value={headerName} onChange={setHeaderName} />
+              <SettingsGroup>
+                <HeaderNameField value={headerName} onChange={setHeaderName} />
+              </SettingsGroup>
             </div>
           </details>
-          <details className="text-[13px] leading-5 text-ink-secondary">
-            <summary className="cursor-pointer select-none hover:text-ink">
-              {t("remoteConnectors.form.client")}
-            </summary>
-            <p className={hintClass}>
-              {t("remoteConnectors.client.hint")} {t("remoteConnectors.client.redirect")}
-            </p>
-            <label className={`mt-2 ${fieldLabelClass}`}>
-              {t("remoteConnectors.client.id")}
-              <input
-                value={clientId}
-                onChange={(event) => setClientId(event.target.value)}
-                spellCheck={false}
-                autoComplete="off"
-                className={`${inputClass} font-mono`}
-              />
-            </label>
-            <label className={`mt-2 ${fieldLabelClass}`}>
-              {t("remoteConnectors.client.secret")}
-              <input
-                type="password"
-                value={clientSecret}
-                onChange={(event) => setClientSecret(event.target.value)}
-                autoComplete="off"
-                className={`${inputClass} font-mono`}
-              />
-              <span className={hintClass}>{t("remoteConnectors.client.secretHint")}</span>
-            </label>
+          <details>
+            <summary className={disclosureClass}>{t("remoteConnectors.form.client")}</summary>
+            <div className="mt-2">
+              <SettingsGroup>
+                <ClientFields
+                  clientId={clientId}
+                  onClientId={setClientId}
+                  clientSecret={clientSecret}
+                  onClientSecret={setClientSecret}
+                />
+              </SettingsGroup>
+              <SettingsHelp>
+                {t("remoteConnectors.client.hint")} {t("remoteConnectors.client.redirect")}
+              </SettingsHelp>
+            </div>
           </details>
         </>
-      ) : (
-        <LocalFields
-          command={command}
-          setCommand={setCommand}
-          args={args}
-          setArgs={setArgs}
-          env={env}
-          setEnv={setEnv}
-          envInvalid={variables === null}
-          savedEnv={editing?.env ?? []}
-          problems={problems}
-        />
       )}
 
       {hasSecrets && secretStorage && !secretStorage.canSave && (
@@ -264,9 +276,7 @@ export function ConnectorForm({
       )}
 
       {!editing && (
-        <p data-testid="connector-sends" className={hintClass}>
-          {t("connectors.form.sends")}
-        </p>
+        <SettingsHelp data-testid="connector-sends">{t("connectors.form.sends")}</SettingsHelp>
       )}
       <div className="flex flex-wrap items-center gap-2">
         <button type="submit" disabled={busy || invalid || blocked} className={primaryButtonClass}>
@@ -283,7 +293,7 @@ export function ConnectorForm({
         </button>
       </div>
       {error && (
-        <p role="alert" className={errorTextClass}>
+        <p role="alert" className={`px-4 ${errorTextClass}`}>
           <ProblemMark />
           {error}
         </p>
@@ -292,8 +302,9 @@ export function ConnectorForm({
   );
 }
 
-/** A local Connector's command, arguments and environment. */
+/** A local Connector's command, arguments and environment, as rows of the form's group. */
 function LocalFields(props: {
+  id: string;
   command: string;
   setCommand(value: string): void;
   args: string;
@@ -307,7 +318,7 @@ function LocalFields(props: {
 }) {
   const t = useT();
   const invalidId = useId();
-  const { command, setCommand, args, setArgs, env, setEnv, problems } = props;
+  const { id, command, setCommand, args, setArgs, env, setEnv, problems } = props;
   const [argsMoved, setArgsMoved] = useState(false);
   // A whole command line pasted as the command: the program stays, its
   // arguments move to their own field (before any already there).
@@ -320,44 +331,61 @@ function LocalFields(props: {
   };
   return (
     <>
-      <label className={fieldLabelClass}>
-        {t("connectors.form.command")}
-        <input
-          required
-          {...problems.field("connector-command")}
-          value={command}
-          onChange={(event) => {
-            setCommand(event.target.value);
-            setArgsMoved(false);
-          }}
-          onBlur={splitPasted}
-          placeholder="npx"
-          spellCheck={false}
-          className={`${inputClass} font-mono`}
-        />
-        <span className={hintClass}>
-          {argsMoved ? t("connectors.form.argsMoved") : t("connectors.form.commandHint")}
-        </span>
+      <SettingsRow
+        label={t("connectors.form.command")}
+        htmlFor={`${id}-command`}
+        detail={argsMoved ? t("connectors.form.argsMoved") : t("connectors.form.commandHint")}
+        detailId={`${id}-command-hint`}
+        control={
+          <input
+            required
+            {...problems.field("connector-command")}
+            aria-describedby={
+              problems.fault("connector-command")
+                ? problems.lineId("connector-command")
+                : `${id}-command-hint`
+            }
+            id={`${id}-command`}
+            value={command}
+            onChange={(event) => {
+              setCommand(event.target.value);
+              setArgsMoved(false);
+            }}
+            onBlur={splitPasted}
+            placeholder="npx"
+            spellCheck={false}
+            className={`${rowFieldClass} w-72 font-mono`}
+          />
+        }
+      >
         {problems.fault("connector-command") && (
           <FieldProblem id={problems.lineId("connector-command")}>
             {t("error.connector.commandMissing")}
           </FieldProblem>
         )}
-      </label>
-      <label className={fieldLabelClass}>
-        {t("connectors.form.args")}
+      </SettingsRow>
+      <SettingsRow label={t("connectors.form.args")} htmlFor={`${id}-args`}>
         <TypingTextarea
+          id={`${id}-args`}
           value={args}
           onChange={(event) => setArgs(event.target.value)}
           rows={3}
           placeholder={"-y\n@modelcontextprotocol/server-github"}
           spellCheck={false}
-          className={`${inputClass} font-mono`}
+          className={`${textAreaClass} font-mono`}
         />
-      </label>
-      <label className={fieldLabelClass}>
-        {t("connectors.form.env")}
+      </SettingsRow>
+      <SettingsRow
+        label={t("connectors.form.env")}
+        htmlFor={`${id}-env`}
+        detail={
+          props.savedEnv.length > 0
+            ? t("connectors.form.envKeep", { names: props.savedEnv.join(", ") })
+            : t("connectors.form.envHint")
+        }
+      >
         <TypingTextarea
+          id={`${id}-env`}
           value={env}
           onChange={(event) => setEnv(event.target.value)}
           rows={2}
@@ -366,17 +394,12 @@ function LocalFields(props: {
           autoComplete="off"
           aria-invalid={props.envInvalid || undefined}
           aria-describedby={props.envInvalid ? invalidId : undefined}
-          className={`${inputClass} font-mono`}
+          className={`${textAreaClass} font-mono`}
         />
-        <span className={hintClass}>
-          {props.savedEnv.length > 0
-            ? t("connectors.form.envKeep", { names: props.savedEnv.join(", ") })
-            : t("connectors.form.envHint")}
-        </span>
         {props.envInvalid && (
           <FieldProblem id={invalidId}>{t("connectors.form.envInvalid")}</FieldProblem>
         )}
-      </label>
+      </SettingsRow>
     </>
   );
 }

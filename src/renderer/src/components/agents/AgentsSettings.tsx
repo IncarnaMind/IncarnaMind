@@ -1,22 +1,16 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useState } from "react";
 import type { AgentClient, AgentSettings } from "../../../../core/api";
 import { core } from "../../core";
 import { errorMessage } from "../../errors";
 import { useT } from "../../i18n";
 import { useAppStore } from "../../store";
 import {
-  buttonStyle,
-  hintClass,
-  noticeClass,
-  pageIntroClass,
-  rowButtonsClass,
-  rowTextClass,
-  rowTitleClass,
-  ruledListClass,
-  ruledRowClass,
-  sectionNoteClass,
-  sectionTitleClass,
-} from "../ui";
+  SettingsGroup,
+  SettingsRow,
+  SettingsSection,
+  SettingsSwitchRow,
+} from "../settings/SettingsGroup";
+import { buttonStyle, noticeClass, pageIntroClass } from "../ui";
 import { AgentPairingRow, type JustSetUp } from "./AgentPairingRow";
 import { clientName, clientNote, setupWords } from "./agentWords";
 import { ConnectAgentDialog } from "./ConnectAgentDialog";
@@ -44,7 +38,6 @@ export function AgentsSettings() {
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [justSetUp, setJustSetUp] = useState<JustSetUp | null>(null);
-  const switchId = useId();
 
   useEffect(() => {
     core.getAgents().then(setSettings, reportError);
@@ -84,18 +77,18 @@ export function AgentsSettings() {
   };
 
   const clientRow = (client: AgentClient) => (
-    <li
+    <SettingsRow
       key={client.id}
       data-testid="agent-client"
       data-client={client.id}
-      className={ruledRowClass}
-    >
-      <div className="flex min-w-0 flex-col gap-0.5">
-        <span className={rowTitleClass}>{clientName(client, t)}</span>
-        <span className={rowTextClass}>{setupWords(client, t)}</span>
-        {clientNote(client, t) && <span className={hintClass}>{clientNote(client, t)}</span>}
-      </div>
-      <div className={rowButtonsClass}>
+      label={clientName(client, t)}
+      detail={
+        <>
+          {setupWords(client, t)}
+          {clientNote(client, t) && <span className="block">{clientNote(client, t)}</span>}
+        </>
+      }
+      control={
         <button
           type="button"
           data-testid="agent-connect"
@@ -104,8 +97,8 @@ export function AgentsSettings() {
         >
           {t("agents.settings.connectButton")}
         </button>
-      </div>
-    </li>
+      }
+    />
   );
 
   return (
@@ -120,29 +113,15 @@ export function AgentsSettings() {
         </p>
       </div>
 
-      <div className={ruledListClass}>
-        <div className={ruledRowClass}>
-          <div className="flex min-w-0 flex-col gap-0.5">
-            <label htmlFor={switchId} className={rowTitleClass}>
-              {t("agents.settings.switch")}
-            </label>
-            <p id={`${switchId}-description`} className={rowTextClass}>
-              {t(settings.enabled ? "agents.settings.switch.on" : "agents.settings.switch.off")}
-            </p>
-          </div>
-          <input
-            id={switchId}
-            type="checkbox"
-            role="switch"
-            aria-checked={settings.enabled}
-            aria-describedby={`${switchId}-description`}
-            data-testid="agents-enabled"
-            checked={settings.enabled}
-            onChange={(event) => void turn(event.target.checked)}
-            className="switch"
-          />
-        </div>
-      </div>
+      <SettingsGroup>
+        <SettingsSwitchRow
+          label={t("agents.settings.switch")}
+          detail={t(settings.enabled ? "agents.settings.switch.on" : "agents.settings.switch.off")}
+          checked={settings.enabled}
+          onChange={(on) => void turn(on)}
+          switchTestId="agents-enabled"
+        />
+      </SettingsGroup>
 
       {settings.enabled && settings.paused === "local-mode" && (
         <p data-testid="agents-paused" role="status" className={noticeClass}>
@@ -159,9 +138,8 @@ export function AgentsSettings() {
       )}
 
       {settings.enabled && settings.pairings.length > 0 && (
-        <section data-testid="agents-connected">
-          <h4 className={`mb-2 ${sectionTitleClass}`}>{t("agents.settings.connected")}</h4>
-          <ul className={ruledListClass}>
+        <SettingsSection testId="agents-connected" title={t("agents.settings.connected")}>
+          <SettingsGroup>
             {settings.pairings.map((pairing) => (
               <AgentPairingRow
                 key={pairing.id}
@@ -172,19 +150,23 @@ export function AgentsSettings() {
                 onUndone={() => setJustSetUp(null)}
               />
             ))}
-          </ul>
-        </section>
+          </SettingsGroup>
+        </SettingsSection>
       )}
 
       {settings.enabled && clients && (
-        <section data-testid="agents-clients">
-          <h4 className={sectionTitleClass}>{t("agents.settings.connect")}</h4>
-          <p className={sectionNoteClass}>{t("agents.settings.connect.note")}</p>
-          <ul data-testid="agents-list" className={ruledListClass}>
-            {clients.map(clientRow)}
-          </ul>
-          <p className={`${hintClass} mt-2`}>{t("agents.settings.web")}</p>
-        </section>
+        <SettingsSection
+          testId="agents-clients"
+          title={t("agents.settings.connect")}
+          help={
+            <>
+              <p>{t("agents.settings.connect.note")}</p>
+              <p className="mt-1">{t("agents.settings.web")}</p>
+            </>
+          }
+        >
+          <SettingsGroup data-testid="agents-list">{clients.map(clientRow)}</SettingsGroup>
+        </SettingsSection>
       )}
 
       <ConnectAgentDialog

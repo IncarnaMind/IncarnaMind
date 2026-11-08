@@ -21,7 +21,7 @@ export function LanguagesLine({
   className,
 }: {
   service: TranscriptionServiceStatus;
-  className: string;
+  className?: string;
 }) {
   const t = useT();
   const language = useLanguage();
