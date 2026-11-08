@@ -275,16 +275,9 @@ export interface TranscriptsOptions {
   decoded?(modelId: string, decodeMs: number, audioSeconds: number): void;
   /**
    * The Meeting's Transcript is finished (#142): saved, its Document in its place and its
-   * speakers told apart (#138), or with no lines. `renamed`: the speaker pass changed who spoke
-   * a line, so what was read of it before has other labels now.
+   * speakers told apart (#138), or with no lines.
    */
-  saved?(meetingId: string, renamed: boolean): void;
-  /**
-   * A call's Transcript is saved, its Document in its place, and its speakers are being told
-   * apart (#138): its words are final, and its labels change only where the pass finds more than
-   * one voice on the other side (#2773).
-   */
-  written?(meetingId: string): void;
+  saved?(meetingId: string): void;
   /**
    * The words the Meeting's speech may hold (#1031): gathered when it is first transcribed, and
    * told to the engine on this computer for each of its streams.
@@ -1336,7 +1329,7 @@ export function createTranscripts(options: TranscriptsOptions) {
   async function save(state: State): Promise<void> {
     if (state.cues.length === 0) {
       state.state = "empty";
-      options.saved?.(state.meetingId, false);
+      options.saved?.(state.meetingId);
       return;
     }
     const file = writeWhole(vttPath(state.meetingId), transcriptOf(state));
@@ -1346,7 +1339,7 @@ export function createTranscripts(options: TranscriptsOptions) {
     log.info("transcript.saved", { meetingId: state.meetingId, lines: state.cues.length });
     if (options.speakers && !state.memo) state.speakers = "due";
     await documents.checkNow(state.documentId, file.path);
-    if (state.speakers !== "due") options.saved?.(state.meetingId, false);
+    if (state.speakers !== "due") options.saved?.(state.meetingId);
   }
 
   // Voices a cloud service told apart as they spoke stand: the pass leaves that side.
@@ -1376,20 +1369,18 @@ export function createTranscripts(options: TranscriptsOptions) {
     }
     state.separating = true;
     options.changed();
-    if (isCall(state.cues)) options.written?.(state.meetingId);
     const saved = transcriptOf(state);
     const current = () => !closed && states.get(state.meetingId) === state;
-    let renamed = false;
     pass
       .run(state.meetingId, [...state.cues])
       .then(
-        async (cues) => {
+        (cues) => {
           if (
             current() &&
             !named(state) &&
             cues?.some((cue, at) => cue.speaker !== state.cues[at]?.speaker)
           ) {
-            renamed = await relabel(state, cues, saved);
+            relabel(state, cues, saved);
           }
           return "done" as const;
         },
@@ -1400,7 +1391,7 @@ export function createTranscripts(options: TranscriptsOptions) {
       )
       .then((outcome) => {
         state.separating = false;
-        if (current()) settle(state, outcome, renamed);
+        if (current()) settle(state, outcome);
       })
       .catch((error: unknown) => {
         log.error("speakers.settleFailed", {
@@ -1410,11 +1401,11 @@ export function createTranscripts(options: TranscriptsOptions) {
       });
   }
 
-  function settle(state: State, outcome: "done" | "failed", renamed = false): void {
+  function settle(state: State, outcome: "done" | "failed"): void {
     state.speakers = outcome;
     persist(state);
     options.changed();
-    options.saved?.(state.meetingId, renamed);
+    options.saved?.(state.meetingId);
   }
 
   function modelProblem(state: State, status: TranscriptionModelStatus): TranscriptProblem | null {
@@ -1429,34 +1420,27 @@ export function createTranscripts(options: TranscriptsOptions) {
   const speakersProblem = (state: State): TranscriptProblem | null =>
     state.speakers === "failed" ? { kind: "speakers", message: "" } : null;
 
-  /**
-   * Whether the lines were written with their new labels. Its Document is read again before this
-   * resolves, so what reads the Transcript once it is finished reads them (#2773).
-   */
-  async function relabel(state: State, cues: Cue[], saved: string): Promise<boolean> {
+  function relabel(state: State, cues: Cue[], saved: string): void {
     const path = state.savedPath;
-    if (!path) return false;
+    if (!path) return;
     try {
       // Written over only while it still holds the lines that were saved.
       if (readFileSync(path, "utf8") !== saved) {
         log.warn("speakers.fileChanged", { meetingId: state.meetingId });
-        return false;
+        return;
       }
       state.cues = cues;
       writeWhole(path, transcriptOf(state));
     } catch (error) {
       log.error("speakers.writeFailed", { meetingId: state.meetingId, message: messageOf(error) });
-      return false;
+      return;
     }
-    try {
-      await documents.checkNow(state.documentId, path);
-    } catch (error) {
+    documents.check(path).catch((error: unknown) => {
       log.error("transcript.indexFailed", {
         meetingId: state.meetingId,
         message: messageOf(error),
       });
-    }
-    return true;
+    });
   }
 
   function finishStreams(state: State, live: Live, endMs: number): void {
