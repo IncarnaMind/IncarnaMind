@@ -74,16 +74,59 @@ const HEADING = /^h([1-6])$/;
 /** Elements whose content is raw text until their own end tag, never markup. */
 const RAW_TEXT = new Set(["script", "style", "textarea", "title"]);
 
-/** Each raw-text element's end tag, case-insensitive, at a tag boundary. */
+/** Each raw-text element's end tag but a script's, case-insensitive, at a tag boundary. */
 const RAW_ENDS: Readonly<Record<string, RegExp>> = {
-  script: /<\/script(?=[\s/>])/gi,
   style: /<\/style(?=[\s/>])/gi,
   textarea: /<\/textarea(?=[\s/>])/gi,
   title: /<\/title(?=[\s/>])/gi,
 };
 
+/** Whether `name` starts at `at`, whatever its case, and ends at a tag boundary. */
+function hasName(source: string, at: number, name: string): boolean {
+  return (
+    source.slice(at, at + name.length).toLowerCase() === name &&
+    /[\s/>]/.test(source[at + name.length] ?? "")
+  );
+}
+
+/**
+ * Where a script's body ends. A `<!--` escapes it, and a `<script>` there
+ * escapes it twice, where a `</script>` only leaves the twice state; the
+ * script ends at the next `</script>` that neither state holds, as a
+ * browser's tokenizer reads them (#2439).
+ */
+function scriptEnd(source: string, from: number): number {
+  // 0: script data, 1: escaped, 2: double escaped.
+  let escaped = 0;
+  for (let at = from; at < source.length; at++) {
+    if (escaped > 0 && source.startsWith("-->", at)) {
+      escaped = 0;
+      at += 2;
+      continue;
+    }
+    if (escaped === 0 && source.startsWith("<!--", at)) {
+      escaped = 1;
+      at += 3;
+      continue;
+    }
+    if (source[at] !== "<") continue;
+    const closing = source[at + 1] === "/";
+    const nameAt = at + (closing ? 2 : 1);
+    if (!hasName(source, nameAt, "script")) continue;
+    if (closing) {
+      if (escaped < 2) return at;
+      escaped = 1;
+    } else if (escaped === 1) {
+      escaped = 2;
+    }
+    at = nameAt + 5;
+  }
+  return -1;
+}
+
 /** Where a raw-text element's own end tag starts, or -1 when it has none. */
 function rawEnd(source: string, from: number, name: string): number {
+  if (name === "script") return scriptEnd(source, from);
   const pattern = RAW_ENDS[name];
   if (!pattern) return -1;
   pattern.lastIndex = from;
@@ -121,9 +164,17 @@ function bomCharset(bytes: Uint8Array): string | null {
   return null;
 }
 
-/** A meta's charset label, with the spec's rule that a meta-declared UTF-16 is UTF-8. */
+/**
+ * A meta's charset label, with the spec's rule that a meta-declared UTF-16 is
+ * UTF-8. The platform knows UTF-16 by more names than one (`unicode`,
+ * `ucs-2`, `csunicode`), so the label is decoded before it is checked (#2439).
+ */
 function charsetLabel(label: string): string {
-  return label.startsWith("utf-16") ? "utf-8" : label;
+  try {
+    return new TextDecoder(label).encoding.startsWith("utf-16") ? "utf-8" : label;
+  } catch {
+    return label;
+  }
 }
 
 /**
@@ -343,8 +394,9 @@ export function htmlTextToMarkdown(source: string): string {
     const selfClosing = /\/\s*$/.test(tag);
     startTag(name, tag, selfClosing);
     // A script, style, textarea or title is raw text until its own end tag: a "<" in it
-    // is not markup, and "a<b&&c>d" must not open or close elements (#762).
-    if (!selfClosing && RAW_TEXT.has(name)) {
+    // is not markup, and "a<b&&c>d" must not open or close elements (#762). Inside svg or
+    // math a title is not raw text, and an unclosed one must not swallow the page (#2439).
+    if (!selfClosing && RAW_TEXT.has(name) && !isOpen("svg") && !isOpen("math")) {
       const end = rawEnd(source, at, name);
       const raw = source.slice(at, end < 0 ? source.length : end);
       if (name === "textarea" || name === "title") textAfter(raw);

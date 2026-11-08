@@ -32,11 +32,14 @@ class BytesRequest {
   onabort: (() => void) | null = null;
   open() {}
   send() {
-    const bytes = served;
-    this.response = bytes.buffer.slice(
-      bytes.byteOffset,
-      bytes.byteOffset + bytes.byteLength,
-    ) as ArrayBuffer;
+    this.status = servedStatus;
+    if (servedStatus === 200) {
+      const bytes = served;
+      this.response = bytes.buffer.slice(
+        bytes.byteOffset,
+        bytes.byteOffset + bytes.byteLength,
+      ) as ArrayBuffer;
+    }
     queueMicrotask(() => this.onload?.());
   }
   abort() {}
@@ -67,13 +70,17 @@ function heifWithoutIspe(): Uint8Array {
 }
 
 let served: Uint8Array = new Uint8Array();
+let servedStatus = 200;
 let decoded: Uint8Array | null = null;
 let root: Root | null = null;
 let container: HTMLElement;
 const recheckCitation = vi.fn();
+const logError = vi.fn();
 
 beforeEach(async () => {
   recheckCitation.mockReset();
+  logError.mockReset();
+  servedStatus = 200;
   const dom = new DOMParser().parseFromString(
     "<!doctype html><html><body></body></html>",
     "text/html",
@@ -96,7 +103,7 @@ beforeEach(async () => {
   );
   Object.assign(window, {
     incarnamind: bridge,
-    incarnamindFiles: { decodePicture: async () => decoded },
+    incarnamindFiles: { decodePicture: async () => decoded, logError },
   });
   const globals: Record<string, unknown> = {
     document: dom,
@@ -163,8 +170,10 @@ async function show(
   document: Document,
   bytes: Uint8Array,
   language: "en" | "zh-CN" = "en",
+  status = 200,
 ) {
   served = bytes;
+  servedStatus = status;
   const { useAppStore } = await import("../../src/renderer/src/store");
   useAppStore.setState({ settings: { language } as never });
   // A variable path, so the test's tsconfig (no jsx) leaves the component to the runtime.
@@ -331,5 +340,81 @@ describe("A viewer refuses what its reader refuses (#762)", () => {
       "zh-CN",
     );
     expect(container.textContent).toContain("这个文件太大，无法在此打开。");
+  });
+
+  const click = async (id: string) => {
+    await act(async () => {
+      container
+        .querySelector(`[data-testid="${id}"]`)
+        ?.dispatchEvent(new Event("click", { bubbles: true }));
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+  };
+
+  test("a picture whose file can't be read says so, logs it, and Retry reads it again", async () => {
+    await show(
+      "image",
+      documentOf({ kind: "image", name: "Map.png", path: "/tmp/Map.png" }),
+      pngClaiming(640, 360),
+      "en",
+      500,
+    );
+    expect(container.textContent).toContain("This picture couldn’t be opened.");
+    expect(container.textContent).not.toContain("This picture can’t be shown here.");
+    expect(logError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: expect.stringContaining("status 500") }),
+    );
+    expect(container.querySelector('[data-testid="viewer-retry"]')?.textContent).toBe("Retry");
+
+    servedStatus = 200;
+    await click("viewer-retry");
+    expect(container.querySelector("img")).not.toBeNull();
+    expect(container.textContent).not.toContain("This picture couldn’t be opened.");
+  });
+
+  test("a picture whose file can't be read says so in Chinese too", async () => {
+    await show(
+      "image",
+      documentOf({ kind: "image", name: "Map.png", path: "/tmp/Map.png" }),
+      pngClaiming(640, 360),
+      "zh-CN",
+      500,
+    );
+    expect(container.textContent).toContain("无法打开这张图片。");
+    expect(container.querySelector('[data-testid="viewer-retry"]')?.textContent).toBe("重试");
+  });
+
+  test("a text file that can't be read says so, logs it, and Retry reads it again", async () => {
+    await show(
+      "text",
+      documentOf({ kind: "text", name: "Notes.txt", path: "/tmp/Notes.txt" }),
+      new TextEncoder().encode("The harbour rules."),
+      "en",
+      500,
+    );
+    expect(container.textContent).toContain("This file couldn’t be opened.");
+    expect(container.textContent).not.toContain("This file can’t be read as text.");
+    expect(logError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: expect.stringContaining("status 500") }),
+    );
+    expect(container.querySelector('[data-testid="viewer-retry"]')?.textContent).toBe("Retry");
+
+    servedStatus = 200;
+    await click("viewer-retry");
+    expect(container.textContent).toContain("The harbour rules.");
+  });
+
+  test("a text file that can't be read says so in Chinese too", async () => {
+    await show(
+      "text",
+      documentOf({ kind: "text", name: "Notes.txt", path: "/tmp/Notes.txt" }),
+      new TextEncoder().encode("The harbour rules."),
+      "zh-CN",
+      500,
+    );
+    expect(container.textContent).toContain("无法打开此文件。");
+    expect(container.querySelector('[data-testid="viewer-retry"]')?.textContent).toBe("重试");
   });
 });
