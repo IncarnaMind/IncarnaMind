@@ -1,7 +1,9 @@
 import { writeFile } from "node:fs/promises";
 import { expect, test } from "vitest";
+import type { TranscriptSpeakers } from "../../src/core";
 import { recheckKept } from "../../src/core/answers/citations";
 import { readVtt, transcriptUnits, writeVtt } from "../../src/core/documents/formats/vtt";
+import { type TranscriptLine, withLineSplit, withSpeakerChosen } from "../../src/shared/speakers";
 import {
   askAndFinish,
   checkedResult,
@@ -686,7 +688,15 @@ for (const language of ["en", "zh-CN"] as const) {
       gaps: [],
     }),
   };
-  const quoteTurns = async (records: { location: string; quote: string }[]) => {
+  const lineOf = (cue: { startMs: number; speaker: string | null }): TranscriptLine => ({
+    startMs: cue.startMs,
+    label: cue.speaker ?? "",
+  });
+  const quoteTurns = async (
+    records: { location: string; quote: string }[],
+    /** Who speaks which line, as the User set it before asking. */
+    whosWho?: (lines: TranscriptLine[]) => TranscriptSpeakers,
+  ) => {
     const setup = await setUpWithDocuments(
       citingModel({
         query: "Turns",
@@ -701,6 +711,14 @@ for (const language of ["en", "zh-CN"] as const) {
       [turns],
     );
     await setup.core.updateSettings({ user: { language } });
+    if (whosWho) {
+      const transcript = (await setup.core.listDocuments()).find((each) => each.name === "Turns");
+      if (!transcript) throw new Error("No Transcript.");
+      await setup.core.setTranscriptSpeakers({
+        documentId: transcript.id,
+        speakers: whosWho(readVtt(turns.contents).cues.map(lineOf)),
+      });
+    }
     const { answerId } = await askAndFinish(
       setup.core,
       setup.client,
@@ -743,6 +761,90 @@ for (const language of ["en", "zh-CN"] as const) {
       "not-found",
       "not-found",
     ]);
+  });
+
+  // protects=a quote runs on only into a line or part the same Speaker says as the User's who's who has it now: not a line the User gave to someone else, not a split's part by someone else, and not into another Speaker given the same name, which the Transcript draws as another turn; whether the model names a Speaker or not, and when a saved Citation is checked again; fails_when=Sam's sentence is found as Alex's, a split part is quoted as the first Speaker's, or two people called the same are read as one turn; no_claim=a quote within one line, which a split or a name never moves.
+  test(`a quote doesn't run on into a line the User gave to someone else, a split part, or another Speaker of the same name, ${language}`, async () => {
+    const both = joined(said.sign, said.board);
+    const lines = readVtt(turns.contents).cues.map(lineOf);
+    const board = lines[1] as TranscriptLine;
+    const given = withSpeakerChosen(null, lines, board, { name: "Sam" }, false);
+    const reassigned = await quoteTurns(
+      [
+        { location: "0:00", quote: both },
+        { location: `0:00 ${first}`, quote: both },
+        { location: "0:00", quote: said.sign },
+      ],
+      () => given,
+    );
+    expect(reassigned.citations.map((citation) => citation.check)).toEqual([
+      "not-found",
+      "not-found",
+      "found",
+    ]);
+
+    // A saved Citation of both sentences, checked again once the second is Sam's.
+    const { core, citations } = await quoteTurns([{ location: `0:00 ${first}`, quote: both }]);
+    const saved = citations[0];
+    if (!saved?.documentId) throw new Error("No Citation");
+    expect(saved.check).toBe("found");
+    const transcript = (await core.listDocuments()).find((each) => each.name === "Turns");
+    if (!transcript) throw new Error("No Transcript.");
+    await core.setTranscriptSpeakers({ documentId: transcript.id, speakers: given });
+    expect(
+      checkedResult(
+        await core.recheckCitation({
+          ...saved,
+          documentId: saved.documentId,
+          quote: both,
+          mindId: null,
+        }),
+      ).check,
+    ).toBe("not-found");
+
+    // The second line split after its first word, the rest Sam's: the quote runs on to the split.
+    const head = language === "en" ? "Then " : "然后";
+    const split = (all: TranscriptLine[]) => {
+      const cue = readVtt(turns.contents).cues[1];
+      if (!cue) throw new Error("No line.");
+      const parted = withLineSplit(
+        null,
+        { startMs: cue.startMs, endMs: cue.endMs, text: cue.text, label: first },
+        head.length,
+        4500,
+        all,
+      );
+      return withSpeakerChosen(
+        parted,
+        all,
+        { startMs: 4500, label: first },
+        { name: "Sam" },
+        false,
+      );
+    };
+    const parted = await quoteTurns(
+      [
+        { location: "0:00", quote: both },
+        { location: `0:00 ${first}`, quote: joined(said.sign, head.trim()) },
+      ],
+      split,
+    );
+    expect(parted.citations.map((citation) => citation.check)).toEqual(["not-found", "found"]);
+
+    // Both Speakers given one name: the model's "0:03" with that name reads two people.
+    const same = language === "en" ? "Lee" : "王丽";
+    const named = await quoteTurns(
+      [{ location: `0:03 ${same}`, quote: joined(said.board, said.agreed) }],
+      (all) =>
+        withSpeakerChosen(
+          withSpeakerChosen(null, all, all[0] as TranscriptLine, { name: same }, true),
+          all,
+          all[2] as TranscriptLine,
+          { name: same },
+          true,
+        ),
+    );
+    expect(named.citations.map((citation) => citation.check)).toEqual(["not-found"]);
   });
 
   // protects=on a Transcript saved before lines were sentences, a quote within one 20-second line keeps its check and its line's time, as before; fails_when=an old Citation moves or is lost; no_claim=a quote across an old 20-second cut, which now reads on as the same turn.

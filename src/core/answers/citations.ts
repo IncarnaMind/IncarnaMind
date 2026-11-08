@@ -343,22 +343,16 @@ function quoteInCues(
   const until = time.to + 1000;
   const then = (span: { startMs: number; endMs: number }) =>
     span.startMs < until && span.endMs > time.from;
+  const turn = turnGoingOn(speakers);
   if (!time.speaker) {
-    const turn = goingOn();
     return quoteInCueWindow(
       units,
       quote,
-      (cue, label, said) => {
-        const cited = then(cue);
-        const goesOn = !cited && turn.goesOn(cue, label);
-        turn.said(cited || goesOn ? cue : null, label);
-        return cited || goesOn ? [{ start: 0, end: said.length, ...(goesOn && { goesOn }) }] : [];
-      },
+      (cue, label, said) => turn.stretches(cue, label, said, then(cue)),
       matching,
     );
   }
   const asked = markWords(time.speaker);
-  const turn = goingOn();
   // Of a line the User split (#138), only the named Speaker's parts, each run of them that holds
   // a part said then, as a line that isn't split is whole: a quote that runs into another
   // Speaker's part isn't theirs.
@@ -366,38 +360,30 @@ function quoteInCues(
     units,
     quote,
     (cue, label, said) => {
-      if (label === null) {
-        turn.said(null, label);
-        return [];
-      }
-      const parts = partsOf(speakers, { ...cue, text: said, label });
+      const parts = turn.partsIn(cue, label, said);
       const theirs = parts.map(
         (part) =>
-          asked === markWords(speakerMark(speakers, part.startMs, label)) ||
-          asked === markWords(speakerOf(speakers, part.startMs, label)),
+          label !== null &&
+          (asked === markWords(speakerMark(speakers, part.startMs, label)) ||
+            asked === markWords(speakerOf(speakers, part.startMs, label))),
       );
       const ranges: CueStretch[] = [];
+      const end = (index: number) => parts[index + 1]?.at ?? said.length;
       for (let first = 0; first < parts.length; first++) {
         if (!theirs[first]) {
-          turn.said(null, asked);
+          turn.stop();
           continue;
         }
         let last = first;
         while (theirs[last + 1]) last++;
         const run = parts.slice(first, last + 1);
-        const spoken = {
-          startMs: (run[0] as LinePart).startMs,
-          endMs: (run.at(-1) as LinePart).endMs,
-        };
-        const cited = run.some(then);
-        const goesOn = !cited && turn.goesOn(spoken, asked);
-        turn.said(cited || goesOn ? spoken : null, asked);
-        if (cited || goesOn) {
-          ranges.push({
-            start: (parts[first] as LinePart).at,
-            end: parts[last + 1]?.at ?? said.length,
-            ...(goesOn && { goesOn }),
-          });
+        if (run.some(then)) {
+          ranges.push({ start: (run[0] as TurnPart).at, end: end(last) });
+          turn.cited(run.at(-1) as TurnPart);
+        } else {
+          for (let at = first; at <= last && turn.goesOn(parts[at] as TurnPart); at++) {
+            ranges.push({ start: (parts[at] as TurnPart).at, end: end(at), goesOn: true });
+          }
         }
         first = last;
       }
@@ -407,18 +393,62 @@ function quoteInCues(
   );
 }
 
+/** A part of a cue, by its Speaker as the User's who's who has it now (#138): null for none. */
+type TurnPart = Pick<LinePart, "startMs" | "endMs" | "at"> & { speaker: string | null };
+
 /**
- * Whether a line goes on with the turn of the lines before it, as the Transcript draws turns
- * (../../shared/transcriptTurns): the same Speaker, within `TURN_PAUSE_MS` of the last. `said`
- * takes each line looked at, in order: the line, or null for one a quote can't run into.
+ * The turn a quote's cited lines are in, as the Transcript draws turns (../../shared/transcriptTurns),
+ * read cue by cue in order: a part goes on with it when its Speaker, as the User's who's who has it
+ * now with every reassigned line and split part (#138), is the last part's, within `TURN_PAUSE_MS`
+ * of it. Anyone else's part ends the turn.
  */
-function goingOn() {
-  let last: { endMs: number; speaker: string | null } | null = null;
+function turnGoingOn(speakers: TranscriptSpeakers | null) {
+  let last: TurnPart | null = null;
+  const partsIn = (
+    cue: { startMs: number; endMs: number },
+    label: string | null,
+    said: string,
+  ): TurnPart[] =>
+    label === null
+      ? [{ startMs: cue.startMs, endMs: cue.endMs, at: 0, speaker: null }]
+      : partsOf(speakers, { ...cue, text: said, label }).map((part) => ({
+          ...part,
+          speaker: speakerOf(speakers, part.startMs, label),
+        }));
+  const goesOn = (part: TurnPart): boolean => {
+    const on =
+      last !== null && last.speaker === part.speaker && part.startMs - last.endMs < TURN_PAUSE_MS;
+    last = on ? part : null;
+    return on;
+  };
   return {
-    goesOn: (line: { startMs: number }, speaker: string | null) =>
-      last !== null && last.speaker === speaker && line.startMs - last.endMs < TURN_PAUSE_MS,
-    said(line: { endMs: number } | null, speaker: string | null) {
-      last = line && { endMs: line.endMs, speaker };
+    partsIn,
+    goesOn,
+    /** The quote's place takes in `part`: the turn goes on from it. */
+    cited(part: TurnPart) {
+      last = part;
+    },
+    stop() {
+      last = null;
+    },
+    /** Of a cue, where to look: all of it when `cited`, else its parts that go on with the turn. */
+    stretches(
+      cue: { startMs: number; endMs: number },
+      label: string | null,
+      said: string,
+      cited: boolean,
+    ): CueStretch[] {
+      const parts = partsIn(cue, label, said);
+      if (cited) {
+        last = parts.at(-1) ?? null;
+        return [{ start: 0, end: said.length }];
+      }
+      const stretches: CueStretch[] = [];
+      for (const [index, part] of parts.entries()) {
+        if (!goesOn(part)) break;
+        stretches.push({ start: part.at, end: parts[index + 1]?.at ?? said.length, goesOn: true });
+      }
+      return stretches;
     },
   };
 }
@@ -428,20 +458,17 @@ function quoteInStoredCues(
   quote: string,
   time: RowsOrLines,
   matching: Matching & { unique?: boolean },
+  speakers: TranscriptSpeakers | null,
   accepted?: (ranges: readonly TextRange[]) => boolean,
 ): TextRange[] | null {
   // A stored speaker names the first cue, not every cue in its interval. The quote may run on
   // into the lines its Speaker goes on with, as when it was cited (quoteInCues).
-  const turn = goingOn();
+  const turn = turnGoingOn(speakers);
   return quoteInCueWindow(
     units,
     quote,
-    (cue, label, said) => {
-      const cited = cue.startMs >= time.from && cue.endMs <= time.to;
-      const goesOn = !cited && turn.goesOn(cue, label);
-      turn.said(cited || goesOn ? cue : null, label);
-      return cited || goesOn ? [{ start: 0, end: said.length, ...(goesOn && { goesOn }) }] : [];
-    },
+    (cue, label, said) =>
+      turn.stretches(cue, label, said, cue.startMs >= time.from && cue.endMs <= time.to),
     matching,
     accepted,
   );
@@ -688,6 +715,8 @@ export interface RecheckDocuments {
   pageTexts: AnswerDocuments["pageTexts"];
   /** A live Document's name as the app shows it, which words in quotation marks may give (#2504). */
   documentName(documentId: string): string | null;
+  /** Who's who in a Transcript (#138): who speaks each line now; null for none. */
+  speakersOf?(documentId: string): TranscriptSpeakers | null;
   /** The live Passages of the current version covering these Units, in reading order. */
   passagesCovering(
     documentId: string,
@@ -775,20 +804,28 @@ function quoteForRecheck(
   matching: Matching,
   location: CitationLocation | null | undefined,
   speakerToo: boolean,
+  speakers: TranscriptSpeakers | null,
 ): TextRange[] | null {
   if (!location || !units.some((unit) => unit.kind === "cues")) {
     return quoteInUnits(units, quote, matching);
   }
   if (location.kind !== "time") return null;
-  return quoteInStoredCues(units, quote, location, { ...matching, unique: true }, (ranges) => {
-    const at = locationOf(units, ranges);
-    return (
-      at?.kind === "time" &&
-      at.from === location.from &&
-      at.to === location.to &&
-      (!speakerToo || !location.speaker || at.speaker === location.speaker)
-    );
-  });
+  return quoteInStoredCues(
+    units,
+    quote,
+    location,
+    { ...matching, unique: true },
+    speakers,
+    (ranges) => {
+      const at = locationOf(units, ranges);
+      return (
+        at?.kind === "time" &&
+        at.from === location.from &&
+        at.to === location.to &&
+        (!speakerToo || !location.speaker || at.speaker === location.speaker)
+      );
+    },
+  );
 }
 
 /**
@@ -810,7 +847,13 @@ function quotedWordsPlaceIn(
     matching,
     find: (words) =>
       location?.kind === "time"
-        ? quoteInStoredCues(units, words, location, matching)
+        ? quoteInStoredCues(
+            units,
+            words,
+            location,
+            matching,
+            documents.speakersOf?.(documentId) ?? null,
+          )
         : quoteInUnits(units, words, matching),
     documentName: documents.documentName(documentId),
     throughNextUnit: () =>
@@ -918,7 +961,14 @@ function checkInVersion(
     lostLigatures: version.matching.lostLigatures ?? false,
   });
   return result.check === "found" &&
-    !quoteForRecheck(pages, quote, version.matching, input.location, true)
+    !quoteForRecheck(
+      pages,
+      quote,
+      version.matching,
+      input.location,
+      true,
+      documents.speakersOf?.(input.documentId) ?? null,
+    )
     ? NOT_ON_PAGES
     : result;
 }
@@ -943,6 +993,7 @@ function changedQuote(
     before.matching,
     input.location,
     true,
+    documents.speakersOf?.(input.documentId) ?? null,
   );
   const start = found?.[0]?.start;
   const end = found?.at(-1)?.end;
@@ -1100,7 +1151,14 @@ function recheckInCurrent(
       !!input.contentHash &&
       input.contentHash !== contentHash &&
       !units.some((unit) => unit.kind === "cues" && unit.label?.speakers?.includes(speaker));
-    const found = quoteForRecheck(range, quote, matching, input.location, !renamed);
+    const found = quoteForRecheck(
+      range,
+      quote,
+      matching,
+      input.location,
+      !renamed,
+      documents.speakersOf?.(input.documentId) ?? null,
+    );
     if (found) {
       const unsure = unsureWordsCovered(range, found);
       return result(
