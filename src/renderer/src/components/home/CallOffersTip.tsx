@@ -1,8 +1,8 @@
 import { core } from "../../core";
 import { useGap, useT } from "../../i18n";
+import { offersCanTurnOn, onMac } from "../../platformOffers";
 import { useAppStore } from "../../store";
 import { closeTip, useFeatureTip } from "../../tips";
-import { onMac } from "../BackgroundSettings";
 import { LineAction } from "../ProblemLine";
 import { Tip } from "../Tip";
 
@@ -16,6 +16,7 @@ export function CallOffersTip() {
   const gap = useGap();
   const wanted = useAppStore(
     (state) =>
+      offersCanTurnOn() &&
       state.settings !== null &&
       state.settings.meetingAudio !== "none" &&
       state.settings.device.meetingNoticeAccepted &&

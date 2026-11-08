@@ -2,14 +2,13 @@ import { useEffect, useState } from "react";
 import type { OpenAtLogin } from "../../../core/api";
 import { core } from "../core";
 import { useT } from "../i18n";
+import { onMac } from "../platformOffers";
 import { useSettingsTarget } from "../settingsTarget";
 import { useAppStore } from "../store";
 import { ProblemLine } from "./ProblemLine";
 import { SettingsGroup, SettingsSection, SettingsSwitchRow } from "./settings/SettingsGroup";
 
 const TARGET = ["background"] as const;
-
-export const onMac = () => /Mac/.test(navigator.platform);
 
 /**
  * Settings → General → Running in the background (#189): opening at login, through the system,

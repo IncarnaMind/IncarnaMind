@@ -2,9 +2,9 @@ import { useEffect, useState } from "react";
 import { core } from "../core";
 import { useGap, useT } from "../i18n";
 import { useMeetings } from "../meetings";
+import { offersCanTurnOn, onMac } from "../platformOffers";
 import { useAppStore } from "../store";
 import { useAudioKeptKey } from "../transcriptionServices";
-import { onMac } from "./BackgroundSettings";
 import { TranscriptionRouteChoice } from "./meetings/TranscriptionRouteChoice";
 import {
   buttonClass,
@@ -80,7 +80,7 @@ export function MeetingNoticeDialog() {
             {kept}
           </p>
           {!memo && <p className={dialogTextClass}>{t("meetings.notice.tell")}</p>}
-          {!memo && (
+          {!memo && offersCanTurnOn() && (
             <p data-testid="meeting-notice-background" className={dialogTextClass}>
               {t(onMac() ? "meetings.notice.background.mac" : "meetings.notice.background.other")}
             </p>

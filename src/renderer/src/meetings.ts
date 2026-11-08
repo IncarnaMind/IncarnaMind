@@ -9,6 +9,7 @@ import { errorMessage } from "./errors";
 import { translateNow } from "./i18n";
 import { currentMindIdOf } from "./layoutSlice";
 import { fillHeldInEditor, letGoOfUndoneFill, undoFillInEditor } from "./meetingFillSteps";
+import { offersCanTurnOn } from "./platformOffers";
 import { useAppStore } from "./store";
 import { closeTip } from "./tips";
 import { useUndo } from "./undo";
@@ -291,11 +292,15 @@ export const useMeetings = create<MeetingsState>()((set, get) => {
       await attempt(waiting.meetingId, async () => {
         // Setting up Meetings turns on the offers to take notes and what they need (#189), as the
         // sheet says: Home's line for those set up before has nothing left to ask.
+        const offers = offersCanTurnOn();
         await core.updateSettings({
-          device: { meetingNoticeAccepted: true, keepRunning: true, callOffers: true },
+          device: {
+            meetingNoticeAccepted: true,
+            ...(offers && { keepRunning: true, callOffers: true }),
+          },
         });
         closeTip("call-offers");
-        core.setOpenAtLogin(true).catch(useAppStore.getState().reportError);
+        if (offers) core.setOpenAtLogin(true).catch(useAppStore.getState().reportError);
         await core.startMeeting(waiting);
       });
     },

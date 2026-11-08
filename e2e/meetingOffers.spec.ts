@@ -388,11 +388,14 @@ test("someone setting up Meetings now reads that the offers turn on, and Home ne
   await window.getByTestId("plus-record-meeting").click();
   await window.getByTestId("meeting-start-record").click();
   const notice = window.getByTestId("meeting-notice");
-  await expect(notice.getByTestId("meeting-notice-background")).toBeVisible();
+  // Windows can't notice calls yet (#2843): its sheet neither says nor turns on the offers.
+  const windows = process.platform === "win32";
+  await expect(notice).toBeVisible();
+  await expect(notice.getByTestId("meeting-notice-background")).toHaveCount(windows ? 0 : 1);
   await notice.getByTestId("meeting-notice-start").click();
   await expect
     .poll(() => deviceSettings(window))
-    .toMatchObject({ meetingNoticeAccepted: true, callOffers: true, keepRunning: true });
+    .toMatchObject({ meetingNoticeAccepted: true, callOffers: !windows, keepRunning: !windows });
   await window.getByTestId("meeting-stop").click();
   await window.getByTestId("sidebar-home").click();
   await expect(window.getByTestId("home")).toBeVisible();
