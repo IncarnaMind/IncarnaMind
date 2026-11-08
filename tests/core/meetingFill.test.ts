@@ -457,6 +457,76 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     core.close();
   });
 
+  // protects=when the speaker pass renames a line while the notes made before it are checking their claims, those checks are stopped and the notes are made again at once, without waiting for them (#2773); fails_when=the second fill request waits for the first fill's claim checks to end; no_claim=what the checks would have said.
+  test("a pass that renames a line while the first notes check their claims makes them again at once", async () => {
+    let release = () => {};
+    const holds = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let answer = () => {};
+    const checksHeld = new Promise<void>((resolve) => {
+      answer = resolve;
+    });
+    let checks = 0;
+    let passing = true;
+    const asked: boolean[] = [];
+    const said = THEIR_LINES[0] as string;
+    const model = scriptedModel((call) => {
+      if (isCheckRun(call)) {
+        checks++;
+        return { text: "unsupported", pause: { after: 0, until: checksHeld } };
+      }
+      if (!isFill(call)) return { text: "OK" };
+      if (fillRun(call)) {
+        asked.push(passing);
+        const passage = shownPassages(block(call.prompt, "live-transcript") ?? "").find((each) =>
+          each.text.includes(said),
+        );
+        const mark = passage?.text
+          .match(/\[(\d{1,2}:\d{2}) ([^\]]+)\] /g)
+          ?.find((each) => passage.text.includes(`${each}${said}`));
+        const citations = [
+          { marker: 1, passage: passage?.id, location: mark?.slice(1, -2) ?? "", quote: said },
+        ];
+        return { calls: [{ tool: "cite", input: { citations } }] };
+      }
+      return {
+        text: [
+          overview("The call covered the budget [^1]."),
+          fact("P1_budget", "budget", "The budget is approved for this year [^1].", {
+            sections: ["decisions"],
+            claim: true,
+          }),
+        ].join("\n\n"),
+      };
+    });
+    const { separator } = fakeSeparator({ holds });
+    const { core, meeting } = await recorded(
+      model,
+      null,
+      async (core) => {
+        const sources = await createSourceFolder();
+        await addAndProcess(core, [
+          await writeSourceFile(
+            sources,
+            "Budget.md",
+            "Next year's budget is still under review.\n",
+          ),
+        ]);
+      },
+      undefined,
+      { speakerSeparator: separator, cloud: true },
+    );
+    await vi.waitFor(() => expect(checks).toBeGreaterThan(0));
+    passing = false;
+    release();
+    await vi.waitFor(() => expect(asked).toEqual([true, false]));
+    answer();
+    expect(await settledFill(core, meeting)).toMatchObject({ state: "filled" });
+    expect(asked).toEqual([true, false]);
+    core.close();
+  });
+
   // protects=a recording of a room, whose pass always names its voices, sends nothing for its notes until its speakers are told apart, then fills them in (#138, #2773); fails_when=a fill request goes out while the pass runs, or none after it; no_claim=the pass's labels.
   test("a room's notes wait for its speakers to be told apart, then are filled in", async () => {
     let release = () => {};

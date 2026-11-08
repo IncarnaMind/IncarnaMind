@@ -1414,7 +1414,17 @@ export function createTranscripts(options: TranscriptsOptions) {
     }
     state.separating = true;
     options.changed();
-    if (isCall(state.cues)) options.written?.(state.meetingId);
+    if (isCall(state.cues)) {
+      // The pass runs whatever the notes do with this: they wait for its end at the latest.
+      try {
+        options.written?.(state.meetingId);
+      } catch (error) {
+        log.error("transcript.writtenFailed", {
+          meetingId: state.meetingId,
+          message: messageOf(error),
+        });
+      }
+    }
     const saved = transcriptOf(state);
     const current = () => !closed && states.get(state.meetingId) === state;
     let renamed = false;

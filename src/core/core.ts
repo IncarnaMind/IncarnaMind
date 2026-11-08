@@ -4832,15 +4832,18 @@ export function createCore(adapters: CoreAdapters): Core {
       };
     },
     answers,
-    async supports({ claim, mindId, transcriptId, model }) {
+    async supports({ claim, mindId, transcriptId, model, signal }) {
       const { folderId } = minds.get(mindId);
-      const result = await checks.checkClaim({
-        claim,
-        scope: folderId ? { folderIds: [folderId], tagIds: [], documentIds: [] } : null,
-        mindId,
-        checked: { documentIds: [transcriptId] },
-        model,
-      });
+      const result = await checks.checkClaim(
+        {
+          claim,
+          scope: folderId ? { folderIds: [folderId], tagIds: [], documentIds: [] } : null,
+          mindId,
+          checked: { documentIds: [transcriptId] },
+          model,
+        },
+        signal,
+      );
       return result.verdict === "supported";
     },
     citeUnit: (passageId, quote, page, at) => citing.citeUnit(passageId, quote, page, at),
