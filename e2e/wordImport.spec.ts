@@ -472,6 +472,9 @@ test("Export writes back into the Word file: the User's edits tracked under thei
   await name.fill("Priya Raman");
   await name.press("Enter");
   await expect(name).toHaveValue("Priya Raman");
+  await expect(settings.getByTestId("author-name-settings")).toContainText(
+    "Once set, meeting notes use it for your own items.",
+  );
   await settings.getByTestId("author-name-settings").scrollIntoViewIfNeeded();
   await screenshot(window, "settings-your-name");
   await closeSettings(window);
