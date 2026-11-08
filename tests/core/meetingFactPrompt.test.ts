@@ -120,11 +120,13 @@ test.each([
     expect(named).toContain(
       "Write the User, who reads these notes, as {{me}}, exactly so in every language, even when the call gave their name",
     );
-    expect(named).toContain("Where they said my, write {{me}}'s ({{me}}的 in Chinese).");
     expect(named).toContain(
-      "Where they spoke for their side, keep we or our (我们) as said, never {{me}}'s.",
+      "An action the User took on has {{me}} as its owner, even where the User said we.",
     );
-    expect(named).toContain("Never write I, me, my, 我 or a name for them.");
+    expect(named).toContain(
+      "Where the User said my, write {{me}}'s ({{me}}的 in Chinese); elsewhere, where the User spoke for their side, keep we or our (我们) as said, never {{me}}'s.",
+    );
+    expect(named).toContain("Never write I, me, my, 我 or any name for the User.");
     expect(named).toContain("Me is always {{me}}.");
     expect(named).toContain("in Simplified Chinese Them is 对方");
     expect(named).not.toContain("in the first person");
