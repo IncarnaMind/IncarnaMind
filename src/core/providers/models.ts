@@ -148,13 +148,13 @@ export const createAiSdkChatModel: ChatModelFactory = (spec) => {
     model = withoutStorage(model, spec.kind === "xai" ? "xai" : "openai");
   }
   if (anthropicFor(spec.kind) === "anthropic") model = withCacheBreakpoints(model);
-  if (spec.kind === "google") model = withoutEmptyTurns(model);
   if (spec.thinking === "off" && request?.thinkingOff && canSkipThinking(spec, request)) {
     model = withThinkingOff(model, spec, request.thinkingOff);
   }
   const thinking = thinkingOptions(spec);
   if (thinking) model = withAnswerThinking(model, spec, thinking);
-  return model;
+  // Last, so that no request of any provider carries a turn that said nothing (#2701).
+  return withoutEmptyTurns(model);
 };
 
 /** A Claude account's requests are Anthropic's Messages API, with what the catalog says of it. */
