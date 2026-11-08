@@ -1,10 +1,10 @@
 import { useEffect, useId, useRef } from "react";
 import type { Meeting } from "../../../core/api";
-import { formatDateTime } from "../../../shared/dates";
 import { captureLines } from "../captureHealth";
 import { commands } from "../commands/registry";
 import { useLanguage, useT } from "../i18n";
 import { currentTabOf } from "../layoutSlice";
+import { audioSaid, canKeepAudio } from "../meetingAudioWords";
 import { useMeetings } from "../meetings";
 import { clockTime } from "../meetingTime";
 import {
@@ -148,8 +148,9 @@ export function MeetingViewChip({ meeting, tabId }: { meeting: Meeting; tabId: s
 }
 
 /**
- * "Audio kept until 8 Nov, 12:54 · Delete now"; Delete now is the "meeting.deleteAudio" command,
- * as in ⌘K, and asks first on the same line, because it can't be undone.
+ * "Audio kept until 12:54 tomorrow · Keep audio · Delete now", "Audio kept · Delete now" or "Audio
+ * deleted on 14 Oct" (#687). Keep audio and Delete now are the commands of ⌘K, and Delete now asks
+ * first on the same line, because it can't be undone.
  */
 function AudioRow({ meeting, asked, open }: { meeting: Meeting; asked: boolean; open: boolean }) {
   const t = useT();
@@ -198,18 +199,30 @@ function AudioRow({ meeting, asked, open }: { meeting: Meeting; asked: boolean; 
       </fieldset>
     );
   }
-  const said = audio.kept
-    ? audio.expiresAt === null
-      ? t("meetings.audio.keptWhile")
-      : t("meetings.audio.keptUntilShort", { time: formatDateTime(audio.expiresAt, language) })
-    : audio.deletedAt
-      ? t("meetings.audio.deleted")
-      : t("meetings.audio.none");
   return (
     <fieldset aria-labelledby={id} data-testid="meeting-audio" className="m-0 border-0 p-0">
-      <p id={id} className="py-1 pr-2 pl-8 text-[13px] leading-5 text-ink-meta">
-        {said}
+      <p
+        id={id}
+        data-gone={audio.kept ? undefined : ""}
+        className="py-1 pr-2 pl-8 text-[13px] leading-5 text-ink-meta"
+      >
+        {audioSaid(meeting, t, language)}
       </p>
+      {canKeepAudio(meeting) && (
+        <button
+          type="button"
+          role="menuitem"
+          data-testid="meeting-audio-keep-for-good"
+          onClick={() =>
+            void commands.run("meeting.keepAudio", {
+              focus: { kind: "mind", id: meeting.mindId },
+            })
+          }
+          className={`${menuItemClass} pl-8`}
+        >
+          {t("meetings.audio.keepAudio")}
+        </button>
+      )}
       {audio.kept && (
         <button
           type="button"

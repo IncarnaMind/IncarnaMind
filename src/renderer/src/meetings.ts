@@ -53,6 +53,8 @@ interface MeetingsState {
   stop(meetingId: string): Promise<void>;
   discard(meetingId: string): Promise<void>;
   deleteAudio(meetingId: string): Promise<void>;
+  /** Keep audio (#687): kept until the User deletes it, with one Undo that lets it go again. */
+  keepAudio(meetingId: string): Promise<void>;
   /** Tries the Meeting's Transcript again after a problem: the model's download, its engine, or saving it. */
   retryTranscript(meetingId: string): Promise<void>;
   /** Fills the notes in from the Transcript again (#142): Try again, or after an Undo. */
@@ -268,6 +270,20 @@ export const useMeetings = create<MeetingsState>()((set, get) => {
       if (mindId && !(meetingId in get().problems)) useAppStore.setState({ bodyToFocus: mindId });
     },
     deleteAudio: (meetingId) => attempt(meetingId, () => core.deleteMeetingAudio(meetingId)),
+    keepAudio: (meetingId) =>
+      attempt(meetingId, async () => {
+        const keep = (kept: boolean) => async () => {
+          await core.keepMeetingAudio({ meetingId, kept });
+        };
+        await keep(true)();
+        // Taken back past the day's end, the audio goes at the next sweep, as it would have.
+        useUndo.getState().push({
+          said: (t) => t("meetings.audio.keptLine"),
+          name: (t) => t("meetings.command.keepAudio"),
+          undo: keep(false),
+          redo: keep(true),
+        });
+      }),
     retryTranscript: (meetingId) => attempt(meetingId, () => core.retryTranscript(meetingId)),
     fillNotes: (meetingId) =>
       attempt(meetingId, async () => {

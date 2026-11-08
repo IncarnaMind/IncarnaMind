@@ -131,7 +131,7 @@ for (const language of ["en", "zh-CN"] as const) {
         mindId: meeting.mindId,
         status: "stopped",
         recordedMs: before.recordedMs,
-        audio: { kept: true, expiresAt: before.audio.expiresAt, deletedAt: null },
+        audio: { kept: true, expiresAt: before.audio.expiresAt, deletedAt: null, keptUntilDeleted: false },
         transcript: { state: "saved", documentId, lines: before.transcript?.lines },
         fill: { state: "off" },
       });
@@ -190,7 +190,7 @@ for (const language of ["en", "zh-CN"] as const) {
       expect(await meetingOf(core, meeting.id)).toMatchObject({
         status: "stopped",
         recordedMs: 9 * SECOND,
-        audio: { kept: true, expiresAt: "2026-10-07T09:00:09.000Z", deletedAt: null },
+        audio: { kept: true, expiresAt: "2026-10-07T09:00:09.000Z", deletedAt: null, keptUntilDeleted: false },
       });
       // Its notes are filled in once its Transcript is saved, as after Stop; here no model is set.
       await vi.waitFor(async () =>
@@ -256,6 +256,7 @@ describe("A deleted Meeting's audio", { timeout: 60_000 }, () => {
       kept: false,
       expiresAt: null,
       deletedAt: "2026-10-07T10:00:09.000Z",
+      keptUntilDeleted: false,
     });
     expect((await meetingOf(core, meeting.id))?.transcript?.state).toBe("saved");
     // Deleted again with its audio already gone, Undo has nothing more to say.
@@ -347,7 +348,7 @@ describe("A deleted Meeting's audio", { timeout: 60_000 }, () => {
     });
     expect(await meetingOf(core, meeting.id)).toMatchObject({
       status: "stopped",
-      audio: { kept: false, expiresAt: null, deletedAt: "2026-10-06T10:00:09.000Z" },
+      audio: { kept: false, expiresAt: null, deletedAt: "2026-10-06T10:00:09.000Z", keptUntilDeleted: false },
       transcript: { state: "saved" },
     });
   });

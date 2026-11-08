@@ -1,9 +1,9 @@
 import { type Ref, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { Meeting } from "../../../core/api";
-import { formatDateTime } from "../../../shared/dates";
 import { commands } from "../commands/registry";
 import { useDismissOnEscape } from "../escapeDismiss";
 import { useGap, useLanguage, useT } from "../i18n";
+import { audioSaid, canKeepAudio } from "../meetingAudioWords";
 import { isLive, useMeetingOf, useMeetings } from "../meetings";
 import { clockTime } from "../meetingTime";
 import { showMeetingDetails, useMeetingNoteView } from "../meetingViews";
@@ -14,7 +14,8 @@ import { CaptureDetails, CaptureDetailsLine, CaptureProblem } from "./CaptureDet
 import { CloseLineIcon, RecordingLineIcon } from "./lineIcons";
 import { MeetingBar, MeetingBarRoom } from "./MeetingBar";
 import { MeetingFillLine } from "./MeetingFillLine";
-import { ProblemLine } from "./ProblemLine";
+import { MetaLine } from "./MetaLine";
+import { LineAction, ProblemLine } from "./ProblemLine";
 import { TranscriptLines } from "./TranscriptLines";
 import { useTabPlace } from "./tabs/tabItems";
 import { buttonStyle, fieldLabelClass, inputClass } from "./ui";
@@ -90,6 +91,7 @@ export function LiveMeetingBar({ meeting, ref }: { meeting: Meeting; ref?: Ref<H
 function MeetingStart({ meeting }: { meeting: Meeting }) {
   const t = useT();
   const keptKey = useAudioKeptKey();
+  const keptForGood = useAppStore((state) => state.settings?.device.keepMeetingAudio === true);
   const audioId = useId();
   const canRecord = useAppStore((state) => state.settings?.meetingAudio ?? "none");
   const [systemAudio, setSystemAudio] = useState(meeting.systemAudio);
@@ -114,7 +116,9 @@ function MeetingStart({ meeting }: { meeting: Meeting }) {
 
   const copyNotice = async () => {
     try {
-      await navigator.clipboard.writeText(t("meetings.start.noticeText"));
+      await navigator.clipboard.writeText(
+        t(keptForGood ? "meetings.start.noticeTextKept" : "meetings.start.noticeText"),
+      );
       setCopied(true);
     } catch (error) {
       useAppStore.getState().reportError(error);
@@ -259,37 +263,38 @@ function MeetingAudioLine({ meeting, className = "" }: { meeting: Meeting; class
       </p>
     );
   }
-  const kept =
-    audio.expiresAt === null
-      ? t("meetings.audio.keptWhile")
-      : t("meetings.audio.keptUntil", {
-          time: formatDateTime(audio.expiresAt, language),
-        });
+  const run = (id: "meeting.keepAudio" | "meeting.deleteAudio") => () =>
+    void commands.run(id, { focus: { kind: "mind", id: meeting.mindId } });
   return (
-    <ProblemLine
+    <MetaLine
       role="status"
-      testId="meeting-audio"
-      className={className}
-      action={
-        audio.kept
-          ? {
+      data-testid="meeting-audio"
+      className={`font-sans text-[13px] leading-5 break-words text-ink-meta ${className}`}
+      parts={[
+        meeting.status === "stopped" &&
+          t("meetings.audio.recorded", { time: clockTime(meeting.recordedMs) }),
+        audioSaid(meeting, t, language),
+        canKeepAudio(meeting) && (
+          <LineAction
+            key="keep"
+            action={{
+              label: t("meetings.audio.keepAudio"),
+              testId: "meeting-audio-keep-for-good",
+              onClick: run("meeting.keepAudio"),
+            }}
+          />
+        ),
+        audio.kept && (
+          <LineAction
+            key="delete"
+            action={{
               label: t("meetings.audio.delete"),
               testId: "meeting-audio-delete",
-              onClick: () =>
-                void commands.run("meeting.deleteAudio", {
-                  focus: { kind: "mind", id: meeting.mindId },
-                }),
-            }
-          : undefined
-      }
-    >
-      {meeting.status === "stopped" && (
-        <>
-          {t("meetings.audio.recorded", { time: clockTime(meeting.recordedMs) })}
-          <span aria-hidden="true"> · </span>
-        </>
-      )}
-      {audio.kept ? kept : audio.deletedAt ? t("meetings.audio.deleted") : t("meetings.audio.none")}
-    </ProblemLine>
+              onClick: run("meeting.deleteAudio"),
+            }}
+          />
+        ),
+      ]}
+    />
   );
 }

@@ -18,6 +18,7 @@ import {
   statSync,
   writeSync,
 } from "node:fs";
+import { open, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { MEETING_SAMPLE_RATE } from "../adapters";
 import type { AudioSource } from "../api";
@@ -221,4 +222,49 @@ export function readStretch(
     }
   }
   return mixed;
+}
+
+/** How much of a recording is mixed and written at a time: a part's length. */
+const WRITE_MS = 10_000;
+
+/**
+ * Writes a Meeting's audio as one WAV file at `path`, as Save recording… does (#687): every source
+ * mixed into one, mono, 16 kHz, 16-bit, `durationMs` long, a stretch no part covers silent. It is
+ * written beside `path` under another name and takes it once whole, so a recording stopped
+ * between stretches (`stopped`), its audio gone or a failure leaves nothing behind. Whether it
+ * was written.
+ */
+export async function writeRecording(
+  folder: string,
+  durationMs: number,
+  path: string,
+  stopped: () => boolean,
+): Promise<boolean> {
+  const writing = path + WRITING_SUFFIX;
+  const file = await open(writing, "w");
+  let whole = false;
+  try {
+    await file.write(wavHeader(Math.round((durationMs * MEETING_SAMPLE_RATE) / 1000)));
+    for (let fromMs = 0; fromMs < durationMs; fromMs += WRITE_MS) {
+      if (stopped()) return false;
+      const mixed = readStretch(folder, fromMs, Math.min(durationMs, fromMs + WRITE_MS));
+      if (!mixed) return false;
+      const samples = Int16Array.from(mixed, (sample) =>
+        Math.max(-32768, Math.min(32767, Math.round(sample * 32768))),
+      );
+      await file.write(new Uint8Array(samples.buffer));
+    }
+    if (stopped()) return false;
+    await file.sync();
+    whole = true;
+  } finally {
+    await file.close();
+    if (whole) {
+      await rename(writing, path).catch(async (error: unknown) => {
+        await rm(writing, { force: true });
+        throw error;
+      });
+    } else await rm(writing, { force: true });
+  }
+  return true;
 }

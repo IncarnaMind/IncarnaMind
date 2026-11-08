@@ -66,7 +66,7 @@ describe("Recording a Meeting", () => {
       systemAudio: true,
       sources: { microphone: "off", system: "off" },
       recordedMs: 0,
-      audio: { kept: false, expiresAt: null, deletedAt: null },
+      audio: { kept: false, expiresAt: null, deletedAt: null, keptUntilDeleted: false },
     });
 
     await core.updateSettings({
@@ -107,7 +107,12 @@ describe("Recording a Meeting", () => {
       recordingSince: null,
       sources: { microphone: "off", system: "off" },
       gaps: [],
-      audio: { kept: true, expiresAt: "2026-10-07T09:00:25.000Z", deletedAt: null },
+      audio: {
+        kept: true,
+        expiresAt: "2026-10-07T09:00:25.000Z",
+        deletedAt: null,
+        keptUntilDeleted: false,
+      },
     });
     // Each part is a playable WAV: 16-bit mono PCM at 16 kHz.
     const [first] = listParts(meetingFolder(dataDir, id));
@@ -458,6 +463,7 @@ describe("A Meeting's audio is kept for at most a day", () => {
       kept: false,
       expiresAt: null,
       deletedAt: "2026-10-07T09:01:12.000Z",
+      keptUntilDeleted: false,
     });
     expect(existsSync(meetingFolder(dataDir, id))).toBe(false);
 
@@ -485,6 +491,7 @@ describe("A Meeting's audio is kept for at most a day", () => {
       kept: false,
       expiresAt: null,
       deletedAt: "2026-10-06T09:00:15.000Z",
+      keptUntilDeleted: false,
     });
     expect(existsSync(meetingFolder(dataDir, id))).toBe(false);
 
@@ -492,6 +499,164 @@ describe("A Meeting's audio is kept for at most a day", () => {
     record(10 * SECOND, ["microphone"]);
     await core.stopMeeting(id);
     expect(partsOf(dataDir, id)).toEqual(["microphone@15+10"]);
+  });
+});
+
+describe("Keeping a Meeting's audio, and saving it (#687)", () => {
+  const DAY = MEETING_AUDIO_KEPT_MS;
+
+  // protects=Keep audio keeps a Meeting's audio past its day, with no expiry, until the User deletes it; its Undo lets it go a day after its last stretch again, so past that the next sweep deletes it; audio already gone can't be kept, with the reason; fails_when=kept audio is swept, Undo leaves it kept, or Keep audio succeeds with nothing to keep; no_claim=the window's line, which the window spec covers.
+  test("Keep audio keeps it past the day, and its Undo lets the next sweep take it", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    const dataDir = await createTempDataFolder();
+    const { core, record, clock } = await meetingCore(dataDir);
+    const { id } = await core.createMeeting();
+    await core.startMeeting({ meetingId: id });
+    record(12 * SECOND);
+    await core.stopMeeting(id);
+    const day = (await meetingOf(core, id)).audio.expiresAt;
+    expect(day).toBe("2026-10-07T09:00:12.000Z");
+
+    const kept = await core.keepMeetingAudio({ meetingId: id, kept: true });
+    expect(kept.audio).toEqual({
+      kept: true,
+      expiresAt: null,
+      deletedAt: null,
+      keptUntilDeleted: true,
+    });
+    clock.advance(3 * DAY);
+    vi.advanceTimersByTime(MINUTE);
+    expect((await meetingOf(core, id)).audio.kept).toBe(true);
+    expect(partsOf(dataDir, id)).toHaveLength(4);
+
+    // Undo: its day is back, already over, so the next sweep deletes it.
+    const undone = await core.keepMeetingAudio({ meetingId: id, kept: false });
+    expect(undone.audio).toMatchObject({ kept: true, expiresAt: day, keptUntilDeleted: false });
+    vi.advanceTimersByTime(MINUTE);
+    expect((await meetingOf(core, id)).audio).toMatchObject({
+      kept: false,
+      keptUntilDeleted: false,
+    });
+    expect(existsSync(meetingFolder(dataDir, id))).toBe(false);
+    await expect(core.keepMeetingAudio({ meetingId: id, kept: true })).rejects.toMatchObject({
+      wording: { key: "error.meeting.noAudioToKeep" },
+    });
+  });
+
+  // protects="Keep a meeting's audio" keeps the audio of Meetings that start while it is on, and leaves Meetings already recorded as they were, turned on or off; fails_when=turning it on keeps an older Meeting's audio, turning it off lets a kept one go, or a new Meeting's audio is swept; no_claim=the words the notice and Settings show, which the window spec covers.
+  test("the setting keeps new Meetings' audio, and leaves those already recorded as they are", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    const dataDir = await createTempDataFolder();
+    const { core, record, clock } = await meetingCore(dataDir);
+    expect((await core.getSettings()).device.keepMeetingAudio).toBe(false);
+    const { id: before } = await core.createMeeting();
+    await core.startMeeting({ meetingId: before });
+    record(5 * SECOND);
+    await core.stopMeeting(before);
+
+    await core.updateSettings({ device: { keepMeetingAudio: true } });
+    const { id: after } = await core.createMeeting();
+    await core.startMeeting({ meetingId: after });
+    expect((await meetingOf(core, after)).audio.keptUntilDeleted).toBe(true);
+    record(5 * SECOND);
+    await core.stopMeeting(after);
+    expect((await meetingOf(core, before)).audio.keptUntilDeleted).toBe(false);
+    await core.updateSettings({ device: { keepMeetingAudio: false } });
+
+    clock.advance(DAY + MINUTE);
+    vi.advanceTimersByTime(MINUTE);
+    expect((await meetingOf(core, before)).audio.kept).toBe(false);
+    expect((await meetingOf(core, after)).audio).toEqual({
+      kept: true,
+      expiresAt: null,
+      deletedAt: null,
+      keptUntilDeleted: true,
+    });
+  });
+
+  // protects=closed at a Meeting's day's end, IncarnaMind deletes its audio at the next start, and a kept Meeting's stays; fails_when=the start sweep misses audio past its time, or takes kept audio; no_claim=the sweep while running, which the test above covers.
+  test("closed at the mark, the audio goes at the next start, and kept audio stays", async () => {
+    const dataDir = await createTempDataFolder();
+    const clock = manualClock();
+    const { core, record } = await meetingCore(dataDir, clock);
+    const { id: daily } = await core.createMeeting();
+    await core.startMeeting({ meetingId: daily });
+    record(4 * SECOND);
+    await core.stopMeeting(daily);
+    const { id: kept } = await core.createMeeting();
+    await core.startMeeting({ meetingId: kept });
+    record(4 * SECOND);
+    await core.stopMeeting(kept);
+    await core.keepMeetingAudio({ meetingId: kept, kept: true });
+    core.close();
+
+    clock.advance(DAY + MINUTE);
+    const restarted = await meetingCore(dataDir, clock);
+    expect((await meetingOf(restarted.core, daily)).audio).toEqual({
+      kept: false,
+      expiresAt: null,
+      deletedAt: "2026-10-07T09:01:08.000Z",
+      keptUntilDeleted: false,
+    });
+    expect(existsSync(meetingFolder(dataDir, daily))).toBe(false);
+    expect((await meetingOf(restarted.core, kept)).audio.kept).toBe(true);
+    restarted.core.close();
+  });
+
+  // protects=Save recording… writes the Meeting's audio as one playable WAV, 16 kHz mono 16-bit, both sources mixed, as long as what was recorded, and refuses while recording, with no audio, or at a path that isn't whole; fails_when=the file holds one source, the wrong length or a broken header, or is written where it shouldn't be; no_claim=the save dialog, which the window spec covers.
+  test("Save recording writes one WAV of both sources mixed, and says why it can't", async () => {
+    const dataDir = await createTempDataFolder();
+    const { core, record } = await meetingCore(dataDir);
+    const { id } = await core.createMeeting();
+    await core.startMeeting({ meetingId: id });
+    record(12 * SECOND);
+    const out = await createTempDataFolder();
+    const path = join(out, "Weekly call.wav");
+    await expect(core.writeMeetingRecording(id, path)).rejects.toMatchObject({
+      wording: { key: "error.meeting.saveWhileRecording" },
+    });
+    await core.stopMeeting(id);
+    await expect(core.writeMeetingRecording(id, "Weekly call.wav")).rejects.toThrow();
+
+    await core.writeMeetingRecording(id, path);
+    const wav = readFileSync(path);
+    expect(wav.toString("latin1", 0, 4)).toBe("RIFF");
+    expect(wav.readUInt16LE(22)).toBe(1);
+    expect(wav.readUInt32LE(24)).toBe(16_000);
+    expect(wav.readUInt16LE(34)).toBe(16);
+    expect(wav.readUInt32LE(40)).toBe(12 * 16_000 * 2);
+    expect(wav.length).toBe(44 + 12 * 16_000 * 2);
+    const mixed = await core.readMeetingAudio({ meetingId: id, fromMs: 0, toMs: 12 * SECOND });
+    for (const index of [5, 16_001, 100_000, 12 * 16_000 - 1]) {
+      const expected = Math.max(
+        -32768,
+        Math.min(32767, Math.round((mixed.samples[index] ?? 0) * 32768)),
+      );
+      expect(wav.readInt16LE(44 + index * 2)).toBe(expected);
+    }
+    expect(readdirSync(out)).toEqual(["Weekly call.wav"]);
+
+    await core.deleteMeetingAudio(id);
+    await expect(core.writeMeetingRecording(id, join(out, "Again.wav"))).rejects.toMatchObject({
+      wording: { key: "error.meeting.audioGone" },
+    });
+    expect(readdirSync(out)).toEqual(["Weekly call.wav"]);
+  });
+
+  // protects=Delete now while Save recording… writes stops the write cleanly: it says the audio is gone, and leaves no file, whole or half, where the User chose; fails_when=a half file or the file being written is left behind, or the write carries on from deleted parts; no_claim=a delete by the day's end, which takes the same path.
+  test("Delete now while the recording is being saved stops the save, and leaves nothing", async () => {
+    const dataDir = await createTempDataFolder();
+    const { core, record } = await meetingCore(dataDir);
+    const { id } = await core.createMeeting();
+    await core.startMeeting({ meetingId: id });
+    record(90 * SECOND);
+    await core.stopMeeting(id);
+    const out = await createTempDataFolder();
+    const saving = core.writeMeetingRecording(id, join(out, "Call.wav"));
+    await new Promise((resolve) => setImmediate(resolve));
+    await core.deleteMeetingAudio(id);
+    await expect(saving).rejects.toMatchObject({ wording: { key: "error.meeting.audioGone" } });
+    expect(readdirSync(out)).toEqual([]);
   });
 });
 

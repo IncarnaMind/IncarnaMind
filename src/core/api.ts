@@ -3441,6 +3441,12 @@ export interface DeviceSettings {
   /** What a Meeting records unless the start block says otherwise: the computer's sound too ("Me and them"), or only the microphone. */
   meetingSystemAudio: boolean;
   /**
+   * "Keep a meeting's audio" (#687): a Meeting that starts recording while it is on keeps its
+   * audio until the User deletes it, instead of for a day. Off by default; turning it on or off
+   * leaves Meetings already recorded as they are.
+   */
+  keepMeetingAudio: boolean;
+  /**
    * The source a failed model download's line picked on this device (#1578), leading the others.
    * "auto" by default: the probe orders them.
    */
@@ -11490,6 +11496,11 @@ export interface MeetingAudio {
   expiresAt: string | null;
   /** When the User, or the day's limit, last deleted it. */
   deletedAt: string | null;
+  /**
+   * Kept until the User deletes it (#687): they chose Keep audio, or "Keep a meeting's audio" was
+   * on when the Meeting started recording. It then has no `expiresAt`.
+   */
+  keptUntilDeleted: boolean;
 }
 
 /**
@@ -13861,6 +13872,12 @@ export interface CoreApi {
   /** Deletes the Meeting's audio on this computer now; a recording goes on keeping what comes next. */
   deleteMeetingAudio(meetingId: string): Promise<Meeting>;
   /**
+   * Keep audio (#687): keeps a Meeting's audio until the User deletes it, or with `kept` false
+   * lets it go a day after its last stretch again, as its Undo does; past that, at the next
+   * sweep. InvalidInputError with no audio to keep.
+   */
+  keepMeetingAudio(input: { meetingId: string; kept: boolean }): Promise<Meeting>;
+  /**
    * Up to 30 seconds of a stopped Meeting's audio, from `fromMs` (#138). NotFoundError once its
    * audio is deleted or its files are gone, and while it records.
    */
@@ -14619,6 +14636,7 @@ const methods: Record<CoreApiMethod, true> = {
   resumeMeeting: true,
   stopMeeting: true,
   deleteMeetingAudio: true,
+  keepMeetingAudio: true,
   readMeetingAudio: true,
   listTranscriptionServices: true,
   setTranscriptionKey: true,

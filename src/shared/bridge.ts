@@ -72,6 +72,11 @@ export interface FilesBridge {
    * dialog, starting with `name` (#2377). False when they chose nowhere.
    */
   savePicture(name: string, bytes: Uint8Array): Promise<boolean>;
+  /**
+   * Save recording… (#687): the system's save dialog, starting with `name`, then the Meeting's
+   * audio written there as one WAV file. False when they chose nowhere.
+   */
+  saveMeetingRecording(meetingId: string, name: string): Promise<boolean>;
   /** Shows the data folder in the system's file manager, e.g. to back it up. */
   openDataFolder(): Promise<void>;
   /** Shows the data folder's `logs/` in the system's file manager, e.g. to attach the log to a bug report. */
@@ -244,6 +249,7 @@ export const FILES_CHANNELS = {
   pickOutputLocation: "files:pickOutputLocation",
   saveMindCopy: "files:saveMindCopy",
   savePicture: "files:savePicture",
+  saveMeetingRecording: "files:saveMeetingRecording",
   openDataFolder: "files:openDataFolder",
   openLogsFolder: "files:openLogsFolder",
   pickSkill: "files:pickSkill",

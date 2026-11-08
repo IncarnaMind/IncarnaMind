@@ -34,7 +34,7 @@ macOS has no public way to ask whether the computer's sound may be recorded. A d
 - `build/entitlements.mac.plist` adds `com.apple.security.device.audio-input` to electron-builder's default entitlements. Without it, a hardened-runtime build can't open the microphone.
 - macOS keeps the microphone and audio permissions across updates only for a build signed with the same identity (#46). It ties each permission to the app's code signature. In development it gives them to the terminal or editor that started the app.
 - Pure digital silence can't be told apart from a Meeting where no one speaks. So the "silent" line says what may be wrong rather than saying the permission was refused.
-- Audio takes about 115 MB per source per hour. It is kept until the notes are reviewed, at most a day (#142 will shorten that), and the User can delete it at any time.
+- Audio takes about 115 MB per source per hour. It is deleted 24 hours after the last stretch the Meeting recorded, whatever happens to its notes (#687). The User can keep one Meeting's audio (Keep audio), or every new Meeting's ("Keep a meeting's audio" in Settings › Meetings, off by default), until they delete it, and can delete it at any time.
 - Tests never open a device. The core's tests and the smoke tests use a fake `AudioCapture` that makes a tone or silence (`src/core/meetings/fakeCapture.ts`). Capture with real audio is checked by hand on each OS.
 
 ## Sources

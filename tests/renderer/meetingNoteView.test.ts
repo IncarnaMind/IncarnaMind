@@ -206,7 +206,7 @@ const meetingOf = (overrides: Partial<Meeting> = {}): Meeting =>
     status: "stopped",
     recordedMs: 60_000,
     transcript: { documentId: "transcript", lines: 1, state: "saved", partials: [] },
-    audio: { kept: true, expiresAt: "2026-11-08T12:54:00.000Z", deletedAt: null },
+    audio: { kept: true, expiresAt: "2026-11-08T12:54:00.000Z", deletedAt: null, keptUntilDeleted: false },
     gaps: [],
     saveError: null,
     health: { realTimeFactor: null, measuredMs: 0, keepsUp: null, events: [] },
