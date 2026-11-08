@@ -7,7 +7,7 @@
  */
 import { describe, expect, test } from "vitest";
 import type { Core, Meeting, MeetingHelpKind } from "../../src/core";
-import { helpForm } from "../../src/core/answers/meetingHelp";
+import { helpOwnLines } from "../../src/core/answers/meetingHelp";
 import { CITE_RETRY_INSTRUCTIONS } from "../../src/core/answers/prompt";
 import { WORKING_TEXT_INSTRUCTIONS } from "../../src/core/answers/workingText";
 import { setMindModel } from "../../src/shared/mindModel";
@@ -45,22 +45,26 @@ function helpingModel(calls: ModelCall[]) {
 }
 
 /**
- * A model that writes its whole reply and records its Citation to the first Passage found ahead
- * in the same turn, as Claude Haiku 5.5 does. Every part the core asks whether it is the model's
- * working (#2371) is judged so, and kept in `judged`.
+ * A model that writes its whole reply and records its Citation in the same turn, as Claude Haiku
+ * 5.5 does: to the first Passage found ahead, or for a button that reads only the call, to its
+ * newest line. Every part the core asks whether it is the model's working (#2371) is judged so,
+ * and kept in `judged`.
  */
 const writesBesideCite = (reply: string, judged: string[][]) => (calls: ModelCall[]) =>
   scriptedModel(
     (call) => {
       calls.push(call);
       const [found] = shownPassages(block(call.prompt, "found-in-documents") ?? "");
-      if (!found || call.results.some((result) => result.tool === "cite")) return { text: "" };
-      return {
-        text: reply,
-        calls: [
-          { tool: "cite", input: { citations: [{ marker: 1, passage: found.id, quote: PRICE }] } },
-        ],
-      };
+      const heard = shownPassages(block(call.prompt, "live-transcript") ?? "").at(-1);
+      const record = found
+        ? { marker: 1, passage: found.id, quote: PRICE }
+        : heard && {
+            marker: 1,
+            passage: heard.id,
+            quote: (heard.text.split("\n").at(-1) ?? "").replace(/^\[[^\]]*\]\s*/, ""),
+          };
+      if (!record || call.results.some((result) => result.tool === "cite")) return { text: "" };
+      return { text: reply, calls: [{ tool: "cite", input: { citations: [record] } }] };
     },
     {
       judgesItsAnswers: true,
@@ -214,7 +218,7 @@ describe("Help during the call", { timeout: 60_000 }, () => {
     ]);
   });
 
-  // protects=a help reply's own lines, from its first option to its last "→" line or its short lines, are never judged as the model's working and taken back, so the "→" line the User saw stays; notes before them and a remark after them are still judged and taken back; fails_when=a "→" line, a short line or an option is taken back, or the notes or the remark stay; no_claim=how a real model's judgement decides (#2778).
+  // protects=only a help reply's own lines (an option's or reading's sentence through its "→" line, a short line, the lead-in of Am I leading them?) are never judged as the model's working, so none the User saw is taken back; notes and remarks before, between and after them, a numbered plan among them, are still judged and taken back, in English and Chinese; fails_when=an own line is taken back, or notes, a remark or a plan stay and show as advice; no_claim=how a real model's judgement decides (#2778).
   test.each([
     {
       name: "two options in English, with notes before them and a remark after",
@@ -245,11 +249,56 @@ describe("Help during the call", { timeout: 60_000 }, () => {
       judged: [["Citations need to be recorded now."]],
     },
     {
-      name: "an option with no star",
+      name: "notes between two options, in English",
       kind: "answer" as const,
-      reply: "Yes, Enterprise is $45 a seat [^1]\n→ answers at once",
-      kept: "Yes, Enterprise is $45 a seat [^1]\n→ answers at once",
+      reply:
+        "★ Yes, Enterprise is $45 a seat [^1]\n→ answers at once\n\nLet me double-check the price sheet before the second option.\n\nI'll send you the price sheet today [^1]\n→ buys time",
+      kept: "★ Yes, Enterprise is $45 a seat [^1]\n→ answers at once\n\nI'll send you the price sheet today [^1]\n→ buys time",
+      judged: [["Let me double-check the price sheet before the second option."]],
+    },
+    {
+      name: "notes between two options, in Chinese",
+      kind: "answer" as const,
+      reply:
+        "★ 是的，企业版每个席位每月 45 美元 [^1]\n→ 直接回答\n\n我先再核对一下价格表，再写第二个选项。\n\n我今天就把价格表发给你 [^1]\n→ 争取时间",
+      kept: "★ 是的，企业版每个席位每月 45 美元 [^1]\n→ 直接回答\n\n我今天就把价格表发给你 [^1]\n→ 争取时间",
+      judged: [["我先再核对一下价格表，再写第二个选项。"]],
+    },
+    {
+      name: "options with no star, the first uncited, in English",
+      kind: "answer" as const,
+      reply:
+        "We can start the pilot on Monday\n→ shows speed\n\nYes, Enterprise is $45 a seat [^1]\n→ answers at once",
+      kept: "We can start the pilot on Monday\n→ shows speed\n\nYes, Enterprise is $45 a seat [^1]\n→ answers at once",
       judged: [],
+    },
+    {
+      name: "options with no star, the first uncited, in Chinese",
+      kind: "answer" as const,
+      reply:
+        "我们周一就能开始试用\n→ 显出速度\n\n是的，企业版每个席位每月 45 美元 [^1]\n→ 直接回答",
+      kept: "我们周一就能开始试用\n→ 显出速度\n\n是的，企业版每个席位每月 45 美元 [^1]\n→ 直接回答",
+      judged: [],
+    },
+    {
+      name: "Am I leading them? with notes before its lead-in, in English",
+      kind: "leading" as const,
+      reply:
+        "The User's newest question asks whether the price is too high, which suggests an answer.\n\nA little: it suggests the answer.\n★ How do you think about the price? [^1]\n→ hears their view",
+      kept: "A little: it suggests the answer.\n★ How do you think about the price? [^1]\n→ hears their view",
+      judged: [
+        [
+          "The User's newest question asks whether the price is too high, which suggests an answer.",
+        ],
+      ],
+    },
+    {
+      name: "Am I leading them? with notes before its lead-in, in Chinese",
+      kind: "leading" as const,
+      reply:
+        "用户最新的问题在问价格是不是太高，这暗示了答案。\n\n有一点：它暗示了答案。\n★ 你怎么看这个价格？ [^1]\n→ 听听对方的看法",
+      kept: "有一点：它暗示了答案。\n★ 你怎么看这个价格？ [^1]\n→ 听听对方的看法",
+      judged: [["用户最新的问题在问价格是不是太高，这暗示了答案。"]],
     },
     {
       name: "short lines",
@@ -259,21 +308,56 @@ describe("Help during the call", { timeout: 60_000 }, () => {
       kept: "- Enterprise is $45 a seat a month [^1]\n- Single sign-on comes with it\n- The Team plan is $25 a seat",
       judged: [],
     },
+    {
+      name: "notes between short lines, in English",
+      kind: "facts" as const,
+      reply:
+        "- Enterprise is $45 a seat a month [^1]\n\nLet me check the SSO terms before the next line.\n\n- Single sign-on comes with it [^1]",
+      kept: "- Enterprise is $45 a seat a month [^1]\n\n- Single sign-on comes with it [^1]",
+      judged: [["Let me check the SSO terms before the next line."]],
+    },
+    {
+      name: "notes between short lines, in Chinese",
+      kind: "facts" as const,
+      reply:
+        "- 企业版每个席位每月 45 美元 [^1]\n\n我先核对一下单点登录的条款，再写下一行。\n\n- 含单点登录 [^1]",
+      kept: "- 企业版每个席位每月 45 美元 [^1]\n\n- 含单点登录 [^1]",
+      judged: [["我先核对一下单点登录的条款，再写下一行。"]],
+    },
+    {
+      name: "a numbered plan before short lines, in English",
+      kind: "facts" as const,
+      reply:
+        "1. Find the prices\n2. Cite the price sheet\n\n- Enterprise is $45 a seat a month [^1]",
+      kept: "- Enterprise is $45 a seat a month [^1]",
+      judged: [["1. Find the prices\n2. Cite the price sheet"]],
+    },
+    {
+      name: "a numbered plan before short lines, in Chinese",
+      kind: "facts" as const,
+      reply: "1. 找到价格\n2. 引用价目表\n\n- 企业版每个席位每月 45 美元 [^1]",
+      kept: "- 企业版每个席位每月 45 美元 [^1]",
+      judged: [["1. 找到价格\n2. 引用价目表"]],
+    },
   ])(
-    "a reply's own lines are never taken back as the model's working: $name",
+    "a reply's own lines are never taken back as the model's working, and nothing else is spared: $name",
     async ({ kind, reply, kept, judged }) => {
       const asked: string[][] = [];
       const { core, meeting } = await setUp(addPriceSheet, {}, writesBesideCite(reply, asked));
       if (kind === "facts")
         await core.setMeetingTemplate({ meetingId: meeting.id, template: "sales" });
+      if (kind === "leading")
+        await core.setMeetingTemplate({ meetingId: meeting.id, template: "interview" });
 
       const { answer } = await press(core, meeting, kind);
 
       expect(answer.text).toBe(kept);
       expect(asked).toEqual(judged);
-      expect(answer.citations).toEqual([
-        expect.objectContaining({ documentName: "Price sheet", quote: PRICE, check: "found" }),
-      ]);
+      if (kind !== "leading") {
+        expect(answer.citations).toEqual([
+          expect.objectContaining({ documentName: "Price sheet", quote: PRICE, check: "found" }),
+        ]);
+      }
     },
   );
 
@@ -457,28 +541,33 @@ describe("Help during the call", { timeout: 60_000 }, () => {
   });
 });
 
-// protects=the form a help reply lays out, which the core never judges as the model's working, is found however a model marks it: "★" or "⭐", "→" or "->", bold marks, Windows line ends, no star, the lead-in of "Am I leading them?" and short lines; fails_when=a line of the form falls outside it or notes and a remark fall inside; no_claim=what is judged outside it (#2778).
-test("a help reply's form runs from its first option to its last → line, however it is marked", () => {
-  const formOf = (kind: MeetingHelpKind, text: string) => {
-    const form = helpForm(kind, text);
-    return form && text.slice(form.from, form.to);
-  };
+// protects=a help reply's own lines, which the core never judges as the model's working, are found however a model marks them ("★" or "⭐", "→" or "->", bold marks, Windows line ends, no star, two options in a paragraph, a star still waiting for its "→" line, the lead-in of "Am I leading them?", short lines), and nothing around them is; fails_when=an own line is missed, or notes, a remark or a numbered plan count as one; no_claim=what the judgement then decides (#2778).
+test("a help reply's own lines are found however a model marks them, and nothing around them is", () => {
+  const own = (kind: MeetingHelpKind, text: string) =>
+    helpOwnLines(kind, text).map(({ from, to }) => text.slice(from, to));
   const notes = "The newest lines ask about the price.";
   const remark = "Citations need to be recorded now.";
-  expect(formOf("answer", `${notes}\n\n★ One [^1]\n→ a\n\nTwo\n→ b\n${remark}`)).toBe(
-    "★ One [^1]\n→ a\n\nTwo\n→ b",
-  );
   expect(
-    formOf("want", `${notes}\n**⭐ They want a date**\n12:04 “by June” [^1]\n-> ask why`),
-  ).toBe("**⭐ They want a date**\n12:04 “by June” [^1]\n-> ask why");
-  expect(formOf("answer", `${notes}\r\n\r\n★ One [^1]\r\n→ a\r\n\r\n${remark}`)).toBe(
+    own("answer", `${notes}\n\n★ One [^1]\n→ a\n\nLet me check.\n\nTwo\n→ b\n${remark}`),
+  ).toEqual(["★ One [^1]\n→ a", "Two\n→ b"]);
+  expect(
+    own("want", `${notes}\n**⭐ They want a date**\n12:04 “by June” [^1]\n-> ask why`),
+  ).toEqual(["**⭐ They want a date**\n12:04 “by June” [^1]\n-> ask why"]);
+  expect(own("answer", `${notes}\r\n\r\n★ One [^1]\r\n→ a\r\n\r\n${remark}`)).toEqual([
     "★ One [^1]\r\n→ a\r",
-  );
-  expect(formOf("answer", `${notes}\n\nOne [^1]\n→ a`)).toBe("→ a");
-  expect(formOf("leading", "A little: it suggests the answer.\n★ What happened?\n→ hears")).toBe(
-    "A little: it suggests the answer.\n★ What happened?\n→ hears",
-  );
-  expect(formOf("sum", `${notes}\n- One [^1]\n- Two\n\n${remark}`)).toBe("- One [^1]\n- Two");
-  expect(formOf("answer", notes)).toBeNull();
-  expect(formOf("sum", notes)).toBeNull();
+  ]);
+  expect(
+    own("answer", "We can start on Monday\n→ shows speed\n\n我们可以 [^1]\n→ 直接回答"),
+  ).toEqual(["We can start on Monday\n→ shows speed", "我们可以 [^1]\n→ 直接回答"]);
+  expect(own("answer", "★ One [^1]\n→ a\nTwo\n→ b")).toEqual(["★ One [^1]\n→ a", "Two\n→ b"]);
+  expect(own("answer", "★ One [^1]\n\nTwo\n→ b")).toEqual(["★ One [^1]", "Two\n→ b"]);
+  expect(
+    own("leading", `${notes}\n\nA little: it suggests the answer.\n★ What happened?\n→ hears`),
+  ).toEqual(["A little: it suggests the answer.", "★ What happened?\n→ hears"]);
+  expect(own("sum", `${notes}\n- One [^1]\n\nLet me check.\n\n• 两个\n\n1. A step`)).toEqual([
+    "- One [^1]",
+    "• 两个",
+  ]);
+  expect(own("answer", notes)).toEqual([]);
+  expect(own("sum", "1. Find the prices\n2. Cite them")).toEqual([]);
 });

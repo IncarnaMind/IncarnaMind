@@ -141,9 +141,17 @@ export function helpItems(answer: HelpAnswer, kind: MeetingHelpKind): ReplyItem[
   return [...lead, ...options];
 }
 
-/** Whether a button's Answer has anything to pin or add to the note: it ended, and shows a line. */
-export const helpToKeep = (answer: HelpAnswer, kind: MeetingHelpKind): boolean =>
-  answer.status === "done" && helpItems(answer, kind).length > 0;
+/**
+ * Whether a button's Answer has anything to pin or add to the note: it ended with an option,
+ * reading or short line, or with the lead-in of "Am I leading them?", which is its answer; the
+ * app's own line that the live text is behind isn't.
+ */
+export function helpToKeep(answer: HelpAnswer, kind: MeetingHelpKind): boolean {
+  const { lead, options } = helpParts(answer, kind);
+  return (
+    answer.status === "done" && (options.length > 0 || (kind === "leading" && lead.length > 0))
+  );
+}
 
 /**
  * The number each Citation shows with, from 1 in the order the shown items cite them, as the

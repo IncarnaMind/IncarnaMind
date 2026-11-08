@@ -527,10 +527,10 @@ export interface AnswerRequest {
    */
   isReply?(text: string): boolean;
   /**
-   * For a reply laid out in a form of its own (call help's options): where the form lies in the
-   * text written so far, null before it begins. No part of it is judged the model's working.
+   * For a reply laid out in a form of its own (call help's): the spans of the text written so far
+   * that are its own lines, which are never judged the model's working.
    */
-  formOf?(text: string): { from: number; to: number } | null;
+  ownLines?(text: string): readonly { from: number; to: number }[];
   /**
    * Told what the first model call wrote once its Tools have returned, before any further call:
    * a Run it stops there makes none.
@@ -829,18 +829,18 @@ function workingCandidates(text: string): TextPart[] {
 }
 
 /**
- * The parts outside a reply's own form (`form`, in the text kept so far, which `shift` long comes
- * before the parts): a part that runs into it is judged by its lines outside it.
+ * The parts that hold none of a reply's own lines (`own`, in the text kept so far, which `shift`
+ * long comes before the parts): a part that holds some is judged by its other lines.
  */
-function outsideForm(
+function besideOwnLines(
   parts: readonly TextPart[],
-  form: { from: number; to: number } | null,
+  own: readonly { from: number; to: number }[],
   shift: number,
 ): TextPart[] {
-  if (form === null) return [...parts];
-  const outside = (part: TextPart) => shift + part.to <= form.from || shift + part.from >= form.to;
+  const apart = (part: TextPart) =>
+    !own.some((each) => shift + part.from < each.to && shift + part.to > each.from);
   return parts.flatMap((part) =>
-    outside(part)
+    apart(part)
       ? [part]
       : linesOf(part.text)
           .map((line) => ({
@@ -848,7 +848,7 @@ function outsideForm(
             to: part.from + line.to,
             text: line.text,
           }))
-          .filter(outside),
+          .filter(apart),
   );
 }
 
@@ -2334,9 +2334,9 @@ async function* toolLoop(
         } else {
           const candidates =
             recorded && request.toolSet !== "check"
-              ? outsideForm(
+              ? besideOwnLines(
                   workingCandidates(stepText),
-                  request.formOf?.(keptText + stepText) ?? null,
+                  request.ownLines?.(keptText + stepText) ?? [],
                   keptText.length,
                 )
               : [];

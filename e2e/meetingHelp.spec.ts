@@ -636,6 +636,8 @@ test("help during the call: a reply with nothing to show says so, with Try again
   await fromPalette(window, "Add the latest suggestion to the note");
   await expect(notice).toHaveText("That didn’t work: the Answer had nothing to suggest");
   await expect(window.getByTestId("undo-message")).toHaveCount(0);
+  await pointAndClick(window, window.getByTestId("error-notice-dismiss"));
+  await expect(notice).toHaveCount(0);
   await fromPalette(window, "Pin the latest suggestion");
   await expect(notice).toHaveText("That didn’t work: the Answer had nothing to suggest");
   await expect(panel.getByTestId("help-pin")).toHaveCount(0);

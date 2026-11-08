@@ -8,6 +8,7 @@ import {
   citationNumbers,
   helpItems,
   helpParts,
+  helpToKeep,
   quoted,
   readHelpReply,
   shownItems,
@@ -266,6 +267,22 @@ describe("A help reply", () => {
       lead: [behind],
       options: 1,
     });
+  });
+
+  // protects=Pin and Add to note are offered only for an ended Answer that shows an option, reading, short line or Am I leading them?'s lead-in, never for the app's line that the live text is behind alone, a stopped Answer or nothing, in English and Chinese; fails_when=they are offered with nothing to keep, or withheld from a suggestion; no_claim=the panel's layout (#2778).
+  test("an Answer has something to pin or add only when it ended with a line of its own", () => {
+    const behind = "The live text is behind, so this rests on the lines so far.";
+    const keeps = (text: string, kind: MeetingHelpKind, status: "done" | "stopped" = "done") =>
+      helpToKeep({ text, status, steps: { textBehind: true } }, kind);
+    expect(keeps(`${behind}\n\n★ One\n→ a`, "answer")).toBe(true);
+    expect(keeps("实时转写跟不上，以下只依据已转写的内容。\n\n- 一行", "sum")).toBe(true);
+    expect(keeps(behind, "answer")).toBe(false);
+    expect(keeps("实时转写跟不上，以下只依据已转写的内容。", "sum")).toBe(false);
+    expect(keeps(`${behind}\n\n★ One\n→ a`, "answer", "stopped")).toBe(false);
+    expect(
+      helpToKeep({ text: "A little: it suggests the answer.", status: "done" }, "leading"),
+    ).toBe(true);
+    expect(helpToKeep({ text: "## What to ask next", status: "done" }, "ask")).toBe(false);
   });
 
   test("while it streams, an option before its arrow has no effect yet", () => {

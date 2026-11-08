@@ -1,6 +1,6 @@
 # The quality check for keeping call help's own form (#2778)
 
-Written and committed on 2026-11-08, before any run it gates. #2778 stops the core from judging call help's own lines as the model's working, so it no longer takes back an option, a reading, a short line or a "→" line it showed. An earlier step on #2526 that left such lines unjudged raised Claude Haiku 5.5's Chinese false Supported on the call-help set (5–6 → 7–10, `call-help-form-unjudged`, never merged): the judgement had been dropping some options with no Citation. This check holds the change to main's quality before it ships.
+Written and committed on 2026-11-08, before any run it gates, and revised before its first run, after an independent review of the change, to the rule the runs measure. #2778 stops the core from judging call help's own lines as the model's working: an option's or a reading's sentence through its "→" line, a "★" line still waiting for its "→" line, a short line ("- "), and the one line "Am I leading them?" puts before its options (`helpOwnLines`, `src/core/answers/meetingHelp.ts`). Every other paragraph or line, notes or a remark before, between or after them or a numbered plan, is judged as on main. An earlier step on #2526 that left such lines unjudged raised Claude Haiku 5.5's Chinese false Supported on the call-help set (5–6 → 7–10, `call-help-form-unjudged`, never merged): the judgement had been dropping some options with no Citation. This check holds the change to main's quality before it ships.
 
 ## The runs
 
@@ -18,6 +18,8 @@ As `call-help-records-first.md` and `call-help-form-unjudged.md` held their step
 - its cited, judged-right and every-Citation-found ranges do not sit below main's.
 
 Reported beside each: the pooled counts over both runs, each case with a false Supported on either arm with its sentence, and how often each arm's judgement was asked and what it took back.
+
+What the rule now keeps, counted over recorded replies at no cost (Claude Haiku 5.5 and DeepSeek V4.1 Flash, the vanish check's cases): an option or reading with no Citation marker, 35 of 464 in main's 240 replies and 46 of 461 in the 240 at a5bcb7c84 (the form then kept whole); a paragraph with no option mark between options, in 1 reply of each 240, a remark between two readings. This check makes no other claim about them.
 
 ## If false Supported rises
 

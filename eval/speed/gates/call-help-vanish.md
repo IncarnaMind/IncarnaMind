@@ -110,3 +110,6 @@ Main's 240 → the head's 240, 60 presses a cell, both buttons together:
 **The bar holds on every line,** in every cell. Two Haiku presses (one a language) showed no words while written and ended with their options, as a reply that comes whole does.
 
 The done time's median, main's 240 → the head's 240 (reported, not held; the end of this run was under heavy load): Haiku English 3.27 → 3.66 s and 2.95 → 2.43 s, Haiku Chinese 3.16 → 2.34 s and 2.67 → 2.62 s; DeepSeek English 2.05 → 2.23 s and 2.76 → 2.38 s, DeepSeek Chinese 2.10 → 2.16 s and 2.92 → 2.78 s ("What do they want?", then "What to ask next").
+
+**The rule narrowed after an independent review, 2026-11-08.** The review found that the form, kept whole from its first option to its last "→" line, spared a model's notes between options, before "Am I leading them?"'s lead-in, among short lines and in a numbered plan, which main took back. The core now spares only a reply's own lines (`helpOwnLines`): an option's or reading's sentence through its "→" line, a "★" line still waiting for its "→" line, a short line, and "Am I leading them?"'s lead-in. Every "→" line is still one of them, so this check's bar is untouched; the runs above were made at the wider rule. Its quality is checked in `call-help-form-kept.md`.
+

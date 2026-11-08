@@ -9,7 +9,6 @@ import {
   EFFECT_MARK,
   HELP_SHAPE,
   type HelpShape,
-  LINE_MARK,
   type MeetingHelpKind,
   plainLine,
   RECOMMENDED_MARK,
@@ -110,32 +109,44 @@ const EXAMPLES: Readonly<Record<"en" | "zh", Readonly<Record<HelpShape, readonly
   },
 };
 
+/** A short line's own mark: a list's, as the form asks for, never a numbered step. */
+const SHORT_LINE = /^[-*•]\s+/;
+
 /**
- * Where a button's reply in `text` lays out its form: from its first option or reading (its "★"
- * line, or its first "→" line when it has none; "Am I leading them?" from its first line) to the
- * end of its last "→" line, or from its first short line to its last. Null while none is written.
- * Before it are a model's notes (#2526) and after it a remark it added; the form itself is never
- * the model's working, so no line of it is taken back (#2778).
+ * The spans of a button's reply in `text` that are its own lines: each option or reading from its
+ * "★" line, or from the start of its paragraph, to its "→" line; a "★" line still waiting for its
+ * "→" line; each short line; and the one line "Am I leading them?" puts before its options. They
+ * are never the model's working, so none is taken back (#2778); a model's notes and remarks around
+ * them are judged as any Answer's are (#2526).
  */
-export function helpForm(kind: MeetingHelpKind, text: string): { from: number; to: number } | null {
-  const lines: { from: number; to: number; plain: string }[] = [];
+export function helpOwnLines(kind: MeetingHelpKind, text: string): { from: number; to: number }[] {
+  const lines: { from: number; to: number; plain: string; paragraph: number }[] = [];
   let at = 0;
-  for (const line of text.split("\n")) {
-    if (line.trim() !== "") lines.push({ from: at, to: at + line.length, plain: plainLine(line) });
-    at += line.length + 1;
+  let paragraph = 0;
+  for (const raw of text.split("\n")) {
+    const plain = plainLine(raw);
+    if (plain === "") {
+      if (lines.at(-1)?.paragraph === paragraph) paragraph++;
+    } else lines.push({ from: at, to: at + raw.length, plain, paragraph });
+    at += raw.length + 1;
   }
-  const shortLines = HELP_SHAPE[kind] === "lines";
-  const goesOn = shortLines ? LINE_MARK : EFFECT_MARK;
-  const first =
-    kind === "leading"
-      ? lines[0]
-      : shortLines
-        ? lines.find((line) => LINE_MARK.test(line.plain))
-        : (lines.find((line) => RECOMMENDED_MARK.test(line.plain)) ??
-          lines.find((line) => EFFECT_MARK.test(line.plain)));
-  if (!first) return null;
-  const last = lines.findLast((line) => line.from >= first.from && goesOn.test(line.plain));
-  return { from: first.from, to: Math.max(first.to, last?.to ?? first.to) };
+  if (HELP_SHAPE[kind] === "lines") return lines.filter((line) => SHORT_LINE.test(line.plain));
+  const own: { from: number; to: number; first: number }[] = [];
+  let start = 0;
+  for (const [index, line] of lines.entries()) {
+    if (index > 0 && line.paragraph !== lines[index - 1]?.paragraph) start = index;
+    if (RECOMMENDED_MARK.test(line.plain)) start = index;
+    if (!EFFECT_MARK.test(line.plain)) continue;
+    own.push({ from: lines[start]?.from ?? line.from, to: line.to, first: start });
+    start = index + 1;
+  }
+  for (const [index, line] of lines.entries()) {
+    const covered = own.some((each) => each.from <= line.from && line.to <= each.to);
+    if (RECOMMENDED_MARK.test(line.plain) && !covered) own.push({ ...line, first: index });
+  }
+  own.sort((a, b) => a.from - b.from);
+  const leadIn = kind === "leading" && own[0] ? lines[own[0].first - 1] : undefined;
+  return [...(leadIn ? [leadIn] : []), ...own].map(({ from, to }) => ({ from, to }));
 }
 
 /** The most of the User's Documents a button's Question takes, found ahead for the newest lines. */
