@@ -383,7 +383,7 @@ test("an empty Mind of one's own shows no second start guide, the example's step
     /Asked a question/,
     /Opened a checked Citation/,
   ]);
-  await expect(steps.getByTestId("first-open-next").first()).toBeVisible();
+  await expect(steps).not.toContainText("Try next");
   await pointAndClick(window, steps.getByTestId("first-open-hide"));
   await expect(steps).toHaveCount(0);
 });
@@ -461,7 +461,8 @@ test("the steps card's first step offers Add files… and Link a folder… at on
   await setLanguage(window, "zh-CN");
   await useLocalChatModel(window);
   await expect(steps.locator("h2")).toHaveText("准备好了");
-  await continueSetup(window);
+  // The first run ended at the first checked Answer: no steps wait as a line above the composer (#2867).
+  await expect(window.getByTestId("assistant-setup-line")).toHaveCount(0);
 });
 
 test('"Ask" is ticked by an Answer that arrives, not by one that fails (#766)', async () => {
@@ -909,7 +910,6 @@ test("finishing the steps with no model asks for one in the card, never says You
   await expect(step(window, "files")).toHaveAttribute("data-state", "done");
   await expect(steps).toContainText("Choose an AI model to ask about your own files.");
   await expect(steps).not.toContainText("You’re set up");
-  await expect(steps.getByTestId("first-open-next")).toHaveCount(0);
   // Each part of the shell still waits for its own moment. The card asks for the model, and the
   // footer's one line says the files wait for it (#1128).
   const sidebar = window.getByTestId("sidebar");
@@ -924,8 +924,8 @@ test("finishing the steps with no model asks for one in the card, never says You
   await expect(setup.getByRole("heading", { level: 2 })).toHaveText("Set up your AI");
   await useLocalChatModel(window);
   await expect(steps.locator("h2")).toHaveText("You’re set up");
-  await expect(steps.getByTestId("first-open-next").first()).toBeVisible();
-  await continueSetup(window);
+  // The first run ended at the first checked Answer: no steps wait as a line above the composer (#2867).
+  await expect(window.getByTestId("assistant-setup-line")).toHaveCount(0);
   await expect(sidebar.getByTestId("tagging-waiting")).toHaveCount(0);
   await expect(window.getByTestId("composer-input")).toBeVisible();
   await app.close();
@@ -944,26 +944,11 @@ test("by keyboard alone: Choose a model takes the focus into the setup, and a sa
   await expect(setup.getByTestId("setup-key")).toBeFocused();
   await window.keyboard.insertText("sk-ant-a-key-from-the-company");
   await window.keyboard.press("Enter");
-  // A saved model brings the cursor to the composer: the steps left wait as one line above it
-  // (#2310), a Shift+Tab (past its ✕) away, and each is one key further.
+  // A saved model brings the cursor to the composer. The first run ended at the first checked
+  // Answer, so no steps wait as a line above it (#2867).
   await expect(window.getByTestId("composer-input")).toBeFocused();
-  await window.keyboard.press("Shift+Tab");
-  await expect(window.getByTestId("assistant-setup-skip")).toBeFocused();
-  await window.keyboard.press("Shift+Tab");
-  const line = window.getByTestId("assistant-setup-line");
-  await expect(line).toBeFocused();
-  await window.keyboard.press("Enter");
-  const transcription = setup.getByTestId("setup-transcription");
-  await expect(transcription).toBeFocused();
-  await window.keyboard.press("Tab");
-  await expect(setup.getByTestId("setup-transcription-use")).toBeFocused();
-  await window.keyboard.press("Enter");
-  const sorting = setup.getByTestId("models-sorting");
-  await expect(sorting).toBeFocused();
-  await window.keyboard.press("Tab");
-  await expect(setup.getByTestId("setup-sorting-use")).toBeFocused();
-  await window.keyboard.press("Enter");
   await expect(setup).toHaveCount(0);
+  await expect(window.getByTestId("assistant-setup-line")).toHaveCount(0);
   await expect(window.getByTestId("first-open-steps").locator("h2")).toHaveText("You’re set up");
   await expect(window.getByTestId("composer-input")).toBeFocused();
   await app.close();
