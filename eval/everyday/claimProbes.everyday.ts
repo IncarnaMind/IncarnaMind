@@ -193,6 +193,31 @@ const heldOut = [
     unbacked: true,
     calls: [sectionEdit("nothing-zh", "plan", "下季度安排", null, "no-text")],
   },
+  // Held out again, written before the card rule was changed (#2769).
+  {
+    id: "card-unmade-en",
+    reply: "Done. You'll find each change in the list below my reply.",
+    unbacked: true,
+    calls: [sectionEdit("card-en-1", "budget", "Outlook", null, "length")],
+  },
+  {
+    id: "card-unmade-zh",
+    reply: "好了，改动都在回复下面的列表里。",
+    unbacked: true,
+    calls: [sectionEdit("card-zh-1", "plan", "下季度安排", null, "uncited")],
+  },
+  {
+    id: "card-made-en",
+    reply: "Done. You'll find each change in the list below my reply.",
+    unbacked: false,
+    calls: [sectionEdit("card-en-2", "budget", "Outlook", { cited: 2 })],
+  },
+  {
+    id: "card-made-zh",
+    reply: "好了，改动都在回复下面的列表里。",
+    unbacked: false,
+    calls: [sectionEdit("card-zh-2", "plan", "下季度安排", { cited: 1 })],
+  },
 ] as const;
 
 const probes = [

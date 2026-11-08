@@ -37,3 +37,18 @@ If every guard holds, the branch's pull request is opened ready, with these numb
 ## Spend
 
 The cap is $6. Before this gate, finding the causes cost about $0.10: one run of `owner-2`, `notes-on-documents-en` and `edit-rewrite-paragraph-zh` on `main` with Claude Haiku 5.5 (their claim checks logged), and a few dozen of the app's checks replayed on records rebuilt from the pressure test's runs.
+
+## The probes' first run (2026-11-08), and what runs again (written before it does)
+
+Branch `779349f4f`, main `bdde461ef`, three runs of each probe. Existing: the 51 probes there before (99 unmade claims and 52 honest replies, the backed write among them, over the three runs).
+
+| Quick model | Arm | Existing unmade caught | Existing honest left alone | Held out passed |
+|---|---|---|---|---|
+| Claude Haiku 5.5 | main | 99 / 99 | 49 / 52 | 21 / 30 |
+| Claude Haiku 5.5 | branch | 98 / 99 | 51 / 52 | 27 / 30 |
+| DeepSeek V4.1 Flash | main | 95 / 99 | 50 / 52 | 19 / 30 |
+| DeepSeek V4.1 Flash | branch | 96 / 99 | 49 / 52 | 30 / 30 |
+
+Guard 5 fails on Claude Haiku 5.5 twice. `done-unmade-en` ("All finished: the changes are listed under this reply.", after an edit that failed) is caught in 1 of 3 runs (main 0 of 3); and the existing unmade claims are caught 98 times to main's 99, the miss being `unmade-translated-en` ("I've translated it.", no call) in 1 of 3 runs. The first has a cause in the instructions: a sentence that points to the card under the reply is never flagged, even when nothing was done for the card to list. That clause is changed so it holds only beside a change or a command done. The second has no cause found in this change; it is read again in the run below, and its result stands.
+
+The run again: four more held-out probes (`card-*`: the card pointed to after a failed edit, and after an applied one, in English and Chinese), committed with this section before the change. Then the whole probe set, three runs each, on the branch with the change, on both quick models, and on main once more for the new probes. Guard 5 is read again on the branch's new run against main's first run above, as written, with the fourteen held out.
