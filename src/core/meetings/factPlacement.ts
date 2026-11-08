@@ -111,28 +111,29 @@ export function placeFacts(input: FactPlacementInput): FactPlacement {
     const marker = requested.find((each) => ordinary.has(each));
     if (requested.some((each) => !ordinary.has(each))) placed.unplaced++;
     const sectionHome = SECTION_HOMES.find((section) => fact.sections.includes(section));
-    const claimed = input.claims.has(fact.id);
+    // A statement the User's Documents don't back is written whole in that list, and the User's
+    // line it answers points there, so the list holds what to check, never pointers (#2306).
+    const home =
+      sectionHome ?? (input.claims.has(fact.id) ? ("claims" satisfies FillSection) : undefined);
     // A decision, an action or an open question is written whole in its section, so Action items
     // reads who does what by when; the User's line it answers points there, unless that line is
     // already in the section (#2306).
     const answered = marker === undefined ? undefined : ordinary.get(marker);
-    const homeHeading = sectionHome && input.headings.get(sectionHome);
+    const homeHeading = home && input.headings.get(home);
     const lineHome =
       answered &&
-      (sectionHome === undefined ||
+      (home === undefined ||
         (homeHeading !== undefined && answered.ancestors.includes(homeHeading)))
         ? answered
         : undefined;
-    let home: FillSection | null = null;
+    let placedIn: FillSection | null = null;
     let canonical: FactPlace;
     if (lineHome && marker !== undefined) {
       append(placed.lines, marker, [fact.body]);
       canonical = lineHome;
-    } else if (sectionHome || claimed) {
-      // A topic's fact the User's Documents don't back moves to that list whole, so it is still
-      // written once and the list holds what to check, not pointers (#2306).
-      home = sectionHome ?? "claims";
+    } else if (home) {
       append(placed.sections, home, [fact.body]);
+      placedIn = home;
       canonical = sectionPlace(input, home);
     } else {
       const key = topicKey(fact.heading);
@@ -156,9 +157,8 @@ export function placeFacts(input: FactPlacementInput): FactPlacement {
     const references = new Set<FillSection>(
       fact.sections.filter((section) => section !== "summary" && section !== "claims"),
     );
-    if (claimed) references.add("claims");
     for (const section of references) {
-      if (section === home) continue;
+      if (section === placedIn) continue;
       const heading = input.headings.get(section);
       if (heading !== undefined && canonical.ancestors.includes(heading)) continue;
       const destination = sectionPlace(input, section);

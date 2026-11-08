@@ -30,7 +30,7 @@ import { inFlow } from "../timing/flows";
 import type { StoredFill } from ".";
 import { createFactLedger } from "./factLedger";
 import { type PlacedTopic, placeFacts } from "./factPlacement";
-import { type MeetingFact, parseFactReply } from "./factProtocol";
+import { type FactReply, type MeetingFact, parseFactReply } from "./factProtocol";
 import {
   CALL_LANGUAGES,
   callLanguage,
@@ -54,7 +54,7 @@ import {
   tidiedNote,
   wordsAdded,
 } from "./memo";
-import { textWithUserName, withUserName } from "./userName";
+import { withUserName } from "./userName";
 
 /** The most of a Transcript one Run reads: about two hours of talk. */
 export const FILL_PART_TOKENS = 24_000;
@@ -104,6 +104,7 @@ export interface MeetingFillOptions {
       documentIds: string[];
       model: ChatModelChoice;
       signal: AbortSignal;
+      retry?: true;
     }): Promise<CellAnswer>;
   };
   /**
@@ -504,6 +505,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
     transcriptId: string,
     route: Routed,
     signal: AbortSignal,
+    retry = false,
   ): Promise<CellAnswer> {
     const answer = await options.answers.answerMeetingFill({
       context,
@@ -511,6 +513,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
       documentIds: [transcriptId],
       model: route.model,
       signal,
+      ...(retry && { retry }),
     });
     if (answer.status === "stopped" || signal.aborted) {
       throw new FillProblemError({ kind: "stopped", message: "" });
@@ -617,8 +620,23 @@ export function createMeetingFill(options: MeetingFillOptions) {
           ? notesContext(lines, question, history, spoken, name !== null)
           : sectionsContext(question, history, spoken, name !== null);
       let answer: CellAnswer;
+      let parsed: FactReply;
       try {
         answer = await ask(context, part, transcriptId, route, signal);
+        parsed = parseFactReply(answer);
+        // Cut off before it closed a frame, as when the thinking takes the room: asked once more
+        // with twice the room, which the cost cap sets aside only then. One that closed some keeps
+        // them (#2306).
+        if (
+          answer.status === "failed" &&
+          answer.error?.kind === "cut-short" &&
+          parsed.facts.length === 0 &&
+          parsed.overview === null
+        ) {
+          log.info("meeting.fillAskedWithMoreRoom", { meetingId: meeting.id });
+          answer = await ask(context, part, transcriptId, route, signal, true);
+          parsed = parseFactReply(answer);
+        }
       } catch (error) {
         if (signal.aborted || (ledger.facts.length === 0 && ledger.overview === null)) throw error;
         if (error instanceof FillProblemError && error.problem.kind === "stopped") throw error;
@@ -630,7 +648,6 @@ export function createMeetingFill(options: MeetingFillOptions) {
         log.warn("meeting.fillPartFailed", { meetingId: meeting.id, parts: unfinishedParts });
         break;
       }
-      const parsed = parseFactReply(answer);
       ledger.accept(parsed);
       const markers = [
         "SUMMARY",
@@ -754,11 +771,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
         const namedTopics = planned.topics.map((topic) => {
           const done = withUserName(topic.nodes, name);
           leftovers += done.leftovers;
-          return {
-            ...topic,
-            title: name === null ? topic.title : textWithUserName(topic.title, name),
-            nodes: done.nodes,
-          };
+          return { ...topic, nodes: done.nodes };
         });
         if (leftovers > 0)
           log.warn("meeting.fillTokenLeftover", { meetingId: meeting.id, leftovers });

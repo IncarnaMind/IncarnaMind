@@ -127,15 +127,30 @@ const label = (value: unknown): value is string =>
   value.length <= 240 &&
   !/[\p{Cc}\p{Zl}\p{Zp}]/u.test(value);
 
+/** What a heading never shows: a Citation marker, a line's address or a token for the User. */
+const NOT_A_TITLE = /\[\^\d*\]|\b[LH]\d+\b|[{｛][^{}｛｝]*[}｝]/u;
+/** A token for the User, with the possessive after it: what a topic loses to become a title. */
+const TOKEN = /[{｛]+[^{}｛｝]*[}｝]+(?:['’]s\b|\s*的)?/gu;
+
+/** The heading a fact goes under: its own, else its topic's words without markers or tokens. */
+function titleOf(heading: unknown, topic: string): string | null {
+  if (label(heading) && !NOT_A_TITLE.test(heading)) return heading.trim();
+  const words = topic
+    .replace(TOKEN, "")
+    .replace(/\[\^\d*\]|\b[LH]\d+\b/gu, "")
+    .replace(/\s+/gu, " ")
+    .trim();
+  return words !== "" && !NOT_A_TITLE.test(words) ? words : null;
+}
+
 function factMetadata(value: Record<string, unknown>): FactMetadata | null {
   if (Object.keys(value).some((key) => !FACT_KEYS.includes(key))) return null;
   const { topic, citations, lines, sections, claim } = value;
   const supersedes = Object.hasOwn(value, "supersedes") ? value.supersedes : [];
-  // A fact without one still has its own topic to go under.
-  const heading = Object.hasOwn(value, "heading") ? value.heading : topic;
+  const heading = label(topic) ? titleOf(value.heading, topic) : null;
   if (
     !label(topic) ||
-    !label(heading) ||
+    heading === null ||
     !inventory(citations) ||
     !strings(lines, /^L[1-9]\d{0,5}$/) ||
     !Array.isArray(sections) ||
@@ -148,7 +163,7 @@ function factMetadata(value: Record<string, unknown>): FactMetadata | null {
     !strings(supersedes, FACT_ID)
   )
     return null;
-  return { topic, heading: heading.trim(), citations, lines, sections, claim, supersedes };
+  return { topic, heading, citations, lines, sections, claim, supersedes };
 }
 
 function heading(node: NodeJSON | undefined): string | null {

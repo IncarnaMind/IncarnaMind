@@ -438,7 +438,7 @@ describe("Meeting fact placement (#2306)", () => {
     expect(pointer && citationsOf(pointer)).toEqual(accepted.citations);
   });
 
-  test("an unrelated nested heading does not cover a routed category", () => {
+  test("an unrelated nested heading does not cover a routed category: the claim goes whole to its list and the line points there", () => {
     const accepted = fact("The fee is 18%.", { sections: ["summary"] });
     const placed = placeFacts(
       input([accepted], {
@@ -453,9 +453,10 @@ describe("Meeting fact placement (#2306)", () => {
       }),
     );
 
-    expect(placed.lines.get("L1")).toEqual([accepted.body]);
-    const claim = placed.sections.get("claims")?.[0];
-    expect(claim && textOf(claim).trim()).toBe("Contract: see above.");
+    expect(placed.sections.get("claims")).toEqual([accepted.body]);
+    const pointer = placed.lines.get("L1")?.[0];
+    expect(pointer && textOf(pointer).trim()).toBe("Contract: see below.");
+    expect(pointer && citationsOf(pointer)).toEqual(accepted.citations);
   });
 
   test("category-to-category references follow routed positions instead of category order", () => {
@@ -507,7 +508,7 @@ describe("Meeting fact placement (#2306)", () => {
     expect(placed.sections).toEqual(new Map([["actions", [accepted.body]]]));
   });
 
-  test("repeated input IDs create only one full fact, one pointer per line and one Claims reference", () => {
+  test("repeated input IDs create only one full fact and one pointer per line, and an action is never in the Claims list", () => {
     const citations = [
       checkedCitation("I will send the contract by Friday.", "Dana", 311),
       checkedCitation("Friday is confirmed.", "Me", 328),
@@ -533,12 +534,10 @@ describe("Meeting fact placement (#2306)", () => {
       const pointer = placed.lines.get(marker)?.[0];
       expect(pointer && textOf(pointer).trim()).toBe("Contract: see below.");
     }
-    expect(placed.sections.get("claims")).toHaveLength(1);
-    const claim = placed.sections.get("claims")?.[0];
-    expect(claim && textOf(claim).trim()).toBe("Contract: see above.");
-    expect(claim && citationsOf(claim)).toEqual(citations);
-    expect(claim && citationsOf(claim)[0]).toBe(citations[0]);
-    expect(claim && citationsOf(claim)[1]).toBe(citations[1]);
+    expect(placed.sections.has("claims")).toBe(false);
+    const pointer = placed.lines.get("L1")?.[0];
+    expect(pointer && citationsOf(pointer)[0]).toBe(citations[0]);
+    expect(pointer && citationsOf(pointer)[1]).toBe(citations[1]);
     expect(placed.unplaced).toBe(0);
   });
 
@@ -562,12 +561,13 @@ describe("Meeting fact placement (#2306)", () => {
     expect(placed.sections.has("claims")).toBe(false);
   });
 
+  // protects=the claims list holds whole statements only: a claim answering a typed line is written there whole and the line points to it, and an action stays whole in its section with no stub in the list (#2306); fails_when=the list holds a pointer, or a claim is written twice; no_claim=which facts a model marks as claims.
   test.each([
     { home: "Actions", lines: [], sections: ["actions"] },
     { home: "User's line", lines: ["L1"], sections: ["summary"] },
   ] as const)(
-    "an earlier Claims heading points below to the whole fact in its $home",
-    ({ lines, sections }) => {
+    "an earlier Claims heading holds the whole claim, never a pointer, for a fact homed in $home",
+    ({ home, lines, sections }) => {
       const accepted = fact("The fee is 18%.", { lines: [...lines], sections: [...sections] });
       const placed = placeFacts(
         input([accepted], {
@@ -585,9 +585,15 @@ describe("Meeting fact placement (#2306)", () => {
         }),
       );
 
-      const claim = placed.sections.get("claims")?.[0];
-      expect(claim && textOf(claim).trim()).toBe("Contract: see below.");
-      expect(claim && citationsOf(claim)).toEqual(accepted.citations);
+      if (home === "Actions") {
+        expect(placed.sections.has("claims")).toBe(false);
+        expect(placed.sections.get("actions")).toEqual([accepted.body]);
+        return;
+      }
+      expect(placed.sections.get("claims")).toEqual([accepted.body]);
+      const pointer = placed.lines.get("L1")?.[0];
+      expect(pointer && textOf(pointer).trim()).toBe("Contract: see above.");
+      expect(pointer && citationsOf(pointer)).toEqual(accepted.citations);
     },
   );
 

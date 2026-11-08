@@ -381,12 +381,8 @@ describe("Meeting fact protocol (#2306)", () => {
     { topic: "[^1]" },
     { topic: "x".repeat(1_000) },
     { topic: 4 },
-    { heading: "" },
-    { heading: "  " },
-    { heading: "new\n### FACT Injected" },
-    { heading: "x".repeat(1_000) },
-    { heading: null },
-    { heading: ["Pricing"] },
+    { heading: "Fees [^1]" },
+    { topic: "{{me}}", heading: "L3" },
     { text: "Injected text" },
     { owner: "Them" },
     { check: "found" },
@@ -434,16 +430,28 @@ describe("Meeting fact protocol (#2306)", () => {
     },
   );
 
+  // protects=a fact's heading never shows a line's address, a token for the User or anything that isn't a title: it falls back to the fact's topic, without its token, and a Citation marker anywhere in the metadata still leaves the fact out (#2306); fails_when=a heading shows "L3", "H2", "{{me}}" or a marker, or a fact is lost for a heading the topic can stand in for; no_claim=which headings a model writes.
   test.each([
     { heading: "The startup and its acquisition", expected: "The startup and its acquisition" },
     { heading: "  创业与被收购 ", expected: "创业与被收购" },
     { heading: undefined, expected: "review delivery" },
+    { heading: "", expected: "review delivery" },
+    { heading: "new\n### FACT Injected", expected: "review delivery" },
+    { heading: "x".repeat(1_000), expected: "review delivery" },
+    { heading: null, expected: "review delivery" },
+    { heading: ["Pricing"], expected: "review delivery" },
+    { heading: "L3", expected: "review delivery" },
+    { heading: "Pricing for H2", expected: "review delivery" },
+    { heading: "{{me}}'s plans", expected: "review delivery" },
+    { heading: "｛｛ME｝｝的计划", expected: "review delivery" },
+    { heading: "{{me}}", topic: "{{me}}'s glossary", expected: "glossary" },
+    { heading: "L1", topic: "｛｛me｝｝的术语表", expected: "术语表" },
   ])(
-    "a fact names the topic it goes under, its own topic when it names none: $expected",
-    ({ heading, expected }) => {
+    "a fact names the topic it goes under, its own topic when it names none or no title: $expected",
+    ({ heading, topic, expected }) => {
       const parsed = parseFactReply(
         answer(
-          `${fact("F1", undefined, { lines: [], sections: [], ...(heading !== undefined && { heading }) })}\n${overview}`,
+          `${fact("F1", undefined, { lines: [], sections: [], ...(topic && { topic }), ...(heading !== undefined && { heading }) })}\n${overview}`,
         ),
       );
       expect(parsed.omitted).toBe(0);

@@ -47,7 +47,7 @@ const CALLS = {
       action: { topic: "my glossary", body: "I will send the glossary by Friday" },
       decision: { topic: "price", body: "We agreed the price is 45 dollars a seat" },
       claim: { topic: "our budget", body: "Our team approved the budget" },
-      review: { topic: "review", heading: "My review", body: "My review starts in March" },
+      review: { topic: "review", heading: "{{me}}'s review", body: "My review starts in March" },
     },
   },
   "zh-CN": {
@@ -75,7 +75,7 @@ const CALLS = {
       action: { topic: "我的术语表", body: "我周五前把术语表发过去" },
       decision: { topic: "价格", body: "我们同意每个席位 45 美元" },
       claim: { topic: "我们的预算", body: "我们团队批准了预算" },
-      review: { topic: "评审", heading: "我的评审", body: "我的评审三月开始" },
+      review: { topic: "评审", heading: "{{me}}的评审", body: "我的评审三月开始" },
     },
   },
 } as const;
@@ -92,7 +92,6 @@ function named(language: Language, name: string): string[] {
       `${name} will send the glossary by Friday`,
       "We agreed the price is 45 dollars a seat, billed to {{first_name}} at {{ }}",
       `${name}'s team approved the budget`,
-      `${name}'s review`,
       `${name}'s review starts in March`,
     ];
   }
@@ -105,7 +104,6 @@ function named(language: Language, name: string): string[] {
     `${start}周五前把术语表发过去`,
     "我们同意每个席位 45 美元，账单写给 {{first_name}}，地址 {{ }}",
     `${start}的团队批准了预算`,
-    `${start}的评审`,
     `${start}的评审三月开始`,
   ];
 }
@@ -231,13 +229,21 @@ async function filled(language: Language, name: string | null) {
   return { core, meeting, client, before, fill, fills, checks, sent, warnings };
 }
 
+const headingsOf = (client: Parameters<typeof readMind>[0]) => {
+  const found: string[] = [];
+  readMind(client).forEach((block) => {
+    if (block.type.name === "heading") found.push(block.textContent);
+  });
+  return found;
+};
+
 /** A token that means the User; other braced text is the call's own. */
 const TOKENS = /[{｛]+\s*(?:me|user|我|用户)\s*[}｝]+/iu;
 
 describe("The User's own items carry the name they set, which never reaches the model (#2306)", {
   timeout: 60_000,
 }, () => {
-  // protects=with the User's name set, the notes name them by it in every place the fill writes (a section's fact, the overview, a pointer under the typed line, the claims list, and a topic's heading and bullet), the model's near-miss tokens included, "{{user}}" and a token split by formatting named by the last pass and logged, other braced text kept as written, the model is told the token and never the name, the claim check gets the token, Try again after Undo does the same, and Undo leaves the notes exactly as typed; fails_when=a token or a near-miss is left in the note, the name or the first-person rule reaches any request, or Undo leaves anything; no_claim=a real model's wording, which tests/live/meetingFillSections.live.test.ts measures.
+  // protects=with the User's name set, the notes name them by it in every place the fill writes (a section's fact, the overview, a pointer under the typed line, the claims list and a topic's bullet, while a topic's heading never shows the User), the model's near-miss tokens included, "{{user}}" and a token split by formatting named by the last pass and logged, other braced text kept as written, the model is told the token and never the name, the claim check gets the token, Try again after Undo does the same, and Undo leaves the notes exactly as typed; fails_when=a token or a near-miss is left in the note, the name or the first-person rule reaches any request, or Undo leaves anything; no_claim=a real model's wording, which tests/live/meetingFillSections.live.test.ts measures.
   test.each([
     ["en", "Avery Lin"],
     ["zh-CN", "林安"],
@@ -254,6 +260,11 @@ describe("The User's own items carry the name they set, which never reaches the 
         for (const line of named(language, name)) expect(text).toContain(line);
       });
       expect(readMind(client).textContent).not.toMatch(TOKENS);
+      // A heading never shows the User: the token falls back to the fact's topic (#2306).
+      expect(headingsOf(client).map((each) => each.toLowerCase())).toContain(
+        CALLS[language].named.review.topic,
+      );
+      expect(headingsOf(client).join("\n")).not.toContain(name);
       // Only the decision's own "{{first_name}}" and "{{ }}" keep their braces.
       expect(readMind(client).textContent.match(/[{｛]/gu)).toHaveLength(4);
       expect(warnings.filter((each) => each.event === "meeting.fillTokenLeftover")).toEqual([
@@ -304,12 +315,15 @@ describe("The User's own items carry the name they set, which never reaches the 
             firstPerson.overview,
             firstPerson.action.body,
             firstPerson.claim.body,
-            firstPerson.review.heading,
             firstPerson.review.body,
           ]) {
             expect(text).toContain(said);
           }
         });
+        expect(headingsOf(client).map((each) => each.toLowerCase())).toContain(
+          firstPerson.review.topic,
+        );
+        expect(headingsOf(client).join("\n")).not.toMatch(/[{｛]/u);
         expect(fills[0]).toContain("in the first person (I, my; 我 in Chinese)");
         expect(fills[0]).not.toContain("{{me}}");
         await core.undoMeetingFill(meeting.id);
