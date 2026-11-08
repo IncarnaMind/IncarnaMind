@@ -26,6 +26,7 @@ import { useWordImport } from "../wordImport";
 import { addDocumentCommands } from "./addDocuments";
 import { analysisCommands } from "./analysis";
 import { answerTableCommands } from "./answerTables";
+import { appearanceCommands } from "./appearance";
 import { assistantCommands } from "./assistant";
 import { bibliographyCommands } from "./bibliography";
 import { chartCommands } from "./charts";
@@ -202,6 +203,7 @@ const appCommands: readonly Command[] = [
   ...deletedCommands,
   ...libraryCommands,
   ...languageCommands,
+  ...appearanceCommands,
   ...answerCommands,
   ...citationCommands,
   ...figureCommands,

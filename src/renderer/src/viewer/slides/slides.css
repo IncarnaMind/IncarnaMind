@@ -25,9 +25,10 @@
 /* The slide, edge to edge, with the page's hairline. */
 .viewer-deck-sheet {
   @apply relative overflow-hidden bg-sheet;
+  color-scheme: light;
   box-shadow:
     0 0 0 1px var(--color-rule),
-    0 1px 2px rgb(23 25 28 / 0.06);
+    0 1px 2px var(--color-shadow-soft);
 }
 /* "Ask about this slide" on hover or focus, over the slide's top right corner (#118). */
 .viewer-slide-ask {

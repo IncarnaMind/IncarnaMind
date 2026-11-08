@@ -6,6 +6,7 @@
 import type { BrowserWindow, BrowserWindowConstructorOptions } from "electron";
 import { FILES_CHANNELS } from "../shared/bridge";
 import { titleBarOf } from "../shared/titleBar";
+import { overlayColours, type Theme } from "./windowColours";
 
 /** Every pane header is 44px (DESIGN.md), and so is the band they make. */
 const BAND_HEIGHT = 44;
@@ -17,7 +18,10 @@ const BAND_CENTRE = 26;
 /** macOS 26's traffic lights are 14px circles (older ones 12px, in a 14px frame). */
 const LIGHT_SIZE = 14;
 
-export function titleBarOptions(platform: NodeJS.Platform): BrowserWindowConstructorOptions {
+export function titleBarOptions(
+  platform: NodeJS.Platform,
+  theme: Theme,
+): BrowserWindowConstructorOptions {
   switch (titleBarOf(platform)) {
     case "inset":
       return {
@@ -29,7 +33,7 @@ export function titleBarOptions(platform: NodeJS.Platform): BrowserWindowConstru
       return {
         titleBarStyle: "hidden",
         // Drawn over the band's right end in its colours: `tab-strip`, symbols in `ink-secondary`.
-        titleBarOverlay: { color: "#E6E8EB", symbolColor: "#4A4F57", height: BAND_HEIGHT },
+        titleBarOverlay: { ...overlayColours(theme), height: BAND_HEIGHT },
       };
     case "native":
       return {};
