@@ -85,13 +85,14 @@ export interface SelfCheckProgress {
  * The line of a check still running: "Checking 5 of 40 sentences". It names the sentence being
  * checked, so it never says the 0th, which reads wrong in Chinese (第 0 句).
  */
+/** How many of the sentences being checked are done, as the Note's badge counts them: several are checked at once. */
 function checkingLine(t: Translate, { done, total }: SelfCheckProgress): SelfCheckLine {
   return {
     kind: "checking",
     text:
       total === 1
-        ? t("selfCheck.checking.one")
-        : t("selfCheck.checking", { count: Math.min(Math.max(done, 1), total), total }),
+        ? t("selfCheck.checking.one", { count: done })
+        : t("selfCheck.checking", { count: done, total }),
     details: [],
     action: null,
   };

@@ -55,20 +55,22 @@ const WORDS = {
   en: {
     ask: "Add a revenue table for checking, citing after",
     next: "What was revenue in Q1?",
-    checking: /^Checking 1 of 2 sentences$/,
+    checking: /^Checking: 0 of 2 sentences done$/,
     badge: /^Checking 0 of 2/,
     checked: /^Checked 2 sentences/,
   },
   "zh-CN": {
     ask: "添加核对用的收入表格，写完再引用",
     next: "第一季度的收入是多少？",
-    checking: /^正在核对 2 句中的第 1 句$/,
+    checking: /^正在核对：已完成 0\/2 句$/,
     badge: /^正在核对 0\/2/,
     checked: /^已核对 2 句/,
   },
 } as const;
 
-type SlowCheck = { incarnamindSlowCheck: { hold: boolean; release(): void } };
+type SlowCheck = {
+  incarnamindSlowCheck: { hold: boolean; waiting: (() => void)[]; release(): void };
+};
 
 const holdChecks = (app: ElectronApplication) =>
   app.evaluate(() => {
@@ -81,6 +83,22 @@ const releaseChecks = (app: ElectronApplication) =>
     incarnamindSlowCheck.hold = false;
     incarnamindSlowCheck.release();
   });
+
+/** Lets one held step of a sentence's check go on: its search, or its verdict. */
+const releaseOneStep = (app: ElectronApplication) =>
+  app.evaluate(() => {
+    (globalThis as unknown as SlowCheck).incarnamindSlowCheck.waiting.shift()?.();
+  });
+
+/** How many steps of the checks are held now. */
+const heldSteps = (app: ElectronApplication) =>
+  app.evaluate(() => (globalThis as unknown as SlowCheck).incarnamindSlowCheck.waiting.length);
+
+/** The numbers a count shows, done then total: "Checking: 1 of 2 sentences done", "正在核对 1/2". */
+const countIn = async (shown: Locator) =>
+  ((await shown.count()) === 0 ? "" : ((await shown.textContent()) ?? ""))
+    .match(/\d+/g)
+    ?.join(" of ") ?? null;
 
 /** Asks as a person does, and gives back the Answer at once. */
 async function ask(window: Page, question: string): Promise<Locator> {
@@ -130,6 +148,33 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(next).toHaveAttribute("data-status", "done", { timeout: 60_000 });
     await expect(line).toHaveText(words.checking);
 
+    // One step at a time to the end: the line under the card and the badge count the same
+    // finished sentences at every step, several being checked at once (#2830).
+    const badge = window.getByTestId("badge-progress");
+    const seen = new Set<string>();
+    const agree = async () =>
+      (await line.count()) === 0 || (await countIn(line)) === (await countIn(badge));
+    for (let step = 0; step < 12 && (await line.count()) > 0; step++) {
+      await expect.poll(agree).toBe(true);
+      const before = await countIn(line);
+      if (before) seen.add(before);
+      const held = await heldSteps(app);
+      if (held === 0) break;
+      await releaseOneStep(app);
+      // The step goes on to its next one, held again, or its sentence's check ends and the count
+      // moves; a step of the follow-up's own checks does neither, so its wait ends without either.
+      await expect
+        .poll(
+          async () =>
+            (await line.count()) === 0 ||
+            (await countIn(line)) !== before ||
+            (await heldSteps(app)) >= held,
+          { timeout: 2_000 },
+        )
+        .toBe(true)
+        .catch(() => undefined);
+    }
+    expect([...seen]).toEqual(expect.arrayContaining(["0 of 2", "1 of 2"]));
     await releaseChecks(app);
     await expect(answer.getByTestId("self-check-checked")).toHaveText(words.checked, {
       timeout: 30_000,

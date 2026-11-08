@@ -11,7 +11,7 @@ import { type MessageKey, type MessageParams, translate } from "../../src/shared
 
 /*
  * The lines under an Answer whose writes are checked once they land (#1111,
- * #1909, #2830): "Checking 5 of 40 sentences" while the check runs, then
+ * #1909, #2830): "Checking: 5 of 40 sentences done" while the check runs, then
  * "Checked 40 sentences · 1 needs a look · Show", and "1 sentence couldn't be
  * checked · Check", one action for everything left, one noun a line.
  */
@@ -80,15 +80,16 @@ describe("How a write's check goes, and what it left to do", () => {
       );
 
     expect(line("en", 5)).toEqual([
-      { kind: "checking", text: "Checking 5 of 40 sentences", action: null },
+      { kind: "checking", text: "Checking: 5 of 40 sentences done", action: null },
     ]);
     expect(line("zh-CN", 5)).toEqual([
-      { kind: "checking", text: "正在核对 40 句中的第 5 句", action: null },
+      { kind: "checking", text: "正在核对：已完成 5/40 句", action: null },
     ]);
-    expect(line("en", 0)[0]?.text).toBe("Checking 1 of 40 sentences");
-    expect(line("zh-CN", 0)[0]?.text).toBe("正在核对 40 句中的第 1 句");
-    expect(line("en", 0, 1)[0]?.text).toBe("Checking 1 sentence");
-    expect(line("zh-CN", 0, 1)[0]?.text).toBe("正在核对 1 句");
+    // It counts finished sentences, as the badge does: none yet at the start.
+    expect(line("en", 0)[0]?.text).toBe("Checking: 0 of 40 sentences done");
+    expect(line("zh-CN", 0)[0]?.text).toBe("正在核对：已完成 0/40 句");
+    expect(line("en", 0, 1)[0]?.text).toBe("Checking: 0 of 1 sentence done");
+    expect(line("zh-CN", 0, 1)[0]?.text).toBe("正在核对：已完成 0/1 句");
     expect(selfCheckLines(running, say("en"), "en")).toEqual([]);
   });
 

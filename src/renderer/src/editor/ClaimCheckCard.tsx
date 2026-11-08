@@ -1294,6 +1294,18 @@ export function ClaimCard({
         );
       })}
       <div className="citation-card-actions">
+        {/* A part its Documents don't back is the first thing to fix: the check marks it and never
+            cuts it itself, once the sentence has landed (#2830). */}
+        {cuttable && (
+          <button
+            type="button"
+            data-testid="claim-cut"
+            className="citation-card-action citation-card-action--primary"
+            onClick={onCut}
+          >
+            {t("claim.cutUnsupported")}
+          </button>
+        )}
         {sole && (
           <CorrectButton
             correction={sole.correction}
@@ -1346,7 +1358,11 @@ export function ClaimCard({
             type="button"
             data-testid="claim-open"
             className={`citation-card-action ${
-              !sole && !use && !rewrite && (decision.kind === "none" || decision.kind === "already")
+              !sole &&
+              !use &&
+              !rewrite &&
+              !cuttable &&
+              (decision.kind === "none" || decision.kind === "already")
                 ? "citation-card-action--primary"
                 : ""
             }`}
@@ -1391,16 +1407,6 @@ export function ClaimCard({
             onClick={onFix}
           >
             {t("claim.fixSentence")}
-          </button>
-        )}
-        {cuttable && (
-          <button
-            type="button"
-            data-testid="claim-cut"
-            className="citation-card-action citation-card-action--primary"
-            onClick={onCut}
-          >
-            {t("claim.cutUnsupported")}
           </button>
         )}
         {state === "unsupported" &&
