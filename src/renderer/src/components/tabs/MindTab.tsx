@@ -198,6 +198,18 @@ function useWordFileDrop() {
 export function NoTabOpen() {
   const t = useT();
   const createMind = useAppStore((state) => state.createMind);
+  const [creating, setCreating] = useState(false);
+  // A double-click's second press comes while the first Note is still being made: it makes
+  // none (#2771).
+  const newNote = async () => {
+    if (creating) return;
+    setCreating(true);
+    try {
+      await createMind({ titled: true });
+    } finally {
+      setCreating(false);
+    }
+  };
   return (
     <div
       data-testid="mind-none-open"
@@ -207,7 +219,7 @@ export function NoTabOpen() {
       <p className="max-w-sm text-ui text-ink-secondary">{t("mind.noneOpen.body")}</p>
       <button
         type="button"
-        onClick={() => void createMind({ titled: true })}
+        onClick={() => void newNote()}
         className={`mt-3 ${buttonStyle("primary")}`}
       >
         <PlusLineIcon className="size-4" />
