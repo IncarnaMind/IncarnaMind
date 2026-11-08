@@ -6830,8 +6830,7 @@ export const en = {
   "meetings.settings.whatMe": "Only your microphone.",
   "meetings.settings.keepAudio": "Keep a meeting’s audio",
   "meetings.settings.keepAudioOff": "A meeting’s audio is deleted a day after it ends.",
-  "meetings.settings.keepAudioOn":
-    "A meeting’s audio stays until you delete it. Meetings recorded before keep their own setting.",
+  "meetings.settings.keepAudioOn": "A meeting’s audio stays until you delete it.",
   "meetings.words.title": "Words to know",
   "meetings.words.body":
     "Names and terms that transcription on this computer writes as you do: people, companies, products. Each meeting adds the names in its note and its folder.",

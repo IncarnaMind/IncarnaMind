@@ -54,8 +54,10 @@ test("the audio goes a day after Stop, and the Transcript and the notes stay", a
     transcript: { state: "saved", documentId: saved.documentId },
   });
   expect(readFileSync(saved.savedPath as string)).toEqual(file);
-  const document = (await core.listDocuments()).find((each) => each.id === saved.documentId);
-  expect(document?.status).toBe("ready");
+  await vi.waitFor(async () => {
+    const document = (await core.listDocuments()).find((each) => each.id === saved.documentId);
+    expect(document?.status).toBe("ready");
+  });
   const notes = new TextDecoder().decode(
     (await core.exportMind(meeting.mindId, { format: "markdown" })).data,
   );

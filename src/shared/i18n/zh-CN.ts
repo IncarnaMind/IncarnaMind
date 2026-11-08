@@ -5664,7 +5664,8 @@ export const zhCN = {
   "error.meeting.recordingPath": "选择录音的保存位置。",
   "error.meeting.recordingTooLong": "这段录音超过 37 小时，无法存成一个文件。",
   "error.meeting.audioNotDeleted": "这场会议的部分音频未能删除。IncarnaMind 会在一分钟后重试。",
-  "error.meeting.resumeAudioNotDeleted": "这场会议之前的音频尚未删除，暂时无法继续录制。一分钟后再试。",
+  "error.meeting.resumeAudioNotDeleted":
+    "这场会议之前的音频尚未删除，暂时无法继续录制。一分钟后再试。",
   "error.meeting.saveWhileRecording": "停止录制后才能另存录音。",
   "error.meeting.savingRecording": "这段录音正在另存。",
   "error.meeting.joinMoved": "这场会议之后已移动，无法撤销。",
@@ -6461,7 +6462,7 @@ export const zhCN = {
   "meetings.settings.whatMe": "只录制你的麦克风。",
   "meetings.settings.keepAudio": "保留会议音频",
   "meetings.settings.keepAudioOff": "会议结束一天后删除音频。",
-  "meetings.settings.keepAudioOn": "会议音频一直保留，直到你删除。之前录制的会议保持各自的设置。",
+  "meetings.settings.keepAudioOn": "会议音频一直保留，直到你删除。",
   "meetings.words.title": "要识别的词",
   "meetings.words.body":
     "本机转写会按你的写法写出这些人名、公司名、产品名等。每场会议还会加上它的笔记和所在文件夹里的名字。",
