@@ -188,10 +188,12 @@ test("Check against Documents on two sentences with no Citation: one is supporte
   await expect(citation).toHaveAttribute("data-check", "found");
   await expect(line).toHaveText(`${SUPPORTED.slice(0, -1)}1. ${UNSUPPORTED}`);
   await expect(marks(window)).toHaveCount(1);
-  // The card counts the sentence, now cited, as it did: supported, with no row for its Citation.
-  await expect((await checkCard(window)).getByTestId("health-supported")).toContainText(
-    "1 supported",
+  // A Citation found is no verdict (#2831): the sentence, now cited, waits for a check of its own,
+  // and no row counts its Citation.
+  await expect((await checkCard(window)).getByTestId("health-toCheck")).toContainText(
+    "1 not checked",
   );
+  await expect((await checkCard(window)).getByTestId("health-supported")).toHaveCount(0);
   await expect((await checkCard(window)).getByTestId("health-found")).toHaveCount(0);
 
   // Editing the unsupported sentence makes its check need a re-check; Check again checks it.

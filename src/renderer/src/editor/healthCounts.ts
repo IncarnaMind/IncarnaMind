@@ -447,10 +447,11 @@ export type CheckRow = (typeof CHECK_ROWS)[number];
 
 export function checkRows(health: NoteHealth): { row: CheckRow; places: readonly number[] }[] {
   const unexamined = new Set(health.unexamined);
+  const supported = new Set(health.supportedAt);
   const places: Record<CheckRow, readonly number[]> = {
     look: health.lookClaims,
     supported: health.supportedAt,
-    ownNotes: health.ownNotes,
+    ownNotes: health.ownNotes.filter((pos) => supported.has(pos)),
     checking: health.checking,
     toCheck: health.toCheck.filter((pos) => !unexamined.has(pos)),
   };

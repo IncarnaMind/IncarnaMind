@@ -314,7 +314,7 @@ test("The card's one Check: the price line first on a cloud model under a cap, t
   await expect(window.getByTestId("mind-check-ask")).toHaveCount(0);
   await mindCheckFinished(window, 15);
 
-  await expect(health.getByTestId("health-checked-all")).toContainText("Checked 15 claims, ");
+  await expect(health.getByTestId("health-checked-all")).toContainText("Checked 15 sentences, ");
   await expect(marks(window)).toHaveCount(15);
   await expect(marks(window).and(window.locator('[data-check="checking"]'))).toHaveCount(0);
   await expect(marks(window).and(window.locator('[data-check="contradicted"]'))).toHaveCount(1);
@@ -609,11 +609,11 @@ for (const language of ["en", "zh-CN"] as const) {
       if (!ended.card || !ended.foot) throw new Error("The card went at the run's end.");
       expect(ended.card.height).toBeCloseTo(before.card.height, 0);
       expect(ended.foot.height).toBeCloseTo(before.foot.height, 0);
-      // The price stays, and the summary is in view at the top of the body, never under the fade.
+      // The price stays, and the first row is in view at the top of the body, never under the fade.
       await expect(price).toBeVisible();
-      const summary = health.locator(".mind-health-summary");
-      await expect(summary).toHaveCount(1);
-      await expect(summary).toBeInViewport();
+      const first = health.locator(".check-row").first();
+      await expect(first).toHaveCount(1);
+      await expect(first).toBeInViewport();
       await expect(press).toBeVisible();
       await expect(press).toBeFocused();
       await screenshot(window, `card-${language}-${width}-ended`);
@@ -808,7 +808,7 @@ test("In Chinese and a narrow window, from the Mind's tab menu: a model on this 
   const ask = health.getByTestId("mind-check-ask");
   await expect(ask).toHaveCount(0);
   await expect(health.getByTestId("check-estimate")).toHaveCount(0);
-  await expect(health.getByTestId("health-checked-all")).toContainText("已核对 15 条说法，");
+  await expect(health.getByTestId("health-checked-all")).toContainText("已核对 15 句，");
   await expect(marks(window).and(window.locator('[data-check="unsupported"]'))).toHaveCount(15);
 
   // Nothing in the Folder says any of it: checked against every Document, the Tides PDF does.
@@ -878,7 +878,7 @@ test("Check with nothing changed sends nothing: the marks stay and the card says
 
   const card = await checkCard(window);
   await pointAndClick(window, card.getByTestId("badge-check-mind"));
-  await expect(card.getByTestId("health-checked-all")).toContainText("Checked 15 claims, ");
+  await expect(card.getByTestId("health-checked-all")).toContainText("Checked 15 sentences, ");
   await expect(window.getByTestId("badge-stop")).toHaveCount(0);
   await expect(marks(window)).toHaveCount(15);
   const verdicts = () =>

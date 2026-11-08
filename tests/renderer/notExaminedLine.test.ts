@@ -101,7 +101,7 @@ describe.each([
 
   test("says nothing of sentences it couldn't tell when there are none", async () => {
     const line = await lineOf(language, 0);
-    expect(line.textContent).toContain(language === "en" ? "Checked 2 claims" : "已核对 2 条说法");
+    expect(line.textContent).toContain(language === "en" ? "Checked 2 sentences" : "已核对 2 句");
     expect(line.textContent).not.toContain(one);
   });
 });
