@@ -26,7 +26,6 @@
  * lines, narrowed to those the quote covers ("Revenue, rows 12–14"); for
  * sections, the heading it sits under.
  */
-import { ADDABLE_EXTENSIONS } from "../../shared/addFilesAction";
 import { markersIn, shownRanges } from "../../shared/answerBlocks";
 import { citationNode, type NodeJSON } from "../../shared/blockJson";
 import { parseQuotedWords } from "../../shared/citations";
@@ -45,7 +44,6 @@ import {
   withoutArea,
 } from "../../shared/locations";
 import { citesSource, type NamedSource } from "../../shared/namedSources";
-import { documentWordingIn } from "../../shared/quoteMarks";
 import {
   findQuote,
   lostLigatures,
@@ -54,7 +52,7 @@ import {
 } from "../../shared/quoteMatch";
 import { readableQuote, readableQuoteText } from "../../shared/readableQuote";
 import { markWords, speakerMark, speakerOf } from "../../shared/speakers";
-import { CJK, foldRadicals } from "../../shared/text";
+import { foldRadicals } from "../../shared/text";
 import { parseCueTarget, sameRun } from "../../shared/units";
 import {
   type AskedQuote,
@@ -76,7 +74,6 @@ import {
 } from "../api";
 import type { CitationSource, DocumentDate } from "../documents";
 import { BOILERPLATE_PARAMETERS } from "../documents/boilerplate";
-import { holdsFigure } from "../documents/formats/grid";
 import type { PageText } from "../documents/passages";
 import { unsureSpansIn } from "../documents/scan/layout";
 import type { WindowedPassage } from "../documents/search";
@@ -84,7 +81,6 @@ import { writtenInCjk } from "../documents/textLanguage";
 import { asAttribute, fromData, type PromptTag, tagged } from "../promptData";
 import { diffSteps, splitWords } from "../proposals/diff";
 import { formulaRows } from "../workbooks/formulaCells";
-import { closestWords } from "./closestWords";
 import {
   type ContextCitation,
   type ContextCitations,
@@ -103,6 +99,13 @@ import type {
   UnfoundQuote,
 } from "./engine";
 import { NOT_CITED_ATTRIBUTE } from "./prompt";
+import {
+  nearestPlace,
+  type QuotedSentence,
+  type QuotedWordsPlace,
+  quotedWordsVerdict,
+  titleRowsOf,
+} from "./quotedWords";
 import { readDocumentPages } from "./readDocumentPages";
 import { withSetAsideMarks } from "./sheetRows";
 
@@ -564,6 +567,8 @@ export interface RecheckDocuments {
    */
   yourNoteAt?(documentId: string, contentHash: string | null): string | null;
   pageTexts: AnswerDocuments["pageTexts"];
+  /** A live Document's name as the app shows it, which words in quotation marks may give (#2504). */
+  documentName(documentId: string): string | null;
   /** The live Passages of the current version covering these Units, in reading order. */
   passagesCovering(
     documentId: string,
@@ -667,60 +672,43 @@ function quoteForRecheck(
   });
 }
 
-/** A Document's name or quoted words as they are compared (#2504): NFKC, lower case, one space. */
-const nameText = (text: string) =>
-  text.normalize("NFKC").toLowerCase().replace(/\s+/gu, " ").trim();
-
-/** A character a file name can't hold on macOS, Windows or Linux. */
-const UNHELD = /[/\\:*?"<>|]/u;
-const DIGIT = /\p{N}/u;
-
 /**
- * Whether words in quotation marks are a name as `nameText` reads both (#2504). Every character
- * is the same, signs, dashes and figures included, so no other figure or words equal the name. One
- * a file name can't hold may stand for a space or for nothing in the name, as a title's colon does
- * ("Gradient Descent: The Ultimate Optimizer"), unless it touches a digit ("3:1", "1/2", "<5%"),
- * where only a colon or question mark that ends a title before a space goes ("Part 2: Results").
+ * A Citation's cited place in one version of its Document, as the check of quoted words reads it
+ * (#2712): its time alone, in a Transcript, as its stored Location gives it.
  */
-function isNameOf(words: string, name: string): boolean {
-  const chars = [...nameText(words)];
-  const pattern = chars
-    .map((char, at) => {
-      const escaped = char.replace(/[\\^$.*+?()[\]{}|/]/gu, "\\$&");
-      if (!UNHELD.test(char)) return escaped;
-      const after = chars[at + 1] ?? "";
-      const endsTitle = (char === ":" || char === "?") && (after === " " || after === "");
-      const figure = DIGIT.test(after) || (DIGIT.test(chars[at - 1] ?? "") && !endsTitle);
-      return figure ? escaped : `(?:${escaped}| )?`;
-    })
-    .join("");
-  return new RegExp(`^${pattern}$`, "u").test(nameText(name));
+function quotedWordsPlaceIn(
+  documents: RecheckDocuments,
+  documentId: string,
+  contentHash: string,
+  range: PageRange,
+  location: CitationLocation | null | undefined,
+): QuotedWordsPlace {
+  const all = documents.pageTexts(documentId, contentHash, null, null);
+  const matching = matchingOf(all);
+  const units = documents.pageTexts(documentId, contentHash, range.pageFrom, range.pageTo);
+  return {
+    units,
+    matching,
+    find: (words) =>
+      location?.kind === "time"
+        ? quoteInStoredCues(units, words, location, matching)
+        : quoteInUnits(units, words, matching),
+    documentName: documents.documentName(documentId),
+    throughNextUnit: () =>
+      range.pageFrom !== null && range.pageFrom === range.pageTo
+        ? documents.pageTexts(documentId, contentHash, range.pageFrom, range.pageTo + 1)
+        : null,
+    titleRows: (sheet) => titleRowsOf(all, sheet),
+    cantCheck: false,
+  };
 }
-
-/**
- * The ways a Document's name, as the app shows it, is read for a name in quotation marks (#2504):
- * whole, and each whole part at a separator. An extension the app adds files by is taken off,
- * and it splits at " - ", " – ", " — ", "|", "｜", "－", "—", "―" and "_", and at "-" or "–" next
- * to a CJK character, never inside a Latin word ("Cooling-off") and never at a dash a digit
- * follows, even across a space or a point, which is a minus sign ("同比-5%", "同比－ 5%"). A middle
- * dot doesn't split: it joins a name ("安娜·米勒").
- */
-function nameForms(name: string): string[] {
-  const extension = name.match(/\.([A-Za-z0-9]+)$/u)?.[1]?.toLowerCase();
-  const bare =
-    extension && ADDABLE_EXTENSIONS.includes(extension)
-      ? name.slice(0, -extension.length - 1)
-      : name;
-  return [name, bare, ...bare.split(NAME_SEPARATOR)].filter((form) => nameText(form) !== "");
-}
-const NAME_SEPARATOR = new RegExp(
-  `\\s[-–—―]\\s|[|｜_]|[－—―](?![ .]?\\p{N})|(?<=[${CJK}])[-–](?![ .]?\\p{N})|[-–](?=[${CJK}])`,
-  "u",
-);
 
 /**
  * A found check made not found again when the words the Answer quoted (#483), which the
- * Citation's check didn't find before, still aren't in its cited Units of that version (#2612).
+ * Citation's check didn't find before, still aren't at its cited place of that version by the
+ * one rule an Answer's are checked by (#2612, #2712). A recheck sees one Citation of the
+ * sentence, so it never takes the words for a translation: only the Answer, which sees them all,
+ * can, and then it stores none.
  */
 function withQuotedWords(
   documents: RecheckDocuments,
@@ -733,13 +721,11 @@ function withQuotedWords(
 ): CheckResult {
   if (check.check !== "found" || !asked || !("answer" in asked)) return check;
   const words = asked.answer.map((piece) => piece.text).join("");
-  const units = documents.pageTexts(documentId, contentHash, null, null);
-  const cited = documents.pageTexts(documentId, contentHash, range.pageFrom, range.pageTo);
-  const found =
-    location?.kind === "time"
-      ? quoteInStoredCues(cited, words, location, matchingOf(units))
-      : quoteInUnits(cited, words, matchingOf(units));
-  return found ? check : { check: "not-found", checkReason: "quoted-words-not-on-pages" };
+  const place = quotedWordsPlaceIn(documents, documentId, contentHash, range, location);
+  const verdict = quotedWordsVerdict(words, [place], []).kind;
+  return verdict === "not-found" || verdict === "translation"
+    ? { check: "not-found", checkReason: "quoted-words-not-on-pages" }
+    : check;
 }
 
 /**
@@ -1749,38 +1735,16 @@ export function createCitationSession(
       record.range.pageTo,
     );
 
-  /**
-   * The text of a sheet's title rows, above its header, by Document version
-   * and sheet: the rows that name the table a Citation's rows are in, which an
-   * Answer may quote as the table's title while citing one of its rows (#2358).
-   * A title row that holds a figure names nothing (#2373). A sheet read in one
-   * block keeps its title rows in the cited Unit itself.
-   */
+  /** The text of a sheet's title rows (`titleRowsOf`), by Document version and sheet, read once. */
   const titles = new Map<string, string>();
   function titleRows(record: Pick<Accepted, "source">, sheet: string | null): string {
     const key = `${record.source.documentId}\n${record.source.contentHash}\n${sheet ?? ""}`;
     const known = titles.get(key);
     if (known !== undefined) return known;
-    const units = documents
-      .pageTexts(record.source.documentId, record.source.contentHash, null, null)
-      .filter((unit) => unit.kind === "rows" && (unit.label?.sheet ?? null) === sheet);
-    const header = units.find((unit) => unit.label?.header)?.label?.rows?.[0] ?? null;
-    const first = units.reduce<PageText | null>(
-      (earliest, unit) =>
-        !earliest || (unit.label?.from ?? 0) < (earliest.label?.from ?? 0) ? unit : earliest,
-      null,
+    const text = titleRowsOf(
+      documents.pageTexts(record.source.documentId, record.source.contentHash, null, null),
+      sheet,
     );
-    const rows = first?.label?.rows ?? [];
-    const text =
-      header === null || !first
-        ? ""
-        : first.text
-            .split("\n")
-            .filter((line, at) => {
-              const row = rows[at] ?? 0;
-              return row > 0 && row < header && !line.split("\t").some((cell) => holdsFigure(cell));
-            })
-            .join("\n");
     titles.set(key, text);
     return text;
   }
@@ -1813,6 +1777,80 @@ export function createCitationSession(
       )
       ? NOT_ON_PAGES
       : result;
+  };
+
+  /** A record's cited place, as the check of quoted words reads it (#2712). */
+  const placeOf = (record: Accepted): QuotedWordsPlace & { record: Accepted } => {
+    const units = citedText(record);
+    const matching = matchingFor(record.source);
+    const { pageFrom, pageTo } = record.range;
+    return {
+      record,
+      units,
+      matching,
+      find: (words) =>
+        record.time
+          ? quoteInCues(units, words, record.time, matching, speakersFor(record.source))
+          : quoteInUnits(units, words, matching),
+      documentName: record.source.documentName,
+      throughNextUnit: () =>
+        pageFrom !== null && pageFrom === pageTo
+          ? documents.pageTexts(
+              record.source.documentId,
+              record.source.contentHash,
+              pageFrom,
+              pageTo + 1,
+            )
+          : null,
+      titleRows: (sheet) => titleRows(record, sheet),
+      cantCheck: record.result?.check === "cant-check",
+    };
+  };
+
+  /**
+   * The check of quoted words (#483) for each sentence, by `quotedWordsVerdict`, written onto the
+   * records `entry` gives for its markers: the records, or copies of them. Returns the words that
+   * are a translation.
+   */
+  const applyQuotedWords = (
+    quoted: readonly QuotedSentence[],
+    entry: (marker: number) => Accepted | undefined,
+  ): string[] => {
+    const translated: string[] = [];
+    /** Keeps `words` with the record whose Units state them, for the check of its figures (#2602). */
+    const states = (record: Accepted, words: string) => {
+      record.quotedWordsFound ??= [];
+      if (!record.quotedWordsFound.includes(words)) record.quotedWordsFound.push(words);
+    };
+    const names = [...records.values()].map(({ source }) => source.documentName);
+    for (const { words, markers } of quoted) {
+      const cited = [...new Set(markers)].flatMap((marker) => {
+        const record = entry(marker);
+        return record ? [placeOf(record)] : [];
+      });
+      const verdict = quotedWordsVerdict(words, cited, names);
+      if (verdict.kind === "stated" || verdict.kind === "title") {
+        for (const { record } of verdict.by) states(record, words);
+      } else if (verdict.kind === "name") {
+        // The Citation says so and keeps its own quote's check, never found or not found by it.
+        for (const { record } of verdict.by) record.quotedWords ??= { name: words };
+      } else if (verdict.kind === "run-on") {
+        const runsOnTo = locationOf([verdict.next], null);
+        if (runsOnTo) verdict.by.record.quotedWords ??= { runsOnTo };
+        states(verdict.by.record, words);
+      } else if (verdict.kind === "translation") {
+        translated.push(words);
+      } else if (verdict.kind === "not-found") {
+        const nearest = nearestPlace(words, cited);
+        if (nearest?.place.record.result?.check !== "found") continue;
+        nearest.place.record.result = {
+          check: "not-found",
+          checkReason: "quoted-words-not-on-pages",
+        };
+        nearest.place.record.quotedWords = nearest.shown();
+      }
+    }
+    return translated;
   };
 
   /** Where a record points, for its label: narrowed to its quote when the quote is there. */
@@ -2633,159 +2671,54 @@ export function createCitationSession(
     },
 
     /**
-     * Checks the words an Answer put in quotation marks (#483), after `check`:
-     * each span (see ./quotedWords) is looked for with the Citation check's own
-     * matching in the Units its Citation cites, and, in a sheet, in its title
-     * rows: the rows above the header, which name the table the Citation's
-     * rows are in, as a Document's name is not a quote (#2358), and words
-     * that start on the one page cited may run on to the next page (#2504).
-     * One found keeps its words with the Citation whose Units state them, which its sentence's
-     * figures are counted against (#2602). One not found makes the Citation whose Units
-     * are nearest it "not found", with the Answer's words and the Document's
-     * nearest for its card, and with the Document's own words where only the
-     * kind of their quotation marks differs, for the card to offer them
-     * (#2605). Where a Citation of the sentence couldn't be checked, no span
-     * of it is. Words in another language than every page cited are a
-     * translation: they aren't checked, and are returned to lose their
-     * quotation marks.
+     * Checks the words an Answer put in quotation marks (#483), after `check`, by the one rule
+     * (`quotedWordsVerdict` in ./quotedWords). One found keeps its words with the Citations whose
+     * Units state them, which its sentence's figures are counted against (#2602); one that runs on
+     * to the next page names that page (#2504); a Document's name says so. One not found makes the
+     * Citation whose Units are nearest it "not found", with the Answer's words and the Document's
+     * nearest for its card. Returns the translations, to lose their quotation marks.
      */
-    checkQuotedWords(quoted: readonly { words: string; markers: readonly number[] }[]): string[] {
-      /**
-       * Whether the words start on the one page a record cites and run on to the next page: a
-       * record's quote ends where its page does, as a Passage may, and the Answer may quote on
-       * (#2504). Only a document's pages run on; a slide or a section is a place of its own.
-       */
-      const runsOnToNextPage = (
-        record: Accepted,
-        words: string,
-        matching: Matching,
-      ): PageText | null => {
-        const { pageFrom, pageTo } = record.range;
-        if (pageFrom === null || pageFrom !== pageTo) return null;
-        const units = documents.pageTexts(
-          record.source.documentId,
-          record.source.contentHash,
-          pageFrom,
-          pageTo + 1,
-        );
-        const next = units.findIndex((unit) => unit.page === pageTo + 1);
-        if (next <= 0 || !units.every((unit) => (unit.kind ?? "page") === "page")) return null;
-        const nextPage = units[next] as PageText;
-        const found = quoteInUnits(units, words, matching);
-        const nextStarts = joinUnits(units).starts[next] ?? 0;
-        return found?.every((range) => range.start < nextStarts) === true ? nextPage : null;
-      };
-      /** Whether the words are the title rows of the sheet a record's rows are in (#2358). */
-      const titled = (
-        record: Accepted,
-        units: readonly PageText[],
-        words: string,
-        matching: Matching,
-      ) => {
-        const rows = units.find((unit) => unit.kind === "rows");
-        if (!rows) return false;
-        const text = titleRows(record, rows.label?.sheet ?? null);
-        return text !== "" && findQuote(text, words, { ...matching, numbers: true }) !== null;
-      };
-      const translated: string[] = [];
-      /** Keeps `words` with the record whose Units state them, for the check of its figures (#2602). */
-      const states = (record: Accepted, words: string) => {
-        record.quotedWordsFound ??= [];
-        if (!record.quotedWordsFound.includes(words)) record.quotedWordsFound.push(words);
-      };
-      // A Document's name in quotation marks, as an Answer gives a title, is a name, not a quote.
-      const names = [...records.values()].map(({ source }) => source.documentName);
-      for (const { words, markers } of quoted) {
-        const cited = [...new Set(markers)].flatMap((marker) => {
-          const record = records.get(marker);
-          return record
-            ? [
-                {
-                  record,
-                  units: citedText(record),
-                  matching: matchingFor(record.source),
-                },
-              ]
-            : [];
-        });
-        if (cited.some(({ record }) => record.result?.check === "cant-check")) continue;
-        const stating = cited.filter(({ record, units, matching }) =>
-          record.time
-            ? quoteInCues(units, words, record.time, matching, speakersFor(record.source))
-            : quoteInUnits(units, words, matching),
-        );
-        if (stating.length > 0) {
-          for (const { record } of stating) states(record, words);
-          continue;
-        }
-        // The name of a Document the sentence cites, or a part of it, is a name, not a quote: the
-        // Citation says so and keeps its own quote's check, never found or not found by it.
-        const named = cited.filter(({ record }) =>
-          nameForms(record.source.documentName).some((form) => isNameOf(words, form)),
-        );
-        for (const { record } of named) record.quotedWords ??= { name: words };
-        if (named.length > 0 || names.some((name) => isNameOf(words, name))) continue;
-        const runsOn = cited.flatMap(({ record, matching }) => {
-          const next = runsOnToNextPage(record, words, matching);
-          return next ? [{ record, next }] : [];
-        })[0];
-        if (runsOn) {
-          const runsOnTo = locationOf([runsOn.next], null);
-          if (runsOnTo) runsOn.record.quotedWords ??= { runsOnTo };
-          states(runsOn.record, words);
-          continue;
-        }
-        const titledBy = cited.filter(({ record, units, matching }) =>
-          titled(record, units, words, matching),
-        );
-        if (titledBy.length > 0) {
-          for (const { record } of titledBy) states(record, words);
-          continue;
-        }
-        const inCjk = writtenInCjk(words);
-        if (
-          cited.length > 0 &&
-          cited.every(
-            ({ units }) => writtenInCjk(units.map((unit) => unit.text).join("\n")) !== inCjk,
-          )
-        ) {
-          translated.push(words);
-          continue;
-        }
-        let nearest:
-          | {
-              record: Accepted;
-              units: readonly PageText[];
-              closest: ReturnType<typeof closestWords>;
-            }
-          | undefined;
-        for (const { record, units, matching } of cited) {
-          const closest = closestWords(units, words, matching);
-          if (!nearest || closest.near > nearest.closest.near) nearest = { record, units, closest };
-        }
-        if (nearest?.record.result?.check !== "found") continue;
-        nearest.record.result = { check: "not-found", checkReason: "quoted-words-not-on-pages" };
-        // The page's own marks for the same words, for the User to choose (#2605).
-        const wording = documentWordingIn(words, joinUnits(nearest.units).text);
-        nearest.record.quotedWords = wording
-          ? { ...nearest.closest.shown, documentWording: wording }
-          : nearest.closest.shown;
-      }
-      return translated;
+    checkQuotedWords(quoted: readonly QuotedSentence[]): string[] {
+      return applyQuotedWords(quoted, (marker) => records.get(marker));
     },
 
     finalCitation,
 
     /**
-     * A marker's node in text the Answer writes into a Mind (#202): its
-     * record, checked now, or null to remove a marker with none.
+     * The nodes of the markers in text the Answer writes into a Mind (#202): each record checked
+     * now, and the words the text puts in quotation marks checked as an Answer's are (#2712), on
+     * copies of the records, so the Answer's own Citations keep their checks. With the words to
+     * lose their quotation marks; a node is null to remove a marker with no record.
      */
-    checkedNode(marker: number): NodeJSON | null {
-      const record = records.get(marker);
-      if (!record) return null;
-      placedElsewhere.add(marker);
-      record.result ??= check(record);
-      return citationNode(toCitation(record, record.result));
+    checkedNodes(quoted: readonly QuotedSentence[]): {
+      translated: string[];
+      node(marker: number): NodeJSON | null;
+    } {
+      const copies = new Map<number, Accepted>();
+      const copyOf = (marker: number): Accepted | undefined => {
+        const record = records.get(marker);
+        if (!record) return undefined;
+        record.result ??= check(record);
+        let copy = copies.get(marker);
+        if (!copy) {
+          copy = {
+            ...record,
+            ...(record.quotedWordsFound && { quotedWordsFound: [...record.quotedWordsFound] }),
+          };
+          copies.set(marker, copy);
+        }
+        return copy;
+      };
+      const translated = applyQuotedWords(quoted, copyOf);
+      return {
+        translated,
+        node(marker) {
+          const copy = copyOf(marker);
+          if (!copy) return null;
+          placedElsewhere.add(marker);
+          return citationNode(toCitation(copy, copy.result));
+        },
+      };
     },
 
     /**

@@ -230,6 +230,28 @@ function Sources({
   );
 }
 
+/** Why a press gave no help, with Try again. */
+function NoHelp({
+  testId,
+  message,
+  onRetry,
+}: {
+  testId: string;
+  message: string;
+  onRetry(): void;
+}) {
+  const t = useT();
+  return (
+    <p role="alert" data-testid={testId} className="help-failed">
+      {t("meetings.help.failed", { message })}
+      <span aria-hidden="true"> · </span>
+      <button type="button" onClick={onRetry} className="panel-link">
+        {t("meetings.help.retry")}
+      </button>
+    </p>
+  );
+}
+
 /**
  * A help button's Answer, laid out to be read in a second or two: the options with the
  * recommended first and starred, each with what it leads to; the Citations they rest on.
@@ -297,13 +319,10 @@ export function HelpSuggestion({
       ))}
       {streaming && items.length < 2 && <HelpOutline count={items.length === 0 ? 2 : 1} />}
       {answer.status === "failed" && (
-        <p role="alert" data-testid="help-failed" className="help-failed">
-          {t("meetings.help.failed", { message: why })}
-          <span aria-hidden="true"> · </span>
-          <button type="button" onClick={onRetry} className="panel-link">
-            {t("meetings.help.retry")}
-          </button>
-        </p>
+        <NoHelp testId="help-failed" message={why} onRetry={onRetry} />
+      )}
+      {answer.status === "done" && items.length === 0 && (
+        <NoHelp testId="help-nothing" message={t("meetings.help.nothing")} onRetry={onRetry} />
       )}
       <Sources answer={answer} numbers={numbers} />
     </div>

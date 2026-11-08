@@ -4,7 +4,9 @@
  * process and never waits behind the embedding or reranking model. The
  * process starts on the first `load`, when a Meeting first needs it. If it
  * dies (a crash, or out of memory), the core hears it, marks the gap and
- * loads it again (see `createChannelTranscriber`).
+ * loads it again (see `createChannelTranscriber`). When no Meeting has needed
+ * its models for five minutes it ends with code 0 (#2673), which the core
+ * reads as an idle unload, not a crash; the next audio starts it again.
  */
 import type { Transcriber } from "../core";
 import { createChannelTranscriber, type TranscriberResponse } from "../core/transcription/channel";

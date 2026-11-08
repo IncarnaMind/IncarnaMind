@@ -229,6 +229,11 @@ export interface LaunchOptions {
   trace?: boolean;
   /** Chromium switches the app starts with, such as a proxy that stands in for the network. */
   switches?: readonly string[];
+  /**
+   * The pages see the system's light or dark as Electron gives it (#1262), not the light that
+   * every page is shown otherwise so a spec reads the same on any computer.
+   */
+  systemColours?: boolean;
 }
 
 /**
@@ -301,6 +306,7 @@ export async function launchApp(
     extraEnv,
     trace = false,
     switches = [],
+    systemColours = false,
   }: LaunchOptions = {},
 ): Promise<RunningApp> {
   const appHome = home ?? (await mkdtemp(join(tmpdir(), "incarnamind-home-")));
@@ -359,6 +365,7 @@ export async function launchApp(
       ...APP_ARGS,
     ],
     env,
+    ...(systemColours && { colorScheme: null }),
     chromiumSandbox: sandboxed || sandboxNotice === "environment" || sandboxNotice === "on",
     ...(KEEP_ARTIFACTS && {
       recordVideo: { dir: test.info().outputPath("video", basename(dataDir)) },
@@ -2184,6 +2191,58 @@ export function lastLineBoxOf(target: Locator) {
     if (!rect) throw new Error("The element has no text.");
     return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
   });
+}
+
+/** A rectangle in the window, as a change or a page view measures one. */
+export interface Box {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export const boxRight = (box: Box) => box.x + box.width;
+export const boxBottom = (box: Box) => box.y + box.height;
+export const boxesOverlap = (a: Box, b: Box) =>
+  a.x < boxRight(b) && b.x < boxRight(a) && a.y < boxBottom(b) && b.y < boxBottom(a);
+
+export async function boxOf(locator: Locator): Promise<Box> {
+  const box = await locator.boundingBox();
+  if (!box) throw new Error("The element isn't on screen.");
+  return box;
+}
+
+/** What a change shows, as one box over all of its lines, and the line after it when it has one. */
+export async function changeOnScreen(
+  editor: Locator,
+  insert: Locator,
+): Promise<{ change: Box; next: Box | null }> {
+  const id = await insert.getAttribute("data-proposal-id");
+  if (!id) throw new Error("The change has no id.");
+  return editor.evaluate((board, proposalId) => {
+    const parts = [...board.querySelectorAll(`[data-proposal-id="${proposalId}"]`)];
+    let change: { x: number; y: number; width: number; height: number } | null = null;
+    for (const part of parts) {
+      const rect = part.getBoundingClientRect();
+      if (rect.width < 1 || rect.height < 1) continue;
+      const left: number = change ? Math.min(change.x, rect.x) : rect.x;
+      const top: number = change ? Math.min(change.y, rect.y) : rect.y;
+      const right: number = change ? Math.max(change.x + change.width, rect.right) : rect.right;
+      const bottom: number = change ? Math.max(change.y + change.height, rect.bottom) : rect.bottom;
+      change = { x: left, y: top, width: right - left, height: bottom - top };
+    }
+    if (!change) throw new Error("The change doesn't show.");
+    const last = parts.at(-1);
+    const block = last?.closest("p, h1, h2, h3, li, blockquote, pre");
+    const next = block?.nextElementSibling?.getBoundingClientRect();
+    return {
+      change,
+      next:
+        next && next.width > 0 && next.height > 0
+          ? { x: next.x, y: next.y, width: next.width, height: next.height }
+          : null,
+    };
+  }, id);
 }
 
 /** The rendered width of an element, in CSS pixels. */

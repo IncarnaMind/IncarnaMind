@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, test, vi } from "vitest";
 import type { SpeechSegment, Transcriber, TranscriptionModelFiles } from "../../src/core";
 import { createTracks } from "../../src/core/meetings/tracks";
+import { createFakeSpeechEngine } from "../../src/core/transcription/fake";
 import {
   chooseModel,
   createTranscriptionModel,
@@ -11,6 +12,7 @@ import {
   SILERO_VAD,
   TRANSCRIPTION_MODELS,
   type TranscriptionModelDefinition,
+  transcriptionModelFiles,
 } from "../../src/core/transcription/model";
 import {
   createSpeechHost,
@@ -22,6 +24,7 @@ import {
 import { createTempDataFolder } from "../helpers/core";
 import { startModelServer } from "../helpers/embedding";
 import { recordingLog } from "../helpers/log";
+import { inProcessTranscriber } from "../helpers/transcription";
 
 const RATE = 16_000;
 
@@ -766,5 +769,240 @@ describe("Choosing the speech model", () => {
     expect(chooseModel(models, memory, { [QWEN3_ASR_0_6B.id]: 0.5 }).id).toBe(QWEN3_ASR_0_6B.id);
     // Too little memory for any: the smallest.
     expect(chooseModel(models, { freeBytes: 0.1e9, totalBytes: 1e9 }, {}).id).toBe("smaller");
+  });
+});
+
+describe("The speech models leave memory when no Meeting needs them (#2673)", () => {
+  /** Speech the fake engine hears: a second of sound above its whisper. */
+  const speech = () => new Int16Array(RATE).fill(3000);
+  const turn = (count = 1) =>
+    Promise.all(
+      Array.from({ length: count }, () => new Promise((resolve) => setImmediate(resolve))),
+    );
+
+  function countingEngine() {
+    const counts = { built: 0, closed: 0, detectors: 0 };
+    const build = async (): Promise<SpeechEngine> => {
+      counts.built++;
+      const engine = createFakeSpeechEngine();
+      return {
+        ...engine,
+        detector: () => {
+          counts.detectors++;
+          return engine.detector();
+        },
+        close: () => {
+          counts.closed++;
+        },
+      };
+    };
+    return { counts, build };
+  }
+
+  test("the engine is unloaded once the idle wait passes, and a load after that builds it again", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const { counts, build } = countingEngine();
+      let unloaded = 0;
+      const { transcriber } = inProcessTranscriber({}, build, undefined, {
+        idleMs: 60_000,
+        unloaded: () => {
+          unloaded++;
+        },
+      });
+      const segments: SpeechSegment[] = [];
+      transcriber.listen({
+        segment: (segment) => segments.push(segment),
+        progress: () => {},
+        failed: () => {},
+        stopped: () => {},
+        unloaded: () => {},
+        switched: () => {},
+        lost: () => {},
+        opened: () => {},
+      });
+      const files = transcriptionModelFiles(await createTempDataFolder(), QWEN3_ASR_0_6B);
+
+      await transcriber.load(files);
+      transcriber.push("meeting:microphone", speech());
+      await transcriber.finish("meeting:microphone");
+      expect(segments.filter((segment) => segment.final)).toHaveLength(1);
+      expect({ ...counts, unloaded }).toEqual({ built: 1, closed: 0, detectors: 1, unloaded: 0 });
+
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect({ ...counts, unloaded }).toEqual({ built: 1, closed: 1, detectors: 1, unloaded: 1 });
+
+      await transcriber.load(files);
+      expect(counts.built).toBe(2);
+      transcriber.push("meeting:microphone", speech());
+      await transcriber.finish("meeting:microphone");
+      expect(segments.filter((segment) => segment.final)).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("nothing is unloaded while a stream is open, however long it stays open", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const { counts, build } = countingEngine();
+      let unloaded = 0;
+      const { transcriber } = inProcessTranscriber({}, build, undefined, {
+        idleMs: 60_000,
+        unloaded: () => {
+          unloaded++;
+        },
+      });
+      const files = transcriptionModelFiles(await createTempDataFolder(), QWEN3_ASR_0_6B);
+
+      await transcriber.load(files);
+      transcriber.push("meeting:microphone", speech());
+      await turn();
+      expect(counts.detectors).toBe(1);
+
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(unloaded).toBe(0);
+      expect(counts.closed).toBe(0);
+
+      await transcriber.finish("meeting:microphone");
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(unloaded).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("nothing is unloaded while a cloud stream is open either", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const { build } = countingEngine();
+      let unloaded = 0;
+      const { transcriber } = inProcessTranscriber({}, build, undefined, {
+        idleMs: 60_000,
+        unloaded: () => {
+          unloaded++;
+        },
+      });
+      const files = transcriptionModelFiles(await createTempDataFolder(), QWEN3_ASR_0_6B);
+
+      await transcriber.load(files);
+      transcriber.open("call:microphone", {
+        service: "soniox",
+        model: "stt-rt-v4",
+        apiKey: "test-key",
+      });
+      await turn();
+      // The local stream finishes and the engine is idle, but a cloud stream is still open.
+      transcriber.push("meeting:microphone", speech());
+      await transcriber.finish("meeting:microphone");
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(unloaded).toBe(0);
+
+      transcriber.drop("call:microphone");
+      await turn();
+      // The socket's close may take a turn of its own before the idle wait starts.
+      await vi.advanceTimersByTimeAsync(60_000);
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(unloaded).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("an engine loaded for a Meeting that never sends audio is unloaded after the wait", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const { counts, build } = countingEngine();
+      let unloaded = 0;
+      const { transcriber } = inProcessTranscriber({}, build, undefined, {
+        idleMs: 60_000,
+        unloaded: () => {
+          unloaded++;
+        },
+      });
+      const files = transcriptionModelFiles(await createTempDataFolder(), QWEN3_ASR_0_6B);
+
+      await transcriber.load(files);
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(unloaded).toBe(1);
+      expect(counts.closed).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("a drop for a stream that already finished starts the wait again", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const { build } = countingEngine();
+      let unloaded = 0;
+      const { transcriber } = inProcessTranscriber({}, build, undefined, {
+        idleMs: 60_000,
+        unloaded: () => {
+          unloaded++;
+        },
+      });
+      const files = transcriptionModelFiles(await createTempDataFolder(), QWEN3_ASR_0_6B);
+
+      await transcriber.load(files);
+      transcriber.push("meeting:microphone", speech());
+      await transcriber.finish("meeting:microphone");
+      // Its stream is gone, so the host changes nothing; the wait must still start again.
+      transcriber.drop("meeting:microphone");
+      await turn();
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(unloaded).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("nothing is unloaded while the stretch after Stop is being read", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const holding = Promise.withResolvers<void>();
+      let reading = 0;
+      let unloaded = 0;
+      const build = async (): Promise<SpeechEngine> => {
+        const engine = createFakeSpeechEngine();
+        return {
+          ...engine,
+          recognizer: {
+            async decode(samples, stream, words) {
+              reading++;
+              await holding.promise;
+              return engine.recognizer.decode(samples, stream, words);
+            },
+          },
+        };
+      };
+      const { transcriber } = inProcessTranscriber({}, build, undefined, {
+        idleMs: 60_000,
+        unloaded: () => {
+          unloaded++;
+        },
+      });
+      const files = transcriptionModelFiles(await createTempDataFolder(), QWEN3_ASR_0_6B);
+
+      await transcriber.load(files);
+      transcriber.push("meeting:microphone", speech());
+      let finished = false;
+      const finishing = transcriber.finish("meeting:microphone").finally(() => {
+        finished = true;
+      });
+      await turn(2);
+      expect(reading).toBe(1);
+
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(unloaded).toBe(0);
+      expect(finished).toBe(false);
+
+      holding.resolve();
+      await finishing;
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(unloaded).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

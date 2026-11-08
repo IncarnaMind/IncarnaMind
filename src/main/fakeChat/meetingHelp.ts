@@ -6,7 +6,14 @@
  * name is.
  */
 import { passagesIn, recordFor, withSurroundingWords } from "./passages";
-import { lastUserText, type Prompt, type Reply, type StreamPart, toolResults } from "./prompt";
+import {
+  lastUserText,
+  type Prompt,
+  type Reply,
+  type StreamPart,
+  toolResults,
+  USAGE,
+} from "./prompt";
 
 const HELP = /pressed a button for help/;
 
@@ -105,7 +112,7 @@ const NOTES = {
  * model's own notes in the same step, as Claude Sonnet 5.5 writes them (#2526); the core takes
  * the notes back once the records come. Other steps are as they were.
  */
-export function withNotesFirst(prompt: Prompt, parts: StreamPart[]): StreamPart[] {
+function withNotesFirst(prompt: Prompt, parts: StreamPart[]): StreamPart[] {
   const asked = lastUserText(prompt);
   if (!HELP.test(block(asked, "help"))) return parts;
   const at = parts.findIndex((part) => part.type === "tool-call" && part.toolName === "cite");
@@ -120,4 +127,47 @@ export function withNotesFirst(prompt: Prompt, parts: StreamPart[]): StreamPart[
     { type: "text-end", id: "notes" },
     ...parts.slice(at),
   ];
+}
+
+const textDeltas = (id: string, text: string) =>
+  text.split(/(?<=\s)/).map((delta): StreamPart => ({ type: "text-delta", id, delta }));
+
+/**
+ * For a model id ending "-moves-taken-back": a help reply as the core leaves one whose "→" line it
+ * took back as the model's working, once its Citations were recorded (#2767): its first option or
+ * reading alone, with no "→" line. Other steps are as they were.
+ */
+function withMovesTakenBack(prompt: Prompt, parts: StreamPart[]): StreamPart[] {
+  if (!HELP.test(block(lastUserText(prompt), "help"))) return parts;
+  const start = parts.findIndex((part) => part.type === "text-start");
+  const end = parts.findIndex((part) => part.type === "text-end");
+  const opened = parts[start];
+  if (opened?.type !== "text-start" || end === -1) return parts;
+  const text = parts.flatMap((part) => (part.type === "text-delta" ? [part.delta] : [])).join("");
+  const first = (text.split("\n\n")[0] ?? "")
+    .split("\n")
+    .filter((line) => !line.startsWith("→"))
+    .join("\n");
+  return [...parts.slice(0, start + 1), ...textDeltas(opened.id, first), ...parts.slice(end)];
+}
+
+/** For a model id ending "-heading-only": a help reply of one Markdown heading, with no records. */
+function headingOnly(prompt: Prompt, parts: StreamPart[]): StreamPart[] {
+  const asked = lastUserText(prompt);
+  if (!HELP.test(block(asked, "help"))) return parts;
+  return [
+    { type: "stream-start", warnings: [] },
+    { type: "text-start", id: "answer" },
+    ...textDeltas("answer", `## ${callOf(asked).question}`),
+    { type: "text-end", id: "answer" },
+    { type: "finish", finishReason: { unified: "stop", raw: undefined }, usage: USAGE },
+  ];
+}
+
+/** A help reply as the fake model named by its id's ending writes it; any other reply as it is. */
+export function helpModelParts(modelId: string, prompt: Prompt, parts: StreamPart[]): StreamPart[] {
+  if (modelId.endsWith("-notes-first")) return withNotesFirst(prompt, parts);
+  if (modelId.endsWith("-moves-taken-back")) return withMovesTakenBack(prompt, parts);
+  if (modelId.endsWith("-heading-only")) return headingOnly(prompt, parts);
+  return parts;
 }

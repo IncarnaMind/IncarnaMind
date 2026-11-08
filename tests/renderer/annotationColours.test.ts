@@ -26,7 +26,10 @@ for (const match of viewerCss.matchAll(
 }
 
 const token = (name: string): string => {
-  const match = tokensCss.match(new RegExp(`--color-${name}:\\s*(#[0-9a-f]{6});`));
+  // A highlight lies on a Document's page, which is paper in both themes: the light value.
+  const match = tokensCss.match(
+    new RegExp(`--color-${name}:\\s*(?:light-dark\\()?(#[0-9a-f]{6})[,;]`),
+  );
   if (!match?.[1]) throw new Error(`The token ${name} isn't in styles.css.`);
   return match[1];
 };

@@ -102,11 +102,11 @@ A reference, anchored in the text of an Answer, to the Passage a claim was drawn
 _Avoid_: source, reference
 
 **Calculated figure**:
-A number in an Answer or in your text that IncarnaMind worked out from numbers quoted from Documents, by a formula (or, later, an Analysis), rather than the AI working it out itself. It keeps its Inputs, each with its Citation, its formula and its result as shown. The AI writes a marker where it goes and never the number; the interface says "Calculated".
+A number in an Answer or in your text that IncarnaMind worked out from numbers quoted from Documents, by a formula (or, later, an Analysis), rather than the AI working it out itself. It keeps its Inputs, each with its Citation, its formula and its result as shown. The AI writes a marker where it goes and never the number; the interface says "Calculated". A workbook's cell that holds text, a covenant's "OK" or "Breach", is a calculated figure too, its result that text (#2389).
 _Avoid_: computed figure, calculated citation, derived number, formula
 
 **What-if**:
-A Calculated figure worked out again from an Excel workbook's own formulas with one Input changed ("2027 EBITDA if growth is 3%"), in memory, never in the User's file. It names the Input it changed, the value it was given, and the figure the workbook has as it is. It is refused when the figure depends on a formula IncarnaMind can't work out, rather than mixing worked-out and saved values.
+A Calculated figure worked out again from an Excel workbook's own formulas with one or more Inputs changed ("2027 EBITDA if growth is 3%", or "if growth is 3% and the margin 25%"), in memory, never in the User's file. It names each Input it changed and the value it was given, and the figure the workbook has as it is. It is refused when the figure depends on a formula IncarnaMind can't work out, rather than mixing worked-out and saved values.
 _Avoid_: scenario, sensitivity (a table of several), simulation
 
 **Formula chain**:

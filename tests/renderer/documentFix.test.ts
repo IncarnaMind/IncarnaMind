@@ -65,6 +65,16 @@ describe("A Document's fix (#763)", () => {
     expect(zh("library.fix.picture")).toBe("图片无法读取");
   });
 
+  test("a picture refused as unreadable says so and offers no Retry that cannot succeed", () => {
+    expect(documentFix(failed("picture-unreadable", { kind: "image" }))).toEqual({
+      reason: "library.fix.pictureUnreadable",
+      open: true,
+      retry: null,
+    });
+    expect(en("library.fix.pictureUnreadable")).toBe("This picture can’t be read");
+    expect(zh("library.fix.pictureUnreadable")).toBe("无法读取这张图片");
+  });
+
   test("a form that can't be read offers Print to PDF, a crash its Retry", () => {
     expect(documentFix(failed("forms-unread"))).toEqual({
       reason: "library.fix.forms",

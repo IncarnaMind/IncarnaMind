@@ -35,6 +35,7 @@ const ALL_PAGES = [
     name: "General",
     sections: [
       "language-settings",
+      "appearance-settings",
       "spending-cap-settings",
       "motion-settings",
       "output-location-settings",

@@ -28,6 +28,13 @@ import { channelFor, EVENT_CHANNEL, SERVED_CHANNEL } from "../shared/bridge";
 import { translate } from "../shared/i18n";
 import { ANALYSIS_SCHEME_PRIVILEGES } from "./analysis";
 import { crashReloads, logAppEnd, unexpectedEnds } from "./appEnd";
+import {
+  followAppearance,
+  shownTheme,
+  startAppearance,
+  themeWindow,
+  windowColour,
+} from "./appearance";
 import { showDevelopmentDockIcon, windowIcon } from "./appIcon";
 import { DOCUMENT_SCHEME_PRIVILEGES, serveDocumentFiles } from "./documentProtocol";
 import { CHECK_ENGINES_SWITCH, engineCheckDataFolder, runEngineCheck } from "./engineCheck";
@@ -431,9 +438,9 @@ function createWindow(): BrowserWindow {
     title: "IncarnaMind",
     // The frame (DESIGN.md), as the approved canvas has it: the sidebar's colour, which the
     // first paint shows at the top left, under macOS's traffic lights.
-    backgroundColor: "#F4F5F7",
+    backgroundColor: windowColour("frame"),
     // No title row of the system's: its window buttons sit in the app's top band.
-    ...titleBarOptions(process.platform),
+    ...titleBarOptions(process.platform, shownTheme()),
     ...windowIcon(),
     // A test build's window takes the size a smoke test sets: macOS keeps a window no taller
     // than the screen otherwise, and CI's Mac has a small one.
@@ -453,6 +460,7 @@ function createWindow(): BrowserWindow {
     finishStartup();
   });
   keepWindowPlace(window, dataDir);
+  themeWindow(window, "frame");
   reportFullScreen(window);
   // A Meeting's hidden capture window doesn't keep the app running once its last window
   // closes, where closing the last window quits (Windows, Linux): quitting saves the recording.
@@ -572,6 +580,7 @@ app.whenReady().then(async () => {
       return error instanceof DatabaseHeldError ? error : undefined;
     },
   );
+  startAppearance(app.getPath("userData"));
   const first = createWindow();
   logger.info("app.startup.windowReturned");
   // The core's start holds this thread, for seconds on a slow disk, and the page can neither load
@@ -607,6 +616,7 @@ app.whenReady().then(async () => {
   }
   started.resolve(core);
   exposeCore(core);
+  followAppearance(core, app.getPath("userData"), logger);
   const settleQuit = guardQuit(
     core,
     () => BrowserWindow.getFocusedWindow() ?? appWindows()[0] ?? null,

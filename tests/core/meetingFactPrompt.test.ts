@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { notesContext, sectionsContext } from "../../src/core/meetings/fillPrompt";
+import { callLanguage, notesContext, sectionsContext } from "../../src/core/meetings/fillPrompt";
 
 test.each(["price and next steps", "价格与后续分工"])(
   "meeting facts keep the User's line and request one identity per fact: %s",
@@ -59,4 +59,42 @@ test("a section-only fill uses the same fact and overview protocol", () => {
   expect(prompt).toContain("### FACT P1_F1");
   expect(prompt).toContain("### OVERVIEW");
   expect(prompt).not.toContain("HEADINGS: H1=ACTIONS");
+});
+
+// protects=the call's language is told from all that was said, its time and speaker marks left out, so a Chinese call with English marks is Chinese and one that opens in Chinese small talk is still told by the rest (#2770); fails_when=the marks' words decide it, or only the opening counts; no_claim=languages the notes have no titles in, which keep the interface's.
+test.each([
+  ["[0:01 Them] 企业版如果按年付费，每个席位每月多少钱？\n[0:05 Me] 可以打九折。", "Chinese"],
+  ["[0:01 Me] 好\n[0:02 Them] 嗯\n[0:03 Me] OK", "Chinese"],
+  ["[0:01 Them] Is the price fixed?", "English"],
+  [
+    "[0:01 Speaker 1] Can we start in December?\n[0:04 Speaker 2] 可以，十二月一号开始试用，合同草稿我明天发给您。",
+    "Chinese",
+  ],
+  [
+    "[0:01 Me] 你好。\n[0:03 Them] Thanks for joining. Can we go through the price and the date for the trial, and what the contract says about the data?",
+    "English",
+  ],
+  ["[0:01 Them] Le prix est fixé pour une année avec les mises à jour.", null],
+  ["[0:01 Them] 45, 270, SSO.", null],
+] as const)("a call that says %j is held in %s", (text, language) => {
+  expect(callLanguage([{ text }])).toBe(language);
+});
+
+// protects=with no ordinary line to point to, the model is told lines is empty, never the transcript's times, which left every fact out for its metadata on Claude Haiku 5.5, and that each fact then names a section, without which it is left out too (#2773); fails_when=a note with no typed lines, or only headings, is told to list L addresses or isn't told a section is needed; no_claim=a real model's reply, which the PR's real-model runs cover.
+test.each([
+  ["no notes", []],
+  ["only a heading", [{ marker: "H1", text: "Action items", heading: true }]],
+] as const)("with %s, lines is always empty", (_, lines) => {
+  const prompt = JSON.stringify(notesContext(lines, "Write the notes").messages);
+  expect(prompt).toContain("The User wrote no ordinary L lines, so lines is always []");
+  expect(prompt).toContain("every fact names at least one section");
+  expect(prompt).not.toContain("lines lists related ordinary L addresses");
+});
+
+test("with a typed line, lines lists its L address", () => {
+  const prompt = JSON.stringify(
+    notesContext([{ marker: "L1", text: "price", heading: false }], "Fill the note").messages,
+  );
+  expect(prompt).toContain("lines lists related ordinary L addresses");
+  expect(prompt).not.toContain("lines is always []");
 });

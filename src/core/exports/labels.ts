@@ -1,5 +1,6 @@
 import { formatDate } from "../../shared/dates";
 import { translate } from "../../shared/i18n";
+import { listOf } from "../../shared/i18n/join";
 import { recordCiteResultLabel } from "../checkRecord/labels";
 import type { Language } from "../language";
 import type { FailedSentence, Footnote, RecordCiteComment } from "../mindText";
@@ -47,7 +48,7 @@ export interface ExportLabels {
 export type FigureWorked =
   | { formula: string }
   | { analysis: string }
-  | { cell: string; workbookFormula: string; change: { input: string; value: string } | null };
+  | { cell: string; workbookFormula: string; change: { input: string; value: string }[] | null };
 
 export interface FigureNoteSource {
   inputs: readonly string[];
@@ -56,20 +57,6 @@ export interface FigureNoteSource {
 }
 
 const FULL_WIDTH_END = /[\u3000-\u303f\uff00-\uffef]$/;
-
-/** "A and B", "A、B 和 C": a space where 和 meets a Latin letter or a digit (docs/agents/zh-CN.md). */
-function listOf(items: readonly string[], language: Language): string {
-  const latin = /[A-Za-z0-9%]/;
-  return new Intl.ListFormat(language, { type: "conjunction" })
-    .formatToParts(items)
-    .map((part, at, parts) => {
-      if (part.type !== "literal" || !/^\p{Script=Han}+$/u.test(part.value)) return part.value;
-      const before = latin.test(parts[at - 1]?.value.at(-1) ?? "") ? " " : "";
-      const after = latin.test(parts[at + 1]?.value.charAt(0) ?? "") ? " " : "";
-      return before + part.value + after;
-    })
-    .join("");
-}
 
 export function exportLabels(language: Language): ExportLabels {
   const t = (key: Parameters<typeof translate>[1], params?: Parameters<typeof translate>[2]) =>
@@ -233,8 +220,15 @@ export function exportLabels(language: Language): ExportLabels {
               ? t("export.figure.whatIf", {
                   cell: worked.cell,
                   formula: worked.workbookFormula,
-                  input: worked.change.input,
-                  value: worked.change.value,
+                  changes: listOf(
+                    worked.change.map((change) =>
+                      t("export.figure.whatIfChange", {
+                        input: change.input,
+                        value: change.value,
+                      }),
+                    ),
+                    language,
+                  ),
                   figure,
                 })
               : t("export.figure.workbook", {

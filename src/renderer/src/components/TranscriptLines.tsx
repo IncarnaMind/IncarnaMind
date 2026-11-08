@@ -1,9 +1,9 @@
 import type { Meeting } from "../../../core/api";
-import { formatBytes } from "../../../shared/bytes";
 import type { MessageKey } from "../../../shared/i18n";
 import { useT } from "../i18n";
 import { useMeetings } from "../meetings";
 import { showMeetingNoteView } from "../meetingViews";
+import { speechModelDownload } from "../speechModelDownload";
 import { showTranscript } from "../transcripts";
 import { failedEverySource, useDownloadSources } from "./DownloadSources";
 import { type ProblemAction, ProblemLine } from "./ProblemLine";
@@ -42,13 +42,7 @@ export function TranscriptLines({
     testId: "meeting-transcript-retry",
     onClick: () => void useMeetings.getState().retryTranscript(meeting.id),
   });
-  const downloading =
-    model?.state === "downloading" || model?.state === "not-downloaded"
-      ? {
-          percent: Math.floor((model.downloadedBytes / Math.max(1, model.totalBytes)) * 100),
-          size: formatBytes(model.totalBytes, t),
-        }
-      : null;
+  const downloading = speechModelDownload(model, t);
 
   const documentId = transcript.documentId;
   const open: ProblemAction | undefined = documentId

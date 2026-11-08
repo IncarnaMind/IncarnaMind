@@ -29,6 +29,7 @@ import {
   PERMISSION_GUIDE_CHANNELS,
   type PermissionGuideState,
 } from "../../shared/permissionGuide";
+import { themeWindow, windowColour } from "../appearance";
 import { handle } from "../ipc";
 
 const POLL_MS = 1000;
@@ -125,7 +126,7 @@ export function servePermissionGuide(options: PermissionGuideOptions): void {
       acceptFirstMouse: true,
       hasShadow: true,
       title: "IncarnaMind",
-      backgroundColor: "#FFFFFF",
+      backgroundColor: windowColour("sheet"),
       ...(process.platform === "darwin" && { type: "panel" }),
       webPreferences: {
         preload: join(__dirname, "../preload/index.js"),
@@ -136,6 +137,7 @@ export function servePermissionGuide(options: PermissionGuideOptions): void {
       },
     });
     guideWindows.add(window);
+    themeWindow(window, "sheet");
     guide = window;
     // As the meeting's floating panel is, so it follows the User into a full-screen Space.
     window.setAlwaysOnTop(true, "screen-saver");

@@ -15,6 +15,7 @@ import type { MessageKey } from "../../../shared/i18n";
 import { findQuoteInPages } from "../../../shared/quoteMatch";
 import { DocumentFix } from "../components/DocumentFix";
 import { files } from "../core";
+import { logCaught } from "../errorLog";
 import { useT } from "../i18n";
 import { openDocumentPicture, pictureClickHandlers } from "../pictureViewer";
 import type { ViewerTarget } from "../store";
@@ -41,7 +42,8 @@ type Loaded =
   | { kind: "loading" }
   | { kind: "ready"; url: string; width: number; height: number }
   | { kind: "missing" }
-  | { kind: "failed"; key: MessageKey };
+  /** `retry`: the file could be read a second time; a refusal's couldn't. */
+  | { kind: "failed"; key: MessageKey; retry?: boolean };
 
 /** What the viewer says when it refuses a picture, by why the reader refuses it. */
 function pictureProblemKey(kind: PictureProblem["kind"]): MessageKey {
@@ -120,16 +122,16 @@ export function ImageView({ document, target }: { document: Document; target: Vi
       })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
-        if (error instanceof MissingDocumentError) setLoaded({ kind: "missing" });
-        else {
-          setLoaded({
-            kind: "failed",
-            key:
-              error instanceof TooLargeDocumentError
-                ? "viewer.pictureTooLarge"
-                : "viewer.pictureNotShown",
-          });
+        if (error instanceof MissingDocumentError) {
+          setLoaded({ kind: "missing" });
+          return;
         }
+        if (error instanceof TooLargeDocumentError) {
+          setLoaded({ kind: "failed", key: "viewer.pictureTooLarge" });
+          return;
+        }
+        logCaught(error);
+        setLoaded({ kind: "failed", key: "viewer.pictureLoadFailed", retry: true });
       });
     return () => {
       controller.abort();
@@ -348,7 +350,18 @@ export function ImageView({ document, target }: { document: Document; target: Vi
           document={document}
           view
           reload={reload}
-          fallback={<ViewerMessage tone="error">{t(loaded.key)}</ViewerMessage>}
+          fallback={
+            <ViewerMessage
+              tone="error"
+              action={
+                loaded.retry
+                  ? { label: t("library.fix.retry"), testId: "viewer-retry", onClick: reload }
+                  : undefined
+              }
+            >
+              {t(loaded.key)}
+            </ViewerMessage>
+          }
         />
       ) : (
         <div

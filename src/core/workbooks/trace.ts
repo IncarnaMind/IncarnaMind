@@ -2,7 +2,7 @@
  * A figure of a workbook as the model it comes from (#2347): the formulas
  * between it and the inputs that drive it (the cells that hold numbers, not
  * formulas), each named by its row and column headings; and what-if, the
- * figure worked out again with one input changed, in memory.
+ * figure worked out again with one or more inputs changed, in memory.
  */
 import { MAX_INPUTS_PER_FIGURE } from "../../shared/calculatedFigures";
 import { parseCellRef, type UnitText } from "../../shared/units";
@@ -283,38 +283,50 @@ export type WhatIfOutcome =
   | { ok: false; why: WhatIfRefusal };
 
 export type WhatIfRefusal =
-  | { kind: "input-is-formula"; inputs: ChainCell[] }
-  | { kind: "input-not-number" }
+  | { kind: "input-is-formula"; input: number; inputs: ChainCell[] }
+  | { kind: "input-not-number"; input: number }
   | { kind: "target-not-formula" }
   | { kind: "not-a-number" }
-  | { kind: "unrelated" }
+  | { kind: "unrelated"; input: number }
   | { kind: "depends"; on: Dependence[] }
   | { kind: "too-many" }
   | { kind: "stopped" };
 
+/** One input a what-if changes, and the value the figure is worked out with. */
+export interface WhatIfChange {
+  /** The constant cell, by `placeKey`. */
+  input: number;
+  value: number;
+}
+
 /**
- * Works `target` out again with the constant cell `input` set to `value`, on
- * a copy in memory. It refuses rather than give a figure part worked out and
- * part saved: when the figure depends on a cell that can't be worked out
- * here, or whose result differs from the one Excel saved.
+ * Works `target` out again with the constant cells `changes` names set to
+ * their values, on a copy in memory. It refuses rather than give a figure
+ * part worked out and part saved: when an input is a formula or holds text,
+ * doesn't drive the figure, or the figure depends on a cell that can't be
+ * worked out here, or whose result differs from the one Excel saved.
  */
 export async function whatIf(
   engine: WorkbookEngine,
   target: number,
-  input: number,
-  value: number,
+  changes: readonly WhatIfChange[],
   signal?: AbortSignal,
 ): Promise<WhatIfOutcome> {
-  const changed = engine.cellAt(input);
   const figure = engine.cellAt(target);
   if (!figure?.formula) return { ok: false, why: { kind: "target-not-formula" } };
   const options = signal ? { signal } : {};
-  if (changed?.formula) {
-    const chain = await traceChain(engine, input, signal);
-    return { ok: false, why: { kind: "input-is-formula", inputs: chain.inputs } };
+  for (const change of changes) {
+    const changed = engine.cellAt(change.input);
+    if (changed?.formula) {
+      const chain = await traceChain(engine, change.input, signal);
+      return {
+        ok: false,
+        why: { kind: "input-is-formula", input: change.input, inputs: chain.inputs },
+      };
+    }
+    if (changed && typeof changed.saved !== "number")
+      return { ok: false, why: { kind: "input-not-number", input: change.input } };
   }
-  if (changed && typeof changed.saved !== "number")
-    return { ok: false, why: { kind: "input-not-number" } };
   const base = await recalculate(engine, [target], options);
   if (base.tooMany) return { ok: false, why: { kind: "too-many" } };
   if (base.stopped) return { ok: false, why: { kind: "stopped" } };
@@ -322,23 +334,25 @@ export async function whatIf(
   if (!before || before.dependsOn.length > 0)
     return { ok: false, why: { kind: "depends", on: before?.dependsOn ?? [] } };
   if (typeof before.value !== "number") return { ok: false, why: { kind: "not-a-number" } };
-  const { sheet, row, column } = placeOf(engine.model, input);
-  const reads = base.order.some((key) =>
-    engine
-      .analysis(key)
-      .reads.some(
-        (read) =>
-          engine.sheetNamed(read.sheet) === sheet &&
-          row >= read.range.top &&
-          row <= read.range.bottom &&
-          column >= read.range.left &&
-          column <= read.range.right,
-      ),
-  );
-  if (!reads) return { ok: false, why: { kind: "unrelated" } };
+  for (const change of changes) {
+    const { sheet, row, column } = placeOf(engine.model, change.input);
+    const reads = base.order.some((key) =>
+      engine
+        .analysis(key)
+        .reads.some(
+          (read) =>
+            engine.sheetNamed(read.sheet) === sheet &&
+            row >= read.range.top &&
+            row <= read.range.bottom &&
+            column >= read.range.left &&
+            column <= read.range.right,
+        ),
+    );
+    if (!reads) return { ok: false, why: { kind: "unrelated", input: change.input } };
+  }
   const after = await recalculate(engine, [target], {
     ...options,
-    changes: new Map([[input, value]]),
+    changes: new Map(changes.map((change) => [change.input, change.value])),
     untrusted: untrustedOf(base),
   });
   if (after.stopped) return { ok: false, why: { kind: "stopped" } };
@@ -398,16 +412,20 @@ export async function figureAgain(
 export async function whatIfAgain(
   book: StoredBook,
   figure: CellPlace,
-  changed: CellPlace,
-  value: number,
+  changes: readonly (CellPlace & { value: number })[],
   signal?: AbortSignal,
 ): Promise<number | null> {
   const model = workbookModel(book.documentId, book.contentHash, book.units);
   if (!model) return null;
   const target = cellKeyOf(model, figure);
-  const input = cellKeyOf(model, changed);
-  if (target === null || input === null) return null;
-  const outcome = await whatIf(new WorkbookEngine(model), target, input, value, signal);
+  if (target === null) return null;
+  const cells: WhatIfChange[] = [];
+  for (const change of changes) {
+    const input = cellKeyOf(model, change);
+    if (input === null) return null;
+    cells.push({ input, value: change.value });
+  }
+  const outcome = await whatIf(new WorkbookEngine(model), target, cells, signal);
   return outcome.ok ? outcome.after : null;
 }
 

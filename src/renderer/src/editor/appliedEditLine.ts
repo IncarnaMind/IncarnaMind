@@ -42,6 +42,7 @@ import {
   toggled,
   wasLine,
 } from "./changeOriginals";
+import { type LineSight, lineSight } from "./lineSight";
 import { fromDocument, proposalsIn } from "./proposalReview";
 import { blockAt } from "./writingPlace";
 
@@ -146,6 +147,8 @@ export type AppliedLine = (
       kind: "running";
       blockId: string | null;
       stop(): void;
+      /** Another change was asked while this one runs: the line says one at a time (#2123). */
+      busy?: true;
       /** A selection too long for the model is edited in parts: which of how many (#2348). */
       part?: EditPart;
       /** What a run on a cloud model is about to cost, when the model's price is known (#83). */
@@ -656,9 +659,11 @@ function mainLine(line: AppliedLine, options: Options, blocks: ChangedBlocks): H
       pulse,
       text(
         "min-w-0",
-        line.part
-          ? t("edit.pending.part", { at: line.part.at, of: line.part.of })
-          : t("edit.pending.instruction"),
+        line.busy
+          ? t("edit.problem.busy")
+          : line.part
+            ? t("edit.pending.part", { at: line.part.at, of: line.part.of })
+            : t("edit.pending.instruction"),
       ),
     ];
     if (line.estimate) {
@@ -990,7 +995,12 @@ function changeMarks(
   return [...lines, ...changed, ...restores];
 }
 
-function decorations(state: EditorState, line: AppliedLine, options: Options): DecorationSet {
+function decorations(
+  state: EditorState,
+  line: AppliedLine,
+  options: Options,
+  sight: LineSight,
+): DecorationSet {
   const { doc } = state;
   const marks: Decoration[] =
     line.kind === "review"
@@ -1005,16 +1015,32 @@ function decorations(state: EditorState, line: AppliedLine, options: Options): D
         : line.kind === "review"
           ? changedBlocksOf(state, changesLeft(line))
           : { paragraphs: 0, tables: 0 };
-    const words = line.kind === "failed" ? line.text : "";
+    const words =
+      line.kind === "failed"
+        ? line.text
+        : line.kind === "running"
+          ? `${line.busy ? "busy" : ""}/${line.part?.at ?? ""}/${line.part?.of ?? ""}`
+          : "";
     // What the count is said as, as well as the count: a pair whose one half is restored stays one.
     const count = `${blocks.paragraphs}/${blocks.tables}/${blocks.added ? "added" : ""}/${blocks.removed ? `${blocks.removed.sentences}:${blocks.removed.start}` : ""}`;
     const canUndo = line.kind !== "review" || !line.undo || line.undo.available();
     marks.push(
-      Decoration.widget(at, () => mainLine(line, options, blocks), {
-        ...shared,
-        // Drawn again in the interface language once it changes.
-        key: `applied:${line.kind}:${count}:${line.blockId}:${canUndo}:${words}:${options.translate("edit.applied.undo")}`,
-      }),
+      Decoration.widget(
+        at,
+        () => {
+          const element = mainLine(line, options, blocks);
+          // The page's top band gives its own line room; one over a Block is kept in sight (#2123).
+          if (line.blockId !== null && !element.classList.contains("applied-line--band")) {
+            sight.watch(element, line.blockId);
+          }
+          return element;
+        },
+        {
+          ...shared,
+          // Drawn again in the interface language once it changes.
+          key: `applied:${line.kind}:${count}:${line.blockId}:${canUndo}:${words}:${options.translate("edit.applied.undo")}`,
+        },
+      ),
     );
   }
   const kept = line.kind === "applied" ? line.kept : null;
@@ -1040,9 +1066,24 @@ export const AppliedEditLine = Extension.create<Options>({
 
   addProseMirrorPlugins() {
     const options = this.options;
+    const sight = lineSight(() => this.editor.view);
     return [
       new Plugin<LineState>({
         key: appliedLineKey,
+        view: () => {
+          if (typeof window === "undefined") return {};
+          const placeAll = () => sight.placeAll();
+          // A scroll doesn't bubble, but it does capture: one watch over every scroller.
+          window.addEventListener("scroll", placeAll, { capture: true, passive: true });
+          window.addEventListener("resize", placeAll);
+          return {
+            destroy() {
+              window.removeEventListener("scroll", placeAll, { capture: true });
+              window.removeEventListener("resize", placeAll);
+              sight.clear();
+            },
+          };
+        },
         state: {
           init: () => ({ line: null, marks: DecorationSet.empty }),
           apply: (tr, value, _before, state) => {
@@ -1067,7 +1108,7 @@ export const AppliedEditLine = Extension.create<Options>({
             const line = gone ? null : shown;
             if (!line) return { line: null, marks: DecorationSet.empty };
             if (line !== value.line || (tr.docChanged && fromDocument(tr))) {
-              return { line, marks: decorations(state, line, options) };
+              return { line, marks: decorations(state, line, options, sight) };
             }
             return tr.docChanged ? { line, marks: value.marks.map(tr.mapping, tr.doc) } : value;
           },

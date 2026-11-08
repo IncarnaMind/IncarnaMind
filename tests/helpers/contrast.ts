@@ -3,11 +3,21 @@ import { join } from "node:path";
 
 const styles = readFileSync(join(__dirname, "../../src/renderer/src/styles.css"), "utf8");
 
-/** A colour token's value, from styles.css. */
-export function token(name: string): string {
-  const match = styles.match(new RegExp(`--color-${name}:\\s*(#[0-9a-fA-F]{6});`));
-  if (!match?.[1]) throw new Error(`No --color-${name} in styles.css.`);
-  return match[1];
+export type Theme = "light" | "dark";
+
+const HEX = "#[0-9a-fA-F]{6}";
+
+/**
+ * A colour token's value in a theme, from styles.css: its one value, or the side of its
+ * `light-dark(light, dark)` (#1262).
+ */
+export function token(name: string, theme: Theme = "light"): string {
+  const match = styles.match(
+    new RegExp(`--color-${name}:\\s*(?:(${HEX})|light-dark\\((${HEX}),\\s*(${HEX})\\));`),
+  );
+  const value = match?.[1] ?? (theme === "light" ? match?.[2] : match?.[3]);
+  if (!value) throw new Error(`No --color-${name} in styles.css.`);
+  return value;
 }
 
 export const luminance = (hex: string) => {

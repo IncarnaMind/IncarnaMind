@@ -20,91 +20,126 @@
     ui-serif, Georgia, serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
 
+  /*
+   * Each colour is light-dark(the light theme's, the dark theme's) (#1262): the theme shown is the
+   * element's `color-scheme`, which <html> takes from Settings › General › Appearance (below,
+   * "Light or dark"). Dark keeps light's order, not an inverted copy: the sheet stays the lightest
+   * surface and the frame darker than it. Documents, pages and sheets stay paper-white in both.
+   */
+
   /* Surfaces and lines. */
-  --color-sheet: #ffffff;
-  --color-frame: #f4f5f7;
-  --color-rule: #e3e5e9;
-  --color-rule-strong: #d5d8dd;
-  --color-hover: #ebedf0;
+  --color-sheet: light-dark(#ffffff, #1e2024);
+  --color-frame: light-dark(#f4f5f7, #141518);
+  --color-rule: light-dark(#e3e5e9, #2c2f34);
+  --color-rule-strong: light-dark(#d5d8dd, #3a3e45);
+  --color-hover: light-dark(#ebedf0, #26292e);
   /* One step past a hover, while a row or tab is pressed: made of the hover and the ink, so a theme that swaps those swaps this. */
   --color-press: color-mix(in srgb, var(--color-hover), var(--color-ink) 6%);
-  --color-chip: #eef0f3;
+  --color-chip: light-dark(#eef0f3, #2a2d32);
   /* The Mind tab strip, a step darker than the frame; an inactive tab's hover and press; the dividers between tabs. */
-  --color-tab-strip: #e6e8eb;
-  --color-tab-hover: #d9dce1;
+  --color-tab-strip: light-dark(#e6e8eb, #0e0f11);
+  --color-tab-hover: light-dark(#d9dce1, #23262a);
   --color-tab-press: color-mix(in srgb, var(--color-tab-hover), var(--color-ink) 8%);
-  --color-tab-divider: #c3c7ce;
+  --color-tab-divider: light-dark(#c3c7ce, #33373d);
+  /* What a Document's pages lie on in the viewer, and a Word-look Note's. */
+  --color-page-backdrop: light-dark(#eef0f3, #16181b);
   /* Text, darkest first. ink-meta passes 4.5:1 on sheet and frame. */
-  --color-ink: #17191c;
-  --color-ink-answer: #3b4048;
-  --color-ink-secondary: #4a4f57;
-  --color-ink-meta: #656b74;
-  --color-ink-placeholder: #8a9099;
+  --color-ink: light-dark(#17191c, #ecedef);
+  --color-ink-answer: light-dark(#3b4048, #c3c7cd);
+  --color-ink-secondary: light-dark(#4a4f57, #b2b7be);
+  --color-ink-meta: light-dark(#656b74, #8e949d);
+  --color-ink-placeholder: light-dark(#8a9099, #6a707a);
+  /* Text and icons on a filled control: the primary's ink, the accent, a check's colour, red. */
+  --color-on-primary: light-dark(#ffffff, #141518);
   /* Interaction: links, focus, selection. */
-  --color-accent: #2a5bd7;
-  --color-accent-strong: #1e46b0;
-  --color-accent-wash: #e7edfb;
+  --color-accent: light-dark(#2a5bd7, #7c9cff);
+  --color-accent-strong: light-dark(#1e46b0, #a3b9ff);
+  --color-accent-wash: light-dark(#e7edfb, #1d2747);
   /* The cells a User selected in a sheet, drawn as the system's selection is (#118). */
   --selection-wash: color-mix(in srgb, AccentColor, transparent 88%);
   --selection-overlay: color-mix(in srgb, AccentColor, transparent 88%);
   /* A selection in a field that has lost the focus, as macOS draws one in a window not in front. */
-  --color-selection-inactive: #dde1e7;
-  /* Citation checks, the same green on a found quote in the viewer, and a note's Checked state (D266). */
-  --color-success: #166534;
-  --color-success-wash: #dcf3e4;
-  --color-warning: #9a4a06;
-  --color-warning-wash: #fef3e2;
+  --color-selection-inactive: light-dark(#dde1e7, #33373d);
+  /* Citation checks, the same green on a found quote in the viewer, and a note's Checked state. */
+  --color-success: light-dark(#166534, #5dc98b);
+  --color-success-wash: light-dark(#dcf3e4, #163022);
+  --color-warning: light-dark(#9a4a06, #f1a45e);
+  --color-warning-wash: light-dark(#fef3e2, #3a2715);
   /* Something waiting for the User, e.g. an approval. */
-  --color-attention: #d97706;
+  --color-attention: light-dark(#d97706, #f59e0b);
   /* A Tag awaiting review where Tags are dots: a hollow ring, darker than the orange dot. */
-  --color-review: #b45f06;
-  --color-danger: #b42318;
-  --color-danger-wash: #fef0ee;
+  --color-review: light-dark(#b45f06, #e58f33);
+  --color-danger: light-dark(#b42318, #f47067);
+  --color-danger-wash: light-dark(#fef0ee, #3b1c1a);
+  /* A destructive button pointed at: a step darker, as a primary is. */
+  --color-danger-strong: light-dark(#912018, #e35d54);
   /*
    * Tag colours (DESIGN.md, Tags; src/shared/tagColours.ts), bright and Finder-like:
    * a pale fill and its text, 7:1 or better, for named chips; a dot, for where a
    * Tag has no room for its name; and the dot's edge, a hairline darker where the
    * dot alone is under 3:1 on the frame, a hovered row or the sheet (the edge is 3:1
    * or better). A Tag awaiting review is a ring in `--color-review`, not a dot.
+   * In the dark theme every dot stands out 3:1 by itself, so its edge is the dot.
    */
-  --color-tag-red: #fbe3e2;
-  --color-tag-red-ink: #91201a;
+  --color-tag-red: light-dark(#fbe3e2, #3a2120);
+  --color-tag-red-ink: light-dark(#91201a, #f6b3ae);
   --color-tag-red-dot: #f25c54;
-  --color-tag-red-edge: #f14e46;
-  --color-tag-orange: #fbefe2;
-  --color-tag-orange-ink: #734714;
+  --color-tag-red-edge: light-dark(#f14e46, #f25c54);
+  --color-tag-orange: light-dark(#fbefe2, #3a2b1a);
+  --color-tag-orange-ink: light-dark(#734714, #f6c88e);
   --color-tag-orange-dot: #f7a03c;
-  --color-tag-orange-edge: #cc7108;
-  --color-tag-yellow: #f9f1d7;
-  --color-tag-yellow-ink: #624f11;
+  --color-tag-orange-edge: light-dark(#cc7108, #f7a03c);
+  --color-tag-yellow: light-dark(#f9f1d7, #363018);
+  --color-tag-yellow-ink: light-dark(#624f11, #ebd58a);
   --color-tag-yellow-dot: #f5c836;
-  --color-tag-yellow-edge: #a88308;
-  --color-tag-green: #e6f7ef;
-  --color-tag-green-ink: #1f5c3e;
+  --color-tag-yellow-edge: light-dark(#a88308, #f5c836);
+  --color-tag-green: light-dark(#e6f7ef, #183026);
+  --color-tag-green-ink: light-dark(#1f5c3e, #9fddbd);
   --color-tag-green-dot: #4cc38a;
-  --color-tag-green-edge: #339968;
-  --color-tag-teal: #e5f6f8;
-  --color-tag-teal-ink: #1b5962;
+  --color-tag-green-edge: light-dark(#339968, #4cc38a);
+  --color-tag-teal: light-dark(#e5f6f8, #152f33);
+  --color-tag-teal-ink: light-dark(#1b5962, #93d8e2);
   --color-tag-teal-dot: #3db8c9;
-  --color-tag-teal-edge: #2d95a3;
-  --color-tag-blue: #e2ebfb;
-  --color-tag-blue-ink: #1b4a98;
+  --color-tag-teal-edge: light-dark(#2d95a3, #3db8c9);
+  --color-tag-blue: light-dark(#e2ebfb, #1a2742);
+  --color-tag-blue-ink: light-dark(#1b4a98, #a9c6fa);
   --color-tag-blue-dot: #4a8cf7;
-  --color-tag-blue-edge: #3e84f6;
-  --color-tag-purple: #ebe2fb;
-  --color-tag-purple-ink: #5921bd;
+  --color-tag-blue-edge: light-dark(#3e84f6, #4a8cf7);
+  --color-tag-purple: light-dark(#ebe2fb, #28203f);
+  --color-tag-purple-ink: light-dark(#5921bd, #cdb6fa);
   --color-tag-purple-dot: #9b6cf0;
   --color-tag-purple-edge: #9b6cf0;
-  --color-tag-gray: #eef0f3;
-  --color-tag-gray-ink: #4a4f57;
+  --color-tag-gray: light-dark(#eef0f3, #2a2d32);
+  --color-tag-gray-ink: light-dark(#4a4f57, #c2c6cc);
   --color-tag-gray-dot: #9aa0a8;
-  --color-tag-gray-edge: #818993;
+  --color-tag-gray-edge: light-dark(#818993, #9aa0a8);
   /*
    * Charts (DESIGN.md, Colors): an earlier series in this light grey, the later
    * in `ink-secondary`, the value in focus in `accent`, a pie's slices (and
    * three series or more) in the Tag hues teal, purple, orange and yellow.
    */
-  --color-chart-prior: #b9bec6;
+  --color-chart-prior: light-dark(#b9bec6, #6a707a);
+  /*
+   * The format menu's eight text colours (formatCommands.ts). A Note keeps the light value, as a
+   * Word file does; the dark theme draws each a step lighter so it reads on the dark sheet.
+   */
+  --color-text-grey: light-dark(#6b7280, #9ca3af);
+  --color-text-brown: light-dark(#8b5e34, #c9935f);
+  --color-text-red: light-dark(#b42318, #f47067);
+  --color-text-orange: light-dark(#c2410c, #f38b4a);
+  --color-text-yellow: light-dark(#a16207, #e5b53a);
+  --color-text-green: light-dark(#15803d, #6ccb8e);
+  --color-text-blue: light-dark(#1d4ed8, #8aa8ff);
+  --color-text-purple: light-dark(#7e22ce, #c08bff);
+  /* Highlighted words in a Note, and the format menu's Highlight that makes them. */
+  --color-mark: light-dark(#fef08a, #4d4215);
+  /* Find in a Note: every match, and the one Enter is on. */
+  --color-find: light-dark(rgb(250 204 21 / 0.35), rgb(250 204 21 / 0.2));
+  --color-find-current: light-dark(rgb(250 204 21 / 0.85), rgb(250 204 21 / 0.4));
+  /* Shadows, faint to deep: a raised control or a page, a floating layer, a dialog or a scrolled edge. */
+  --color-shadow-soft: light-dark(rgb(23 25 28 / 0.06), rgb(0 0 0 / 0.3));
+  --color-shadow: light-dark(rgb(23 25 28 / 0.12), rgb(0 0 0 / 0.45));
+  --color-shadow-strong: light-dark(rgb(23 25 28 / 0.22), rgb(0 0 0 / 0.55));
 
   /* The type scale (DESIGN.md, Typography). */
   --text-display: 34px;
@@ -124,9 +159,13 @@
   --text-label: 12px;
   --text-label--line-height: 16px;
 
-  /* Depth for floating layers only; panes are flat. */
-  --shadow-popover: 0 0 0 1px var(--color-rule), 0 12px 32px rgb(23 25 28 / 0.12);
-  --shadow-dialog: 0 0 0 1px rgb(23 25 28 / 0.06), 0 24px 64px rgb(23 25 28 / 0.22);
+  /* Depth for floating layers only; panes are flat. On the dark frame an edge needs rule-strong to show. */
+  --shadow-popover:
+    0 0 0 1px light-dark(var(--color-rule), var(--color-rule-strong)),
+    0 12px 32px var(--color-shadow);
+  --shadow-dialog:
+    0 0 0 1px light-dark(rgb(23 25 28 / 0.06), var(--color-rule-strong)),
+    0 24px 64px var(--color-shadow-strong);
 }
 
 /*
@@ -159,13 +198,14 @@
  */
 @theme {
   /* Names in the sidebar and pane titles, secondary buttons' text, and a primary button's hover. */
-  --color-ink-strong: #2e3238;
-  /* A switch that is off. */
-  --color-control-off: #c9cdd3;
+  --color-ink-strong: light-dark(#2e3238, #dcdfe3);
+  /* A switch that is off, and its knob. */
+  --color-control-off: light-dark(#c9cdd3, #4a4f57);
+  --color-control-knob: light-dark(#ffffff, #d5d8dd);
   /* A chosen row in a list of choices, and its hover. */
-  --color-wash: #f7f8fa;
+  --color-wash: light-dark(#f7f8fa, #232529);
   /* Behind a dialog. */
-  --color-scrim: rgb(23 25 28 / 0.32);
+  --color-scrim: light-dark(rgb(23 25 28 / 0.32), rgb(0 0 0 / 0.5));
 }
 
 /* A thin, quiet scrollbar: the sidebar's tree shows that it scrolls without taking room from its rows. */
@@ -224,6 +264,33 @@
   /* Panes sit on the sheet; the sidebar paints its own frame. */
   body {
     @apply bg-sheet font-sans text-ink antialiased;
+  }
+
+  /*
+   * Light or dark (#1262): the system's appearance, followed live, until the User picks one in
+   * Settings › General › Appearance, which <html data-theme> then holds whatever the system says.
+   * Before the page's script runs, the main process has already told Electron the kept choice,
+   * so the first frame is in it. A Document's page sets `color-scheme: light` and so stays on
+   * paper, every token inside it taking its light value.
+   */
+  :root {
+    color-scheme: light dark;
+  }
+  :root[data-theme="light"] {
+    color-scheme: light;
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+  }
+
+  /* The system's Increase contrast: rules and the quieter inks a step stronger, in both themes. */
+  @media (prefers-contrast: more) {
+    :root {
+      --color-rule: light-dark(#c3c7ce, #4a4f57);
+      --color-rule-strong: light-dark(#8a9099, #6a707a);
+      --color-ink-meta: light-dark(#4a4f57, #b2b7be);
+      --color-ink-placeholder: light-dark(#656b74, #8e949d);
+    }
   }
 
   /*
@@ -556,7 +623,8 @@
     margin: 0;
     border-radius: 9999px;
     background: var(--color-control-off)
-      radial-gradient(circle at center, var(--color-sheet) 7.5px, transparent 8px) no-repeat;
+      radial-gradient(circle at center, var(--switch-knob) 7.5px, transparent 8px) no-repeat;
+    --switch-knob: var(--color-control-knob);
     background-size: 20px 20px;
     background-position: 0 0;
     cursor: pointer;
@@ -566,6 +634,7 @@
 
     &:checked,
     &[data-on] {
+      --switch-knob: var(--color-on-primary);
       background-color: var(--color-ink);
       background-position: 16px 0;
     }
@@ -2176,6 +2245,11 @@
 
     position: relative;
   }
+  /* A Note with a Word file's look is that file's page, so it stays on paper in both themes (#1262). */
+  .mind-tab-page:has(.mind-editor-frame--word) {
+    color-scheme: light;
+    background: var(--color-sheet);
+  }
 
   /*
    * The hint drawn over an empty Mind's line or the empty line after an
@@ -2824,7 +2898,7 @@
     height: 24px;
     border-radius: 6px;
     background: var(--color-ink);
-    color: #fff;
+    color: var(--color-on-primary);
     transition: background-color 80ms ease-out;
 
     &:hover {
@@ -2847,10 +2921,10 @@
     background:
       linear-gradient(var(--color-sheet) 30%, transparent) 0 0 / 100% 28px no-repeat local,
       linear-gradient(transparent, var(--color-sheet) 70%) 0 100% / 100% 28px no-repeat local,
-      radial-gradient(farthest-side at 50% 0, rgb(0 0 0 / 0.22), transparent) 0 0 / 100% 10px
-      no-repeat scroll,
-      radial-gradient(farthest-side at 50% 100%, rgb(0 0 0 / 0.22), transparent) 0 100% / 100% 10px
-      no-repeat scroll,
+      radial-gradient(farthest-side at 50% 0, var(--color-shadow-strong), transparent) 0 0 / 100%
+      10px no-repeat scroll,
+      radial-gradient(farthest-side at 50% 100%, var(--color-shadow-strong), transparent) 0 100% /
+      100% 10px no-repeat scroll,
       var(--color-sheet);
   }
   /* The "@" and "/" pickers: above the composer, at its left edge. */
@@ -3100,6 +3174,30 @@
     [data-text-color] {
       color: var(--text-color);
     }
+    [data-text-color="6B7280"] {
+      color: var(--color-text-grey);
+    }
+    [data-text-color="8B5E34"] {
+      color: var(--color-text-brown);
+    }
+    [data-text-color="B42318"] {
+      color: var(--color-text-red);
+    }
+    [data-text-color="C2410C"] {
+      color: var(--color-text-orange);
+    }
+    [data-text-color="A16207"] {
+      color: var(--color-text-yellow);
+    }
+    [data-text-color="15803D"] {
+      color: var(--color-text-green);
+    }
+    [data-text-color="1D4ED8"] {
+      color: var(--color-text-blue);
+    }
+    [data-text-color="7E22CE"] {
+      color: var(--color-text-purple);
+    }
     [data-text-font] {
       font-family: var(--text-font);
     }
@@ -3287,14 +3385,14 @@
     a {
       color: var(--color-accent);
       text-decoration: underline;
-      text-decoration-color: rgb(42 91 215 / 0.4);
+      text-decoration-color: color-mix(in srgb, var(--color-accent) 40%, transparent);
       text-underline-offset: 2px;
     }
 
     /* Highlighted text. */
     mark {
       border-radius: 2px;
-      background: #fef08a;
+      background: var(--color-mark);
       color: inherit;
       box-decoration-break: clone;
       -webkit-box-decoration-break: clone;
@@ -3915,7 +4013,7 @@
   }
   .answer-writing--waiting {
     font-weight: 600;
-    color: #92400e;
+    color: var(--color-warning);
 
     &::before {
       background: var(--color-attention);
@@ -4119,7 +4217,7 @@
     border: 1px solid var(--color-rule);
     border-radius: 8px;
     background: var(--color-sheet);
-    box-shadow: 0 1px 2px rgb(23 25 28 / 0.04);
+    box-shadow: 0 1px 2px var(--color-shadow-soft);
     font-family: var(--font-sans);
     color: var(--color-ink);
     user-select: none;
@@ -4229,7 +4327,7 @@
     background: var(--color-sheet);
     font-size: 13px;
     font-weight: 600;
-    color: #2e3238;
+    color: var(--color-ink-strong);
 
     &:hover {
       background: var(--color-frame);
@@ -4239,10 +4337,10 @@
     padding: 0 14px;
     border-color: transparent;
     background: var(--color-ink);
-    color: #fff;
+    color: var(--color-on-primary);
 
     &:hover {
-      background: #2e3238;
+      background: var(--color-ink-strong);
     }
     &:active:not(:disabled) {
       transform: scale(0.98);
@@ -4332,7 +4430,7 @@
     align-items: center;
     justify-content: center;
     border-radius: 3px;
-    color: #fff;
+    color: var(--color-on-primary);
 
     &[data-on] {
       background: var(--color-accent);
@@ -4877,6 +4975,13 @@
   .mind-editor .applied-line--problem {
     color: var(--color-ink-meta);
   }
+  /* Kept in sight at the top of the view, a line lies over its Block's words: the page's colour
+     under it keeps it readable, above them (#2123). */
+  .mind-editor .applied-line--floating {
+    position: relative;
+    z-index: 1;
+    background: var(--color-sheet);
+  }
   .applied-problem-dot {
     flex: none;
     width: 6px;
@@ -4947,9 +5052,13 @@
   }
   .change-bar-row {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 6px;
     min-width: 0;
+  }
+  /* A part joined to the one before it by a dot, as a `.meta-line` joins its parts (#684). */
+  .change-bar-dotted {
+    flex-shrink: 0;
   }
   /* Why the assistant made the change (#202), under the bar while the cursor is in it. */
   .change-bar-why {
@@ -4957,18 +5066,10 @@
     text-overflow: ellipsis;
     color: var(--color-ink-secondary);
   }
-  .change-bar-position {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
   .change-bar-drops {
     color: var(--color-warning);
   }
   .change-bar-author {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
     color: var(--color-ink-secondary);
   }
   /* An outside agent's sentences with no Citation (#352): quiet, as a chart's "1 with no Citation". */
@@ -6260,7 +6361,7 @@
     box-shadow: inset 0 0 0 1px var(--color-rule-strong);
     font-size: 13px;
     font-weight: 600;
-    color: #2e3238;
+    color: var(--color-ink-strong);
 
     &:hover:not(:disabled) {
       background: var(--color-frame);
@@ -6274,10 +6375,11 @@
   .citation-card-action--primary {
     background: var(--color-ink);
     box-shadow: none;
-    color: #fff;
+    color: var(--color-on-primary);
 
-    &:hover {
-      background: #2e3238;
+    /* As specific as the plain action's hover, so the primary fill keeps its own text colour (#2288). */
+    &:hover:not(:disabled) {
+      background: var(--color-ink-strong);
     }
   }
   /*
@@ -6590,7 +6692,7 @@
     .format-highlight {
       padding: 0 3px;
       border-radius: 2px;
-      background: #fef08a;
+      background: var(--color-mark);
       color: var(--color-ink);
     }
     /* The footnote button's label is a word with a raised number, as Word's is. */
@@ -6739,7 +6841,7 @@
     height: 20px;
     flex-shrink: 0;
     border-radius: 4px;
-    box-shadow: inset 0 0 0 1px rgb(23 25 28 / 0.12);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-ink) 12%, transparent);
     outline-offset: 1px;
 
     &[aria-checked="true"] {
@@ -6964,11 +7066,11 @@
   }
   .find-match {
     border-radius: 2px;
-    background: rgb(250 204 21 / 0.35);
+    background: var(--color-find);
     color: inherit;
   }
   .find-match--current {
-    background: rgb(250 204 21 / 0.85);
+    background: var(--color-find-current);
   }
   .mind-outline {
     width: min(320px, 92vw);
@@ -7452,7 +7554,7 @@
     background: var(--color-sheet);
     box-shadow:
       0 0 0 2px var(--color-accent),
-      0 12px 32px rgb(23 25 28 / 0.12);
+      0 12px 32px var(--color-shadow);
     opacity: 0.94;
     pointer-events: none;
     transition: opacity 80ms ease-out;
@@ -12003,7 +12105,7 @@ body.assistant-dragging * {
   padding: 3px 10px;
   border-radius: 6px;
   background: var(--color-accent);
-  color: #ffffff;
+  color: var(--color-on-primary);
   font-size: 12px;
   line-height: 18px;
 }

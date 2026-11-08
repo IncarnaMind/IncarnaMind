@@ -35,6 +35,10 @@ const MODEL =
 interface Accepted {
   cell: string;
   change: { value: number; result: number } | null;
+  /** A what-if changing more inputs than `change` names: their new values, all changed in one call. */
+  together?: number[];
+  /** A text figure's result, as its cell holds it (#2389); `change` is then null. */
+  text?: string;
 }
 
 interface Asked extends Accepted {
@@ -171,11 +175,16 @@ const HELD_OUT: Asked[] = RENTAL_HELD_OUT.map(({ question, cell, change, also })
 const answersAs = (figure: MarkedFigure, expected: Accepted): boolean => {
   const book = figure.workbook;
   if (!book || `${book.cell.sheet}!${book.cell.ref}` !== expected.cell) return false;
-  if (!expected.change) return book.change === null;
+  // A figure kept before `changes` was a list holds none at all; its trace has no what-if either.
+  const changes = book.changes ?? [];
+  if (expected.text !== undefined) return changes.length === 0 && figure.value === expected.text;
+  if (!expected.change) return changes.length === 0;
+  const values = [expected.change.value, ...(expected.together ?? [])];
   return (
-    book.change?.value === expected.change.value &&
-    Math.abs((figure.value as number) - expected.change.result) <=
-      1e-9 * Math.abs(expected.change.result)
+    changes.length === values.length &&
+    values.every((value) => changes.some((change) => change.value === value)) &&
+    typeof figure.value === "number" &&
+    Math.abs(figure.value - expected.change.result) <= 1e-9 * Math.abs(expected.change.result)
   );
 };
 const answers = (figure: MarkedFigure, expected: Asked): boolean =>
@@ -287,6 +296,47 @@ async function ask(core: Core, text: string): Promise<{ answer: ConversationAnsw
   return { answer };
 }
 
+/** Written for #2403 on the held-out rental workbook: what-ifs changing two inputs, and a text flag. */
+const TWO_INPUTS: Asked[] = [
+  {
+    question:
+      "If the vacancy rate were 5% and rent grew 4% a year, what would the five-year cash flow be?",
+    cell: "Operations!B20",
+    change: {
+      value: 0.05,
+      result: savedNumber(
+        rentalPropertyWorkbook({ "Assumptions!B9": 0.05, "Assumptions!B10": 0.04 }),
+        "Operations!B20",
+      ),
+    },
+    together: [0.04],
+  },
+  {
+    question: "如果空置率是 5%、租金每年上涨 4%，五年的现金流会是多少？",
+    cell: "Operations!B20",
+    change: {
+      value: 0.05,
+      result: savedNumber(
+        rentalPropertyWorkbook({ "Assumptions!B9": 0.05, "Assumptions!B10": 0.04 }),
+        "Operations!B20",
+      ),
+    },
+    together: [0.04],
+  },
+  {
+    question: "Is the DSCR covenant met in year 1? Trace the flag.",
+    cell: "Operations!B18",
+    change: null,
+    text: "Breach",
+  },
+  {
+    question: "第一年的 DSCR 约束满足了吗？追踪一下这个标记。",
+    cell: "Operations!B18",
+    change: null,
+    text: "Breach",
+  },
+];
+
 test.skipIf(KEY === undefined).each([
   {
     set: "training, four models",
@@ -308,6 +358,13 @@ test.skipIf(KEY === undefined).each([
   {
     set: "held out",
     asked: HELD_OUT,
+    files: () => [
+      { name: "Rental property.xlsx", contents: new Uint8Array(rentalPropertyWorkbook().xlsx()) },
+    ],
+  },
+  {
+    set: "held out, two inputs (#2403)",
+    asked: TWO_INPUTS,
     files: () => [
       { name: "Rental property.xlsx", contents: new Uint8Array(rentalPropertyWorkbook().xlsx()) },
     ],
@@ -361,10 +418,17 @@ test.skipIf(KEY === undefined).each([
         `${passed ? "passed" : "missed"}; ${answer.status}; ${tokensLine(billed.slice(first))}`,
         `Tools: ${answer.toolCalls.map((call) => `${call.tool} ${JSON.stringify(call.input)}`).join("; ")}`,
         `> ${answer.text.replace(/\s+/g, " ")}`,
-        ...answer.figures.map(
-          (figure) =>
-            `- [=${figure.marker}] ${figure.shown}: ${figure.label}${figure.workbook ? ` (${figure.workbook.cell.sheet}!${figure.workbook.cell.ref} = ${figure.workbook.cell.formula}${figure.workbook.change ? `; ${figure.workbook.change.input} → ${figure.workbook.change.shown}` : ""}; ${figure.inputs.length} inputs cited${figure.workbook.kept.length > 0 ? `; kept ${figure.workbook.kept.length}` : ""})` : ` = ${figure.formula}`}`,
-        ),
+        ...answer.figures.map((figure) => {
+          const book = figure.workbook;
+          const changes = book?.changes ?? [];
+          const changed =
+            changes.length > 0
+              ? `; ${changes.map((change) => `${change.input} → ${change.shown}`).join(", ")}`
+              : "";
+          return book
+            ? `- [=${figure.marker}] ${figure.shown}: ${figure.label} (${book.cell.sheet}!${book.cell.ref} = ${book.cell.formula}${changed}; ${figure.inputs.length} inputs cited${book.kept.length > 0 ? `; kept ${book.kept.length}` : ""})`
+            : `- [=${figure.marker}] ${figure.shown}: ${figure.label} = ${figure.formula}`;
+        }),
         "",
       );
     }

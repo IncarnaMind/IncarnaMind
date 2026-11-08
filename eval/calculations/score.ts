@@ -19,7 +19,7 @@ import { DOCUMENT_LINES } from "./cases";
 
 /** A calculated figure of an Answer, as the scorer reads it. */
 export interface ObservedFigure {
-  value: number | boolean;
+  value: number | boolean | string;
   /** The result unit's kind: "percent", "points", "ratio", "currency", "plain"… */
   unit: string;
   currency: string | null;

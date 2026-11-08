@@ -231,9 +231,10 @@ function WorkbookChain({
 }) {
   const t = useT();
   const language = useLanguage();
-  const changed = workbook.change
-    ? figure.inputs.find((input) => input.name === workbook.change?.input)
-    : undefined;
+  const changes = workbook.changes.flatMap((change) => {
+    const input = figure.inputs.find((each) => each.name === change.input);
+    return input ? [{ change, input }] : [];
+  });
   const cell = (sheet: string, ref: string | null) => (ref ? `${sheet}!${ref}` : sheet);
   return (
     <>
@@ -255,17 +256,17 @@ function WorkbookChain({
           </p>
         )}
       </div>
-      {changed && workbook.change && (
-        <p className="calculated-figure-note">
+      {changes.map(({ change, input }) => (
+        <p key={change.input} className="calculated-figure-note">
           {t("figures.workbook.change", {
-            input: changed.label,
-            cell: cell(changed.cell?.sheet ?? "", changed.cell?.ref ?? null),
-            from: changed.number.chars,
-            to: workbook.change.shown,
+            input: input.label,
+            cell: cell(input.cell?.sheet ?? "", input.cell?.ref ?? null),
+            from: input.number.chars,
+            to: change.shown,
           })}
         </p>
-      )}
-      {workbook.change && (
+      ))}
+      {changes.length > 0 && (
         <p className="calculated-figure-note">
           {t("figures.workbook.inWorkbook", { value: workbook.savedShown })}
         </p>

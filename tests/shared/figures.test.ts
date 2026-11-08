@@ -780,6 +780,11 @@ const GOLDEN: { name: string; context: FigureContext; cases: Case[] }[] = [
     cases: [
       ["13800138000", []],
       ["电话13800138000", []],
+      // A unit stated in the text makes bare digits an amount unless a label names them a phone or an ID (#2736).
+      ["单位：元\n联系电话：13800138000", []],
+      ["单位：元\n手机：13800138000", []],
+      ["单位：万元\n身份证号：110101199003071234", []],
+      ["单位：元\n联系人：王芳\n电话：13800138000", []],
       ["身份证号110101199003071234", []],
       ["身份证号11010119900307123X", []],
       // Not a mobile's pattern, and an 18-digit run with no birth date in it, stay figures.
@@ -798,6 +803,7 @@ const GOLDEN: { name: string; context: FigureContext; cases: Case[] }[] = [
       ["一百五十万半", [f("一百五十万半", 1505000)]],
       ["一万亿半", [f("一万亿半", 1000050000000)]],
       ["1万2千半", [f("1万2千半", 12500, { scale: "万" })]],
+      ["1.5万半", [f("1.5万半", 20000, { scale: "万" })]],
       ["2万半", [f("2万半", 25000, { scale: "万" })]],
       ["两万半", [f("两万半", 25000, { scale: "万" })]],
       ["两千半导体", [f("两千", 2000)]],
@@ -1754,6 +1760,152 @@ describe("the scale forms a Document states apart from its figures (#2365)", () 
       [5_000_000, { kind: "currency", code: "TWD" }],
     ]);
   });
+});
+
+// protects=#2576; fails_when=a statement line's bracket that repeats the amount in the same scale
+// form, as an elimination's second column does, reads as the same positive amount again, so a
+// sentence that gives the eliminated amount as positive is Supported against the wrong column.
+describe("a statement line's bracket that repeats its amount (#2576)", () => {
+  test.each([
+    [
+      "Intercompany eliminations £3.6m (£3.6m)",
+      EN,
+      [
+        ["£3.6m", 3600000],
+        ["(£3.6m)", -3600000],
+      ],
+    ],
+    [
+      "Eliminations $1.2bn ($1.2bn)",
+      EN,
+      [
+        ["$1.2bn", 1200000000],
+        ["($1.2bn)", -1200000000],
+      ],
+    ],
+    [
+      "Eliminations\t£3.6m\t(£3.6m)",
+      EN,
+      [
+        ["£3.6m", 3600000],
+        ["(£3.6m)", -3600000],
+      ],
+    ],
+    [
+      "Eliminations | £3.6m | (£3.6m)",
+      EN,
+      [
+        ["£3.6m", 3600000],
+        ["(£3.6m)", -3600000],
+      ],
+    ],
+    [
+      "内部往来抵销 3.6亿元 （3.6亿元）",
+      ZH,
+      [
+        ["3.6亿元", 360000000],
+        ["（3.6亿元）", -360000000],
+      ],
+    ],
+    [
+      "抵销 2.5万元 （2.5万元）",
+      ZH,
+      [
+        ["2.5万元", 25000],
+        ["（2.5万元）", -25000],
+      ],
+    ],
+  ] as [text: string, context: FigureContext, figures: [string, number][]][])(
+    "%s",
+    (text, context, figures) => {
+      expect(readFigures(text, context).map((each) => [each.chars, each.value])).toEqual(figures);
+    },
+  );
+
+  test.each([
+    // The sign words and the page's far reaches don't stop the repeated column being a minus (#2576).
+    [
+      "Operating loss £3.6m (£3.6m)",
+      EN,
+      [
+        ["£3.6m", 3600000],
+        ["(£3.6m)", -3600000],
+      ],
+    ],
+    [
+      "净亏损 3.6亿元 （3.6亿元）",
+      ZH,
+      [
+        ["3.6亿元", 360000000],
+        ["（3.6亿元）", -360000000],
+      ],
+    ],
+  ] as [text: string, context: FigureContext, figures: [string, number][]][])(
+    "a loss's statement line reads its bracket as the minus: %s",
+    (text, context, figures) => {
+      expect(readFigures(text, context).map((each) => [each.chars, each.value])).toEqual(figures);
+    },
+  );
+
+  test("a page whose words name a loss, or whose text runs past 400 characters, keeps the minus", () => {
+    const line = "Eliminations £3.6m (£3.6m)";
+    const around = {
+      language: "en" as const,
+      around: { before: "profit or loss and other comprehensive income.", after: "" },
+    };
+    expect(readFigures(line, around).map((each) => each.value)).toEqual([3600000, -3600000]);
+    const far = `${"A note about the prior year.\n".repeat(15)}${line}`;
+    expect(readFigures(far, EN).map((each) => each.value)).toEqual([3600000, -3600000]);
+  });
+
+  test("a Document that says brackets are negative reads the repeated bracket as one", () => {
+    expect(
+      readFigures("Eliminations £3.6m (£3.6m)", { ...EN, negativeBrackets: true }).map(
+        (each) => each.value,
+      ),
+    ).toEqual([3600000, -3600000]);
+  });
+
+  test("a count of people in brackets stays positive, and a range's bracket is no repeat", () => {
+    expect(
+      readFigures("Headcount 1.2m (1.2m)", EN).map((each) => [each.chars, each.value]),
+    ).toEqual([
+      ["1.2m", 1200000],
+      ["(1.2m)", 1200000],
+    ]);
+    expect(
+      readFigures("Revenue £3.6–3.8m (£3.6m)", EN).map((each) => [each.chars, each.value]),
+    ).toEqual([
+      ["£3.6–3.8m", 3600000],
+      ["£3.6m", 3600000],
+    ]);
+  });
+
+  test.each([
+    ["The fund (£2.1bn) invested for years.", EN, [["£2.1bn", 2100000000]]],
+    [
+      "The loss was £5m (£1.2bn including tax).",
+      EN,
+      [
+        ["£5m", 5000000],
+        ["£1.2bn", 1200000000],
+      ],
+    ],
+    ["Seventy-Five Thousand Dollars ($75,000.00)", EN, [["$75,000.00", 75000]]],
+    [
+      "人民币九万八千元（¥98,000）",
+      ZH,
+      [
+        ["人民币九万八千元", 98000],
+        ["¥98,000", 98000],
+      ],
+    ],
+  ] as [text: string, context: FigureContext, figures: [string, number][]][])(
+    "a bracket in running text, a gloss, or an amount in words keeps its reading: %s",
+    (text, context, figures) => {
+      expect(readFigures(text, context).map((each) => [each.chars, each.value])).toEqual(figures);
+    },
+  );
 });
 
 // protects=#2341; fails_when=a bracket that gives the amount just before it again in figures, as

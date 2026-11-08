@@ -181,6 +181,23 @@ export function yearWritten(text: string, thisYear: number): string | null {
 }
 
 /**
+ * A sheet's first Unit as the year reads it (#2462): its rows' cells without the cells that are
+ * only a number. An amount or a count is never the Document's year; a year in a cell's words
+ * ("Annual report 2012") or a date a cell writes ("2019-03-04") still is.
+ */
+export function sheetYearText(text: string): string {
+  return text
+    .split("\n")
+    .map((row) =>
+      row
+        .split("\t")
+        .filter((cell) => !/^\s*[-+]?\d[\d.,]*\s*$/.test(cell))
+        .join("\t"),
+    )
+    .join("\n");
+}
+
+/**
  * A Document's creation date: the first plausible date its metadata gives,
  * in the order given (null where there is none, or it was malformed), or
  * else the year written in its first Unit, or else null.

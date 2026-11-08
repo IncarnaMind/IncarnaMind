@@ -705,7 +705,8 @@ describe("a figure in the words a sentence quotes is stated by its Citation", ()
     },
   );
 
-  test("a figure past an abbreviation the quoted-words check ends its sentence at is not checked", async () => {
+  // protects=the quoted-words check splits sentences with the shared splitter, so "Mr. Smith" ends no sentence and the words before it are checked with the sentence's Citation (#2712); fails_when=the check ends the sentence at "Mr." and leaves the 5% the page doesn't say unchecked; no_claim=how the claim judge reads the sentence.
+  test("a figure the page doesn't state, quoted before an abbreviation, makes its Citation not found", async () => {
     const answer = "The schedule says “The fee is 5% per week,” said Mr. Smith[^1].";
     const citations = await askedCited(
       "What does the schedule say?",
@@ -718,7 +719,10 @@ describe("a figure in the words a sentence quotes is stated by its Citation", ()
       },
     );
 
-    expect(checkOf(citations, 1)).toMatchObject({ check: "not-checked" });
+    expect(checkOf(citations, 1)).toMatchObject({
+      check: "not-found",
+      checkReason: "quoted-words-not-on-pages",
+    });
   });
 
   test("a figure quoted in a table cell and cited in another is not checked", async () => {

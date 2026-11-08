@@ -1659,10 +1659,10 @@ export function createAnswers(options: AnswersOptions) {
      * what-if to the input it changed, never to the cell whose number it isn't.
      */
     const recordWorkbookFigure = (figure: CalculatedFigure): number => {
-      const change = figure.workbook?.change;
+      const [change] = figure.workbook?.changes ?? [];
       const cell = change
         ? figure.inputs.find((input) => input.name === change.input)?.citation
-        : figure.workbook?.cell.input.citation;
+        : (figure.workbook?.text?.citation ?? figure.workbook?.cell.input?.citation);
       const location = cell ? citationLocation(cell) : null;
       const marker = figures.record(
         figure,
@@ -2860,13 +2860,18 @@ export function createAnswers(options: AnswersOptions) {
                 const asText = sourcesAsText(markdown, known);
                 const sourced = linkKnownSources(markdown, known, link);
                 const tables = linkTableSources(sourced.text, link);
+                const checked = session.checkedNodes(quotedWordsIn(tables.markdown));
                 const drawn = withAnalysisPictures(
-                  markdownToBlocks(tables.markdown),
+                  markdownToBlocks(
+                    checked.translated.length > 0
+                      ? withoutQuotationMarks(tables.markdown, new Set(checked.translated))
+                      : tables.markdown,
+                  ),
                   markerAnalyses,
                 );
                 const cited = drawn.flatMap((block, index) =>
                   withCitations([block], (marker) => {
-                    const node = session.checkedNode(marker);
+                    const node = checked.node(marker);
                     if (!node) {
                       unrecorded++;
                       if (firstUnrecorded < 0) firstUnrecorded = index;

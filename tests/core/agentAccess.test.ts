@@ -133,6 +133,7 @@ for (const language of ["en", "zh-CN"] as const) {
     };
     const documents = {
       currentVersion: () => "v2",
+      documentName: () => "Review",
       pageTexts: () => units,
       passagesCovering: () => [{ id: "review", text: units.map((unit) => unit.text).join("\n") }],
     };

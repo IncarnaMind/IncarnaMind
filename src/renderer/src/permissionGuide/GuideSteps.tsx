@@ -43,7 +43,7 @@ export function GuideRow({ on }: { on: boolean }) {
       aria-hidden="true"
       className="my-1 flex h-10 items-center gap-2 rounded-lg bg-frame px-2.5 text-ink"
     >
-      <span className="inline-flex size-6 items-center justify-center rounded-md bg-ink text-[10px] font-bold text-white">
+      <span className="inline-flex size-6 items-center justify-center rounded-md bg-ink text-[10px] font-bold text-on-primary">
         IM
       </span>
       <span className="grow">IncarnaMind</span>
