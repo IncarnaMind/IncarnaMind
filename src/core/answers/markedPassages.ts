@@ -22,9 +22,8 @@
  *   figure the call said that stands beside one of its kind a quote holds or meets the quote's bound
  *   ("At 250 sensors" for "From 200 sensors").
  * - A name any Passage given gives a row (a table row's first cell, a line's lead before its colon,
- *   a capitalised word past a sentence's start, one a table's header names too), which the claim
- *   says and doesn't deny, is in a quote whenever a quote names another: "Team is $52" gets nothing
- *   from "Enterprise plan: $52".
+ *   a capitalised word past a sentence's start), which the claim says and doesn't deny, is in a
+ *   quote whenever a quote names another: "Team is $52" gets nothing from "Enterprise plan: $52".
  * - Words of the Document's name and headings are no evidence, and a heading is never quoted: a
  *   "#" line, a table's header row, a line wholly in bold, or a short line with no closing
  *   punctuation that starts a block (with no figure, unless it stands alone).
@@ -261,7 +260,7 @@ const CJK_AFTER_NEGATION = new Set([..."有是在会能要用必"]);
  * Negations the picker reads beyond those ./unmarkedQuotes counts for every Answer: this path's
  * quotes have no claim check behind them, so it reads more of them as a "not".
  */
-const MORE_NEGATIONS = /^(?:without|cannot|neither|nor|none)$|n’t$/iu;
+const MORE_NEGATIONS = /^(?:without|cannot|neither|nor|none|non)$|n’t$/iu;
 const negating = (word: string) => negates(word) || MORE_NEGATIONS.test(word);
 
 /** The ends of "I'll", "we're" and "they've", which are no words of a claim or a line. */
@@ -618,8 +617,13 @@ interface Read {
   lines: Line[];
   /** The words of its Document's name and of its headings. */
   topic: Set<string>;
-  /** The words of its Document's name alone: a row a table's header names is still a row. */
+  /** The words of its Document's name alone. */
   title: Set<string>;
+  /**
+   * The words of its tables' header rows: a column a comparison table gives a row ("| Feature |
+   * Starter | Growth |") names it as a row's first cell does, though it is no evidence.
+   */
+  columns: Set<string>;
   /** The figures of its Document's name and of its headings: "2026" of "Service levels 2026". */
   topicFigures: Set<string>;
   /**
@@ -730,11 +734,13 @@ function readOf(passage: { text: string; name?: string }): Read {
     rows.flatMap((raw, index) => (raw.trim() === "" || heading[index] ? [] : labelsOf(raw.trim()))),
   );
   let call = false;
+  const columns = new Set<string>();
   for (const [index, raw] of rows.entries()) {
     const row = raw.trim();
     if (row === "") continue;
     if (heading[index]) {
       for (const word of wordSet(row)) topic.add(word);
+      if (row.startsWith("|")) for (const word of wordSet(row)) columns.add(word);
       for (const figure of figuresOf(row)) if (/^\d{4}$/u.test(figure)) topicFigures.add(figure);
       continue;
     }
@@ -760,7 +766,15 @@ function readOf(passage: { text: string; name?: string }): Read {
       }
     }
   }
-  return { lines, topic, title: wordSet(passage.name ?? ""), topicFigures, labels, call };
+  return {
+    lines,
+    topic,
+    title: wordSet(passage.name ?? ""),
+    columns,
+    topicFigures,
+    labels,
+    call,
+  };
 }
 
 /** A marker in a reply, by offset. */
@@ -871,7 +885,8 @@ function holdsClaim(
   // one row's fact said of another. A quote naming nothing ("A faulty device is replaced") may
   // stand for a named thing ("rugged tablets").
   const isName = (word: string) =>
-    names.has(word) && !taken.some((each) => each.read.title.has(word));
+    names.has(word) &&
+    !taken.some((each) => each.read.topic.has(word) && !each.read.columns.has(word));
   // "On Growth, forecasts cost $99" holds no "$99" from "Starter pays $99 a store": a quote about
   // other rows only holds no figure of the claim's.
   const held = new Set(
@@ -934,6 +949,9 @@ const DOCUMENT_WORD = /\b(?:documents?|docs?)\b|文档|资料/iu;
 /** Words saying a Document agrees with what was said. */
 const AGREES =
   /\b(?:agree[sd]?|agreeing|confirm(?:s|ed)?|support(?:s|ed)?|match(?:es|ed)?|consistent|the same)\b|一致|相符|吻合|相同|支持|证实|印证/giu;
+/** A verdict asked or hedged: "does the document agree?", "the document may confirm it", 可能. */
+const UNSURE =
+  /\b(?:may|might|could|would|should|can|does|do|if|whether)\b|[?？]|吗|可能|也许|或许/iu;
 /** Words a verdict may hold beside its agreement: "the kiosk document confirms both", 文档也一致. */
 const VERDICT_WORDS = new Set(["both", "say", "fully", "too", "also", "exactly"]);
 const VERDICT_CHARACTERS = /[与和跟同也都均完全此这该的说法]/gu;
@@ -950,6 +968,7 @@ function documentsSaidOf<P extends { name?: string }>(after: string, documents: 
   const lower = after.toLowerCase();
   if (
     !new RegExp(AGREES.source, "iu").test(lower) ||
+    UNSURE.test(lower) ||
     [...lower.matchAll(TOKEN)].some((found) => negating(found[0]))
   ) {
     return [];
@@ -962,9 +981,7 @@ function documentsSaidOf<P extends { name?: string }>(after: string, documents: 
       name.every((word) => (CJK.test(word) ? lower.includes(word) : words.has(word)))
     );
   });
-  const rest = documents
-    .flatMap((document) => (CJK.test(document.name ?? "") ? [document.name ?? ""] : []))
-    .reduce((text, name) => text.split(name.toLowerCase()).join(" "), lower)
+  const rest = lower
     .replace(AGREES, " ")
     .replace(new RegExp(DOCUMENT_WORD.source, "giu"), " ")
     .replace(VERDICT_CHARACTERS, " ");
@@ -1002,6 +1019,12 @@ const timesOf = (text: string) =>
     }),
   );
 
+/**
+ * The least share of what a check says was said that a Document line no model named holds, in
+ * words: "support is open on weekends" shares two of three with "Support is open on weekdays".
+ */
+const MIN_AGREED_SHARE = 0.7;
+
 /** Words that hold a line to less than all: "on Chain only", "every plan but Starter", 仅限. */
 const RESTRICTS = /\b(?:only|except|but|unless|excluding|reserved)\b|仅|只|除/giu;
 const restrictionsOf = (text: string) =>
@@ -1014,20 +1037,36 @@ const OPPOSITES: readonly (readonly [RegExp, RegExp])[] = [
   [/\bpaid\b/iu, /\bunpaid\b/iu],
   [/\b(?:includ(?:e|es|ed|ing)|count(?:s|ed)?)\b/iu, /\bexclud(?:e|es|ed|ing)\b/iu],
   [/\b(?:more than|over|above)\b|超过|以上/iu, /\b(?:less than|under|below)\b|不到|以下/iu],
+  [/\b(?:every|all)\b|所有|全部/iu, /\bsome\b|部分/iu],
+  [/\b(?:we|our|us)\b|我们/iu, /\b(?:customers?|clients?)\b|客户/iu],
 ];
 
 /**
  * Whether quotes say all of a check's sentence that a Document agrees with, as no model named them:
  * each figure of its kind and unit exactly ("40 hours" is no "40 shifts", "every hour" no "every
- * night"), each unit of time it names ("a month" is no "a year"), no row it doesn't name, no
- * "only" or "but" it doesn't say, and no word whose opposite it says ("before" and "after",
- * "minimum" and "maximum", "included" and "excluded").
+ * night"), each unit of time it names ("a month" is no "a year"), most of its words, no row it
+ * doesn't name, no "only" or "but" it doesn't say, and no word whose opposite it says ("before"
+ * and "after", "minimum" and "maximum", "included" and "excluded", "we" and "the customer").
  */
-function saysWholly(what: Claim, quotes: readonly Line[], isRow: (word: string) => boolean) {
+function saysWholly(
+  what: Claim,
+  quotes: readonly Line[],
+  isRow: (word: string) => boolean,
+  title: ReadonlySet<string>,
+) {
   const figures = new Set(quotes.flatMap((line) => [...line.figures]));
+  const content = (word: string) =>
+    !title.has(word) && !VERDICT_WORDS.has(word) && !/^(?:said|say|you|document|doc)$/u.test(word);
+  const cjk = (text: string) => text.replace(AGREES, " ").replace(/你说|对方说|文档|资料/gu, " ");
+  const all = amount(claimOf(cjk(what.text)), content);
+  const held = amount(
+    claimOf(cjk(what.text)),
+    (word) => content(word) && quotes.some((line) => holdsTerm(line, word)),
+  );
   const times = new Set(quotes.flatMap((line) => [...timesOf(line.quote)]));
   const limits = restrictionsOf(what.text);
   return (
+    held >= all * MIN_AGREED_SHARE &&
     figuresOf(what.text).every((figure) => figures.has(figure)) &&
     [...timesOf(what.text)].every((unit) => times.has(unit)) &&
     quotes.every((line) => [...line.words].every((word) => !isRow(word) || what.words.has(word))) &&
@@ -1063,7 +1102,7 @@ function agreeingLines<P extends { id: string; text: string; name?: string }>(
     if (
       each.quotes.length === 0 ||
       !holdsClaim(what, [each], said, names) ||
-      !saysWholly(what, each.quotes, isRow)
+      !saysWholly(what, each.quotes, isRow, read.title)
     ) {
       continue;
     }
@@ -1206,7 +1245,7 @@ export function markedPassages(
  */
 function quotesFor(
   passage: string,
-  { lines, topic, title }: Read,
+  { lines, topic }: Read,
   claim: Claim,
   said: ReadonlySet<string>,
   names: ReadonlySet<string>,
@@ -1242,7 +1281,7 @@ function quotesFor(
   // lines, each sharing a few of its words, would make it look stated. Another line saying the
   // opposite is never quoted.
   const turned = new Set(lines.filter((line) => contradicts(claim, line, names)));
-  const isRow = (word: string) => names.has(word) && !title.has(word);
+  const isRow = (word: string) => names.has(word) && !topic.has(word);
   // "They will start with 100 sensors" is no quote of the User's own "Most teams start with 100".
   const saidBy = (line: Line) => !claim.side || !line.side || line.side === claim.side;
   const likest = lines.reduce<Line | undefined>(

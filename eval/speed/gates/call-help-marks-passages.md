@@ -393,6 +393,15 @@ The pre-review found ways the first version of this code showed a quote as found
 - **The line found for such a sentence, which no model named,** gives each figure of its kind and unit exactly ("40 hours" is no "40 shifts"), each unit of time the sentence names ("a month" is no "a year"), no row the sentence doesn't name, and no "only", "but" or 只 that the sentence doesn't say.
 - **A sentence is read clause by clause only when each clause names rows of its own.** A clause is never quoted when its whole sentence says the claim's opposite. A further quote naming only rows other than the claim's is never added, and a quote naming only other rows holds none of the claim's figures.
 - **The window a marker names keeps its quote,** as before. Taking the window holding the most of the claim picked a line with another figure (25 admins for 40), and the diagnosed press didn't need it.
+- **Second and third rounds of the same pre-review, still before any run:**
+  - The words after the markers must be nothing but the verdict. A hedged or asked one ("may confirm it", "does it agree?") doesn't count.
+  - The call's line must hold the sentence too.
+  - The Document line must hold at least 0.7 of the sentence's words.
+  - It must not say the other side of a pair: before/after, minimum/maximum, at least/up to, paid/unpaid, included/excluded, more/less than, every/some, we/the customer, 前/后, 最少/最多, 超过/不到.
+  - Its "only", "but" or 只 must be the sentence's own.
+  - "non-" counts as a negation.
+  - A table header's columns count as rows. A "#" heading's row may stay out of the lines under it, as before.
+  - Still listed below: an opposite said in other words that none of these catch.
 
 ### The slice
 

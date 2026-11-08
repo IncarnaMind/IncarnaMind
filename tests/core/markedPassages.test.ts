@@ -942,6 +942,14 @@ describe("A check that says a Document agrees, and a sentence about two rows", (
         none,
       ).text,
     ).toBe(`**${SAID} [^1]; the Payroll export supports this [^2].**`);
+    expect(
+      markedPassages(
+        `${SAID} [^1]; the payroll export document confirms both.`,
+        [call, payroll, privacy],
+        everywhere,
+        none,
+      ).text,
+    ).toBe(`${SAID} [^1]; the payroll export document confirms both [^2].`);
     const sundays = {
       id: "P5",
       name: "Overtime rules",
@@ -976,6 +984,14 @@ describe("A check that says a Document agrees, and a sentence about two rows", (
         none,
       ).text,
     ).toBe("你说加班默认每周超过 40 小时、门店可改为每天超过 8 小时 [^1]；文档一致 [^2]");
+    expect(
+      markedPassages(
+        "你说加班默认每周超过 40 小时、门店可改为每天超过 8 小时 [^1]，跟工资导出也一致",
+        [zhCall, zhPayroll],
+        everywhere,
+        none,
+      ).text,
+    ).toBe("你说加班默认每周超过 40 小时、门店可改为每天超过 8 小时 [^1]，跟工资导出也一致 [^2]");
   });
 
   // protects=such a sentence shows uncited when no line of the Documents it names holds all of it: a figure only the call said, another row, a figure it adds after saying the Document agrees, or a line only another Document holds; fails_when=the call's line stays found under a sentence the Document doesn't support, or a line holding part of it is recorded at its end (#2526).
@@ -1040,6 +1056,17 @@ describe("A check that says a Document agrees, and a sentence about two rows", (
       ["发票在到期日前 5 天发出", "发票在到期日后 5 天发出。"],
       ["最少订 50 个席位", "最多订 50 个席位。"],
       ["预测每月 99 元", "预测每年 99 元。"],
+      ["support is open on weekends", "Support is open on weekdays from 9:00 to 18:00."],
+      ["it costs $45 per seat", "It costs $45 per store."],
+      ["onboarding takes 6 weeks", "Payroll setup takes 6 weeks."],
+      ["the deposit is refundable", "The deposit is non-refundable."],
+      ["every plan includes single sign-on", "Some plans include single sign-on."],
+      ["we cover shipping", "The customer covers shipping."],
+      ["exports are included on every plan", "Exports are excluded on every plan."],
+      ["single sign-on is included for admins", "Single sign-on is included for admins on Chain."],
+      ["orders of more than 50 seats get 10% off", "Orders of less than 50 seats get 10% off."],
+      ["客服工作日开放", "客服周末开放。"],
+      ["上门安装免费", "上门安装另外收费。"],
     ]) {
       const heard = { id: "P1", text: `[0:02 Me] ${said}.` };
       const document = {
@@ -1080,6 +1107,8 @@ describe("A check that says a Document agrees, and a sentence about two rows", (
       `${SAID} [^1]; the payroll export agrees and adds weekend rates.`,
       `${SAID} [^1]; the payroll export matches nothing like that.`,
       `${SAID} [^1], as in the payroll export document.`,
+      `${SAID} [^1]; the payroll export may confirm it.`,
+      `${SAID} [^1]; does the payroll export agree?`,
     ]) {
       expect(markedPassages(reply, [call, payroll, privacy], everywhere, none).text, reply).toBe(
         reply,
@@ -1203,6 +1232,29 @@ describe("A check that says a Document agrees, and a sentence about two rows", (
         none,
       ).records,
     ).toEqual([]);
+  });
+
+  // protects=on every marker, a row named in a "#" heading over its lines may be left out of a quote under it, as before, so "Enterprise includes single sign-on" is quoted from "Single sign-on is included, unlike Team." under "## Enterprise", in English and Chinese; fails_when=a heading's row must be in the line, so these correct Citations are refused (#2526).
+  test("a row a heading names may stay out of the lines under it", () => {
+    const plans = {
+      id: "P2",
+      text: "# Plans\n\n| Plan | Price |\n|---|---|\n| Team | $29 |\n| Business | $55 |\n| Enterprise | $45 |\n\n## Enterprise\n\nSingle sign-on is included, unlike Team.\n\nPrice: $45 a seat, $10 less than Business.",
+    };
+    for (const [reply, quote] of [
+      ["Enterprise includes single sign-on [^2]", "Single sign-on is included, unlike Team."],
+      ["Enterprise is $45 a seat [^2]", "Price: $45 a seat, $10 less than Business."],
+    ] as const) {
+      expect(markedPassages(reply, [plans], everywhere, none).records, reply).toEqual([
+        { marker: 2, passage: "P2", quote },
+      ]);
+    }
+    const zh = {
+      id: "P2",
+      text: "# 方案\n\n| 方案 | 每家门店每月 |\n|---|---|\n| 成长版 | 549 元 |\n| 连锁版 | 869 元 |\n\n## 连锁版\n\n每家门店每月比成长版贵 320 元，含单点登录。",
+    };
+    expect(markedPassages("连锁版含单点登录 [^2]", [zh], everywhere, none).records).toEqual([
+      { marker: 2, passage: "P2", quote: "每家门店每月比成长版贵 320 元，含单点登录。" },
+    ]);
   });
 
   // protects="I'll" gives no word "ll", so two lines sharing "I'll" and one word aren't a quote of each other; fails_when="I'll put the dates in writing" is quoted for "I'll send the prices in writing" (#2526).
