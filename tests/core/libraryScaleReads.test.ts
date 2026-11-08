@@ -67,7 +67,7 @@ test("the ready Question reads as much with 12 Documents as with 2, and asks abo
   for (const count of [2, 12]) {
     const core = await libraryOf(count);
     const { reads, asked } = readsOf(() => core.readyQuestion());
-    expect((await asked)?.scope?.documentIds).toHaveLength(count);
+    expect((await asked).ready?.scope?.documentIds).toHaveLength(count);
     counts.push(reads);
   }
   expect(counts[0]).toBeGreaterThan(0);

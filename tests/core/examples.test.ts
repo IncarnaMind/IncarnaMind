@@ -205,7 +205,7 @@ describe("the example Mind", { timeout: 30_000 }, () => {
     const made = await core.offerExamples();
     const mindId = made?.mindId as string;
     await vi.waitFor(async () =>
-      expect((await core.readyQuestion())?.question).toBe("What’s the leverage cap?"),
+      expect((await core.readyQuestion()).ready?.question).toBe("What’s the leverage cap?"),
     );
     const answerEvents = vi.fn();
     core.on("answer.started", answerEvents);
@@ -290,7 +290,7 @@ describe("the example Mind", { timeout: 30_000 }, () => {
 
   test("there is no ready Question without the credit paper", async () => {
     const core = startCore(await createTempDataFolder());
-    expect(await core.readyQuestion()).toBeNull();
+    expect((await core.readyQuestion()).ready).toBeNull();
     await expect(core.askExampleReadyQuestion()).rejects.toThrow(
       "The example isn’t there any more. Add a file of your own to ask about it.",
     );
@@ -845,7 +845,7 @@ describe("the example Mind follows the interface language (#709)", { timeout: 60
       expect(await current.getExamples()).toMatchObject({
         linkedFolderId: made.linkedFolderId,
       });
-      expect((await current.readyQuestion())?.question).toBe(set.ready?.question);
+      expect((await current.readyQuestion()).ready?.question).toBe(set.ready?.question);
       const stillThere = (await current.listDocuments()).map((each) => each.id);
       for (const document of cited) expect(stillThere).toContain(document.id);
       await expect(access(join(dataDir, set.folder))).resolves.toBeUndefined();
@@ -1016,7 +1016,7 @@ describe("the example Minds of each group", { timeout: 90_000 }, () => {
 
         // The first open's ready Question quotes the same Documents, every Citation found.
         if (set.ready) {
-          expect((await core.readyQuestion())?.question).toBe(set.ready.question);
+          expect((await core.readyQuestion()).ready?.question).toBe(set.ready.question);
           const asked = await core.askExampleReadyQuestion();
           const { messages } = await core.getConversation(asked.conversationId);
           const answer = messages.find((each) => each.kind === "answer");
@@ -1029,7 +1029,7 @@ describe("the example Minds of each group", { timeout: 90_000 }, () => {
               })),
           ).toEqual(set.ready.quotes.map((quote) => ({ ...quote, check: "found" })));
         } else {
-          expect(await core.readyQuestion()).toBeNull();
+          expect((await core.readyQuestion()).ready).toBeNull();
         }
       });
     }

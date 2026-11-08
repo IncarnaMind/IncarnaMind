@@ -7,7 +7,6 @@ import {
   useState,
 } from "react";
 import type { CommandId } from "../../../shared/commands";
-import { displayName } from "../../../shared/documentNames";
 import type { MessageKey } from "../../../shared/i18n";
 import { fitName } from "../../../shared/naming";
 import { type AskBlock, useAnswers } from "../answers";
@@ -24,7 +23,7 @@ import { openModelSetup } from "../modelSetup";
 import { stepsShownOf } from "../nudges";
 import { revealAssistant } from "../quietAssistant";
 import { readyRowOf } from "../readyRow";
-import { allExamples, isOwnDocument, useAppStore } from "../store";
+import { useAppStore } from "../store";
 import { useUnreadFiles } from "../unreadFiles";
 import { ExampleBanner } from "./GettingStarted";
 import { ChatLineIcon, CheckLineIcon, CloseLineIcon, PlusLineIcon } from "./lineIcons";
@@ -137,15 +136,9 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
   const askingReady = useReadyAsk((state) => state.asking);
   const readyWaiting = useReadyAsk((state) => state.waitingFor);
   const writing = useAnswers((state) => state.writing.size > 0);
-  // The newest of the User's own Documents still being read: the row says so while it waits.
-  const reading = useAppStore((state) => {
-    const found = state.documents.find(
-      (each) =>
-        isOwnDocument(each, allExamples(state)) &&
-        (each.status === "queued" || each.status === "extracting"),
-    );
-    return found ? displayName(found) : null;
-  });
+  // The core names the newest of the User's own Documents still being read with the ready
+  // Question: the row says so while it waits, with no second read here (#2127).
+  const reading = useAppStore((state) => state.readyReading);
   const addFiles = useRef<HTMLButtonElement>(null);
   const card = useRef<HTMLElement>(null);
   // The ready Question's button goes once it is asked: the focus moves on to the next step.
