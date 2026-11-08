@@ -4,7 +4,7 @@ Written and committed on 2026-11-08, before any run it gates, together with the 
 
 ## The change
 
-There are two parts. Both come from the sort on #2847, which read 89 Chinese presses with a false Supported.
+There are two parts. Both come from the sort on #2847, which read 89 Chinese presses with a false Supported: 46 from the fastest-model run (Claude Sonnet 5.5 and Claude Haiku 5.5, 23 each) and 43 from the form-kept runs (Claude Haiku 5.5).
 
 1. **Call help gives a Citation only where the model wrote its marker.**
    - A record the model left unmarked is dropped. Today it is placed on the sentence or paragraph that shares the most words with it.
@@ -59,3 +59,14 @@ Per model and language, a range is the lowest and highest count over the two run
 - The spend and the load.
 
 If a line fails, the change doesn't ship as it is, and the numbers go on #2847 so that the next try starts there.
+
+## Amendments, 2026-11-08, before any run of `call-help-chinese`
+
+From the independent pre-review, made before the slice's first run:
+
+- **Two expected answers named more than their Documents say.**
+  - zh7-answer-unknown now names the nearby fact the Document gives: "冷链监控只写了传感器每台每月 45 元，没有写是否防水…".
+  - zh7-no-term no longer says the price sheet gives 九五折 "only" for two years, which it doesn't: "价目表只写了两年合约月费打九五折，没有一年合约的折扣。"
+- **The marker rule's wording changed** so that it doesn't keep a fact out of a question or an earlier offer: "A promise, offer or question the User would make now gets none, though a fact inside it, or what was said earlier in the call, gets its line's marker". The pilot had already started on the earlier wording ("what the User would promise, offer or ask gets none"). The gate's runs use this one.
+- **What the judge reads.** It reads the whole sentence that carries a Citation against that Citation's quote, so a clause after a mid-sentence marker still counts. The second part of the change can move the bar only where the judge reads a marker as covering the words before it. The bar is unchanged.
+- **What this gate doesn't measure.** A marker the model wrote with no record now loses its Citation instead of being matched to a line. A model on structured output (a local model with no Tools) that gives records without markers now shows no Citation where main placed them. Neither happens to the Tool-calling Anthropic models this gate runs; unit tests hold both.
