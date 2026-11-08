@@ -5312,6 +5312,7 @@ export const en = {
 
   "error.load": "IncarnaMind couldn’t load your data: {message}",
   "error.action": "That didn’t work: {message}",
+  "error.action.plain": "That didn’t work.",
   "error.dismiss": "Dismiss",
   "error.details": "Details",
   "panel.failed": "This panel stopped working",
@@ -5373,7 +5374,9 @@ export const en = {
   "error.doing.noun.library": "the Library",
   "error.details.tried": "IncarnaMind was {doing} when this happened.",
   "error.details.tried.unknown": "IncarnaMind was doing what you asked when this happened.",
+  "error.details.internal": "Something went wrong inside IncarnaMind.",
   "error.details.todo": "Try again. If it keeps happening, restart IncarnaMind.",
+  "error.details.todo.stale": "Restart IncarnaMind, then try again.",
   "error.details.todo.notAllowed":
     "Check that IncarnaMind may use that file or folder, then try again.",
   "error.details.todo.full": "Free up some space on the disk, then try again.",

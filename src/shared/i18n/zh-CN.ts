@@ -5076,6 +5076,7 @@ export const zhCN = {
 
   "error.load": "IncarnaMind 无法加载你的数据：{message}",
   "error.action": "无法完成操作：{message}",
+  "error.action.plain": "无法完成操作。",
   "error.dismiss": "关闭",
   "error.details": "详情",
   "panel.failed": "此面板出错了",
@@ -5137,7 +5138,9 @@ export const zhCN = {
   "error.doing.noun.library": "资料库",
   "error.details.tried": "出错时，IncarnaMind 正在{doing}。",
   "error.details.tried.unknown": "出错时，IncarnaMind 正在执行你要求的操作。",
+  "error.details.internal": "IncarnaMind 内部出了问题。",
   "error.details.todo": "请重试；如果仍然出错，请重启 IncarnaMind。",
+  "error.details.todo.stale": "请重启 IncarnaMind，然后重试。",
   "error.details.todo.notAllowed": "请确认 IncarnaMind 有权使用这个文件或文件夹，然后重试。",
   "error.details.todo.full": "请先腾出一些磁盘空间，然后重试。",
   "error.details.todo.diskError": "请检查磁盘是否已连接且工作正常，然后重试。",
