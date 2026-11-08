@@ -161,19 +161,18 @@ for (const language of ["en", "zh-CN"] as const) {
       await setSidebarWidth(window, SIDEBAR_DEFAULT);
 
       // The sidebar's way to link: ⌘K's Link a folder asks the system for a folder and opens its
-      // dialog, which Cancel closes with nothing linked.
+      // dialog, which Esc closes with nothing linked, the focus back where it was.
       await answer({ canceled: false, filePaths: [folder] });
+      await window.getByTestId("plus-menu").focus();
       await runCommand(window, "linkedFolder.add", link);
       await expect(window.getByTestId("palette")).toBeHidden();
       await expect.poll(async () => (await asked()).length).toBe(1);
       await expect(dialog).toBeVisible();
       await expect(dialog.getByTestId("link-folder-files")).toBeVisible();
       expect((await asked()).at(-1)).toBe("openDirectory");
-      // Cancel, not Esc: a dialog opened from ⌘K doesn't take Esc (#2752); the Library's below does.
-      await dialog
-        .getByRole("button", { name: translate(language, "linkedFolders.preview.cancel") })
-        .click();
+      await window.keyboard.press("Escape");
       await expect(dialog).toBeHidden();
+      await expect(window.getByTestId("plus-menu")).toBeFocused();
 
       // The sidebar's + menu adds files, and the file the sheet answers is added: the sidebar's
       // count moves and its empty line gives way to the Document's row.

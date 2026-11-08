@@ -1454,7 +1454,16 @@ export function createAnswers(options: AnswersOptions) {
     const covered = () => {
       if (coverage || outside || finishedAt === null) return coverage;
       if (namedAtEnd === undefined) {
-        const { cited, passages, searched } = session.documentsRead();
+        const read = session.documentsRead();
+        // What it wrote into a Note cites what it used as much as its reply does (#2768); the last
+        // Answer written in as it was cites what that Answer used.
+        const written = toolCalls.flatMap((call) =>
+          call.input.answer === true ? [] : (call.mindChange?.citations ?? []),
+        );
+        const cited = [
+          ...new Set([...read.cited, ...written.map((citation) => citation.documentId)]),
+        ];
+        const { passages, searched } = read;
         const titles = new Map(options.documents.names().map((each) => [each.id, each.title]));
         namedAtEnd = namedCoverage(
           context.question,

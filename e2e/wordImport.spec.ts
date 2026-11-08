@@ -571,6 +571,49 @@ test("Export writes back into the Word file: the User's edits tracked under thei
   await app.close();
 });
 
+// protects=a test launch names its User Test Author, before any name is set, so no capture or export made from it shows the account's real name (#2762); fails_when=Settings shows the account's name, or the exported tracked edits are written under it; no_claim=the real account lookup, which the unit test covers.
+test("a test launch names Test Author, in Settings and on the edits it exports", async () => {
+  const kept = paragraph("Keep this paragraph as it is.", { paraId: "0A0B0C0D" });
+  const path = join(files, "Memo.docx");
+  await writeFile(
+    path,
+    wordFile({ body: [kept, paragraph(`${run("First sales in ")}${run("spring.")}`)].join("") }),
+  );
+  const { app, window } = await launchApp(dataDir, { home });
+  await dismissChatSetup(window);
+  const output = join(files, "Exports");
+  await mkdir(output);
+  await useOutputLocation(window, output);
+
+  const settings = await openSettings(window, "general");
+  await expect(settings.getByTestId("author-name")).toHaveValue("Test Author");
+  await closeSettings(window);
+
+  await interceptOpenDialog(app, path);
+  const dialog = await importWordFromMenu(window);
+  await dialog.getByTestId("word-import-confirm").click();
+
+  const editor = window.getByTestId("mind-editor");
+  const line = editor.locator("p", { hasText: "First sales in" });
+  await line.click({ clickCount: 3 });
+  await expect
+    .poll(() => window.evaluate(() => getSelection()?.toString()))
+    .toContain("First sales in");
+  await window.keyboard.press("Backspace");
+  await expect(editor).not.toContainText("First sales in");
+
+  await exportFromMenu(window);
+  await expect(window.getByTestId("export-result").getByTestId("export-done")).toContainText(
+    savedLine("Memo.docx", output),
+  );
+  const tracked =
+    unzip(await readFile(join(output, "Memo.docx")))
+      .get("word/document.xml")
+      ?.toString("utf8") ?? "";
+  expect(tracked).toMatch(/<w:del w:id="\d+" w:author="Test Author" w:date="[^"]+">/);
+  await app.close();
+});
+
 const CAP =
   "Each party's total liability is capped at the fees paid in the twelve months before the claim.";
 

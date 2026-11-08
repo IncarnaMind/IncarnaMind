@@ -6283,7 +6283,7 @@ export const zhCN = {
   "meetings.views.label": "会议视图",
   "meetings.views.notes": "笔记",
   "meetings.views.transcript": "转写稿",
-  "meetings.views.switch": "切换视图（{keys}）",
+  "meetings.views.switch": "切换视图（表格外：{keys}）",
   "meetings.views.mine": "我的笔记",
   "meetings.views.showNotes": "显示笔记",
   "meetings.views.showMine": "显示我的笔记",

@@ -279,6 +279,24 @@ export function nameGroups(words: readonly string[], found: Findings): PaletteGr
   });
 }
 
+/**
+ * The name groups and the action group as the palette lists them: the actions above the names
+ * when their first matches the words typed more closely than any name does, so Enter runs Check
+ * rather than opening the Note named "Checking: Estuary memo" (#2771).
+ */
+export function rankedNamesAndActions(
+  names: readonly PaletteGroup[],
+  actions: readonly PaletteGroup[],
+  words: readonly string[],
+): PaletteGroup[] {
+  const score = (item: PaletteItem | undefined) =>
+    item === undefined ? -Infinity : (matchName(words, item.name)?.score ?? -Infinity);
+  const closestName = Math.max(-Infinity, ...names.map((group) => score(group.items[0])));
+  return score(actions[0]?.items[0]) > closestName
+    ? [...actions, ...names]
+    : [...names, ...actions];
+}
+
 /** With nothing typed: the Minds edited last, other than the one in front. */
 export function recentGroup(
   minds: readonly Mind[],

@@ -6639,7 +6639,7 @@ export const en = {
   "meetings.views.label": "Meeting views",
   "meetings.views.notes": "Notes",
   "meetings.views.transcript": "Transcript",
-  "meetings.views.switch": "Switch views ({keys})",
+  "meetings.views.switch": "Switch views (outside a table: {keys})",
   "meetings.views.mine": "My notes",
   "meetings.views.showNotes": "Show notes",
   "meetings.views.showMine": "Show my notes",
