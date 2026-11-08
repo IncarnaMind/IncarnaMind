@@ -589,6 +589,42 @@ function paragraphHint(
     : `The request may mean paragraph ${index}.`;
 }
 
+/** The section under `heading`, as indexes into `all`: to the next heading as high or higher. */
+function sectionSpan(all: readonly Y.XmlElement[], heading: Y.XmlElement): BlockSpan {
+  const from = all.indexOf(heading);
+  const level = levelOf(heading);
+  const end = all.findIndex(
+    (element, index) => index > from && element.nodeName === "heading" && levelOf(element) <= level,
+  );
+  return { from, to: end < 0 ? all.length : end };
+}
+
+/** Text blocks of a Mind by their order, `to` not included. */
+export interface BlockSpan {
+  from: number;
+  to: number;
+}
+
+/**
+ * Where `part` is in a Mind as edit_mind finds it: a heading's section, the sections under it
+ * included, or the one paragraph it starts; null when it names none, or more than one.
+ */
+export function partSpan(blocks: Y.XmlFragment, part: string): BlockSpan | null {
+  const all = textBlocks(blocks).map((each) => each.element);
+  const matches = namedBlocks(
+    all.filter((element) => isHeading(element)),
+    all,
+    part,
+  );
+  const [heading] = matches;
+  if (matches.length > 1) return null;
+  if (heading) return sectionSpan(all, heading);
+  const paragraph = paragraphNamed(all, part);
+  if (!paragraph) return null;
+  const at = all.indexOf(paragraph);
+  return { from: at, to: at + 1 };
+}
+
 function stretchOf(
   blocks: Y.XmlFragment,
   part: string | null,
@@ -611,13 +647,8 @@ function stretchOf(
     }
     const heading = matches[0];
     if (heading) {
-      const start = all.indexOf(heading);
-      const level = levelOf(heading);
-      const end = all.findIndex(
-        (element, index) =>
-          index > start && element.nodeName === "heading" && levelOf(element) <= level,
-      );
-      chosen = all.slice(start, end < 0 ? all.length : end);
+      const { from, to } = sectionSpan(all, heading);
+      chosen = all.slice(from, to);
     } else {
       const paragraph = paragraphNamed(all, part);
       if (!paragraph) {
@@ -2853,8 +2884,8 @@ export function mindTools(options: MindToolsOptions): {
       properties: {
         title: {
           type: "string",
-          // "Their language" alone gave an English request's Note a Chinese name (#2770).
-          description: `A short title, from the User's words, in ${LANGUAGE_NAMES[options.language]}, the language of their request, whatever language the Documents are in.`,
+          // Named outright: told "their language", a model may take the Documents' (#2770).
+          description: `A short title, from the User's words, in ${LANGUAGE_NAMES[options.language]}, the language of their request, whatever language the Documents are in. A name the User gives is kept as they wrote it.`,
         },
         ...chartProperty,
         content: contentProperty,

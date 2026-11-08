@@ -197,7 +197,7 @@ describe("The everyday request guards", () => {
     expect(failureLine({ kind: "not-longer" })).toBe("changed the text but did not make it longer");
   });
 
-  // protects=an edit that makes the summary longer by inserting paragraphs reads longer, while one that takes text out reads shorter, headings left out (#2769); fails_when=the inserted Blocks aren't counted, or a heading is; no_claim=what counts as the summary.
+  // protects=an edit that makes the summary longer by inserting paragraphs among it reads longer, while one that takes text out, or adds a paragraph past the User's other text, reads shorter, headings left out (#2769); fails_when=the inserted Blocks aren't counted, or a heading or a Block outside the summary is; no_claim=what counts as the summary.
   test("a summary made longer with inserted paragraphs reads longer", () => {
     const before = new Map([
       ["h", "Summary"],
@@ -219,6 +219,15 @@ describe("The everyday request guards", () => {
       ["h2", "A much longer heading that adds nothing to the summary's text at all"],
     ]);
     expect(readsLonger(before, cut, summary, headings)).toBe(false);
+    const elsewhere = new Map([
+      ["h", "Summary"],
+      ["p1", "GraphST learns region embeddings."],
+      ["p2", "It is tested."],
+      ["o", "Other notes the User keeps."],
+      ["n2", "A long paragraph the edit put after the User's own notes, not in the summary."],
+    ]);
+    const withOther = new Map([...before, ["o", "Other notes the User keeps."]]);
+    expect(readsLonger(withOther, elsewhere, summary, headings)).toBe(false);
   });
 
   // protects=a Note made for an English request is named without Chinese, and one for a Chinese request with it, and the request fails naming the Note otherwise (#2770); fails_when=the mixed name of the report passes, or a Chinese name with a Latin product name fails; no_claim=the Note's text.

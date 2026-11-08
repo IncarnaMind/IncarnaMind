@@ -231,7 +231,12 @@ import { type CommandRename, renamesIn } from "../tools/commands/policy";
 import type { CommandsHost } from "../tools/commands/run";
 import type { CommandSteps } from "../tools/commands/steps";
 import { commandTools } from "../tools/commands/tools";
-import { type MindsForTools, type MindToolsOptions, mindTools } from "../tools/minds/tools";
+import {
+  type MindsForTools,
+  type MindToolsOptions,
+  mindTools,
+  partSpan,
+} from "../tools/minds/tools";
 import { asksForWeb } from "../tools/web/intent";
 import { type SavedPage, webTools } from "../tools/web/tools";
 import { formulaCells } from "../workbooks/formulaCells";
@@ -3295,6 +3300,8 @@ export function createAnswers(options: AnswersOptions) {
                         model: judgeModel,
                         names: options.readableMindName,
                         states: appliedInTurn,
+                        parts: (mindId, part) =>
+                          minds?.read(mindId, (blocks) => partSpan(blocks, part)) ?? null,
                         signal: controller.signal,
                       }),
                     );

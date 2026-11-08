@@ -2,6 +2,7 @@ import type { JSONContent } from "@tiptap/core";
 import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test, vi } from "vitest";
 import type { Core } from "../../src/core";
+import { CLAIM_CHECK_INSTRUCTIONS } from "../../src/core/answers/claimedChanges";
 import { changedMinds } from "../../src/renderer/src/changedMinds";
 import { appliedFact, changeFact } from "../../src/renderer/src/changeFacts";
 import { ownTextRemoved } from "../../src/shared/askedChanges";
@@ -289,6 +290,68 @@ describe("The assistant changes Minds as Proposals", { timeout: 30_000 }, () => 
       },
     ]);
   });
+
+  // protects=the claim check is told which part of a Note no change reached, read from the Note itself: a section whose edit was refused while a section beside it changed is named, and one with a changed section nested under it isn't, in English and Chinese (#2769); fails_when=the check reads only that the Note changed, or reads a nested section as another place; no_claim=the judge's verdict (the probes and runs).
+  test.each([
+    ["Risks", "Outlook", "Outlook", true],
+    ["Summary", "Detail", "Detail", false],
+    ["风险", "下周计划", "下周计划", true],
+  ] as const)(
+    "a refused part is named unchanged only beside the part that changed: %s, %s",
+    async (refused, other, changedPart, named) => {
+      const records: string[] = [];
+      const model = scriptedModel(
+        (call: ModelCall): ScriptedReply => {
+          const edited = shortened(call);
+          if (edited) return edited;
+          if (call.results.length === 0) {
+            return {
+              calls: [
+                {
+                  tool: "edit_mind",
+                  input: { part: refused, content: `## ${refused}\n\nNew text.` },
+                },
+              ],
+            };
+          }
+          if (call.results.length === 1) {
+            return {
+              calls: [
+                { tool: "edit_mind", input: { part: changedPart, instruction: "Shorten it" } },
+              ],
+            };
+          }
+          return { text: `The ${refused} section is shorter now.` };
+        },
+        {
+          generate: (call) => {
+            if (call.system.includes(CLAIM_CHECK_INSTRUCTIONS)) records.push(call.prompt);
+            return { text: '{"claims":[]}' };
+          },
+        },
+      );
+      const core = startCore(await createTempDataFolder(), {
+        createChatModel: scriptedModels(model).createChatModel,
+      });
+      await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+      const mind = await core.createMind({ title: "Q3 review" });
+      const client = await connectToMind(core, mind.id);
+      writeMind(client, [
+        heading(2, refused),
+        note("The risk is very high this quarter."),
+        heading(refused === "Summary" ? 3 : 2, other),
+        note("The outlook is really good for spring."),
+      ]);
+      await client.settled();
+
+      const answer = await ask(core, { text: "Shorten the sections", mindId: mind.id });
+
+      expect(mindCalls(answer).map((call) => call.status)).toEqual(["failed", "done"]);
+      const record = records.at(-1) ?? "";
+      expect(record).toContain(`"tool": "edit_mind"`);
+      expect(record.includes(`"nothingChangedIn": "${refused}"`)).toBe(named);
+    },
+  );
 
   // protects=create_mind asks for the new Note's name in the request's language, named outright, English for an English request and Simplified Chinese for a Chinese one (#2770); fails_when=it asks for "their language" alone, which gave an English request a Chinese name; no_claim=the name a real model gives (the pull request's runs).
   test.each([

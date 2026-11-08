@@ -19,6 +19,13 @@ const MINDS = [
 ];
 const names = (id: string) => MINDS.find((mind) => mind.id === id)?.name ?? null;
 
+/** Each part a probe names is a section of its own, apart from the others: siblings, none nested. */
+const named: string[] = [];
+const parts = (_mindId: string, part: string) => {
+  const at = named.includes(part) ? named.indexOf(part) : named.push(part) - 1;
+  return { from: at, to: at + 1 };
+};
+
 /** An edit_mind call whose change the probes' record has applied, as the window applies it. */
 const editCall: AnswerToolCall = {
   id: "edit-1",
@@ -499,6 +506,7 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "claim-probes")(
           {
             model,
             names,
+            parts,
             // The window applies a change the User asked for at once, with Undo.
             states: () => ({ waiting: 0, accepted: 0, rejected: 0, applied: true }),
             signal: new AbortController().signal,
@@ -531,6 +539,7 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "claim-probes")(
       {
         model,
         names,
+        parts,
         states: () => ({ waiting: 0, accepted: 0, rejected: 0, applied: true }),
         signal: new AbortController().signal,
       },

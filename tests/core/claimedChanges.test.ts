@@ -256,11 +256,29 @@ const partCall = (
   ...(change === null && { mindProblem: { kind: problem, mindId: "q3" } }),
 });
 
+/** Where each part is in “Q3 review”, by its text blocks: `Summary` holds `Detail`, the rest stand apart. */
+const SPANS: Record<string, { from: number; to: number }> = {
+  Risks: { from: 0, to: 2 },
+  Outlook: { from: 2, to: 4 },
+  风险: { from: 4, to: 6 },
+  下周计划: { from: 6, to: 8 },
+  Summary: { from: 8, to: 12 },
+  Detail: { from: 10, to: 12 },
+  下周要跟客户开会: { from: 12, to: 13 },
+};
+
 const recordRead = async (calls: AnswerToolCall[]) => {
   const model = judge({ claims: [] });
-  await check(model, "The section is longer now.", calls);
+  await unbackedClaims("The section is longer now.", calls, MINDS, null, {
+    model,
+    names,
+    parts: (_mindId, part) => SPANS[part] ?? null,
+    signal: new AbortController().signal,
+  });
   return JSON.stringify(model.doGenerateCalls[0]?.prompt);
 };
+
+const UNCHANGED = 'nothingChangedIn\\": ';
 
 describe("What the record tells the check of a part and a rewrite (#2769)", () => {
   // protects=a part of a Note whose every call failed, while another part of it changed, is named in the record as unchanged, in English and Chinese, and a part that failed then changed, or a Note changed as a whole, names none; fails_when=the check reads only that the Note changed, and backs the failed part's claim, or names a part that did change; no_claim=the judge's verdicts (the probes and runs).
@@ -274,7 +292,7 @@ describe("What the record tells the check of a part and a rewrite (#2769)", () =
       partCall("c", other, null, "uncited"),
       partCall("d", failed, null, "uncited"),
     ]);
-    expect(prompt.split('nothingChangedIn\\": ')).toHaveLength(3);
+    expect(prompt.split(UNCHANGED)).toHaveLength(3);
     expect(prompt).toContain(`\\"nothingChangedIn\\": \\"${failed}\\"`);
     expect(prompt).not.toContain(`\\"nothingChangedIn\\": \\"${other}\\"`);
     expect(prompt).not.toContain('\\"part\\"');
@@ -284,10 +302,32 @@ describe("What the record tells the check of a part and a rewrite (#2769)", () =
       partCall("b", other, { revised: true }),
       partCall("c", failed, { revised: true }),
     ]);
-    expect(later).not.toContain('nothingChangedIn\\": ');
+    expect(later).not.toContain(UNCHANGED);
     const whole = await recordRead([partCall("a", failed, null), partCall("b", null, {})]);
-    expect(whole).not.toContain('nothingChangedIn\\": ');
+    expect(whole).not.toContain(UNCHANGED);
     expect(CLAIM_CHECK_INSTRUCTIONS).toContain("A call with nothingChangedIn failed");
+  });
+
+  // protects=a part is named unchanged only where it is in the Note: a section a change reached through a part nested in it, either way round, a part not found now, a change to a part not found now, and a failure that never found its part name none; fails_when=two names for one place read as two places, and an honest "the summary is longer" is flagged; no_claim=how edit_mind finds a part (its own tests).
+  test("a part a change reached under another name, or that can't be found, is never named", async () => {
+    for (const calls of [
+      [partCall("a", "Summary", null), partCall("b", "Detail", { revised: true })],
+      [partCall("a", "Detail", null), partCall("b", "Summary", { revised: true })],
+      [partCall("a", "Elsewhere", null), partCall("b", "Outlook", { revised: true })],
+      [partCall("a", "Risks", null), partCall("b", "Moved on", { revised: true })],
+    ]) {
+      expect(await recordRead(calls)).not.toContain(UNCHANGED);
+    }
+    const unfound: AnswerToolCall = {
+      ...partCall("a", "Risks", null),
+      mindProblem: { kind: "no-heading", mindId: "q3", heading: "Risks" },
+    };
+    expect(await recordRead([unfound, partCall("b", "Outlook", { revised: true })])).not.toContain(
+      UNCHANGED,
+    );
+    expect(
+      await recordRead([partCall("a", "Risks", null), partCall("b", "Outlook", { revised: true })]),
+    ).toContain(`\\"nothingChangedIn\\": \\"Risks\\"`);
   });
 
   // protects=what an edit did to the User's sentences reaches the check in the record's words, so a sentence taken out with new ones written reads as a rewrite's record, not as "rewritten": 0; fails_when=the counts go to the judge, which flagged an honest "I rewrote it" in every run; no_claim=the judge's verdicts.
