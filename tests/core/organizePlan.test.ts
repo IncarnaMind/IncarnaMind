@@ -660,10 +660,12 @@ describe("Organize the Library into the Review", () => {
         wallOf: () => null,
         embedding: { enabled: () => false, id: "none" },
         organizeService: () => null,
+        localOnly: () => false,
         prepare: async () => {
           prepared++;
           return { local: true, plan: model } as unknown as GroupClassifier;
         },
+        taggingRequests: () => [],
         estimate: (_, requests) => {
           sizes.push(requests.length);
           return {
@@ -694,6 +696,113 @@ describe("Organize the Library into the Review", () => {
 
       expect(await organizer.organize({ costAccepted: true })).toMatchObject({ status: "done" });
       expect(asked.sorted).toHaveLength(1);
+    } finally {
+      db.close();
+    }
+  });
+});
+
+describe("What Organize's run costs, and where it can't go (#1569)", () => {
+  /** An organizer over this Library whose estimate costs 30 cents a request, priced in US dollars. */
+  const organizerOn = (
+    db: ReturnType<typeof openDatabase>,
+    settings: Awaited<ReturnType<Core["getLibrary"]>>["settings"],
+    overrides: Partial<Parameters<typeof createLibraryOrganizer>[0]>,
+  ) => {
+    const { model } = letterModel();
+    const seen = { prepared: 0, estimated: [] as number[] };
+    const organizer = createLibraryOrganizer({
+      db,
+      folders: () => [],
+      settings: () => settings,
+      language: () => "en",
+      isExampleDocument: () => false,
+      wallOf: () => null,
+      embedding: { enabled: () => false, id: "none" },
+      organizeService: () => null,
+      localOnly: () => false,
+      prepare: async () => {
+        seen.prepared++;
+        return { local: true, plan: model } as unknown as GroupClassifier;
+      },
+      taggingRequests: () => [],
+      estimate: (_, requests) => {
+        seen.estimated.push(requests.length);
+        return {
+          billing: "per-token",
+          calls: requests.length,
+          tokens: requests.length * 1_000,
+          cost: { currency: "USD", amount: requests.length * 0.3 },
+          spentTowardCap: null,
+          setAsideTowardCap: null,
+          cap: null,
+        };
+      },
+      inDollars: (estimate) =>
+        estimate.billing === "per-token" ? (estimate.cost?.amount ?? null) : null,
+      tokensOf: approximateTokens,
+      propose: () => 0,
+      settled: () => undefined,
+      progress: () => {},
+      ...overrides,
+    });
+    return { organizer, seen };
+  };
+
+  test("the tagging the plan hands on counts toward the $1 its cost is shown above", async () => {
+    const { core, dataDir, sources } = await start();
+    await add(core, sources, {
+      "Lease 1.txt": "Lease.",
+      "Lease 2.txt": "Lease.",
+      "Lease 3.txt": "Lease.",
+    });
+    const settings = (await core.getLibrary()).settings;
+    const db = openDatabase(join(dataDir, DATABASE_FILE));
+    try {
+      // The plan alone: one request, 30 cents, so it goes without asking.
+      const alone = organizerOn(db, settings, {});
+      expect(await alone.organizer.organize({})).toMatchObject({ status: "done" });
+      expect(alone.seen.estimated).toEqual([1]);
+
+      // With a tagging request for each of the three: four, $1.20, so its cost comes first.
+      const asked: string[][] = [];
+      const tagged = organizerOn(db, settings, {
+        taggingRequests: (ids) => {
+          asked.push([...ids]);
+          return ids.map(() => ({ inputTokens: 1_000, outputTokens: 512 }));
+        },
+      });
+      expect(await tagged.organizer.organize({})).toMatchObject({
+        status: "estimate",
+        estimate: { cost: { amount: 1.2 } },
+      });
+      expect(tagged.seen.estimated).toEqual([4]);
+      expect(asked.map((ids) => ids.length)).toEqual([3]);
+      expect(tagged.seen.prepared).toBe(0);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("in Local mode, an Organize model on a cloud service refuses before any cost is shown", async () => {
+    const { core, dataDir, sources } = await start();
+    await add(core, sources, {
+      "Lease 1.txt": "Lease.",
+      "Lease 2.txt": "Lease.",
+      "Lease 3.txt": "Lease.",
+    });
+    const settings = (await core.getLibrary()).settings;
+    const db = openDatabase(join(dataDir, DATABASE_FILE));
+    try {
+      const { organizer, seen } = organizerOn(db, settings, {
+        localOnly: () => true,
+        organizeService: () => ({ id: "https://api.anthropic.com", name: "Anthropic" }),
+      });
+      await expect(organizer.organize({})).rejects.toMatchObject({
+        wording: { key: "error.tagging.cloudPaused" },
+      });
+      expect(seen.estimated).toEqual([]);
+      expect(seen.prepared).toBe(0);
     } finally {
       db.close();
     }

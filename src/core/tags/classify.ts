@@ -176,7 +176,7 @@ export const documentType = (excerpt: DocumentExcerpt) =>
     ? KIND_NAMES[excerpt.kind]
     : `${KIND_NAMES[excerpt.kind]}, ${excerpt.pageCount} ${excerpt.pageCount === 1 ? "page" : "pages"}`;
 
-const TAGGING_INSTRUCTIONS = [
+export const TAGGING_INSTRUCTIONS = [
   "You tag Documents. You get the Tags that exist, each with a name and a description,",
   "and an excerpt of one Document: its name, its type and the beginning of its text.",
   TAG_RULES,

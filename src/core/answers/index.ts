@@ -75,6 +75,7 @@ import {
 } from "../../shared/locations";
 import { holdsNothing, madeByAnswer } from "../../shared/madeMind";
 import { linkTableSources } from "../../shared/markdownTables";
+import { escapeMarkdownText } from "../../shared/markdownText";
 import type { MeetingHelpKind } from "../../shared/meetingHelp";
 import {
   linkKnownSources,
@@ -3365,7 +3366,7 @@ export function createAnswers(options: AnswersOptions) {
             if (text.trim() !== "" || asked === null) return null;
             return {
               claims: [],
-              note: `Your reply is empty. The User also asked: ${asked}. Answer that now, in the User's language, leaving organizing out.`,
+              note: `Your reply is empty. The User also asked, as the Organize call put it: “${asked}”. Answer that now, in the User's language, leaving organizing out.`,
             };
           },
         },
@@ -3654,7 +3655,9 @@ export function createAnswers(options: AnswersOptions) {
             // Asked again and still nothing: the reply says what wasn't done, never nothing.
             if (done.command === "documents.organize" && done.alsoAsked && reply.trim() === "") {
               const asked = done.alsoAsked;
-              resultLines.push((each) => translate(each, "answer.commands.notDone", { asked }));
+              resultLines.push((each) =>
+                translate(each, "answer.commands.notDone", { asked: escapeMarkdownText(asked) }),
+              );
             }
             const merges = done.merges;
             if (

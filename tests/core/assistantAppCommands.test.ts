@@ -2258,26 +2258,39 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
     );
   });
 
-  // protects=an Organize call that names what else the User asked for goes on: the model answers that, then the app's text; and when the model writes nothing, it is asked once, then the app says what wasn't done (#1569); fails_when=the turn ends at the call, or ends with nothing about the rest; no_claim=how a real model fills the field.
+  // protects=an Organize call that names what else the User asked for goes on: the model answers that, then the app's text; and when the model writes nothing, it is asked once, then the app says what wasn't done, as plain words on one line, both to the model and in the reply (#1569); fails_when=the turn ends at the call, ends with nothing about the rest, or the model's words for the rest format the reply; no_claim=how a real model fills the field.
   test.each([
     {
+      alsoAsked: "tell me the rent at Harbour Street",
       replies: ["Harbour Street's rent is 900 euros a month."],
       asked: 2,
+      shown: "“tell me the rent at Harbour Street”",
       text: "Harbour Street's rent is 900 euros a month.\n\nProposed 1 Folder for 3 Documents: “Leases” (3). Nothing has moved yet: review them to file them. 1 Document couldn’t be sorted.",
     },
     {
+      alsoAsked: "tell me the rent at Harbour Street",
       replies: ["", ""],
       asked: 3,
+      shown: "“tell me the rent at Harbour Street”",
       text: "Proposed 1 Folder for 3 Documents: “Leases” (3). Nothing has moved yet: review them to file them. 1 Document couldn’t be sorted. Not done yet: “tell me the rent at Harbour Street”. Ask again to do it.",
     },
+    {
+      alsoAsked: "tell me the **rent**\n\n# at [Harbour](https://example.test)\tStreet",
+      replies: ["", ""],
+      asked: 3,
+      shown: "“tell me the **rent** # at [Harbour](https://example.test) Street”",
+      text: "Proposed 1 Folder for 3 Documents: “Leases” (3). Nothing has moved yet: review them to file them. 1 Document couldn’t be sorted. Not done yet: “tell me the \\*\\*rent\\*\\* # at \\[Harbour\\](https://example.test) Street”. Ask again to do it.",
+    },
   ])(
-    "an Organize call naming more goes on: $asked model calls",
-    async ({ replies, asked, text }) => {
+    "an Organize call naming more goes on: $asked model calls, $alsoAsked",
+    async ({ alsoAsked, replies, asked, shown, text }) => {
       let calls = 0;
+      const fedBack: string[] = [];
       const model = scriptedModel(
         (call) => {
           calls++;
           const ran = call.results.filter((each) => each.tool === "run_command");
+          fedBack.push(...ran.map((each) => each.text));
           return ran.length === 0
             ? {
                 calls: [
@@ -2287,7 +2300,7 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
                       command: "documents.organize",
                       folder: "Leases",
                       about: "Lease papers",
-                      alsoAsked: "tell me the rent at Harbour Street",
+                      alsoAsked,
                     },
                   },
                 ],
@@ -2330,6 +2343,7 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
 
       expect(answer.text).toBe(text);
       expect(calls).toBe(asked);
+      expect(fedBack.at(-1)).toContain(shown);
     },
   );
 

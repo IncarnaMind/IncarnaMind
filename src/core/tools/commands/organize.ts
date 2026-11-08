@@ -129,7 +129,7 @@ const LEAVE_ORGANIZING_OUT =
 const proposalsShown = (alsoAsked: string | null) =>
   alsoAsked === null
     ? `${LEAVE_ORGANIZING_OUT} If the User asked for nothing else, write nothing.`
-    : `${LEAVE_ORGANIZING_OUT} Answer the rest of the request: ${alsoAsked}`;
+    : `${LEAVE_ORGANIZING_OUT} Answer the rest of the request, as its call put it: “${alsoAsked}”`;
 
 /** What Organize proposed, as the reply says it in `language`: the app writes it, not the model. */
 export function proposedText(

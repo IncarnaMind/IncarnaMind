@@ -325,6 +325,7 @@ import {
 } from "./providers/ollama";
 import { isCloudModelName } from "./providers/ollamaCloud";
 import { createOllamaModels } from "./providers/ollamaModels";
+import { outputTokens } from "./providers/outputLimits";
 import { createAiSdkRerankingModel, createRerank } from "./providers/rerank";
 import { createQuestions } from "./questions";
 import { createRecentlyDeleted } from "./recentlyDeleted";
@@ -352,7 +353,12 @@ import { createSourceProviders, sourceKeySecret } from "./sources/providers";
 import { migrate, openDatabase } from "./storage";
 import { createSuggestions } from "./suggestions";
 import { createTags, tagsOfDocument } from "./tags";
-import { chatClassifier, type TagClassifier } from "./tags/classify";
+import {
+  chatClassifier,
+  excerptFromPassages,
+  TAGGING_INSTRUCTIONS,
+  type TagClassifier,
+} from "./tags/classify";
 import { createDecisionHosts } from "./tags/decisionHosts";
 import { mayBackgroundSend } from "./tags/held";
 import { createJevTagging, decisionModelTagger } from "./tags/jev";
@@ -2609,6 +2615,7 @@ export function createCore(adapters: CoreAdapters): Core {
       file: (documentIds, folderId) => {
         db.transaction(() => library.move(documentIds, folderId));
         library.moved([...documentIds]);
+        organizeReview.filedByHand(documentIds, folderId);
       },
     },
     tags: {
@@ -3637,8 +3644,8 @@ export function createCore(adapters: CoreAdapters): Core {
   };
   const tagger = createTagger({
     // A Document filed inside a walled Folder goes to no cloud service by itself (#2308).
-    maySend: (id, service) =>
-      !library.inWall(id) && mayBackgroundSend(db, id, [service], library.turnedOnSeq),
+    maySend: (id, service, pressed) =>
+      !library.inWall(id) && (pressed || mayBackgroundSend(db, id, [service], library.turnedOnSeq)),
     db,
     now,
     tags,
@@ -4057,6 +4064,34 @@ export function createCore(adapters: CoreAdapters): Core {
       return classifier && tagging.service(classifier);
     },
     prepare: (chosen, permit) => prepareOrganize(chosen, permit),
+    localOnly: () => embedding.localOnly(),
+    // Tagging after the plan (`settled`) goes on the Organize model when tagging picks no other.
+    taggingRequests: (ids) => {
+      if (library.settings().classifier.kind !== "chat") return [];
+      const listed = approximateTokens(
+        [TAGGING_INSTRUCTIONS, ...tags.list().map((tag) => `${tag.name}: ${tag.description}`)].join(
+          "\n",
+        ),
+      );
+      return documents
+        .getMany([...ids])
+        .filter((each) => UNTAGGED.has(each.tagging))
+        .map((each) => ({
+          inputTokens:
+            listed +
+            approximateTokens(
+              excerptFromPassages(
+                db
+                  .all<{ text: string }>(
+                    "SELECT text FROM passages WHERE document_id = ? AND deleted_at IS NULL ORDER BY position LIMIT 6",
+                    [each.id],
+                  )
+                  .map((row) => row.text),
+              ),
+            ),
+          outputTokens: outputTokens("tags"),
+        }));
+    },
     estimate: (chosen, requests) => {
       const classifier = organizeModelOf(chosen);
       const metered = classifier?.kind === "chat" ? chat.metered(classifier.choice) : null;
@@ -4070,15 +4105,15 @@ export function createCore(adapters: CoreAdapters): Core {
     propose: (run, proposals) => organizeReview.propose(run, proposals),
     settled: (ids) => {
       library.settle(ids);
-      // Organize used to add Tags as it filed; its plan doesn't, so the tagger adds them as before,
-      // through the tagging flow's consent, until Tags wait in the Review too (#1569).
+      // Organize used to add Tags as it filed; its plan doesn't, so the tagger adds them, through
+      // the tagging flow's consent, as it tags by itself, until Tags wait in the Review too (#1569).
       const untagged = documents
         .getMany([...ids])
         .filter((each) => UNTAGGED.has(each.tagging))
         .map((each) => each.id);
       if (untagged.length > 0)
         void lookForTaggingModel()
-          .then(() => tagger.retag(untagged))
+          .then(() => tagger.afterOrganize(untagged))
           .catch((error: unknown) =>
             console.error("Tagging after Organize couldn't start.", error),
           );
@@ -6436,9 +6471,16 @@ export function createCore(adapters: CoreAdapters): Core {
         });
       }
     },
-    assignDocumentGroup: async (id, groupId) => library.assign(id, groupId),
+    assignDocumentGroup: async (id, groupId) => {
+      const change = library.assign(id, groupId);
+      organizeReview.filedByHand([change.documentId], groupId);
+      return change;
+    },
     restoreAssignment: async (id, before, after) => {
       const change = library.restoreAssignment(id, before, after);
+      const groupId = change?.after.assignment?.groupId ?? null;
+      if (change && (change.before.assignment?.groupId ?? null) !== groupId)
+        organizeReview.filedByHand([change.documentId], groupId);
       // A Document whose tagging goes back to pending has its turn again: the one it had was
       // dropped while Organize held it (#1928).
       if (change?.after.tagging?.status === "pending") tagger.resume();
@@ -6531,6 +6573,7 @@ export function createCore(adapters: CoreAdapters): Core {
         documents: library.move(documentIds, folderId),
         conversations: conversations.move(conversationIds, folderId),
       }));
+      organizeReview.filedByHand(documentIds, folderId);
       // Said once it is saved, so a move that rolled back says nothing.
       const joined = move.minds.filter((item) => item.from !== folderId);
       if (joined.length > 0) mindsChanged();

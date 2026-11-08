@@ -105,24 +105,29 @@ export function createOrganizeReview(options: {
       if (!row) return null;
       let groupId: string;
       let made = row.made;
-      const named = library.folders().find((folder) => sameName(folder.name, row.name));
       if (row.group_id !== null && liveFolder(row.group_id)) {
         groupId = row.group_id;
-      } else if (named) {
-        groupId = named.id;
-        made = 0;
-      } else if (row.group_id !== null && row.made === 1 && deletedFolder(row.group_id)) {
-        parentFor(row);
-        // Confirm made it and its Undo sent it to Recently deleted: it comes back, not a copy.
-        options.restoreDeleted([{ kind: "folder", id: row.group_id }]);
-        groupId = row.group_id;
       } else {
-        groupId = library.create({
-          name: row.name,
-          description: row.description,
-          parentId: parentFor(row),
-        }).id;
-        made = 1;
+        const parentId = parentFor(row);
+        // A name is unique among a Folder's siblings only (#2425): the one in the same place.
+        const named = library
+          .folders()
+          .find((folder) => folder.parentId === parentId && sameName(folder.name, row.name));
+        if (named) {
+          groupId = named.id;
+          made = 0;
+        } else if (row.group_id !== null && row.made === 1 && deletedFolder(row.group_id)) {
+          // Confirm made it and its Undo sent it to Recently deleted: it comes back, not a copy.
+          options.restoreDeleted([{ kind: "folder", id: row.group_id }]);
+          groupId = row.group_id;
+        } else {
+          groupId = library.create({
+            name: row.name,
+            description: row.description,
+            parentId,
+          }).id;
+          made = 1;
+        }
       }
       store.update("folders", row.id, { group_id: groupId, made });
       if (made === 1) madeFolders.push(groupId);
@@ -323,7 +328,14 @@ export function createOrganizeReview(options: {
           [id],
         );
         if (!open) return false;
-        const items = confirmationItems(id, "confirmed");
+        const confirmed = confirmationItems(id, "confirmed");
+        // A Document deleted since stays as it is; the rest go back.
+        const items = confirmed.filter(
+          (item) =>
+            !!db.get("SELECT 1 FROM documents WHERE id = ? AND deleted_at IS NULL", [
+              item.document_id,
+            ]),
+        );
         for (const item of items) {
           if (item.filed === null) continue;
           const change = JSON.parse(item.filed) as AssignmentChange;
@@ -360,7 +372,7 @@ export function createOrganizeReview(options: {
           return levels;
         };
         const folderIds = new Set<string>();
-        for (const item of items)
+        for (const item of confirmed)
           for (let at = item.folder_id; at && !folderIds.has(at); at = proposedParent(at))
             folderIds.add(at);
         for (const folderId of [...folderIds].sort((a, b) => depth(b) - depth(a))) {
@@ -418,6 +430,17 @@ export function createOrganizeReview(options: {
           return apply(id, items, true);
         }),
       );
+    },
+
+    /**
+     * The User put these Documents in `folderId` by hand. Filed, what Organize proposed for them
+     * leaves the Review, so Confirm never moves them again; back in no Folder, as the Undo of that
+     * filing leaves them, it waits again (#1569).
+     */
+    filedByHand(documentIds: readonly string[], folderId: string | null): void {
+      const moved =
+        folderId === null ? store.bringBackUnfiled(documentIds) : store.setAsideFiled(documentIds);
+      if (moved) changed();
     },
 
     discard(itemIds: unknown): string | null {

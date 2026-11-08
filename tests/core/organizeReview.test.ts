@@ -613,6 +613,86 @@ describe("Confirm makes it the User's, in one step with one Undo", () => {
     });
   });
 
+  // protects=Folders of one name in two places stay apart, at proposing, merging and Confirm: Organize This Folder on Finance proposes its own Invoices, a top-level Invoices is another, and neither lands in Clients › Invoices (#1569, #2425); fails_when=a proposal matches a same-named Folder elsewhere and Confirm moves Documents there; no_claim=none beyond protects.
+  test("Folders of one name in two places stay apart, at proposing, merging and Confirm", async () => {
+    const setup = await setUp();
+    const { core, dataDir, clock, invoice, lease, minutes } = setup;
+    const clients = await core.createLibraryGroup({ name: "Clients", description: "" });
+    const theirs = await core.createLibraryGroup({
+      name: "Invoices",
+      description: "",
+      parentId: clients.id,
+    });
+    const finance = await core.createLibraryGroup({ name: "Finance", description: "" });
+    await core.assignDocumentGroup(invoice.id, finance.id);
+    await core.assignDocumentGroup(lease.id, theirs.id);
+
+    propose(dataDir, clock, { origin: "folder", folderId: finance.id }, [
+      {
+        documentId: invoice.id,
+        contentHash: invoice.contentHash,
+        placement: {
+          kind: "newFolder",
+          name: "Invoices",
+          description: "Bills",
+          parentId: finance.id,
+        },
+        tags: [],
+      },
+      {
+        documentId: minutes.id,
+        contentHash: minutes.contentHash,
+        placement: { kind: "newFolder", name: "Invoices", description: "Bills" },
+        tags: [],
+      },
+    ]);
+    const review = await core.getOrganizeReview();
+    expect(rowOf(review, invoice.id).placement.kind).toBe("newFolder");
+    expect(rowOf(review, minutes.id).placement.kind).toBe("newFolder");
+    expect(
+      review.folders
+        .filter((folder) => folder.name === "Invoices")
+        .map((folder) => folder.parentId)
+        .sort(),
+    ).toEqual([finance.id, null].sort());
+
+    await core.confirmOrganizeReview(review.items.map((item) => item.id));
+
+    const groups = (await core.getLibrary()).groups;
+    const underFinance = groups.find(
+      (group) => group.name === "Invoices" && group.parentId === finance.id,
+    );
+    const atTop = groups.find((group) => group.name === "Invoices" && group.parentId === null);
+    expect(groups.filter((group) => group.name === "Invoices")).toHaveLength(3);
+    expect(await assignmentOf(core, invoice.id)).toMatchObject({ groupId: underFinance?.id });
+    expect(await assignmentOf(core, minutes.id)).toMatchObject({ groupId: atTop?.id });
+    expect(await assignmentOf(core, lease.id)).toMatchObject({ groupId: theirs.id });
+  });
+
+  // protects=Undo of a Confirm whose Document was deleted since takes the rest back and leaves that one as it is (#1569); fails_when=the Undo fails whole and nothing goes back; no_claim=none beyond protects.
+  test("Undo of Confirm leaves a Document deleted since as it is and takes the rest back", async () => {
+    const setup = await setUp();
+    const { core, lease, invoice, contracts } = setup;
+    proposeFirstSort(setup);
+    const confirmed = await core.confirmOrganizeReview(
+      (await core.getOrganizeReview()).items.map((item) => item.id),
+    );
+    if (!confirmed) throw new Error("Nothing was confirmed.");
+    expect(await assignmentOf(core, lease.id)).toMatchObject({ groupId: contracts.id });
+    await core.deleteDocuments([invoice.id]);
+
+    await core.undoOrganizeReviewConfirmation(confirmed.id);
+
+    expect((await assignmentOf(core, lease.id))?.groupId ?? null).toBeNull();
+    expect(rowOf(await core.getOrganizeReview(), lease.id).placement).toEqual({
+      kind: "folder",
+      folderId: contracts.id,
+    });
+    expect(
+      (await core.getOrganizeReview()).items.some((item) => item.documentId === invoice.id),
+    ).toBe(false);
+  });
+
   test("a left-out row's Tags wait: Confirm adds those of the rows it files, and none of a left-out one", async () => {
     const setup = await setUp();
     const { core, dataDir, clock, lease, minutes, contracts, invoiceTag } = setup;

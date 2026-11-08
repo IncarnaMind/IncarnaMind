@@ -12,7 +12,7 @@ import type {
   RunEstimate,
 } from "../api";
 import { decodeVector } from "../documents/vectors";
-import { InvalidInputError, isRecord } from "../errors";
+import { InvalidInputError, isRecord, TaggingNotReadyError } from "../errors";
 import type { Language } from "../language";
 import type { OrganizeReviewProposal, OrganizeReviewRun } from "../organizeReview";
 import type { OrganizeReviewOrigin } from "../organizeReview/types";
@@ -73,8 +73,15 @@ export function createLibraryOrganizer(options: {
   embedding: { enabled(): boolean; readonly id: string };
   organizeService(settings: LibrarySettings): ExternalService | null;
   prepare(settings: LibrarySettings, permit?: CloudReadPermit): Promise<GroupClassifier>;
+  /** Whether Local mode is on: nothing goes to a cloud service. */
+  localOnly(): boolean;
   /** What these requests would cost on the Organize model; null for one not billed per token. */
   estimate(settings: LibrarySettings, requests: readonly PlanRequest[]): RunEstimate | null;
+  /**
+   * The requests tagging will make on the Organize model once the plan finishes with these
+   * Documents (`settled`), which its cost counts: none when tagging uses another model.
+   */
+  taggingRequests(documentIds: readonly string[]): PlanRequest[];
   /** The estimate in US dollars, or null when it has no price. */
   inDollars(estimate: RunEstimate): number | null;
   tokensOf(text: string): number;
@@ -225,6 +232,9 @@ export function createLibraryOrganizer(options: {
           options.organizeService(settings)?.id !== input.forService
         )
           return { status: "stopped", runId };
+        // Local mode refuses before anything is priced or sent.
+        if (options.localOnly() && options.organizeService(settings) !== null)
+          throw new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
 
         let subjects = subjectsOf(input);
         for (;;) {
@@ -264,7 +274,10 @@ export function createLibraryOrganizer(options: {
         });
 
         if (readable.length > 0 && !input.costAccepted) {
-          const estimate = options.estimate(settings, local.requests(options.tokensOf));
+          const estimate = options.estimate(settings, [
+            ...local.requests(options.tokensOf),
+            ...options.taggingRequests(readable.map((each) => each.id)),
+          ]);
           const dollars = estimate && options.inDollars(estimate);
           if (estimate && dollars !== null && dollars !== undefined && dollars > ASK_ABOVE_USD)
             return { status: "estimate", estimate };

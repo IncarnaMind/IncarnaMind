@@ -287,6 +287,16 @@ const sameFiles = (a: readonly string[], b: readonly string[]): boolean =>
 export const text = (value: unknown): string | null =>
   typeof value === "string" && value.trim() !== "" ? value.trim() : null;
 
+/** The most of what else the User asked for an Organize call names (#1569). */
+const ALSO_ASKED_MOST = 200;
+
+/** What else the User asked for, as the call named it: one line of plain words, at most `ALSO_ASKED_MOST` characters. */
+const askedAlso = (value: unknown): string | null => {
+  const said = text(value)?.replace(/\s+/g, " ");
+  if (!said) return null;
+  return said.length > ALSO_ASKED_MOST ? `${said.slice(0, ALSO_ASKED_MOST - 1).trimEnd()}…` : said;
+};
+
 const texts = (value: unknown): string[] =>
   Array.isArray(value) ? value.flatMap((each) => text(each) ?? []) : [];
 
@@ -312,7 +322,7 @@ export function parseCommandInput(input: Record<string, unknown>): CommandInput 
           isRecord(each) ? [{ ids: texts(each.ids), tag: text(each.tag) }] : [],
         )
       : [],
-    alsoAsked: text(input.alsoAsked),
+    alsoAsked: askedAlso(input.alsoAsked),
   };
 }
 

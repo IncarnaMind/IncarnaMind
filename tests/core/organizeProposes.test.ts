@@ -11,6 +11,7 @@ import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test, vi } from "vitest";
 import { type Core, DATABASE_FILE, type OrganizeReviewItem } from "../../src/core";
 import { METADATA_VERSION, PROCESSING_VERSION } from "../../src/core/documents/processing";
+import { createOrganizeReviewStore } from "../../src/core/organizeReview";
 import { migrate, openDatabase } from "../../src/core/storage";
 import { migrations } from "../../src/core/storage/migrations";
 import { createTempDataFolder, manualClock, startCore } from "../helpers/core";
@@ -298,6 +299,65 @@ describe("Every Organize run proposes, and files nothing", () => {
   });
 });
 
+/**
+ * A data folder as an earlier version left it, then started: Kitchen and Race, and each Document
+ * waiting in Kitchen as a suggestion (`suggested`) or filed there by `source`. Migration 136 runs
+ * at the start.
+ */
+async function upgradedWith(docs: readonly (readonly [string, "automatic" | "user", 0 | 1])[]) {
+  const dataDir = await createTempDataFolder();
+  const sources = await createSourceFolder();
+  const at = "2026-11-01T09:00:00.000Z";
+  const hashes = new Map<string, string>();
+  const db = openDatabase(join(dataDir, DATABASE_FILE));
+  try {
+    migrate(
+      db,
+      migrations.filter((migration) => migration.version < 136),
+    );
+    for (const [id, name] of [
+      ["kitchen", "Kitchen"],
+      ["race", "Race"],
+    ] as const) {
+      db.run(
+        "INSERT INTO library_groups (id, name, description, created_at, updated_at) VALUES (?, ?, '', ?, ?)",
+        [id, name, at, at],
+      );
+    }
+    for (const [id, source, suggested] of docs) {
+      const text = `${id}: a few words.`;
+      hashes.set(id, sha256(text));
+      const path = await writeSourceFile(sources, `${id}.txt`, text);
+      db.run(
+        `INSERT INTO documents (id, content_hash, name, kind, size, status, path, file_status,
+           processing_version, metadata_version, created_at, updated_at)
+         VALUES (?, ?, ?, 'text', ?, 'ready', ?, 'available', ?, ?, ?, ?)`,
+        [
+          id,
+          sha256(text),
+          id,
+          Buffer.byteLength(text),
+          path,
+          BigInt(PROCESSING_VERSION),
+          BigInt(METADATA_VERSION),
+          at,
+          at,
+        ],
+      );
+      db.run(
+        `INSERT INTO document_groups
+           (id, document_id, group_id, source, suggested, status, content_hash, request_id,
+            created_at, updated_at, filed_at)
+         VALUES (?, ?, 'kitchen', ?, ?, 'classified', ?, ?, ?, ?, ?)`,
+        [`assignment-${id}`, id, source, suggested, sha256(text), `request-${id}`, at, at, at],
+      );
+    }
+  } finally {
+    db.close();
+  }
+  return { dataDir, core: startCore(dataDir), hashes };
+}
+
 describe("Suggestions from before an upgrade (migration 136)", () => {
   test("a Document waiting in a Suggested Folder waits in Suggestions instead, in no Folder, and the Library says so once", async () => {
     const dataDir = await createTempDataFolder();
@@ -372,6 +432,63 @@ describe("Suggestions from before an upgrade (migration 136)", () => {
     expect(library.reviewMoved).toBe(1);
     await upgraded.reviewMovedSeen();
     expect((await upgraded.getLibrary()).reviewMoved).toBeUndefined();
+  });
+
+  // protects=a Document the User files by hand after its row was proposed leaves the Review, so Confirm never moves it again, starting from rows the upgrade made (#1569); fails_when=Confirm files it back into the proposed Folder as the User's choice; no_claim=none beyond protects.
+  test("a Document the User files by hand leaves the Review, and Confirm files the rest without moving it", async () => {
+    const { core } = await upgradedWith([
+      ["Kitchen quote", "automatic", 1],
+      ["Kitchen tiles", "automatic", 1],
+    ]);
+    expect(await proposedFor(core, "Kitchen quote")).toBe("kitchen");
+
+    const moved = await core.moveToFolder({ documentIds: ["Kitchen quote"], folderId: "race" });
+    expect(await proposedFor(core, "Kitchen quote")).toBeNull();
+    // The move's Undo, as the Library runs it, puts it back in no Folder: the suggestion waits again.
+    for (const document of moved.documents)
+      await core.restoreAssignment(document.id, document.change.before, document.change.after);
+    expect(await proposedFor(core, "Kitchen quote")).toBe("kitchen");
+    await core.moveToFolder({ documentIds: ["Kitchen quote"], folderId: null });
+    expect(await proposedFor(core, "Kitchen quote")).toBe("kitchen");
+    await core.moveToFolder({ documentIds: ["Kitchen quote"], folderId: "race" });
+
+    expect(await proposedFor(core, "Kitchen quote")).toBeNull();
+    const review = await core.getOrganizeReview();
+    expect(review.items.map((item) => item.documentId)).toEqual(["Kitchen tiles"]);
+    await core.confirmOrganizeReview(review.items.map((item) => item.id));
+    expect(await assignmentOf(core, "Kitchen quote")).toMatchObject({
+      groupId: "race",
+      source: "user",
+    });
+    expect(await assignmentOf(core, "Kitchen tiles")).toMatchObject({
+      groupId: "kitchen",
+      source: "user",
+    });
+  });
+
+  // protects=the assistant's Undo of a run that replaced rows the upgrade made brings those rows back, as they were (#1569); fails_when=the Undo leaves the Documents in no Folder with nothing waiting; no_claim=none beyond protects.
+  test("the assistant's Undo brings back the rows its run replaced", async () => {
+    const { dataDir, core, hashes } = await upgradedWith([["Kitchen quote", "automatic", 1]]);
+    const db = openDatabase(join(dataDir, DATABASE_FILE));
+    try {
+      const store = createOrganizeReviewStore(db, () => new Date().toISOString());
+      const runId = "8f0d3e2a-4b1c-4d5e-9f6a-7b8c9d0e1f2a";
+      store.propose({ origin: "assistant", runId }, [
+        {
+          documentId: "Kitchen quote",
+          contentHash: hashes.get("Kitchen quote") ?? null,
+          placement: { kind: "folder", folderId: "race" },
+          tags: [],
+        },
+      ]);
+      expect(await proposedFor(core, "Kitchen quote")).toBe("race");
+
+      store.withdraw(runId, []);
+    } finally {
+      db.close();
+    }
+    expect(await proposedFor(core, "Kitchen quote")).toBe("kitchen");
+    expect((await rowOf(core, "Kitchen quote")).origin).toBe("migrated");
   });
 
   test("restoring a Folder deleted while a suggestion waited in it puts the suggestion into Suggestions", async () => {

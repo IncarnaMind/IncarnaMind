@@ -55,6 +55,22 @@ async function setUp(planned: OrganizeLibraryResult | null) {
 }
 
 describe("The assistant's Organize with no Folder named (#1569)", () => {
+  // protects=what else the User asked, as an Organize call names it, is one line of at most 200 characters (#1569); fails_when=a long or many-line request reaches the model or the reply whole; no_claim=how it is shown.
+  test("what else the User asked is one line of at most 200 characters", () => {
+    const named = (alsoAsked: unknown) =>
+      parseCommandInput({ command: "documents.organize", alsoAsked }).alsoAsked;
+
+    expect(named("  tell me\n\nthe rent\tat  Harbour Street ")).toBe(
+      "tell me the rent at Harbour Street",
+    );
+    expect(named("  \n ")).toBeNull();
+    const long = named(`tell me the rents ${"0123456789".repeat(30)}`);
+    expect(long).toHaveLength(200);
+    expect(long?.startsWith("tell me the rents 0123456789")).toBe(true);
+    expect(long?.endsWith("…")).toBe(true);
+    expect(named(`tell me ${"the rent and ".repeat(40)}`)?.length).toBeLessThanOrEqual(200);
+  });
+
   test("a plan estimated over $1 proposes nothing and says what it would cost and where to start it", async () => {
     const { core, ran, organize } = await setUp({
       status: "estimate",

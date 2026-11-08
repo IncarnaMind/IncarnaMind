@@ -36,6 +36,9 @@ const TABLES: Record<Table, string> = {
   declines: "organize_review_declines",
 };
 
+/** The mark on a row set aside because the User filed its Document by hand (#1569). */
+const FILED_BY_HAND = "filed-by-hand";
+
 /** Each table's columns but `id` and `updated_at`, as `OrganizeReviewRow.values` carries them. */
 const COLUMNS: Record<Table, Record<string, Column>> = {
   items: {
@@ -505,9 +508,12 @@ export function createOrganizeReviewStore(db: Database, now: () => string) {
     return folder;
   };
   const liveGroups = () =>
-    db.all<{ id: string; name: string }>(
-      "SELECT id, name FROM library_groups WHERE deleted_at IS NULL",
+    db.all<{ id: string; name: string; parent_id: string | null }>(
+      "SELECT id, name, parent_id FROM library_groups WHERE deleted_at IS NULL",
     );
+  /** The live Folder of this name in this place: a name is unique among siblings only (#2425). */
+  const siblingNamed = (parentId: string | null, name: string) =>
+    liveGroups().find((each) => each.parent_id === parentId && sameName(each.name, name));
   const liveGroup = (id: string) => liveGroups().find((group) => group.id === id);
   const liveTags = () =>
     db.all<{ id: string; name: string; description: string }>(
@@ -637,22 +643,26 @@ export function createOrganizeReviewStore(db: Database, now: () => string) {
         ? liveGroup(placement.folderId)?.name
         : parseFolderName(placement.name);
     if (name === undefined) return UNCHANGED;
+    const parentId =
+      placement.kind === "newFolder" && placement.parentId && liveGroup(placement.parentId)
+        ? placement.parentId
+        : null;
+    const parentName =
+      placement.kind === "newFolder" && placement.parent
+        ? parseFolderName(placement.parent.name)
+        : null;
+    // A proposed parent the Library has by now is that Folder, in the same place.
+    const parentGroup = parentName === null ? undefined : siblingNamed(parentId, parentName);
     const group =
       placement.kind === "folder"
         ? liveGroup(placement.folderId)
-        : liveGroups().find((each) => sameName(each.name, name));
+        : parentName !== null && !parentGroup
+          ? undefined
+          : siblingNamed(parentGroup?.id ?? parentId, name);
     if (group && assignment?.group_id === group.id) return UNCHANGED;
     if (declined(documentId, "folder", group?.id ?? null, name)) return UNCHANGED;
     if (group) return { ...UNCHANGED, placement: "folder", group_id: group.id };
     if (placement.kind !== "newFolder") return UNCHANGED;
-    const parentId =
-      placement.parentId && liveGroup(placement.parentId) ? placement.parentId : null;
-    const parentName = placement.parent ? parseFolderName(placement.parent.name) : null;
-    // A proposed parent the Library has by now is that Folder.
-    const parentGroup =
-      parentName === null
-        ? undefined
-        : liveGroups().find((each) => sameName(each.name, parentName));
     return {
       newFolder: {
         name,
@@ -725,12 +735,15 @@ export function createOrganizeReviewStore(db: Database, now: () => string) {
     const parent =
       folder.parent &&
       proposedFolder({ ...folder.parent, parentId: folder.parentId, parent: null });
+    const parentId = parent ?? folder.parentId ?? null;
     return (
-      openFolders().find((each) => sameName(each.name, folder.name))?.id ??
+      openFolders().find(
+        (each) => (each.parent_id ?? null) === parentId && sameName(each.name, folder.name),
+      )?.id ??
       insert("folders", {
         name: folder.name,
         description: folder.description,
-        parent_id: parent ?? folder.parentId,
+        parent_id: parentId,
         group_id: null,
         made: 0,
       })
@@ -833,11 +846,12 @@ export function createOrganizeReviewStore(db: Database, now: () => string) {
         const ids: string[] = [];
         for (const folder of folders) {
           const name = parseFolderName(folder.name);
-          if (liveGroups().some((group) => sameName(group.name, name))) continue;
+          const parentId = folder.parentId && liveGroup(folder.parentId) ? folder.parentId : null;
+          if (siblingNamed(parentId, name)) continue;
           const id = proposedFolder({
             name,
             description: parseFolderDescription(folder.description),
-            parentId: folder.parentId && liveGroup(folder.parentId) ? folder.parentId : null,
+            parentId,
           });
           if (!ids.includes(id)) ids.push(id);
         }
@@ -850,7 +864,8 @@ export function createOrganizeReviewStore(db: Database, now: () => string) {
 
     /**
      * Takes a run's rows out, but those the User edited, and the Folders it proposed that nothing
-     * waits in any more: the assistant's Undo. Restoring the change puts them back.
+     * waits in any more, and brings back the rows it replaced: the assistant's Undo. Restoring the
+     * change puts them back.
      */
     withdraw(runId: string | null, folderIds: readonly string[]): OrganizeReviewChange {
       return change(() => {
@@ -859,6 +874,12 @@ export function createOrganizeReviewStore(db: Database, now: () => string) {
           [runId],
         ))
           dropItem(item);
+        if (runId !== null)
+          for (const item of db.all<ItemRow>(
+            "SELECT * FROM organize_review_items WHERE discard_id = ? AND state = 'discarded' AND deleted_at IS NULL",
+            [runId],
+          ))
+            if (!openItem(item.document_id)) update("items", item.id, { state: "open" });
         for (const id of folderIds) {
           const waits = db.get(
             `SELECT 1 FROM organize_review_items WHERE folder_id = ? AND placement = 'newFolder' AND ${OPEN}`,
@@ -890,7 +911,10 @@ export function createOrganizeReviewStore(db: Database, now: () => string) {
                   folder_id: proposedFolder(resolved.newFolder),
                 }
               : resolved;
-          if (existing) dropItem(existing);
+          // A run with an Undo sets the row it replaces aside, for that Undo to bring back.
+          if (existing && run.runId)
+            update("items", existing.id, { state: "discarded", discard_id: run.runId });
+          else if (existing) dropItem(existing);
           if (placement.placement === "unchanged" && tags.length === 0) continue;
           const id = insertItem(run, proposal.documentId, proposal.contentHash, placement);
           addTags(id, tags);
@@ -1161,6 +1185,40 @@ export function createOrganizeReviewStore(db: Database, now: () => string) {
         });
       });
       return restored.after.length === 0 ? null : restored;
+    },
+
+    /** Sets aside the open rows of Documents filed by hand; true when there was one. */
+    setAsideFiled(documentIds: readonly string[]): boolean {
+      return db.transaction(() => {
+        let any = false;
+        for (const documentId of documentIds) {
+          const item = openItem(documentId);
+          if (!item) continue;
+          update("items", item.id, { state: "discarded", discard_id: FILED_BY_HAND });
+          any = true;
+        }
+        return any;
+      });
+    },
+
+    /**
+     * Opens again the row set aside when each of these Documents was filed by hand, now that it is
+     * in no Folder, as the Undo of that filing leaves it; but not when a later row was made for it.
+     */
+    bringBackUnfiled(documentIds: readonly string[]): boolean {
+      return db.transaction(() => {
+        let any = false;
+        for (const documentId of documentIds) {
+          const latest = db.get<ItemRow>(
+            "SELECT * FROM organize_review_items WHERE document_id = ? AND deleted_at IS NULL ORDER BY created_at DESC, rowid DESC LIMIT 1",
+            [documentId],
+          );
+          if (latest?.state !== "discarded" || latest.discard_id !== FILED_BY_HAND) continue;
+          update("items", latest.id, { state: "open", discard_id: null });
+          any = true;
+        }
+        return any;
+      });
     },
 
     /** Sets these open rows aside with one id, which `restoreDiscarded` brings back. Null when none was open. */
