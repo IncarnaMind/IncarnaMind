@@ -127,4 +127,4 @@ The done time's median, main's 240 → the head's 240 (reported, not held; the e
 | DeepSeek V4.1 Flash · English | 0 → 0 | 0 → 0 | 0 → 0 | 0 → 0 | 0 → 0 |
 | DeepSeek V4.1 Flash · Chinese | 0 → 0 | 0 → 0 | 0 → 0 | 0 → 0 | 0 → 0 |
 
-**The bar holds on every line.** The item taken back (Haiku, `en-want`) is a remark the model began after its reading's "→" line, "Note: Before you cite…", drawn for 0.2 s as the line being written and judged the model's working, as on main. The item hidden (Haiku, `en-want`) is a remark between two readings, "Wait — I must follow the format exactly…", drawn as the line being written and left out once the next reading came: the dated exception above.
+**The bar holds on every line.** The item taken back (Haiku, `en-want`) is a remark the model began after its reading's "→" line, "Note: Before you cite…", drawn as the line being written from 1.2 s to 2.9 s and judged the model's working, as on main. The item hidden (Haiku, `en-want`) is a remark between two readings, "Wait — I must follow the format exactly…", drawn as the line being written and left out once the next reading came: the dated exception above.
