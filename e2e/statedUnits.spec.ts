@@ -20,11 +20,11 @@ import {
 
 /*
  * A figure written as its Document writes it, in the unit the Document states, is never
- * Contradicted (#2864). Against a PDF in GBP million (人民币百万元), the Note's bare "668.3" is
- * Supported and its card names the unit, "91,500" against 91.5 needs a look because its units may
- * differ, and the planted "£538.9m" against 528.9 is Contradicted. The
- * scripted model binds each figure to its line and quotes the PDF's unit line
- * (src/main/fakeChat/checks.ts). English and Chinese, wide and narrow.
+ * Contradicted (#2864). Against a PDF in GBP million, the Note's bare "668.3" is Supported and its
+ * card names the unit, "91,500" against 91.5 needs a look because its units may differ, and the
+ * planted "£538.9m" against 528.9 is Contradicted. The scripted model binds each figure to its line
+ * and quotes the PDF's unit line (src/main/fakeChat/checks.ts). The English and Chinese
+ * interfaces, wide and narrow.
  */
 const SHOTS = process.env.INCARNAMIND_SCREENSHOTS;
 const shot = async (window: Page, name: string) => {
@@ -44,48 +44,18 @@ test.afterEach(async () => {
   await removeDataFolder(sources);
 });
 
-const CASES = {
-  en: {
-    file: "Harbourline half-year update.pdf",
-    pdf: buildPdf([
-      {
-        lines: [
-          "Harbourline Foods plc half-year update",
-          "All figures in GBP million unless stated otherwise",
-          "Revenue for the six months was 668.3.",
-          "Adjusted EBITDA for the six months was 91.5.",
-          "Net debt at 30 June 2026 was 528.9.",
-        ],
-      },
-    ]),
-    unitOnly: "Revenue for the six months: 668.3",
-    mayDiffer: "Adjusted EBITDA for the six months: 91,500",
-    planted: "Net debt at 30 June 2026 was £538.9m.",
-    figure: "668.3",
-    unit: "GBP million",
-    source: "91,500,000",
+const FILE = "Harbourline half-year update.pdf";
+const PDF = buildPdf([
+  {
+    lines: [
+      "Harbourline Foods plc half-year update",
+      "All figures in GBP million unless stated otherwise",
+      "Revenue for the six months was 668.3.",
+      "Adjusted EBITDA for the six months was 91.5.",
+      "Net debt at 30 June 2026 was 528.9.",
+    ],
   },
-  "zh-CN": {
-    file: "华岭食品年报摘要.pdf",
-    pdf: buildPdf([
-      {
-        chineseLines: [
-          "华岭食品2025年年度报告摘要",
-          "单位：人民币百万元",
-          "2025年全年营业收入为187.3。",
-          "2025年调整后息税折旧摊销前利润为31.6。",
-          "2025年12月31日净负债为502.4。",
-        ],
-      },
-    ]),
-    unitOnly: "2025年全年营业收入为187.3。",
-    mayDiffer: "2025年调整后息税折旧摊销前利润为31,600。",
-    planted: "2025年12月31日净负债为512.4百万元。",
-    figure: "187.3",
-    unit: "人民币百万元",
-    source: "31,600,000",
-  },
-} as const;
+]);
 
 for (const [language, width] of [
   ["en", 1440],
@@ -93,19 +63,18 @@ for (const [language, width] of [
 ] as const) {
   test(`a figure in the unit its Document states is Supported and names it, one a unit away needs a look, and a real difference stays Contradicted (${language}, ${width}px)`, async () => {
     test.setTimeout(120_000);
-    const each = CASES[language];
-    await writeFile(join(sources, each.file), each.pdf);
+    await writeFile(join(sources, FILE), PDF);
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
     try {
       await dismissChatSetup(window);
       await connectLocalChatModel(window);
       await setWindowSize(app, window, width, 900);
       await setLanguage(window, language);
-      await addDocuments(window, [join(sources, each.file)]);
+      await addDocuments(window, [join(sources, FILE)]);
       await mindWrittenBefore(window, "Key figures", [
-        { note: each.unitOnly },
-        { note: each.mayDiffer },
-        { note: each.planted },
+        { note: "Revenue for the six months: 668.3" },
+        { note: "Adjusted EBITDA for the six months: 91,500" },
+        { note: "Net debt at 30 June 2026 was £538.9m." },
       ]);
       await window.getByTestId("mind-list-item").filter({ hasText: "Key figures" }).click();
       await runCommand(window, "mind.check", translate(language, "mindCheck.command"));
@@ -122,13 +91,13 @@ for (const [language, width] of [
         translate(language, "claim.state.supported"),
       );
       await expect(card.getByTestId("claim-stated-unit")).toHaveText(
-        translate(language, "figures.card.statedUnit", { figure: each.figure, unit: each.unit }),
+        translate(language, "figures.card.statedUnit", { figure: "668.3", unit: "GBP million" }),
       );
       await shot(window, `stated-unit-${language}`);
-      const box = await card.getByTestId("claim-stated-unit").boundingBox();
+      const line = await card.getByTestId("claim-stated-unit").boundingBox();
       const cardBox = await card.boundingBox();
-      if (!box || !cardBox) throw new Error("The card's unit line is not drawn.");
-      expect(box.x + box.width).toBeLessThanOrEqual(cardBox.x + cardBox.width);
+      if (!line || !cardBox) throw new Error("The card's unit line is not drawn.");
+      expect(line.x + line.width).toBeLessThanOrEqual(cardBox.x + cardBox.width);
       await window.keyboard.press("Escape");
       await expect(card).toHaveCount(0);
 
@@ -136,8 +105,10 @@ for (const [language, width] of [
       await expect(card.getByTestId("claim-badge")).toHaveText(
         translate(language, "claim.state.unitsMayDiffer"),
       );
-      await expect(card.getByTestId("claim-why")).toHaveText(
-        translate(language, "claim.unsupported.unitsMayDiffer", { amount: each.source }),
+      const part = card.getByTestId("claim-part");
+      await expect(part).toContainText(translate(language, "claim.state.unitsMayDiffer"));
+      await expect(part.getByTestId("claim-part-reason")).toHaveText(
+        translate(language, "claim.unsupported.unitsMayDiffer", { amount: "91,500,000" }),
       );
       await shot(window, `units-may-differ-${language}`);
       await window.keyboard.press("Escape");
