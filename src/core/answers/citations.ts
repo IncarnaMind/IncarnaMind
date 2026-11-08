@@ -1837,6 +1837,12 @@ export interface CitationSessionEvents {
  * Passages, which a search that finds nothing gives instead, once. `ids`: the Citations the
  * Question context shows, which a record names by id to keep one as it is.
  */
+/** A quote's words alone, for telling two records' quotes are one: case, spaces and marks aside. */
+const quoteWords = (quote: string): string =>
+  normaliseText(quote)
+    .toLowerCase()
+    .replace(/[\p{P}\p{S}\s]+/gu, "");
+
 export function createCitationSession(
   documents: Omit<AnswerDocuments, "search" | "searchableCount"> &
     Partial<Pick<AnswerDocuments, "search" | "searchableCount">>,
@@ -1851,7 +1857,7 @@ export function createCitationSession(
   const records = new Map<number, Accepted>();
   /** Markers whose last record from a `cite` call was refused or came back with a problem to fix. */
   const toFix = new Set<number>();
-  /** Quotes `cite` has told the model two records share, by Document: each told once, as advice. */
+  /** Quotes `cite` has told the model two records share, by Document: each told once, never owed. */
   const toldSameQuote = new Set<string>();
   /** Records naming no Passage the model was given, or no marker: as given, and why. */
   const rejected: RejectedRecord[] = [];
@@ -2283,7 +2289,6 @@ export function createCitationSession(
   function cite(inputs: readonly CitationRecordInput[], options: CiteOptions = {}): string {
     const recorded: number[] = [];
     const problems: string[] = [];
-    const advice: string[] = [];
     for (const input of inputs) {
       const taken = take(input, options);
       if (!taken.ok) {
@@ -2305,20 +2310,20 @@ export function createCitationSession(
       } else toFix.delete(marker);
       const same = problem ? null : sameQuoteAs(record);
       const told =
-        same === null ? null : `${record.source.documentId}\n${normaliseText(record.quote)}`;
+        same === null ? null : `${record.source.documentId}\n${quoteWords(record.quote)}`;
+      // Asked once, and never owed at the Answer's end: a claim the quote does state keeps it.
       if (told !== null && !toldSameQuote.has(told)) {
         toldSameQuote.add(told);
-        advice.push(
-          ` [^${marker}] gives the quote of [^${same}]. If its claim is another, record it again with the words that state that claim; if it is the same claim, write [^${same}] for it.`,
+        problems.push(
+          `[^${marker}]: its quote is [^${same}]'s. Give it the words that state its own claim; if its claim is [^${same}]'s, cite [^${same}] there instead and leave [^${marker}] out.`,
         );
       }
     }
     const done = recorded.length
       ? `Recorded ${recorded.map((marker) => `[^${marker}]`).join(", ")}.`
       : "Nothing was recorded.";
-    // Advice, not a fix: an Answer written beside `cite` stays complete, never written twice.
     const fix = problems.length ? ` ${FIX_THESE}\n- ${problems.join("\n- ")}` : WRITE_NOW;
-    return `${done}${advice.join("")}${fix}`;
+    return `${done}${fix}`;
   }
 
   /**
@@ -2327,13 +2332,13 @@ export function createCitationSession(
    */
   function sameQuoteAs(record: Accepted): number | null {
     if (!events.quotesStateClaims?.() || record.kept || !record.quote) return null;
-    const words = normaliseText(record.quote);
+    const words = quoteWords(record.quote);
     for (const other of records.values()) {
       if (
         other.marker !== record.marker &&
         !other.kept &&
         other.source.documentId === record.source.documentId &&
-        normaliseText(other.quote) === words
+        quoteWords(other.quote) === words
       ) {
         return other.marker;
       }

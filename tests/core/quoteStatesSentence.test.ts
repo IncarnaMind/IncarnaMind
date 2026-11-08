@@ -138,7 +138,7 @@ describe("cite says when two records give one quote", () => {
     );
   }
 
-  test("once, for the later marker, as advice that leaves the Answer to be written, and the record is kept", async () => {
+  test("once, for the later marker, never owed at the end, and the record is kept", async () => {
     const told: string[] = [];
     const { core } = await setUpWithDocuments(repeatingModel(told), [
       { name: "Methods.pdf", contents: buildPdf([{ lines: LINES }]) },
@@ -146,11 +146,9 @@ describe("cite says when two records give one quote", () => {
 
     const citation = await judgedCitation(core, "Who proposed the method?");
 
-    expect(told[0]).toContain("Recorded [^1], [^2]. [^2] gives the quote of [^1].");
-    expect(told[0]).not.toContain("[^1] gives the quote");
-    expect(told[0]).toContain("Write the Answer now");
-    expect(told[0]).not.toContain("Fix these");
-    expect(told[1]).not.toContain("gives the quote of");
+    expect(told[0]).toContain("Fix these with another cite call:\n- [^2]: its quote is [^1]'s.");
+    expect(told[0]).not.toContain("[^1]: its quote");
+    expect(told[1]).toMatch(/^Recorded \[\^1\], \[\^2\]\. Write the Answer now/);
     expect(citation?.quote).toBe(MARROW);
   });
 
@@ -164,7 +162,6 @@ describe("cite says when two records give one quote", () => {
 
     await judgedCitation(core, "Who proposed the method?");
 
-    expect(told[0]).toContain("Recorded [^1], [^2].");
-    expect(told[0]).not.toContain("gives the quote of");
+    expect(told[0]).toMatch(/^Recorded \[\^1\], \[\^2\]\. Write the Answer now/);
   });
 });

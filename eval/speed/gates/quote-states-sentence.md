@@ -12,6 +12,8 @@ Written and committed on 2026-11-08, before any run it gates. Citing first, the 
 
 *Added on 2026-11-08, before the runs below: the first Claude Haiku 5.5 run was stopped at its sixth Question, en-05, where the first arm's Answer failed on the organisation's rate limit for that key. It spent under $0.10 and is not counted. Both models' runs start again, whole, on the second direct Anthropic key, one route for every run.*
 
+*Added on 2026-11-08, after Claude Haiku 5.5's two whole runs at 4961c9ce8 and before any run of the change this line describes. Lines 1 and 3 held: flags read right, main 28.3% and 30.0% of found Citations, the branch 17.5% and 13.1%. Line 2 failed in the first run: 11 of 171 found Citations quoted another claim (6.4%), and 10 of 183 (5.5%) in the second, against main's 7.2% in both. Most of them were two records given one quote, which `cite` only advised against. It now asks the model to fix that, once for each quote, and the Answer never owes it at its end. The gating set has now been seen. Claude Haiku 5.5's two whole runs are repeated on the changed code with the same bar, and Claude Sonnet 5.5's runs follow on it. A Sonnet run started before this was stopped after four Questions ($0.21) and is not counted.*
+
 ## The bar, per model, over the items both arms finished
 
 1. **Quotes that don't state their sentence** (flags read right, over found Citations): on Claude Haiku 5.5, both of the branch's runs below 20%, clearly under main's 25–31%. On both models, the branch's two runs sit below main's two, and the mean gap is more than either arm's own difference between its runs.
