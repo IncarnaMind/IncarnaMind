@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { showAppearance } from "./appearance";
 import { GAP, isSide, RAIL, SIDE_MIN, shownDock } from "./assistantPlace";
 import { useEditMenu } from "./commands/edit";
 import { sidebarHandle, useHandle } from "./commands/handles";
@@ -71,6 +72,8 @@ export function App() {
   // How the window moves: the User's choice, kept on this device, once the settings have loaded.
   const motion = useAppStore((state) => state.settings?.device.motion ?? "system");
   useEffect(() => setMotionPreference(motion), [motion]);
+  const appearance = useAppStore((state) => state.settings?.device.appearance ?? "system");
+  useEffect(() => showAppearance(appearance), [appearance]);
 
   // The frame shows at once; the data fills it in as it arrives.
   if (status.kind === "loading") return <AppShell />;

@@ -5,6 +5,7 @@ import { core, files } from "../core";
 import { useT } from "../i18n";
 import { offeredSettingsPages, type SettingsPage, settingsPageLabels } from "../settingsPages";
 import { recordUsage, useAppStore } from "../store";
+import { AppearanceRow } from "./AppearanceSettings";
 import { AuthorNameSettings } from "./AuthorNameSettings";
 import { AgentsSettings } from "./agents/AgentsSettings";
 import { ConnectorsSettings } from "./connectors/ConnectorsSettings";
@@ -213,6 +214,7 @@ function InterfaceSettings() {
     <SettingsSection title={t("settings.interface")} testId="interface-settings">
       <SettingsGroup>
         <LanguageRow />
+        <AppearanceRow />
         <MotionRow />
       </SettingsGroup>
     </SettingsSection>

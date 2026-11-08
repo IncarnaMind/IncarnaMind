@@ -40,6 +40,7 @@ import {
   MEETING_PANEL_CHANNELS,
   type PanelState,
 } from "../../shared/meetingPanel";
+import { themeWindow, windowColour } from "../appearance";
 import { handle } from "../ipc";
 
 /** The panel's width before its page says its size, and its distance from the screen's top right corner. */
@@ -230,7 +231,7 @@ export function serveMeetingPanel(core: Core, options: MeetingPanelOptions): voi
       acceptFirstMouse: true,
       hasShadow: true,
       title: "IncarnaMind",
-      backgroundColor: "#FFFFFF",
+      backgroundColor: windowColour("sheet"),
       // A panel floats over a full-screen app on macOS, and clicking it doesn't activate the app.
       ...(mac && { type: "panel" }),
       webPreferences: {
@@ -242,6 +243,7 @@ export function serveMeetingPanel(core: Core, options: MeetingPanelOptions): voi
       },
     });
     panelWindows.add(window);
+    themeWindow(window, "sheet");
     panel = window;
     reported = { folded: false, pinned: false };
     window.setAlwaysOnTop(true, "screen-saver");
