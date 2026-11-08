@@ -692,7 +692,7 @@ export function createCore(adapters: CoreAdapters): Core {
   };
   const mindsChanged = () => events.emit("minds.changed", minds.list());
   function renameJoinedTranscripts(mind: Mind): void {
-    const transcripts = documents.list().filter((each) => each.meetingMindId === mind.id);
+    const transcripts = documents.rows().filter((each) => each.meetingMindId === mind.id);
     if (transcripts.length === 0) return;
     const displayed = mindName(mind).trim();
     const name = displayed
@@ -1708,6 +1708,17 @@ export function createCore(adapters: CoreAdapters): Core {
   const walledFolder = (mindId: string | null): string | null => {
     const folderId = mindId !== null && mindExists(mindId) ? minds.get(mindId).folderId : null;
     return walledFolderId(folderId);
+  };
+  /**
+   * Whether a Note may read again the Document a Citation names (#1934): never a Document kept
+   * inside a walled Folder the Note is outside. Recheck, Add to Note, the edit's kept Citations
+   * and a figure's inputs all ask this one question, so no path forgets the wall as Edit with AI
+   * did (#2746). A caller with no Note (an Answer in the assistant, a Document's viewer) is
+   * reading as browsing is, and may.
+   */
+  const mayRecheckIn = (mindId: string | null, documentId: string): boolean => {
+    const wall = walledDocument(documentId);
+    return wall === null || mindId === null || wall === walledFolder(mindId);
   };
   /**
    * The one place deciding where the assistant files what it makes (#1934): work behind the wall
@@ -2810,7 +2821,11 @@ export function createCore(adapters: CoreAdapters): Core {
     chat,
     consent,
     localOnly: () => embedding.localOnly(),
-    recheck: (attributes) => recheckKept(documents, attributes),
+    // An edit's kept Citations are checked again, but never one the Note may not read (#2746).
+    recheck: (attributes, mindId) =>
+      typeof attributes.documentId === "string" && mayRecheckIn(mindId, attributes.documentId)
+        ? recheckKept(documents, attributes)
+        : null,
     writing: (mindId, place, part) =>
       events.emit("mind.writing", { mindId, place, ...(part && { part }) }),
     estimate: (choice, parts) => {
@@ -2905,6 +2920,9 @@ export function createCore(adapters: CoreAdapters): Core {
     );
   }
 
+  const documentVersions = () =>
+    new Map(documents.rows().map((document) => [document.id, document.contentHash]));
+
   function readFigureSchedule(mindId: string) {
     const mind = minds.get(mindId);
     const scope = content.readSettings(mind.id, mindScopeIn);
@@ -2914,17 +2932,13 @@ export function createCore(adapters: CoreAdapters): Core {
         name: mindName(mind) || translate(settings.get().language, "mind.untitled"),
         basis: fingerprintOfBlocks(blocks),
         blocks,
-        versions: new Map(documents.list().map((document) => [document.id, document.contentHash])),
+        versions: documentVersions(),
         folderId: mind.folderId,
         scope,
         personId: settings.get().user.personId,
         language: settings.get().language,
-        keptInside: (documentId) => {
-          const wall = walledDocument(documentId);
-          return wall === null || wall === walledFolder(mind.id)
-            ? null
-            : (walledFolderName(documentId) ?? documentId);
-        },
+        keptInside: (documentId) =>
+          mayRecheckIn(mind.id, documentId) ? null : (walledFolderName(documentId) ?? documentId),
       });
     });
   }
@@ -2937,7 +2951,7 @@ export function createCore(adapters: CoreAdapters): Core {
     libraryState: () =>
       JSON.stringify(
         documents
-          .list()
+          .rows()
           .map((document) => [
             document.id,
             document.name,
@@ -3012,8 +3026,7 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     watch: {
       minds: () => minds.list().map((mind) => ({ id: mind.id, folderId: mind.folderId })),
-      documentVersions: () =>
-        new Map(documents.list().map((document) => [document.id, document.contentHash])),
+      documentVersions,
       background,
       runCost: (runId) => meter.taskCost(runId),
       delayMs: adapters.contradictionWatch?.delayMs ?? AFTER_NEW_VERSION_MS,
@@ -3095,10 +3108,7 @@ export function createCore(adapters: CoreAdapters): Core {
    * for a Citation made before the wall (#1934).
    */
   const recheckIn = (input: RecheckCitationInput): RecheckResult => {
-    const wall = walledDocument(input.documentId);
-    if (wall === null || input.mindId === null || wall === walledFolder(input.mindId)) {
-      return recheckCitation(documents, input);
-    }
+    if (mayRecheckIn(input.mindId, input.documentId)) return recheckCitation(documents, input);
     return { keptInside: walledFolderName(input.documentId) ?? "" };
   };
   // "Add to note" into a Mind that isn't open (#201), with its Citations checked where they land.
@@ -4414,8 +4424,7 @@ export function createCore(adapters: CoreAdapters): Core {
         }
       });
     },
-    linkedFolderExists: (linkedFolderId) =>
-      documents.linkedFolders.list().some((folder) => folder.id === linkedFolderId),
+    linkedFolderExists: (linkedFolderId) => documents.linkedFolders.has(linkedFolderId),
     documentsIn: (linkedFolderId) => documents.list({ linkedFolderId }),
     mindFolder: (mindId) => minds.get(mindId).folderId,
     now,
@@ -4447,7 +4456,7 @@ export function createCore(adapters: CoreAdapters): Core {
   const readyQuestionNow = (): ReadyQuestion | null => {
     const exampleDocuments = new Set(examples.made().documentIds);
     return readyQuestionOf({
-      own: documents.list().filter((each) => !exampleDocuments.has(each.id)),
+      own: documents.rows().filter((each) => !exampleDocuments.has(each.id)),
       example: examples.readyQuestion(),
       language: settings.get().language,
     });
