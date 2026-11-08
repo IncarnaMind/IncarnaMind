@@ -13,14 +13,12 @@
 import type { CloudLoss } from "../../adapters";
 import { OUT_OF_CREDIT } from "../../providers/creditWords";
 import { cleanSpeech } from "../speechText";
+import { endsAfter, endsBefore } from "./lineEnds";
 import { closedLoss, createLiveStream, joinWords, type LiveLink, pcmBytes } from "./live";
 import type { CloudStreamHandle, CloudStreamOptions } from "./stream";
 
 export { XAI_STT_MODEL } from "./protocol";
 export const XAI_STT_URL = "wss://api.x.ai/v1/stt";
-
-/** A line this long ends even without a pause, so its final text never waits long. */
-const LONGEST_LINE_MS = 20_000;
 
 interface Word {
   text: string;
@@ -106,16 +104,12 @@ export function createXaiStream(options: CloudStreamOptions): CloudStreamHandle 
     if (line && line.speaker !== null && word.speaker !== null && word.speaker !== line.speaker) {
       close();
     }
-    if (
-      line &&
-      line.words.length > 0 &&
-      word.end - (line.words[0] as Word).start > LONGEST_LINE_MS
-    ) {
-      close();
-    }
+    const first = line?.words[0];
+    if (first && endsBefore(word.end - first.start, true)) close();
     line ??= { id: nextId++, words: [], speaker: null };
     line.words.push(word);
     line.speaker ??= word.speaker;
+    if (endsAfter(textOf(line.words), word.end - (line.words[0] as Word).start, true)) close();
   }
 
   /**

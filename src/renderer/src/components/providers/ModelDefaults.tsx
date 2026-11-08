@@ -10,11 +10,13 @@ import { core } from "../../core";
 import { useGap, useLanguage, useT } from "../../i18n";
 import { setAnswersModel } from "../../modelInUse";
 import { useModelNames } from "../../modelNames";
+import type { SettingsTarget } from "../../settingsPages";
 import { useSettingsTarget } from "../../settingsTarget";
 import { useAppStore } from "../../store";
-import { type ServicesView, useTranscriptionServicesRead } from "../../transcriptionServices";
+import type { ServicesView } from "../../transcriptionServices";
 import { TranscriptionRouteSelect } from "../meetings/TranscriptionRouteSelect";
 import { TranscriptionRouteConsent } from "../meetings/TranscriptionSettings";
+import { useTranscriptionSetUp } from "../meetings/TranscriptionSetUp";
 import { ReadProblem } from "../ReadProblem";
 import { PopUpSelect } from "../settings/PopUpButton";
 import {
@@ -61,20 +63,22 @@ const popUpWidth = "max-w-64";
 /**
  * Settings › Models: the same three rows as first run (#1922), each editable in place — your AI,
  * where meetings are transcribed, and what sorts Documents and names meeting hints. Quick tasks
- * and reading images follow your AI model, with no row of their own.
+ * and reading images follow your AI model, with no row of their own. `services`: the page's one
+ * read of the transcription services, which its row, the line under the list and Your providers'
+ * transcription keys draw from.
  */
 export function ModelDefaults({
   groups,
   providers,
+  services,
 }: {
   groups: readonly ChatModelGroup[];
   providers: readonly ChatProvider[];
+  services: ServicesView;
 }) {
   const t = useT();
   const id = useId();
   const roles = useModelRoles(groups);
-  // The one read of the Meetings choice: its row and the line under the list draw from it.
-  const services = useTranscriptionServicesRead();
 
   return (
     <SettingsSection title={t("models.defaults.title")} testId="model-defaults">
@@ -131,11 +135,19 @@ function YourAiRow({
   );
 }
 
+const TRANSCRIPTION: readonly SettingsTarget[] = ["transcription"];
+
+/** Where meetings are transcribed, with "Set up another transcription service" at its picker's foot. */
 function TranscriptionRow({ id, services }: { id: string; services: ServicesView }) {
   const t = useT();
   const localOnly = useAppStore((state) => state.embedding?.localOnly === true);
+  const setUp = useTranscriptionSetUp(id, services);
+  const reached = useSettingsTarget<HTMLDivElement>(TRANSCRIPTION, true, () =>
+    document.getElementById(id)?.focus(),
+  );
   return (
     <SettingsRow
+      ref={reached}
       data-testid="model-default-row-transcription"
       data-read-host
       label={t("models.defaults.transcription")}
@@ -147,9 +159,13 @@ function TranscriptionRow({ id, services }: { id: string; services: ServicesView
           className={popUpWidth}
           localOnly={localOnly}
           read={services}
+          setUp={setUp.rows}
+          onChosen={setUp.onChosen}
         />
       }
-    />
+    >
+      {setUp.panel}
+    </SettingsRow>
   );
 }
 

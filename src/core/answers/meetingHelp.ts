@@ -5,7 +5,14 @@
  * (src/renderer/src/helpReply.ts), so the shape is fixed here.
  */
 
-import { HELP_SHAPE, type HelpShape, type MeetingHelpKind } from "../../shared/meetingHelp";
+import {
+  EFFECT_MARK,
+  HELP_SHAPE,
+  type HelpShape,
+  type MeetingHelpKind,
+  plainLine,
+  RECOMMENDED_MARK,
+} from "../../shared/meetingHelp";
 import type { WindowedPassage } from "../documents/search";
 import { LANGUAGE_NAMES, type Language } from "../language";
 import { estimateTokens } from "./context";
@@ -101,6 +108,46 @@ const EXAMPLES: Readonly<Record<"en" | "zh", Readonly<Record<HelpShape, readonly
     lines: ["- 上线推迟到 11 月 18 日 [^1]", "- Dana 跟服务商确认日期"],
   },
 };
+
+/** A short line's own mark: a list's, as the form asks for, never a numbered step. */
+const SHORT_LINE = /^[-*•]\s+/;
+
+/**
+ * The spans of a button's reply in `text` that are its own lines: each option or reading from its
+ * "★" line, or from the start of its paragraph, to its "→" line; a "★" line still waiting for its
+ * "→" line; each short line; and the one line "Am I leading them?" puts before its options. They
+ * are never the model's working, so none is taken back (#2778); a model's notes and remarks around
+ * them are judged as any Answer's are (#2526).
+ */
+export function helpOwnLines(kind: MeetingHelpKind, text: string): { from: number; to: number }[] {
+  const lines: { from: number; to: number; plain: string; paragraph: number }[] = [];
+  let at = 0;
+  let paragraph = 0;
+  for (const raw of text.split("\n")) {
+    const plain = plainLine(raw);
+    if (plain === "") {
+      if (lines.at(-1)?.paragraph === paragraph) paragraph++;
+    } else lines.push({ from: at, to: at + raw.length, plain, paragraph });
+    at += raw.length + 1;
+  }
+  if (HELP_SHAPE[kind] === "lines") return lines.filter((line) => SHORT_LINE.test(line.plain));
+  const own: { from: number; to: number; first: number }[] = [];
+  let start = 0;
+  for (const [index, line] of lines.entries()) {
+    if (index > 0 && line.paragraph !== lines[index - 1]?.paragraph) start = index;
+    if (RECOMMENDED_MARK.test(line.plain)) start = index;
+    if (!EFFECT_MARK.test(line.plain)) continue;
+    own.push({ from: lines[start]?.from ?? line.from, to: line.to, first: start });
+    start = index + 1;
+  }
+  for (const [index, line] of lines.entries()) {
+    const covered = own.some((each) => each.from <= line.from && line.to <= each.to);
+    if (RECOMMENDED_MARK.test(line.plain) && !covered) own.push({ ...line, first: index });
+  }
+  own.sort((a, b) => a.from - b.from);
+  const leadIn = kind === "leading" && own[0] ? lines[own[0].first - 1] : undefined;
+  return [...(leadIn ? [leadIn] : []), ...own].map(({ from, to }) => ({ from, to }));
+}
 
 /** The most of the User's Documents a button's Question takes, found ahead for the newest lines. */
 export const FOUND_TOKEN_LIMIT = 2_000;

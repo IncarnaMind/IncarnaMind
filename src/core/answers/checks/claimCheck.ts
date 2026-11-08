@@ -1219,7 +1219,6 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
     // still free: a later reply that gives none is held back as one that gives other words.
     let askedForOwnWords = false;
     let askedAbout: string | null = null;
-    let askedFigures: string | null = null;
     let failed: ProviderError | null = null;
     let finished = false;
     // A run that read a Document a wall keeps from this check backs nothing here, and what it read
@@ -1311,7 +1310,6 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
           (marker) => session.tools.hasRecord?.(marker) ?? false,
           (text) => {
             askedAbout = text;
-            if (readFigureReply(text, request.figures ?? [], request.claim)) askedFigures = text;
           },
         ),
         {
@@ -1398,12 +1396,10 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
         })),
       );
       session.check();
-      // A reply asked about its Figures line that gives its verdict again without one keeps the
-      // last line that reads: each figure is still compared with its own quote.
-      const figuresText =
-        readFigureReply(text, request.figures, request.claim) === null
-          ? (askedFigures ?? text)
-          : text;
+      // The run's final reply decides each figure: an earlier reply's Figures line never stands
+      // over a later reply that gives none, or another (#2591). A final turn that answers in prose
+      // instead of a reply keeps the reply asked about, for the sentence and its figures (#2184).
+      const figuresText = text;
       if (invalidInput || pending.size > 0) {
         retryPendingQuotes();
         session.check();

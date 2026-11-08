@@ -133,9 +133,8 @@ const textDeltas = (id: string, text: string) =>
   text.split(/(?<=\s)/).map((delta): StreamPart => ({ type: "text-delta", id, delta }));
 
 /**
- * For a model id ending "-moves-taken-back": a help reply as the core leaves one whose "→" line it
- * took back as the model's working, once its Citations were recorded (#2767): its first option or
- * reading alone, with no "→" line. Other steps are as they were.
+ * For a model id ending "-moves-taken-back": a help reply whose one option or reading came without
+ * its "→" line (#2767): its first alone. Other steps are as they were.
  */
 function withMovesTakenBack(prompt: Prompt, parts: StreamPart[]): StreamPart[] {
   if (!HELP.test(block(lastUserText(prompt), "help"))) return parts;
@@ -163,6 +162,10 @@ function headingOnly(prompt: Prompt, parts: StreamPart[]): StreamPart[] {
     { type: "finish", finishReason: { unified: "stop", raw: undefined }, usage: USAGE },
   ];
 }
+
+/** For a model id ending "-help-held": a help reply writes nothing until it is stopped. */
+export const holdsHelp = (modelId: string, prompt: Prompt): boolean =>
+  modelId.endsWith("-help-held") && HELP.test(block(lastUserText(prompt), "help"));
 
 /** A help reply as the fake model named by its id's ending writes it; any other reply as it is. */
 export function helpModelParts(modelId: string, prompt: Prompt, parts: StreamPart[]): StreamPart[] {

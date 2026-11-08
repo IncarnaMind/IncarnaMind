@@ -161,7 +161,9 @@ const linesOf = (transcript: Locator) =>
   transcript.getByTestId("transcript-line").evaluateAll((items) =>
     items.map((item) => ({
       start: Number(item.getAttribute("data-start")),
-      speaker: item.querySelector('[data-testid="transcript-speaker"]')?.textContent ?? "",
+      speaker:
+        item.closest("[data-turn]")?.querySelector('[data-testid="transcript-speaker"]')
+          ?.textContent ?? "",
     })),
   );
 
