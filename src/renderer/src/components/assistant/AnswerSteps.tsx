@@ -26,6 +26,7 @@ import {
   type LiveStep,
   liveStep,
   liveStepKey,
+  placeOf,
   plainSummary,
   type ReadDocument,
   type StepRow,
@@ -1035,7 +1036,7 @@ function SourceList({ sources }: { sources: StepSource[] }) {
   return (
     <ul className="answer-step-sources">
       {shown.map((source) => (
-        <li key={`${source.marker}`}>
+        <li key={placeOf(source)}>
           <SourceRow source={source} />
         </li>
       ))}

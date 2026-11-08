@@ -171,7 +171,8 @@ export function mindCallText(t: Translate, call: AnswerToolCall, mind: string): 
     }
     return t(call.tool === "add_to_mind" ? "mindCall.adding" : "mindCall.editing", { mind });
   }
-  if (call.status === "failed") {
+  // A write the User stopped halfway keeps what it wrote: its row says that, not that it failed.
+  if (call.status === "failed" && (call.mindProblem || !change)) {
     const why = call.mindProblem && problemText(t, call.mindProblem, mind);
     if (why) return why;
     if (call.tool === "read_mind") return t("mindCall.readFailed", { mind });

@@ -36,7 +36,7 @@ const bridge = new Proxy(
     updateSettings: async () => undefined,
     readyQuestion: async () => {
       readyReads += 1;
-      return null;
+      return { ready: null, reading: null };
     },
     askInConversation: async (input: AskInConversationInput) => {
       asked.push(input);

@@ -23,7 +23,7 @@ import { clockTime, parseClockTime } from "./clock";
 import { type MessageKey, type MessageParams, translate } from "./i18n";
 import { parseLibraryFact, parseLibrarySource } from "./libraryFacts";
 import { findQuote, type MatchOptions, type TextRange } from "./quoteMatch";
-import { shownSpeaker } from "./speakers";
+import { partStartOf, shownSpeaker } from "./speakers";
 import {
   anchorsOf,
   isPrintedName,
@@ -216,6 +216,8 @@ export interface SpeakerWording {
   speaker?: boolean;
   /** The Transcript's who's who (#138), so the Speaker shows as the User named them now. */
   speakers?: TranscriptSpeakers | null;
+  /** The Citation's quote, which places it in the part of a line the User split (#138). */
+  quote?: string | null;
 }
 
 /**
@@ -226,7 +228,7 @@ export interface SpeakerWording {
 export function formatLocation(
   location: CitationLocation,
   t: Translate,
-  { speaker = true, speakers = null }: SpeakerWording = {},
+  { speaker = true, speakers = null, quote }: SpeakerWording = {},
 ): string {
   switch (location.kind) {
     case "page": {
@@ -262,13 +264,17 @@ export function formatLocation(
       return t(location.to !== location.from ? "location.lines.other" : "location.lines.one", {
         range: span(location.from, location.to),
       });
-    case "time":
+    case "time": {
+      const from = location.speaker
+        ? partStartOf(speakers, location.from, location.speaker, quote)
+        : location.from;
       return speaker && location.speaker
         ? t("location.time.speaker", {
-            speaker: shownSpeaker(speakers, location.from, location.speaker, t),
-            time: clockTime(location.from),
+            speaker: shownSpeaker(speakers, from, location.speaker, t),
+            time: clockTime(from),
           })
-        : clockTime(location.from);
+        : clockTime(from);
+    }
     case "section": {
       const section = location.notes
         ? t("location.section.notes")

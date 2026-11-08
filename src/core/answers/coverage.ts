@@ -135,10 +135,11 @@ const canName = (term: string) =>
 
 /**
  * A Document the Answer used that the Question's words name, when they name others of `documents`
- * (those in scope) too (#1512): the first of `used` (the Documents it cited, or those its Passages
- * came from when it cited none, in order) whose name or title has the Question's words that some
- * other Document's has as well, named as the User sees it, with those others in `excluded` — every
- * Document it used or searched by name — left out; null when there is none.
+ * (those in scope) too (#1512): the first of `used` (the Documents it cited, in its reply or in a
+ * Note, or those its Passages came from when it cited none, in order) whose name or title has the
+ * Question's words that some other Document's has as well, and no Document it used has more of
+ * them, named as the User sees it, with those others in `excluded` — every Document it used or searched
+ * by name — left out; null when there is none.
  */
 export function namedCoverage(
   question: string,
@@ -165,6 +166,15 @@ export function namedCoverage(
     if (!document) continue;
     const said = terms.filter((term) => namedBy(document, term));
     if (!said.some(canName)) continue;
+    // Its words are part of a fuller name the Question gives another Document the Answer used:
+    // "the Field Report" names no other "report" (#2768).
+    const namesAnother = documents.some(
+      (each) =>
+        used.includes(each.id) &&
+        said.every((term) => namedBy(each, term)) &&
+        terms.some((term) => !said.includes(term) && namedBy(each, term)),
+    );
+    if (namesAnother) continue;
     const rest = documents.filter(
       (each) => !excluded.includes(each.id) && said.every((term) => namedBy(each, term)),
     );

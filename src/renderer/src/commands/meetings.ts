@@ -225,6 +225,8 @@ export const meetingCommands: readonly Command[] = [
   {
     id: "meeting.addLine",
     label: "meetings.command.addLine",
+    // On a line, with no caret in its words: Enter splits the line there instead.
+    rowKeys: "Enter",
     group: "main",
     // Its Undo line, and ⌘Z outside a text field, take it back.
     reversible: true,
@@ -234,9 +236,62 @@ export const meetingCommands: readonly Command[] = [
     run: () => transcriptHandle.current?.addLine(),
   },
   {
+    id: "meeting.playFromHere",
+    label: "transcript.word.play",
+    group: "main",
+    // It changes nothing kept.
+    reversible: true,
+    when: () => transcriptHandle.current !== null,
+    enabled: () => {
+      const transcript = transcriptHandle.current;
+      if (!transcript?.hasLine()) return { reason: "meetings.command.noLine" };
+      const can = transcript.canPlay();
+      return can === true ? true : { reason: can };
+    },
+    run: () => transcriptHandle.current?.play(),
+  },
+  {
+    id: "meeting.togglePlayback",
+    label: (_ctx, t) =>
+      t(
+        transcriptHandle.current?.playing()
+          ? "meetings.command.pausePlayback"
+          : "meetings.command.resumePlayback",
+      ),
+    rowKeys: "Space",
+    group: "main",
+    // Pressed again, it undoes itself.
+    reversible: true,
+    when: () => transcriptHandle.current !== null,
+    enabled: () =>
+      transcriptHandle.current?.playing() == null
+        ? { reason: "meetings.command.noPlayback" }
+        : true,
+    run: () => transcriptHandle.current?.togglePlayback(),
+  },
+  {
+    id: "meeting.splitLine",
+    label: "meetings.command.splitLine",
+    keywords: ["transcript.speaker.whoRest"],
+    // With the caret in a line's words: on a line without one, Enter adds it to the note.
+    rowKeys: "Enter",
+    group: "main",
+    // Its Undo line, and ⌘Z outside a text field, take it back.
+    reversible: true,
+    when: () => transcriptHandle.current !== null,
+    enabled: () => {
+      const transcript = transcriptHandle.current;
+      if (!transcript?.hasLine()) return { reason: "meetings.command.noLine" };
+      const can = transcript.canSplit();
+      return can === true ? true : { reason: can };
+    },
+    run: () => transcriptHandle.current?.split(),
+  },
+  {
     id: "meeting.changeSpeaker",
     label: "meetings.command.changeSpeaker",
     keywords: ["transcript.speaker.new", "transcript.speaker.all"],
+    rowKeys: "F2",
     group: "main",
     // Its menu's choice has an Undo line, and ⌘Z outside a text field takes it back.
     reversible: true,
