@@ -108,3 +108,13 @@ Guard 3's three, three more runs each on the branch: `follow-longer-zh` 3 of 3, 
 Reported: the research questions' cited sentences Supported, Claude Haiku 5.5 7 of 9 English and 9 of 11 Chinese, DeepSeek 13 of 17 and 8 of 12 (#2769's run on main: 9 of 9 and 6 of 9, 7 of 12 and 15 of 17); this change touches neither the Answers' Citations nor their checks. The 15-minute load was 5 to 17 at the starts of the runs, and rose to 34 during the last. Spend: $4.34 for the everyday runs with their judge, $0.16 for the probes, about $0.05 for the replays, and about $0.3 for the run stopped at `69d0136b9`: about $4.85 of the $6 cap, before main's diagnosis runs.
 
 Guards 3 and 5 fail, so by this gate the branch doesn't merge as it is. What the failures are is above; the decision is the reviewer's.
+
+## Guards 3 and 5 again (2026-11-08, written before their runs)
+
+The probes ask a model, so a miss in 1 of 3 runs can be chance. Main is now `7c340ec86`, the branch's base after merging main; its source differs from the branch's only in the four files this change touches, both under the branch's `eval/`.
+
+- **Guard 5, again:** the whole probe set, 20 runs of each probe, on each arm, with Claude Haiku 5.5 and with DeepSeek V4.1 Flash as the quick model. It holds when, on Claude Haiku 5.5, the branch catches the unmade claims there before at least as often as main, leaves the honest replies there before alone at least as often as main, and passes each of the fourteen held out in at least two thirds of its runs. Each probe's catches are listed by arm; one main catches more often than the branch is named, without a cause unless one is shown.
+- **Guard 3's cases, by replay:** the replies `follow-longer-zh` and `sounds-like` were flagged on, through each arm's check with DeepSeek V4.1 Flash, 30 times each.
+- **Guard 3, again:** the 41 once each on DeepSeek V4.1 Flash, on each arm, one after the other. It holds when no request is under its floor on the branch that isn't on main in this same rerun.
+
+The cap for these is $3.
