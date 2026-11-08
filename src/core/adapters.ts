@@ -1376,6 +1376,11 @@ export interface CoreAdapters {
    */
   helpFormJudged?: () => boolean | undefined;
   /**
+   * Whether call help's Citations the model left unmarked are placed, and its uncited sentences
+   * given one, as before #2847; unset, they aren't. Only tests and the evaluation pass one.
+   */
+  helpMarksPlaced?: () => boolean | undefined;
+  /**
    * Tunes and watches the search Tool for Answers' searches (reranking depth,
    * Passages handed, a callback with each search's timings). Only the
    * evaluation passes one.

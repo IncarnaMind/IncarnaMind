@@ -643,6 +643,8 @@ export interface AnswersOptions {
   meetingHelp?(mindId: string, question: string): MeetingHelpKind | null;
   /** See `CoreAdapters.helpFormJudged`. */
   helpFormJudged?(): boolean;
+  /** See `CoreAdapters.helpMarksPlaced`. */
+  helpMarksPlaced?(): boolean;
   providerExists(providerId: string): boolean;
   /**
    * An Answer's sentences with Citations, checked against what they cite before it ends (#2311):
@@ -3606,6 +3608,7 @@ export function createAnswers(options: AnswersOptions) {
         toolSet: input.toolSet ?? (help ? "documents" : undefined),
         ...(help &&
           !options.helpFormJudged?.() && { ownLines: (text: string) => helpOwnLines(help, text) }),
+        ...(help && !options.helpMarksPlaced?.() && { ownMarkersOnly: true }),
         ...(input.outputKind && { outputKind: input.outputKind }),
         ...(keepsQuestionsLanguage && {
           languageNote: () => (skillNamesNoLanguage ? skillLanguageNote(language) : null),

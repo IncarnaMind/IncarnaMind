@@ -64,22 +64,30 @@ export const HELP_DOCUMENTS: Readonly<Record<MeetingHelpKind, string | null>> = 
 const SHAPES: Readonly<Record<HelpShape, readonly string[]>> = {
   options: [
     '- One or two options, never more. The one you recommend comes first, its line starting with "★ ".',
-    '- Each option is two lines: what the User could say, as they would say it aloud, one sentence of at most 25 words with no quotation marks around it (the panel shows it as a quote), its Citation markers at its end; then a line starting with "→ " and what saying it leads to, in at most eight words, with no Citation marker.',
+    '- Each option is two lines: what the User could say, as they would say it aloud, one sentence of at most 25 words with no quotation marks around it (the panel shows it as a quote); then a line starting with "→ " and what saying it leads to, in at most eight words, with no Citation marker.',
   ],
   readings: [
     '- One or two readings, never more. The likeliest comes first, its line starting with "★ ".',
     '- Each reading is three lines: what they want, in one sentence, as a reading of what they said and never as a fact; then the moment of the transcript it rests on: its time and a few words they said in quotation marks, with no punctuation before the closing mark, then its Citation marker; then a line starting with "→ " and the move it suggests, in at most ten words.',
   ],
   lines: [
-    '- At most three short lines, each starting with "- ", each one sentence of at most 20 words, its Citation markers at its end.',
+    '- At most three short lines, each starting with "- ", each one sentence of at most 20 words.',
   ],
 };
+
+/**
+ * Where a reply's Citation markers go. The panel shows a found Citation as checked without judging
+ * its sentence: a marker at a sentence's end would vouch for the User's own promise, or another
+ * line's fact, before it (#2847).
+ */
+const MARKERS =
+  "- Put each Citation marker right after the words its quote supports, even mid-sentence: a fact from another line gets that line's own marker, right after it; what the User would promise, offer or ask gets none, and an option that only buys time has no marker.";
 
 /** A reply in each shape, in the call's language where it is Chinese: a model copies an example's language. */
 const EXAMPLES: Readonly<Record<"en" | "zh", Readonly<Record<HelpShape, readonly string[]>>>> = {
   en: {
     options: [
-      "★ We can't go below list for Enterprise, but we can extend the pilot to 60 days [^1]",
+      "★ We can extend the pilot to 60 days [^1], but Enterprise stays at list price",
       "→ keeps the deal moving; protects the margin",
       "",
       "Let me check with our team and come back to you by Friday",
@@ -94,7 +102,7 @@ const EXAMPLES: Readonly<Record<"en" | "zh", Readonly<Record<HelpShape, readonly
   },
   zh: {
     options: [
-      "★ 企业版价格没法低于标价，但我们可以把试用延长到 60 天 [^1]",
+      "★ 我们可以把试用延长到 60 天 [^1]，但企业版价格没法低于标价",
       "→ 推进成交，守住利润",
       "",
       "我跟团队确认一下，周五前给你答复",
@@ -231,6 +239,7 @@ export function meetingHelpInstructions(
     `What they need: ${task}`,
     "Reply in exactly this form, with nothing before or after it: start with its first line, and add no heading, introduction, plan, remark on the transcript or closing line.",
     ...SHAPES[shape],
+    MARKERS,
     "For example:",
     ...EXAMPLES[callLanguage === "Chinese" ? "zh" : "en"][shape],
     "- Base it on the newest lines of <live-transcript>: what was said last matters most.",

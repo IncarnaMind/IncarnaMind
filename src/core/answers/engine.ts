@@ -467,6 +467,12 @@ export interface AnswerRequest {
   outputKind?: ModelCallKind;
   /** Framed Meeting facts with missing Citations are omitted, never repaired (#2306). */
   meetingFacts?: true;
+  /**
+   * Citations only where the model wrote their markers: a record it left unmarked is dropped, and
+   * a sentence it left uncited gets none (#2847). For call help, whose found Citations show as
+   * checked with no judgement of their sentences.
+   */
+  ownMarkersOnly?: true;
   /** What a search says of the Answer's language after its Passages (see `DocumentToolsHooks`). */
   languageNote?(): string | null;
   /**
@@ -2146,7 +2152,7 @@ async function* toolLoop(
         const figured = request.documents.citeFigures?.(keptText) ?? keptText;
         yield* textEdits(keptText, figured);
         keptText = figured;
-        if (!request.meetingFacts) {
+        if (!request.meetingFacts && !request.ownMarkersOnly) {
           const placed = yield* missingMarkerEvents(keptText, cited, request.documents);
           yield* citeUnmarked(request, placed, temperature, budget, () =>
             nudges.take("unmarked-quotes"),
@@ -2612,10 +2618,13 @@ async function* structured(
     let placed = emitted;
     if (!request.meetingFacts) {
       // A small model often gives the records but leaves their markers out.
-      const marked = yield* missingMarkerEvents(emitted, records, request.documents);
+      const marked = request.ownMarkersOnly
+        ? emitted
+        : yield* missingMarkerEvents(emitted, records, request.documents);
       if (budget) yield* retryQuotes(request, marked, temperature, budget);
       if (signal.aborted) return;
-      placed = yield* citeUnmarked(request, marked, temperature, budget);
+      if (!request.ownMarkersOnly)
+        placed = yield* citeUnmarked(request, marked, temperature, budget);
     }
     if (signal.aborted) return;
     // Worked out once the quotes are as good as they will be, since figures read their numbers there.
