@@ -2674,7 +2674,7 @@ export const zhCN = {
   "rerank.settings.body.details":
     "默认开启，使用在这台电脑上运行的内置模型；Cohere 和 Voyage AI 需要密钥。你也可以关闭它。它用于只搜索一次的模型生成的回答、写作建议，以及核对和对比表；自己搜索的模型不使用它，段落没能回答问题时会再搜一次。",
   "rerank.settings.inUse": "{service} 把最相关的搜索结果排在前面（{model}）。",
-  "rerank.settings.sends": "每次搜索和找到的段落都会发送到 {service}。",
+  "rerank.settings.sends": "每次搜索和找到的段落（每段都带着所属文档的名称）都会发送到 {service}。",
   "rerank.settings.builtInUse": "由内置模型把最佳结果排在前面。",
   "rerank.settings.builtInDefault": "默认由内置模型把最佳结果排在前面。",
   "rerank.settings.notDownloaded": "有文档时下载一次（{total} MB）。",
