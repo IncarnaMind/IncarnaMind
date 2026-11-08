@@ -404,6 +404,9 @@ export const zhCN = {
   "command.settings.transcription.keywords": "转写 密钥 会议 云端 zhuanxie miyao huiyi",
   "command.settings.meetingWords.keywords": "名字 热词 词表 转写 会议 mingzi reci zhuanxie huiyi",
   "command.settings.localMode.keywords": "本地 离线 隐私 云端 关闭 设置 bendi lixian yinsi",
+  "command.settings.callHelpModel": "通话助手模型",
+  "command.settings.callHelpModel.keywords":
+    "最快 快速 速度 回答 会议 设置 zuikuai sudu huida huiyi",
   "palette.label": "搜索",
   "palette.placeholder": "搜索笔记、对话、文档、文件夹、标签和操作…",
   "palette.results": "搜索结果",
@@ -7026,6 +7029,13 @@ export const zhCN = {
   "meetings.level.label": "音量",
   "meetings.settings.panelBody": "录制时，一个帮助按钮面板浮在会议应用上方。",
   "meetings.settings.hidden": "共享屏幕时不显示浮窗",
+  "meetings.settings.helpModel": "模型",
+  "meetings.settings.helpModel.tip": "最快：使用同一服务的快速模型。",
+  "meetings.settings.helpModel.fastest": "最快（{model}）",
+  "meetings.settings.helpModel.fastestUnnamed": "最快",
+  "meetings.settings.helpModel.answers": "与回答相同（{model}）",
+  "meetings.settings.helpModel.trade": "最快：一两秒回复，不够完整，引用不够严谨。",
+  "meetings.settings.helpModel.notOffered": "{model} 没有“最快”选项，通话助手会用它回复。",
   "meetings.settings.keys": "快捷键",
   "meetings.settings.keysBody.mac": "会议应用在前台时也能使用，仅在录制时有效。",
   "meetings.settings.keysBody.other":
