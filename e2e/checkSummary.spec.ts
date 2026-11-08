@@ -162,12 +162,13 @@ for (const language of ["en", "zh-CN"] as const) {
       paragraph(checked("check-4", "supported", sentences.uncited[2] ?? "", { evidence: passage })),
     ]);
     const card = await checkCard(window);
-    // One noun, sentence, from the title through the rows: four supported, cited or not, in one row.
+    // One noun, sentence, from the title through the rows: four supported, cited or not, in one row,
+    // and a supported sentence with no Citation counts as done (#2831).
     await expect(card.locator(".check-card-title")).toHaveText(words.label);
     await expect(card.getByTestId("health-supported")).toContainText(words.supported);
     await expect(card.getByTestId("health-noCitation")).toHaveCount(0);
     await expect(card.getByTestId("health-found")).toHaveCount(0);
-    await expect(card.getByTestId("health-all-checked")).toHaveCount(0);
+    await expect(card.getByTestId("health-all-checked")).toHaveText(words.allChecked);
 
     // A contradicted sentence and one whose Citation isn't found each need a look, in one row.
     await insert([

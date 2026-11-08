@@ -381,14 +381,14 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(badge(window)).toContainText(
         language === "en" ? "3 files couldn’t be read" : "3 个文件未能读取",
       );
-      // Its card counts the sentence once, supported (#2831): it still has no Citation, so nothing
-      // says everything is checked.
+      // Its card counts the sentence once, supported (#2831): with no Citation yet it is done, so
+      // the card says everything is checked, the files still named.
       const done = await checkCard(window);
       await expect(done.getByTestId("health-supported")).toContainText(
         language === "en" ? "1 supported" : "1 句有依据",
       );
       await expect(done.getByTestId("health-noCitation")).toHaveCount(0);
-      await expect(done.getByTestId("health-all-checked")).toHaveCount(0);
+      await expect(done.getByTestId("health-all-checked")).toBeVisible();
       await expect(done.getByTestId("checks-unread")).toContainText(
         language === "en" ? "3 files couldn’t be read" : "3 个文件未能读取",
       );
