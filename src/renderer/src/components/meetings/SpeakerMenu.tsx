@@ -16,6 +16,7 @@ import { useT } from "../../i18n";
 import type { WordsInLine } from "../../lineNames";
 import { useAppStore } from "../../store";
 import { CheckLineIcon, PlusLineIcon } from "../lineIcons";
+import { ProblemMark } from "../ProblemLine";
 import {
   menuFrameClass,
   menuItemClass,
@@ -181,8 +182,9 @@ export function SpeakerMenu({
                     id={refusedId}
                     role="alert"
                     data-testid="speaker-name-refused"
-                    className="m-0 pt-1 text-[12px] leading-[18px] text-danger"
+                    className="m-0 pt-1 text-[12px] leading-[18px] text-ink"
                   >
+                    <ProblemMark />
                     {t("error.transcript.speakerNameIsLabel", { name: refused })}
                   </p>
                 )}
