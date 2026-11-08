@@ -88,6 +88,12 @@ jobs:
           # data is on until the User turns it off, and the first run says so. Every other tag,
           # -alpha and -beta included, asks first.
           MAIN_VITE_TESTER_BUILD: ${{ contains(github.ref_name, '-tester') && '1' || '' }}
+          # Google Calendar's and Microsoft 365's sign-in clients (#190, #209). Without them the
+          # build offers only the Mac's own calendar (src/main/platform.ts). Google's desktop
+          # client secret isn't confidential to Google, but stays out of the repository.
+          MAIN_VITE_GOOGLE_CALENDAR_CLIENT_ID: ${{ vars.GOOGLE_CALENDAR_CLIENT_ID }}
+          MAIN_VITE_GOOGLE_CALENDAR_CLIENT_SECRET: ${{ secrets.GOOGLE_CALENDAR_CLIENT_SECRET }}
+          MAIN_VITE_MICROSOFT_CALENDAR_CLIENT_ID: ${{ vars.MICROSOFT_CALENDAR_CLIENT_ID }}
 
       # run_code's Python (ADR-0025), built on this runner for its platform and uploaded beside the
       # installers. The app downloads it on first use and takes only the file whose size and SHA-256

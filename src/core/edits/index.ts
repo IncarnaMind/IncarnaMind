@@ -30,6 +30,7 @@
 import { randomUUID } from "node:crypto";
 import { streamText } from "ai";
 import type * as Y from "yjs";
+import { waitsForUser as waitsForUserIn } from "../../shared/askedChanges";
 import {
   outOfDateProposals,
   pendingProposals,
@@ -257,7 +258,7 @@ interface Draft {
 interface Hooks {
   /** The model gave the text back as it was. */
   settle?(): void;
-  /** Given, the edit applies at once: a Checkpoint, just before it first does (#113). */
+  /** Given, a Checkpoint is saved when the edit is known to apply at once: before it first does for a writer that knows as it writes, at its end for a staged one (#113, #2814). */
   checkpoint?(): void;
   /** More of the request's Proposals are in the Mind: how many there are now. */
   written?(request: string, count: number): void;
@@ -865,6 +866,23 @@ export function createEdits(options: EditsOptions) {
           },
         );
     let held = false;
+    /** A Checkpoint, once, before the change first applies: a change that only waits saves none (#113, #2814). */
+    let checkpointed = false;
+    const checkpointIfApplied = (): void => {
+      if (checkpointed || !hooks.checkpoint || !change.wrote) return;
+      if (held) return;
+      // A staged edit's window holds it by its extent alone; the assistant's change waits when it
+      // takes out most of the Mind's own text, as the window reads it there.
+      if (requestId === undefined) {
+        const waits = content.read(
+          mindId,
+          (mind) => mind.doc !== null && waitsForUserIn(mind.doc, new Set([request])),
+        );
+        if (waits) return;
+      }
+      checkpointed = true;
+      hooks.checkpoint();
+    };
     // Counted as written: the window accepts an edit the User asked for, so the Mind no longer holds them.
     let proposed = 0;
     let landed = false;
@@ -878,11 +896,7 @@ export function createEdits(options: EditsOptions) {
       ...(ask.removesOnly && { removesOnly: true }),
       ...(keepsLeftOut && { keepsLeftOut: true }),
     };
-    const change = options.changes.startOn(
-      copy,
-      { mindId, request, made, ...(hooks.checkpoint && { checkpoint: hooks.checkpoint }) },
-      content,
-    );
+    const change = options.changes.startOn(copy, { mindId, request, made }, content);
     const mine = (mind: Y.XmlFragment) =>
       pendingProposals(mind).filter((each) => each.request === request);
     /**
@@ -1013,7 +1027,10 @@ export function createEdits(options: EditsOptions) {
       if (refused && refused.kind !== "changed") {
         return ended(refusedAs(refused, textOf(readEditReply(raw, passage), named)));
       }
-      if (!refused) return ended(change.wrote ? arrived() : { kind: "cancelled" });
+      if (!refused) {
+        checkpointIfApplied();
+        return ended(change.wrote ? arrived() : { kind: "cancelled" });
+      }
     }
     if (failure !== null && !changedUnder()) {
       change.takeBack();
@@ -1065,6 +1082,7 @@ export function createEdits(options: EditsOptions) {
       change.takeBack();
       return ended({ kind: "unchanged", ...(aside && { said: aside.join(" ") }) });
     }
+    checkpointIfApplied();
     return { result: arrived(), reply: textOf(reply, named), reason };
   }
 

@@ -13,7 +13,7 @@
 import type { TestHooks } from "../../shared/testHooks";
 import { setSilentWaitMs } from "./answerWaitWords";
 import { holdStyleCatalogue } from "./citationStylePicker";
-import { useComingUp } from "./comingUp";
+import { showComingUp } from "./comingUp";
 import { menuEntries, menuKinds } from "./commands/menus";
 import { COMMAND_GROUPS, commands } from "./commands/registry";
 import { usePanelFault } from "./components/PanelBoundary";
@@ -71,7 +71,7 @@ export function installTestHooks(): void {
     }),
     setSilentWaitMs,
     setViewerOpenLimitMs,
-    setComingUp: (meetings) => useComingUp.setState({ meetings }),
+    setComingUp: showComingUp,
     holdStyleCatalogue,
     motionRunning,
     openBlockMenu: (blockId) => {

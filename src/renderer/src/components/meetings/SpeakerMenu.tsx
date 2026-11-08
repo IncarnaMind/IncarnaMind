@@ -12,8 +12,10 @@ import {
   type TranscriptLine,
   withSpeakerChosen,
 } from "../../../../shared/speakers";
+import { inviteNames } from "../../calendarWords";
 import { useT } from "../../i18n";
 import type { WordsInLine } from "../../lineNames";
+import { useNoteEvent } from "../../noteEvents";
 import { type SpeakersStep, useAppStore } from "../../store";
 import { CheckLineIcon, PlusLineIcon } from "../lineIcons";
 import { ProblemMark } from "../ProblemLine";
@@ -81,6 +83,12 @@ export function SpeakerMenu({
   const { speakers } = document;
   const now = speakerOf(speakers, line.startMs, line.label);
   const named = (label: string) => nameOf(speakers, label) ?? speakerName(label, t);
+  // The calendar event's people, when the Meeting came from one (#190): the User is "Me".
+  const invite = useNoteEvent(menu.open ? document.meetingMindId : null);
+  const invited = inviteNames(
+    invite?.attendees ?? [],
+    speakersIn(speakers, lines).map((label) => named(label)),
+  );
 
   const asking = useRef(false);
   const wasOpen = useRef(false);
@@ -185,6 +193,29 @@ export function SpeakerMenu({
                 {label === now && <CheckLineIcon className="size-3.5 shrink-0 text-accent" />}
               </button>
             ))}
+            {invited.length > 0 && (
+              <>
+                <p className={menuTitleClass}>{t("calendars.fromInvite")}</p>
+                {invited.map((name) => (
+                  <button
+                    key={name}
+                    type="button"
+                    role="menuitem"
+                    data-testid="speaker-invitee"
+                    title={name}
+                    onClick={() => choose({ name })}
+                    className={`${menuItemClass} pl-1.5`}
+                  >
+                    <span
+                      aria-hidden="true"
+                      className="speaker-initials"
+                      data-initials={initialsOf(name)}
+                    />
+                    <span className="min-w-0 flex-1 truncate">{name}</span>
+                  </button>
+                ))}
+              </>
+            )}
             {naming ? (
               <div className="px-1.5 py-1">
                 <input
