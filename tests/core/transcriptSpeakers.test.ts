@@ -27,7 +27,13 @@ import {
 import { createTempDataFolder } from "../helpers/core";
 import { connectToMind } from "../helpers/mindClient";
 import { writeMind } from "../helpers/minds";
-import { fakeSeparator, recordedCall, savedCues, transcriptRead } from "../helpers/transcription";
+import {
+  fakeSeparator,
+  recordedCall,
+  savedCues,
+  toldCues,
+  transcriptRead,
+} from "../helpers/transcription";
 
 const linesOf = (cues: readonly Cue[]): TranscriptLine[] =>
   cues.flatMap((cue) => (cue.speaker ? [{ startMs: cue.startMs, label: cue.speaker }] : []));
@@ -35,6 +41,14 @@ const linesOf = (cues: readonly Cue[]): TranscriptLine[] =>
 const lineBy = (cues: readonly Cue[], label: string, nth = 0): Cue => {
   const cue = cues.filter((each) => each.speaker === label)[nth];
   if (!cue) throw new Error(`No line ${nth} by ${label}.`);
+  return cue;
+};
+
+/** The file's line that `told`, the same lines by who spoke them now, gives to `speaker`. */
+const lineToldBy = (cues: readonly Cue[], told: readonly Cue[], speaker: string, nth = 0): Cue => {
+  const at = told.indexOf(lineBy(told, speaker, nth));
+  const cue = cues[at];
+  if (!cue) throw new Error(`No line ${nth} told as ${speaker}.`);
   return cue;
 };
 
@@ -89,11 +103,13 @@ describe("Who's who in a Transcript (#138)", { timeout: 60_000 }, () => {
     const { core, meeting } = await recordedCall(await createTempDataFolder(), {
       speakerSeparator: fakeSeparator().separator,
     });
+    const told = await toldCues(core, meeting.id);
     const cues = await savedCues(core, meeting.id);
     const transcript = await transcriptOf(core, meeting.id);
     const file = readFileSync(transcript.path);
-    const first = lineBy(cues, "Speaker 1");
-    const second = lineBy(cues, "Speaker 2");
+    const passed = transcript.speakers as TranscriptSpeakers;
+    const first = lineToldBy(cues, told, "Speaker 1");
+    const second = lineToldBy(cues, told, "Speaker 2");
 
     const folder = await core.createLibraryGroup({ name: "Clients", description: "" });
     const mind = await core.createMind({ title: "Follow-up" });
@@ -119,7 +135,7 @@ describe("Who's who in a Transcript (#138)", { timeout: 60_000 }, () => {
     const named = await transcriptOf(core, meeting.id);
     expect(named.speakers).toEqual({
       labels: { "Speaker 1": "Dana Whitfield", "Speaker 3": "Priya" },
-      lines: { [`${second.startMs} Speaker 2`]: "Speaker 3" },
+      lines: { ...passed.lines, [`${second.startMs} Them`]: "Speaker 3" },
     });
     let text = await exported(core, mind.id);
     expect(text).toContain(at(first, "Dana Whitfield"));
@@ -130,19 +146,17 @@ describe("Who's who in a Transcript (#138)", { timeout: 60_000 }, () => {
     await choose(core, transcript.id, cues, second, { name: "Priya Shah" }, true);
     expect(await exported(core, mind.id)).toContain(at(second, "Priya Shah"));
 
-    // Undo sets the whole who's who back.
+    // Undo sets the whole who's who back, to the voices the pass found.
     const undone = await core.setTranscriptSpeakers({
       documentId: transcript.id,
       speakers: named.speakers as TranscriptSpeakers,
     });
     expect(undone.speakers).toEqual(named.speakers);
-    await core.setTranscriptSpeakers({
-      documentId: transcript.id,
-      speakers: { labels: {}, lines: {} },
-    });
+    await core.setTranscriptSpeakers({ documentId: transcript.id, speakers: passed });
     text = await exported(core, mind.id);
     expect(text).toContain(at(first, "Speaker 1"));
-    expect((await transcriptOf(core, meeting.id)).speakers).toBeNull();
+    expect(text).toContain(at(second, "Speaker 2"));
+    expect((await transcriptOf(core, meeting.id)).speakers).toEqual(passed);
 
     // Nothing else changed: the file, its version, and the labels the Note's Citations keep.
     const after = await transcriptOf(core, meeting.id);
@@ -150,8 +164,8 @@ describe("Who's who in a Transcript (#138)", { timeout: 60_000 }, () => {
     expect(after.contentHash).toBe(transcript.contentHash);
     const reopened = await connectToMind(core, mind.id);
     expect(mindCitations(reopened).map((each) => each.location)).toEqual([
-      { kind: "time", from: first.startMs, to: first.endMs, speaker: "Speaker 1" },
-      { kind: "time", from: second.startMs, to: second.endMs, speaker: "Speaker 2" },
+      { kind: "time", from: first.startMs, to: first.endMs, speaker: "Them" },
+      { kind: "time", from: second.startMs, to: second.endMs, speaker: "Them" },
     ]);
     core.close();
   });
@@ -161,6 +175,7 @@ describe("Who's who in a Transcript (#138)", { timeout: 60_000 }, () => {
     const { core, meeting } = await recordedCall(await createTempDataFolder(), {
       speakerSeparator: fakeSeparator().separator,
     });
+    const told = await toldCues(core, meeting.id);
     const cues = await savedCues(core, meeting.id);
     const transcript = await transcriptOf(core, meeting.id);
     await expect(
@@ -171,13 +186,13 @@ describe("Who's who in a Transcript (#138)", { timeout: 60_000 }, () => {
     ).rejects.toMatchObject({ wording: { key: "error.transcript.speakersUnheld" } });
 
     const mine = lineBy(cues, SPEAKER_ME);
-    const theirs = lineBy(cues, "Speaker 1");
+    const theirs = lineToldBy(cues, told, "Speaker 1");
     // A new name for every line by Me moves them to a new Speaker: Me keeps its name.
     const moved = await choose(core, transcript.id, cues, mine, { name: "Sam" }, true);
     expect(moved.speakers?.labels).toEqual({ "Speaker 3": "Sam" });
     expect(moved.speakers?.lines[`${mine.startMs} Me`]).toBe("Speaker 3");
     const back = await choose(core, transcript.id, cues, theirs, { label: SPEAKER_ME });
-    expect(back.speakers?.lines[`${theirs.startMs} Speaker 1`]).toBe(SPEAKER_ME);
+    expect(back.speakers?.lines[`${theirs.startMs} Them`]).toBe(SPEAKER_ME);
     core.close();
   });
 
@@ -201,16 +216,16 @@ describe("Who's who in a Transcript (#138)", { timeout: 60_000 }, () => {
       model,
     });
     await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+    const told = await toldCues(core, meeting.id);
     const cues = await savedCues(core, meeting.id);
-    // The pass's labels are what the model reads once the file it rewrote is read again.
     const transcript = await transcriptRead(
       core,
       dataDir,
       meeting.id,
       (await transcriptOf(core, meeting.id)).id,
     );
-    const first = lineBy(cues, "Speaker 1");
-    const second = lineBy(cues, "Speaker 2");
+    const first = lineToldBy(cues, told, "Speaker 1");
+    const second = lineToldBy(cues, told, "Speaker 2");
     // Two people of one name, as a call can have.
     await choose(core, transcript.id, cues, first, { name: "Dana" }, true);
     await choose(core, transcript.id, cues, second, { name: "Dana" }, true);
@@ -225,7 +240,7 @@ describe("Who's who in a Transcript (#138)", { timeout: 60_000 }, () => {
     expect(marks).toContain(`[${clockTime(lineBy(cues, SPEAKER_ME).startMs)} Me]`);
     expect(marks).not.toMatch(/\[\d+:\d{2} Speaker [12]\]/);
     expect(onlyCitation(client, asked.answerId)).toMatchObject({
-      location: { kind: "time", from: second.startMs, speaker: "Speaker 2" },
+      location: { kind: "time", from: second.startMs, speaker: "Them" },
       check: "found",
     });
 
@@ -244,7 +259,7 @@ describe("Who's who in a Transcript (#138)", { timeout: 60_000 }, () => {
         `[${clockTime(second.startMs)} ${mark}] ${second.text}`,
       );
       expect(onlyCitation(client, named.answerId)).toMatchObject({
-        location: { kind: "time", from: second.startMs, speaker: "Speaker 2" },
+        location: { kind: "time", from: second.startMs, speaker: "Them" },
         check: "found",
       });
     }
@@ -267,6 +282,7 @@ describe("Who's who in a Transcript (#138)", { timeout: 60_000 }, () => {
     });
     await savedCues(core, meeting.id);
     const transcript = await transcriptOf(core, meeting.id);
+    const passed = transcript.speakers;
     for (const name of ["Me", "我", "Them", "对方", "Speaker 3", "发言人 3", "发言人？"]) {
       await expect(
         core.setTranscriptSpeakers({
@@ -285,7 +301,7 @@ describe("Who's who in a Transcript (#138)", { timeout: 60_000 }, () => {
         }),
       ).rejects.toMatchObject({ wording: { key: "error.transcript.speakersUnheld" } });
     }
-    expect((await transcriptOf(core, meeting.id)).speakers).toBeNull();
+    expect((await transcriptOf(core, meeting.id)).speakers).toEqual(passed);
     core.close();
   });
 

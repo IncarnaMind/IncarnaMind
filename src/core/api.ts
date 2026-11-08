@@ -11352,9 +11352,10 @@ export interface Meeting {
  * The Mind's notes filled in from the Transcript after Stop (#142), with no question first:
  * under each of the User's lines, or, with none, in sections. Every addition is AI text citing
  * the Transcript's times; the User's own text never changes.
- * - "waiting": for the Transcript to be finished and saved. A call's notes may already be under
- *   way while its speakers are told apart; they are written once that ends (#2773);
- * - "filling": the model is writing;
+ * - "waiting": for the Transcript to be finished and saved, and in a room, or with a model on
+ *   this computer, for its speakers to be told apart;
+ * - "filling": the model is writing, then its claims are checked (`checking`). A call's notes
+ *   are filled in while its speakers are told apart, and written once ready (#2773, #2839);
  * - "filled": written, and one Undo takes it all back;
  * - "undone": taken back;
  * - "failed": nothing was written, and `problem` says why; Try again fills it in;
@@ -11380,6 +11381,8 @@ export interface MeetingFill {
   omitted?: number;
   /** Transcript parts not finished when a request failed; absent on older fills. */
   unfinishedParts?: number;
+  /** How many of its claims are being checked against the Documents now; 0 or absent when none. */
+  checking?: number;
   /** Blocks inserted by this fill, for status placement without changing the Note. */
   addedBlockIds?: string[];
 }

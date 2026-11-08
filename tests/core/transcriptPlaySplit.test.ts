@@ -27,6 +27,7 @@ import {
   fakeSeparator,
   recordedCall,
   savedCues,
+  toldCues,
   transcribingCore,
   transcriptRead,
   until,
@@ -114,11 +115,12 @@ describe("Splitting a line of a Transcript (#138)", { timeout: 60_000 }, () => {
     const { core, meeting } = await recordedCall(await createTempDataFolder(), {
       speakerSeparator: fakeSeparator().separator,
     });
+    const told = await toldCues(core, meeting.id);
     const cues = await savedCues(core, meeting.id);
     const transcript = await transcriptOf(core, meeting.id);
     const file = readFileSync(transcript.path);
     const cue = cues.find(
-      (each) => each.speaker === "Speaker 1" && each.text.split(" ").length > 4,
+      (each, at) => told[at]?.speaker === "Speaker 1" && each.text.split(" ").length > 4,
     );
     if (!cue) throw new Error("No long line by Speaker 1.");
     const line = fileLine(cue);
@@ -132,7 +134,7 @@ describe("Splitting a line of a Transcript (#138)", { timeout: 60_000 }, () => {
       ...cues.map((each) => ({ startMs: each.startMs, label: each.speaker as string })),
       { startMs: rest.startMs, label: line.label },
     ];
-    const told = withSpeakerChosen(
+    const sam = withSpeakerChosen(
       split,
       lines,
       { startMs: rest.startMs, label: line.label },
@@ -140,7 +142,7 @@ describe("Splitting a line of a Transcript (#138)", { timeout: 60_000 }, () => {
       false,
     );
     await core.setTranscriptSpeakers({ documentId: transcript.id, speakers: split });
-    await core.setTranscriptSpeakers({ documentId: transcript.id, speakers: told });
+    await core.setTranscriptSpeakers({ documentId: transcript.id, speakers: sam });
 
     const mind = await core.createMind({ title: "Follow-up" });
     const client = await connectToMind(core, mind.id);
@@ -200,6 +202,7 @@ describe("Splitting a line of a Transcript (#138)", { timeout: 60_000 }, () => {
       model: citingModel(plan),
     });
     await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+    const spoken = await toldCues(core, meeting.id);
     const cues = await savedCues(core, meeting.id);
     const transcript = await transcriptRead(
       core,
@@ -208,12 +211,12 @@ describe("Splitting a line of a Transcript (#138)", { timeout: 60_000 }, () => {
       (await transcriptOf(core, meeting.id)).id,
     );
     const cue = cues.find(
-      (each) => each.speaker === "Speaker 1" && each.text.split(" ").length > 4,
+      (each, at) => spoken[at]?.speaker === "Speaker 1" && each.text.split(" ").length > 4,
     );
     if (!cue) throw new Error("No long line by Speaker 1.");
     const line = fileLine(cue);
     const at = cue.text.indexOf(" ", cue.text.indexOf(" ") + 1) + 1;
-    const split = withLineSplit(null, line, at, timeAt(cue, at));
+    const split = withLineSplit(transcript.speakers, line, at, timeAt(cue, at));
     const rest = partsOf(split, line)[1];
     if (!rest) throw new Error("The line wasn't split.");
     const told = withSpeakerChosen(
@@ -236,7 +239,7 @@ describe("Splitting a line of a Transcript (#138)", { timeout: 60_000 }, () => {
       `[${clockTime(cue.startMs)} Speaker 1] ${partsOf(told, line)[0]?.text}`,
     );
     expect(onlyCitation(client, asked.answerId)).toMatchObject({
-      location: { kind: "time", from: cue.startMs, speaker: "Speaker 1" },
+      location: { kind: "time", from: cue.startMs, speaker: "Them" },
       quote: rest.text,
       check: "found",
     });

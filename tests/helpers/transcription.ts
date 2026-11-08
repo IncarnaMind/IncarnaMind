@@ -33,6 +33,7 @@ import {
 } from "../../src/core/transcription/fake";
 import { createFakeCloud, createFakeCloudFetch } from "../../src/core/transcription/fakeCloud";
 import type { SpeechEngine } from "../../src/core/transcription/speech";
+import { speakerOf } from "../../src/shared/speakers";
 import { createTempDataFolder, manualClock, startCore } from "./core";
 import { scriptedModels } from "./models";
 
@@ -360,6 +361,21 @@ export async function savedCues(core: Core, meetingId: string) {
     (transcript) => transcript.state === "saved" && !transcript.separating,
   );
   return readVtt(readFileSync(saved.savedPath as string, "utf8")).cues;
+}
+
+/**
+ * The saved Transcript's lines once its speakers are told apart, each by who spoke it now: its
+ * who's who over its file's own labels, as every Citation and view of it reads them (#2839).
+ */
+export async function toldCues(core: Core, meetingId: string) {
+  const cues = await savedCues(core, meetingId);
+  const meeting = (await core.listMeetings()).find((each) => each.id === meetingId);
+  const speakers =
+    (await core.listDocuments()).find((each) => each.id === meeting?.transcript?.documentId)
+      ?.speakers ?? null;
+  return cues.map((cue) =>
+    cue.speaker ? { ...cue, speaker: speakerOf(speakers, cue.startMs, cue.speaker) } : cue,
+  );
 }
 
 /** A call of 25 seconds from `sources`, recorded and stopped: a line every two seconds a source. */
