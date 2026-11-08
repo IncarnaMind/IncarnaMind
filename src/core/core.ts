@@ -304,6 +304,7 @@ import { createPrivacy, type NetworkTrafficRegistry } from "./privacy";
 import { createChanges } from "./proposals/apply";
 import { KeyCharacterError, storedApiKey } from "./providers/apiKey";
 import { readsImages } from "./providers/capabilities";
+import { withoutDateSuffix } from "./providers/catalog";
 import { offersQuickHelp, retrievesFirst, writesThenCites } from "./providers/catalog/answerPaths";
 import {
   DECISION_HOST_ENTRIES,
@@ -2210,11 +2211,19 @@ export function createCore(adapters: CoreAdapters): Core {
   const helpKey = ({ providerId, modelId }: ChatModelChoice) => `${providerId}\n${modelId}`;
   /**
    * The quick model call help may be set to answer on under `answers`, where the list beside the
-   * catalog offers one for its provider (#2526); null where none is.
+   * catalog offers one for its provider (#2526); null where none is, or the provider refused it.
    */
   const offeredHelp = (answers: ChatModelChoice | null): ChatModelChoice | null => {
     const fastest = chat.fastestHelpModel(answers);
-    if (!answers || !fastest || helpKey(fastest) === helpKey(answers)) return null;
+    if (
+      !answers ||
+      !fastest ||
+      (fastest.providerId === answers.providerId &&
+        withoutDateSuffix(fastest.modelId) === withoutDateSuffix(answers.modelId)) ||
+      refusedHelp.has(helpKey(fastest))
+    ) {
+      return null;
+    }
     const asked = chat.describeModel(answers);
     const quick = chat.describeModel(fastest);
     return asked &&
@@ -2255,8 +2264,7 @@ export function createCore(adapters: CoreAdapters): Core {
     prepareModel: (choice, thinking) => chat.prepareModel(choice, "chat", thinking),
     helpModel(answers) {
       if (settings.get().user.callHelpModel !== "fastest") return null;
-      const fastest = offeredHelp(answers);
-      return fastest && !refusedHelp.has(helpKey(fastest)) ? fastest : null;
+      return offeredHelp(answers);
     },
     helpModelRefused(model, answers, error) {
       refusedHelp.add(helpKey(model));

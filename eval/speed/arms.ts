@@ -161,7 +161,8 @@ export const ARMS: readonly Arm[] = [
   },
   {
     id: "help-fastest",
-    label: "call help on the quick model of the Answers model's provider, the default since #2526",
+    label:
+      "call help on the quick model of the Answers model's provider: Settings › Meetings' Fastest, the User's choice since #2526",
     prepare: async (core) => {
       await core.updateSettings({ user: { callHelpModel: "fastest" } });
     },

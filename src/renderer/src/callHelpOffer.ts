@@ -28,11 +28,12 @@ const followed = (settings: Settings) =>
     settings.user.quickTasksModel,
   ]);
 
-let loaded = false;
+let following = false;
+/** Reads the offer now, and from the first call on, again whenever what it follows changes. */
 export function loadCallHelpOffer(): void {
-  if (loaded) return;
-  loaded = true;
   void read();
+  if (following) return;
+  following = true;
   // A provider saved or removed changes readiness; a model chosen changes the settings.
   core.on("chatReadiness.changed", () => void read());
   let last: string | null = null;

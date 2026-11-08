@@ -1,4 +1,4 @@
-import { loadCallHelpOffer, useCallHelpOffer } from "../callHelpOffer";
+import { useCallHelpOffer } from "../callHelpOffer";
 import { showOutputLocationSetting } from "../outputFiles";
 import { offeredSettingsPages, settingsPageLabels } from "../settingsPages";
 import { useAppStore } from "../store";
@@ -60,11 +60,9 @@ export const settingsPageCommands: readonly Command[] = [
       "command.settings.callHelpModel.keywords",
     ],
     group: "open",
-    // Only where a quick model is offered for call help: elsewhere there is nothing to choose.
-    when: () => {
-      loadCallHelpOffer();
-      return useCallHelpOffer.getState().fastest !== null;
-    },
+    when: () =>
+      useCallHelpOffer.getState().fastest !== null ||
+      useAppStore.getState().settings?.user.callHelpModel === "fastest",
     reversible: true,
     run: () => useAppStore.getState().openSettings("meetings", "call-help-model"),
   },

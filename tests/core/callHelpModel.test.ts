@@ -185,8 +185,14 @@ describe("Call help's model", { timeout: 60_000 }, () => {
       },
     ]);
 
-    // A new key may reach it: the next press asks the quick model again.
+    expect((await core.getModelRoles()).callHelp).toBeNull();
+
+    // A new key may reach it: it is offered again, and the next press asks it again.
     await core.saveChatProvider({ ...SONNET_ON_ANTHROPIC, apiKey: "sk-ant-new" });
+    expect((await core.getModelRoles()).callHelp).toEqual({
+      providerId: provider.id,
+      modelId: HAIKU,
+    });
     await press(core, meeting);
     expect(haiku.doStreamCalls).toHaveLength(2);
   });
@@ -291,6 +297,19 @@ describe("Call help's quick model, as Settings offers it", () => {
     await core.updateSettings({
       device: { lastChatModel: { providerId: openai.id, modelId: "gpt-6.1-sol" } },
     });
+
+    // Claude on OpenRouter is another service's route to it, not offered even with Haiku set there.
+    const openrouter = await core.saveChatProvider({
+      kind: "openrouter",
+      apiKey: "sk-or-test",
+      modelId: "anthropic/claude-sonnet-5.5",
+    });
+    await core.updateSettings({
+      user: {
+        quickTasksModel: { providerId: openrouter.id, modelId: "anthropic/claude-haiku-5.5" },
+      },
+    });
+    expect((await core.getModelRoles()).callHelp).toBeNull();
 
     const server = await core.saveChatProvider({
       kind: "openai-compatible",

@@ -1077,9 +1077,9 @@ export function createChat(options: {
      * The fastest model call help can answer on under Answers asked with `answers` (the default
      * model when left out), #2526: the quick-tasks model of the Answers model's own provider, the
      * User's where they set one there, else the catalog's. It is the same service, so nothing goes
-     * anywhere the User hasn't chosen. A model on this computer, or in Ollama
-     * anywhere, keeps call help, as a second one would push it out of memory. The Answers model
-     * itself where its provider has no quick model; null with no Answers model.
+     * anywhere the User hasn't chosen. A model on this computer, or in Ollama anywhere, keeps call
+     * help, as a second one would push it out of memory. The Answers model itself where its
+     * provider has no quick model; null with no Answers model.
      */
     fastestHelpModel(answers?: ChatModelChoice | null): ChatModelChoice | null {
       const base = answers === undefined ? settings.get().user.chatModel : answers;

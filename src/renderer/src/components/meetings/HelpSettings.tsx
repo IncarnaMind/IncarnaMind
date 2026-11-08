@@ -192,8 +192,8 @@ const MODEL_TARGET = ["call-help-model"] as const;
 
 /**
  * Which model call help answers on (#2526): the Answers model, by default, or its provider's quick
- * model, which replies in about a second but cites less carefully. Shown only where a quick model
- * is offered for the model a new Note answers on; each option names its model.
+ * model, which replies in about a second but cites less carefully. Shown where a quick model is
+ * offered for the model a new Note answers on, and while Fastest is chosen, so it can be undone.
  */
 function CallHelpModelRow() {
   const t = useT();
@@ -205,14 +205,15 @@ function CallHelpModelRow() {
   const fastest = useCallHelpOffer((state) => state.fastest);
   useEffect(loadCallHelpOffer, []);
   const names = useModelNames();
-  const row = useSettingsTarget<HTMLDivElement>(MODEL_TARGET, fastest !== null, () =>
+  const shown = !!chosen && !!answers && (fastest !== null || chosen === "fastest");
+  const row = useSettingsTarget<HTMLDivElement>(MODEL_TARGET, shown, () =>
     queueMicrotask(() =>
       row.current
         ?.querySelector<HTMLButtonElement>('[data-testid="call-help-model"]')
         ?.focus({ preventScroll: true }),
     ),
   );
-  if (!chosen || !fastest || !answers) return null;
+  if (!shown || !chosen || !answers) return null;
   const nameOf = ({ modelId, providerId }: ChatModelChoice) => names(modelId, providerId).name;
   return (
     <SettingsRow
@@ -233,11 +234,14 @@ function CallHelpModelRow() {
             },
             {
               value: "fastest",
-              label: t("meetings.settings.helpModel.fastest", { model: nameOf(fastest) }),
+              label: fastest
+                ? t("meetings.settings.helpModel.fastest", { model: nameOf(fastest) })
+                : t("meetings.settings.helpModel.fastestUnnamed"),
             },
           ]}
           onChange={(callHelpModel) => void updateSettings({ user: { callHelpModel } })}
           labelledBy={labelId}
+          describedBy={detailId}
           testId="call-help-model"
         />
       }

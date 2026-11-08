@@ -86,9 +86,10 @@ export const retrievesFirst = (
 /**
  * Call help on its Answers model's provider's quick model, offered as the User's choice in
  * Settings › Meetings, never the default (#2526): a provider is listed with the quick model it
- * was measured with, and call help under any other offers no choice. Anthropic with Claude Haiku
- * 5.5 (2026-11-08, eval/speed/gates/call-help-fastest.md, under Claude Sonnet 5.5): the first
- * option 4.6 → 1.0 s, but English false Supported 12 → 25 of 45 presses, so it stays a choice.
+ * was measured with, offered under any of that provider's Answers models; call help under any
+ * other provider offers no choice. Anthropic with Claude Haiku 5.5 (2026-11-08,
+ * eval/speed/gates/call-help-fastest.md, measured under Claude Sonnet 5.5): the first option
+ * 4.6 → 1.0 s, but English false Supported 12 → 25 of 45 presses, so it stays a choice.
  */
 const QUICK_HELP: readonly { provider: string; quick: string; since: string; gate: string }[] = [
   {

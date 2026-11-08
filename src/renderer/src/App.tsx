@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { showAppearance } from "./appearance";
 import { GAP, isSide, RAIL, SIDE_MIN, shownDock } from "./assistantPlace";
 import { useCalendars } from "./calendars";
+import { loadCallHelpOffer } from "./callHelpOffer";
 import { useComingUp } from "./comingUp";
 import { useEditMenu } from "./commands/edit";
 import { sidebarHandle, useHandle } from "./commands/handles";
@@ -67,6 +68,7 @@ export function App() {
     void useMeetings.getState().load();
     void useCalendars.getState().load();
     void useComingUp.getState().load();
+    loadCallHelpOffer();
   }, [load]);
 
   useEffect(() => {

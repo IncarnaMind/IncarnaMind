@@ -27,6 +27,7 @@ export function PopUpButton<Value extends string>({
   options,
   onChange,
   labelledBy,
+  describedBy,
   testId,
   disabled,
 }: {
@@ -35,6 +36,8 @@ export function PopUpButton<Value extends string>({
   /** Called with the option picked, also when it is the one already shown. */
   onChange(value: Value): void;
   labelledBy?: string;
+  /** The id of a line saying more about the choice, as a row's detail does. */
+  describedBy?: string;
   testId?: string;
   disabled?: boolean;
 }) {
@@ -55,6 +58,7 @@ export function PopUpButton<Value extends string>({
         type="button"
         id={id}
         aria-labelledby={labelledBy ? `${labelledBy} ${id}` : undefined}
+        aria-describedby={describedBy}
         data-testid={testId}
         data-value={value}
         disabled={disabled}

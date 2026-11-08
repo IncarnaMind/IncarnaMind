@@ -16,8 +16,8 @@ import {
 /**
  * The model call help answers on (#2526), in Settings › Meetings › Help during the call: the
  * same as Answers by default, or, where it is offered, the fastest, the Answers model's provider's
- * quick model, each option naming its model and the row saying what Fastest trades; ⌘K opens it. Set INCARNAMIND_SCREENSHOTS to a folder to also
- * save screenshots.
+ * quick model, each option naming its model and the row saying what Fastest trades; ⌘K opens it.
+ * Set INCARNAMIND_SCREENSHOTS to a folder to also save screenshots.
  */
 const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
 async function shot(page: Page | Locator, name: string): Promise<void> {
@@ -117,7 +117,9 @@ test("call help's model: Same as Answers by default, Fastest offered on Anthropi
   await shot(settings.getByTestId("help-settings"), "call-help-model-not-offered-en-900");
   await closeSettings(window);
   await window.keyboard.press("ControlOrMeta+k");
-  await window.keyboard.type("Call help model");
+  await expect(window.getByTestId("palette-search")).toBeFocused();
+  await window.keyboard.type("Meetings");
+  await expect(paletteFound(window).filter({ hasText: "Settings: Meetings" })).toBeVisible();
   await expect(paletteFound(window).filter({ hasText: "Call help model" })).toHaveCount(0);
   await window.keyboard.press("Escape");
   await app.close();
