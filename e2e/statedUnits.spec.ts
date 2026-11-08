@@ -1,6 +1,6 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { expect, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 import { translate } from "../src/shared/i18n";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
@@ -10,6 +10,7 @@ import {
   dismissChatSetup,
   launchApp,
   mindWrittenBefore,
+  motionSettled,
   pointAndClick,
   removeDataFolder,
   runCommand,
@@ -25,6 +26,13 @@ import {
  * scripted model binds each figure to its line and quotes the PDF's unit line
  * (src/main/fakeChat/checks.ts). English and Chinese, wide and narrow.
  */
+const SHOTS = process.env.INCARNAMIND_SCREENSHOTS;
+const shot = async (window: Page, name: string) => {
+  if (!SHOTS) return;
+  await motionSettled(window);
+  await window.screenshot({ path: join(SHOTS, `${name}.png`) });
+};
+
 let dataDir: string;
 let sources: string;
 test.beforeEach(async () => {
@@ -116,6 +124,7 @@ for (const [language, width] of [
       await expect(card.getByTestId("claim-stated-unit")).toHaveText(
         translate(language, "figures.card.statedUnit", { figure: each.figure, unit: each.unit }),
       );
+      await shot(window, `stated-unit-${language}`);
       const box = await card.getByTestId("claim-stated-unit").boundingBox();
       const cardBox = await card.boundingBox();
       if (!box || !cardBox) throw new Error("The card's unit line is not drawn.");
@@ -130,6 +139,7 @@ for (const [language, width] of [
       await expect(card.getByTestId("claim-why")).toHaveText(
         translate(language, "claim.unsupported.unitsMayDiffer", { amount: each.source }),
       );
+      await shot(window, `units-may-differ-${language}`);
       await window.keyboard.press("Escape");
       await expect(card).toHaveCount(0);
 
