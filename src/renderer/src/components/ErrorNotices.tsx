@@ -1,5 +1,5 @@
 import { createPortal } from "react-dom";
-import { errorDetails } from "../errorDetails";
+import { errorDetails, errorLine } from "../errorDetails";
 import { useDismissOnEscape } from "../escapeDismiss";
 import { useLanguage, useT } from "../i18n";
 import { type ErrorNotice as ErrorNoticeState, useNotices } from "../notices";
@@ -39,12 +39,7 @@ function Notice({ notice }: { notice: ErrorNoticeState }) {
   const language = useLanguage();
   const dismiss = () => useNotices.getState().dismissError(notice.id);
   useDismissOnEscape(true, dismiss);
-  const said = notice.wording
-    ? t(notice.wording.key, notice.wording.values)
-    : notice.reason
-      ? t(notice.reason)
-      : notice.message;
-  const line = t("error.action", { message: said });
+  const line = errorLine(t, notice);
   return (
     <div
       role="alert"

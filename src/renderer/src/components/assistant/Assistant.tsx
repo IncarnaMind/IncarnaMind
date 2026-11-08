@@ -282,7 +282,17 @@ function AssistantMain({
   const seat = useComposer((state) => state.seat);
   const mind = seat !== null && seat.mindId === readMindId ? seat : null;
   const settingUp = useSettingUp();
-  const stepsWaiting = useSetupStepsWaiting();
+  // The first run ends at the first checked Answer: the steps still to do say nothing after it,
+  // since each feature asks where it lives (#2867).
+  const firstRunDone = useAppStore((state) => {
+    const progress = state.settings?.device.gettingStarted;
+    return (
+      progress?.indexed === true &&
+      (progress.askedOwn === true || progress.askedReady === true) &&
+      progress.citationChecked === true
+    );
+  });
+  const stepsWaiting = useSetupStepsWaiting() && !firstRunDone;
   const stepOpen = useModelSetup((state) => state.step !== null);
   const setupCardShown = settingUp || (stepsWaiting && stepOpen);
   const thread = useRef<HTMLDivElement>(null);

@@ -1,5 +1,5 @@
-import { type KeyboardEvent, useId, useState } from "react";
-import type { Settings } from "../../../../core/api";
+import { type KeyboardEvent, useEffect, useId, useState } from "react";
+import type { CallHelpModel, ChatModelChoice, Settings } from "../../../../core/api";
 import {
   defaultHelpKeys,
   HELP_SHORTCUTS,
@@ -9,10 +9,15 @@ import {
   isGlobalKeys,
 } from "../../../../shared/meetingHelp";
 import { SAYS_HIDDEN_FROM_SHARES } from "../../../../shared/meetingPanel";
+import { loadCallHelpOffer, useCallHelpOffer } from "../../callHelpOffer";
 import { keysHere } from "../../commands/keymap";
 import { files } from "../../core";
 import { useT } from "../../i18n";
+import { useModelInUse } from "../../modelInUse";
+import { useModelNames } from "../../modelNames";
+import { useSettingsTarget } from "../../settingsTarget";
 import { useAppStore } from "../../store";
+import { PopUpButton } from "../settings/PopUpButton";
 import {
   SettingsGroup,
   SettingsRow,
@@ -183,9 +188,75 @@ function ShortcutRow({ kind, device }: { kind: HelpShortcut; device: Settings["d
   );
 }
 
+const MODEL_TARGET = ["call-help-model"] as const;
+
+/**
+ * Which model call help answers on (#2526): the Answers model, by default, or its provider's quick
+ * model, which replies in about a second but cites less carefully. Shown where a quick model is
+ * offered for the model a new Note answers on, and while Fastest is chosen, so it can be undone.
+ */
+function CallHelpModelRow() {
+  const t = useT();
+  const labelId = useId();
+  const detailId = useId();
+  const chosen = useAppStore((state) => state.settings?.user.callHelpModel);
+  const answers = useModelInUse(null);
+  const updateSettings = useAppStore((state) => state.updateSettings);
+  const fastest = useCallHelpOffer((state) => state.fastest);
+  useEffect(loadCallHelpOffer, []);
+  const names = useModelNames();
+  const shown = !!chosen && !!answers && (fastest !== null || chosen === "fastest");
+  const row = useSettingsTarget<HTMLDivElement>(MODEL_TARGET, shown, () =>
+    queueMicrotask(() =>
+      row.current
+        ?.querySelector<HTMLButtonElement>('[data-testid="call-help-model"]')
+        ?.focus({ preventScroll: true }),
+    ),
+  );
+  if (!shown || !chosen || !answers) return null;
+  const nameOf = ({ modelId, providerId }: ChatModelChoice) => names(modelId, providerId).name;
+  return (
+    <SettingsRow
+      ref={row}
+      data-testid="call-help-model-row"
+      label={t("meetings.settings.helpModel")}
+      labelId={labelId}
+      tip={t("meetings.settings.helpModel.tip")}
+      detail={
+        fastest
+          ? t("meetings.settings.helpModel.trade")
+          : t("meetings.settings.helpModel.notOffered", { model: nameOf(answers) })
+      }
+      detailId={detailId}
+      control={
+        <PopUpButton<CallHelpModel>
+          value={chosen}
+          options={[
+            {
+              value: "answers",
+              label: t("meetings.settings.helpModel.answers", { model: nameOf(answers) }),
+            },
+            {
+              value: "fastest",
+              label: fastest
+                ? t("meetings.settings.helpModel.fastest", { model: nameOf(fastest) })
+                : t("meetings.settings.helpModel.fastestUnnamed"),
+            },
+          ]}
+          onChange={(callHelpModel) => void updateSettings({ user: { callHelpModel } })}
+          labelledBy={labelId}
+          describedBy={detailId}
+          testId="call-help-model"
+        />
+      }
+    />
+  );
+}
+
 /**
  * Settings › Meetings › Help during the call: whether the floating panel shows while a
- * meeting records, whether it is kept out of the User's screen share, and the buttons' shortcuts.
+ * meeting records, whether it is kept out of the User's screen share, the model it answers on,
+ * and the buttons' shortcuts.
  */
 export function HelpSettings() {
   const t = useT();
@@ -214,6 +285,7 @@ export function HelpSettings() {
               switchTestId="help-hidden-setting"
             />
           )}
+          <CallHelpModelRow />
         </SettingsGroup>
       </SettingsSection>
       <SettingsSection
