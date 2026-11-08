@@ -1,3 +1,4 @@
+import type { CloudTranscriptionRoute } from "../../core/api";
 import type { SignInRoute } from "../../core/providers/signInRoutes";
 import { SHOW_AGENT_CONNECTION } from "../../shared/agentConnection";
 import type { MessageKey } from "../../shared/i18n";
@@ -17,6 +18,8 @@ export const settingsPages = [
 export type SettingsPage = (typeof settingsPages)[number];
 
 export type SettingsTarget =
+  | "transcription"
+  | `transcription-key:${CloudTranscriptionRoute}`
   | "output-location"
   | "author-name"
   | "local-mode"
@@ -25,6 +28,9 @@ export type SettingsTarget =
   | "tagging"
   | "turn-on-tagging"
   | "meeting-words"
+  | "calendars"
+  | "background"
+  | "call-offers"
   | SignInRoute;
 
 export const offeredSettingsPages: readonly SettingsPage[] = settingsPages.filter(

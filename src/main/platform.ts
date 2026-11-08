@@ -26,8 +26,15 @@ import {
   type Transcriber,
   type UsageDataSender,
 } from "../core";
+import type { SystemCalendar } from "../core/adapters";
 import { runAnalysis } from "../core/analysis";
 import type { SandboxProblem } from "../core/api";
+import { calendarStandIns, GOOGLE_CALENDAR, MICROSOFT_CALENDAR } from "../core/calendars/endpoints";
+import {
+  createFakeSystemCalendar,
+  type FakeSystemCalendar,
+  type SystemCalendarFixture,
+} from "../core/calendars/fakeSystem";
 import { scansAtOnce } from "../core/documents/processor";
 import type { PageFetch } from "../core/documents/web/fetch";
 import type { ModelCopies } from "../core/embedding/modelSources";
@@ -62,6 +69,7 @@ import { interpreterRoots, loadOsSandbox, readDeniedFolders } from "./sandbox";
 import { createUtilityProcessTextRecognizer } from "./scanReader";
 import { createFileKeychain, SECRETS_FILE, type SecretCipher } from "./secretsFile";
 import { createUtilityProcessSeparator } from "./speakerSeparator";
+import { createSystemCalendar } from "./systemCalendar";
 import { createUtilityProcessTranscriber } from "./transcriber";
 import { createPostHogSender } from "./usageData";
 import { systemUserName } from "./userName";
@@ -762,6 +770,65 @@ function recordingSent(transcriber: Transcriber): Transcriber {
 }
 
 /**
+ * Google Calendar's and Microsoft 365's clients (#190), from the build (#209): a service the
+ * build has no client for isn't offered, and Google needs its secret too. Test-only launch flag:
+ * a local stand-in for both at INCARNAMIND_TEST_CALENDARS's origin
+ * (tests/helpers/fakeCalendars.ts), with made-up clients. A test build reaches neither service.
+ */
+function calendarServices(): CoreAdapters["calendarServices"] {
+  if (import.meta.env.MODE === "test") {
+    const origin = process.env.INCARNAMIND_TEST_CALENDARS;
+    if (!origin) return {};
+    const standIns = calendarStandIns(origin);
+    return {
+      google: {
+        ...standIns.google,
+        clientId: "test-google-client",
+        clientSecret: "test-google-secret",
+      },
+      microsoft: { ...standIns.microsoft, clientId: "test-microsoft-client" },
+    };
+  }
+  const google = import.meta.env.MAIN_VITE_GOOGLE_CALENDAR_CLIENT_ID;
+  const googleSecret = import.meta.env.MAIN_VITE_GOOGLE_CALENDAR_CLIENT_SECRET;
+  const microsoft = import.meta.env.MAIN_VITE_MICROSOFT_CALENDAR_CLIENT_ID;
+  return {
+    ...(google &&
+      googleSecret && {
+        google: { ...GOOGLE_CALENDAR, clientId: google, clientSecret: googleSecret },
+      }),
+    ...(microsoft && { microsoft: { ...MICROSOFT_CALENDAR, clientId: microsoft } }),
+  };
+}
+
+/**
+ * The Mac's calendars (#190), through the calendar helper. Test-only launch flags: a stand-in
+ * holding INCARNAMIND_TEST_SYSTEM_CALENDAR's `SystemCalendarFixture`, on any system, which the
+ * smoke tests reach as `globalThis.incarnamindFakeCalendar`; and how often calendars are read,
+ * INCARNAMIND_TEST_CALENDAR_SYNC_MS. A test build never runs the helper: nothing on the
+ * computer is read.
+ */
+function calendarAdapters(log: Logger): Pick<CoreAdapters, "systemCalendar" | "calendarSync"> {
+  if (import.meta.env.MODE !== "test") {
+    const systemCalendar = createSystemCalendar(log);
+    return systemCalendar ? { systemCalendar } : {};
+  }
+  const fixture = process.env.INCARNAMIND_TEST_SYSTEM_CALENDAR;
+  const intervalMs = Number(process.env.INCARNAMIND_TEST_CALENDAR_SYNC_MS);
+  let systemCalendar: SystemCalendar | undefined;
+  if (fixture) {
+    const parsed: SystemCalendarFixture = JSON.parse(fixture);
+    const fake = createFakeSystemCalendar(parsed);
+    (globalThis as { incarnamindFakeCalendar?: FakeSystemCalendar }).incarnamindFakeCalendar = fake;
+    systemCalendar = fake;
+  }
+  return {
+    ...(systemCalendar && { systemCalendar }),
+    ...(Number.isInteger(intervalMs) && intervalMs > 0 && { calendarSync: { intervalMs } }),
+  };
+}
+
+/**
  * What records Meetings: the hidden capture window (ADR-0015). Test-only
  * launch flags: the smoke tests record a fake that makes a tone in real time,
  * so no device is ever opened (INCARNAMIND_TEST_AUDIO=fake), its computer's
@@ -881,6 +948,8 @@ export async function createElectronAdapters(log: Logger): Promise<CoreAdapters>
     }),
     log,
     audioCapture: audioCapture(log),
+    calendarServices: calendarServices(),
+    ...calendarAdapters(log),
     capturePage: createCitedPageCapture({ rendererUrl: process.env.ELECTRON_RENDERER_URL, log }),
     analysisRuntime: analysisRuntime(log),
     codeRuntime: codeRuntime(log),

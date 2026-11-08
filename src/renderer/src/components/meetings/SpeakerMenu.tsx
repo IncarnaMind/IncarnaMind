@@ -12,8 +12,10 @@ import {
   type TranscriptLine,
   withSpeakerChosen,
 } from "../../../../shared/speakers";
+import { inviteNames } from "../../calendarWords";
 import { useT } from "../../i18n";
 import type { WordsInLine } from "../../lineNames";
+import { useNoteEvent } from "../../noteEvents";
 import { type SpeakersStep, useAppStore } from "../../store";
 import { CheckLineIcon, PlusLineIcon } from "../lineIcons";
 import { ProblemMark } from "../ProblemLine";
@@ -50,20 +52,21 @@ function initialsOf(name: string): string {
 }
 
 /**
- * Who speaks a line of a saved Meeting's Transcript (#138), as the prototype's speaker menu has it:
- * the line's Speaker is a button, and its menu lists the User ("Me") and every Speaker its lines
- * are by now, "New speaker…" to name someone else, and "Apply to all" for every line by the line's
- * Speaker. A choice applies at once, with one Undo. F2 on the line and ⌘K open it too.
+ * Who speaks a turn of a saved Meeting's Transcript (#138), as the prototype's speaker menu has it:
+ * the turn's Speaker is a button, and its menu lists the User ("Me") and every Speaker its lines
+ * are by now, "New speaker…" to name someone else, and "Apply to all" for every line by the turn's
+ * Speaker. A choice applies at once, with one Undo. F2 on a line of the turn and ⌘K open it too.
  */
 export function SpeakerMenu({
   document,
   lines,
-  line,
+  turn,
   rest = null,
 }: {
   document: Document;
   lines: readonly TranscriptLine[];
-  line: TranscriptLine;
+  /** The lines it says who speaks: a turn's, all one Speaker's. */
+  turn: readonly TranscriptLine[];
   /**
    * The line was just split off another (#138): the menu opens by itself to ask who speaks it,
    * and the choice completes the split's step. `done` once it closes, chosen or not.
@@ -79,11 +82,20 @@ export function SpeakerMenu({
   const refusedId = useId();
   const field = useRef<HTMLInputElement>(null);
   const { speakers } = document;
+  const line = turn[0] ?? { startMs: 0, label: "" };
   const now = speakerOf(speakers, line.startMs, line.label);
   const named = (label: string) => nameOf(speakers, label) ?? speakerName(label, t);
+  // The calendar event's people, when the Meeting came from one (#190): the User is "Me".
+  const invite = useNoteEvent(menu.open ? document.meetingMindId : null);
+  const invited = inviteNames(
+    invite?.attendees ?? [],
+    speakersIn(speakers, lines).map((label) => named(label)),
+  );
 
   const asking = useRef(false);
   const wasOpen = useRef(false);
+  // The line the User was on when the menu opened (F2, ⌘K): the focus goes back to it.
+  const returnTo = useRef<HTMLElement | null>(null);
   const { show } = menu;
   useEffect(() => {
     if (!rest) return;
@@ -113,9 +125,14 @@ export function SpeakerMenu({
 
   const choose = (choice: SpeakerChoice) => {
     menu.close();
-    // Back on the line, so the arrow keys go on from it as before the menu opened.
-    menu.buttonProps.ref.current?.closest<HTMLElement>("[data-line]")?.focus();
-    const next = withSpeakerChosen(speakers, lines, line, choice, all);
+    // Back on the line the User was on, else the turn's first, so the arrow keys go on from there.
+    (
+      (returnTo.current?.isConnected ? returnTo.current : null) ??
+      menu.buttonProps.ref.current
+        ?.closest<HTMLElement>("[data-turn]")
+        ?.querySelector<HTMLElement>("[data-line]")
+    )?.focus();
+    const next = withSpeakerChosen(speakers, lines, turn, choice, all);
     if (JSON.stringify(next) === JSON.stringify(speakers ?? { labels: {}, lines: {} })) return;
     const typed = "name" in choice ? choice.name : nameOf(next, choice.label);
     const label = "label" in choice ? choice.label : now;
@@ -141,6 +158,10 @@ export function SpeakerMenu({
     <>
       <button
         {...menu.buttonProps}
+        onClickCapture={() => {
+          returnTo.current =
+            globalThis.document.activeElement?.closest<HTMLElement>("[data-line]") ?? null;
+        }}
         type="button"
         tabIndex={-1}
         data-testid="transcript-speaker"
@@ -185,6 +206,29 @@ export function SpeakerMenu({
                 {label === now && <CheckLineIcon className="size-3.5 shrink-0 text-accent" />}
               </button>
             ))}
+            {invited.length > 0 && (
+              <>
+                <p className={menuTitleClass}>{t("calendars.fromInvite")}</p>
+                {invited.map((name) => (
+                  <button
+                    key={name}
+                    type="button"
+                    role="menuitem"
+                    data-testid="speaker-invitee"
+                    title={name}
+                    onClick={() => choose({ name })}
+                    className={`${menuItemClass} pl-1.5`}
+                  >
+                    <span
+                      aria-hidden="true"
+                      className="speaker-initials"
+                      data-initials={initialsOf(name)}
+                    />
+                    <span className="min-w-0 flex-1 truncate">{name}</span>
+                  </button>
+                ))}
+              </>
+            )}
             {naming ? (
               <div className="px-1.5 py-1">
                 <input

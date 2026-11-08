@@ -133,20 +133,24 @@ function newSpeakerLabel(speakers: TranscriptSpeakers, lines: readonly Transcrip
 export type SpeakerChoice = { label: string } | { name: string };
 
 /**
- * Who's who after the User says who speaks `line` (#138): that line alone, or with `all`, every
- * line by its Speaker now. A new name with `all` names that Speaker, unless it is the User, who
+ * Who's who after the User says who speaks `chosen` (#138): that line, or a turn's lines, alone, or
+ * with `all`, every line by its Speaker now. A new name with `all` names that Speaker, unless it is the User, who
  * keeps "Me": then their lines go to a new Speaker. A line given back to its file's label keeps
  * no entry.
  */
 export function withSpeakerChosen(
   speakers: TranscriptSpeakers | null,
   lines: readonly TranscriptLine[],
-  line: TranscriptLine,
+  chosen: TranscriptLine | readonly TranscriptLine[],
   choice: SpeakerChoice,
   all: boolean,
 ): TranscriptSpeakers {
   const before = speakers ?? { labels: {}, lines: {} };
   const after = { ...before, labels: { ...before.labels }, lines: { ...before.lines } };
+  // A turn's lines are one Speaker's (../shared/transcriptTurns): the first says whose.
+  const given: readonly TranscriptLine[] = Array.isArray(chosen) ? chosen : [chosen];
+  const line = given[0];
+  if (!line) return after;
   const now = speakerOf(before, line.startMs, line.label);
   let to: string;
   if ("label" in choice) to = choice.label;
@@ -159,7 +163,7 @@ export function withSpeakerChosen(
   }
   const moved = all
     ? lines.filter((each) => speakerOf(before, each.startMs, each.label) === now)
-    : [line];
+    : given;
   for (const each of moved) {
     const key = lineKey(each.startMs, each.label);
     if (to === each.label) delete after.lines[key];
@@ -198,6 +202,10 @@ const LABEL_WORDS =
  */
 export const looksLikeLabel = (words: string) =>
   LABEL_WORDS.test(words.normalize("NFKC").replace(/\s+/gu, " ").trim());
+
+/** Whether a Speaker can be given this name: the rules a name the User types is kept by. */
+export const isSpeakerName = (name: string): boolean =>
+  speakerText(name, MAX_SPEAKER_NAME) && !looksLikeLabel(name);
 
 /** A Speaker as a mark names them inside its brackets: brackets and line breaks are spaces. */
 export const markWords = (speaker: string) =>

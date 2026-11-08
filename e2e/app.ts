@@ -24,6 +24,7 @@ import {
   type ExportFormat,
   type SaveChatProviderInput,
 } from "../src/core/api";
+import type { SystemCalendarFixture } from "../src/core/calendars/fakeSystem";
 import { openDatabase } from "../src/core/storage";
 import type { FakeTranscriberOptions } from "../src/core/transcription/fake";
 import { LOG_FILE } from "../src/main/log";
@@ -220,6 +221,15 @@ export interface LaunchOptions {
   /** A stand-in for every decision model host (#1907), at this base URL. */
   decisions?: string;
   /**
+   * A stand-in for Google Calendar and Microsoft 365 (#190), at this origin
+   * (tests/helpers/fakeCalendars.ts). Without it a test build offers neither.
+   */
+  calendars?: string;
+  /** What the Mac's calendar holds and answers (#190), on any system. Without it there is none. */
+  systemCalendar?: SystemCalendarFixture;
+  /** How often calendars are read while the app runs, in milliseconds, instead of 5 minutes. */
+  calendarSyncMs?: number;
+  /**
    * More of the app's environment, by name: a made-up credential, or a switch such as
    * ELECTRON_DISABLE_SANDBOX. Nothing else comes from the test's own (`launchEnvironment`), and
    * a trace keeps all of it, so never a real key.
@@ -303,6 +313,9 @@ export async function launchApp(
     realEngines = false,
     jev,
     decisions,
+    calendars,
+    systemCalendar,
+    calendarSyncMs,
     extraEnv,
     trace = false,
     switches = [],
@@ -343,6 +356,9 @@ export async function launchApp(
     INCARNAMIND_TEST_COPILOT: copilot,
     INCARNAMIND_TEST_JEV: jev,
     INCARNAMIND_TEST_DECISIONS: decisions,
+    INCARNAMIND_TEST_CALENDARS: calendars,
+    INCARNAMIND_TEST_SYSTEM_CALENDAR: systemCalendar && JSON.stringify(systemCalendar),
+    INCARNAMIND_TEST_CALENDAR_SYNC_MS: calendarSyncMs ? String(calendarSyncMs) : undefined,
     INCARNAMIND_TEST_SCANS: scans,
     INCARNAMIND_TEST_SCANS_AT_ONCE: scansAtOnce ? String(scansAtOnce) : undefined,
     INCARNAMIND_TEST_MODEL_DOWNLOADS: modelDownloads && JSON.stringify(modelDownloads),
@@ -1209,6 +1225,9 @@ export async function openTranscriptBeside(
   await expect(window.getByTestId("viewer-transcript")).toBeVisible();
 }
 
+/** The turn of a Transcript a line is in: its Speaker, its time and its Add to note. */
+export const turnOf = (line: Locator): Locator => line.locator("xpath=ancestor::*[@data-turn][1]");
+
 /** Starts recording from the start block; the first time, through the one-time notice. */
 export async function startRecording(window: Page, start: Locator, { notice = false } = {}) {
   const record = start.getByTestId("meeting-start-record");
@@ -2044,6 +2063,17 @@ export async function setSilentWaitMs(window: Page, ms: number): Promise<void> {
       (globalThis as { incarnamindTestHooks?: TestHooks }).incarnamindTestHooks?.setSilentWaitMs(
         value,
       ),
+    ms,
+  );
+}
+
+/** How long a Document may take to open before the viewer says it couldn't (15 seconds), so a test needn't wait that long. */
+export async function setViewerOpenLimitMs(window: Page, ms: number): Promise<void> {
+  await window.evaluate(
+    (value) =>
+      (
+        globalThis as { incarnamindTestHooks?: TestHooks }
+      ).incarnamindTestHooks?.setViewerOpenLimitMs(value),
     ms,
   );
 }

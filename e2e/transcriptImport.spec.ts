@@ -10,6 +10,7 @@ import {
   removeDataFolder,
   setLanguage,
   setWindowSize,
+  turnOf,
 } from "./app";
 
 /**
@@ -118,7 +119,7 @@ for (const language of ["en", "zh-CN"] as const) {
         "So the launch moves to the eighteenth of November.",
       );
       await expect(lines.last()).toContainText("发布日期推迟到十一月十八日。");
-      await expect(lines.first().getByTestId("transcript-speaker")).toHaveText("Dana");
+      await expect(turnOf(lines.first()).getByTestId("transcript-speaker")).toHaveText("Dana");
 
       // Cancelling the picker adds nothing, and the Note the User is in keeps its words.
       await newMindAndType(window, "The tide is high at noon.");

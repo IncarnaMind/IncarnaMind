@@ -492,7 +492,11 @@ async function call(take: Take): Promise<void> {
       .poll(async () => (await lines.allInnerTexts()).join(" "), { timeout: 300_000 })
       .toMatch(script.words.heard);
     await expect(
-      lines.getByTestId("transcript-speaker").filter({ hasText: script.words.me }).first(),
+      window
+        .getByTestId("transcript-turn")
+        .getByTestId("transcript-speaker")
+        .filter({ hasText: script.words.me })
+        .first(),
     ).toBeVisible({ timeout: 120_000 });
   });
   await hand.hold(700);

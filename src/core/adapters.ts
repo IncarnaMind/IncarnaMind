@@ -19,10 +19,12 @@ import type { AgentLauncher } from "./agents";
 import type { AnswerEngine } from "./answers/engine";
 import type {
   AudioSource,
+  CallWatchProblem,
   CopilotProfileId,
   DecisionHost,
   EngineSwitchReason,
   ExternalService,
+  OpenAtLogin,
   SandboxLevel,
   SandboxProblem,
   SecretProtection,
@@ -716,6 +718,36 @@ export interface AudioCapture {
 }
 
 /**
+ * Tells which call apps are using the microphone (#208), as the system says, and nothing else:
+ * no audio, no window titles, no browser tabs. The desktop app asks Core Audio on macOS, the
+ * per-app microphone record Windows keeps, and PulseAudio's recording streams on Linux.
+ */
+export interface CallWatcher {
+  /**
+   * Starts watching: `apps` gets the ids of the call apps using the microphone now
+   * (src/shared/meetingApps.ts), then again each time that changes; `problem` once this computer
+   * can't tell. A watcher that stopped says nothing until it runs again: no apps is never what it
+   * means. `exact` is false where the system can't say when one app lets go of the microphone
+   * (macOS 12 and 13), so an app missing then may still be in its call. Returns what stops watching.
+   */
+  watch(listener: {
+    apps(ids: readonly string[], exact: boolean): void;
+    problem(problem: CallWatchProblem): void;
+  }): () => void;
+}
+
+/**
+ * Whether the system opens IncarnaMind when the User logs in (#189): macOS's and Windows's login
+ * items, a Linux desktop's autostart entry.
+ */
+export interface LoginItem {
+  get(): OpenAtLogin;
+  set(on: boolean): OpenAtLogin;
+  /** Opens the system's settings where the User approves IncarnaMind opening at login. */
+  openSettings(): Promise<void>;
+}
+
+/**
  * Draws a cited page with the Document viewer's view for its kind, off
  * screen, so it can be saved (#133): every kind but PDF, whose pages the core
  * draws itself. Rejects when the page can't be drawn, and when `signal` aborts.
@@ -934,6 +966,96 @@ export interface AnalysisRuntime {
   run(job: AnalysisJob, signal: AbortSignal): Promise<AnalysisResult>;
   /** Stops what is running and frees the interpreter's memory; the next run starts another. */
   close(): void;
+}
+
+/**
+ * Whether IncarnaMind may read the Mac's calendars (#190): allowed, refused in System Settings,
+ * held back by the Mac's administrator, or not asked yet.
+ */
+export type SystemCalendarAccess = "allowed" | "denied" | "restricted" | "not-asked";
+
+/** A calendar in the Mac's Calendar app. */
+export interface SystemCalendarInfo {
+  id: string;
+  title: string;
+  /** The account it is in there: "iCloud", "Exchange", a CalDAV server's name. */
+  source: string;
+  /** Subscribed and birthday calendars aren't the User's Meetings, and don't count by default. */
+  kind: "local" | "caldav" | "exchange" | "subscription" | "birthday" | "other";
+}
+
+/** A person on an event of the Mac's calendar. */
+export interface SystemCalendarPerson {
+  name: string | null;
+  email: string | null;
+  /** The Mac's own User. */
+  self: boolean;
+  status: "accepted" | "declined" | "tentative" | "pending" | "unknown";
+}
+
+/** An event of the Mac's calendar, one occurrence of a recurring one. */
+export interface SystemCalendarEvent {
+  calendarId: string;
+  /** The system's id of the event, the same for every occurrence of a recurring one. */
+  id: string;
+  /** The invite's own id (its iCalendar UID), the same in every calendar that holds it. */
+  externalId: string | null;
+  /** When this occurrence was meant to start (ISO 8601), for a recurring one; null otherwise. */
+  occurrence: string | null;
+  title: string;
+  /** ISO 8601. */
+  start: string;
+  end: string;
+  allDay: boolean;
+  status: "confirmed" | "tentative" | "cancelled" | "none";
+  attendees: SystemCalendarPerson[];
+  organizer: SystemCalendarPerson | null;
+  url: string | null;
+  location: string | null;
+  notes: string | null;
+}
+
+/**
+ * The Mac's own calendars, read through the system's calendar API (#190): those of the iCloud,
+ * Exchange and CalDAV accounts added to Calendar. Read only. The desktop app runs a small helper
+ * of its own; absent where there is none (Windows, Linux).
+ */
+export interface SystemCalendar {
+  /** Whether IncarnaMind may read them. Never asks the User. */
+  access(): Promise<SystemCalendarAccess>;
+  /** Asks the system for access, which asks the User once; resolves with what they chose. */
+  requestAccess(): Promise<SystemCalendarAccess>;
+  calendars(): Promise<SystemCalendarInfo[]>;
+  /** The events of `calendarIds` that overlap `from` to `to` (ISO 8601). */
+  events(input: {
+    from: string;
+    to: string;
+    calendarIds: readonly string[];
+  }): Promise<SystemCalendarEvent[]>;
+  /** Opens System Settings at Privacy & Security › Calendars. */
+  openSettings(): Promise<void>;
+}
+
+/**
+ * A calendar service's OAuth client and addresses (#190, #209). The client IDs come from the
+ * build; a copy built without them doesn't offer the service.
+ */
+export interface CalendarServiceConfig {
+  clientId: string;
+  /**
+   * Google's client secret for an installed app, which its token endpoint asks for with PKCE too.
+   * Google doesn't treat it as confidential in an installed app; it comes from the build, never
+   * the repository, and is never logged. Microsoft's public client has none.
+   */
+  clientSecret?: string;
+  authorizeUrl: string;
+  tokenUrl: string;
+  /** Where a token is revoked at disconnect, where the service has such an address. */
+  revokeUrl?: string;
+  /** The calendar API's base, e.g. "https://www.googleapis.com/calendar/v3". */
+  apiBaseUrl: string;
+  /** Where the account's name is read (Microsoft's /me); absent where the calendars name it. */
+  accountUrl?: string;
 }
 
 export interface CoreAdapters {
@@ -1210,6 +1332,10 @@ export interface CoreAdapters {
    * at its Mind. Absent: Tasks notify nobody.
    */
   notifications?: SystemNotifications;
+  /** Which call apps use the microphone, for the offers to take notes (#208). Absent: no offers. */
+  callWatcher?: CallWatcher;
+  /** Opening at login (#189). Absent: Settings doesn't offer it. */
+  loginItem?: LoginItem;
   /** Kinds of Task the host adds to the core's own (`Core.startTask`): a test build's scripted one. */
   taskKinds?: readonly TaskKind[];
   /**
@@ -1244,6 +1370,11 @@ export interface CoreAdapters {
    * (#2773), instead of after them; unset, they do. Only tests and the evaluation pass one.
    */
   notesBeforeSpeakers?: () => boolean | undefined;
+  /**
+   * Whether call help's own form may be judged the model's working, as before #2778; unset, it
+   * isn't. Only tests and the evaluation pass one.
+   */
+  helpFormJudged?: () => boolean | undefined;
   /**
    * Tunes and watches the search Tool for Answers' searches (reranking depth,
    * Passages handed, a callback with each search's timings). Only the
@@ -1304,6 +1435,20 @@ export interface CoreAdapters {
    * kept. The global `fetch` by default; tests answer without the network.
    */
   transcriptionKeyFetch?: typeof fetch;
+  /** The Mac's own calendars (#190). Absent: this copy offers none. */
+  systemCalendar?: SystemCalendar;
+  /**
+   * Google Calendar's and Microsoft 365's OAuth clients and addresses (#190). A service left out
+   * isn't offered.
+   */
+  calendarServices?: { google?: CalendarServiceConfig; microsoft?: CalendarServiceConfig };
+  /** How the calendar services are reached: the global `fetch` by default; tests answer locally. */
+  calendarFetch?: typeof fetch;
+  /**
+   * How often calendars are read while the app runs (5 minutes), and how long it waits after a
+   * failure, doubling from the first to the last (1 to 30 minutes). Tests shorten them.
+   */
+  calendarSync?: { intervalMs?: number; retryMs?: readonly number[] };
   /** Where the core logs what happens (see `Logger`). None by default. */
   log?: Logger;
 }

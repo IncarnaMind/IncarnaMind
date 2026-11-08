@@ -356,6 +356,7 @@ export function createCloudTranscription(options: CloudTranscriptionOptions) {
           region: key ? where.region : null,
           dataUse: where.dataUse,
           key: service.key,
+          providerId: service.key === "provider" ? (key?.providerId ?? null) : null,
           hasKey: key !== null,
           liveSpeakers: service.liveSpeakers,
           keyUrl: service.keyUrl ?? null,

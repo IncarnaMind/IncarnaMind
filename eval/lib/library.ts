@@ -124,6 +124,8 @@ export interface LibraryOptions {
   >;
   /** Whether a call's notes start before its speakers are told apart, for an arm that decides it. */
   notesBeforeSpeakers?: CoreAdapters["notesBeforeSpeakers"];
+  /** Whether call help's own form may be judged the model's working, for an arm that decides it. */
+  helpFormJudged?: CoreAdapters["helpFormJudged"];
 }
 
 export interface EvalWebPage {
@@ -327,6 +329,7 @@ export async function openLibrary(options: LibraryOptions): Promise<Library> {
     ...(options.answerPaths && { answerPaths: options.answerPaths }),
     ...(options.checkPaths && { checkPaths: options.checkPaths }),
     ...(options.notesBeforeSpeakers && { notesBeforeSpeakers: options.notesBeforeSpeakers }),
+    ...(options.helpFormJudged && { helpFormJudged: options.helpFormJudged }),
   });
   const close = async () => {
     core.close();

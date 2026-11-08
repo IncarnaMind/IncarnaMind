@@ -32,6 +32,7 @@ import {
   showSettingsPage,
   startRecording,
   transcriptSaved,
+  turnOf,
   useLocalChatModel,
   useOutputLocation,
 } from "./app";
@@ -410,12 +411,12 @@ test("Open beside opens the live Transcript next to the meeting, closing its tab
   const speakers = transcript.getByTestId("transcript-speaker");
   await expect(speakers.first()).toHaveText("Me");
   await expect(speakers.filter({ hasText: /^Them$/ }).first()).toBeVisible({ timeout: 20_000 });
-  // As the board draws a row: the time in a column of its own, the label above the words, in a grey that isn't a colour.
-  const row = transcript.getByTestId("transcript-line").first();
+  // As the board draws a turn: the time in a column of its own, the label above the words, in a grey that isn't a colour.
+  const row = transcript.getByTestId("transcript-turn").first();
   const [timeBox, labelBox, wordsBox] = await Promise.all([
     row.locator(".transcript-time").boundingBox(),
     row.getByTestId("transcript-speaker").boundingBox(),
-    row.locator(".transcript-text").boundingBox(),
+    row.locator(".transcript-text").first().boundingBox(),
   ]);
   expect((timeBox?.x ?? 0) + (timeBox?.width ?? 0)).toBeLessThanOrEqual(labelBox?.x ?? 0);
   expect((labelBox?.y ?? 0) + (labelBox?.height ?? 0)).toBeLessThanOrEqual(wordsBox?.y ?? 0);
@@ -488,11 +489,11 @@ test("Open beside opens the live Transcript next to the meeting, closing its tab
   // Named when its first line came, the Transcript keeps its name in another language.
   await transcriptTab.click();
   await expect(transcript).toBeVisible();
-  // At the narrowest, a label fits its line.
-  const firstLine = transcript.getByTestId("transcript-line").first();
+  // At the narrowest, a label fits its turn.
+  const firstTurn = transcript.getByTestId("transcript-turn").first();
   const [narrowLine, narrowLabel] = await Promise.all([
-    firstLine.boundingBox(),
-    firstLine.getByTestId("transcript-speaker").boundingBox(),
+    firstTurn.boundingBox(),
+    firstTurn.getByTestId("transcript-speaker").boundingBox(),
   ]);
   expect((narrowLabel?.x ?? 0) + (narrowLabel?.width ?? 0)).toBeLessThanOrEqual(
     (narrowLine?.x ?? 0) + (narrowLine?.width ?? 0),
@@ -597,9 +598,9 @@ test("notes during the call: typed lines get their time, Mark (⌘D) and Add to 
   await second.hover();
   await second.click();
   await expect(second).toBeFocused();
-  await expect(second.getByTestId("transcript-add")).toBeVisible();
+  await expect(turnOf(second).getByTestId("transcript-add")).toBeVisible();
   await shot(window, "meeting-add-to-note-wide-en");
-  const quote = (await second.locator(".transcript-text").textContent()) ?? "";
+  const quote = (await second.textContent()) ?? "";
   await window.keyboard.press("ArrowUp");
   await expect(lines.first()).toBeFocused();
   await window.keyboard.press("ArrowDown");
@@ -627,7 +628,7 @@ test("notes during the call: typed lines get their time, Mark (⌘D) and Add to 
   const third = lines.nth(2);
   await expect(third).toBeVisible({ timeout: 20_000 });
   await third.hover();
-  await third.getByTestId("transcript-add").click();
+  await turnOf(third).getByTestId("transcript-add").click();
   await expect(citation).toHaveCount(1);
   await expect(citation).toHaveAttribute("data-check", "found");
 
@@ -666,13 +667,13 @@ test("notes during the call: typed lines get their time, Mark (⌘D) and Add to 
   const fourth = lines.nth(3);
   await expect(fourth).toBeVisible({ timeout: 20_000 });
   await fourth.hover();
-  await fourth.getByTestId("transcript-add").click();
+  await turnOf(fourth).getByTestId("transcript-add").click();
   await expect(window.getByTestId("undo-message")).toHaveText("已将转写稿中的一句加入笔记");
   await third.hover();
-  await expect(third.getByTestId("transcript-add")).toContainText("加入笔记");
-  // Reserved at the line's end: it covers no words, and nothing moves when it shows.
-  const words = await third.locator(".transcript-text").boundingBox();
-  const button = await third.getByTestId("transcript-add").boundingBox();
+  await expect(turnOf(third).getByTestId("transcript-add")).toContainText("加入笔记");
+  // Reserved at the turn's end: it covers no words, and nothing moves when it shows.
+  const words = await third.locator("xpath=ancestor::p[1]").boundingBox();
+  const button = await turnOf(third).getByTestId("transcript-add").boundingBox();
   if (!words || !button) throw new Error("The line isn't drawn.");
   expect(button.x).toBeGreaterThanOrEqual(words.x + words.width - 1);
   await shot(window, "meeting-add-to-note-wide-zh");

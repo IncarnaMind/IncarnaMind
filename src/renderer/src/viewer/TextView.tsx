@@ -31,7 +31,7 @@ import { CitationMark, marginRoom, markTopFor, quoteMarkOf, quoteTone } from "./
 import { sourceSelection, useSelectionReader } from "./selectedText";
 import { OutlineButton, type OutlineEntry, UnitOutline } from "./UnitOutline";
 import { ViewerHeader } from "./ViewerHeader";
-import { FileGone, ViewerMessage } from "./ViewerMessage";
+import { FileGone, OpeningDocument, ViewerMessage } from "./ViewerMessage";
 
 type TextFailure = "viewer.textTooLarge" | "viewer.textUnreadable" | "viewer.textLoadFailed";
 
@@ -164,7 +164,7 @@ export function TextView({ document, target }: { document: Document; target: Vie
         )}
       </ViewerHeader>
       {loaded.kind === "loading" ? (
-        <ViewerMessage>{t("viewer.loading")}</ViewerMessage>
+        <OpeningDocument key={attempt} retry={reload} />
       ) : loaded.kind === "missing" ? (
         <FileGone quote={target.quote} />
       ) : loaded.kind === "failed" ? (

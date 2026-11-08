@@ -103,6 +103,10 @@ mac:
   extendInfo:
     NSMicrophoneUsageDescription: "When you record a meeting, IncarnaMind records your microphone. The audio stays on this Mac."
     NSAudioCaptureUsageDescription: "When you record a meeting, IncarnaMind records the computer's sound: the other people in the meeting. The audio stays on this Mac."
+    # Meetings coming up (#190): what macOS says when the User connects the Mac's calendar, the
+    # first key from macOS 14, the second before it (tests/main/meetingPermissions.test.ts).
+    NSCalendarsFullAccessUsageDescription: "IncarnaMind reads your calendar to show the meetings coming up and fill in a meeting’s notes. Your events stay on this Mac."
+    NSCalendarsUsageDescription: "IncarnaMind reads your calendar to show the meetings coming up and fill in a meeting’s notes. Your events stay on this Mac."
     CFBundleIconName: AppIcon
   extraResources:
     - from: build/zh_CN.lproj
@@ -115,8 +119,9 @@ mac:
       to: python-native
       filter:
         - runtime.json
-  # electron-builder's default entitlements, and the microphone, which a hardened-runtime build
-  # can't open without it.
+  # electron-builder's default entitlements, the microphone, and the calendars (#190), which a
+  # hardened-runtime build can't open without them. The calendar helper, built by afterPack into
+  # Contents/Resources, is signed with the inherited ones.
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
   files:

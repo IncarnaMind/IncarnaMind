@@ -14,6 +14,8 @@ export type QuitAsker =
   | "menu"
   /** Quit's keys: ⌘Q, Ctrl+Q. */
   | "shortcut"
+  /** Quit in the menu bar or tray icon's menu (#189). */
+  | "tray"
   | "update"
   /** The last window closed, on Windows and Linux. */
   | "lastWindow"

@@ -189,9 +189,11 @@ export async function transcribingCore(
     systemLanguages,
     answerPaths,
     notesBeforeSpeakers,
+    helpFormJudged,
     examples,
     serving,
     engineFactory,
+    systemCalendar,
   }: {
     engine?: FakeTranscriberOptions;
     /** The cloud's connections, to watch them; the pretend service as `engine.cloud` says by default. */
@@ -224,8 +226,11 @@ export async function transcribingCore(
     answerPaths?: CoreAdapters["answerPaths"];
     /** Whether a call's notes start before its speakers are told apart, instead of the default. */
     notesBeforeSpeakers?: CoreAdapters["notesBeforeSpeakers"];
+    helpFormJudged?: CoreAdapters["helpFormJudged"];
     /** The shipped examples' folder, for a core that makes them. */
     examples?: string;
+    /** The Mac's calendars, for a Meeting started from a calendar event (#190). */
+    systemCalendar?: CoreAdapters["systemCalendar"];
   } = {},
 ) {
   const clock = manualClock();
@@ -256,7 +261,9 @@ export async function transcribingCore(
     ...(systemLanguages && { systemLanguages: () => systemLanguages }),
     ...(answerPaths && { answerPaths }),
     ...(notesBeforeSpeakers && { notesBeforeSpeakers }),
+    ...(helpFormJudged && { helpFormJudged }),
     ...(examples && { paths: { dataDir, examples } }),
+    ...(systemCalendar && { systemCalendar }),
   });
   await core.updateSettings({ device: { meetingNoticeAccepted: true } });
   await core.setOutputLocation(join(dataDir, "Documents", "IncarnaMind"));
