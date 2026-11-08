@@ -82,6 +82,7 @@ export function fillReply(prompt: Prompt, tools: readonly string[]): Reply | nul
     "```json",
     JSON.stringify({
       topic: label,
+      heading: label,
       citations,
       lines: markers,
       sections: ["decisions", "actions"],

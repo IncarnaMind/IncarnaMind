@@ -8,6 +8,8 @@ import { type FillSection, textOf } from "./fillPrompt";
 export interface MeetingFact {
   id: string;
   topic: string;
+  /** The topic of the call it is written under, shared word for word by that topic's facts. */
+  heading: string;
   lines: string[];
   sections: FillSection[];
   claim: boolean;
@@ -43,6 +45,7 @@ export interface FactReply {
 
 interface FactMetadata {
   topic: string;
+  heading: string;
   citations: number[];
   lines: string[];
   sections: FillSection[];
@@ -62,7 +65,7 @@ const FACT_ID = /^[A-Za-z][A-Za-z0-9_-]{0,31}$/;
 const MAX_ITEMS = 128;
 const MAX_METADATA = 16_384;
 const MAX_BODY = 32_768;
-const FACT_KEYS = ["topic", "citations", "lines", "sections", "claim", "supersedes"];
+const FACT_KEYS = ["topic", "heading", "citations", "lines", "sections", "claim", "supersedes"];
 const SECTIONS: readonly FillSection[] = ["summary", "decisions", "actions", "questions"];
 const TEXT_MARKS = new Set([GENERATED_MARK, "bold", "italic", "strike", "link"]);
 
@@ -118,15 +121,21 @@ function metadata(node: NodeJSON | undefined): Record<string, unknown> | null {
   }
 }
 
+const label = (value: unknown): value is string =>
+  typeof value === "string" &&
+  value.trim() !== "" &&
+  value.length <= 240 &&
+  !/[\p{Cc}\p{Zl}\p{Zp}]/u.test(value);
+
 function factMetadata(value: Record<string, unknown>): FactMetadata | null {
   if (Object.keys(value).some((key) => !FACT_KEYS.includes(key))) return null;
   const { topic, citations, lines, sections, claim } = value;
   const supersedes = Object.hasOwn(value, "supersedes") ? value.supersedes : [];
+  // A fact without one still has its own topic to go under.
+  const heading = Object.hasOwn(value, "heading") ? value.heading : topic;
   if (
-    typeof topic !== "string" ||
-    topic.trim() === "" ||
-    topic.length > 240 ||
-    /[\p{Cc}\p{Zl}\p{Zp}]/u.test(topic) ||
+    !label(topic) ||
+    !label(heading) ||
     !inventory(citations) ||
     !strings(lines, /^L[1-9]\d{0,5}$/) ||
     !Array.isArray(sections) ||
@@ -135,12 +144,11 @@ function factMetadata(value: Record<string, unknown>): FactMetadata | null {
       SECTIONS.some((allowed) => section === allowed),
     ) ||
     new Set(sections).size !== sections.length ||
-    (lines.length === 0 && sections.length === 0) ||
     typeof claim !== "boolean" ||
     !strings(supersedes, FACT_ID)
   )
     return null;
-  return { topic, citations, lines, sections, claim, supersedes };
+  return { topic, heading: heading.trim(), citations, lines, sections, claim, supersedes };
 }
 
 function heading(node: NodeJSON | undefined): string | null {

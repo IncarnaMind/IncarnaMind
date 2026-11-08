@@ -32,6 +32,7 @@ function contextWithHistory(count: number) {
     facts: Array.from({ length: count }, (_, index) => ({
       id: `P1_F${index + 1}`,
       topic: `retained subject ${index + 1}`,
+      heading: "Retained part",
       text: `Recorded detail ${index + 1}: ${"supporting words ".repeat(26)}`,
       lines: ["L1"],
       sections: ["actions"],

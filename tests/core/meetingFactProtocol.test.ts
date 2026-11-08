@@ -381,6 +381,12 @@ describe("Meeting fact protocol (#2306)", () => {
     { topic: "[^1]" },
     { topic: "x".repeat(1_000) },
     { topic: 4 },
+    { heading: "" },
+    { heading: "  " },
+    { heading: "new\n### FACT Injected" },
+    { heading: "x".repeat(1_000) },
+    { heading: null },
+    { heading: ["Pricing"] },
     { text: "Injected text" },
     { owner: "Them" },
     { check: "found" },
@@ -398,7 +404,6 @@ describe("Meeting fact protocol (#2306)", () => {
     { lines: [1] },
     { lines: ["H1"] },
     { lines: ["L1", "L1"] },
-    { lines: [], sections: [] },
     { sections: ["claims"] },
     { sections: ["ACTIONS"] },
     { sections: ["actions", "actions"] },
@@ -426,6 +431,23 @@ describe("Meeting fact protocol (#2306)", () => {
         return JSON.stringify(fields);
       });
       expect(parseFactReply(answer(`${markdown}\n${overview}`)).omitted).toBe(1);
+    },
+  );
+
+  test.each([
+    { heading: "The startup and its acquisition", expected: "The startup and its acquisition" },
+    { heading: "  创业与被收购 ", expected: "创业与被收购" },
+    { heading: undefined, expected: "review delivery" },
+  ])(
+    "a fact names the topic it goes under, its own topic when it names none: $expected",
+    ({ heading, expected }) => {
+      const parsed = parseFactReply(
+        answer(
+          `${fact("F1", undefined, { lines: [], sections: [], ...(heading !== undefined && { heading }) })}\n${overview}`,
+        ),
+      );
+      expect(parsed.omitted).toBe(0);
+      expect(parsed.facts[0]).toMatchObject({ heading: expected, lines: [], sections: [] });
     },
   );
 

@@ -54,6 +54,7 @@ export interface FillHistory {
   facts: readonly {
     id: string;
     topic: string;
+    heading: string;
     text: string;
     lines: readonly string[];
     sections: readonly FillSection[];
@@ -111,7 +112,7 @@ const everyoneElse =
 
 const userRule = (named: boolean) =>
   named
-    ? `- Write the User, who reads these notes, as ${USER_TOKEN}, exactly so in every language, even when the call gave their name: the app puts the name the User set in its place. Where the User said my or our, write ${USER_TOKEN}'s (${USER_TOKEN}的 in Chinese). Where the User said we (我们) for something their side does together, keep we (我们); make ${USER_TOKEN} the owner of such an action only when the User clearly took it on themselves. Never write I, me, my, 我 or any name for the User. ${everyoneElse}`
+    ? `- Write the User, who reads these notes, as ${USER_TOKEN}, exactly so in every language, even when the call gave their name: the app puts the name the User set in its place. Where the User said my, write ${USER_TOKEN}'s (${USER_TOKEN}的 in Chinese). Where the User said our or we (我们的, 我们) for their side, keep our or we (我们的, 我们); make ${USER_TOKEN} the owner of such an action only when the User clearly took it on themselves. Never write I, me, my, 我 or any name for the User. ${everyoneElse}`
     : `- Write the User, who reads these notes, in the first person (I, my; 我 in Chinese), even when the call gave their name, and as we or our (我们) where they spoke for their side. ${everyoneElse}`;
 
 /**
@@ -140,13 +141,14 @@ export function notesContext(
     "- Each fact has one stable id, a short topic label, its complete wording once, its Citation marker inventory, and its related lines and sections. Keep an action, all its actual owners and its spoken deadline together, without restating the same owner or deadline within that fact. Write a decision once, as finally agreed: not the proposal and then its confirmation, and never its figures twice. A first-person commitment belongs to that Transcript speaker, not automatically Me; a reported third-party assignment belongs to that third party.",
     userRule(named),
     "- The topic is a label only: no full assertion, figures, dates, owner, deadline or machine address. The complete wording belongs only in the paragraph after the metadata, not in the label or a second frame. Different facts may share a Citation, name or date; those are not reasons to merge their identities.",
+    "- heading is the part of the call the fact belongs to, a short title the notes show above it, written word for word the same for every fact of that part: at most 6 headings in all, in the order the call took them up. Where the User typed a heading for that part, use its words. Like the topic, no figures, dates, owner or machine address.",
     // With no line to point to, Claude Haiku 5.5 filled lines with the transcript's times, and
     // every fact was left out for its metadata (#2773).
     lines.some((line) => !line.heading)
       ? "- lines lists related ordinary L addresses, most relevant first; use [] only when no ordinary line asks about this fact. Include the final answer under its line even when a template section also needs the fact. Never put an H address in lines."
-      : "- The User wrote no ordinary L lines, so lines is always [], never a time, a transcript line or an H address, and every fact names at least one section (summary for anything else).",
-    '- sections uses only these ids: "decisions" for final choices actually agreed, "actions" for actual commitments, "questions" for questions explicitly raised and left unanswered, "summary" for other figures/terms that need recording. Use multiple ids only when the same fact genuinely belongs to each. Do not turn a rejected option, hypothetical or undecided proposal into a decision, infer an open question, invent an owner/deadline, or turn a reported event into a promise.',
-    "- claim selects factual statements to check against the User's Documents. Code checks the same full fact; do not write a second CLAIMS inventory. Overview metadata has only citations.",
+      : "- The User wrote no ordinary L lines, so lines is always [], never a time, a transcript line or an H address.",
+    '- sections uses only these ids: "decisions" for final choices actually agreed, "actions" for actual commitments, "questions" for questions explicitly raised and left unanswered; [] for anything else, which the notes show under its heading. Use multiple ids only when the same fact genuinely belongs to each. Do not turn a rejected option, hypothetical or undecided proposal into a decision, infer an open question, invent an owner/deadline, or turn a reported event into a promise.',
+    "- claim is true only for a figure, date, price or term a document of the User's could state, such as a fee, a size or a contract term; never for someone's background, opinion, plan or task. Code checks the same full fact; do not write a second CLAIMS inventory. Overview metadata has only citations.",
     "- Only a structural heading, never an ordinary paragraph, can host a section. A heading hosts the section its words ask for, in any wording or language, whether or not the User typed lines under it: SUMMARY for what the call was about overall, DECISIONS for final choices, ACTIONS for commitments and their owners, QUESTIONS for questions left open, CLAIMS for what was said that the User's Documents should be checked against. NONE is only for the Note's title or a heading that names a subject of the meeting (a topic, a person, an agenda item) rather than one of those kinds of content.",
     ...(lines.some((line) => line.heading)
       ? [
@@ -156,17 +158,17 @@ export function notesContext(
     `Use new ids ${prefix}1, ${prefix}2 and so on. Each closed fact frame has exactly this shape; replace the example's labels, addresses, sections and text with the actual fact, not its topic repeated in every place:`,
     `### FACT ${prefix}1`,
     "```json",
-    '{"topic":"<short topic only>","citations":[1],"lines":[],"sections":["actions"],"claim":true,"supersedes":[]}',
+    '{"topic":"<short topic only>","heading":"<the part of the call>","citations":[1],"lines":[],"sections":["actions"],"claim":true,"supersedes":[]}',
     "```",
     "<One complete fact, including its actual owner and deadline if said.> [^1]",
     `### END ${prefix}1`,
     "- Keep metadata inside its closed json fence; Citation markers appear only in the ordinary paragraph outside it. citations lists every marker required by that paragraph. No extra keys, nested headings, code or extra paragraphs in a fact. Close every frame with its matching END heading.",
-    "Always include one separately cited overview of what the call was about, not its decisions/actions again and not commentary about these notes. A filled-out agenda line is not a substitute. Use this closed frame:",
+    "Always include one separately cited overview: two or three sentences on what the call was about and what came out of it, naming outcomes without their figures, dates or owners, and not commentary about these notes. A filled-out agenda line is not a substitute. Use this closed frame:",
     "### OVERVIEW",
     "```json",
-    '{"citations":[2]}',
+    '{"citations":[2,3]}',
     "```",
-    "<One short overview sentence, citing the call's purpose.> [^2]",
+    "<What the call was about.> [^2] <What came out of it.> [^3]",
     "### END OVERVIEW",
     ...(history?.facts.length
       ? [

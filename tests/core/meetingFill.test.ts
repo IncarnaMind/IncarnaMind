@@ -22,6 +22,7 @@ import type { FillSection } from "../../src/core/meetings/fillPrompt";
 import { createFakeChatModel } from "../../src/main/fakeChat";
 import { citationAttributesOf } from "../../src/shared/citations";
 import { clockTime } from "../../src/shared/clock";
+import { translate } from "../../src/shared/i18n";
 import { setMindModel } from "../../src/shared/mindModel";
 import { pendingProposals } from "../../src/shared/proposals";
 import { checkReply, isCheckRun, type Plan } from "../helpers/checks";
@@ -69,17 +70,25 @@ function fact(
   topic: string,
   body: string,
   {
+    heading,
     lines = [],
     sections = [],
     claim = false,
     citations = [...body.matchAll(/\[\^(\d+)\]/g)].map((match) => Number(match[1])),
-  }: { lines?: string[]; sections?: FillSection[]; claim?: boolean; citations?: number[] } = {},
+  }: {
+    heading?: string;
+    lines?: string[];
+    sections?: FillSection[];
+    claim?: boolean;
+    citations?: number[];
+  } = {},
 ): string {
   return [
     `### FACT ${id}`,
     "```json",
     JSON.stringify({
       topic,
+      ...(heading !== undefined && { heading }),
       citations: [...new Set(citations)],
       lines,
       sections,
@@ -244,6 +253,20 @@ async function settledFill(core: Core, meeting: Meeting): Promise<MeetingFill> {
 }
 
 /** The Mind's lines as shown, AI text in «», a Citation as \uFFFC. */
+/** The Note's top-level Blocks as read: a heading with ##, a bullet with -, AI text in «». */
+const outline = (client: MindClient) => {
+  const lines: string[] = [];
+  readMind(client).forEach((block) => {
+    if (block.type.name === "heading") lines.push(`## ${shownWithAiText(block)}`);
+    else if (block.type.name === "bulletList") {
+      block.forEach((item) => {
+        lines.push(`- ${item.firstChild ? shownWithAiText(item.firstChild) : ""}`);
+      });
+    } else lines.push(shownWithAiText(block));
+  });
+  return lines;
+};
+
 const shown = (client: MindClient) => {
   const lines: string[] = [];
   readMind(client).descendants((node) => {
@@ -787,7 +810,7 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
   });
 
   // protects=with no notes, the sections are filled in, each citing the Transcript, and "Said in the call, not in your Documents" keeps only the claims the User's Documents don't support; fails_when=a section is missing, uncited, or a supported claim is listed; no_claim=the template's sections (#688).
-  test("with no notes, the sections, and only the claims the Documents don't support", async () => {
+  test("with no notes, the sections, and only the claims the Documents don't support, written there once", async () => {
     const supported = "The enterprise price is 45 dollars a seat.";
     const model = fillingModel(
       [
@@ -832,7 +855,6 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     expect(shown(client)).toEqual([
       "«Summary»",
       "«The call covered pricing and the contract »\uFFFC«.»",
-      "«The budget is approved for this year »\uFFFC«.»",
       "«Decisions»",
       "«The enterprise price is 45 dollars a seat »\uFFFC«.»",
       "«Action items»",
@@ -840,10 +862,90 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
       "«Open questions»",
       "«The security review is still open »\uFFFC«.»",
       "«Said in the call, not in your Documents»",
-      "«budget approval — see above »\uFFFC",
+      "«The budget is approved for this year »\uFFFC«.»",
     ]);
     core.close();
   });
+
+  // protects=with no notes, the Summary leads with the overview alone, then a heading for each of the call's topics, in its order, with its facts as cited bullets, then only the sections the call had, each as bullets; a claim is checked only when a Document other than the Transcript is in scope, and only one the Documents don't back is listed, moved there whole; one Undo restores the Note (#2306); fails_when=facts are paragraphs under Summary, a topic repeats, an empty section or claims list shows, a check is sent with nothing to check against, or a claim is written twice; no_claim=a real model's topics, which tests/live/meetingFillSections.live.test.ts measures.
+  test.each([
+    ["en", "no Documents"],
+    ["en", "a Document"],
+    ["zh-CN", "no Documents"],
+    ["zh-CN", "a Document"],
+  ] as const)(
+    "with no notes in %s and %s, Summary leads, each topic is a heading with cited bullets, and only unbacked claims are listed",
+    async (language, documents) => {
+      const chinese = language === "zh-CN";
+      const said = chinese ? CHINESE_LINES : { mine: MY_LINES, theirs: THEIR_LINES };
+      const [price = "", , rollout = ""] = said.mine;
+      const [budget = "", security = ""] = said.theirs;
+      const stop = chinese ? "。" : ".";
+      const topics = chinese ? ["价格与预算", "上线"] : ["Price and budget", "Rollout"];
+      const checks: string[] = [];
+      const model = fillingModel(
+        [
+          overview(
+            `${chinese ? "通话谈了价格和上线" : "The call went through price and rollout"} [^1]${stop}`,
+          ),
+          fact("P1_price", "price", `${price} [^1]${stop}`, { heading: topics[0], claim: true }),
+          fact("P1_budget", "budget", `${budget} [^2]${stop}`, {
+            heading: ` ${topics[0]?.toUpperCase()} `,
+            claim: true,
+          }),
+          fact("P1_rollout", "rollout", `${rollout} [^3]${stop}`, { heading: topics[1] }),
+          fact("P1_security", "security", `${security} [^4]${stop}`, {
+            heading: topics[1],
+            sections: ["questions"],
+          }),
+        ].join("\n"),
+        { 1: price, 2: budget, 3: rollout, 4: security },
+        { [`${price}${stop}`]: { verdict: "supported", quote: price } },
+        {
+          seen: (call) => {
+            if (isCheckRun(call)) checks.push(call.prompt);
+          },
+        },
+      );
+      const { core, meeting, client } = await recorded(
+        model,
+        null,
+        async (core) => {
+          if (documents === "no Documents") return;
+          const sources = await createSourceFolder();
+          await addAndProcess(core, [
+            await writeSourceFile(sources, "Price list.md", `${price}\n`),
+          ]);
+        },
+        undefined,
+        { lines: said },
+      );
+      const before = exactly(client);
+
+      expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", mode: "sections" });
+      const ai = (text: string) => `- «${text} »\uFFFC«${stop}»`;
+      const title = (key: "summary" | "questions" | "claims") =>
+        `## «${translate(language, `meetings.fill.section.${key}`)}»`;
+      await vi.waitFor(() =>
+        expect(outline(client)).toEqual([
+          title("summary"),
+          `«${chinese ? "通话谈了价格和上线" : "The call went through price and rollout"} »\uFFFC«${stop}»`,
+          `## «${topics[0]}»`,
+          ai(price),
+          ...(documents === "a Document" ? [] : [ai(budget)]),
+          `## «${topics[1]}»`,
+          ai(rollout),
+          title("questions"),
+          ai(security),
+          ...(documents === "a Document" ? [title("claims"), ai(budget)] : []),
+        ]),
+      );
+      expect(checks.length > 0).toBe(documents === "a Document");
+      await core.undoMeetingFill(meeting.id);
+      await vi.waitFor(() => expect(exactly(client)).toEqual(before));
+      core.close();
+    },
+  );
 
   // protects=in Simplified Chinese, with no notes taken, the sections start the Note where its blank lines were, with none above them, and the model is told the Transcript's own Chinese words for who spoke, so it writes 我 and 对方 rather than Me, Them or 用户 (#2305); fails_when=a blank line is left above the first section, or the model is shown only the English marks; no_claim=a real model's wording, which tests/live/meetingNotes.live.test.ts measures.
   test("in Simplified Chinese, the sections start the Note with no blank line above, and the model is told the Transcript's words for who spoke", async () => {
@@ -1301,7 +1403,7 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     core.close();
   });
 
-  test("a deleted target's fact moves to Summary instead of attaching to a stale line", async () => {
+  test("a deleted target's fact goes under the User's heading for its topic instead of a stale line", async () => {
     let release = () => {};
     const held = new Promise<void>((resolve) => {
       release = resolve;
@@ -1329,16 +1431,15 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     release();
 
     expect(await settledFill(core, meeting)).toMatchObject({ state: "filled" });
-    await vi.waitFor(() => expect(shown(client)).toHaveLength(typed.length + 3));
+    await vi.waitFor(() => expect(shown(client)).toHaveLength(typed.length + 2));
     expect(shown(client)).toEqual([
       "Pricing",
       "contract",
       "«Dana sends the contract by Friday »\uFFFC«.»",
+      "«The enterprise price is 45 dollars a seat »\uFFFC«.»",
       "Rollout",
       "start date",
       "Who signs?",
-      "«Summary»",
-      "«The enterprise price is 45 dollars a seat »\uFFFC«.»",
     ]);
     await core.undoMeetingFill(meeting.id);
     await vi.waitFor(() => expect(exactly(client)).toEqual(before));
@@ -2211,7 +2312,7 @@ for (const call of CALLS) {
     );
 
     test.each(["claims first", "claims last"])(
-      "claims routed with %s check canonical facts and reference only unsupported ones",
+      "claims routed with %s list only the unsupported fact, whole and once, under that heading",
       async (order) => {
         const supported = `${written.L1.trim()}${stop}`;
         const { core, meeting, client } = await recordedWith(
@@ -2242,12 +2343,16 @@ for (const call of CALLS) {
           },
         );
         expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", mode: "notes" });
-        await vi.waitFor(() =>
-          expect(shown(client)).toContain(reference(call.topics.budget, "below")),
-        );
-        expect(shown(client)).not.toContain(reference(call.topics.price, "below"));
-        expect(shown(client).filter((line) => line === ai(written.L1))).toHaveLength(1);
-        expect(shown(client).filter((line) => line === ai(call.budget))).toHaveLength(1);
+        await vi.waitFor(() => expect(shown(client)).toContain(ai(call.budget)));
+        const lines = shown(client);
+        expect(lines.indexOf(ai(call.budget))).toBe(lines.indexOf(call.claimsHeading) + 1);
+        for (const topic of [call.topics.budget, call.topics.price]) {
+          for (const direction of ["above", "below"] as const) {
+            expect(lines).not.toContain(reference(topic, direction));
+          }
+        }
+        expect(lines.filter((line) => line === ai(written.L1))).toHaveLength(1);
+        expect(lines.filter((line) => line === ai(call.budget))).toHaveLength(1);
         core.close();
       },
     );
@@ -2349,7 +2454,7 @@ for (const call of CALLS) {
     );
 
     test.each(["H1", "L99"])(
-      "a reply with only %s omits an invalid address or uses the safe Summary fallback",
+      "a reply with only %s omits an invalid address or falls back to the fact's own topic",
       async (target) => {
         const { core, meeting, client } = await recordedWith(
           [heading(2, call.ownHeading), note(call.typed[0])],
@@ -2371,8 +2476,9 @@ for (const call of CALLS) {
         });
         if (target === "H1") expect(fill.problem?.kind).toBe("model");
         else {
-          expect(shown(client)).toContain(ai(written.L1));
-          expect(shown(client)).toContain(`«${titles[0]}»`);
+          const lines = shown(client);
+          expect(lines.indexOf(ai(written.L1))).toBe(lines.indexOf(`«${call.topics.price}»`) + 1);
+          expect(lines).not.toContain(`«${titles[0]}»`);
           await core.undoMeetingFill(meeting.id);
         }
         await vi.waitFor(() => expect(exactly(client)).toEqual(before));

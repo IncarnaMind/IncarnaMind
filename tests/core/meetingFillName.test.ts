@@ -23,6 +23,7 @@ const CALLS = {
       "I will send the glossary by Friday",
       "We agreed the price is 45 dollars a seat",
       "Our team approved the budget",
+      "My review starts in March",
     ],
     heading: "Review",
     line: "glossary and price",
@@ -35,12 +36,18 @@ const CALLS = {
         body: "We agreed the price is 45 dollars a seat, billed to {{first_name}} at {{ }}",
       },
       claim: { topic: "｛｛ME｝｝'s budget", body: "{me}'s team approved the budget" },
+      review: {
+        topic: "review",
+        heading: "{{me}}'s review",
+        body: "{{me}}'s review starts in March",
+      },
     },
     firstPerson: {
       overview: "The call settled my glossary and the price",
       action: { topic: "my glossary", body: "I will send the glossary by Friday" },
       decision: { topic: "price", body: "We agreed the price is 45 dollars a seat" },
       claim: { topic: "our budget", body: "Our team approved the budget" },
+      review: { topic: "review", heading: "My review", body: "My review starts in March" },
     },
   },
   "zh-CN": {
@@ -49,6 +56,7 @@ const CALLS = {
       "周五之前我把术语表发过去",
       "我们同意每个席位 45 美元",
       "我们团队批准了预算",
+      "我的评审三月开始",
     ],
     heading: "评审",
     line: "术语表和价格",
@@ -60,12 +68,14 @@ const CALLS = {
         body: "我们同意每个席位 45 美元，账单写给 {{first_name}}，地址 {{ }}",
       },
       claim: { topic: "｛｛ME｝｝的预算", body: "{me}的团队批准了预算" },
+      review: { topic: "评审", heading: "{{me}}的评审", body: "{{me}}的评审三月开始" },
     },
     firstPerson: {
       overview: "这次会议定下了我的术语表和价格",
       action: { topic: "我的术语表", body: "我周五前把术语表发过去" },
       decision: { topic: "价格", body: "我们同意每个席位 45 美元" },
       claim: { topic: "我们的预算", body: "我们团队批准了预算" },
+      review: { topic: "评审", heading: "我的评审", body: "我的评审三月开始" },
     },
   },
 } as const;
@@ -82,7 +92,8 @@ function named(language: Language, name: string): string[] {
       `${name} will send the glossary by Friday`,
       "We agreed the price is 45 dollars a seat, billed to {{first_name}} at {{ }}",
       `${name}'s team approved the budget`,
-      `${name}'s budget — see above`,
+      `${name}'s review`,
+      `${name}'s review starts in March`,
     ];
   }
   // A Latin name sits a space apart from the Chinese around it; a Chinese one doesn't.
@@ -94,13 +105,14 @@ function named(language: Language, name: string): string[] {
     `${start}周五前把术语表发过去`,
     "我们同意每个席位 45 美元，账单写给 {{first_name}}，地址 {{ }}",
     `${start}的团队批准了预算`,
-    `${start}的预算，详见上文`,
+    `${start}的评审`,
+    `${start}的评审三月开始`,
   ];
 }
 
 function frame(
   id: string,
-  { topic, body }: { topic: string; body: string },
+  { topic, heading = topic, body }: { topic: string; heading?: string; body: string },
   citation: number,
   {
     lines = [],
@@ -112,7 +124,15 @@ function frame(
   return [
     `### FACT ${id}`,
     "```json",
-    JSON.stringify({ topic, citations: [citation], lines, sections, claim, supersedes: [] }),
+    JSON.stringify({
+      topic,
+      heading,
+      citations: [citation],
+      lines,
+      sections,
+      claim,
+      supersedes: [],
+    }),
     "```",
     `${body} [^${citation}]${end}`,
     `### END ${id}`,
@@ -125,7 +145,8 @@ function replyFor(language: Language, reply: Reply): string {
     "HEADINGS: H1=NONE",
     frame("P1_glossary", reply.action, 2, { lines: ["L1"], sections: ["actions"] }),
     frame("P1_price", reply.decision, 3, { lines: ["L1"], sections: ["decisions"] }),
-    frame("P1_budget", reply.claim, 4, { sections: ["summary"], claim: true }),
+    frame("P1_budget", reply.claim, 4, { sections: [], claim: true }),
+    frame("P1_review", reply.review, 5, { sections: [] }),
     [
       "### OVERVIEW",
       "```json",
@@ -197,7 +218,7 @@ async function filled(language: Language, name: string | null) {
   await client.settled();
   const before = exactly(client);
   await core.startMeeting({ meetingId: meeting.id, systemAudio: false });
-  record(10_000, ["microphone"]);
+  record(14_000, ["microphone"]);
   await vi.waitFor(async () => {
     const current = (await core.listMeetings()).find((each) => each.id === meeting.id);
     expect(current?.transcript?.lines ?? 0).toBeGreaterThanOrEqual(call.said.length);
@@ -216,7 +237,7 @@ const TOKENS = /[{｛]+\s*(?:me|user|我|用户)\s*[}｝]+/iu;
 describe("The User's own items carry the name they set, which never reaches the model (#2306)", {
   timeout: 60_000,
 }, () => {
-  // protects=with the User's name set, the notes name them by it in every place the fill writes (a section's fact, the overview, a pointer under the typed line and in the claims list), the model's near-miss tokens included, "{{user}}" and a token split by formatting named by the last pass and logged, other braced text kept as written, the model is told the token and never the name, the claim check gets the token, Try again after Undo does the same, and Undo leaves the notes exactly as typed; fails_when=a token or a near-miss is left in the note, the name or the first-person rule reaches any request, or Undo leaves anything; no_claim=a real model's wording, which tests/live/meetingFillSections.live.test.ts measures.
+  // protects=with the User's name set, the notes name them by it in every place the fill writes (a section's fact, the overview, a pointer under the typed line, the claims list, and a topic's heading and bullet), the model's near-miss tokens included, "{{user}}" and a token split by formatting named by the last pass and logged, other braced text kept as written, the model is told the token and never the name, the claim check gets the token, Try again after Undo does the same, and Undo leaves the notes exactly as typed; fails_when=a token or a near-miss is left in the note, the name or the first-person rule reaches any request, or Undo leaves anything; no_claim=a real model's wording, which tests/live/meetingFillSections.live.test.ts measures.
   test.each([
     ["en", "Avery Lin"],
     ["zh-CN", "林安"],
@@ -283,6 +304,8 @@ describe("The User's own items carry the name they set, which never reaches the 
             firstPerson.overview,
             firstPerson.action.body,
             firstPerson.claim.body,
+            firstPerson.review.heading,
+            firstPerson.review.body,
           ]) {
             expect(text).toContain(said);
           }

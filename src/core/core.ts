@@ -5068,6 +5068,11 @@ export function createCore(adapters: CoreAdapters): Core {
   /** Resolves once a Document's newest version is read: its Passages are then the file's text. */
   const processed = (documentId: string) => settled(documentId, null);
   // After Stop, the notes filled in from the Transcript (#142), on the Answers route.
+  /** Where a Meeting's claims are checked: its Note's Folder, or every Document for one in none. */
+  const claimScope = (mindId: string): SearchScope | null => {
+    const { folderId } = minds.get(mindId);
+    return folderId ? { folderIds: [folderId], tagIds: [], documentIds: [] } : null;
+  };
   const meetingFill = createMeetingFill({
     content,
     meetings,
@@ -5111,12 +5116,17 @@ export function createCore(adapters: CoreAdapters): Core {
       };
     },
     answers,
+    checkable({ mindId, transcriptId }) {
+      const scope = evidence.scope(mindId, scopeDocuments(claimScope(mindId)), {
+        documentIds: [transcriptId],
+      });
+      return documents.searchableCount(scope.documentIds ?? undefined) > 0;
+    },
     async supports({ claim, mindId, transcriptId, model, signal }) {
-      const { folderId } = minds.get(mindId);
       const result = await checks.checkClaim(
         {
           claim,
-          scope: folderId ? { folderIds: [folderId], tagIds: [], documentIds: [] } : null,
+          scope: claimScope(mindId),
           mindId,
           checked: { documentIds: [transcriptId] },
           model,

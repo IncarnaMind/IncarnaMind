@@ -29,7 +29,7 @@ import type { MindContent } from "../mindContent";
 import { inFlow } from "../timing/flows";
 import type { StoredFill } from ".";
 import { createFactLedger } from "./factLedger";
-import { placeFacts } from "./factPlacement";
+import { type PlacedTopic, placeFacts } from "./factPlacement";
 import { type MeetingFact, parseFactReply } from "./factProtocol";
 import {
   CALL_LANGUAGES,
@@ -54,7 +54,7 @@ import {
   tidiedNote,
   wordsAdded,
 } from "./memo";
-import { withUserName } from "./userName";
+import { textWithUserName, withUserName } from "./userName";
 
 /** The most of a Transcript one Run reads: about two hours of talk. */
 export const FILL_PART_TOKENS = 24_000;
@@ -103,6 +103,11 @@ export interface MeetingFillOptions {
       signal: AbortSignal;
     }): Promise<CellAnswer>;
   };
+  /**
+   * Whether the Mind's Folder (every Document, for a Mind in none) holds a Document to check the
+   * call's claims against, leaving out the Transcript.
+   */
+  checkable(input: { mindId: string; transcriptId: string }): boolean;
   /** Whether the Mind's Folder (every Document, for a Mind in none) supports `claim`, leaving out the Transcript. */
   supports(input: {
     claim: string;
@@ -302,34 +307,53 @@ function placeUnderLines(
   return added;
 }
 
-/** Sections not placed under the User's headings follow under their own titles. */
+const bullets = (nodes: readonly NodeJSON[]): NodeJSON[] => [
+  {
+    type: "bulletList",
+    content: nodes.map((node) => ({ type: "listItem", content: [node] })),
+  },
+];
+
+const titled = (title: string): NodeJSON => ({
+  type: "heading",
+  attrs: { level: 2 },
+  content: [{ type: "text", text: title, marks: [{ type: GENERATED_MARK }] }],
+});
+
+/**
+ * Summary, the call's topics, then the other sections: each under the User's heading for it, else
+ * after their notes under its own title. Every item but the Summary is a bullet.
+ */
 function placeSections(
   blocks: Y.XmlFragment,
   sections: ReadonlyMap<FillSection, NodeJSON[]>,
+  topics: readonly PlacedTopic[],
   headings: ReadonlyMap<FillSection, UserLine>,
+  lines: readonly UserLine[],
   language: Language,
 ): string[] {
   const atEnd: NodeJSON[] = [];
   const added: string[] = [];
-  for (const section of FILL_SECTIONS) {
-    const nodes = sections.get(section);
-    if (!nodes || nodes.length === 0) continue;
-    const heading = headings.get(section);
+  const place = (heading: UserLine | undefined, title: string, nodes: readonly NodeJSON[]) => {
     const element = heading ? findLine(blocks, heading) : null;
     const under = element && placeUnder(blocks, element, nodes);
-    if (under) {
-      added.push(...under);
-      continue;
+    if (under) added.push(...under);
+    else atEnd.push(titled(title), ...nodes);
+  };
+  for (const section of FILL_SECTIONS) {
+    const nodes = sections.get(section);
+    if (nodes && nodes.length > 0) {
+      place(
+        headings.get(section),
+        translate(language, SECTION_TITLES[section]),
+        section === "summary" ? nodes : bullets(nodes),
+      );
     }
-    const title = translate(language, SECTION_TITLES[section]);
-    atEnd.push(
-      {
-        type: "heading",
-        attrs: { level: 2 },
-        content: [{ type: "text", text: title, marks: [{ type: GENERATED_MARK }] }],
-      },
-      ...nodes,
-    );
+    if (section !== "summary") continue;
+    for (const topic of topics) {
+      const heading = lines.find((line) => line.heading && line.marker === topic.heading);
+      place(heading, topic.title, bullets(topic.nodes));
+    }
   }
   return [...added, ...placeAtEnd(blocks, atEnd, true)];
 }
@@ -579,6 +603,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
         facts: ledger.facts.map((fact) => ({
           id: fact.id,
           topic: fact.topic,
+          heading: fact.heading,
           text: textOf(fact.body),
           lines: fact.lines,
           sections: fact.sections,
@@ -693,11 +718,13 @@ export function createMeetingFill(options: MeetingFillOptions) {
             present.some((line) => line.heading && line.marker === marker),
           ),
         );
+        const routed = new Set(routes.values());
         const planned = placeFacts({
           facts: retained,
           overview,
           lines: present,
           headings: routes,
+          topicHeadings: present.filter((line) => line.heading && !routed.has(line.marker)),
           claims,
           reference: (topic, direction) =>
             translate(language, `meetings.fill.reference.${direction}`, { topic }),
@@ -721,11 +748,20 @@ export function createMeetingFill(options: MeetingFillOptions) {
           );
         const namedLines = named(planned.lines);
         const namedSections = named(planned.sections);
+        const namedTopics = planned.topics.map((topic) => {
+          const done = withUserName(topic.nodes, name);
+          leftovers += done.leftovers;
+          return {
+            ...topic,
+            title: name === null ? topic.title : textWithUserName(topic.title, name),
+            nodes: done.nodes,
+          };
+        });
         if (leftovers > 0)
           log.warn("meeting.fillTokenLeftover", { meetingId: meeting.id, leftovers });
         return [
           ...placeUnderLines(blocks, present, namedLines),
-          ...placeSections(blocks, namedSections, headings, language),
+          ...placeSections(blocks, namedSections, namedTopics, headings, present, language),
         ];
       },
     };
@@ -915,7 +951,12 @@ export function createMeetingFill(options: MeetingFillOptions) {
     route: Routed,
     signal: AbortSignal,
   ): Promise<Set<string>> {
-    const claims = facts.filter((fact) => fact.claim);
+    // With nothing to check against, every claim would be listed as not in the Documents (#2306).
+    const claims =
+      facts.some((fact) => fact.claim) &&
+      options.checkable({ mindId: meeting.mindId, transcriptId })
+        ? facts.filter((fact) => fact.claim)
+        : [];
     let checking = 0;
     const supported = await inTurns(claims, route.local ? 1 : CLAIMS_AT_ONCE, (claim) => {
       // Stopped, as when the pass renamed a line and the notes are made again: no check is sent,

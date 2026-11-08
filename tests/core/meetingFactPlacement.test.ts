@@ -28,6 +28,7 @@ function fact(text: string, changes: Partial<MeetingFact> = {}): MeetingFact {
   return {
     id: "F1",
     topic: "Contract",
+    heading: "Contract terms",
     lines: ["L1"],
     sections: ["actions"],
     claim: false,
@@ -48,6 +49,7 @@ const input = (
   overview: null,
   lines: [{ marker: "L1", heading: false, ancestors: [] }],
   headings: new Map(),
+  topicHeadings: [],
   claims: new Set<string>(),
   reference,
   ...changes,
@@ -112,7 +114,6 @@ describe("Meeting fact placement (#2306)", () => {
     { sections: ["summary", "questions", "decisions", "actions"], home: "actions" },
     { sections: ["summary", "questions", "decisions"], home: "decisions" },
     { sections: ["summary", "questions"], home: "questions" },
-    { sections: ["summary"], home: "summary" },
   ] as const)("uses one complete canonical category for $sections", ({ sections, home }) => {
     const accepted = fact("The agreed detail stays intact.", {
       lines: [],
@@ -124,7 +125,8 @@ describe("Meeting fact placement (#2306)", () => {
     expect(
       [...placed.sections.values()].flat().filter((node) => node === accepted.body),
     ).toHaveLength(1);
-    if (home !== "summary") expect(placed.sections.has("summary")).toBe(false);
+    expect(placed.sections.has("summary")).toBe(false);
+    expect(placed.topics).toEqual([]);
     for (const section of sections) {
       if (section === home || section === "summary") continue;
       const node = placed.sections.get(section)?.[0];
@@ -136,7 +138,7 @@ describe("Meeting fact placement (#2306)", () => {
     expect(placed.unplaced).toBe(0);
   });
 
-  test("preserves an unknown-line fact in Summary once without multiplying its warning", () => {
+  test("preserves an unknown-line fact under its topic once without multiplying its warning", () => {
     const first = checkedCitation("The rate stays unchanged.");
     const second = checkedCitation("The rate is confirmed.", "Me", 208);
     const accepted = fact("The rate stays unchanged.", {
@@ -147,7 +149,10 @@ describe("Meeting fact placement (#2306)", () => {
     const placed = placeFacts(input([accepted]));
 
     expect(placed.lines.size).toBe(0);
-    expect(placed.sections).toEqual(new Map([["summary", [accepted.body]]]));
+    expect(placed.sections.size).toBe(0);
+    expect(placed.topics).toEqual([
+      { title: "Contract terms", heading: null, nodes: [accepted.body] },
+    ]);
     expect(placed.unplaced).toBe(1);
   });
 
@@ -185,13 +190,137 @@ describe("Meeting fact placement (#2306)", () => {
     expect(placed.unplaced).toBe(1);
   });
 
-  test("preserves a fact with no home in the Summary catchall", () => {
+  test("a fact with no line and no section is written under its topic, and nowhere else", () => {
     const accepted = fact("This detail must not disappear.", { lines: [], sections: [] });
     const placed = placeFacts(input([accepted]));
 
-    expect(placed.sections).toEqual(new Map([["summary", [accepted.body]]]));
-    expect(placed.unplaced).toBe(1);
+    expect(placed.sections.size).toBe(0);
+    expect(placed.lines.size).toBe(0);
+    expect(placed.topics).toEqual([
+      { title: "Contract terms", heading: null, nodes: [accepted.body] },
+    ]);
+    expect(placed.topics[0]?.nodes[0]).toBe(accepted.body);
+    expect(placed.unplaced).toBe(0);
   });
+
+  test.each([
+    {
+      language: "en",
+      headings: ["Education and career", "The startup", "education  and Career", "The AI course"],
+      titles: ["Education and career", "The startup", "The AI course"],
+    },
+    {
+      language: "zh-CN",
+      headings: ["教育与职业经历", "创业与被收购", "教育与职业经历", "ＡＩ课程与社群"],
+      titles: ["教育与职业经历", "创业与被收购", "ＡＩ课程与社群"],
+    },
+  ])(
+    "groups topic facts under one heading each, in the order the call took them up ($language)",
+    ({ headings, titles }) => {
+      const facts = headings.map((heading, index) =>
+        fact(`Point ${index + 1}.`, { id: `F${index + 1}`, heading, lines: [], sections: [] }),
+      );
+      const placed = placeFacts(input(facts));
+
+      expect(placed.topics.map((topic) => topic.title)).toEqual(titles);
+      expect(placed.topics.map((topic) => topic.nodes.map(textOf))).toEqual([
+        ["Point 1.", "Point 3."],
+        ["Point 2."],
+        ["Point 4."],
+      ]);
+      expect(placed.topics.every((topic) => topic.heading === null)).toBe(true);
+      expect(placed.sections.size).toBe(0);
+      expect(placed.lines.size).toBe(0);
+    },
+  );
+
+  test.each([
+    { typed: "Pricing", heading: "pricing" },
+    { typed: "价格", heading: "价格" },
+    { typed: "ＡＩ Course", heading: "AI course" },
+  ])("a topic named like the User's heading $typed goes under it", ({ typed, heading }) => {
+    const accepted = fact("The fee stays at 18%.", { heading, lines: ["L1", "L2"], sections: [] });
+    const other = fact("The venue is Leeds.", {
+      id: "F2",
+      heading: "Venue",
+      lines: [],
+      sections: [],
+    });
+    const placed = placeFacts(
+      input([accepted, other], {
+        lines: [
+          { marker: "L1", heading: false, ancestors: [] },
+          { marker: "H2", heading: true, ancestors: [] },
+          { marker: "L2", heading: false, ancestors: ["H2"] },
+        ],
+        topicHeadings: [{ marker: "H2", text: typed }],
+      }),
+    );
+
+    expect(placed.lines.get("L1")).toEqual([accepted.body]);
+    expect(placed.topics).toEqual([{ title: "Venue", heading: null, nodes: [other.body] }]);
+    const unlined = fact("The fee is billed monthly.", {
+      id: "F3",
+      heading,
+      lines: [],
+      sections: [],
+    });
+    const hosted = placeFacts(
+      input([unlined, other], {
+        lines: [
+          { marker: "L1", heading: false, ancestors: [] },
+          { marker: "H2", heading: true, ancestors: [] },
+          { marker: "L2", heading: false, ancestors: ["H2"] },
+        ],
+        topicHeadings: [{ marker: "H2", text: typed }],
+      }),
+    );
+    expect(hosted.topics).toEqual([
+      { title: heading, heading: "H2", nodes: [unlined.body] },
+      { title: "Venue", heading: null, nodes: [other.body] },
+    ]);
+  });
+
+  test("a topic's fact asked on two typed lines points from the second to the first, and nowhere else", () => {
+    const accepted = fact("The fee stays at 18%.", { lines: ["L2", "L1"], sections: [] });
+    const placed = placeFacts(
+      input([accepted], {
+        lines: [
+          { marker: "L1", heading: false, ancestors: [] },
+          { marker: "L2", heading: false, ancestors: [] },
+        ],
+      }),
+    );
+
+    expect(placed.lines.get("L2")).toEqual([accepted.body]);
+    expect(placed.lines.get("L1")?.map((node) => textOf(node).trim())).toEqual([
+      "Contract: see below.",
+    ]);
+    expect(placed.sections.size).toBe(0);
+    expect(placed.topics).toEqual([]);
+  });
+
+  test.each([
+    { text: "The UK fee is 2.5%.", heading: "Fees" },
+    { text: "英国费用是 2.5%。", heading: "费用" },
+  ])(
+    "a topic's claim the Documents don't back moves whole to the claims list, not a pointer: $heading",
+    ({ text, heading }) => {
+      const claimed = fact(text, { heading, lines: [], sections: [], claim: true });
+      const kept = fact("The fee is billed monthly.", {
+        id: "F2",
+        heading,
+        lines: [],
+        sections: [],
+        claim: true,
+      });
+      const placed = placeFacts(input([claimed, kept], { claims: new Set([claimed.id]) }));
+
+      expect(placed.sections).toEqual(new Map([["claims", [claimed.body]]]));
+      expect(placed.topics).toEqual([{ title: heading, heading: null, nodes: [kept.body] }]);
+      expect(placed.lines.size).toBe(0);
+    },
+  );
 
   test("respects model ranking while references follow the actual earlier and later User lines", () => {
     const accepted = fact("The final rate is 18%.", {
@@ -421,8 +550,8 @@ describe("Meeting fact placement (#2306)", () => {
       }),
     );
 
-    expect(placed.sections.get("summary")).toEqual([accepted.body]);
-    expect(placed.sections.get("claims")).toHaveLength(1);
+    expect(placed.sections).toEqual(new Map([["claims", [accepted.body]]]));
+    expect(placed.topics).toEqual([]);
     expect(placed.unplaced).toBe(1);
   });
 
@@ -544,23 +673,29 @@ describe("Meeting fact placement (#2306)", () => {
   test.each([
     "The call reviewed the contract and resolved the release plan.",
     "本次通话讨论合同并确定发布计划。",
-  ])("prepends the actual generated overview before residual Summary facts: %s", (overviewText) => {
-    const overview = fact(overviewText);
-    const residual = fact("The fee stays at 18%.", { id: "F2", lines: [], sections: ["summary"] });
-    const related = fact("Dana sends the contract Friday.");
-    const placed = placeFacts(
-      input([related, residual], {
-        overview: { body: overview.body, citations: overview.citations },
-      }),
-    );
+  ])(
+    "Summary holds the generated overview alone, and a fact once marked summary goes under its topic: %s",
+    (overviewText) => {
+      const overview = fact(overviewText);
+      const residual = fact("The fee stays at 18%.", {
+        id: "F2",
+        heading: "Fees",
+        lines: [],
+        sections: ["summary"],
+      });
+      const related = fact("Dana sends the contract Friday.");
+      const placed = placeFacts(
+        input([related, residual], {
+          overview: { body: overview.body, citations: overview.citations },
+        }),
+      );
 
-    expect(placed.sections.get("summary")).toEqual([overview.body, residual.body]);
-    expect(placed.sections.get("summary")?.[0]).toBe(overview.body);
-    expect(placed.sections.get("summary")?.map(textOf)).toEqual([
-      overviewText,
-      "The fee stays at 18%.",
-    ]);
-  });
+      expect(placed.sections.get("summary")).toEqual([overview.body]);
+      expect(placed.sections.get("summary")?.[0]).toBe(overview.body);
+      expect(placed.sections.get("summary")?.map(textOf)).toEqual([overviewText]);
+      expect(placed.topics).toEqual([{ title: "Fees", heading: null, nodes: [residual.body] }]);
+    },
+  );
 
   test("an overview survives without facts, and empty input creates no generic Summary", () => {
     const overview = fact("The call reviewed the release plan.");
@@ -571,7 +706,12 @@ describe("Meeting fact placement (#2306)", () => {
         }),
       ).sections,
     ).toEqual(new Map([["summary", [overview.body]]]));
-    expect(placeFacts(input([]))).toEqual({ lines: new Map(), sections: new Map(), unplaced: 0 });
+    expect(placeFacts(input([]))).toEqual({
+      lines: new Map(),
+      sections: new Map(),
+      topics: [],
+      unplaced: 0,
+    });
   });
 
   test("placement does not mutate accepted bodies, Citation attrs, routes, IDs or User line order", () => {

@@ -51,6 +51,25 @@ test("heading meaning stays in the generation, not in a heading-name list", () =
   );
 });
 
+// protects=each fact names the part of the call it goes under, at most six in the call's order, the User's own heading's words where they typed one, and the overview is two or three sentences on what the call was about and what came out of it, with claims only for what a Document could state (#2306); fails_when=the heading field, its limit or the overview's shape is missing from the prompt; no_claim=a real model's topics, which tests/live/meetingFillSections.live.test.ts measures.
+test.each([
+  ["no notes", []],
+  ["a typed line", [{ marker: "L1", text: "价格", heading: false }]],
+] as const)(
+  "with %s, facts are asked for a heading and the overview for what came out",
+  (_, lines) => {
+    const prompt = JSON.stringify(notesContext(lines, "Write the notes").messages);
+    expect(prompt).toContain('\\"heading\\":\\"<the part of the call>\\"');
+    expect(prompt).toContain("at most 6 headings in all, in the order the call took them up");
+    expect(prompt).toContain("Where the User typed a heading for that part, use its words.");
+    expect(prompt).toContain(
+      "two or three sentences on what the call was about and what came out of it",
+    );
+    expect(prompt).toContain("claim is true only for a figure, date, price or term");
+    expect(prompt).not.toContain('\\"summary\\" for other figures');
+  },
+);
+
 test("a section-only fill uses the same fact and overview protocol", () => {
   const context = sectionsContext("Write the notes");
   expect(context).toMatchObject({ meetingFacts: true });
@@ -80,14 +99,15 @@ test.each([
   expect(callLanguage([{ text }])).toBe(language);
 });
 
-// protects=with no ordinary line to point to, the model is told lines is empty, never the transcript's times, which left every fact out for its metadata on Claude Haiku 5.5, and that each fact then names a section, without which it is left out too (#2773); fails_when=a note with no typed lines, or only headings, is told to list L addresses or isn't told a section is needed; no_claim=a real model's reply, which the PR's real-model runs cover.
+// protects=with no ordinary line to point to, the model is told lines is empty, never the transcript's times, which left every fact out for its metadata on Claude Haiku 5.5 (#2773), and a fact with no section goes under its heading (#2306); fails_when=a note with no typed lines, or only headings, is told to list L addresses or that each fact needs a section; no_claim=a real model's reply, which the PR's real-model runs cover.
 test.each([
   ["no notes", []],
   ["only a heading", [{ marker: "H1", text: "Action items", heading: true }]],
 ] as const)("with %s, lines is always empty", (_, lines) => {
   const prompt = JSON.stringify(notesContext(lines, "Write the notes").messages);
   expect(prompt).toContain("The User wrote no ordinary L lines, so lines is always []");
-  expect(prompt).toContain("every fact names at least one section");
+  expect(prompt).not.toContain("every fact names at least one section");
+  expect(prompt).toContain("[] for anything else, which the notes show under its heading");
   expect(prompt).not.toContain("lines lists related ordinary L addresses");
 });
 
@@ -120,10 +140,11 @@ test.each([
     expect(named).toContain(
       "Write the User, who reads these notes, as {{me}}, exactly so in every language, even when the call gave their name",
     );
-    expect(named).toContain("Where the User said my or our, write {{me}}'s ({{me}}的 in Chinese).");
+    expect(named).toContain("Where the User said my, write {{me}}'s ({{me}}的 in Chinese).");
     expect(named).toContain(
-      "Where the User said we (我们) for something their side does together, keep we (我们); make {{me}} the owner of such an action only when the User clearly took it on themselves.",
+      "Where the User said our or we (我们的, 我们) for their side, keep our or we (我们的, 我们); make {{me}} the owner of such an action only when the User clearly took it on themselves.",
     );
+    expect(named).not.toContain("my or our");
     expect(named).toContain("Never write I, me, my, 我 or any name for the User.");
     expect(named).toContain("Me is always {{me}}.");
     expect(named).toContain("in Simplified Chinese Them is 对方");

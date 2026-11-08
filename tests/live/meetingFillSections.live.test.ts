@@ -3,9 +3,9 @@
  * filled out in place, then the sections the notes don't cover. Held-out calls in English and
  * Chinese, written for this test and heard through the fake capture and transcriber (no
  * microphone). For each call it counts the decisions, action items and figures that appear once
- * in the note, outside "Said in the call, not in your Documents" (a list to check, which repeats
- * them by design), each cited to a transcript line that says it with that line's speaker; and the
- * tokens and what they cost. The counts, notes and costs go to INCARNAMIND_LIVE_REPORT when set.
+ * in the note, "Said in the call, not in your Documents" included (a fact the Documents don't
+ * back moves there whole), each cited to a transcript line that says it with that line's speaker;
+ * the note's structure (#2306); and the tokens, the claim checks and what they cost. The counts, notes and costs go to INCARNAMIND_LIVE_REPORT when set.
  * Runs only with INCARNAMIND_LIVE_ANTHROPIC_KEY (INCARNAMIND_LIVE_ANTHROPIC_MODEL, Claude Haiku
  * 5.5 by default; INCARNAMIND_LIVE_CALLS picks calls by id, comma-separated), or with
  * INCARNAMIND_LIVE_DEEPSEEK_KEY and INCARNAMIND_LIVE_DEEPSEEK_MODEL=deepseek-flash in strict mode,
@@ -13,7 +13,8 @@
  * INCARNAMIND_LIVE_USER_NAME sets the User's name in Settings › General, and nothing else: their
  * own actions are then scored by that name, and no request may hold it (#2306).
  */
-import { appendFile, readFile } from "node:fs/promises";
+import { appendFile, readdir, readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { getSchema, type JSONContent } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { describe, expect, test, vi } from "vitest";
@@ -28,6 +29,7 @@ import * as chatModels from "../../src/core/providers/models";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import { translate } from "../../src/shared/i18n";
 import { createTempDataFolder } from "../helpers/core";
+import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
 import { checkStructuredMeetingLoader } from "../helpers/meetingFillLoader";
 import {
   createRequestLedger,
@@ -87,6 +89,16 @@ interface Call {
   openQuestions?: boolean;
   notDecided?: RegExp[];
   sectionHeadings?: Partial<Record<"summary" | "decisions" | "actions" | "questions", string>>;
+  /** The call's topics in its order, each a heading a sensible note would give it (#2306). */
+  topics?: { name: string; pattern: RegExp }[];
+  /** Documents in the Note's Folder, to check its claims against. */
+  documents?: { name: string; text: string }[];
+  /** By name: the facts the Documents don't hold, which the claims list holds, and those they do. */
+  claims?: { listed: string[]; kept: string[] };
+  /** The name set in Settings › General for this call. */
+  userName?: string;
+  /** What the notes must say with that name set: "our" kept, and "my" as the name's possessive. */
+  named?: { kept: RegExp[]; possessive: RegExp[] };
 }
 
 const me = (text: string) => ({ side: "me" as const, text });
@@ -1451,7 +1463,7 @@ const FINAL_CALLS: Call[] = [
 
 interface ReservedFactInput {
   name: string;
-  kind: "decision" | "action";
+  kind: Fact["kind"];
   pattern: string | string[];
   said: number[];
   underLine?: string;
@@ -1471,6 +1483,11 @@ interface ReservedCallInput {
   turns: Call["turns"];
   facts: ReservedFactInput[];
   sectionHeadings?: Call["sectionHeadings"];
+  topics?: { name: string; pattern: string }[];
+  documents?: Call["documents"];
+  claims?: Call["claims"];
+  userName?: string;
+  named?: { kept: string[]; possessive: string[] };
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -1489,7 +1506,7 @@ function isReservedFact(value: unknown): value is ReservedFactInput {
     isRecord(value) &&
     onlyKeys(value, ["name", "kind", "pattern", "said", "underLine", "subject"]) &&
     typeof value.name === "string" &&
-    (value.kind === "decision" || value.kind === "action") &&
+    (value.kind === "decision" || value.kind === "action" || value.kind === "figure") &&
     isRegexSource(value.pattern) &&
     isArray(value.said) &&
     value.said.length > 0 &&
@@ -1513,6 +1530,11 @@ function isReservedCall(value: unknown): value is ReservedCallInput {
       "turns",
       "facts",
       "sectionHeadings",
+      "topics",
+      "documents",
+      "claims",
+      "userName",
+      "named",
     ]) ||
     typeof value.id !== "string" ||
     (value.language !== "en" && value.language !== "zh-CN") ||
@@ -1521,7 +1543,58 @@ function isReservedCall(value: unknown): value is ReservedCallInput {
     typeof value.openQuestions !== "boolean"
   )
     return false;
-  const { notes, turns, facts, sectionHeadings } = value;
+  const { notes, turns, facts, sectionHeadings, topics, documents, claims, userName, named } =
+    value;
+  const names = isArray(facts) ? facts.map((fact) => (isRecord(fact) ? fact.name : null)) : [];
+  const factNames = (list: unknown) =>
+    isArray(list) && list.every((name) => typeof name === "string" && names.includes(name));
+  const regexes = (list: unknown) =>
+    isArray(list) && list.length > 0 && list.every((each) => isRegexSource(each));
+  if (
+    (topics !== undefined &&
+      !(
+        isArray(topics) &&
+        topics.length > 0 &&
+        topics.every(
+          (topic) =>
+            isRecord(topic) &&
+            onlyKeys(topic, ["name", "pattern"]) &&
+            typeof topic.name === "string" &&
+            typeof topic.pattern === "string" &&
+            topic.pattern.length > 0,
+        )
+      )) ||
+    (documents !== undefined &&
+      !(
+        isArray(documents) &&
+        documents.length > 0 &&
+        documents.every(
+          (document) =>
+            isRecord(document) &&
+            onlyKeys(document, ["name", "text"]) &&
+            typeof document.name === "string" &&
+            /^[^/\\]+\.(?:md|txt)$/.test(document.name) &&
+            typeof document.text === "string",
+        )
+      )) ||
+    (claims !== undefined &&
+      !(
+        isRecord(claims) &&
+        onlyKeys(claims, ["listed", "kept"]) &&
+        factNames(claims.listed) &&
+        factNames(claims.kept)
+      )) ||
+    (userName !== undefined && (typeof userName !== "string" || userName.trim() === "")) ||
+    (named !== undefined &&
+      !(
+        isRecord(named) &&
+        onlyKeys(named, ["kept", "possessive"]) &&
+        regexes(named.kept) &&
+        regexes(named.possessive)
+      )) ||
+    (named !== undefined) !== (userName !== undefined)
+  )
+    return false;
   return (
     isArray(notes) &&
     notes.every(
@@ -1592,13 +1665,25 @@ async function loadReservedCalls(
   }
   return input
     .filter((call) => selected.includes(call.id))
-    .map((call) => ({
+    .map(({ topics, named, ...call }) => ({
       ...call,
       facts: call.facts.map(({ pattern, subject, ...fact }) => ({
         ...fact,
         pattern: reservedRegex(pattern),
         ...(subject !== undefined && { subject: reservedRegex(subject) }),
       })),
+      ...(topics && {
+        topics: topics.map((topic) => ({
+          name: topic.name,
+          pattern: new RegExp(topic.pattern, "iu"),
+        })),
+      }),
+      ...(named && {
+        named: {
+          kept: named.kept.map((source) => new RegExp(source, "iu")),
+          possessive: named.possessive.map((source) => new RegExp(source, "iu")),
+        },
+      }),
     }));
 }
 
@@ -1662,6 +1747,126 @@ function unitsOf(doc: ProseMirrorNode): Unit[] {
     } else unit(block);
   });
   return units;
+}
+
+const SECTIONS = ["summary", "decisions", "actions", "questions", "claims"] as const;
+/** A request that fills the notes in; every other one a fill sends checks a claim. */
+const FILL_REQUEST = /Fill them in from the transcript|The User took no notes/;
+const SENTENCES = /[^.!?。！？]+[.!?。！？]+/gu;
+
+/** A part of the note under one heading, as the User reads it: its lines and bullets in order. */
+interface NotePart {
+  heading: string;
+  generated: boolean;
+  items: { text: string; bullet: boolean; ai: boolean; cited: boolean }[];
+}
+
+function partsOf(doc: ProseMirrorNode): NotePart[] {
+  const generated = (node: ProseMirrorNode) => {
+    let ai = false;
+    node.descendants((inside) => {
+      if (inside.isText && inside.marks.some((mark) => mark.type.name === GENERATED_MARK))
+        ai = true;
+      return !ai;
+    });
+    return ai;
+  };
+  const cited = (node: ProseMirrorNode) => {
+    let found = false;
+    node.descendants((inside) => {
+      if (inside.type.name === CITATION_NODE && inside.attrs.check === "found") found = true;
+      return !found;
+    });
+    return found;
+  };
+  const item = (node: ProseMirrorNode, bullet: boolean) => ({
+    text: node.textContent,
+    bullet,
+    ai: generated(node),
+    cited: cited(node),
+  });
+  let current: NotePart = { heading: "", generated: false, items: [] };
+  const parts = [current];
+  doc.forEach((block) => {
+    if (block.type.name === "heading") {
+      current = { heading: block.textContent, generated: generated(block), items: [] };
+      parts.push(current);
+    } else if (block.type.name === "bulletList" || block.type.name === "orderedList") {
+      block.forEach((listItem) => {
+        current.items.push(item(listItem, true));
+      });
+    } else current.items.push(item(block, false));
+  });
+  return parts;
+}
+
+/**
+ * The note's shape (#2306): Summary first, a few sentences; then the call's topics, each a heading
+ * with cited bullets and no pointers; the sections only when the call had some, as bullets; and
+ * the claims list only with Documents to check, holding the facts they don't.
+ */
+function structureOf(doc: ProseMirrorNode, call: Call) {
+  const titles = Object.fromEntries(
+    SECTIONS.map((section) => [
+      section,
+      call.sectionHeadings?.[section as keyof NonNullable<Call["sectionHeadings"]>] ??
+        translate(call.language, `meetings.fill.section.${section}`),
+    ]),
+  ) as Record<(typeof SECTIONS)[number], string>;
+  const sectionTitles = new Set(Object.values(titles));
+  const typedHeadings = call.notes.flatMap((node) =>
+    node.type === "heading" ? [(node.content ?? []).map((each) => each.text ?? "").join("")] : [],
+  );
+  const parts = partsOf(doc);
+  const ai = (part: NotePart | undefined) => part?.items.filter((each) => each.ai) ?? [];
+  const part = (section: (typeof SECTIONS)[number]) =>
+    parts.find((each) => each.heading === titles[section]);
+  const firstAdded = parts.find((each) => each.heading !== "" && ai(each).length > 0);
+  const summary = ai(part("summary"));
+  const topics = parts.filter(
+    (each) =>
+      each.heading !== "" &&
+      !sectionTitles.has(each.heading) &&
+      (each.generated ||
+        (typedHeadings.includes(each.heading) && ai(each).some((item) => item.bullet))),
+  );
+  const topicItems = topics.flatMap((each) => ai(each));
+  const pointers = (["above", "below"] as const).map((direction) =>
+    translate(call.language, `meetings.fill.reference.${direction}`, { topic: "" }).trim(),
+  );
+  const isPointer = (text: string) => pointers.some((pointer) => text.trim().endsWith(pointer));
+  const listed = ai(part("claims"));
+  const named = (names: readonly string[] | undefined) =>
+    (names ?? []).filter((name) => {
+      const fact = call.facts.find((each) => each.name === name);
+      return fact !== undefined && listed.some((item) => says(fact, item.text));
+    });
+  const sectionItems = (["decisions", "actions", "questions", "claims"] as const).flatMap(
+    (section) => ai(part(section)),
+  );
+  return {
+    summaryFirst: firstAdded !== undefined && firstAdded.heading === titles.summary,
+    summaryParts: summary.length,
+    summarySentences: (summary[0]?.text.match(SENTENCES) ?? []).length,
+    summaryCited: summary.length > 0 && summary.every((item) => item.cited && !item.bullet),
+    topics: topics.map((each) => each.heading),
+    topicsMissing: (call.topics ?? [])
+      .filter((topic) => !topics.some((each) => topic.pattern.test(each.heading)))
+      .map((topic) => topic.name),
+    topicItems: topicItems.length,
+    topicNotBullets: topicItems.filter((item) => !item.bullet).length,
+    topicUncited: topicItems.filter((item) => !item.cited).length,
+    topicPointers: topicItems.filter((item) => isPointer(item.text)).length,
+    sectionNotBullets: sectionItems.filter((item) => !item.bullet).length,
+    sectionUncited: sectionItems.filter((item) => !item.cited).length,
+    emptyHeadings: parts
+      .filter((each) => each.generated && ai(each).length === 0)
+      .map((each) => each.heading),
+    claimsList: listed.length,
+    claimsPointers: listed.filter((item) => isPointer(item.text)).length,
+    claimsListed: named(call.claims?.listed),
+    claimsKeptListed: named(call.claims?.kept),
+  };
 }
 
 const says = (fact: Fact, text: string) =>
@@ -2041,7 +2246,7 @@ function citesRightly(unit: Unit, fact: Fact, call: Call, cues: readonly Cue[]):
 }
 
 /**
- * Where a fact is written outside the claims list: a unit that says all of it, or, for a decision, a
+ * Where a fact is written: a unit that says all of it, or, for a decision, a
  * run of consecutive units in one place (one section, after the same line) that each say some of its
  * parts and together say all of them. A run counts as often as its most repeated part, so a part
  * written twice is a duplicate; a unit naming the call's rejected option is never in a run.
@@ -2051,11 +2256,9 @@ function placements(
   units: readonly Unit[],
   call: Call,
   cues: readonly Cue[],
-  claimsTitles: readonly string[],
 ): { count: number; inPlace: boolean; cited: boolean } {
-  const outside = (unit: Unit) => unit.ai && !claimsTitles.includes(unit.section ?? "");
   const found = units
-    .filter((unit) => outside(unit) && says(fact, unit.text))
+    .filter((unit) => unit.ai && says(fact, unit.text))
     .map((unit) => ({ units: [unit], count: occurrences(fact, unit.text) }));
   if (fact.kind === "decision") {
     let run: Unit[] = [];
@@ -2070,7 +2273,7 @@ function placements(
     };
     for (const unit of units) {
       const isPart =
-        outside(unit) &&
+        unit.ai &&
         !says(fact, unit.text) &&
         parts(fact).some((pattern) => pattern.test(unit.text)) &&
         !call.notDecided?.some((pattern) => pattern.test(unit.text));
@@ -2091,7 +2294,7 @@ function placements(
   );
   const pointed = units.some(
     (unit) =>
-      outside(unit) &&
+      unit.ai &&
       unit.afterLine === fact.underLine &&
       pointers.some((pointer) => unit.text.trim().endsWith(pointer)) &&
       citesRightly(unit, fact, call, cues),
@@ -2662,8 +2865,7 @@ function splitDecision(language: "en" | "zh-CN") {
         rejected: "不做十八万元的实木地板，预算十二万元。",
         unrelated: "院子里有停车位。",
       };
-  const score = (units: Unit[], claims: string[] = []) =>
-    placements(fact, units, call, cues, claims);
+  const score = (units: Unit[]) => placements(fact, units, call, cues);
   return { fact, call, cues, unit, text, score };
 }
 
@@ -2726,18 +2928,8 @@ test.each(["en", "zh-CN"] as const)(
       missing,
     );
     expect(score([{ ...unit(text.budget), ai: false }, unit(text.deadline)])).toEqual(missing);
-    const claims = (each: Unit): Unit => ({ ...each, section: "Claims" });
-    expect(score([claims(unit(text.budget)), claims(unit(text.deadline))], ["Claims"])).toEqual(
-      missing,
-    );
     expect(
-      placements(
-        { ...fact, kind: "action" },
-        [unit(text.budget), unit(text.deadline)],
-        call,
-        cues,
-        [],
-      ),
+      placements({ ...fact, kind: "action" }, [unit(text.budget), unit(text.deadline)], call, cues),
     ).toEqual(missing);
   },
 );
@@ -2936,7 +3128,23 @@ test.each<{ name: string; invalid: (sample: ReservedCallInput) => unknown }>([
   },
   {
     name: "unsupported fact kind",
-    invalid: (sample) => [{ ...sample, facts: [{ ...sample.facts[0], kind: "figure" }] }],
+    invalid: (sample) => [{ ...sample, facts: [{ ...sample.facts[0], kind: "opinion" }] }],
+  },
+  {
+    name: "claims naming no fact",
+    invalid: (sample) => [{ ...sample, claims: { listed: ["Not a fact"], kept: [] } }],
+  },
+  {
+    name: "a Document named with a path",
+    invalid: (sample) => [{ ...sample, documents: [{ name: "../quote.md", text: "x" }] }],
+  },
+  {
+    name: "named checks without a Settings name",
+    invalid: (sample) => [{ ...sample, named: { kept: ["our"], possessive: ["x"] } }],
+  },
+  {
+    name: "a topic with no pattern",
+    invalid: (sample) => [{ ...sample, topics: [{ name: "Pricing", pattern: "" }] }],
   },
   {
     name: "non-string regex",
@@ -3209,6 +3417,36 @@ test("meeting scores reject honest partial fills even when their state is filled
   }
 });
 
+/**
+ * Where the call's Note goes: a Folder holding its Documents, or none. With
+ * INCARNAMIND_LIVE_LIBRARY, a folder of other files, the Note goes in no Folder, so its claims are
+ * checked against every Document, those files and the call's own among them.
+ */
+async function withDocuments(core: Core, call: Call): Promise<string | null> {
+  const library = process.env.INCARNAMIND_LIVE_LIBRARY;
+  const sources = await createSourceFolder();
+  const written = await Promise.all(
+    (call.documents ?? []).map((document) =>
+      writeSourceFile(sources, document.name, document.text),
+    ),
+  );
+  const others = library
+    ? (await readdir(library))
+        .filter((file) => /\.(?:md|txt)$/.test(file))
+        .map((file) => join(library, file))
+    : [];
+  if (written.length + others.length === 0) return null;
+  await core.saveLibrarySettings({ ...(await core.getLibrary()).settings, automatic: false });
+  const added = await addAndProcess(core, [...written, ...others]);
+  if (library || written.length === 0) return null;
+  const folder = await core.createLibraryGroup({ name: "Call documents", description: "" });
+  await core.moveToFolder({
+    documentIds: added.map((document) => document.id),
+    folderId: folder.id,
+  });
+  return folder.id;
+}
+
 async function run(call: Call, ledger: RequestLedger, observation: Observation | null) {
   const dataDir = STRUCTURED?.dataDir ?? (await createTempDataFolder());
   // The first line of each side goes with the moment both sources start, so they share a clock.
@@ -3242,18 +3480,20 @@ async function run(call: Call, ledger: RequestLedger, observation: Observation |
   try {
     if (STRUCTURED)
       await core.saveLibrarySettings({ ...(await core.getLibrary()).settings, automatic: false });
+    const name = call.userName ?? USER_NAME;
     await core.updateSettings({
       user: {
         language: call.language,
         monthlyCap: { amount: 0.25, currency: "USD" },
-        ...(USER_NAME && { authorName: USER_NAME }),
+        ...(name && { authorName: name }),
       },
     });
     if (LOCAL_MODEL) {
       await core.saveChatProvider({ kind: "ollama", modelId: MODEL });
       await core.setLocalOnly(true);
     } else await core.saveChatProvider({ kind: CLOUD.provider, apiKey: KEY ?? "", modelId: MODEL });
-    const meeting = await core.createMeeting();
+    const folderId = await withDocuments(core, call);
+    const meeting = await core.createMeeting({ folderId });
     const client = await connectToMind(core, meeting.mindId);
     if (call.notes.length > 0) writeMind(client, call.notes);
     await client.settled();
@@ -3293,7 +3533,7 @@ async function run(call: Call, ledger: RequestLedger, observation: Observation |
     const inClaims = units.filter((each) => each.ai && claimsTitles.includes(each.section ?? ""));
     const scored = call.facts.map((fact) => ({
       fact,
-      ...placements(fact, units, call, cues, claimsTitles),
+      ...placements(fact, units, call, cues),
       inClaims: inClaims.reduce((sum, each) => sum + occurrences(fact, each.text), 0),
     }));
     const uncited = units.filter((each) => each.ai && each.citations.length === 0).length;
@@ -3406,16 +3646,27 @@ describe.skipIf(LOADER_PREFLIGHT || (!KEY && !LOCAL_MODEL))(
           observation,
         );
         const usage = ledger.usage;
-        const named = USER_NAME
+        const userName = call.userName ?? USER_NAME;
+        const aiText = units.filter((each) => each.ai).map((each) => each.text);
+        const named = userName
           ? {
-              settingsName: USER_NAME,
-              ...nameInRequests(ledger.prompts, USER_NAME, [
+              settingsName: userName,
+              ...nameInRequests(ledger.prompts, userName, [
                 ...call.turns.map((turn) => turn.text),
                 ...usage.replies.flatMap((reply) => writtenIn(reply.raw)),
               ]),
               rawTokens: rawTokens(units),
+              saidInCall: call.turns.some((turn) => turn.text.includes(userName)),
+              ourKept: (call.named?.kept ?? []).filter((pattern) =>
+                aiText.some((text) => pattern.test(text)),
+              ).length,
+              possessive: (call.named?.possessive ?? []).filter((pattern) =>
+                aiText.some((text) => pattern.test(text)),
+              ).length,
             }
           : null;
+        const structure = structureOf(doc, call);
+        const checkRequests = ledger.prompts.filter((prompt) => !FILL_REQUEST.test(prompt)).length;
         const once = scored.filter((each) => each.count === 1 && each.cited).length;
         const title = (section: "summary" | "decisions" | "actions" | "questions") =>
           call.sectionHeadings?.[section] ??
@@ -3425,7 +3676,7 @@ describe.skipIf(LOADER_PREFLIGHT || (!KEY && !LOCAL_MODEL))(
         const overview = hasGeneratedOverview(
           summary,
           usage.replies.map((reply) =>
-            USER_NAME ? textWithUserName(reply.text, USER_NAME) : reply.text,
+            userName ? textWithUserName(reply.text, userName) : reply.text,
           ),
         );
         const decisions = units.filter((each) => each.ai && each.section === title("decisions"));
@@ -3475,7 +3726,8 @@ describe.skipIf(LOADER_PREFLIGHT || (!KEY && !LOCAL_MODEL))(
                 `Tokens: ${usage.calls} requests, ${usage.input} in (${usage.cached} cached, ${usage.written} written to the cache), ${usage.output} out: $${usage.dollars.toFixed(4)}.`,
                 `Request settlement: ${ledger.snapshot().unsettled_requests} unsettled; amounts above are known subtotals, not free unknown usage.`,
                 `Replies: ${usage.replies.map((reply) => `${reply.output} out (${reply.reasoning} thinking), Tools: ${reply.tools.join(", ") || "none"}`).join("; ")}.`,
-                `Counts: ${JSON.stringify({ call: call.id, model: MODEL, scoring: "cue-owner-subject-placement-v5", dollars: usage.dollars, fillMs, once, total: call.facts.length, ...counts })}`,
+                `Counts: ${JSON.stringify({ call: call.id, model: MODEL, scoring: "cue-owner-subject-placement-structure-v6", dollars: usage.dollars, checkRequests, fillMs, once, total: call.facts.length, ...counts })}`,
+                `Structure (#2306): ${JSON.stringify(structure)}`,
                 ...(named ? [`Named (#2306): ${JSON.stringify(named)}`] : []),
                 "Occurrence counts use component-match minima and can miss partial or anaphoric repeats. Subject-only matches do not add to these counts. An independent raw duplicate and topic audit is still required, including redundant deadline restatements and action references without declared subjects.",
                 `Transcript cues: ${JSON.stringify(cues)}`,
@@ -3579,11 +3831,47 @@ describe.skipIf(LOADER_PREFLIGHT || (!KEY && !LOCAL_MODEL))(
               expect(units.some((unit) => unit.ai && unit.section === text)).toBe(true);
             }
           });
+          check("structure", () => {
+            expect(structure.summaryFirst, "Summary is the first part added").toBe(true);
+            expect(structure.summaryParts, "Summary is one overview").toBe(1);
+            expect(structure.summaryCited, "The overview is a cited paragraph").toBe(true);
+            expect(structure.summarySentences).toBeGreaterThanOrEqual(2);
+            expect(structure.summarySentences).toBeLessThanOrEqual(3);
+            expect(structure.topics.length, "At most six topics").toBeLessThanOrEqual(6);
+            if (call.notes.length === 0) {
+              expect(
+                structure.topics.length,
+                "A note with no typed lines has topics",
+              ).toBeGreaterThan(0);
+              expect(structure.topicsMissing, "Each of the call's topics has a heading").toEqual(
+                [],
+              );
+            }
+            expect(structure.topicNotBullets, "A topic's facts are bullets").toBe(0);
+            expect(structure.topicUncited, "Every topic bullet is cited").toBe(0);
+            expect(structure.topicPointers, "A topic holds facts, not pointers").toBe(0);
+            expect(structure.sectionNotBullets, "A section's items are bullets").toBe(0);
+            expect(structure.sectionUncited).toBe(0);
+            expect(structure.emptyHeadings, "No heading is added without content").toEqual([]);
+            if (!call.documents)
+              expect(structure.claimsList, "No Documents, no claims list").toBe(0);
+            expect(structure.claimsKeptListed, "What the Documents hold isn't listed").toEqual([]);
+            expect(structure.claimsListed, "What they don't hold is listed").toEqual(
+              call.claims?.listed ?? [],
+            );
+          });
         }
-        if (named) {
+        check("named", () => {
+          expect(rawTokens(units), "No token is left in the note").toBe(0);
+          if (!named) return;
           expect(named.outside, "The app's own words never carry the User's name").toBe(0);
-          expect(named.rawTokens, "No token is left in the note").toBe(0);
-        }
+          if (!named.saidInCall)
+            expect(named.holding, "A Settings name never said in the call is never sent").toBe(0);
+          expect(named.ourKept, "Our stays our").toBe(call.named?.kept.length ?? 0);
+          expect(named.possessive, "My becomes the name's").toBe(
+            call.named?.possessive.length ?? 0,
+          );
+        });
         if (STRUCTURED) ledger.assertSettled();
         assertionsPassed = true;
       } finally {

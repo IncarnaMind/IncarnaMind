@@ -3527,5 +3527,825 @@
         "said": [10]
       }
     ]
+  },
+  {
+    "id": "reserved-en-structured-interview",
+    "language": "en",
+    "requireSections": true,
+    "openQuestions": false,
+    "notes": [],
+    "turns": [
+      {
+        "side": "me",
+        "text": "Welcome back to Field Notes. Could you start by introducing yourself to our listeners?"
+      },
+      {
+        "side": "them",
+        "text": "Thanks for having me. I'm Hana Lindqvist, and I grew up in Tromsø, right up in the north of Norway. I trained as a marine engineer at the university in Trondheim, and spent my first few years designing cooling systems for fishing boats."
+      },
+      {
+        "side": "me",
+        "text": "How did you get from cooling systems on boats to starting a company?"
+      },
+      {
+        "side": "them",
+        "text": "A consulting job took me to Kisumu, in Kenya, and I watched fishermen on Lake Victoria lose about a third of their catch before it ever reached a market. That's what started Coldwake, which I founded in 2019. We built solar-powered cold boxes that a whole fishing co-op could share."
+      },
+      { "side": "me", "text": "And how big did Coldwake grow?" },
+      {
+        "side": "them",
+        "text": "By the end we had 340 units installed around Lake Victoria, across Kenya, Uganda and Tanzania. The co-ops paid per kilo stored instead of buying the boxes, and that was the part that really worked. Spoilage for our members fell from around thirty percent to under eight."
+      },
+      { "side": "me", "text": "Then you sold the company. What was that like?" },
+      {
+        "side": "them",
+        "text": "In 2024 we sold Coldwake to Van Rijn Logistics, a Dutch logistics group. It was the right home for it, because they had the trucks and the warehouses we never would. I stayed for a year to hand things over, and then I stepped away."
+      },
+      { "side": "me", "text": "So what are you working on now?" },
+      {
+        "side": "them",
+        "text": "I'm back in Norway, converting small car ferries in the Lofoten islands from diesel to battery power. There are three ferries in the project, and the first one should be carrying passengers in spring 2027. The batteries are the easy part; charging at piers with a weak grid connection is the hard part."
+      },
+      { "side": "me", "text": "Is that a startup, or more of a public project?" },
+      {
+        "side": "them",
+        "text": "It's a joint project with the county, which owns the ferries. My small team designs the systems and the county pays for the shipyard work. It's slower than a startup, but the money is there for as long as the work takes."
+      },
+      {
+        "side": "me",
+        "text": "You've said before that hardware founders are funded the wrong way. What do you mean by that?"
+      },
+      {
+        "side": "them",
+        "text": "Most venture funds want an exit within five to seven years, and hardware that touches the physical world takes longer than that. I think climate hardware needs ten-year money, patient capital from pension funds or public banks rather than the funds that back apps. Otherwise founders cut corners on exactly the testing that keeps people safe."
+      },
+      { "side": "me", "text": "Hana, thank you so much for joining us." },
+      { "side": "them", "text": "Thank you, it was a pleasure." }
+    ],
+    "facts": [
+      {
+        "name": "Marine engineer trained in Trondheim",
+        "kind": "figure",
+        "pattern": ["engineer", "Trondheim"],
+        "said": [1]
+      },
+      {
+        "name": "Founded Coldwake in 2019",
+        "kind": "figure",
+        "pattern": ["2019", "Coldwake|found|start|set up|launch"],
+        "said": [3]
+      },
+      {
+        "name": "340 units around Lake Victoria",
+        "kind": "figure",
+        "pattern": ["\\b340\\b", "unit|box|cooler|Victoria|install"],
+        "said": [5]
+      },
+      {
+        "name": "Sold to Van Rijn Logistics in 2024",
+        "kind": "figure",
+        "pattern": ["2024", "sold|sale|sell|acquir|bought|exit", "Van Rijn|Dutch|logistics"],
+        "said": [7]
+      },
+      {
+        "name": "Three Lofoten ferries to battery power",
+        "kind": "figure",
+        "pattern": ["ferr", "three|\\b3\\b"],
+        "said": [9]
+      },
+      {
+        "name": "First ferry in service spring 2027",
+        "kind": "figure",
+        "pattern": ["2027", "spring|first|passenger|service|sail"],
+        "said": [9]
+      },
+      {
+        "name": "Climate hardware needs ten-year money",
+        "kind": "figure",
+        "pattern": ["ten.year|10.year|decade"],
+        "said": [13]
+      }
+    ],
+    "topics": [
+      {
+        "name": "Background",
+        "pattern": "background|Troms|Trondheim|early|career|introduc|growing up|education|\\bwho\\b|\\bbio"
+      },
+      {
+        "name": "Coldwake",
+        "pattern": "Coldwake|Lake Victoria|cold (?:storage|box)|Kenya|first company|founding|company"
+      },
+      {
+        "name": "Lofoten ferries",
+        "pattern": "ferr|Lofoten|current|battery|retrofit|electric|\\bnow\\b"
+      },
+      {
+        "name": "Funding hardware",
+        "pattern": "fund|capital|money|invest|venture|opinion|view|financ|hardware"
+      }
+    ]
+  },
+  {
+    "id": "reserved-zh-structured-interview",
+    "language": "zh-CN",
+    "requireSections": true,
+    "openQuestions": false,
+    "notes": [],
+    "turns": [
+      { "side": "me", "text": "欢迎收听《回乡人》。先请你跟听众介绍一下自己吧。" },
+      {
+        "side": "them",
+        "text": "大家好，我叫陈嘉禾，是云南普洱人。大学学的是建筑，毕业后在上海一家设计院做了八年建筑设计师，主要做商业综合体。2017年我辞职回了老家。"
+      },
+      { "side": "me", "text": "从建筑设计到种咖啡，跨度挺大的。当时为什么决定回去？" },
+      {
+        "side": "them",
+        "text": "我家一直种咖啡，但那时候豆子都按最低价卖给收购商，很多邻居干脆把咖啡树砍了改种茶。2018年，我和几户亲戚一起创立了云岭咖啡合作社，想把加工和销售掌握在自己手里。"
+      },
+      { "side": "me", "text": "合作社现在发展到什么规模了？" },
+      {
+        "side": "them",
+        "text": "现在有120户农户加入，种植面积大概三千亩。我们的收购价比市场价高三成，条件是大家按统一标准采摘，只摘红透的果子。第一年很多人不信，后来看到账上的钱，才慢慢跟进来。"
+      },
+      { "side": "me", "text": "收购价高三成，合作社自己靠什么赚钱呢？" },
+      {
+        "side": "them",
+        "text": "主要靠精品豆的溢价。我们把豆子直接卖给上海、成都的独立咖啡馆，跳过了中间好几层贸易商。每年还会拿出一部分利润，给农户做技术培训。"
+      },
+      { "side": "me", "text": "听说你最近在忙一个新项目？" },
+      {
+        "side": "them",
+        "text": "对，我们在合作社旁边建一个烘焙和培训中心，计划2027年5月开放。以后年轻人不用跑去昆明或者上海，在村里就能学烘焙、学杯测，甚至开自己的小店。"
+      },
+      { "side": "me", "text": "这个中心的钱是从哪里来的？" },
+      {
+        "side": "them",
+        "text": "一半是合作社这几年攒下的积累，另一半是县里的乡村振兴资金。设计是我自己做的，总算把老本行用上了。"
+      },
+      { "side": "me", "text": "最后想问问，你怎么看现在想回乡创业的年轻人？" },
+      {
+        "side": "them",
+        "text": "我觉得回乡不是一个浪漫的选择。我的看法是，至少要准备好三年没有收入，因为农业的周期就是这么长，一季没做好就得再等一年。如果只是想逃离城市，那最好再想一想。"
+      },
+      { "side": "me", "text": "谢谢嘉禾，今天聊得很有收获。" },
+      { "side": "them", "text": "谢谢你的邀请。" }
+    ],
+    "facts": [
+      {
+        "name": "在上海做了八年建筑设计师",
+        "kind": "figure",
+        "pattern": ["上海", "建筑"],
+        "said": [1]
+      },
+      {
+        "name": "2018年创立云岭咖啡合作社",
+        "kind": "figure",
+        "pattern": ["2018", "合作社|云岭|创立|创办|成立"],
+        "said": [3]
+      },
+      {
+        "name": "120户农户加入",
+        "kind": "figure",
+        "pattern": ["(?<!\\d)120(?!\\d)|一百二十", "户|农"],
+        "said": [5]
+      },
+      {
+        "name": "收购价比市场价高三成",
+        "kind": "figure",
+        "pattern": ["三成|30 ?%|百分之三十", "收购|价"],
+        "said": [5]
+      },
+      {
+        "name": "烘焙培训中心2027年5月开放",
+        "kind": "figure",
+        "pattern": ["2027", "(?<!\\d)5 ?月|五月"],
+        "said": [9]
+      },
+      {
+        "name": "回乡至少准备三年没有收入",
+        "kind": "figure",
+        "pattern": ["三年|(?<!\\d)3 ?年", "收入|回乡|返乡|创业"],
+        "said": [13]
+      }
+    ],
+    "topics": [
+      { "name": "个人背景", "pattern": "背景|经历|个人|简介|介绍|履历|建筑|上海|出身" },
+      { "name": "云岭咖啡合作社", "pattern": "合作社|云岭|收购|农户" },
+      { "name": "烘焙和培训中心", "pattern": "烘焙|培训中心|新项目|项目|近况|现在|正在" },
+      { "name": "回乡创业的看法", "pattern": "回乡|返乡|创业|看法|观点|建议" }
+    ]
+  },
+  {
+    "id": "reserved-en-structured-client",
+    "language": "en",
+    "requireSections": true,
+    "openQuestions": false,
+    "notes": [],
+    "turns": [
+      {
+        "side": "them",
+        "text": "Hi, it's Owen Hale from Verdant Pack. Thanks for making the time today."
+      },
+      {
+        "side": "me",
+        "text": "Thanks, Owen. I've got your quote open, so I'd like to go through it before we sign."
+      },
+      {
+        "side": "them",
+        "text": "Sure. It's the 12-ounce compostable cups, printed in one colour with your logo, at 8.4 pence per cup. That price is for orders of 50,000 cups or more, which is our minimum run."
+      },
+      {
+        "side": "me",
+        "text": "Fifty thousand cups is about six weeks across our eight cafés, so the minimum is fine. Will the price hold into next year?"
+      },
+      {
+        "side": "them",
+        "text": "I have to be upfront about that. Our pulp costs went up this autumn, so all our cup prices rise by 4 percent from 1 February 2027. Anything you order before then stays at the quoted price."
+      },
+      {
+        "side": "me",
+        "text": "Understood, then we'll probably place a bigger first order in January. What about lids? They aren't on the quote."
+      },
+      {
+        "side": "them",
+        "text": "We can supply matching compostable lids at 2.9 pence each. They're made for the 12-ounce cup, so you won't get the leaking you had with your old supplier."
+      },
+      { "side": "me", "text": "Good. And delivery is still four weeks to our Leeds warehouse?" },
+      {
+        "side": "them",
+        "text": "Yes, four weeks from artwork sign-off, delivered to Leeds on pallets. Payment is thirty days from invoice, as on the quote."
+      },
+      {
+        "side": "me",
+        "text": "Fine. Could you send me a revised quote that includes the lids, so I can take it to our finance lead?"
+      },
+      {
+        "side": "them",
+        "text": "I'll send you the revised quote with the lids by 20 November. If your artwork is ready by then, the first delivery could reach Leeds before Christmas."
+      },
+      { "side": "me", "text": "Perfect, I'll look out for it. Thanks, Owen." },
+      { "side": "them", "text": "Thanks, speak soon." }
+    ],
+    "facts": [
+      {
+        "name": "Cup unit price",
+        "kind": "figure",
+        "pattern": ["8\\.4 ?p|8\\.4 pence|0\\.084"],
+        "said": [2]
+      },
+      {
+        "name": "Minimum order",
+        "kind": "figure",
+        "pattern": ["50,?000|50 000|50k|fifty thousand", "minimum|\\bmin\\b|at least|MOQ|or more"],
+        "said": [2, 3]
+      },
+      {
+        "name": "Four-week lead time",
+        "kind": "figure",
+        "pattern": ["(?:four|4)[ -]weeks?"],
+        "said": [7, 8]
+      },
+      {
+        "name": "Price rise from February",
+        "kind": "figure",
+        "pattern": ["(?<!\\d)4 ?%|(?<!\\d)4 ?per ?cent|four per ?cent", "feb"],
+        "said": [4]
+      },
+      {
+        "name": "Lids at 2.9p",
+        "kind": "figure",
+        "pattern": ["\\blids?\\b", "2\\.9 ?p|2\\.9 pence|0\\.029"],
+        "said": [6]
+      },
+      {
+        "name": "Owen sends revised quote",
+        "kind": "action",
+        "pattern": ["quote", "Owen", "(?<!\\d)20(?:th)? Nov|Nov(?:ember)?\\.? 20\\b|20/11|11/20"],
+        "subject": ["quote"],
+        "said": [9, 10]
+      }
+    ],
+    "topics": [
+      { "name": "Cup pricing", "pattern": "pric|cost|cup|quote|minimum" },
+      { "name": "Lids", "pattern": "\\blids?\\b" },
+      {
+        "name": "Delivery and payment",
+        "pattern": "deliver|lead time|payment|logistics|Leeds|shipping|terms"
+      }
+    ],
+    "documents": [
+      {
+        "name": "verdant-pack-quote.md",
+        "text": "# Verdant Pack quotation\n\nCustomer: Brightline Cafés\nDate: 2 November 2026\nProduct: 12 oz compostable paper cup, plant-based lining\nPrint: one colour, customer logo, artwork supplied by customer\nUnit price: £0.084 per cup\nMinimum order: 50,000 cups per run\nLead time: 4 weeks from artwork approval\nDelivery: on pallets to the customer's warehouse in Leeds\nPayment terms: 30 days from invoice\nQuote valid until: 31 December 2026\nPrices exclude VAT.\nContact: Owen Hale, account manager"
+      }
+    ],
+    "claims": {
+      "listed": ["Price rise from February", "Lids at 2.9p"],
+      "kept": ["Cup unit price", "Minimum order", "Four-week lead time"]
+    }
+  },
+  {
+    "id": "reserved-zh-structured-client",
+    "language": "zh-CN",
+    "requireSections": true,
+    "openQuestions": false,
+    "notes": [{ "type": "paragraph", "content": [{ "type": "text", "text": "效果图" }] }],
+    "turns": [
+      {
+        "side": "them",
+        "text": "您好，我是华展搭建的项目经理王磊。合同摘要昨天发到您邮箱了，今天主要跟您对一下细节。"
+      },
+      {
+        "side": "me",
+        "text": "好的，我这边开着呢。先确认一下，展位还是54平方米，9米乘6米，对吧？"
+      },
+      {
+        "side": "them",
+        "text": "对，3号馆112号展位，54平方米，两面开口。合同总价18.6万元，含税，包括设计、搭建、电路和撤展。"
+      },
+      { "side": "me", "text": "我们老板看了现在的效果图，觉得洽谈区太挤了。能不能做个二层？" },
+      {
+        "side": "them",
+        "text": "二层洽谈区可以做，大概能多出20平方米，但要另加4.2万元，主要是钢结构和承重审批的费用。二层的图纸要报主办方审核，时间会比较紧。"
+      },
+      {
+        "side": "me",
+        "text": "4.2万我们能接受。另外，主背景墙想换成LED屏，循环播放我们茶园的视频。"
+      },
+      {
+        "side": "them",
+        "text": "LED屏是按天租的，每天2,800元，展期四天加上搭建那天调试，一共算五天。尺寸我建议做5米乘3米，太大了从过道看反而不清楚。"
+      },
+      { "side": "me", "text": "好，那就按5米乘3米来。付款还是按合同分三笔吧？" },
+      {
+        "side": "them",
+        "text": "对，签约付30%，进场前付60%，验收后付10%。二层和LED屏我们会另签一份补充协议，金额并到第二笔里。"
+      },
+      { "side": "me", "text": "可以。那新的效果图什么时候能出来？我要拿给老板确认。" },
+      {
+        "side": "them",
+        "text": "我会在11月25日前把加了二层和LED屏的新效果图发给您，补充协议也一起发过去。"
+      },
+      { "side": "me", "text": "好的，那我等你的图，辛苦了。" },
+      { "side": "them", "text": "不客气，有问题随时联系我。" }
+    ],
+    "facts": [
+      {
+        "name": "展位面积54平方米",
+        "kind": "figure",
+        "pattern": ["54 ?(?:平|㎡|m²|m2)"],
+        "said": [1, 2]
+      },
+      {
+        "name": "合同总价18.6万元",
+        "kind": "figure",
+        "pattern": ["18\\.6 ?万|186,?000|十八万六"],
+        "said": [2]
+      },
+      {
+        "name": "付款比例30%/60%/10%",
+        "kind": "figure",
+        "pattern": ["30 ?%|30/60/10", "60 ?%|30/60/10"],
+        "said": [8]
+      },
+      {
+        "name": "二层洽谈区另加4.2万元",
+        "kind": "figure",
+        "pattern": ["4\\.2 ?万|42,?000|四万二", "二层|两层|洽谈|夹层"],
+        "said": [4, 5]
+      },
+      {
+        "name": "LED屏每天2,800元",
+        "kind": "figure",
+        "pattern": ["2,?800|两千八|二千八|0\\.28 ?万", "LED|屏"],
+        "said": [6]
+      },
+      {
+        "name": "王磊发新效果图",
+        "kind": "action",
+        "pattern": ["效果图|设计图|图纸|设计稿", "王磊|王经理", "11 ?月 ?25|11\\.25|11/25|11-25"],
+        "subject": ["效果图|设计图|图纸|设计稿"],
+        "said": [9, 10],
+        "underLine": "效果图"
+      }
+    ],
+    "topics": [
+      { "name": "展位与合同总价", "pattern": "展位|合同|总价|面积|基本信息|报价" },
+      { "name": "二层洽谈区", "pattern": "二层|两层|洽谈|夹层" },
+      { "name": "LED屏", "pattern": "LED|屏|背景墙" },
+      { "name": "付款", "pattern": "付款|支付|补充协议|结算" }
+    ],
+    "documents": [
+      {
+        "name": "展位搭建合同摘要.md",
+        "text": "# 展位搭建合同摘要\n\n甲方：青禾茶业有限公司\n乙方：上海华展展览搭建有限公司\n项目：2027年上海国际茶业博览会展位设计与搭建\n展位号：3号馆112号\n展位面积：54平方米（9米×6米），两面开口\n合同总价：人民币186,000元（含税）\n付款方式：签约后付30%，进场前付60%，验收后付10%\n搭建时间：2027年3月15日至3月17日\n展期：2027年3月18日至3月21日\n乙方负责：设计、搭建、电路、保洁、撤展\n甲方负责：展品运输、现场人员\n联系人：王磊（乙方项目经理）"
+      }
+    ],
+    "claims": {
+      "listed": ["二层洽谈区另加4.2万元", "LED屏每天2,800元"],
+      "kept": ["展位面积54平方米", "合同总价18.6万元", "付款比例30%/60%/10%"]
+    }
+  },
+  {
+    "id": "reserved-en-structured-team",
+    "language": "en",
+    "requireSections": true,
+    "openQuestions": true,
+    "notes": [
+      { "type": "paragraph", "content": [{ "type": "text", "text": "Spring meetup venue" }] },
+      { "type": "paragraph", "content": [{ "type": "text", "text": "Date for the meetup" }] },
+      {
+        "type": "heading",
+        "attrs": { "level": 2 },
+        "content": [{ "type": "text", "text": "Budget" }]
+      },
+      { "type": "paragraph", "content": [{ "type": "text", "text": "Catering per head" }] }
+    ],
+    "turns": [
+      {
+        "side": "me",
+        "text": "Okay, let's start. Three things today: the venue for the spring meetup, the date, and the budget."
+      },
+      {
+        "side": "them",
+        "text": "Felix here. On the venue, I'd still go for the Albert Hall. It's £6,000 for the evening, but it looks great in photos and holds 300 people."
+      },
+      {
+        "side": "me",
+        "text": "It's a lovely room, but £6,000 is more than half our budget, and we've never had more than 120 people sign up for anything."
+      },
+      {
+        "side": "them",
+        "text": "It's Dana. I agree with that. Mill Yard, the co-working space by the canal, is £2,400 for the evening, holds 150 people, and the projector and sound system are included."
+      },
+      { "side": "me", "text": "Then let's go with Mill Yard. Felix, are you happy with that?" },
+      {
+        "side": "them",
+        "text": "Yes, fine, Mill Yard it is. For the date, I'd pencilled in Thursday 15 April."
+      },
+      {
+        "side": "me",
+        "text": "The 15th clashes with Design Week in Leeds, and half our users will be there. How about the week after, Thursday 22 April?"
+      },
+      {
+        "side": "them",
+        "text": "Dana again. The 22nd works, and Mill Yard told me they're free that evening."
+      },
+      {
+        "side": "me",
+        "text": "Great, so it's Thursday 22 April at Mill Yard. On the budget, what will catering cost us?"
+      },
+      {
+        "side": "them",
+        "text": "Mill Yard's own caterer quotes £12 a head for food and soft drinks. At 120 people, that's about £1,440."
+      },
+      {
+        "side": "me",
+        "text": "That's within what we hoped for. The bigger question is whether we charge for tickets: a £10 ticket might cut no-shows, but it might also put people off."
+      },
+      {
+        "side": "them",
+        "text": "Felix here. I'd charge, honestly, but I don't have any numbers to back that up."
+      },
+      {
+        "side": "me",
+        "text": "Neither do I. Let's leave the ticket question open and come back to it once we see sign-ups. For actions, Dana, can you book Mill Yard?"
+      },
+      {
+        "side": "them",
+        "text": "Yes, I'll book Mill Yard and pay the deposit by Friday 20 November."
+      },
+      {
+        "side": "me",
+        "text": "Thanks. Felix, can you draft the call for speakers? And I'll send the save-the-date email to our users by 4 December."
+      },
+      { "side": "them", "text": "Sure, I'll have the call for speakers drafted by 27 November." }
+    ],
+    "facts": [
+      {
+        "name": "Venue is Mill Yard",
+        "kind": "decision",
+        "pattern": ["Mill Yard"],
+        "subject": ["venue|Mill Yard|location"],
+        "said": [4, 5],
+        "underLine": "Spring meetup venue"
+      },
+      {
+        "name": "Meetup on Thursday 22 April",
+        "kind": "decision",
+        "pattern": [
+          "(?<!\\d)22(?:nd)? Apr|Apr(?:il)?\\.? 22\\b|(?<!\\d)22/0?4\\b|\\b0?4/22\\b|04-22"
+        ],
+        "subject": ["date|when|\\bday\\b|April"],
+        "said": [6, 8],
+        "underLine": "Date for the meetup"
+      },
+      {
+        "name": "Catering at £12 a head",
+        "kind": "figure",
+        "pattern": ["£ ?12\\b|\\b12 pounds", "head|person|per|pp|each|guest"],
+        "said": [9],
+        "underLine": "Catering per head"
+      },
+      {
+        "name": "Dana books Mill Yard",
+        "kind": "action",
+        "pattern": [
+          "book|deposit|reserv",
+          "Dana",
+          "(?<!\\d)20(?:th)? Nov|Nov(?:ember)?\\.? 20\\b|20/11|11/20"
+        ],
+        "subject": ["book|deposit|venue|Mill Yard"],
+        "said": [12, 13]
+      },
+      {
+        "name": "Felix drafts call for speakers",
+        "kind": "action",
+        "pattern": [
+          "speaker",
+          "Felix",
+          "(?<!\\d)27(?:th)? Nov|Nov(?:ember)?\\.? 27\\b|27/11|11/27"
+        ],
+        "subject": ["speaker"],
+        "said": [14, 15]
+      },
+      {
+        "name": "Save-the-date email",
+        "kind": "action",
+        "pattern": [
+          "save.the.date|invit|announce|email",
+          "\\bme\\b|\\bI\\b|\\byou\\b|\\bmyself\\b|\\buser\\b",
+          "(?<!\\d)4(?:th)? Dec|Dec(?:ember)?\\.? 4\\b|\\b4/12\\b|\\b12/4\\b"
+        ],
+        "subject": ["save.the.date|email|invit|announce"],
+        "said": [14]
+      }
+    ],
+    "topics": [
+      { "name": "Venue", "pattern": "venue|Mill Yard|location|where" },
+      { "name": "Date", "pattern": "date|when|timing|April|schedule" },
+      { "name": "Budget", "pattern": "budget|cost|catering|ticket|money|spend" }
+    ]
+  },
+  {
+    "id": "reserved-zh-structured-team",
+    "language": "zh-CN",
+    "requireSections": true,
+    "openQuestions": true,
+    "notes": [
+      { "type": "paragraph", "content": [{ "type": "text", "text": "寒假班定价" }] },
+      { "type": "paragraph", "content": [{ "type": "text", "text": "开课时间" }] },
+      {
+        "type": "heading",
+        "attrs": { "level": 2 },
+        "content": [{ "type": "text", "text": "推广" }]
+      },
+      { "type": "paragraph", "content": [{ "type": "text", "text": "小红书预算" }] }
+    ],
+    "turns": [
+      {
+        "side": "me",
+        "text": "我们开始吧。今天主要定三件事：寒假班的价格、开课时间，还有推广怎么做。"
+      },
+      {
+        "side": "them",
+        "text": "我是老陈。价格我还是倾向定1,299元，跟去年秋季班一样，毕竟内容也没少。"
+      },
+      {
+        "side": "me",
+        "text": "但寒假班只有四周，比秋季班短了一半。定1,299元的话，家长会觉得不值。"
+      },
+      {
+        "side": "them",
+        "text": "我是周婷。我看了几家同行，寒假班基本都在八百到一千之间。我建议定999元，再给老学员一个早鸟价。"
+      },
+      { "side": "me", "text": "那就定999元吧。老陈，你觉得呢？" },
+      {
+        "side": "them",
+        "text": "行，999元我没意见。开课时间我建议1月18日，那时候大部分学校都放假了。"
+      },
+      { "side": "me", "text": "1月18日可以，就这么定。推广这块，小周你怎么看？" },
+      {
+        "side": "them",
+        "text": "小红书那边，市场预算里本来就留了8,000元，我打算分两周投，看看转化。海报我来做，11月20日前给大家看初稿。"
+      },
+      { "side": "me", "text": "好。老陈，报名页面你那边能弄吗？" },
+      { "side": "them", "text": "可以，报名页面我11月27日前上线，支付也一起接好。" },
+      { "side": "me", "text": "好。课程介绍我来写，12月1日前发给大家。" },
+      {
+        "side": "them",
+        "text": "我是周婷，还有个问题：助教要招两个还是三个？如果报名超过60人，两个肯定忙不过来。"
+      },
+      { "side": "me", "text": "这个现在定不了，得看报名人数。助教的事先放着，下次再定。" },
+      { "side": "them", "text": "好的，那这周就先按这个推进。" }
+    ],
+    "facts": [
+      {
+        "name": "寒假班定价999元",
+        "kind": "decision",
+        "pattern": ["(?<![\\d,])999"],
+        "subject": ["定价|价格|价|学费|收费"],
+        "said": [4, 5],
+        "underLine": "寒假班定价"
+      },
+      {
+        "name": "1月18日开课",
+        "kind": "decision",
+        "pattern": ["(?<!\\d)1 ?月 ?18|(?<![\\d.])1\\.18|(?<![\\d/])1/18|01-18"],
+        "subject": ["开课|日期|时间|开班"],
+        "said": [5, 6],
+        "underLine": "开课时间"
+      },
+      {
+        "name": "小红书投放8,000元",
+        "kind": "figure",
+        "pattern": ["(?<![\\d,])8,?000|八千|0\\.8 ?万|(?<!\\d)8 ?千"],
+        "said": [7],
+        "underLine": "小红书预算"
+      },
+      {
+        "name": "周婷做海报",
+        "kind": "action",
+        "pattern": ["海报", "周婷|小周", "11 ?月 ?20|11\\.20|11/20|11-20"],
+        "subject": ["海报"],
+        "said": [7]
+      },
+      {
+        "name": "老陈上线报名页面",
+        "kind": "action",
+        "pattern": ["报名", "老陈|陈", "11 ?月 ?27|11\\.27|11/27|11-27"],
+        "subject": ["报名"],
+        "said": [8, 9]
+      },
+      {
+        "name": "写课程介绍",
+        "kind": "action",
+        "pattern": [
+          "课程介绍|介绍",
+          "我|你|\\bMe\\b|本人|自己|用户",
+          "12 ?月 ?1(?!\\d)|12\\.1(?!\\d)|12/1(?!\\d)|12-01"
+        ],
+        "subject": ["课程介绍|介绍"],
+        "said": [10]
+      }
+    ],
+    "topics": [
+      { "name": "定价", "pattern": "定价|价格|学费|收费" },
+      { "name": "开课时间", "pattern": "开课|时间|日期|排期" },
+      { "name": "推广", "pattern": "推广|小红书|宣传|营销|海报" }
+    ]
+  },
+  {
+    "id": "reserved-en-structured-named",
+    "language": "en",
+    "requireSections": true,
+    "openQuestions": false,
+    "notes": [],
+    "turns": [
+      {
+        "side": "me",
+        "text": "Morning, both. Just one thing today: the Harbour Museum pitch is due next Friday, and our studio has to choose between the two concepts."
+      },
+      {
+        "side": "them",
+        "text": "Theo here. I liked both, but the paper-cut style felt closer to what the museum asked for in the brief."
+      },
+      {
+        "side": "me",
+        "text": "I agree, and my draft of the script was written with the paper-cut version in mind anyway."
+      },
+      {
+        "side": "them",
+        "text": "It's Ruth. Paper-cut is also cheaper for us, because we can reuse the rig from last year's ferry film. The 3D version would need about three extra weeks of modelling."
+      },
+      {
+        "side": "me",
+        "text": "Then let's decide it now: our studio pitches the paper-cut concept, and we drop the 3D one."
+      },
+      { "side": "them", "text": "Theo again. Agreed, paper-cut it is." },
+      {
+        "side": "me",
+        "text": "Good. I'll tighten my draft and send the script to the museum by Wednesday 18 November."
+      },
+      {
+        "side": "them",
+        "text": "Ruth here. Send it to us first, so we can read it before it goes out."
+      },
+      { "side": "me", "text": "Will do. Thanks, everyone." }
+    ],
+    "facts": [
+      {
+        "name": "Pitch the paper-cut concept",
+        "kind": "decision",
+        "pattern": ["paper.?cut"],
+        "subject": ["concept|direction|pitch|style"],
+        "said": [4, 5]
+      },
+      {
+        "name": "Script to the museum by 18 November",
+        "kind": "action",
+        "pattern": [
+          "script|draft",
+          "Ines|Calloway",
+          "(?<!\\d)18(?:th)? Nov|Nov(?:ember)?\\.? 18\\b|18/11|11/18"
+        ],
+        "subject": ["script|draft"],
+        "said": [6]
+      },
+      {
+        "name": "Reuse the ferry film rig",
+        "kind": "figure",
+        "pattern": ["\\brig\\b|reus", "ferry"],
+        "said": [3]
+      },
+      {
+        "name": "3D needs three extra weeks",
+        "kind": "figure",
+        "pattern": ["3D", "three|\\b3\\b", "week"],
+        "said": [3]
+      },
+      {
+        "name": "Pitch due next Friday",
+        "kind": "figure",
+        "pattern": ["Friday", "due|deadline|pitch"],
+        "said": [0]
+      }
+    ],
+    "topics": [
+      { "name": "Pitch concept", "pattern": "concept|direction|style|paper.?cut|3D|pitch|museum" },
+      { "name": "Script", "pattern": "script|draft" }
+    ],
+    "userName": "Ines Calloway",
+    "named": {
+      "kept": ["\\bour (?:studio|team)\\b"],
+      "possessive": ["Ines Calloway['’]s (?:script )?draft"]
+    }
+  },
+  {
+    "id": "reserved-zh-structured-named",
+    "language": "zh-CN",
+    "requireSections": true,
+    "openQuestions": false,
+    "notes": [],
+    "turns": [
+      { "side": "me", "text": "我们开个短会。下周的用户调研，我们团队得先定下来访谈哪些用户。" },
+      {
+        "side": "them",
+        "text": "我是张凯。我建议只访谈付费超过一年的老用户，他们对产品最熟，最能说出问题在哪。"
+      },
+      {
+        "side": "me",
+        "text": "我的草稿里其实列了两类：老用户，还有最近三个月流失的用户。流失的用户能告诉我们他们为什么离开。"
+      },
+      {
+        "side": "them",
+        "text": "我是苏敏。我同意加上流失用户，不过他们比较难约，可能要给每人一张200元的购物卡作为感谢。"
+      },
+      { "side": "me", "text": "那就这么定：我们团队这次访谈老用户和流失用户各八位。" },
+      { "side": "them", "text": "我是张凯，各八位没问题。那访谈提纲要不要改？" },
+      { "side": "me", "text": "要改。我来把我的草稿改成正式的访谈提纲，11月20日前发到群里。" },
+      { "side": "them", "text": "好的，收到提纲我们再一起过一遍。" },
+      { "side": "me", "text": "好，今天就到这儿，谢谢大家。" }
+    ],
+    "facts": [
+      {
+        "name": "访谈老用户和流失用户各八位",
+        "kind": "decision",
+        "pattern": ["流失", "老用户|付费用户|老客户", "八|(?<!\\d)8(?!\\d)"],
+        "subject": ["访谈|调研|对象|用户"],
+        "said": [4, 5]
+      },
+      {
+        "name": "11月20日前发访谈提纲",
+        "kind": "action",
+        "pattern": ["提纲", "林晓棠", "11 ?月 ?20|11\\.20|11/20|11-20"],
+        "subject": ["提纲"],
+        "said": [6]
+      },
+      {
+        "name": "每人200元购物卡",
+        "kind": "figure",
+        "pattern": ["(?<!\\d)200(?!\\d)", "卡|感谢|酬|礼|补贴"],
+        "said": [3]
+      },
+      {
+        "name": "付费超过一年的老用户",
+        "kind": "figure",
+        "pattern": ["一年|(?<!\\d)1 ?年", "付费|老用户"],
+        "said": [1]
+      },
+      {
+        "name": "最近三个月流失的用户",
+        "kind": "figure",
+        "pattern": ["三个月|(?<!\\d)3 ?个月", "流失"],
+        "said": [2]
+      }
+    ],
+    "topics": [
+      { "name": "访谈对象", "pattern": "访谈对象|访谈|调研|用户|对象" },
+      { "name": "访谈提纲", "pattern": "提纲|草稿" }
+    ],
+    "userName": "林晓棠",
+    "named": { "kept": ["我们(?:的)?(?:团队|小组)"], "possessive": ["林晓棠 ?的(?:访谈)?草稿"] }
   }
 ]
