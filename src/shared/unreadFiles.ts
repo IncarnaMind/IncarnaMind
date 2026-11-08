@@ -6,6 +6,8 @@
  */
 import type * as Y from "yjs";
 import {
+  type Document,
+  type LinkedFolder,
   MIND_CHECK_UNREAD_FIELD,
   type UnreadFile,
   type UnreadParts,
@@ -252,4 +254,30 @@ export function observeCheckUnread(doc: Y.Doc, listener: () => void): () => void
   const unread = unreadOf(doc);
   unread.observe(listener);
   return () => unread.unobserve(listener);
+}
+
+/**
+ * What could change the files a Search scope couldn't read: each Document that failed, has no text
+ * or was read in part, and each Linked folder's count of files in a format not read. A Document
+ * that is ready changes none of it, so an import doesn't make every Answer shown ask again at each
+ * new Document (#2772).
+ */
+export function unreadAskKey(
+  documents: readonly Pick<Document, "id" | "status" | "failure" | "fileStatus" | "unreadParts">[],
+  linkedFolders: readonly Pick<LinkedFolder, "id" | "unsupportedFiles">[],
+): string {
+  return [
+    ...documents
+      .filter(
+        (each) =>
+          each.status === "failed" || each.status === "no-text" || each.unreadParts !== null,
+      )
+      .map(
+        (each) =>
+          `${each.id}:${each.status}:${each.failure?.reason ?? ""}:${each.fileStatus}:${
+            each.unreadParts ? JSON.stringify(each.unreadParts) : ""
+          }`,
+      ),
+    ...linkedFolders.map((each) => `${each.id}:${each.unsupportedFiles}`),
+  ].join("|");
 }

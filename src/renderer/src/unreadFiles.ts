@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import type * as Y from "yjs";
 import type { SearchScope, UnreadFile } from "../../core/api";
 import { checkSearchedNarrowerThanAll } from "../../shared/claimChecks";
-import { checkUnreadOf, observeCheckUnread } from "../../shared/unreadFiles";
+import { checkUnreadOf, observeCheckUnread, unreadAskKey } from "../../shared/unreadFiles";
 import { core } from "./core";
 import { shownClaims } from "./editor/claimChecks";
 import { useAppStore } from "./store";
@@ -16,24 +16,7 @@ import { useAppStore } from "./store";
  */
 export function useUnreadFiles(scope: SearchScope | null): UnreadFile[] {
   const [files, setFiles] = useState<UnreadFile[]>([]);
-  // A string that changes when what could be unread does, so a Document that is ready doesn't ask again.
-  const state = useAppStore((store) =>
-    [
-      ...store.documents
-        .filter(
-          (each) =>
-            each.status === "failed" || each.status === "no-text" || each.unreadParts !== null,
-        )
-        .map(
-          (each) =>
-            `${each.id}:${each.status}:${each.failure?.reason ?? ""}:${each.fileStatus}:${
-              each.unreadParts ? JSON.stringify(each.unreadParts) : ""
-            }`,
-        ),
-      ...store.linkedFolders.map((each) => `${each.id}:${each.unsupportedFiles}`),
-      store.documents.length,
-    ].join("|"),
-  );
+  const state = useAppStore((store) => unreadAskKey(store.documents, store.linkedFolders));
   const wanted = JSON.stringify(scope);
   // biome-ignore lint/correctness/useExhaustiveDependencies: `state` is when to ask again.
   useEffect(() => {
