@@ -34,12 +34,12 @@ export const en = {
   "library.toSort.other": "{count} to organize",
   "library.toSort.allow": "Allow {service}",
   "library.toSort.sends.one":
-    "1 Document waits to be organized: {service} isn’t allowed to read it. Allowing it sends the Document’s name, kind and page count, the start of its text and its slide titles or sheet names, with your Folders’ names and descriptions and any matching Tags’, to {service}, for this one and for Documents you add later.",
+    "1 Document waits to be organized: {service} isn’t allowed to read it. Allowing it sends the Document’s name, kind and page count, the start of its text and its slide titles or sheet names, with your Folders’ names and descriptions, the kinds of Document, and the names and descriptions of your own Tags that match, to {service}, for this one and for Documents you add later.",
   "library.toSort.sends.other":
-    "{count} Documents wait to be organized: {service} isn’t allowed to read them. Allowing it sends each Document’s name, kind and page count, the start of its text and its slide titles or sheet names, with your Folders’ names and descriptions and any matching Tags’, to {service}, for these and for Documents you add later.",
+    "{count} Documents wait to be organized: {service} isn’t allowed to read them. Allowing it sends each Document’s name, kind and page count, the start of its text and its slide titles or sheet names, with your Folders’ names and descriptions, the kinds of Document, and the names and descriptions of your own Tags that match, to {service}, for these and for Documents you add later.",
   "library.organize.sends": "Sends document names and excerpts to {company}.",
   "library.organize.sends.details":
-    "Each Document’s name and the start of its text (for a scan, images of its first pages), and your Folders’ and Tags’ names and descriptions, go to {company}.",
+    "Each Document’s name and the start of its text (for a scan, images of its first pages), your Folders’ names and descriptions, the kinds of Document, and your own Tags’ names and descriptions go to {company}.",
   "library.organize.dismiss": "Not now",
   "library.organize.setUp": "Set up a model on this computer",
   "library.organize.noneFit": "Organize found no Folder to suggest for these Documents",
@@ -51,6 +51,7 @@ export const en = {
   "organizeReview.willMove": "{documents} will move into {into}. Nothing has moved yet.",
   "organizeReview.willMove.none": "No Documents are ticked. Nothing has moved yet.",
   "organizeReview.nothingMoved": "Nothing has moved yet",
+  "organizeReview.nothingChanged": "Nothing has changed yet",
   "organizeReview.documents": "{count} Documents",
   "organizeReview.documents.one": "1 Document",
   "organizeReview.into.yours": "{count} of your Folders",
@@ -98,6 +99,26 @@ export const en = {
   "organizeReview.leftOut.noText": "No text to read",
   "organizeReview.leftOut.unreachable": "Couldn’t reach {service}",
   "organizeReview.leftOut.walled": "“{folder}” keeps its work inside it",
+  "organizeReview.leftOut.noTag": "No Tag fits",
+  "organizeReview.leftOut.tooFew": "Too few like it for a Folder yet",
+  "organizeReview.apart":
+    "These {count} Documents are too different to group yet. A Folder needs at least 3 that belong together.",
+  "organizeReview.apart.one":
+    "1 Document is too few to group yet. A Folder needs at least 3 that belong together.",
+  "organizeReview.noTagFits": "No Tag fits these {count} Documents. Nothing has changed.",
+  "organizeReview.noTagFits.one": "No Tag fits this Document. Nothing has changed.",
+  "organizeReview.title.tags": "Suggested Tags",
+  "organizeReview.willTag": "{documents} will get Tags. Nothing has changed yet.",
+  "organizeReview.willTag.none": "No Documents are ticked. Nothing has changed yet.",
+  "organizeReview.willMoveAndTag":
+    "{documents} will move into {into}, and {others} will get Tags. Nothing has changed yet.",
+  "organizeReview.others": "{count} others",
+  "organizeReview.others.one": "1 other",
+  "organizeReview.section.tagsOnly": "Tags only",
+  "organizeReview.tagging": "Tagging {done} of {total}…",
+  "organizeReview.stoppedTagging": "Stopped after tagging {count}. Nothing has changed.",
+  "organizeReview.tagged": "Tagged {count} Documents",
+  "organizeReview.tagged.one": "Tagged 1 Document",
   "organizeReview.running": "Organizing {done} of {total}…",
   "organizeReview.failed.model": "Couldn’t reach the AI model",
   "organizeReview.stop": "Stop",
@@ -2496,25 +2517,25 @@ export const en = {
   "status.taggingWith.one": "Tagging 1 Document with {service}…",
   "status.taggingWith.other": "Tagging {count} Documents with {service}…",
   "status.sends":
-    "The names and descriptions of your Tags, and each Document’s name, outline and short excerpts, go to {service}.",
+    "The kinds of Document, the names and descriptions of your own Tags, and each Document’s name, type and the start of its text go to {service}.",
   "status.sends.onThisComputer":
-    "The names and descriptions of your Tags, and each Document’s name, outline and short excerpts, stay on this computer.",
+    "The kinds of Document, the names and descriptions of your own Tags, and each Document’s name, type and the start of its text stay on this computer.",
   "status.sends.organize":
-    "The names and descriptions of your Folders and Tags, and each Document’s name, outline and short excerpts, go to {service}.",
+    "The names and descriptions of your Folders and your own Tags, the kinds of Document, and each Document’s name, outline and short excerpts, go to {service}.",
   "status.sends.organize.onThisComputer":
-    "The names and descriptions of your Folders and Tags, and each Document’s name, outline and short excerpts, stay on this computer.",
+    "The names and descriptions of your Folders and your own Tags, the kinds of Document, and each Document’s name, outline and short excerpts, stay on this computer.",
   "status.sends.organize.scans":
-    "The names and descriptions of your Folders and Tags, and each Document’s name, outline and short excerpts, go to {service}. Page images of scans are included.",
+    "The names and descriptions of your Folders and your own Tags, the kinds of Document, and each Document’s name, outline and short excerpts, go to {service}. Page images of scans are included.",
   "status.sends.organize.onThisComputer.scans":
-    "The names and descriptions of your Folders and Tags, and each Document’s name, outline and short excerpts, stay on this computer. Page images of scans are included.",
+    "The names and descriptions of your Folders and your own Tags, the kinds of Document, and each Document’s name, outline and short excerpts, stay on this computer. Page images of scans are included.",
   "status.sends.organize.text":
-    "For text Documents, the names and descriptions of your Folders and Tags, and each Document’s name, outline and short excerpts, go to {service}.",
+    "For text Documents, the names and descriptions of your Folders and your own Tags, the kinds of Document, and each Document’s name, outline and short excerpts, go to {service}.",
   "status.sends.organize.text.onThisComputer":
-    "For text Documents, the names and descriptions of your Folders and Tags, and each Document’s name, outline and short excerpts, stay on this computer.",
+    "For text Documents, the names and descriptions of your Folders and your own Tags, the kinds of Document, and each Document’s name, outline and short excerpts, stay on this computer.",
   "status.sends.scans":
-    "For scans, page images, the Document’s name and type, and the names and descriptions of your Folders and Tags go to {service}.",
+    "For scans, page images, the Document’s name and type, the kinds of Document, and the names and descriptions of your Folders and your own Tags go to {service}.",
   "status.sends.scans.onThisComputer":
-    "For scans, page images, the Document’s name and type, and the names and descriptions of your Folders and Tags stay on this computer.",
+    "For scans, page images, the Document’s name and type, the kinds of Document, and the names and descriptions of your Folders and your own Tags stay on this computer.",
   "status.sends.withScans": "{text} {scans}",
   "status.taggingWaiting": "Tags need an AI model",
   "status.taggingPermission": "Tags need your OK",
@@ -2769,13 +2790,8 @@ export const en = {
   "tags.colour.blue": "Blue",
   "tags.colour.purple": "Purple",
   "tags.colour.gray": "Gray",
-  "tags.filter.review": "Needs review",
   "tags.chip.more": "{count} more: {names}",
   "tags.marks": "Tags: {names}",
-  "tags.chip.reviewTitle":
-    "{tag}: added automatically, not sure. Confirm to keep it, or remove it.",
-  "tags.review.confirm": "Confirm {tag}",
-  "tags.review.reject": "Remove {tag}",
   "tags.edit": "Edit Tags of {name}",
   "tags.picker.labelMany": "Tags of {count} Documents",
   "tags.picker.placeholder": "Add a Tag…",
@@ -2795,7 +2811,6 @@ export const en = {
   "tags.picker.automatic": "automatic",
   "tags.dialog.count": "{count} Documents",
   "tags.dialog.count.one": "1 Document",
-  "tags.dialog.toReview": "{count} to review",
   "tags.dialog.descriptionNote":
     "Clear descriptions make tagging more accurate. Re-tag to apply a change.",
   "tags.dialog.search": "Find a Tag",
@@ -2817,6 +2832,28 @@ export const en = {
   "documents.startMind.many": "Start a note from these {count} Documents",
   "documents.retryAction.many": "Retry {count} Documents",
   "command.selection.clear": "Clear Selection",
+  "tags.kind.contract": "Contract",
+  "tags.kind.contract.description":
+    "An agreement between parties, such as a contract, lease, NDA or statement of work.",
+  "tags.kind.invoice": "Invoice",
+  "tags.kind.invoice.description":
+    "A bill, receipt or expense claim for goods or services supplied.",
+  "tags.kind.statement": "Statement",
+  "tags.kind.statement.description": "An account statement from a bank, card issuer or supplier.",
+  "tags.kind.report": "Report",
+  "tags.kind.report.description": "A report of findings, figures, analysis or progress.",
+  "tags.kind.paper": "Paper",
+  "tags.kind.paper.description":
+    "A research or academic paper, such as a journal article, preprint or thesis.",
+  "tags.kind.book": "Book",
+  "tags.kind.book.description": "A book, a chapter of one, or a manual.",
+  "tags.kind.slides": "Slides",
+  "tags.kind.slides.description": "A presentation deck.",
+  "tags.kind.meetingNotes": "Meeting notes",
+  "tags.kind.meetingNotes.description":
+    "Notes or minutes of a meeting, a call, an interview or a debrief.",
+  "tags.kind.letter": "Letter",
+  "tags.kind.letter.description": "A letter or a formal notice addressed to someone.",
   "tags.chip.automatic": "{tag}: added automatically",
   "tags.chip.user": "{tag}: added by you",
   "tags.menu.open": "Tags of {name}",
@@ -2826,6 +2863,7 @@ export const en = {
   "tags.state.tagging": "Tagging…",
   "tags.state.noFit": "No Tag fits",
   "tags.state.noTags": "No Tags yet",
+  "tags.state.waiting": "Suggested Tags to confirm",
   "tags.state.addTag": "Add a Tag",
   "tags.state.failed": "Tagging failed. Re-tag to try again.",
   "tags.dialog.body": "Tagging goes by these names and descriptions. Tags you set never change.",
@@ -2841,17 +2879,14 @@ export const en = {
   "tags.dialog.new": "New Tag",
   "tags.dialog.create": "Add Tag",
   "tags.dialog.retag": "Re-tag all Documents",
-  "tags.dialog.retag.hint": "Redoes automatic Tags for every Document. Tags you set stay.",
+  "tags.dialog.retag.hint":
+    "Suggests Tags for every Document again. They wait in Suggested Tags until you confirm them, and Tags you set stay.",
   "tags.dialog.retag.started": "Re-tagging has started.",
   "tags.dialog.done": "Done",
 
   "jev.waiting.notice": "Tags come once you choose an AI model.",
   "jev.waiting.permission": "Tags wait until you allow Document text to go to {service}.",
-  "jev.chip.needsReview": "needs review",
   "jev.chip.likely": "{tag}: added automatically, {percent}% likely",
-  "jev.chip.review":
-    "{tag}: added automatically, but only {percent}% likely. Confirm it to keep it, or remove it.",
-  "jev.chip.confirm": "Confirm {tag} on {name}",
   "jev.settings.title": "TypeSafe Jev",
   "jev.settings.body": "Tags with TypeSafe Jev; uncertain ones go to review.",
   "jev.settings.inUse": "Your Jev key is saved.",
@@ -2875,13 +2910,12 @@ export const en = {
   "jev.settings.change": "Change",
   "jev.settings.remove": "Stop using Jev",
   "jev.form.apiKey": "Jev API key",
-  "jev.form.advanced": "Server, model and review",
+  "jev.form.advanced": "Server, model and threshold",
   "jev.form.endpoint": "Server URL (optional)",
   "jev.form.endpointHint": "Leave empty for TypeSafe’s Jev, or enter a compatible server.",
   "jev.form.model": "Model (optional)",
-  "jev.form.reviewFrom": "Needs review from (%)",
-  "jev.form.reviewTo": "to (%)",
-  "jev.form.reviewHint": "Below first: not added. From second: no review mark.",
+  "jev.form.suggestFrom": "Suggest from (%)",
+  "jev.form.suggestHint": "A Tag Jev gives less than this isn’t suggested.",
   "jev.form.save": "Use Jev for tagging",
   "tagging.title": "Tagging",
   "tagging.intro": "Tags new Documents and suggests Folders.",
@@ -3054,9 +3088,9 @@ export const en = {
   "setup.sorting.here":
     "Tags, Folders and meeting hints run on this computer \u00b7 free \u00b7 nothing leaves",
   "setup.sorting.sends":
-    "Choosing it tags new Documents by themselves, new ones in your Linked folders too: each one’s name and type and an excerpt of its start (about 1,500 tokens), with your Tags’ and Folders’ names and descriptions, go to {service}. Documents already in the Library go only when you run Organize.",
+    "Choosing it tags new Documents by themselves, new ones in your Linked folders too: each one’s name and type and an excerpt of its start (about 1,500 tokens), with the kinds of Document and your own Tags’ and your Folders’ names and descriptions, go to {service}. Documents already in the Library go only when you run Organize.",
   "setup.sorting.sendsWhenOn":
-    "With tagging new Documents on, each new one, new ones in your Linked folders too, sends its name and type and an excerpt of its start (about 1,500 tokens), with your Tags’ and Folders’ names and descriptions, to {service}. Documents already in the Library go only when you run Organize.",
+    "With tagging new Documents on, each new one, new ones in your Linked folders too, sends its name and type and an excerpt of its start (about 1,500 tokens), with the kinds of Document and your own Tags’ and your Folders’ names and descriptions, to {service}. Documents already in the Library go only when you run Organize.",
   "models.sorting.off": "Tagging new Documents is off",
   "models.sorting.turnOn": "Turn on…",
   "command.tagging.turnOn": "Turn on tagging new Documents…",
@@ -3146,7 +3180,7 @@ export const en = {
   "providers.sends.edits":
     "the text you ask the assistant to change, the paragraphs it is in and, when the change rewrites or removes cited text, that Citation’s quote",
   "providers.sends.onRequest":
-    "Tagging and organizing your Documents send each Document’s name, kind and page count, the start of its text and its slide titles or sheet names, with your Folders’ and Tags’ names and descriptions, only when you turn them on or ask for them. Page images of scans go only if you allow them in Settings → Privacy.",
+    "Tagging and organizing your Documents send each Document’s name, kind and page count, the start of its text and its slide titles or sheet names, with your Folders’ names and descriptions, the kinds of Document and your own Tags’ names and descriptions, only when you turn them on or ask for them. Page images of scans go only if you allow them in Settings → Privacy.",
   "providers.form.saving": "Saving…",
   "providers.form.moreShort": "More…",
   "providers.form.whereKey": "Where do I find it?",
@@ -3441,7 +3475,7 @@ export const en = {
     "The capped report of each Analysis an Answer runs: the names and sizes of its inputs, row and column counts, warnings and errors with the text of any cell it couldn’t read as a number, the figures and table rows it works out, its chart and picture titles, the numbers written in its code, printed results and text-file excerpts",
   "consent.flow.tagging": "Automatic Tags",
   "consent.flow.tagging.purpose": "tag your Documents automatically",
-  "consent.data.tags": "The names and descriptions of your Tags",
+  "consent.data.tags": "The kinds of Document and the names and descriptions of your own Tags",
   "consent.data.document-excerpts":
     "Each Document’s name and type and an excerpt of its start (about 1,500 tokens), with a deck’s slide titles or a workbook’s sheet names",
   "consent.flow.scan-images": "Page images of scans",
@@ -3869,7 +3903,7 @@ export const en = {
   "models.removed.automatic": "Removed {provider}. Its defaults are back to Automatic.",
   "models.providers.title": "Your providers",
   "needsModel.organize":
-    "Organize needs an AI model. It sends Documents’ names and excerpts, and Folder and Tag names and descriptions, to the model you set up.",
+    "Organize needs an AI model. It sends Documents’ names and excerpts, Folder names and descriptions, the kinds of Document, and your own Tags’ names and descriptions, to the model you set up.",
   "needsModel.compare":
     "Compare Documents needs an AI model. It sends the Documents you chose to the model you set up.",
   "needsModel.help":
@@ -3992,6 +4026,9 @@ export const en = {
   "answer.commands.proposed.separator": ", ",
   "answer.commands.proposed.wait": "Nothing has moved yet: review them to file them.",
   "answer.commands.proposed.wait.one": "Nothing has moved yet: review it to file it.",
+  "answer.commands.proposedTags": "Proposed Tags for {documents}: {parts}.",
+  "answer.commands.proposedTags.wait": "No Tag has been added yet: review them to add them.",
+  "answer.commands.proposedTags.wait.one": "No Tag has been added yet: review them to add them.",
   "answer.commands.notDone": "Not done yet: “{asked}”. Ask again to do it.",
   "answer.commands.unsorted": "{count} Documents couldn’t be sorted.",
   "answer.commands.untouched": "{count} Documents were left as they were.",
@@ -5608,11 +5645,14 @@ export const en = {
   "commands.finding.tag": "Finding the Tags…",
   "commands.finding.window": "Looking at what this window can do…",
   "commands.running.organize": "Organizing…",
+  "commands.running.tagWithAi": "Tagging…",
   "commands.running.window": "Running “{command}”…",
   "commands.done.window": "Done: {command}",
   "commands.done.openedBeside": "Opened “{name}” beside this one",
   "commands.done.organize": "{count} Documents wait in Suggested Folders",
   "commands.done.organize.one": "1 Document waits in Suggested Folders",
+  "commands.done.tagWithAi": "{count} Documents wait in Suggested Tags",
+  "commands.done.tagWithAi.one": "1 Document waits in Suggested Tags",
   "commands.done.rename.folder": "Renamed {count} Folders",
   "commands.done.rename.folder.one": "Renamed 1 Folder",
   "commands.done.rename.tag": "Renamed {count} Tags",

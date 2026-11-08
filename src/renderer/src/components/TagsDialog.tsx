@@ -7,6 +7,7 @@ import { errorMessage } from "../errors";
 import { useLanguage, useT } from "../i18n";
 import { formatCount } from "../linkedFolders";
 import { matchName, queryWords } from "../matcher";
+import { tagDocuments } from "../organizeReview";
 import { useOwnDocuments } from "../ownDocuments";
 import { useRequests } from "../requests";
 import { useAppStore } from "../store";
@@ -36,10 +37,9 @@ import { useModal } from "./useModal";
 /** Runs a change, showing its failure in the dialog. Resolves with whether it worked. */
 type Run = (action: () => Promise<unknown>) => Promise<boolean>;
 
-/** How many Documents carry each Tag, and how many of those await review. */
+/** How many Documents carry each Tag. */
 interface Usage {
   count: number;
-  review: number;
 }
 
 /**
@@ -76,9 +76,8 @@ export function TagsDialog() {
     const counts = new Map<string, Usage>();
     for (const document of documents)
       for (const link of document.tags) {
-        const each = counts.get(link.tagId) ?? { count: 0, review: 0 };
+        const each = counts.get(link.tagId) ?? { count: 0 };
         each.count++;
-        if (link.needsReview) each.review++;
         counts.set(link.tagId, each);
       }
     return counts;
@@ -144,7 +143,7 @@ export function TagsDialog() {
                     key={tag.id}
                     tag={tag}
                     tags={tags}
-                    usage={usage.get(tag.id) ?? { count: 0, review: 0 }}
+                    usage={usage.get(tag.id) ?? { count: 0 }}
                     run={run}
                   />
                 ))}
@@ -161,8 +160,11 @@ export function TagsDialog() {
               <button
                 type="button"
                 data-testid="retag-all"
-                onClick={async () => {
-                  if (await run(() => core.retagDocuments())) setRetagStarted(true);
+                onClick={() => {
+                  setRetagStarted(true);
+                  void tagDocuments().catch((error: unknown) =>
+                    useAppStore.getState().reportError(error),
+                  );
                 }}
                 className={buttonClass}
               >
@@ -304,9 +306,6 @@ function TagRow({
         {usage.count === 1
           ? t("tags.dialog.count.one")
           : t("tags.dialog.count", { count: formatCount(usage.count, language) })}
-        {usage.review > 0 && (
-          <span className="block">{t("tags.dialog.toReview", { count: usage.review })}</span>
-        )}
       </button>
       <button
         type="button"

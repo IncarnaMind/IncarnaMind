@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { create } from "zustand";
 import type {
   OrganizeLibraryInput,
@@ -31,6 +32,8 @@ export interface OrganizeRun {
   total: number;
   /** Sorted one Document at a time into the Folders there are, by a model that can't plan: no Stop. */
   each?: true;
+  /** Re-tag: "Tagging 4 of 12…", its Tags only (#2339). */
+  tags?: true;
 }
 
 interface ReviewState {
@@ -44,6 +47,13 @@ interface ReviewState {
   run: OrganizeRun | null;
   /** Stop ended the last run, after this many: "Stopped after reading 12. Nothing has moved." */
   stopped: number | null;
+  /** The run Stop ended was a Re-tag: "Stopped after tagging 4. Nothing has changed." */
+  stoppedTagging: boolean;
+  /**
+   * The last run proposed nothing, no Folder and no Tag, so no Review opened: its line says the
+   * Documents are too different to group yet, or, for a Re-tag (`tags`), that no Tag fits them.
+   */
+  apart: { count: number; tags: boolean } | null;
   /**
    * The last run couldn't reach its model, so nothing was planned: its line names the service and
    * offers Try again, with the provider's own sentence under Details, until dismissed.
@@ -61,6 +71,8 @@ export const useOrganizeReview = create<ReviewState>()(() => ({
   open: false,
   run: null,
   stopped: null,
+  stoppedTagging: false,
+  apart: null,
   failed: null,
   estimate: null,
   shownAll: new Set(),
@@ -125,11 +137,29 @@ core.on("organize.progress", (progress) => {
   });
 });
 
+/**
+ * How many Documents wait in the Review for a Folder: while any do, Organize offers their Review
+ * instead of another run. Tags waiting alone don't hold it back (#2339): a new User's Documents
+ * are tagged before they are organized. `fallback`: the count before the Review is first read.
+ */
+export function useFoldersWaiting(fallback: number): number {
+  const review = useOrganizeReview((state) => state.review);
+  const count = useOrganizeReview((state) => state.count) ?? fallback;
+  useEffect(() => {
+    if (review === null && count > 0) void refreshReview().catch(report);
+  }, [review, count]);
+  if (review === null) return count;
+  return review.items.filter(
+    (item) =>
+      item.ticked && (item.placement.kind === "folder" || item.placement.kind === "newFolder"),
+  ).length;
+}
+
 /** Opens the Review over the Library's page, as its count's Review does. */
 export function openReview(): void {
   const app = useAppStore.getState();
   app.openLibrary();
-  useOrganizeReview.setState({ open: true, stopped: null });
+  useOrganizeReview.setState({ open: true, stopped: null, apart: null });
   void refreshReview().catch(report);
   // The update's own words at the Library's top last until the Review is first opened (#1569).
   if ((app.library?.reviewMoved ?? 0) > 0) void core.reviewMovedSeen().catch(report);
@@ -151,9 +181,31 @@ export function showAllRows(cardId: string): void {
  */
 export async function organize(input: OrganizeLibraryInput): Promise<OrganizeLibraryResult | null> {
   if (useOrganizeReview.getState().run) return null;
+  return runInReview(input, () => core.organizeLibrary(input));
+}
+
+/**
+ * Re-tag (#2339): these Documents, or every one, tagged as one run, "Tagging 4 of 12…" with Stop
+ * at the Library's top; their Tags wait in the Review, which opens when it ends.
+ */
+export function tagDocuments(
+  documentIds?: readonly string[],
+): Promise<OrganizeLibraryResult | null> {
+  const input = documentIds ? { documentIds: [...documentIds] } : {};
+  return runInReview(input, () => core.tagDocuments(input), true);
+}
+
+async function runInReview(
+  input: OrganizeLibraryInput,
+  start: () => Promise<OrganizeLibraryResult>,
+  tags?: true,
+): Promise<OrganizeLibraryResult | null> {
+  if (useOrganizeReview.getState().run) return null;
   useOrganizeReview.setState({
-    run: { input, runId: null, waiting: 0, done: 0, total: 0 },
+    run: { input, runId: null, waiting: 0, done: 0, total: 0, ...(tags && { tags }) },
     stopped: null,
+    stoppedTagging: false,
+    apart: null,
     failed: null,
     estimate: null,
     open: false,
@@ -161,7 +213,7 @@ export async function organize(input: OrganizeLibraryInput): Promise<OrganizeLib
   try {
     let result: OrganizeLibraryResult;
     try {
-      result = await core.organizeLibrary(input);
+      result = await start();
     } catch (error) {
       // The app's own sentence (no model, no consent) is a notice; a provider's is this line's.
       const { wording, message } = describeError(error);
@@ -177,12 +229,12 @@ export async function organize(input: OrganizeLibraryInput): Promise<OrganizeLib
       return result;
     }
     if (result.status === "stopped") {
-      useOrganizeReview.setState({ stopped: run?.done ?? 0 });
+      useOrganizeReview.setState({ stopped: run?.done ?? 0, stoppedTagging: tags === true });
       return result;
     }
     const [review] = await Promise.all([refreshReview(), useAppStore.getState().refreshLibrary()]);
     if (result.proposed === 0 || review.items.length === 0) {
-      useNotices.getState().confirm("library.organize.noneFit");
+      useOrganizeReview.setState({ apart: { count: result.documents, tags: tags === true } });
     } else if (libraryShown()) {
       useOrganizeReview.setState({ open: true, shownAll: new Set() });
     }
@@ -346,6 +398,8 @@ export function confirmReview(): Promise<void> {
   return makeInTurn(async () => {
     const { review } = useOrganizeReview.getState();
     if (!review) return;
+    const library = useAppStore.getState().library;
+    const { onlyTags } = reviewLayout(review, library?.groups ?? [], library?.assignments ?? []);
     const confirmation = await core.confirmOrganizeReview(review.items.map((item) => item.id));
     useOrganizeReview.setState({ open: false });
     await Promise.all([refreshReview(), useAppStore.getState().refreshLibrary()]);
@@ -353,8 +407,13 @@ export function confirmReview(): Promise<void> {
     const { id } = confirmation;
     const count = confirmation.documentIds.length;
     useUndo.getState().push({
+      // Only Tags were confirmed: "Tagged 12 Documents"; any filing makes it Organize's (#2339).
       said: (t) =>
-        t(count === 1 ? "organizeReview.organized.one" : "organizeReview.organized", { count }),
+        onlyTags
+          ? t(count === 1 ? "organizeReview.tagged.one" : "organizeReview.tagged", { count })
+          : t(count === 1 ? "organizeReview.organized.one" : "organizeReview.organized", {
+              count,
+            }),
       name: (t) => t("undo.name.organize"),
       shownAt: LIBRARY_UNDO_PLACE,
       undo: async () => {
@@ -445,7 +504,10 @@ export async function replan(kind: Replan): Promise<void> {
   // A plan that proposes nothing keeps the earlier one, as a stopped or failed one does.
   const planned = () => result?.status === "done" && result.proposed > 0;
   try {
-    result = await organize(input);
+    // Only Tags waiting: Try Again tags the same Documents again (#2339).
+    result = layout.onlyTags
+      ? await tagDocuments(review.items.map((item) => item.documentId))
+      : await organize(input);
   } finally {
     if (!planned()) {
       await putBack();

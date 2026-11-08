@@ -215,6 +215,9 @@ import { BUILT_IN_EMBEDDING_MODEL, createEmbeddingModel } from "./embedding";
 import { createActiveEmbedding } from "./embedding/active";
 import { createModelSources, MODEL_COPIES, modelCopyUrl } from "./embedding/modelSources";
 import {
+  ChatNotReadyError,
+  ConsentDeclinedError,
+  ConsentNeededError,
   FileWriteCancelledError,
   InvalidInputError,
   isRecord,
@@ -253,6 +256,7 @@ import {
 } from "./library/classifier";
 import { createLibraryOrganizer } from "./library/organizeLibrary";
 import { documentCitedPages, documentPageImages } from "./library/pageImages";
+import type { PlanRequest } from "./library/plan";
 import { createPlanPace, type Plan } from "./library/planPace";
 import { createTagging } from "./library/tagging";
 import type { LibrarySettings, TaggingClassifier } from "./library/types";
@@ -352,17 +356,21 @@ import { createPace, realTimers } from "./sources/pace";
 import { createSourceProviders, sourceKeySecret } from "./sources/providers";
 import { migrate, openDatabase } from "./storage";
 import { createSuggestions } from "./suggestions";
-import { createTags, tagsOfDocument } from "./tags";
+import { createTags } from "./tags";
+import { offeredKinds, offeredTags } from "./tags/about";
 import {
+  BATCH_EXCERPT_TOKENS,
   chatClassifier,
   excerptFromPassages,
   TAGGING_INSTRUCTIONS,
   type TagClassifier,
+  tagRequest,
 } from "./tags/classify";
 import { createDecisionHosts } from "./tags/decisionHosts";
-import { mayBackgroundSend } from "./tags/held";
+import { clearForService, mayBackgroundSend } from "./tags/held";
 import { createJevTagging, decisionModelTagger } from "./tags/jev";
 import { createRateLimitPause } from "./tags/rateLimit";
+import { TAG_BATCH } from "./tags/run";
 import { createTagger, TAGGING_FLOW_SENDS } from "./tags/tagger";
 import { inFlow } from "./timing/flows";
 import { createTimings } from "./timing/timings";
@@ -813,9 +821,10 @@ export function createCore(adapters: CoreAdapters): Core {
   );
   const folders = createFolders(db, now);
   const foldersChanged = () => events.emit("folders.changed", folders.list());
-  const tags = createTags(db, now);
-  // First run: the preset Tags, in the interface language of the time.
-  tags.seedPresets(settings.get().language);
+  // A kind's Tag shows in the interface's language (#2339).
+  const tags = createTags(db, now, () => settings.get().language);
+  // First run: the preset Tags, each its kind's.
+  tags.seedPresets();
   const tagsChanged = () => {
     events.emit("tags.changed", tags.list());
     tagger.tagsDefined();
@@ -2067,6 +2076,11 @@ export function createCore(adapters: CoreAdapters): Core {
         throw error;
       }
     },
+    tagByRun: (ids, signal, runId) =>
+      libraryOrganizer.tag(
+        { documentIds: [...ids] },
+        { run: { origin: "assistant", runId }, signal },
+      ),
     proposeFolder: (name, about) =>
       organizeReview.proposeFolders([{ name, description: about }])[0] ?? null,
     withdrawOrganizeRun: (runId, folderIds) => organizeReview.withdraw(runId, folderIds),
@@ -2627,15 +2641,7 @@ export function createCore(adapters: CoreAdapters): Core {
         return tag.id;
       },
       apply: (documentId, tagIds) => {
-        const kept = tagsOfDocument(db, documentId)
-          .filter((link) => link.source === "automatic")
-          .map((link) => link.tagId);
-        const decided = [...new Set([...kept, ...tagIds])].map((tagId) => ({
-          tagId,
-          confidence: null,
-          needsReview: false,
-        }));
-        if (tags.applyAutomatic(documentId, decided).changed) announceTagged([documentId]);
+        if (tags.addAutomatic(documentId, tagIds)) announceTagged([documentId]);
       },
     },
     notes: {
@@ -3632,15 +3638,27 @@ export function createCore(adapters: CoreAdapters): Core {
         // No service to send to: the model runs on a server on this computer.
         const chosen = chatClassifier(prepared.model, {
           local: prepared.provider.service === null,
+          language: settings.get().language,
         });
         const plan = planPaceOf(prepared.provider.kind);
-        if (!plan) return chosen;
+        const { decideMany } = chosen;
+        if (!plan || !decideMany) return chosen;
         return {
           ...chosen,
           decide: (input) => plan.run(() => chosen.decide(input), input.signal),
+          decideMany: (input) => plan.run(() => decideMany(input), input.signal),
         };
       }
     }
+  };
+  /** The tagger in use, once the User accepted the tagging flow to its service; throws when it can't be used. */
+  const prepareTagging = async (): Promise<TagClassifier> => {
+    const classifier = await tagging.resolve();
+    if (!classifier) throw new TaggingNotReadyError({ key: "error.tagging.noModel" });
+    if (decisionModelElsewhere(classifier)) throw notOnThisComputer(classifier);
+    if (embedding.localOnly() && tagging.service(classifier))
+      throw new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
+    return { ...(await prepareTagger(classifier)), service: tagging.service(classifier) };
   };
   const tagger = createTagger({
     // A Document filed inside a walled Folder goes to no cloud service by itself (#2308).
@@ -3648,7 +3666,12 @@ export function createCore(adapters: CoreAdapters): Core {
       !library.inWall(id) && (pressed || mayBackgroundSend(db, id, [service], library.turnedOnSeq)),
     db,
     now,
-    tags,
+    offered: (id, text) => offeredTags(db, [id], undefined, new Map([[id, text]])).get(id) ?? [],
+    kinds: () => offeredKinds(db),
+    language: () => settings.get().language,
+    propose: (run, proposals) => {
+      organizeReview.proposeTags(run, proposals);
+    },
     enabled: () => !organizesNewDocuments(),
     automatic: () => library.settings().automatic,
     organizing: (id) => organizing() && library.isOrganizing(id),
@@ -3673,18 +3696,8 @@ export function createCore(adapters: CoreAdapters): Core {
       if (classifier.kind === "chat") return chat.mightBeReady("tagging", classifier.choice);
       return true;
     },
-    prepare: async () => {
-      const classifier = await tagging.resolve();
-      if (!classifier) throw new TaggingNotReadyError({ key: "error.tagging.noModel" });
-      if (decisionModelElsewhere(classifier)) throw notOnThisComputer(classifier);
-      if (embedding.localOnly() && tagging.service(classifier))
-        throw new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
-      return { ...(await prepareTagger(classifier)), service: tagging.service(classifier) };
-    },
-    // A hint only: the tagger prepared decides whether it names Tags.
-    namesTags: () => tagsWith()?.kind === "chat",
+    prepare: prepareTagging,
     announce: announceTagged,
-    tagsMade: tagsChanged,
     reportError: (error) => console.error(error),
     background,
     rateLimit,
@@ -3775,7 +3788,6 @@ export function createCore(adapters: CoreAdapters): Core {
     reviewCount: () => organizeReviewCount(db),
     review: {
       propose: (run, proposals) => organizeReview.propose(run, proposals),
-      proposeFolders: (folders) => organizeReview.proposeFolders(folders),
       offeredFolders: () => organizeReview.offeredFolders(),
     },
     changed: () => {
@@ -4042,14 +4054,8 @@ export function createCore(adapters: CoreAdapters): Core {
       announceTagged(tagged);
     },
     changed: (count) => events.emit("organizeReview.changed", { count }),
+    language: () => settings.get().language,
   });
-  /** Tagging states that leave a Document without its automatic Tags yet. */
-  const UNTAGGED: ReadonlySet<string> = new Set([
-    "off",
-    "failed",
-    "waiting-for-provider",
-    "pending",
-  ]);
   // Organize of the whole Library, or of one Folder, planned at any size into the Review (#1569).
   const libraryOrganizer = createLibraryOrganizer({
     db,
@@ -4066,32 +4072,76 @@ export function createCore(adapters: CoreAdapters): Core {
     prepare: (chosen, permit) => prepareOrganize(chosen, permit),
     localOnly: () => embedding.localOnly(),
     // Tagging after the plan (`settled`) goes on the Organize model when tagging picks no other.
+    // The run's tagging goes on the Organize model when tagging picks no other, `TAG_BATCH` a request.
     taggingRequests: (ids) => {
       if (library.settings().classifier.kind !== "chat") return [];
       const listed = approximateTokens(
-        [TAGGING_INSTRUCTIONS, ...tags.list().map((tag) => `${tag.name}: ${tag.description}`)].join(
-          "\n",
+        [TAGGING_INSTRUCTIONS, JSON.stringify(tagRequest([], settings.get().language))].join("\n"),
+      );
+      const excerpts = [...ids].map((id) =>
+        approximateTokens(
+          excerptFromPassages(
+            db
+              .all<{ text: string }>(
+                "SELECT text FROM passages WHERE document_id = ? AND deleted_at IS NULL ORDER BY position LIMIT 6",
+                [id],
+              )
+              .map((row) => row.text),
+            BATCH_EXCERPT_TOKENS,
+          ),
         ),
       );
-      return documents
-        .getMany([...ids])
-        .filter((each) => UNTAGGED.has(each.tagging))
-        .map((each) => ({
-          inputTokens:
-            listed +
-            approximateTokens(
-              excerptFromPassages(
-                db
-                  .all<{ text: string }>(
-                    "SELECT text FROM passages WHERE document_id = ? AND deleted_at IS NULL ORDER BY position LIMIT 6",
-                    [each.id],
-                  )
-                  .map((row) => row.text),
-              ),
-            ),
-          outputTokens: outputTokens("tags"),
-        }));
+      const requests: PlanRequest[] = [];
+      for (let at = 0; at < excerpts.length; at += TAG_BATCH) {
+        const batch = excerpts.slice(at, at + TAG_BATCH);
+        requests.push({
+          inputTokens: listed + batch.reduce((sum, tokens) => sum + tokens, 0),
+          outputTokens: outputTokens("tag-batch", batch.length),
+        });
+      }
+      return requests;
     },
+    prepareTagging: async (asked) => {
+      await lookForTaggingModel();
+      let tagger: TagClassifier;
+      try {
+        tagger = await prepareTagging();
+      } catch (error) {
+        // Where tagging may not go, Organize proposes Folders only, as on its own it tags nothing.
+        const held =
+          error instanceof ChatNotReadyError ||
+          error instanceof ConsentDeclinedError ||
+          error instanceof ConsentNeededError ||
+          error instanceof LocalModeError ||
+          error instanceof TaggingNotReadyError;
+        if (asked || !held) throw error;
+        return null;
+      }
+      const service = tagger.service ?? null;
+      return {
+        tagger,
+        service,
+        // Walls and stopped places hold for Organize, as for tagging in the background.
+        sends: (id) => asked || (!library.inWall(id) && !library.taggingStoppedFor(id)),
+        // Organize changes nothing outside the Review; the User's Re-tag settles its Documents' tagging.
+        tagged: (ids) => {
+          if (!asked) return;
+          db.transaction(() => {
+            const at = now();
+            db.run(
+              `UPDATE documents SET tagging_status = 'tagged', tagging_error_kind = NULL,
+                 tagging_error_message = NULL, tagging_error_resets_at = NULL, updated_at = ?
+               WHERE id IN (SELECT value FROM json_each(?)) AND deleted_at IS NULL`,
+              [at, JSON.stringify(ids)],
+            );
+            // It clears its Documents for that service, as the User's re-tag always has.
+            if (service) for (const id of ids) clearForService(db, id, [service], at);
+          });
+          announceTagged(ids);
+        },
+      };
+    },
+    proposeTags: (run, proposals) => organizeReview.proposeTags(run, proposals),
     estimate: (chosen, requests) => {
       const classifier = organizeModelOf(chosen);
       const metered = classifier?.kind === "chat" ? chat.metered(classifier.choice) : null;
@@ -4103,21 +4153,7 @@ export function createCore(adapters: CoreAdapters): Core {
         : null,
     tokensOf: approximateTokens,
     propose: (run, proposals) => organizeReview.propose(run, proposals),
-    settled: (ids) => {
-      library.settle(ids);
-      // Organize used to add Tags as it filed; its plan doesn't, so the tagger adds them, through
-      // the tagging flow's consent, as it tags by itself, until Tags wait in the Review too (#1569).
-      const untagged = documents
-        .getMany([...ids])
-        .filter((each) => UNTAGGED.has(each.tagging))
-        .map((each) => each.id);
-      if (untagged.length > 0)
-        void lookForTaggingModel()
-          .then(() => tagger.afterOrganize(untagged))
-          .catch((error: unknown) =>
-            console.error("Tagging after Organize couldn't start.", error),
-          );
-    },
+    settled: (ids) => library.settle(ids),
     progress: (progress) => events.emit("organize.progress", progress),
   });
   try {
@@ -5643,6 +5679,9 @@ export function createCore(adapters: CoreAdapters): Core {
         await taggingChanged();
       // The examples follow the new language before this returns, so whoever awaits it can rely on it.
       if (updated.language !== languageWas) {
+        // Each kind's Tag is named in the interface's language: switching it renames them (#2339).
+        events.emit("tags.changed", tags.list());
+        events.emit("organizeReview.changed", { count: organizeReview.count() });
         await examples
           .followLanguage()
           .catch((error) => console.error("The example Minds didn't follow the language:", error));
@@ -6449,8 +6488,6 @@ export function createCore(adapters: CoreAdapters): Core {
       }
       return routeOf(classifier);
     },
-    proposeFolders: async (ids, options) =>
-      library.propose(ids, settings.get().language, undefined, options?.forService),
     classifyDocuments: async (ids, options) => {
       library.classify(
         ids,
@@ -6544,6 +6581,10 @@ export function createCore(adapters: CoreAdapters): Core {
     discardOrganizeReview: async (itemIds) => organizeReview.discard(itemIds),
     restoreDiscardedOrganizeReview: async (id) => organizeReview.restoreDiscarded(id),
     organizeLibrary: (input) => libraryOrganizer.organize(input),
+    tagDocuments: async (input) => {
+      rateLimit.resumeNow();
+      return libraryOrganizer.tag(input);
+    },
     stopOrganizeLibrary: async () => libraryOrganizer.stop(),
     moveToFolder: async (input) => {
       if (!isRecord(input)) throw new InvalidInputError("moveToFolder expects an object.");

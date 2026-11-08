@@ -14,12 +14,21 @@ import type {
 import { decodeVector } from "../documents/vectors";
 import { InvalidInputError, isRecord, TaggingNotReadyError } from "../errors";
 import type { Language } from "../language";
-import type { OrganizeReviewProposal, OrganizeReviewRun } from "../organizeReview";
-import type { OrganizeReviewOrigin } from "../organizeReview/types";
+import type { OrganizeReviewProposal, OrganizeReviewRun, TagsProposal } from "../organizeReview";
+import type { OrganizeReviewLeftOut, OrganizeReviewOrigin } from "../organizeReview/types";
 import { classifyProviderError } from "../providers/providerErrors";
 import { gateStop } from "../sendGate";
 import type { Database } from "../storage";
-import { documentType, excerptFromPassages } from "../tags/classify";
+import { offeredKinds, offeredTags } from "../tags/about";
+import {
+  BATCH_EXCERPT_TOKENS,
+  type DocumentExcerpt,
+  documentType,
+  excerptFromPassages,
+  EXCERPT_TOKENS as TAGGING_EXCERPT_TOKENS,
+  type TagClassifier,
+} from "../tags/classify";
+import { batchOrder, type TagRunResult, tagInRun } from "../tags/run";
 import type { GroupClassifier } from "./classifier";
 import { organizeExcerpt, type StoredDocument, storedOrganizeSource } from "./excerpt";
 import {
@@ -78,10 +87,25 @@ export function createLibraryOrganizer(options: {
   /** What these requests would cost on the Organize model; null for one not billed per token. */
   estimate(settings: LibrarySettings, requests: readonly PlanRequest[]): RunEstimate | null;
   /**
-   * The requests tagging will make on the Organize model once the plan finishes with these
-   * Documents (`settled`), which its cost counts: none when tagging uses another model.
+   * The requests the run's tagging makes on the Organize model for these Documents, which its
+   * cost counts: none when tagging uses another model.
    */
   taggingRequests(documentIds: readonly string[]): PlanRequest[];
+  /**
+   * The tagger a run tags with, through the tagging flow's consent and gates as tagging in the
+   * background (#2339): null when it may not tag at all (no tagging model, its consent not given
+   * for its service, Local mode), so an Organize proposes Folders only. `sends`: whether a
+   * Document may go to it, walls and stopped places holding unless `asked`, the User's own
+   * Re-tag. `tagged`: it tagged these, for the clearance a User's Re-tag keeps. Throws, for a
+   * Re-tag, what keeps it from tagging.
+   */
+  prepareTagging(asked: boolean): Promise<{
+    tagger: TagClassifier;
+    service: ExternalService | null;
+    sends(documentId: string): boolean;
+    tagged(documentIds: readonly string[]): void;
+  } | null>;
+  proposeTags(run: OrganizeReviewRun, proposals: readonly TagsProposal[]): number;
   /** The estimate in US dollars, or null when it has no price. */
   inDollars(estimate: RunEstimate): number | null;
   tokensOf(text: string): number;
@@ -183,6 +207,69 @@ export function createLibraryOrganizer(options: {
     };
   };
 
+  /** What a tag request reads of a Document: its name, type and the start of its text, never its outline. */
+  const tagExcerptOf = (subject: Subject, batched: boolean): DocumentExcerpt => ({
+    name: subject.name,
+    kind: subject.kind,
+    pageCount: subject.page_count,
+    text: excerptFromPassages(
+      db
+        .all<{ text: string }>(
+          "SELECT text FROM passages WHERE document_id = ? AND deleted_at IS NULL ORDER BY position LIMIT 6",
+          [subject.id],
+        )
+        .map((row) => row.text),
+      batched ? BATCH_EXCERPT_TOKENS : TAGGING_EXCERPT_TOKENS,
+    ),
+  });
+
+  /**
+   * Tags these Documents in `order` (indexes into them), through the tagging flow's gates: null
+   * when an Organize may not tag. `progress` hears how many of them are done, those it may not
+   * send counted from the start. For an Organize, a tagging that fails proposes no Tags and the
+   * run goes on; for the User's Re-tag (`asked`), it is thrown.
+   */
+  const runTags = async (
+    subjects: readonly Subject[],
+    order: readonly number[],
+    asked: boolean,
+    signal: AbortSignal,
+    progress: (done: number) => void,
+  ): Promise<(TagRunResult & { service: ExternalService | null }) | null> => {
+    try {
+      const prepared = await options.prepareTagging(asked);
+      if (!prepared || signal.aborted) return null;
+      const sendable = order.flatMap((at) => {
+        const subject = subjects[at];
+        return subject && prepared.sends(subject.id) ? [subject] : [];
+      });
+      const skipped = subjects.length - sendable.length;
+      progress(skipped);
+      const batched = prepared.tagger.decideMany !== undefined;
+      const result = await tagInRun({
+        tagger: prepared.tagger,
+        subjects: sendable.map((subject) => ({
+          id: subject.id,
+          excerpt: tagExcerptOf(subject, batched),
+        })),
+        kinds: offeredKinds(db),
+        offered: offeredTags(
+          db,
+          sendable.map((subject) => subject.id),
+        ),
+        language: options.language(),
+        signal,
+        progress: (done) => progress(skipped + done),
+      });
+      prepared.tagged([...result.proposed.keys()]);
+      return { ...result, service: prepared.service };
+    } catch (error) {
+      if (asked || signal.aborted) throw error;
+      console.error("Organize couldn't tag its Documents; it proposes their Folders only.", error);
+      return null;
+    }
+  };
+
   /** The Folders a run may file into, each named by its path: every Folder, or the Folder's own. */
   const candidatesOf = (folderId: string | null, allowed?: ReadonlySet<string>): PlanFolder[] => {
     const folders = options.folders();
@@ -258,13 +345,14 @@ export function createLibraryOrganizer(options: {
         );
         options.progress({ runId, waiting: 0, done: 0, total: subjects.length });
         const vectors = vectorsOf(readable);
+        const candidates = candidatesOf(input.folderId, own?.folders);
         const local = planLocally({
           documents: readable.map((each, at) => ({
             id: each.id,
             vector: vectors[at] as Float32Array,
           })),
           excerptOf: (id) => excerptOf(readable.find((each) => each.id === id) as Subject),
-          folders: candidatesOf(input.folderId, own?.folders),
+          folders: candidates,
           language: options.language(),
           within:
             input.folderId === null
@@ -284,29 +372,60 @@ export function createLibraryOrganizer(options: {
         }
 
         let plan: LibraryPlan | null = null;
+        let tags: TagRunResult | null = null;
         if (readable.length > 0) {
           const classifier = await options.prepare(settings, own?.permit);
           if (!classifier.plan) throw new InvalidInputError({ key: "error.library.cantPropose" });
           const model = classifier.plan;
-          plan = await finishPlan(local, {
-            model,
+          // Its Tags are proposed beside its plan, so the Review opens complete (#2339): a
+          // Document is done once placed and tagged.
+          let placed = 0;
+          let tagged = readable.length;
+          const report = () =>
+            options.progress({
+              runId,
+              waiting: 0,
+              done: Math.min(placed, tagged),
+              total: subjects.length,
+            });
+          const tagging = runTags(
+            readable,
+            batchOrder(local.vectors, local.clustering.assignment),
+            false,
             signal,
-            progress: (done) =>
-              options.progress({ runId, waiting: 0, done, total: subjects.length }),
-            leavesOut: (error) =>
-              !gateStop(error) &&
-              ["network", "provider", "rate-limit"].includes(classifyProviderError(error).kind),
-          });
+            (done) => {
+              tagged = done;
+              report();
+            },
+          );
+          [plan, tags] = await Promise.all([
+            finishPlan(local, {
+              model,
+              signal,
+              progress: (done) => {
+                placed = done;
+                report();
+              },
+              leavesOut: (error) =>
+                !gateStop(error) &&
+                ["network", "provider", "rate-limit"].includes(classifyProviderError(error).kind),
+            }),
+            tagging,
+          ]);
         }
         if (signal.aborted) return { status: "stopped", runId };
 
         const service = options.organizeService(settings)?.name ?? "";
+        const fitsNone: OrganizeReviewLeftOut =
+          candidates.length === 0 && (plan?.folders.length ?? 0) === 0
+            ? { reason: "tooFew" }
+            : { reason: "doesntFit" };
         const proposals = subjects.map((subject): OrganizeReviewProposal => {
           const proposal = (placement: OrganizeReviewProposal["placement"]) => ({
             documentId: subject.id,
             contentHash: subject.content_hash,
             placement,
-            tags: [],
+            tags: tags?.proposed.get(subject.id) ?? [],
           });
           const wall = walls.get(subject.id);
           if (wall)
@@ -322,13 +441,13 @@ export function createLibraryOrganizer(options: {
                 ? { reason: "unreachable", service }
                 : input.folderId !== null
                   ? { reason: "staysInFolder" }
-                  : { reason: "doesntFit" },
+                  : fitsNone,
             });
           const folder = plan?.folders.find((each) => each.key === place.key);
           const parent = folder?.parentKey
             ? plan?.folders.find((each) => each.key === folder.parentKey)
             : undefined;
-          if (!folder) return proposal({ kind: "leftOut", leftOut: { reason: "doesntFit" } });
+          if (!folder) return proposal({ kind: "leftOut", leftOut: fitsNone });
           return proposal({
             kind: "newFolder",
             name: folder.name,
@@ -337,14 +456,22 @@ export function createLibraryOrganizer(options: {
             parent: parent ? { name: parent.name, description: parent.description } : null,
           });
         });
-        const proposed = options.propose(
-          own?.run ?? {
-            origin: input.folderId === null ? "library" : "folder",
-            runId,
-            folderId: input.folderId,
-          },
-          proposals,
-        );
+        // Nothing to confirm, no Folder and no Tag: no Review opens, and what waits stays (#2339).
+        const proposed = proposals.every(
+          (each) =>
+            each.placement.kind === "leftOut" &&
+            each.tags.length === 0 &&
+            unfitting(each.placement.leftOut),
+        )
+          ? 0
+          : options.propose(
+              own?.run ?? {
+                origin: input.folderId === null ? "library" : "folder",
+                runId,
+                folderId: input.folderId,
+              },
+              proposals,
+            );
         options.settled(
           subjects.flatMap((subject) => (plan?.places.has(subject.id) ? [subject.id] : [])),
         );
@@ -363,7 +490,107 @@ export function createLibraryOrganizer(options: {
         if (current === controller) current = null;
       }
     },
+
+    /**
+     * The User's Re-tag (#2339): these Documents, or every one, tagged through the tagging flow
+     * as one run, "Tagging 4 of 12…", whose Tags wait in the Review; it replaces what waits there
+     * unedited for them. A Document that gets nothing waits in Left out with why. Stop keeps
+     * nothing.
+     */
+    async tag(raw: unknown, own?: OwnRun): Promise<OrganizeLibraryResult> {
+      const documentIds = parseTagInput(raw);
+      const runId = own?.run.runId ?? crypto.randomUUID();
+      current?.abort();
+      const controller = new AbortController();
+      current = controller;
+      const signal = own?.signal
+        ? AbortSignal.any([controller.signal, own.signal])
+        : controller.signal;
+      const progress = (waiting: number, done: number, total: number) =>
+        options.progress({ runId, tags: true, waiting, done, total });
+      try {
+        const read = () =>
+          db
+            .all<Subject>(
+              `SELECT ${subjectColumns} FROM documents d WHERE ${live}
+               ${documentIds ? "AND d.id IN (SELECT value FROM json_each(?))" : ""}
+               ORDER BY d.created_at, d.rowid`,
+              documentIds ? [JSON.stringify(documentIds)] : [],
+            )
+            .filter((row) => documentIds !== null || !options.isExampleDocument(row.id));
+        let subjects = read();
+        for (;;) {
+          const waiting = subjects.filter(waitsToBeRead).length;
+          if (waiting === 0) break;
+          progress(waiting, 0, subjects.length);
+          await new Promise((resolve) => setTimeout(resolve, WAIT_MS));
+          if (signal.aborted) return { status: "stopped", runId };
+          subjects = read();
+        }
+        const readable = subjects.filter((each) => READABLE.has(each.status) && hasText(each.id));
+        progress(0, 0, subjects.length);
+        const result = await runTags(
+          readable,
+          batchOrder(vectorsOf(readable)),
+          true,
+          signal,
+          (done) => progress(0, done, subjects.length),
+        );
+        if (signal.aborted) return { status: "stopped", runId };
+        if (!result) throw new TaggingNotReadyError({ key: "error.tagging.noModel" });
+        const service = result.service?.name ?? "";
+        const proposals = subjects.map((subject): TagsProposal => {
+          const tags = result.proposed.get(subject.id) ?? [];
+          return {
+            documentId: subject.id,
+            contentHash: subject.content_hash,
+            tags,
+            leftOut: !readable.includes(subject)
+              ? { reason: "noText" }
+              : result.unreachable.has(subject.id) && service
+                ? { reason: "unreachable", service }
+                : { reason: "noTag" },
+          };
+        });
+        const proposed = proposals.every(
+          (each) => each.tags.length === 0 && unfitting(each.leftOut),
+        )
+          ? 0
+          : options.proposeTags(own?.run ?? { origin: "retag", runId }, proposals);
+        return {
+          status: "done",
+          runId,
+          documents: subjects.length,
+          proposed,
+          placedByModel: 0,
+          requests: result.requests,
+        };
+      } catch (error) {
+        if (signal.aborted) return { status: "stopped", runId };
+        throw error;
+      } finally {
+        if (current === controller) current = null;
+      }
+    },
   };
+}
+
+/** Left out only for want of a Folder or a Tag, not for what reading or sending it met. */
+const unfitting = (leftOut: OrganizeReviewLeftOut | null | undefined) =>
+  leftOut?.reason === "doesntFit" || leftOut?.reason === "tooFew" || leftOut?.reason === "noTag";
+
+/** A Re-tag's Documents: these, or every one (undefined). */
+function parseTagInput(input: unknown): string[] | null {
+  if (input === undefined) return null;
+  if (!isRecord(input)) throw new InvalidInputError({ key: "error.organize.invalid" });
+  const { documentIds } = input;
+  if (documentIds === undefined) return null;
+  if (
+    !Array.isArray(documentIds) ||
+    !documentIds.every((id) => typeof id === "string" && id !== "")
+  )
+    throw new InvalidInputError({ key: "error.organize.invalid" });
+  return [...new Set(documentIds as string[])];
 }
 
 interface ParsedInput {

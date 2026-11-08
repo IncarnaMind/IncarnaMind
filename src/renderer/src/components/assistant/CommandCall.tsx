@@ -32,6 +32,7 @@ const ICONS: Readonly<Record<string, ComponentType<{ className?: string }>>> = {
   "mind.export": ExportLineIcon,
   "documents.addFromFolder": PlusLineIcon,
   "documents.organize": SortLineIcon,
+  "documents.tagWithAi": TagLineIcon,
   "folder.new": FolderPlusLineIcon,
   "folder.rename": PencilLineIcon,
   "folder.delete": TrashLineIcon,

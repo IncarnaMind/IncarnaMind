@@ -10,7 +10,6 @@
  * still quotes stays (ADR-0010), as the text kept of an unlinked Document does.
  */
 import type { MessageKey, MessageParams } from "../shared/i18n";
-import { sameName } from "../shared/names";
 import { isTagColour } from "../shared/tagColours";
 import type { TagAsShown } from "./api";
 import {
@@ -214,6 +213,8 @@ export function purgeExpired(db: Database, now: string, documentText: DocumentTe
 
 interface DeletedRow {
   name: string;
+  /** A Tag's kind; null for anything else. */
+  kind: string | null;
   deleted_at: string | null;
   purged_at: string | null;
 }
@@ -253,19 +254,21 @@ export function createRecentlyDeleted(options: {
   const rowOf = (kind: DeletedKind, id: string) =>
     db.get<DeletedRow>(
       `SELECT ${kind === "mind" || kind === "conversation" ? OWN_NAME : "name"} AS name,
-         deleted_at, purged_at
+         ${kind === "tag" ? "kind" : "NULL"} AS kind, deleted_at, purged_at
        FROM ${TABLES[kind]} WHERE id = ?`,
       [id],
     );
 
   const nameOf = (kind: DeletedKind, row: DeletedRow) =>
-    row.name !== ""
-      ? row.name
-      : kind === "mind"
-        ? say("mind.untitled")
-        : kind === "conversation"
-          ? say("conversation.untitled")
-          : "";
+    kind === "tag"
+      ? tags.nameShown(row)
+      : row.name !== ""
+        ? row.name
+        : kind === "mind"
+          ? say("mind.untitled")
+          : kind === "conversation"
+            ? say("conversation.untitled")
+            : "";
 
   /** The Transcript Documents deleted with a Mind, at its time. */
   function documentsWith(mindId: string, deletedAt: string): string[] {
@@ -376,11 +379,11 @@ export function createRecentlyDeleted(options: {
           )
           .map((row) => item("folder", row)),
         ...db
-          .all<{ id: string; name: string; deleted_at: string }>(
-            "SELECT id, name, deleted_at FROM tags WHERE deleted_at >= ? AND purged_at IS NULL",
+          .all<{ id: string; name: string; kind: string | null; deleted_at: string }>(
+            "SELECT id, name, kind, deleted_at FROM tags WHERE deleted_at >= ? AND purged_at IS NULL",
             [since],
           )
-          .map((row) => item("tag", row)),
+          .map((row) => item("tag", { ...row, name: tags.nameShown(row) })),
       ];
       // A Transcript waits with its Meeting's Mind, not beside it.
       const withMinds = new Set<string>();
@@ -478,7 +481,7 @@ export function createRecentlyDeleted(options: {
               }
               restored.folders = true;
             } else {
-              if (tags.list().some((tag) => sameName(tag.name, row.name)))
+              if (tags.holderOnRestore(row))
                 throw new InvalidInputError({
                   key: "error.restore.tagNameTaken",
                   values: { name },

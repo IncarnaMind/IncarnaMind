@@ -12,16 +12,12 @@
 
 import { translate } from "../../../shared/i18n";
 import type {
-  Document,
   DocumentGroupAssignment,
-  DocumentTag,
   LibraryGroup,
   OrganizeLibraryResult,
   OrganizeReviewChange,
   OrganizeReviewItem,
   RunEstimate,
-  TagLinkChange,
-  TagLinkState,
 } from "../../api";
 import type { Language } from "../../language";
 import { classifyProviderError } from "../../providers/providerErrors";
@@ -35,54 +31,6 @@ import {
   plural,
   same,
 } from "./run";
-
-type TagLink = Pick<DocumentTag, "source" | "confidence" | "needsReview">;
-
-const tagLinksOf = (documents: readonly Document[]) =>
-  new Map<string, Map<string, TagLink>>(
-    documents.map((document) => [
-      document.id,
-      new Map(
-        document.tags.map((tag) => [
-          tag.tagId,
-          { source: tag.source, confidence: tag.confidence, needsReview: tag.needsReview },
-        ]),
-      ),
-    ]),
-  );
-
-const decisionsOf = (rows: readonly { documentId: string; tagIds: string[] }[]) =>
-  new Map(rows.map((row) => [row.documentId, new Set(row.tagIds)]));
-
-const sameLink = (a: TagLink | null, b: TagLink | null) =>
-  a === null || b === null
-    ? a === b
-    : a.source === b.source && a.confidence === b.confidence && a.needsReview === b.needsReview;
-
-/** Puts each Tag link Organize changed back to `to`, where it is still as `from` and the User hasn't decided on it. */
-async function revertTags(
-  core: CommandsCore,
-  ids: readonly string[],
-  changes: readonly TagLinkChange[],
-  direction: "back" | "again",
-): Promise<void> {
-  const documents = await core.listDocuments();
-  const live = new Set(documents.map((each) => each.id));
-  const liveTags = new Set((await core.listTags()).map((each) => each.id));
-  const decided = decisionsOf(await core.listDocumentTagDecisions([...ids]));
-  const linksNow = tagLinksOf(documents.filter((each) => ids.includes(each.id)));
-  const links: TagLinkState[] = [];
-  for (const change of changes) {
-    if (!live.has(change.documentId) || !liveTags.has(change.tagId)) continue;
-    if (decided.get(change.documentId)?.has(change.tagId)) continue;
-    const from = direction === "back" ? change.after : change.before;
-    const to = direction === "back" ? change.before : change.after;
-    const nowLink = linksNow.get(change.documentId)?.get(change.tagId) ?? null;
-    if (!sameLink(nowLink, from)) continue;
-    links.push({ documentId: change.documentId, tagId: change.tagId, link: to });
-  }
-  if (links.length > 0) await core.revertDocumentTags(links);
-}
 
 /** The User's Documents in no Folder, as the Library's Organize sorts them; the examples never. */
 async function inNoFolder(core: CommandsCore) {
@@ -242,18 +190,11 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
         let planned: OrganizeLibraryResult | null = null;
         let failed: unknown | null = null;
         let untouched = 0;
-        let tagChanges: TagLinkChange[] = [];
         try {
           if (requested === null && wallId === null)
             planned = await host.organizeByPlan(ids, signal, permit, runId);
           if (planned === null)
-            ({ failed, untouched, tagChanges } = await host.organizeAtOnce(
-              ids,
-              signal,
-              wallId,
-              permit,
-              runId,
-            ));
+            ({ failed, untouched } = await host.organizeAtOnce(ids, signal, wallId, permit, runId));
         } catch (error) {
           host.withdrawOrganizeRun(runId, proposed);
           throw error;
@@ -356,12 +297,11 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
             ...(input.alsoAsked !== null && { alsoAsked: input.alsoAsked }),
           },
           step:
-            placed.length === 0 && tagChanges.length === 0
+            placed.length === 0
               ? null
               : {
                   undo: async () => {
                     withdrawn = host.withdrawOrganizeRun(runId, proposed);
-                    await revertTags(core, ids, tagChanges, "back");
                     return null;
                   },
                   redo: async () => {
@@ -369,7 +309,6 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
                     if (withdrawn)
                       await core.restoreOrganizeReview(withdrawn.before, withdrawn.after);
                     withdrawn = null;
-                    await revertTags(core, ids, tagChanges, "again");
                   },
                 },
           ...(placed.length > 0 && input.alsoAsked === null && { ends: true as const }),

@@ -9,7 +9,7 @@ import { join } from "node:path";
 import type { DocumentKind } from "../../../src/core/api";
 import type { Language } from "../../../src/core/language";
 import type { LibraryGroup } from "../../../src/core/library/types";
-import type { TagDefinition } from "../../../src/core/tags/classify";
+import { kindDefinitions, type TagDefinition } from "../../../src/core/tags/classify";
 import { PRESET_TAGS } from "../../../src/core/tags/presets";
 import { translate } from "../../../src/shared/i18n";
 import { libraryPresetKeys } from "../../../src/shared/libraryPresets";
@@ -101,7 +101,7 @@ export function definitions(language: Language): {
       createdAt: "",
       updatedAt: "",
     })),
-    tags: PRESET_TAGS.map((preset) => ({ id: preset.key, ...preset.text[language] })),
+    tags: kindDefinitions(),
   };
 }
 

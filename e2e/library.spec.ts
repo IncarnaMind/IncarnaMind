@@ -619,7 +619,7 @@ test("onboarding offers starter folders, and Organize with no model chosen opens
     await pointAndClick(window, organize(window.getByTestId("library")));
     const needs = window.getByTestId("library-organize-needs-model");
     await expect(needs).toContainText(
-      "整理需要一个 AI 模型。它会把文档名称和摘录，以及文件夹和标签的名称与描述，发送给你设置的模型。",
+      "整理需要一个 AI 模型。它会把文档名称和摘录，以及文件夹的名称与描述、文档类别和你自己的标签的名称与描述，发送给你设置的模型。",
     );
     await expect(needs.getByTestId("library-organize-key")).toBeVisible();
     await needs.getByTestId("library-organize-dismiss").click();
@@ -910,9 +910,18 @@ test("organized folders remain separate from source locations and follow changes
     const path = join(sources, "Membrane separation.txt");
     const revised = "Research report: membrane invoice for laboratory services. Total GBP 250.";
     await writeFile(path, revised);
-    await expect(row.getByTestId("document-tags")).toContainText("Invoice", {
-      timeout: 15_000,
-    });
+    // Organize reads it again: the Folder the User chose stays, and the Tag it proposes waits in
+    // the Review until it is confirmed (#2339).
+    const review = window.getByTestId("organize-review");
+    const proposed = review
+      .getByTestId("organize-review-row")
+      .filter({ hasText: "Membrane separation" })
+      .getByTestId("organize-review-chip");
+    await pointAndClick(window, library.getByTestId("organize-waiting-review"));
+    await expect(proposed.filter({ hasText: "Invoice" })).toHaveCount(1, { timeout: 15_000 });
+    await pointAndClick(window, review.getByTestId("organize-review-confirm"));
+    await expect(review).toBeHidden();
+    await expect(row.getByTestId("document-tags")).toContainText("Invoice");
     await expect(rowOf(section(library, "Finance"), "Membrane separation")).toHaveCount(1);
     expect(await readFile(path, "utf8")).toBe(revised);
     await expect(window.getByTestId("sidebar-status")).not.toContainText("Tags need an AI model");

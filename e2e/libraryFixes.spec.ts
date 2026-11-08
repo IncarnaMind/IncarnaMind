@@ -230,8 +230,8 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(details).toHaveAttribute("aria-expanded", "true");
     await expect(sends.getByTestId("library-organize-sends-list")).toHaveText(
       language === "en"
-        ? "Each Document’s name and the start of its text (for a scan, images of its first pages), and your Folders’ and Tags’ names and descriptions, go to llm.example.com."
-        : "每个文档的名称和开头的文字（扫描件则是前几页的图片），以及文件夹和标签的名称与描述，会发送给 llm.example.com。",
+        ? "Each Document’s name and the start of its text (for a scan, images of its first pages), your Folders’ names and descriptions, the kinds of Document, and your own Tags’ names and descriptions go to llm.example.com."
+        : "每个文档的名称和开头的文字（扫描件则是前几页的图片），以及文件夹的名称与描述、文档类别和你自己的标签的名称与描述，会发送给 llm.example.com。",
     );
 
     await window.keyboard.press("Space");

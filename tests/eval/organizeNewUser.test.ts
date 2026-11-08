@@ -77,18 +77,67 @@ describe("the Organize benchmark's new-User scores", () => {
     expect(scores.folderSizes.map((each) => each.size)).toEqual([3, 1, 2]);
   });
 
-  test("says PASS or FAIL against each bar", () => {
+  test("says PASS or FAIL against each bar, and reports the kinds both ways", () => {
     const result = bars(scoreNewUser(outcomes, folders, verdicts));
-    expect(result.map((each) => [each.value, each.pass])).toEqual([
-      ["5/6 (83%)", true],
-      ["1 (sizes 3, 1, 2)", false],
-      ["1/4 (25%)", false],
-      ["1/4 (25%)", false],
-      ["2/6 (33%)", false],
-      ["0.77 (P 0.83, R 0.71)", false],
-      ["1/2 (50%)", false],
-      ["7", true],
+    expect(result.map((each) => [each.value, each.pass, each.reported ?? false])).toEqual([
+      ["5/6 (83%)", true, false],
+      ["1 (sizes 3, 1, 2)", false, false],
+      ["1/4 (25%)", false, false],
+      ["1/4 (25%)", false, false],
+      ["2/6 (33%)", false, false],
+      ["0.83 (P 0.83, R 0.83)", true, false],
+      ["0.77 (P 0.83, R 0.71)", false, true],
+      ["0", true, true],
+      ["1/2 (50%)", false, false],
+      ["7", true, false],
     ]);
+    // With the labels as written gating instead, the one-kind score is the one reported.
+    const written = bars(scoreNewUser(outcomes, folders, verdicts), "as-written");
+    expect(written.slice(5, 7).map((each) => each.reported ?? false)).toEqual([true, false]);
+  });
+
+  describe("kind Tag F1 with one kind a Document, the rule settled on 2026-11-08", () => {
+    const kinds = (...each: Outcome[]) => scoreNewUser(each, folders, []);
+
+    test("a Document labelled two kinds is one pair: a hit with either, one miss with neither", () => {
+      expect(
+        kinds(
+          outcome("a", "reports", ["slides", "report"], "f1", ["Report"]),
+          outcome("b", "reports", ["slides", "report"], "f1", ["Slides"]),
+        ).oneKind,
+      ).toEqual({ tp: 2, fp: 0, fn: 0 });
+      expect(
+        kinds(outcome("c", "reports", ["slides", "report"], "f1", ["Invoice"])).oneKind,
+      ).toEqual({ tp: 0, fp: 1, fn: 1 });
+    });
+
+    test("a Document labelled only kinds outside the list has no pair: no kind Tag adds nothing, one is a false positive", () => {
+      const garden = (tags: string[]) => outcome("g", null, ["notes"], null, tags);
+      expect(kinds(garden([])).oneKind).toEqual({ tp: 0, fp: 0, fn: 0 });
+      expect(kinds(garden(["Report"])).oneKind).toEqual({ tp: 0, fp: 1, fn: 0 });
+      expect(kinds(garden([]))).toMatchObject({ noKind: 1, noKindExpected: 1 });
+    });
+
+    test("every other Document with no kind Tag is a miss", () => {
+      expect(kinds(outcome("p", "research", ["paper"], "f1", ["Sleep"])).oneKind).toEqual({
+        tp: 0,
+        fp: 0,
+        fn: 1,
+      });
+      expect(kinds(outcome("p", "research", ["paper"], "f1", []))).toMatchObject({
+        noKind: 1,
+        noKindExpected: 0,
+      });
+    });
+
+    test("Meeting notes stands for the labels' notes on a meeting's Document", () => {
+      expect(
+        kinds(
+          outcome("m", "meetings", ["notes"], "f1", ["Meeting notes"]),
+          outcome("n", "meetings", ["slides", "notes"], "f1", ["会议记录"]),
+        ).oneKind,
+      ).toEqual({ tp: 2, fp: 0, fn: 0 });
+    });
   });
 
   test("passes a proposal that keeps the labels together in Folders of three", () => {

@@ -16,10 +16,23 @@ const textOf = (options: CallOptions) =>
     )
     .join("\n");
 
+/** A tagging request's answer: each Document a Report, with none of the User's Tags and no topic. */
+const reports = (text: string) => {
+  const request: { documents?: { ref: string }[] } = JSON.parse(text.split("\n").at(-1) ?? "{}");
+  return {
+    tagged: (request.documents ?? []).map(({ ref }) => ({
+      ref,
+      kind: "report",
+      tags: [],
+      topic: { name: "", description: "" },
+    })),
+  };
+};
+
 export type ScriptedChat = ReturnType<typeof scriptedChat>;
 
 /**
- * A chat model for automatic tagging and Organize together: it tags every Document "Report",
+ * A chat model for automatic tagging and Organize together: it tags every Document a Report,
  * files it in the first Folder offered, and records each request. `hold` keeps its answers
  * back until `release`; `fail` makes the requests that follow throw, `failNext` only the next.
  */
@@ -36,12 +49,13 @@ export function scriptedChat() {
         options.responseFormat?.type === "json" ? options.responseFormat.schema : undefined;
       const group = (schema as { properties?: { groupId?: { enum: string[] } } } | undefined)
         ?.properties?.groupId;
-      calls.push({ purpose: group ? "organize" : "tags", text: textOf(options) });
+      const text = textOf(options);
+      calls.push({ purpose: group ? "organize" : "tags", text });
       if (gate) await gate;
       if (failure) throw failure;
       const once = failures.shift();
       if (once) throw once;
-      const reply = group ? { groupId: group.enum[0], tags: organizeTags } : { tags: ["Report"] };
+      const reply = group ? { groupId: group.enum[0], tags: organizeTags } : reports(text);
       return {
         content: [{ type: "text", text: JSON.stringify(reply) }],
         finishReason: { unified: "stop", raw: undefined },
@@ -55,7 +69,7 @@ export function scriptedChat() {
     calls,
     purposesFor: (text: string) =>
       calls.filter((call) => call.text.includes(text)).map((call) => call.purpose),
-    /** The Tags, by id, that Organize gives each Document. */
+    /** The Tags, by the ids Organize offers (a kind as "kind:report"), that it gives each Document. */
     organizeTags(ids: string[]) {
       organizeTags = ids;
     },

@@ -3,33 +3,37 @@
  * Folders, before the User confirms anything. Pure: the unit tests
  * (tests/eval/organizeNewUser.test.ts) run it without a model.
  */
-import { PRESET_TAGS } from "../../../src/core/tags/presets";
+import { kindOfName } from "../../../src/core/tags/kinds";
 import { decimal, f1, fraction, type Labelled, precision, ratio, recall } from "./scoring";
 import { formatOf, type SetDocument } from "./set";
 
-/** Other names a Tag of each labelled kind goes by, beside its preset's English and Chinese ones. */
-const SYNONYMS: Readonly<Record<string, readonly string[]>> = {
-  paper: ["Papers"],
-  report: ["Reports"],
-  book: ["Books"],
-  contract: ["Contracts"],
-  invoice: ["Invoices"],
-  slides: ["Slide"],
-  notes: ["Note", "Meeting notes", "会议记录"],
-};
-
 const normal = (name: string) => name.trim().replace(/\s+/g, " ").toLowerCase();
 
-const KINDS = new Map(
-  PRESET_TAGS.flatMap((preset) =>
-    [preset.text.en.name, preset.text["zh-CN"].name, ...(SYNONYMS[preset.key] ?? [])].map(
-      (name) => [normal(name), preset.key] as const,
-    ),
-  ),
-);
+/** What `main`'s Notes preset Tag was named, which the labels' "notes" kind stands for. */
+const NOTES = new Set(["notes", "note", "笔记"]);
 
-/** The labelled kind a Tag's name stands for, or null for a topic Tag. */
-export const kindOf = (tagName: string): string | null => KINDS.get(normal(tagName)) ?? null;
+/**
+ * The labelled kind a Tag's name stands for, or null for a topic Tag: a kind of the app's list
+ * (src/core/tags/kinds.ts) by its name in either language, Meeting notes standing for the labels'
+ * "notes", or `main`'s Notes preset. A kind the labels don't have (Statement, Letter) is itself.
+ */
+export function kindOf(tagName: string): string | null {
+  const kind = kindOfName(tagName);
+  if (kind === "meeting-notes") return "notes";
+  if (kind) return kind;
+  return NOTES.has(normal(tagName)) ? "notes" : null;
+}
+
+/** The gold kinds that are in the app's kind list: "notes" only for a meeting's (2026-11-08). */
+export const listedKinds = (doc: Pick<Labelled, "folder" | "tags">): string[] =>
+  doc.tags.filter((kind) => kind !== "notes" || doc.folder === "meetings");
+
+/**
+ * Which kind Tag F1 gates (`INCARNAMIND_ORGANIZE_KIND_SCORE`): "one-kind", the rule settled on
+ * 2026-11-08 for one kind a Document from a list without Notes, by default; or "as-written", the
+ * labels as they are. Both are always reported.
+ */
+export type KindScore = "one-kind" | "as-written";
 
 export interface ProposedFolder {
   id: string;
@@ -69,7 +73,17 @@ export interface NewUserScores {
   sameTogether: number;
   differentPairs: number;
   differentShared: number;
+  /** Kind Tags against the labels as written: every labelled kind a pair. */
   kinds: { tp: number; fp: number; fn: number };
+  /**
+   * Kind Tags by the rule settled on 2026-11-08 (#2339): a Document with a labelled kind in the app's list
+   * is one pair, a hit when its kind Tag is any of them and else one miss; one with none in the
+   * list has no pair, and any kind Tag on it is a false positive; every other kind Tag is too.
+   */
+  oneKind: { tp: number; fp: number; fn: number };
+  /** Readable Documents with no kind Tag, and how many the labels expect (none of their kinds listed). */
+  noKind: number;
+  noKindExpected: number;
   /** Topic Tags judged, those judged not about the Document, and those with no clear answer. */
   topic: number;
   offTopic: number;
@@ -164,6 +178,9 @@ export function scoreNewUser(
 ): NewUserScores {
   const readable = outcomes.filter((each) => each.readable);
   const kinds = { tp: 0, fp: 0, fn: 0 };
+  const oneKind = { tp: 0, fp: 0, fn: 0 };
+  let noKind = 0;
+  let noKindExpected = 0;
   for (const each of readable) {
     const applied = kindsOf(each.tags);
     const labelled = new Set(each.doc.tags);
@@ -171,6 +188,15 @@ export function scoreNewUser(
     kinds.tp += hits;
     kinds.fp += applied.size - hits;
     kinds.fn += labelled.size - hits;
+    const listed = new Set(listedKinds(each.doc));
+    const hit = [...applied].some((kind) => listed.has(kind));
+    if (listed.size > 0) {
+      if (hit) oneKind.tp += 1;
+      else oneKind.fn += 1;
+    }
+    oneKind.fp += applied.size - (hit ? 1 : 0);
+    if (applied.size === 0) noKind += 1;
+    if (listed.size === 0) noKindExpected += 1;
   }
   const all = pairs(outcomes);
   const same = all.filter((pair) => pair.sameLabel);
@@ -188,6 +214,9 @@ export function scoreNewUser(
     differentPairs: different.length,
     differentShared: different.filter((pair) => pair.shared).length,
     kinds,
+    oneKind,
+    noKind,
+    noKindExpected,
     topic: verdicts.length,
     offTopic: verdicts.filter((each) => each.about === false).length,
     unanswered: verdicts.filter((each) => each.about === null).length,
@@ -201,9 +230,21 @@ export interface Bar {
   value: string;
   bar: string;
   pass: boolean;
+  /** Reported beside the bars, never gating. */
+  reported?: true;
 }
 
-export function bars(s: NewUserScores): Bar[] {
+const kindValue = (counts: NewUserScores["kinds"]) =>
+  `${decimal(f1(counts))} (P ${decimal(precision(counts))}, R ${decimal(recall(counts))})`;
+
+export function bars(s: NewUserScores, kindScore: KindScore = "one-kind"): Bar[] {
+  const kindBar = (counts: NewUserScores["kinds"], gates: boolean, name: string): Bar => ({
+    name,
+    value: kindValue(counts),
+    bar: "≥ 0.80",
+    pass: f1(counts) >= 0.8,
+    ...(!gates && { reported: true as const }),
+  });
   const sizes = s.folderSizes.map((each) => each.size);
   const smallest = sizes.length ? Math.min(...sizes) : null;
   const answered = s.topic - s.unanswered;
@@ -238,11 +279,14 @@ export function bars(s: NewUserScores): Bar[] {
       bar: "≤ 10%",
       pass: ratio(s.differentShared, s.differentPairs) <= 0.1,
     },
+    kindBar(s.oneKind, kindScore === "one-kind", "Kind Tag F1, one kind a Document"),
+    kindBar(s.kinds, kindScore === "as-written", "Kind Tag F1, the labels as written"),
     {
-      name: "Kind Tag F1",
-      value: `${decimal(f1(s.kinds))} (P ${decimal(precision(s.kinds))}, R ${decimal(recall(s.kinds))})`,
-      bar: "≥ 0.80",
-      pass: f1(s.kinds) >= 0.8,
+      name: "Documents with no kind Tag",
+      value: String(s.noKind),
+      bar: `${s.noKindExpected} expected`,
+      pass: s.noKind <= s.noKindExpected,
+      reported: true,
     },
     {
       name: "Topic Tags off-topic",
@@ -305,6 +349,10 @@ export interface NewUserRun {
   judge: string;
   /** Held-out mistakes are listed only when asked for. */
   listMistakes: boolean;
+  /** Which kind Tag F1 gates. */
+  kindScore: KindScore;
+  /** Each tagging request's input tokens, as the meter counted them, and the Documents tagged (#2339). */
+  tagging?: { inputPerRequest: number[]; documents: number };
   /** From the press to the Folders made, to the first Document placed, and to the last settled. */
   proposedMs: number;
   firstPlacementMs: number | null;
@@ -369,6 +417,18 @@ function planLines(plan: NonNullable<NewUserRun["plan"]>): string[] {
   return lines;
 }
 
+/** The tagging requests' size: a request's input tokens, and a Document's share of them. */
+function taggingLines({
+  inputPerRequest,
+  documents,
+}: NonNullable<NewUserRun["tagging"]>): string[] {
+  const input = inputPerRequest.reduce((sum, each) => sum + each, 0);
+  return [
+    "",
+    `Tagging: ${inputPerRequest.length} requests for ${documents} Documents; input tokens a request ${Math.round(input / inputPerRequest.length).toLocaleString("en")} on average, ${Math.max(...inputPerRequest).toLocaleString("en")} at most; ${documents ? Math.round(input / documents).toLocaleString("en") : 0} a Document.`,
+  ];
+}
+
 export function newUserReport(
   run: NewUserRun,
   outcomes: readonly Outcome<SetDocument>[],
@@ -390,14 +450,16 @@ export function newUserReport(
     "",
     "| Bar | Measured | Bar | |",
     "|---|---|---|---|",
-    ...bars(scores).map(
-      (each) => `| ${each.name} | ${each.value} | ${each.bar} | ${each.pass ? "PASS" : "FAIL"} |`,
+    ...bars(scores, run.kindScore).map(
+      (each) =>
+        `| ${each.name} | ${each.value} | ${each.bar} | ${each.reported ? "reported" : each.pass ? "PASS" : "FAIL"} |`,
     ),
     "",
     run.route === "plan"
       ? `Time from the press to the Review: ${seconds(run.totalMs)}.`
       : `Time from the press: Folders made ${seconds(run.proposedMs)}, first Document placed ${seconds(run.firstPlacementMs)}, all settled ${seconds(run.totalMs)}.`,
     ...(run.plan ? planLines(run.plan) : []),
+    ...(run.tagging?.inputPerRequest.length ? taggingLines(run.tagging) : []),
     "",
     "| Requests | Count | Input tokens | Output tokens | Cost |",
     "|---|---:|---:|---:|---:|",

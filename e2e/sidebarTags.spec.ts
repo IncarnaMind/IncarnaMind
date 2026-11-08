@@ -121,7 +121,7 @@ const setLanguage = (window: Page, language: "en" | "zh-CN") =>
     language,
   );
 
-/** Each Tag row's name, count and dot's colour (null for "Needs review", which has the review ring). */
+/** Each Tag row's name, count and dot's colour. */
 const tagRowsListed = (rows: Locator) =>
   rows.evaluateAll((all) =>
     all.map((row) => {
@@ -159,9 +159,9 @@ test("the Tags section lists each Tag a Document carries with its colour and cou
       "Field notes.txt": "Observations of tides at the harbour.",
     });
     await tagDocuments(window, { Attention: ["Paper", "Book", "Contract", "Report"] });
-    // Library Folders, and Organize with a local decision server: Report on the report,
-    // and Invoice on the invoice, awaiting review. Its Folders wait in Suggestions until the
-    // User confirms them, as here.
+    // Library Folders, and Organize with a local decision server: Report on the report, and
+    // Invoice on the invoice. They and its Folders wait in Suggestions until the User confirms
+    // them, as here.
     const port = (server.address() as AddressInfo).port;
     await window.evaluate(async (url) => {
       const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
@@ -210,7 +210,7 @@ test("the Tags section lists each Tag a Document carries with its colour and cou
     });
 
     // The Tags each Document carries, in name order, with its colour and how many carry it. A Tag
-    // no Document has isn't listed, and nor is "Needs review": Tags are reviewed in the Library.
+    // no Document has isn't listed.
     const tagList = window.getByTestId("sidebar-tags");
     const tagRows = tagList.getByTestId("sidebar-tag");
     await expect
@@ -226,7 +226,7 @@ test("the Tags section lists each Tag a Document carries with its colour and cou
       tagRows.filter({
         has: window.locator(':scope > div [data-testid="row-text"]', { hasText: name }),
       });
-    // A Tag is an 11px solid dot, as in Finder's Tags; "Needs review" a hollow amber ring.
+    // A Tag is an 11px solid dot, as in Finder's Tags.
     const paperDot = byName("Paper").locator(":scope > div").getByTestId("tag-dot");
     expect(await paperDot.evaluate(dotShape)).toEqual({
       width: 11,
@@ -280,14 +280,11 @@ test("the Tags section lists each Tag a Document carries with its colour and cou
     await tabTo(window, tagsToggle);
     expect(await focusRingShows(window)).toBe(true);
 
-    // The Library's Tags filter has each Tag after its dot, and "Needs review" after the ring.
+    // The Library's Tags filter has each Tag after its dot, and no option for review: what waits
+    // for the User is in the Review (#2339).
     await slideAndClick(window, tagFilter.getByTestId("library-filter-chip"));
     const libraryTagMenu = library.locator('[data-testid="library-filter-menu"][data-facet="tag"]');
-    const reviewOption = libraryTagMenu.locator(
-      '[data-testid="library-filter-option"][data-value="needs-review"]',
-    );
-    await expect(reviewOption.getByTestId("review-ring")).toHaveCount(1);
-    await expect(reviewOption.getByTestId("tag-dot")).toHaveCount(0);
+    await expect(libraryTagMenu.getByTestId("review-ring")).toHaveCount(0);
     await expect(
       libraryTagMenu
         .getByTestId("library-filter-option")
@@ -307,7 +304,7 @@ test("the Tags section lists each Tag a Document carries with its colour and cou
     await window.mouse.move(700, 400, { steps: 6 });
     await screenshot(window, "tags-tab-zh");
     await slideAndClick(window, tagFilter.getByTestId("library-filter-chip"));
-    await expect(reviewOption.getByTestId("review-ring")).toHaveCount(1);
+    await expect(libraryTagMenu.getByTestId("library-filter-option").first()).toBeVisible();
     await screenshot(window, "library-filter-menu-zh");
     await window.keyboard.press("Escape");
   } finally {
@@ -664,29 +661,29 @@ test("the Tags heading's + makes a Tag in place, and a Tag renamed by double-cli
     await window.keyboard.press("Escape");
     await expect(thesis.getByTestId("row-text")).toHaveText("Thesis");
     await expect(thesis.getByRole("treeitem")).toBeFocused();
-    // F2, typed with an input method: 论文, shown on its row and on every Document that carries it.
+    // F2, typed with an input method: 学位论文, shown on its row and on every Document that carries it.
     await window.keyboard.press("F2");
     await expect(field).toBeFocused();
-    await typeWithInputMethod(window, field, "论文");
-    const renamed = tagRow(window, "论文");
+    await typeWithInputMethod(window, field, "学位论文");
+    const renamed = tagRow(window, "学位论文");
     await expect(renamed.getByTestId("browse-count")).toHaveText("2");
-    expect(await tagNames(window)).toContain("论文");
+    expect(await tagNames(window)).toContain("学位论文");
     expect(await tagNames(window)).not.toContain("Thesis");
     await expect(
       documentRow(window, "Tides").getByTestId("open-document"),
-    ).toHaveAccessibleDescription("Tags: 论文");
+    ).toHaveAccessibleDescription("Tags: 学位论文");
     await expect(
       documentRow(window, "Moons").getByTestId("open-document"),
-    ).toHaveAccessibleDescription("Tags: 论文");
+    ).toHaveAccessibleDescription("Tags: 学位论文");
     // The Library the double-click opened shows its Documents through the Tag filter, under the
     // new name: on each Document, and on the filter itself.
     const library = window.getByTestId("library");
     const tagFilter = library.locator('[data-testid="library-filter"][data-facet="tag"]');
-    await expect(tagFilter).toHaveText("Tags: 论文");
+    await expect(tagFilter).toHaveText("Tags: 学位论文");
     const rows = library.getByTestId("library-document");
     await expect(rows).toHaveCount(2);
     for (const row of await rows.all())
-      await expect(row.getByTestId("tag-chip")).toHaveText("论文");
+      await expect(row.getByTestId("tag-chip")).toHaveText("学位论文");
 
     // One Undo puts the old name back everywhere: the rows, the Documents and the filter.
     await window.getByTestId("undo-line").getByTestId("undo-action").click();

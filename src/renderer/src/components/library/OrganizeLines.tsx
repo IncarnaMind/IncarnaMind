@@ -62,6 +62,8 @@ export function OrganizeLines() {
   const language = useLanguage();
   const run = useOrganizeReview((state) => state.run);
   const stopped = useOrganizeReview((state) => state.stopped);
+  const stoppedTagging = useOrganizeReview((state) => state.stoppedTagging);
+  const apart = useOrganizeReview((state) => state.apart);
   const estimate = useOrganizeReview((state) => state.estimate);
   const counted = useOrganizeReview((state) => state.count);
   const snapshotCount = useAppStore((state) => state.library?.reviewCount ?? 0);
@@ -82,7 +84,7 @@ export function OrganizeLines() {
       {run ? (
         <Line testId="organize-running">
           <span className="tabular-nums">
-            {t("organizeReview.running", {
+            {t(run.tags ? "organizeReview.tagging" : "organizeReview.running", {
               done: formatCount(run.done, language),
               total: formatCount(run.total, language),
             })}
@@ -127,7 +129,22 @@ export function OrganizeLines() {
         <>
           {stopped !== null && (
             <Line testId="organize-stopped">
-              <span>{t("organizeReview.stopped", { count: formatCount(stopped, language) })}</span>
+              <span>
+                {t(stoppedTagging ? "organizeReview.stoppedTagging" : "organizeReview.stopped", {
+                  count: formatCount(stopped, language),
+                })}
+              </span>
+            </Line>
+          )}
+          {apart !== null && (
+            <Line testId="organize-apart">
+              <span>
+                {apart.count === 1
+                  ? t(apart.tags ? "organizeReview.noTagFits.one" : "organizeReview.apart.one")
+                  : t(apart.tags ? "organizeReview.noTagFits" : "organizeReview.apart", {
+                      count: formatCount(apart.count, language),
+                    })}
+              </span>
             </Line>
           )}
           {count > 0 && (

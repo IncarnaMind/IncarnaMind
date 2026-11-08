@@ -154,7 +154,7 @@ export function decisionsFromProbabilities(
   return tags.flatMap((tag) => {
     const probability = probabilities[tag.id];
     if (probability === undefined || probability < band.low) return [];
-    return [{ tagId: tag.id, confidence: probability, needsReview: probability < band.high }];
+    return [{ tagId: tag.id, confidence: probability }];
   });
 }
 

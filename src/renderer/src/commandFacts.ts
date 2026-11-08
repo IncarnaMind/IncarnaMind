@@ -52,6 +52,7 @@ const DONE: Readonly<Partial<Record<CommandId, [MessageKey, MessageKey]>>> = {
   "mind.delete": ["commands.done.delete.mind.one", "commands.done.delete.mind"],
   "documents.addFromFolder": ["commands.done.add.one", "commands.done.add"],
   "documents.organize": ["commands.done.organize.one", "commands.done.organize"],
+  "documents.tagWithAi": ["commands.done.tagWithAi.one", "commands.done.tagWithAi"],
   "folder.rename": ["commands.done.rename.folder.one", "commands.done.rename.folder"],
   "folder.delete": ["commands.done.delete.folder.one", "commands.done.delete.folder"],
   "tag.rename": ["commands.done.rename.tag.one", "commands.done.rename.tag"],
@@ -81,6 +82,7 @@ const RUNNING: Readonly<Partial<Record<CommandId, MessageKey>>> = {
   "mind.export": "commands.running.export",
   "documents.addFromFolder": "commands.running.add",
   "documents.organize": "commands.running.organize",
+  "documents.tagWithAi": "commands.running.tagWithAi",
   "deleted.restore": "commands.running.restore",
 };
 

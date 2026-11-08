@@ -20,7 +20,7 @@ import { actionFor, pickerOptions, type TagOnDocuments, tagsOnDocuments } from "
 import { useUndo } from "../undo";
 import { CheckLineIcon, CloseLineIcon, PlusLineIcon, SparkLineIcon } from "./lineIcons";
 import { ProblemMark } from "./ProblemLine";
-import { ReviewRing, TagDot, tagChipColour } from "./TagColour";
+import { TagDot, tagChipColour } from "./TagColour";
 import { TypingTextarea } from "./TypingTextarea";
 import { buttonStyle, errorTextClass, hintClass, inputClass, menuRuleClass } from "./ui";
 
@@ -155,18 +155,14 @@ export const chipClass =
 
 /**
  * A Tag's tooltip on one Document: who added it and, when automatic tagging
- * said, how likely it is, or that it awaits review.
+ * said, how likely it is.
  */
 export function chipTitle(
-  link: Pick<DocumentTag, "source" | "confidence" | "needsReview">,
+  link: Pick<DocumentTag, "source" | "confidence">,
   tag: Pick<Tag, "name">,
   t: ReturnType<typeof useT>,
 ): string {
   const percent = link.confidence === null ? null : Math.round(link.confidence * 100);
-  if (link.needsReview)
-    return percent === null
-      ? t("tags.chip.reviewTitle", { tag: tag.name })
-      : t("jev.chip.review", { tag: tag.name, percent });
   if (link.source === "user") return t("tags.chip.user", { tag: tag.name });
   return percent === null
     ? t("tags.chip.automatic", { tag: tag.name })
@@ -176,19 +172,10 @@ export function chipTitle(
 /** The tooltip of a Tag in the picker's field, on one Document. */
 const stateTitle = (state: TagOnDocuments, t: ReturnType<typeof useT>) =>
   chipTitle(
-    {
-      source: state.automatic ? "automatic" : "user",
-      confidence: state.confidence,
-      needsReview: state.needsReview,
-    },
+    { source: state.automatic ? "automatic" : "user", confidence: state.confidence },
     state.tag,
     t,
   );
-
-/** The amber dot of a Tag awaiting the User's review, inside its chip (DESIGN.md: `attention`). */
-export function ReviewDot() {
-  return <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-attention" />;
-}
 
 const undoStepOf = (event: KeyboardEvent) =>
   pressesShortcut("edit.undo", event.nativeEvent)
@@ -199,8 +186,7 @@ const undoStepOf = (event: KeyboardEvent) =>
 
 /**
  * Edits the Tags of one Document or several, keyboard first: type to filter,
- * ↑↓ to move, Enter to add (or, on one Document, to confirm a Tag awaiting
- * review, or to take off one it has), Backspace in the empty field to pick
+ * ↑↓ to move, Enter to add (or to take off one they all have), Backspace in the empty field to pick
  * the last Tag and again to take it off, × on a Tag to take it off, ⌘Z in
  * the empty field to take back the last change. A name no Tag has is
  * created, optionally with a description (Shift+Enter), and added. With
@@ -243,7 +229,6 @@ export function TagPicker({
   const applied = states.filter((state) => state.coverage === "all");
   const ids = documents.map((document) => document.id);
   const single = ids.length === 1;
-  const names = documents.map((document) => document.name).join(", ");
   const current = Math.min(active, options.length - 1);
 
   // The list's length changes the popover's height: place it again, before it is drawn.
@@ -370,34 +355,15 @@ export function TagPicker({
             data-tag-id={state.tag.id}
             data-colour={state.tag.colour}
             data-source={state.automatic ? "automatic" : "user"}
-            data-needs-review={state.needsReview && single ? "true" : undefined}
             title={single ? stateTitle(state, t) : state.tag.description || undefined}
             className={`${chipClass} ${tagChipColour(state.tag.colour)} pr-0.5 ${
               picked === state.tag.id ? "shadow-[inset_0_0_0_1px_currentColor]" : ""
             }`}
           >
-            {state.needsReview && single && <ReviewDot />}
-            {state.automatic && !(state.needsReview && single) && (
+            {state.automatic && (
               <SparkLineIcon aria-hidden="true" className="size-2.5 shrink-0 opacity-70" />
             )}
             <span className="truncate">{state.tag.name}</span>
-            {state.needsReview && single && (
-              <span className="sr-only">{t("jev.chip.needsReview")}</span>
-            )}
-            {state.needsReview && single && (
-              <button
-                type="button"
-                tabIndex={-1}
-                data-testid="confirm-document-tag"
-                aria-label={t("jev.chip.confirm", { tag: state.tag.name, name: names })}
-                title={t("tags.review.confirm", { tag: state.tag.name })}
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => void run(() => add(state.tag.id))}
-                className="inline-flex size-4 items-center justify-center rounded-sm hover:bg-sheet/70"
-              >
-                <CheckLineIcon className="size-3" />
-              </button>
-            )}
             <button
               type="button"
               tabIndex={-1}
@@ -510,7 +476,7 @@ export function TagPicker({
   );
 }
 
-/** One Tag in the list: a mark for on all, some or none; its name; review or automatic; its description. */
+/** One Tag in the list: a mark for on all, some or none; its name; automatic; its description. */
 function TagOption({
   id,
   state,
@@ -528,17 +494,14 @@ function TagOption({
 }) {
   const t = useT();
   const { tag, coverage } = state;
-  const review = single && state.needsReview;
-  const automatic = state.automatic && coverage !== "none" && !review;
-  const markTitle = review
-    ? t("jev.chip.needsReview")
-    : coverage === "all"
+  const automatic = state.automatic && coverage !== "none";
+  const markTitle =
+    coverage === "all"
       ? t(single ? "tags.picker.on" : "tags.picker.all", { total: state.total })
       : coverage === "some"
         ? t("tags.picker.some", { count: state.count, total: state.total })
         : undefined;
   const notes = [
-    review ? t("jev.chip.needsReview") : null,
     automatic ? t("tags.picker.automatic") : null,
     coverage === "some" ? t("tags.picker.some", { count: state.count, total: state.total }) : null,
     tag.description || null,
@@ -555,7 +518,6 @@ function TagOption({
       data-testid="tag-option"
       data-tag-id={tag.id}
       data-coverage={coverage}
-      data-needs-review={review ? "true" : undefined}
       data-active={active ? "true" : undefined}
       title={tag.description ? `${tag.name}: ${tag.description}` : tag.name}
       onMouseDown={(event) => event.preventDefault()}
@@ -568,9 +530,8 @@ function TagOption({
         title={markTitle}
         className="flex size-3.5 shrink-0 items-center justify-center"
       >
-        {coverage === "all" && !review && <CheckLineIcon className="size-3.5 text-ink" />}
+        {coverage === "all" && <CheckLineIcon className="size-3.5 text-ink" />}
         {coverage === "some" && <span className="h-0.5 w-2.5 rounded-full bg-ink-secondary" />}
-        {review && <ReviewRing />}
       </span>
       <TagDot colour={tag.colour} />
       <span className="min-w-0 truncate">{tag.name}</span>

@@ -121,7 +121,8 @@ const CHINESE_ONLY: readonly MessageKey[] = [
 
 /**
  * A note here is something else: Word's notes, speaker notes, a style's name,
- * or the activity of taking notes in a ⌘K keyword list.
+ * the activity of taking notes in a ⌘K keyword list, or the kind of Document
+ * a meeting's minutes are (会议记录).
  */
 const ANOTHER_NOTE: readonly MessageKey[] = [
   "citation.note",
@@ -131,6 +132,8 @@ const ANOTHER_NOTE: readonly MessageKey[] = [
   "location.section.notes",
   "meetings.record.keywords",
   "share.page.notes",
+  "tags.kind.meetingNotes",
+  "tags.kind.meetingNotes.description",
   "viewer.slide.notes",
   "wordImport.keptChange.content",
 ];

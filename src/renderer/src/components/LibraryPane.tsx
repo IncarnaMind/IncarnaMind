@@ -38,7 +38,7 @@ import { queryWords } from "../matcher";
 import { meetingHitsOf } from "../meetingTranscript";
 import { organizeDocuments } from "../organizeDocuments";
 import { organizeStateOf } from "../organizeOutcome";
-import { openReview, useOrganizeReview } from "../organizeReview";
+import { openReview, useFoldersWaiting, useOrganizeReview } from "../organizeReview";
 import {
   DAY_ONE_DOCUMENTS,
   ownsATag,
@@ -289,8 +289,9 @@ export function LibraryPane() {
   const running = useOrganizeReview((state) => state.run !== null);
   const reviewOpen = useOrganizeReview((state) => state.open);
   const waiting = useOrganizeReview((state) => state.count) ?? snapshot?.reviewCount ?? 0;
+  const foldersWaiting = useFoldersWaiting(snapshot?.reviewCount ?? 0);
   const sortIntoFolders =
-    folders.length === 0 && looseOwn >= DAY_ONE_DOCUMENTS && !narrowing && waiting === 0
+    folders.length === 0 && looseOwn >= DAY_ONE_DOCUMENTS && !narrowing && foldersWaiting === 0
       ? () => organizeDocuments(null).catch(useAppStore.getState().reportError)
       : null;
   const subOpen = useLibraryFolds((state) => state.subOpen);

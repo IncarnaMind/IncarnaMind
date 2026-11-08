@@ -1,8 +1,10 @@
 import { sameName } from "../../shared/names";
 import type { AssignmentChange, MovedDocument, RestoreRef, TagLinkState } from "../api";
+import type { Language } from "../language";
 import type { LibraryGroup, LibraryGroupInput } from "../library/types";
 import type { Database } from "../storage";
 import { type TagsStore, tagsOfDocument } from "../tags";
+import { isTagKind } from "../tags/kinds";
 import { tagKey } from "../tags/suggest";
 import {
   createOrganizeReviewStore,
@@ -49,7 +51,9 @@ export function createOrganizeReview(options: {
     move(ids: readonly string[], groupId: string | null): MovedDocument[];
     restoreAssignment(id: unknown, before: unknown, after: unknown): AssignmentChange | null;
   };
-  tags: Pick<TagsStore, "create" | "addToDocument" | "revert" | "owned">;
+  tags: Pick<TagsStore, "create" | "kindTag" | "addToDocument" | "revert" | "owned">;
+  /** The interface's language, which a kind's Tag is named in. */
+  language(): Language;
   /** Sends a Folder to Recently deleted, as deleting it does. */
   removeFolder(id: string, at: string): void;
   /** Sends a Tag to Recently deleted, as deleting it does. */
@@ -63,7 +67,7 @@ export function createOrganizeReview(options: {
   changed(count: number): void;
 }) {
   const { db, now, library, tags } = options;
-  const store = createOrganizeReviewStore(db, now);
+  const store = createOrganizeReviewStore(db, now, options.language);
   const changed = () => options.changed(store.count());
 
   const liveFolder = (id: string | null) =>
@@ -137,6 +141,7 @@ export function createOrganizeReview(options: {
 
     const tagFor = (row: {
       tag_id: string | null;
+      kind: string | null;
       name: string;
       description: string;
       made: number;
@@ -144,8 +149,19 @@ export function createOrganizeReview(options: {
       if (row.tag_id !== null && !deletedTag(row.tag_id))
         return { tagId: row.tag_id, made: row.made };
       if (row.tag_id !== null && row.made === 0) return null;
-      const key = tagKey(row.name);
-      const named = store.liveTags().find((tag) => tagKey(tag.name) === key);
+      const kind = isTagKind(row.kind) ? row.kind : null;
+      if (kind && row.tag_id === null) {
+        const { tag, made } = tags.kindTag(kind);
+        if (made) {
+          madeTagIds.push(tag.id);
+          tagsMade = true;
+        }
+        return { tagId: tag.id, made: made ? 1 : 0 };
+      }
+      const key = kind ? `kind:${kind}` : tagKey(row.name);
+      const named = store
+        .liveTags()
+        .find((tag) => (kind ? tag.kind === kind : tagKey(tag.name) === key));
       if (named) return { tagId: named.id, made: 0 };
       const earlier = madeTags.get(key);
       if (earlier) return { tagId: earlier, made: 1 };

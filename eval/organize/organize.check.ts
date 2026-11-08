@@ -16,6 +16,7 @@ import { test } from "vitest";
 import { organizeExcerpt, organizeReadsPages } from "../../src/core/library/excerpt";
 import { documentPageImages } from "../../src/core/library/pageImages";
 import type { DocumentPageImage } from "../../src/core/library/pdfImages";
+import { kindOfId } from "../../src/core/tags/classify";
 import { readConfig } from "../lib/config";
 import { choice, runOptions, selected } from "./lib/options";
 import { type Prepared, prepare } from "./lib/prepare";
@@ -208,11 +209,15 @@ test("Organize on the labelled set", async () => {
           );
           prediction.ms = Math.round(performance.now() - started);
           prediction.folder = decision.groupId;
-          prediction.tags = decision.tags.map((tag) => ({
-            key: tag.tagId,
-            confidence: tag.confidence === null ? null : Math.round(tag.confidence * 1000) / 1000,
-            needsReview: tag.needsReview,
-          }));
+          // A kind as the labels key it: the app's Meeting notes is their "notes".
+          prediction.tags = decision.tags.map((tag) => {
+            const kind = kindOfId(tag.tagId);
+            return {
+              key: kind === "meeting-notes" ? "notes" : (kind ?? tag.tagId),
+              confidence: tag.confidence === null ? null : Math.round(tag.confidence * 1000) / 1000,
+              needsReview: false,
+            };
+          });
           prediction.model = classifier.model?.id ?? null;
           prediction.images = images.length > 0 && (classifier.model?.images ?? true);
         } catch (error) {
