@@ -4,6 +4,7 @@ import { useGap, useT } from "../i18n";
 import { useMeetings } from "../meetings";
 import { useAppStore } from "../store";
 import { useAudioKeptKey } from "../transcriptionServices";
+import { onMac } from "./BackgroundSettings";
 import { TranscriptionRouteChoice } from "./meetings/TranscriptionRouteChoice";
 import {
   buttonClass,
@@ -79,6 +80,11 @@ export function MeetingNoticeDialog() {
             {kept}
           </p>
           {!memo && <p className={dialogTextClass}>{t("meetings.notice.tell")}</p>}
+          {!memo && (
+            <p data-testid="meeting-notice-background" className={dialogTextClass}>
+              {t(onMac() ? "meetings.notice.background.mac" : "meetings.notice.background.other")}
+            </p>
+          )}
           {transcribedHere && <p className={dialogTextClass}>{t("meetings.notice.model")}</p>}
           {downloads && (
             <p data-testid="meeting-notice-model-size" className={dialogTextClass}>

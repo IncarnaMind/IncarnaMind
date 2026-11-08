@@ -170,3 +170,23 @@ test("the runtime's archive inside the app fails the check", async () => {
     `FAIL: ${archive} is run_code's Python, which the app downloads and never ships`,
   ]);
 });
+
+/** The package check's failures about the call watcher (#208). */
+function callWatcherFailures(): string[] {
+  const { stderr } = spawnSync(process.execPath, [SCRIPT, join(folder, "dist")], {
+    encoding: "utf8",
+  });
+  return stderr.split("\n").filter((line) => line.includes("call-watcher"));
+}
+
+test("a macOS app without its call watcher fails the check, and one with it passes", async () => {
+  await packApp("mac-arm64");
+  expect(callWatcherFailures()).toEqual([
+    `FAIL: ${join(resourcesOf("mac-arm64"), "app.asar")} has no executable call-watcher/incarnamind-call-watcher beside it (npm run build)`,
+  ]);
+  await mkdir(join(resourcesOf("mac-arm64"), "call-watcher"), { recursive: true });
+  const watcher = join(resourcesOf("mac-arm64"), "call-watcher", "incarnamind-call-watcher");
+  if (lipo.status === 0 && lipo.stdout.trim() === "arm64") await symlink(process.execPath, watcher);
+  else await writeFile(watcher, "", { mode: 0o755 });
+  expect(callWatcherFailures()).toEqual([]);
+});

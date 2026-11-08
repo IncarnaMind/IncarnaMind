@@ -115,6 +115,10 @@ mac:
       to: python-native
       filter:
         - runtime.json
+    # The call watcher (#208), which `npm run build` compiles on macOS (scripts/callWatcher.ts):
+    # electron-builder signs it with the app, as it does every binary in the bundle.
+    - from: resources/call-watcher
+      to: call-watcher
   # electron-builder's default entitlements, and the microphone, which a hardened-runtime build
   # can't open without it.
   entitlements: build/entitlements.mac.plist

@@ -15,6 +15,8 @@
 //   6. Each macOS and Linux x64 app has python-native/runtime.json beside app.asar, with the size
 //      and SHA-256 of the Python run_code downloads on first use (ADR-0025), for its own platform;
 //      and no app holds that archive, which is never shipped (npm run python:native).
+//   7. Each macOS app has the call watcher (#208), call-watcher/incarnamind-call-watcher beside
+//      app.asar, as an executable for Apple silicon (npm run build compiles it).
 // Usage: node scripts/check-package.mjs [dist-folder]   (default: dist)
 // Exit code 1 when a check fails.
 import { spawnSync } from "node:child_process";
@@ -192,6 +194,18 @@ for (const asar of asars) {
 	}
 	if (!String(runtime?.url).startsWith("https://")) {
 		failures.push(`${asar}: python-native/runtime.json downloads run_code's Python from ${runtime?.url}, not over https`);
+	}
+}
+
+for (const asar of asars.filter((each) => each.includes(`${sep}mac-arm64${sep}`))) {
+	const watcher = join(dirname(asar), "call-watcher", "incarnamind-call-watcher");
+	if (!existsSync(watcher) || (statSync(watcher).mode & 0o111) === 0) {
+		failures.push(`${asar} has no executable call-watcher/incarnamind-call-watcher beside it (npm run build)`);
+		continue;
+	}
+	if (process.platform === "darwin") {
+		const archs = spawnSync("lipo", ["-archs", watcher], { encoding: "utf8" }).stdout.trim();
+		if (archs !== "arm64") failures.push(`${watcher} is built for ${archs || "nothing lipo reads"}, not arm64`);
 	}
 }
 

@@ -40,6 +40,7 @@ import { useExamplesMenu, useExportMenu } from "./exportMenu";
 import { useLanguage, useT } from "./i18n";
 import type { Words } from "./lineNames";
 import { useMeetingHelpInWindow } from "./meetingHelp";
+import { useMeetingOffers } from "./meetingOffers";
 import { useMeetings } from "./meetings";
 import { setMotionPreference } from "./motion";
 import { importReferenceFile, isReferenceFile } from "./referenceImport";
@@ -63,6 +64,7 @@ export function App() {
   useEffect(() => {
     void load();
     void useMeetings.getState().load();
+    void useMeetingOffers.getState().load();
   }, [load]);
 
   useEffect(() => {

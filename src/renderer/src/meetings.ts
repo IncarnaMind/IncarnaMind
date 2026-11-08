@@ -245,7 +245,9 @@ export const useMeetings = create<MeetingsState>()((set, get) => {
         return;
       }
       await attempt(waiting.meetingId, async () => {
-        await core.updateSettings({ device: { meetingNoticeAccepted: true } });
+        // Setting up Meetings turns on what the offers to take notes need (#189), as the sheet says.
+        await core.updateSettings({ device: { meetingNoticeAccepted: true, keepRunning: true } });
+        core.setOpenAtLogin(true).catch(useAppStore.getState().reportError);
         await core.startMeeting(waiting);
       });
     },

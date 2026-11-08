@@ -7,7 +7,12 @@ export interface CalendarMeeting {
   start: string;
 }
 
-// Filled by the calendars of #190; empty until then.
-export const useComingUp = create<{ meetings: readonly CalendarMeeting[] }>()(() => ({
+// Filled by the calendars of #190; empty, and no calendar connected, until then.
+export const useComingUp = create<{
+  meetings: readonly CalendarMeeting[];
+  /** A calendar is connected: Settings › General shows the switch for its offers (#189). */
+  connected: boolean;
+}>()(() => ({
   meetings: [],
+  connected: false,
 }));

@@ -141,6 +141,7 @@ import {
   type MindExportPreview,
   type NetworkTrafficId,
   NOT_IN_A_FOLDER_ID,
+  type OpenAtLogin,
   type OwnFileKind,
   type PassageSearchPlace,
   type ProviderError,
@@ -261,6 +262,7 @@ import { listParts, meetingFolder } from "./meetings/audioFiles";
 import { createMeetingFill } from "./meetings/fill";
 import { createCaptureHealth } from "./meetings/health";
 import { type MemoCue, memoTitle } from "./meetings/memo";
+import { createMeetingOffers, offerAllowed } from "./meetings/offers";
 import {
   joinedMeetings,
   joinedMeetingsSaid,
@@ -5088,6 +5090,45 @@ export function createCore(adapters: CoreAdapters): Core {
     return meetings.get(stopped.id);
   };
 
+  const isLive = (meeting: Meeting) =>
+    meeting.status === "recording" || meeting.status === "paused";
+  // Offers to take notes in a call (#208): watched only while wanted, and only Take notes records.
+  const meetingOffers = createMeetingOffers({
+    watcher: adapters.callWatcher,
+    watching: () => {
+      const { device } = settings.get();
+      return (
+        device.callOffers && device.meetingNoticeAccepted && adapters.audioCapture !== undefined
+      );
+    },
+    allowed: (app) => offerAllowed(settings.get().device, { kind: "call", app }),
+    busy: () => meetings.list().some(isLive),
+    live: (meetingId) => meetings.list().some((each) => each.id === meetingId && isLive(each)),
+    record: () => {
+      const meeting = meetings.create({});
+      // The window the app opens on, whether or not it is open yet: its page reads the layout.
+      layouts.change("main", {
+        type: "open",
+        item: { kind: "mind", mindId: meeting.mindId },
+        where: { in: "group" },
+      });
+      meetings.start({ meetingId: meeting.id });
+      return meeting.id;
+    },
+    stop: (meetingId) => {
+      stopMeeting(meetingId);
+    },
+    changed: (offers) => events.emit("meetings.offers", offers),
+    newId: () => crypto.randomUUID(),
+    now: () => adapters.now?.() ?? new Date(),
+    log: adapters.log ?? silentLogger,
+  });
+  events.on("settings.changed", () => meetingOffers.refresh());
+  events.on("meetings.changed", () => meetingOffers.refresh());
+  meetingOffers.refresh();
+  const loginItemState = (): OpenAtLogin =>
+    adapters.loginItem?.get() ?? { supported: false, on: false, needsApproval: false };
+
   liveTranscriptOf = async (mindId) => {
     // A voice memo's speech isn't a call's: no Question listens to it (#1568).
     const meeting = meetings
@@ -7258,6 +7299,39 @@ export function createCore(adapters: CoreAdapters): Core {
       return meetings.setTemplate(meetingId, template);
     },
     setMeetingMicrophone: async (input) => meetings.setMicrophonePaused(input),
+    getMeetingOffers: async () => meetingOffers.get(),
+    takeMeetingOffer: async (offerId) => {
+      if (typeof offerId !== "string") throw new InvalidInputError("offerId must be a string.");
+      return meetings.get(meetingOffers.take(offerId));
+    },
+    declineMeetingOffer: async (input) => {
+      if (
+        !isRecord(input) ||
+        typeof input.offerId !== "string" ||
+        typeof input.always !== "boolean"
+      )
+        throw new InvalidInputError("Give the offer's id and whether to ask for its app again.");
+      const app = meetingOffers.get().offer?.app;
+      meetingOffers.decline(input.offerId, input.always);
+      const off = settings.get().device.callOffersOff;
+      if (!input.always || !app || off.includes(app)) return;
+      events.emit(
+        "settings.changed",
+        settings.update({ device: { callOffersOff: [...off, app] } }),
+      );
+    },
+    keepRecordingAfterCall: async (meetingId) =>
+      meetingOffers.keepRecording(meetings.get(meetingId).id),
+    getOpenAtLogin: async () => loginItemState(),
+    setOpenAtLogin: async (on) => {
+      if (typeof on !== "boolean") throw new InvalidInputError("on must be true or false.");
+      const loginItem = adapters.loginItem;
+      if (!loginItem) throw new InvalidInputError({ key: "error.openAtLogin.unsupported" });
+      return loginItem.set(on);
+    },
+    openLoginItemSettings: async () => {
+      await adapters.loginItem?.openSettings();
+    },
 
     openDocumentFile: async (documentId) => {
       const file = await documents.openFile(documentId);
@@ -7332,6 +7406,7 @@ export function createCore(adapters: CoreAdapters): Core {
       if (lifetime.signal.aborted) return;
       lifetime.abort();
       // What a Meeting has captured is saved before anything else stops.
+      meetingOffers.close();
       meetings.close();
       transcripts?.close();
       speakerModel?.close();

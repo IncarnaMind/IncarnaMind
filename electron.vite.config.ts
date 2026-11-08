@@ -5,6 +5,7 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "electron-vite";
 import type { Plugin } from "vite";
+import { buildCallWatcher } from "./scripts/callWatcher";
 import { preparePythonRuntime } from "./scripts/pythonRuntime";
 
 /** Where the renderer finds pdf.js's data files, relative to its page (see src/renderer/src/viewer/pdfjs.ts). */
@@ -118,6 +119,19 @@ function pythonRuntime(): Plugin {
   };
 }
 
+/** Builds the macOS call watcher (#208) into resources/call-watcher/ before the main process is built. */
+function callWatcher(): Plugin {
+  return {
+    name: "incarnamind:call-watcher",
+    buildStart() {
+      const result = buildCallWatcher(__dirname);
+      if ("skipped" in result && process.platform === "darwin") {
+        this.warn(`No call watcher in this build: ${result.skipped}`);
+      }
+    },
+  };
+}
+
 // Entry points follow electron-vite's defaults (src/main, src/preload and src/renderer), plus the
 // hidden window that records a Meeting's audio: its preload and its page (ADR-0015), the hidden
 // window that prints PDF exports (#100), the page of the hidden window that draws a cited page
@@ -131,6 +145,7 @@ const SIGN_IN_ROUTES = { __EXPERIMENTAL_SIGN_IN_ROUTES__: "true" };
 export default defineConfig({
   main: {
     define: SIGN_IN_ROUTES,
+    plugins: [callWatcher()],
     build: {
       rollupOptions: {
         input: {
