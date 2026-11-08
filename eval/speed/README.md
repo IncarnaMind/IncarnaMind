@@ -26,7 +26,7 @@ npm run eval:speed
 
 ## Paired runs
 
-A change that makes a flow faster must not make it worse, and two separate runs differ by more than most changes do. A paired run asks each item of a set on two arms in the same run, today's path and the new one, one right after the other, the order turning from pair to pair over the whole run, its groups and models included, so neither always meets a prompt cache the other warmed. Each arm goes first in half the pairs, give or take one, even where every group holds one item, and the report says how many each went first in (#2791). Each arm has a core of its own on its own data folder, opened the same way: in one shared core, the second arm found the first arm's Note of the same title and wrote into it. Each arm is read the same way, and the two are compared item by item.
+A change that makes a flow faster must not make it worse, and two separate runs differ by more than most changes do. A paired run asks each item of a set on two arms in the same run, today's path and the new one, one right after the other, the order turning from pair to pair within each model, set and language, the cells a gate reads, so neither always meets a prompt cache the other warmed. In each cell each arm goes first in half the pairs, give or take one, even where every group holds one item and the run holds several models, and the report says how many each went first in, over the run and cell by cell (#2791). Each arm has a core of its own on its own data folder, opened the same way: in one shared core, the second arm found the first arm's Note of the same title and wrote into it. Each arm is read the same way, and the two are compared item by item.
 
 ```sh
 INCARNAMIND_EVAL_SPEED_PAIRED=today,<new arm> \

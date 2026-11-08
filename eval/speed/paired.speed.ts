@@ -43,6 +43,7 @@ import {
 } from "./paired";
 import {
   armTurns,
+  cellOf,
   itemTable,
   newFalseSupported,
   outcomeOf,
@@ -52,6 +53,7 @@ import {
   seconds,
   timeTable,
   wentFirst,
+  wentFirstByCell,
 } from "./pairedReport";
 import { percentile } from "./report";
 import { env, list, modelNamed, modelsAsked, spentUsd } from "./settings";
@@ -294,7 +296,7 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
               break run;
             }
             loads.push(loadavg()[0] ?? 0);
-            const order = turn();
+            const order = turn(cellOf({ model: name, set: item.set, language: item.language }));
             const done: ArmRun[] = [];
             const firstSent: (string | null)[] = [null, null];
             for (const which of order) {
@@ -398,7 +400,11 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
     "",
     `This computer: ${cpus()[0]?.model ?? "unknown CPU"}, ${cpus().length} cores, ${Math.round(totalmem() / 2 ** 30)} GB; one-minute load ${loads.length ? `${Math.min(...loads).toFixed(1)} to ${Math.max(...loads).toFixed(1)}, median ${(percentile(loads, 0.5) ?? 0).toFixed(1)}` : "–"}. Spent: $${spent.toFixed(2)} (the judge $${judge.spent().toFixed(2)})${ledger.before > 0 ? `; with the runs before it, $${(ledger.before + spent).toFixed(2)} of $${stopUsd}` : ""}.${stopped ? ` ${stopped}` : ""}`,
     "",
-    `Went first: ${arms[0].id} in ${wentFirst(rows)[0]} pairs, ${arms[1].id} in ${wentFirst(rows)[1]}.`,
+    `Went first: ${arms[0].id} in ${wentFirst(rows)[0]} pairs, ${arms[1].id} in ${wentFirst(rows)[1]}. By model, set and language: ${wentFirstByCell(
+      rows,
+    )
+      .map(([cell, [first, second]]) => `${cell}, ${first} and ${second}`)
+      .join("; ")}.`,
     ...(sameRequest
       ? [
           "",
