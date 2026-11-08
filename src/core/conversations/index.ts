@@ -113,6 +113,8 @@ export interface AnswerWrite {
   textOrigin: ThirdPartySource | null;
   read: AnswerRead | null;
   steps: AnswerSteps;
+  /** The model writing it, where that isn't the one it was asked of: call help's own (#2526). */
+  model?: ChatModelChoice;
   outcome?: { status: Exclude<AnswerStatus, "streaming">; error: ProviderError | null };
 }
 
@@ -1379,7 +1381,8 @@ export function createConversations(db: Database, now: () => string) {
           `UPDATE conversation_messages SET text = ?, citations = ?, figures = ?, analyses = ?,
              tool_calls = ?, citation_support = ?, text_origin = ?, read_mind_id = ?, read_mind_version = ?,
              read_partial = ?, steps = ?, status = ?, error_kind = ?, error_message = ?,
-             error_sign_in_route = ?, updated_at = ?
+             error_sign_in_route = ?, provider_id = COALESCE(?, provider_id),
+             model_id = COALESCE(?, model_id), updated_at = ?
            WHERE id = ?`,
           [
             write.text,
@@ -1395,6 +1398,8 @@ export function createConversations(db: Database, now: () => string) {
             outcome?.error?.kind ?? null,
             outcome?.error?.message ?? null,
             outcome?.error?.signInRoute ?? null,
+            write.model?.providerId ?? null,
+            write.model?.modelId ?? null,
             now(),
             answerId,
           ],

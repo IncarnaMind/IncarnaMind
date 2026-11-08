@@ -91,6 +91,7 @@ import {
   type BlockOrigin,
   CHART_NODE,
   type ChartProblem,
+  type ChatModelChoice,
   CITATION_NODE,
   type Citation,
   type ConversationAnswer,
@@ -190,7 +191,13 @@ export interface MindsForTools {
   /** The core's clock, which a change's record is made on. */
   now(): Date;
   /** Makes a Mind, in the Folder `folderId` or in none; `headed`, its text starts with its title (`makeMind`). */
-  create(title: string, folderId: string | null, headed: boolean): ChangeableMind;
+  /** Makes a Note asked with `model`, the Answer's (#2836). */
+  create(
+    title: string,
+    folderId: string | null,
+    headed: boolean,
+    model: ChatModelChoice,
+  ): ChangeableMind;
   /** Removes a Mind a call made, when it holds nothing but its title. */
   discard(mindId: string): void;
   /** The name of a Folder, or null when there is none by that id. */
@@ -2880,7 +2887,10 @@ export function mindTools(options: MindToolsOptions): {
     startsWithHeading: boolean,
     folderId: string | null,
   ): ChangeableMind => {
-    const made = minds.create(title, folderId, !startsWithHeading);
+    const made = minds.create(title, folderId, !startsWithHeading, {
+      providerId: options.prepared.provider.id,
+      modelId: options.prepared.modelId,
+    });
     if (!startsWithHeading) minds.edit(made.id, (note) => ownTitleOf(note, options.origin));
     settled.add(made.id);
     return made;
