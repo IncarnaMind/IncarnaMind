@@ -13,11 +13,10 @@ import { useAnswers } from "../../answers";
 import { core } from "../../core";
 import {
   citationNumbers,
+  helpParts,
   quoted,
   type ReplyItem,
   type ReplyPiece,
-  readHelpReply,
-  shownItems,
 } from "../../helpReply";
 import { useT } from "../../i18n";
 import { useModelNames, useServiceName } from "../../modelNames";
@@ -290,11 +289,8 @@ export function HelpSuggestion({
       )
     : (answer.errorMessage ?? "");
   const streaming = answer.status === "streaming";
-  const items = shownItems(readHelpReply(answer.text), {
-    shape: HELP_SHAPE[help.kind],
-    leadIn: help.kind === "leading" || answer.steps?.textBehind === true,
-    streaming,
-  });
+  const { lead, options } = helpParts(answer, help.kind);
+  const items = [...lead, ...options];
   const numbers = citationNumbers(
     items,
     (marker) => streaming || answer.citations.some((each) => each.marker === marker),
@@ -323,6 +319,9 @@ export function HelpSuggestion({
       )}
       {answer.status === "done" && items.length === 0 && (
         <NoHelp testId="help-nothing" message={t("meetings.help.nothing")} onRetry={onRetry} />
+      )}
+      {answer.status === "stopped" && options.length === 0 && (
+        <NoHelp testId="help-stopped" message={t("answer.status.stopped")} onRetry={onRetry} />
       )}
       <Sources answer={answer} numbers={numbers} />
     </div>

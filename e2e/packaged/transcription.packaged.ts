@@ -79,10 +79,9 @@ test("the packaged app transcribes a meeting from the microphone on this compute
   });
   await expect(stopped).toHaveCount(0);
   // The words being said, before their line is finished: the streaming model loaded and reads.
-  await expect(window.getByTestId("transcript-partial").locator(".transcript-text")).toContainText(
-    /\p{L}/u,
-    { timeout: 2 * 60_000 },
-  );
+  await expect(window.getByTestId("transcript-partial").first()).toContainText(/\p{L}/u, {
+    timeout: 2 * 60_000,
+  });
   await beside.click();
   const lines = window.getByTestId("transcript-lines");
   for (const word of [/fathers/i, /nation/i, /liberty/i, /equal/i]) {
@@ -155,7 +154,7 @@ test("the packaged app keeps the short first word of each Chinese line", async (
 
   // One play of the file is its three lines. A slow runner's live text can fall behind before
   // them; the rest is then transcribed from the recording after Stop.
-  const words = window.getByTestId("transcript-line").locator(".transcript-text");
+  const words = window.getByTestId("transcript-line");
   const behind = window.getByTestId("transcript-behind");
   await expect
     .poll(async () => (await words.count()) >= 3 || (await behind.count()) > 0, {

@@ -766,7 +766,12 @@ describe("What the assistant writes is checked once it lands, the reply not wait
     });
 
     expect(shownWithChanges(client)).toEqual(["+ Tides", "+ The harbour is quiet in winter."]);
-    expect(calls.some(isCheckRun)).toBe(true);
+    // Its check searches the Documents for something that backs it before it judges.
+    const checks = calls.filter(isCheckRun);
+    expect(checks.length).toBeGreaterThan(0);
+    expect(
+      checks.some((call) => call.results.some((result) => result.tool === "search_documents")),
+    ).toBe(true);
     expect((await marksIn(core, client)).map(({ check }) => check.state)).toEqual(["unsupported"]);
     expect(change?.selfCheck).toMatchObject({ checkable: 1, cited: 0, sent: 1, checked: 1 });
   });

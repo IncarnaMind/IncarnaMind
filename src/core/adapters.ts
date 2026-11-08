@@ -1371,6 +1371,11 @@ export interface CoreAdapters {
    */
   notesBeforeSpeakers?: () => boolean | undefined;
   /**
+   * Whether call help's own form may be judged the model's working, as before #2778; unset, it
+   * isn't. Only tests and the evaluation pass one.
+   */
+  helpFormJudged?: () => boolean | undefined;
+  /**
    * Tunes and watches the search Tool for Answers' searches (reranking depth,
    * Passages handed, a callback with each search's timings). Only the
    * evaluation passes one.

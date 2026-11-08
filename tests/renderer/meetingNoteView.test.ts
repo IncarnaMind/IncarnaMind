@@ -176,6 +176,9 @@ let TabPlace: ComponentType<{
 let views: typeof import("../../src/renderer/src/meetingViews");
 let meetingCommands: typeof import("../../src/renderer/src/commands/meetings").meetingCommands;
 let response: "ready" | "pending" | "missing" | "failed";
+const FIRST_LINE = "WEBVTT\n\n00:00:01.000 --> 00:00:03.000\n<v Me>Keep the go-live date.\n";
+/** The Transcript's file as the request reads it now. */
+let served = FIRST_LINE;
 const requests: string[] = [];
 
 class BytesRequest {
@@ -190,9 +193,7 @@ class BytesRequest {
   send() {
     if (response === "pending") return;
     this.status = response === "missing" ? 404 : response === "failed" ? 500 : 200;
-    this.response = new TextEncoder().encode(
-      "WEBVTT\n\n00:00:01.000 --> 00:00:03.000\n<v Me>Keep the go-live date.\n",
-    ).buffer;
+    this.response = new TextEncoder().encode(served).buffer;
     queueMicrotask(() => this.onload?.());
   }
   abort() {
@@ -263,6 +264,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   actions.language = "en";
   response = "ready";
+  served = FIRST_LINE;
   requests.length = 0;
   const document = new DOMParser().parseFromString("<html><body></body></html>", "text/html");
   const window = document.defaultView;
@@ -474,6 +476,64 @@ describe("the Meeting's Note-local views", () => {
     expect(actions.retryDocument).toHaveBeenCalledWith("transcript");
     expect(find("meeting-note-transcript").textContent).toContain("Keep the go-live date.");
     expect(actions.changeLayout).not.toHaveBeenCalled();
+  });
+
+  // protects=a live Transcript reads as a script: one Speaker's lines are one turn that grows in place, the same element, as each sentence comes; the words being said join its end; someone else's line is a turn of its own and the first Speaker's next words start a new turn after it; the reader's place holds while they read above; fails_when=a new sentence re-lays out the turn (a new element), words being said show as a row of their own, an interjection joins the turn, or the view jumps while the reader is up the page; no_claim=the route's cuts, which the core tests cover.
+  test("a live Transcript grows its turn in place, and the reader's place holds", async () => {
+    const vtt = (lines: [number, number, string, string][]) =>
+      `WEBVTT\n\n${lines
+        .map(
+          ([from, to, who, text]) =>
+            `00:00:${String(from).padStart(2, "0")}.000 --> 00:00:${String(to).padStart(2, "0")}.000\n<v ${who}>${text}`,
+        )
+        .join("\n\n")}\n`;
+    const live = (lines: number, partials: NonNullable<Meeting["transcript"]>["partials"] = []) =>
+      meetingOf({
+        status: "recording",
+        transcript: { documentId: "transcript", lines, state: "live", partials } as NonNullable<
+          Meeting["transcript"]
+        >,
+      });
+    const said: [number, number, string, string][] = [
+      [1, 3, "Me", "Keep the go-live date."],
+      [3, 5, "Me", "Then ship it."],
+    ];
+    served = vtt(said);
+    useMeetings.setState({ meetings: [live(2)] });
+    await show();
+    await act(async () => views.showMeetingNoteView("tab", "note", "transcript"));
+    const turns = () => [...container.querySelectorAll('[data-testid="transcript-turn"]')];
+    expect(turns()).toHaveLength(1);
+    const turn = turns()[0] as HTMLElement;
+    const scroller = find("viewer-transcript");
+    // The reader scrolls up to read.
+    Object.assign(scroller, { scrollTop: 120 });
+    await act(async () => scroller.dispatchEvent(new window.Event("scroll")));
+
+    said.push([5, 7, "Me", "And tell the team."]);
+    served = vtt(said);
+    await act(async () =>
+      useMeetings.setState({
+        meetings: [live(3, [{ startMs: 7100, speaker: "Me", text: "We need a" }])],
+      }),
+    );
+    expect(turns()).toHaveLength(1);
+    expect(turns()[0]).toBe(turn);
+    expect(turn.querySelectorAll('[data-testid="transcript-line"]')).toHaveLength(3);
+    expect(turn.querySelector('[data-testid="transcript-partial"]')?.textContent).toContain(
+      "We need a",
+    );
+    expect(scroller.scrollTop).toBe(120);
+
+    said.push([7, 8, "Them", "Agreed."], [8, 10, "Me", "We need a date."]);
+    served = vtt(said);
+    await act(async () => useMeetings.setState({ meetings: [live(5)] }));
+    expect(turns()).toHaveLength(3);
+    expect(turns()[0]).toBe(turn);
+    expect(
+      turns().map((each) => each.querySelector('[data-testid="transcript-speaker"]')?.textContent),
+    ).toEqual(["Me", "Them", "Me"]);
+    expect(scroller.scrollTop).toBe(120);
   });
 
   test("adds no chip to a Voice memo, and no Transcript view to a call without a Transcript", async () => {

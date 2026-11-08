@@ -40,6 +40,10 @@ import {
   callOf,
   TRANSCRIPT,
 } from "./callHelpCases";
+import { CALL_HELP_CHECKS } from "./callHelpChecks";
+import { CALL_HELP_DOCUMENTS } from "./callHelpDocuments";
+import { CALL_HELP_FRESH } from "./callHelpFresh";
+import { CALL_HELP_HELD_OUT } from "./callHelpHeldOut";
 import type { GroupOptions, Measured, OpenedGroup, PairedGroup, RequestTiming } from "./paired";
 
 const STEP_MS = 500;
@@ -384,9 +388,9 @@ async function press(
 /** Every reply the change-claim check rewrote, with the text before the check and after it. */
 export const rewrittenReplies: { item: string; before: string; after: string }[] = [];
 
-function item(each: CallHelpCase): PairedGroup["items"][number] {
+function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number] {
   return {
-    set: "call-help",
+    set,
     id: each.id,
     kind: `${each.kind}-${each.needs}`,
     language: each.language,
@@ -519,12 +523,27 @@ export async function openCall(
   }
 }
 
+type CallHelpSet =
+  | "call-help"
+  | "call-help-held-out"
+  | "call-help-fresh"
+  | "call-help-documents"
+  | "call-help-checks";
+
+const CASES: Readonly<Record<CallHelpSet, readonly CallHelpCase[]>> = {
+  "call-help": CALL_HELP_CASES,
+  "call-help-held-out": CALL_HELP_HELD_OUT,
+  "call-help-fresh": CALL_HELP_FRESH,
+  "call-help-documents": CALL_HELP_DOCUMENTS,
+  "call-help-checks": CALL_HELP_CHECKS,
+};
+
 /** One group a case: its own Library, its own Meeting heard before the press. */
-export function callHelpSet(): PairedGroup[] {
-  return CALL_HELP_CASES.map(
+export function callHelpSet(set: CallHelpSet = "call-help"): PairedGroup[] {
+  return CASES[set].map(
     (each): PairedGroup => ({
-      name: `call-help-${each.id}`,
-      items: [item(each)],
+      name: `${set}-${each.id}`,
+      items: [item(each, set)],
       open: (base) => openCall(base, each, `paired-call-help-${each.id}`),
     }),
   );

@@ -284,7 +284,7 @@ async function ownTranscriptRoundTrip(
     const cue = viewer.getByTestId("transcript-line").first();
     await expect(cue).toBeVisible();
     await expect(cue).toHaveAttribute("data-start", /^\d+$/);
-    expect(speech).toContain((await cue.locator(".transcript-text").innerText()).trim());
+    expect(speech).toContain((await cue.innerText()).trim());
     await expect(notes).toBeHidden();
     expect(await retained.evaluate(({ element }) => element.isConnected)).toBe(true);
     await expect(noteTab).toHaveAttribute("aria-selected", "true");

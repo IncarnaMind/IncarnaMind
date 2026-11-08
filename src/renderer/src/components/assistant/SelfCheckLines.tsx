@@ -1,10 +1,12 @@
 import type { Editor } from "@tiptap/core";
-import { TextSelection } from "@tiptap/pm/state";
+import { type EditorState, TextSelection } from "@tiptap/pm/state";
 import { useEffect, useState } from "react";
 import type { ConversationAnswer } from "../../../../core/api";
+import { citationState } from "../../../../shared/citations";
 import { mindCheckOf } from "../../../../shared/mindCheck";
 import { setCheckCardOpen, setOpenClaim } from "../../checks";
 import { useChecksWaitForConsent } from "../../checksConsent";
+import { citationsOf } from "../../editor/alreadyCited";
 import { originOf } from "../../editor/blockOrigins";
 import { markOf, type ShownClaim, shownClaims } from "../../editor/claimChecks";
 import { type SentencePlace, toCheckRanges } from "../../editor/healthCounts";
@@ -79,9 +81,20 @@ function useWriteLeft(mindId: string, blocksKey: string): number | null {
   return left;
 }
 
-/** Whether a sentence's check found it needs a look: unsupported or contradicted. */
-const needsLook = (claim: ShownClaim) =>
-  markOf(claim) === "unsupported" || claim.shown.state === "contradicted";
+/**
+ * Whether a sentence needs a look, as the Note's check card counts it (#2831): unsupported,
+ * contradicted, or holding a Citation whose quoted words aren't found, once its check is over.
+ */
+function needsLook(state: EditorState, claim: ShownClaim): boolean {
+  if (claim.shown.state === "checking") return false;
+  if (markOf(claim) === "unsupported" || claim.shown.state === "contradicted") return true;
+  const app = useAppStore.getState();
+  const documents = app.status.kind === "ready" ? app.documents : null;
+  return citationsOf(state, claim).some(
+    ({ attributes }) =>
+      citationState(attributes, documents, app.keptCitationTexts).check === "not-found",
+  );
+}
 
 /** The sentences this write's check found need a look, live from its Note; null while its Note isn't open. */
 function useWriteLook(mindId: string, request: string): number | null {
@@ -93,7 +106,7 @@ function useWriteLook(mindId: string, request: string): number | null {
       const count = () =>
         setLook(
           shownClaims(editor.state).filter(
-            (claim) => claim.check.request === request && needsLook(claim),
+            (claim) => claim.check.request === request && needsLook(editor.state, claim),
           ).length,
         );
       count();
@@ -121,7 +134,7 @@ async function showLook(mindId: string, request: string): Promise<void> {
   const editor = mindEditor(mindId) ?? (await whenMindEditor(mindId, OPEN_WAIT_MS));
   if (!editor || editor.isDestroyed) return;
   const looks = shownClaims(editor.state).filter(
-    (claim) => claim.check.request === request && needsLook(claim),
+    (claim) => claim.check.request === request && needsLook(editor.state, claim),
   );
   const head = editor.state.selection.head;
   const next = looks.find((claim) => claim.sentence.from > head) ?? looks[0];

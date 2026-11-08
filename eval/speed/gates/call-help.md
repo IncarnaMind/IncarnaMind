@@ -25,6 +25,8 @@ And none new:
 - no new Tool call left as text, reply that showed nothing, or reply written while the live text was behind;
 - no more cases failing to run.
 
+*Added on 2026-11-08, before any run it changes (#2720): false Supported is measured, not read as 0. The case's judge, in the same reply as the grade, lists the number of each option line the reply showed with a found Citation that states as so something its quoted words don't say (a figure, a date, a period, a name, a term, a yes or a no); a line with several found Citations counts once, and only options whose Citation the panel found count, so a Citation not found shows as not checked and can't make one (`eval/speed/callHelp.ts`, its judge's `unstated` read against the panel's found Citations). A judge reply that can't be read grades the case unread and lists none.*
+
 ## Faster, or it doesn't ship
 
 The step is for speed: it ships only where the paired median difference of the time to the first words is below zero, and that of the time to the end is not above zero, on both models.
