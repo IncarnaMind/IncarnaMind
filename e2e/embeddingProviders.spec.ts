@@ -63,7 +63,7 @@ test("embeddings are off by default; turning them on with a cloud provider warns
   await expect(confirm).toContainText("Turn on OpenAI · text-embedding-3-small?");
   await expect(confirm).toContainText("Reads all 1 Documents; search matches words until then.");
   await expect(confirm.getByTestId("embedding-confirm-cloud")).toHaveText(
-    "OpenAI will receive the full text of all your Documents, and every search you make.",
+    "OpenAI will receive the full text of all your Documents, each passage with its Document’s name, and every search you make.",
   );
 
   // Cancelling changes nothing: no consent is asked, nothing is saved, nothing is embedded.

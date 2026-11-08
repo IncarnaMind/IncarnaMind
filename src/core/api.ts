@@ -3347,6 +3347,11 @@ export interface UserSettings {
    */
   imageModel: ChatModelChoice | null;
   /**
+   * The model call help answers on (#2526): "answers", the Answers model itself, by default;
+   * "fastest", its provider's quick model where one is offered (`ModelRoles.callHelp`).
+   */
+  callHelpModel: CallHelpModel;
+  /**
    * Suggest as the User writes, from their Documents (see `suggestNext`): off
    * until they turn it on. Turning it on asks for consent to the "suggestions"
    * flow first, when the default chat model sends to a service.
@@ -5628,6 +5633,9 @@ export const MODEL_SOURCE_CHOICES: readonly ModelSourceChoice[] = [
   "modelscope",
 ];
 
+export const CALL_HELP_MODELS = ["fastest", "answers"] as const;
+export type CallHelpModel = (typeof CALL_HELP_MODELS)[number];
+
 export interface EmbeddingModelStatus {
   /** The model's name, e.g. "multilingual-e5-small". */
   name: string;
@@ -6757,6 +6765,12 @@ export interface ModelRoles {
   quickTasks: ChatModelChoice | null;
   /** Null when no model reads images. */
   images: ChatModelChoice | null;
+  /**
+   * The quick model call help may be set to answer on (`UserSettings.callHelpModel`), for the
+   * model a new Note answers on: its provider's own, where that provider's is offered. Null where
+   * none is: no Answers model, a model on this computer, or a provider not offered yet.
+   */
+  callHelp: ChatModelChoice | null;
 }
 
 export interface SetChatModelInMenuInput {

@@ -439,6 +439,8 @@ export const en = {
   "command.settings.meetingWords.keywords":
     "names hotwords vocabulary transcription spelling meetings",
   "command.settings.localMode.keywords": "local offline private cloud off settings privacy",
+  "command.settings.callHelpModel": "Call help model",
+  "command.settings.callHelpModel.keywords": "fastest quick speed slow answers meetings settings",
   "palette.label": "Search",
   "palette.placeholder": "Search notes, conversations, Documents, Folders, Tags and actions…",
   "palette.results": "Results",
@@ -2762,7 +2764,7 @@ export const en = {
   "embeddingProviders.settings.turnOn": "Turn on…",
   "embeddingProviders.settings.builtIn": "Built-in model",
   "embeddingProviders.settings.sendsTo":
-    "The text of your Documents, and your searches, are sent to {service}.",
+    "The text of your Documents, each passage with its Document’s name, and your searches, are sent to {service}.",
   "embeddingProviders.settings.local": "Runs on this computer.",
   "embeddingProviders.settings.change": "Change model",
   "embeddingProviders.settings.error":
@@ -2793,7 +2795,7 @@ export const en = {
   "embeddingProviders.confirm.reprocess":
     "Reads every Document ({count}) again; until then search matches words.",
   "embeddingProviders.confirm.cloud":
-    "{service} will receive the full text of all your Documents, and every search you make.",
+    "{service} will receive the full text of all your Documents, each passage with its Document’s name, and every search you make.",
   "embeddingProviders.confirm.local": "Everything stays on this computer.",
   "embeddingProviders.confirm.cancel": "Cancel",
   "embeddingProviders.confirm.switch": "Switch and process again",
@@ -2825,7 +2827,8 @@ export const en = {
   "rerank.settings.body.details":
     "On by default, with the built-in model, which runs on this computer; Cohere and Voyage AI need a key. You can turn it off. It applies to an Answer from a model that searches once, to Suggest as I write, and to checks and comparison tables. A model that searches by itself doesn’t use it, and searches again when the passages don’t answer.",
   "rerank.settings.inUse": "{service} puts the best search results first ({model}).",
-  "rerank.settings.sends": "Each search and the passages it found are sent to {service}.",
+  "rerank.settings.sends":
+    "Each search and the passages it found, each with its Document’s name, are sent to {service}.",
   "rerank.settings.builtInUse": "The built-in model puts the best results first.",
   "rerank.settings.builtInDefault": "By default, the built-in model puts the best results first.",
   "rerank.settings.notDownloaded": "Downloads once ({total} MB) when there are Documents.",
@@ -5348,6 +5351,7 @@ export const en = {
 
   "error.load": "IncarnaMind couldn’t load your data: {message}",
   "error.action": "That didn’t work: {message}",
+  "error.action.plain": "That didn’t work.",
   "error.dismiss": "Dismiss",
   "error.details": "Details",
   "panel.failed": "This panel stopped working",
@@ -5409,7 +5413,9 @@ export const en = {
   "error.doing.noun.library": "the Library",
   "error.details.tried": "IncarnaMind was {doing} when this happened.",
   "error.details.tried.unknown": "IncarnaMind was doing what you asked when this happened.",
+  "error.details.internal": "Something went wrong inside IncarnaMind.",
   "error.details.todo": "Try again. If it keeps happening, restart IncarnaMind.",
+  "error.details.todo.stale": "Restart IncarnaMind, then try again.",
   "error.details.todo.notAllowed":
     "Check that IncarnaMind may use that file or folder, then try again.",
   "error.details.todo.full": "Free up some space on the disk, then try again.",
@@ -7446,6 +7452,15 @@ export const en = {
   "meetings.settings.panelBody":
     "While recording, a panel of help buttons floats above the meeting app.",
   "meetings.settings.hidden": "Keep the panel out of my screen share",
+  "meetings.settings.helpModel": "Model",
+  "meetings.settings.helpModel.tip": "Fastest uses the quick model of the same provider.",
+  "meetings.settings.helpModel.fastest": "Fastest ({model})",
+  "meetings.settings.helpModel.fastestUnnamed": "Fastest",
+  "meetings.settings.helpModel.answers": "Same as Answers ({model})",
+  "meetings.settings.helpModel.trade":
+    "Fastest: a second or two, less complete, cites less carefully.",
+  "meetings.settings.helpModel.notOffered":
+    "Fastest isn’t offered for {model}, so call help uses it.",
   "meetings.settings.keys": "Shortcuts",
   "meetings.settings.keysBody.mac": "They work over the meeting app, only while recording.",
   "meetings.settings.keysBody.other":
