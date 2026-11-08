@@ -2,7 +2,6 @@ import type { JSONContent } from "@tiptap/core";
 import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test, vi } from "vitest";
 import type { Core } from "../../src/core";
-import { CLAIM_CHECK_INSTRUCTIONS } from "../../src/core/answers/claimedChanges";
 import { changedMinds } from "../../src/renderer/src/changedMinds";
 import { appliedFact, changeFact } from "../../src/renderer/src/changeFacts";
 import { ownTextRemoved } from "../../src/shared/askedChanges";
@@ -30,6 +29,7 @@ import {
   writeMind,
 } from "../helpers/minds";
 import {
+  CLAIM_CHECK_OPENING,
   type ModelCall,
   type ScriptedReply,
   scriptedModel,
@@ -325,7 +325,7 @@ describe("The assistant changes Minds as Proposals", { timeout: 30_000 }, () => 
         },
         {
           generate: (call) => {
-            if (call.system.includes(CLAIM_CHECK_INSTRUCTIONS)) records.push(call.prompt);
+            if (call.system.includes(CLAIM_CHECK_OPENING)) records.push(call.prompt);
             return { text: '{"claims":[]}' };
           },
         },

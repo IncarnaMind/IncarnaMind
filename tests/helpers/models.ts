@@ -3,6 +3,13 @@ import { MockLanguageModelV4 } from "ai/test";
 import type { ChatModelFactory, ChatModelSpec, ClaimedChange, CoreAdapters } from "../../src/core";
 import { SENTENCE_BATCH_INSTRUCTIONS } from "../../src/core/answers/checks/sentenceBatch";
 import { CLAIM_CHECK_INSTRUCTIONS } from "../../src/core/answers/claimedChanges";
+
+/** How a request's instructions start when it is the change-claim check, whatever record it is beside. */
+export const CLAIM_CHECK_OPENING = CLAIM_CHECK_INSTRUCTIONS.slice(
+  0,
+  CLAIM_CHECK_INSTRUCTIONS.indexOf("\n"),
+);
+
 import { CITE_RETRY_INSTRUCTIONS } from "../../src/core/answers/prompt";
 import { listedSentences } from "./claimSentences";
 
@@ -438,7 +445,7 @@ export function scriptedModel(
         warnings: [],
       };
     }
-    if (!generate && systemOf(options.prompt).includes(CLAIM_CHECK_INSTRUCTIONS)) {
+    if (!generate && systemOf(options.prompt).includes(CLAIM_CHECK_OPENING)) {
       return {
         content: [{ type: "text", text: '{"claims":[]}' }],
         finishReason: { unified: "stop", raw: undefined },

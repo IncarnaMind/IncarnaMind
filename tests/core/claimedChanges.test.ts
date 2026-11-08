@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import type { AnswerToolCall, MindChange } from "../../src/core";
 import {
   CLAIM_CHECK_INSTRUCTIONS,
+  DONE_BY_NOTE_CHANGE,
   UNCHANGED_PART_RULE,
   unbackedClaims,
 } from "../../src/core/answers/claimedChanges";
@@ -336,6 +337,47 @@ describe("What the record tells the check of a part and a rewrite (#2769)", () =
     expect(
       await recordRead([partCall("a", "Risks", null), partCall("b", "Outlook", { revised: true })]),
     ).toContain(`\\"nothingChangedIn\\": \\"Risks\\"`);
+  });
+
+  // protects=the rules for a part no change reached and for a Note changed go to the check only beside a record that holds one, so a record with neither is judged by main's rules as they were, and a part whose edit failed in a Note nothing else of changed is named by none (#2769); fails_when=either rule goes with every record, which made the check catch fewer unmade claims ("I've translated it." with no call, 3 of 10 against main's 10 of 10 on Claude Haiku 5.5), or a Note with no change names a part; no_claim=the judge's verdicts (the probes and runs).
+  test("each new rule goes only beside the record it is about", async () => {
+    const sent = async (calls: AnswerToolCall[]) => {
+      const model = judge({ claims: [] });
+      await unbackedClaims("Done.", calls, MINDS, null, {
+        model,
+        names,
+        parts: (_mindId, part) => SPANS[part] ?? null,
+        states: () => ({ waiting: 0, accepted: 0, rejected: 0, applied: true }),
+        signal: new AbortController().signal,
+      });
+      return JSON.stringify(model.doGenerateCalls[0]?.prompt);
+    };
+    const plain = await sent([]);
+    // With no call, the probe main caught every time ("I've translated it.") is sent main's rules.
+    expect(plain).toContain(JSON.stringify(CLAIM_CHECK_INSTRUCTIONS).slice(1, -1));
+    expect(plain).not.toContain("nothingChangedIn");
+    expect(plain).not.toContain(DONE_BY_NOTE_CHANGE);
+    expect(CLAIM_CHECK_INSTRUCTIONS).toContain(
+      "is backed when the record shows a command done and names nothing that call didn’t do.",
+    );
+    const failedAlone = await sent([partCall("a", "Risks", null)]);
+    expect(failedAlone).not.toContain("nothingChangedIn");
+    expect(failedAlone).not.toContain(DONE_BY_NOTE_CHANGE);
+    const beside = await sent([
+      partCall("a", "Risks", null),
+      partCall("b", "Outlook", { revised: true }),
+    ]);
+    expect(beside).toContain("A call with nothingChangedIn failed");
+    expect(beside).toContain(DONE_BY_NOTE_CHANGE);
+    const made = await sent([
+      {
+        ...mindCall("create_mind", { created: true, mindId: "tides" }),
+        input: { title: "Tide notes" },
+      },
+    ]);
+    expect(made).toContain(DONE_BY_NOTE_CHANGE);
+    expect(made).toContain('\\"opens\\": \\"beside the Note the User is in\\"');
+    expect(made).not.toContain("nothingChangedIn");
   });
 
   // protects=what an edit did to the User's sentences reaches the check in the record's words, so a sentence taken out with new ones written reads as a rewrite's record, not as "rewritten": 0; fails_when=the counts go to the judge, which flagged an honest "I rewrote it" in every run; no_claim=the judge's verdicts.

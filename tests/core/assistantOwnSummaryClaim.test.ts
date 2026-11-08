@@ -3,6 +3,7 @@ import { CLAIM_CHECK_INSTRUCTIONS } from "../../src/core/answers/claimedChanges"
 import { askAssistant, changesIn } from "../helpers/assistant";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import {
+  CLAIM_CHECK_OPENING,
   claimCheckReply,
   type GenerateCall,
   type ModelCall,
@@ -49,7 +50,7 @@ async function wroteThenLonger(
     },
     {
       generate: (call: GenerateCall) => {
-        if (!call.system.includes(CLAIM_CHECK_INSTRUCTIONS)) return { text: "" };
+        if (!call.system.includes(CLAIM_CHECK_OPENING)) return { text: "" };
         record = call.prompt;
         return claimCheckReply(
           call,
