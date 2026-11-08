@@ -25,7 +25,7 @@ import { setMindModel } from "../../src/shared/mindModel";
 import { pendingProposals } from "../../src/shared/proposals";
 import { checkReply, isCheckRun, type Plan } from "../helpers/checks";
 import { mindCitations, shownPassages, transcriptCitations } from "../helpers/citations";
-import { createTempDataFolder, saveProviderUnasked } from "../helpers/core";
+import { createMemoryKeychain, createTempDataFolder, saveProviderUnasked } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
 import {
@@ -164,8 +164,14 @@ async function recorded(
     lines = { mine: MY_LINES, theirs: THEIR_LINES },
     createChatModel,
     capture,
+    cloud = false,
+    keychain,
   }: {
     speakerSeparator?: SpeakerSeparator;
+    /** Claude Haiku 5.5 on its service, allowed, as the Answers model: a model off this computer. */
+    cloud?: boolean;
+    /** The keychain its key is kept with, for a start after this one that reads it. */
+    keychain?: ReturnType<typeof createMemoryKeychain>;
     /** What the fake capture does: the computer's sound silent, for a recording of a room. */
     capture?: FakeCaptureOptions;
     lines?: { mine: readonly string[]; theirs: readonly string[] };
@@ -180,8 +186,22 @@ async function recorded(
     ...(speakerSeparator && { speakerSeparator }),
     ...(createChatModel && { createChatModel }),
     ...(capture && { capture }),
+    ...(keychain && { keychain }),
   });
   await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+  if (cloud) {
+    const saved = await core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-haiku-5-5",
+    });
+    for (const flow of ["chat", "checks"] as const) {
+      if (saved.service) await core.allowDataFlow(flow, saved.service.id);
+    }
+    await core.updateSettings({
+      user: { chatModel: { providerId: saved.id, modelId: "claude-haiku-5-5" } },
+    });
+  }
   await before?.(core);
   const meeting = await core.createMeeting();
   const client = await connectToMind(core, meeting.mindId);
@@ -276,21 +296,66 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
       { seen: (call) => fillRun(call) && asked.push(passing) },
     );
     const { separator, requests } = fakeSeparator({ holds, voiceOf: () => 0 });
-    const { core, meeting, client } = await recorded(model, NOTES, undefined, undefined, {
-      speakerSeparator: separator,
-    });
+    const writtenWhile: boolean[] = [];
+    const { core, meeting, client } = await recorded(
+      model,
+      NOTES,
+      async (core) => {
+        core.on("meetings.changed", (meetings) => {
+          const fill = meetings.find((each) => each.kind === "meeting")?.fill;
+          if (fill?.state === "filled" && writtenWhile.length === 0) writtenWhile.push(passing);
+        });
+      },
+      undefined,
+      { speakerSeparator: separator, cloud: true },
+    );
     const before = shown(client);
     await vi.waitFor(() => expect(requests).toHaveLength(1));
     await vi.waitFor(() => expect(asked).toEqual([true]));
-    await vi.waitFor(async () =>
-      expect(await fillOf(core, meeting.id)).toMatchObject({ state: "filling" }),
+    await vi.waitFor(() =>
+      expect(model.doStreamCalls.length + model.doGenerateCalls.length).toBeGreaterThanOrEqual(2),
     );
+    await client.settled();
+    expect(await fillOf(core, meeting.id)).toMatchObject({ state: "filling" });
     expect(shown(client)).toEqual(before);
     passing = false;
     release();
     expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", omitted: 0 });
+    expect(writtenWhile).toEqual([false]);
     expect(shown(client)).toContain("«The enterprise price is 45 dollars a seat »\uFFFC«.»");
     expect(asked).toEqual([true]);
+    core.close();
+  });
+
+  // protects=a model on this computer, which the pass would share it with, waits for the speakers to be told apart before its request, as before (#2773); fails_when=its request goes out while the pass runs; no_claim=the pass's labels.
+  test("on a model on this computer, a call's notes wait for its speakers to be told apart", async () => {
+    let release = () => {};
+    const holds = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let passing = true;
+    const asked: boolean[] = [];
+    const model = fillingModel(
+      PRICING_REPLY,
+      { 1: MY_LINES[0] as string },
+      {},
+      { seen: (call) => fillRun(call) && asked.push(passing) },
+    );
+    const { separator, requests } = fakeSeparator({ holds, voiceOf: () => 0 });
+    const { core, meeting } = await recorded(model, NOTES, undefined, undefined, {
+      speakerSeparator: separator,
+    });
+    await vi.waitFor(() => expect(requests).toHaveLength(1));
+    await until(
+      core,
+      meeting.id,
+      (transcript) => transcript.state === "saved" && transcript.separating,
+    );
+    expect((await fillOf(core, meeting.id))?.state).toBe("waiting");
+    passing = false;
+    release();
+    expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", omitted: 0 });
+    expect(asked).toEqual([false]);
     core.close();
   });
 
@@ -332,6 +397,7 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     const { separator, requests } = fakeSeparator({ holds });
     const { core, meeting, client } = await recorded(model, null, undefined, undefined, {
       speakerSeparator: separator,
+      cloud: true,
     });
     await vi.waitFor(() => expect(requests).toHaveLength(1));
     await vi.waitFor(() => expect(asked).toEqual([true]));
@@ -392,8 +458,11 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
       { held: new Promise<void>(() => {}) },
     );
     const { separator } = fakeSeparator({ holds: new Promise<void>(() => {}), voiceOf: () => 0 });
+    const keychain = createMemoryKeychain();
     const { core, meeting, client, dataDir } = await recorded(model, NOTES, undefined, undefined, {
       speakerSeparator: separator,
+      cloud: true,
+      keychain,
     });
     const before = shown(client);
     await vi.waitFor(async () =>
@@ -416,6 +485,7 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
         { seen: (call) => fillRun(call) && asked.push(passing) },
       ),
       speakerSeparator: again,
+      keychain,
     });
     const shownAgain = await connectToMind(reopened, meeting.mindId);
     expect(shown(shownAgain)).toEqual(before);
@@ -1069,7 +1139,9 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
       { seen: (call) => fillRun(call) && fills++ },
     );
     const { core, meeting, client } = await recorded(model, NOTES);
-    await expect(core.stopMeeting(meeting.id)).rejects.toThrow();
+    await expect(core.stopMeeting(meeting.id)).rejects.toThrow(
+      "That Meeting isn’t being recorded.",
+    );
     expect(await settledFill(core, meeting)).toMatchObject({ state: "filled" });
     expect(fills).toBe(1);
     expect(
@@ -1224,6 +1296,53 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
       problem: { kind: "stopped" },
     });
     expect(shown(await connectToMind(core, meeting.mindId))).toEqual(before);
+    core.close();
+  });
+
+  // protects=a call's note deleted while its notes are made before its speakers are told apart, and brought back after the pass ends, gets its notes, as one deleted while it waited for the pass does (#2773); fails_when=the restored note says the fill stopped, or nothing is filled in; no_claim=a note deleted after the pass, which the test above covers.
+  test("a call's note deleted while its notes are made before the pass ends gets them once it is back", async () => {
+    let release = () => {};
+    const holds = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let reply = () => {};
+    const held = new Promise<void>((resolve) => {
+      reply = resolve;
+    });
+    let runs = 0;
+    const model = fillingModel(
+      PRICING_REPLY,
+      { 1: MY_LINES[0] as string },
+      {},
+      { held, seen: (call) => fillRun(call) && runs++ },
+    );
+    const { separator: told } = fakeSeparator({ holds, voiceOf: () => 0 });
+    let answered = false;
+    const separator: SpeakerSeparator = {
+      async separate(request) {
+        const turns = await told.separate(request);
+        answered = true;
+        return turns;
+      },
+    };
+    const { core, meeting } = await recorded(model, NOTES, undefined, undefined, {
+      speakerSeparator: separator,
+      cloud: true,
+    });
+    await vi.waitFor(() => expect(runs).toBe(1));
+    await core.deleteMind(meeting.mindId);
+    reply();
+    release();
+    await vi.waitFor(() => expect(answered).toBe(true));
+    // The pass ends in the promise turns after its answer: the next task sees it ended.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await core.restore([{ kind: "mind", id: meeting.mindId }], { reopen: true });
+    expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", omitted: 0 });
+    expect(
+      shown(await connectToMind(core, meeting.mindId)).filter(
+        (line) => line === "«The enterprise price is 45 dollars a seat »\uFFFC«.»",
+      ),
+    ).toHaveLength(1);
     core.close();
   });
 

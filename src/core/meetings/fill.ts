@@ -442,6 +442,8 @@ export function createMeetingFill(options: MeetingFillOptions) {
    */
   const told = new Map<string, SpeakersTold>();
   const again = new Set<string>();
+  /** Fills made before their speakers were told apart and cut short by the Note's deletion. */
+  const cutShort = new Set<string>();
 
   const set = (meetingId: string, change: Partial<StoredFill>): Meeting => {
     const before = meetings.storedFill(meetingId) ?? {
@@ -776,6 +778,14 @@ export function createMeetingFill(options: MeetingFillOptions) {
     const controller = new AbortController();
     running.set(meetingId, controller);
     try {
+      // A model on this computer would share it with the pass, and a request dropped after a
+      // rename costs it minutes: it waits for the pass, as before.
+      if (pass && "model" in route && route.local) {
+        if (await renamedOrStopped(pass, controller.signal)) again.add(meetingId);
+        if (controller.signal.aborted || again.has(meetingId)) {
+          throw new FillProblemError({ kind: "stopped", message: "" });
+        }
+      }
       const written =
         meeting.kind === "memo" || "problem" in route
           ? await memo(meeting, transcriptId, route, controller.signal)
@@ -817,8 +827,12 @@ export function createMeetingFill(options: MeetingFillOptions) {
               message: error instanceof Error ? error.message : String(error),
             };
       log.warn("meeting.fillFailed", { meetingId, kind: problem.kind, message: problem.message });
-      // In Recently deleted it stays "filling": once back, it says it stopped (`restored`).
-      if (meetings.isDeleted(meetingId)) return;
+      // In Recently deleted it stays "filling": once back, it says it stopped (`restored`). One
+      // made while its call's speakers were told apart waits again, as it did before it started.
+      if (meetings.isDeleted(meetingId)) {
+        if (pass) cutShort.add(meetingId);
+        return;
+      }
       set(meetingId, { state: "failed", problem, blocks: [] });
     } finally {
       if (running.get(meetingId) === controller) running.delete(meetingId);
@@ -869,7 +883,15 @@ export function createMeetingFill(options: MeetingFillOptions) {
       })
       .finally(() => {
         starting.delete(meetingId);
-        if (again.delete(meetingId)) start(meetingId);
+        if (!again.delete(meetingId)) return;
+        try {
+          start(meetingId);
+        } catch (error) {
+          log.error("meeting.fillRestartFailed", {
+            meetingId,
+            message: error instanceof Error ? error.message : String(error),
+          });
+        }
       });
   }
 
@@ -879,14 +901,19 @@ export function createMeetingFill(options: MeetingFillOptions) {
    * Transcript starts.
    */
   function pickUp(meetingId: string, fill: StoredFill): void {
-    if (fill.state === "filling" && !running.has(meetingId) && !starting.has(meetingId)) {
+    let { state } = fill;
+    if (state === "filling" && !running.has(meetingId) && !starting.has(meetingId)) {
+      const waits =
+        meetings.get(meetingId).transcript?.separating === true || cutShort.delete(meetingId);
+      state = waits ? "waiting" : "failed";
       set(
         meetingId,
-        meetings.get(meetingId).transcript?.separating
+        waits
           ? { state: "waiting", problem: null, blocks: [] }
           : { state: "failed", problem: { kind: "stopped", message: "" }, blocks: [] },
       );
-    } else if (fill.state === "waiting") {
+    }
+    if (state === "waiting") {
       const transcript = meetings.get(meetingId).transcript;
       if (transcript?.state === "saved" && !transcript.separating) start(meetingId);
     }
