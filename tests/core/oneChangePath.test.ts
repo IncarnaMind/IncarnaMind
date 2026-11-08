@@ -24,7 +24,8 @@ import {
   type ProposeOptions,
   proposeNamed,
 } from "../../src/core/agents/proposals";
-import { forkChanges } from "../../src/core/proposals/merge";
+import { createElement } from "../../src/core/answers/blocks";
+import { docOf, forkChanges, usersBlocks } from "../../src/core/proposals/merge";
 import { proposeRewrite, readSelection } from "../../src/core/proposals/write";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import { translate } from "../../src/shared/i18n";
@@ -218,6 +219,30 @@ const WRITERS: Writer[] = [
     write: editWithAi,
   },
   {
+    name: "Edit with AI that takes out most of the User's text, held back",
+    origin: { source: "edit-with-ai", action: "instruction", instruction: "Shorten it" },
+    // It waits for the User: Apply saves its Checkpoint then, and writing it saves none.
+    applies: false,
+    removes: true,
+    async write(language) {
+      const words = WORDS[language];
+      const set = await noteOf(modelOf({ rewrite: () => words.most }), [words.before]);
+      const checkpoints = await checkpointsOf(set.core, set.mind.id);
+      const result = await set.core.editWithAi(
+        wholeParagraph(set.client, set.mind.id, idOf(set.client, 1), "instruction", "Shorten it"),
+      );
+      if (result.kind !== "proposed") throw new Error(`Not proposed: ${JSON.stringify(result)}`);
+      await set.client.settled();
+      return {
+        core: set.core,
+        mindId: set.mind.id,
+        client: set.client,
+        request: result.request,
+        checkpoints,
+      };
+    },
+  },
+  {
     name: "Regenerate a change",
     origin: { source: "edit-with-ai", action: "instruction", instruction: "Shorten it" },
     applies: false,
@@ -257,8 +282,8 @@ const WRITERS: Writer[] = [
   {
     name: "edit_mind that takes out most of the User's text, held back",
     origin: { source: "edit-with-ai", action: "instruction", instruction: "Shorten it" },
-    // Held back for the User, it was still asked to apply at once: a restore point all the more.
-    applies: true,
+    // It waits for the User: Apply saves its Checkpoint then, and writing it saves none.
+    applies: false,
     removes: true,
     async write(language) {
       const words = WORDS[language];
@@ -861,4 +886,36 @@ describe("Regenerate makes a change again as it was asked", { timeout: 60_000 },
       });
     },
   );
+});
+
+describe("What a merge may take out (#2814)", () => {
+  // protects=every Block counts as the User's, even one with no text, a picture: a merge that takes it out with no Proposal is refused as "changed"; fails_when=the merge is let through because the Block counts no text; no_claim=writers today, which take out no picture.
+  test("a picture Block counts, and a merge that takes it out is refused", () => {
+    const doc = new Y.Doc();
+    const blocks = doc.getXmlFragment(MIND_CONTENT_FIELD);
+    blocks.insert(0, [
+      createElement({
+        type: "paragraph",
+        attrs: { id: "one" },
+        content: [{ type: "text", text: "Words." }],
+      }),
+      createElement({
+        type: "picture",
+        attrs: {
+          id: "chart",
+          src: "data:image/png;base64,AA==",
+          alt: "A chart",
+          width: 10,
+          height: 10,
+        },
+      }),
+    ]);
+    const base = Y.encodeStateAsUpdate(doc);
+    expect(usersBlocks(blocks).map((row) => row.id)).toEqual(["one", "chart"]);
+
+    const fork = docOf(base);
+    fork.getXmlFragment(MIND_CONTENT_FIELD).delete(1, 1);
+
+    expect(forkChanges(base, fork, base)).toBeNull();
+  });
 });
