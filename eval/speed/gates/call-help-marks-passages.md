@@ -436,3 +436,21 @@ Sonnet is listed only if all of these hold in each language, on counts pooled ov
 - **None new:** no more Tool calls left as text, replies that showed nothing, replies written while the live text was behind, or presses failing to run.
 
 If any line fails, nothing ships, and the numbers go on #2526.
+
+### Result, 2026-11-08: not listed; English false Supported rose, every other line held
+
+The run was made at 0a85443f3: `today` on main's path, three runs of every press, judge Claude Opus 5.5, on the direct key. One-minute load 4.8 to 12.8 (median 7.8); 15-minute load under 16. No press failed on either arm. Counts are pooled over the three runs, today → step, with each run's count in brackets; medians are over all presses.
+
+| Language | First whole option | Done | Cited | Judged right | Every Citation found | False Supported |
+|---|---|---|---|---|---|---|
+| en | 4.50 → 1.67 s | 4.50 → 2.33 s | 34 → 34 | 34 → 35 | 31 → 36 | **8 → 16** (3, 2, 3 → 5, 5, 6) |
+| zh-CN | 4.92 → 1.83 s | 4.92 → 2.64 s | 33 → 35 | 35 → 35 | 34 → 36 | 18 → 17 |
+
+- **Sonnet stays off `MARKS_PASSAGES`, and nothing ships.** English false Supported failed; the times, cited, judged right, every Citation found and none new held in both languages. The step took one request in 63 of 72 presses.
+- **Six of the eight extra English presses** are en6-check-late and en6-check-notice, all three runs each: "You said … [1]; the Collection and delivery document supports this." with only the call's line kept. A replay through the core at no cost shows why. In these replies Sonnet put the Document's marker after the verdict ("…supports this [^2]."). That marker's own words are only the verdict, so the picker refused it as holding no evidence. The call's run was then no longer the sentence's last, so the new rule never read its verdict.
+- **The other extra English presses:**
+  - en6-no-weekend twice: two table rows quoted without their header, which today's arm also meets.
+  - en6-check-loss once and en6-check-partly once: an option adding a fact its quotes don't hold.
+  - en6-say-towels: one press each way.
+- **The next step, not built:** a marker whose own words are only a verdict that its Document agrees would vouch for the clause before it, so the Document line the model named is recorded. It would be gated on a slice this run hasn't seen.
+- **Spend:** $3.35 (judge $0.86), within this look's $10.
