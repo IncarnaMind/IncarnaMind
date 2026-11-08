@@ -1,4 +1,3 @@
-import { isSpeakerName } from "../../shared/speakers";
 import type {
   CalendarAccount,
   CalendarAttendee,
@@ -16,6 +15,7 @@ import {
   formatTime,
 } from "../../shared/dates";
 import type { MessageKey, MessageParams } from "../../shared/i18n";
+import { isSpeakerName } from "../../shared/speakers";
 
 type Translate = (key: MessageKey, params?: MessageParams) => string;
 

@@ -983,7 +983,8 @@ export function createCalendars(options: CalendarsOptions) {
     },
 
     async disconnect(accountId: unknown): Promise<CalendarsState> {
-      if (typeof accountId !== "string") throw new InvalidInputError({ key: "error.calendar.badRequest" });
+      if (typeof accountId !== "string")
+        throw new InvalidInputError({ key: "error.calendar.badRequest" });
       const row = accountRow(accountId);
       if (!row) throw new NotFoundError({ key: "error.calendar.accountGone" });
       const signIn = signInOf(row);
@@ -1009,10 +1010,9 @@ export function createCalendars(options: CalendarsOptions) {
         throw new InvalidInputError({ key: "error.calendar.badRequest" });
       }
       const { calendarId, counted } = input;
-      const row = db.get<{ account_id: string }>(
-        "SELECT account_id FROM calendars WHERE id = ?",
-        [calendarId],
-      );
+      const row = db.get<{ account_id: string }>("SELECT account_id FROM calendars WHERE id = ?", [
+        calendarId,
+      ]);
       if (!row) throw new NotFoundError({ key: "error.calendar.calendarGone" });
       db.run("UPDATE calendars SET counted = ?, updated_at = ? WHERE id = ?", [
         counted ? 1 : 0,
@@ -1051,7 +1051,8 @@ export function createCalendars(options: CalendarsOptions) {
     },
 
     takeNotes(eventId: unknown): { mindId: string; created: boolean } {
-      if (typeof eventId !== "string") throw new InvalidInputError({ key: "error.calendar.badRequest" });
+      if (typeof eventId !== "string")
+        throw new InvalidInputError({ key: "error.calendar.badRequest" });
       const event = db.get<EventRow>(
         `SELECT e.id, e.calendar_id, e.external_id, e.event_key, e.title, e.starts_at, e.ends_at,
            e.attendees, e.join_url
@@ -1075,7 +1076,8 @@ export function createCalendars(options: CalendarsOptions) {
     },
 
     noteEvent(mindId: unknown): NoteEvent | null {
-      if (typeof mindId !== "string") throw new InvalidInputError({ key: "error.calendar.badRequest" });
+      if (typeof mindId !== "string")
+        throw new InvalidInputError({ key: "error.calendar.badRequest" });
       const link = db.get<{ event_key: string; event: string }>(
         `SELECT event_key, event FROM calendar_event_notes WHERE mind_id = ? AND deleted_at IS NULL
          ORDER BY created_at DESC, rowid DESC`,

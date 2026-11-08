@@ -5940,8 +5940,10 @@ export const en = {
   "calendar.page.failure.title": "Couldn’t connect {service}",
   "calendar.page.failure.body": "Close this tab and try again in IncarnaMind.",
   "error.calendar.notOffered": "This copy of IncarnaMind can’t connect {service}.",
-  "error.calendar.askUnanswered": "macOS didn’t get an answer about your calendar in time. Connect it again.",
-  "error.calendar.badRequest": "IncarnaMind asked for a calendar in a way it can’t read. Try again.",
+  "error.calendar.askUnanswered":
+    "macOS didn’t get an answer about your calendar in time. Connect it again.",
+  "error.calendar.badRequest":
+    "IncarnaMind asked for a calendar in a way it can’t read. Try again.",
   "error.calendar.localMode": "Can’t connect {service}: “Keep everything on this computer” is on.",
   "error.calendar.signIn": "Couldn’t connect {service}. Try again.",
   "error.calendar.accountGone": "That calendar account isn’t connected anymore.",
