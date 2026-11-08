@@ -176,7 +176,7 @@ for (const language of ["en", "zh-CN"] as const) {
       // Each word washed as being said is in a line said then: two at once when two people talk.
       const playing = await transcript.evaluate((root) => ({
         time: root.querySelector("[data-testid='transcript-player-time']")?.textContent ?? "",
-        lines: [...root.querySelectorAll("[data-playing]")].map(
+        lines: [...root.querySelectorAll("[data-word][data-playing]")].map(
           (each) => each.closest("[data-line]")?.getAttribute("data-line") ?? "",
         ),
       }));
