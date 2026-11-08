@@ -152,7 +152,7 @@ export interface LaunchOptions {
    * What the Meeting's fake microphone does: makes a tone (by default), is denied and says so,
    * or waits for the system's permission prompt until the test answers it.
    */
-  microphone?: "allowed" | "denied" | "waiting";
+  microphone?: "allowed" | "denied" | "waiting" | "silent";
   /**
    * Where the guide for a permission added by hand opens, whatever the screen: in a window
    * beside System Settings, or as text in the app's window. Without it, the system decides.
@@ -3496,6 +3496,16 @@ export async function removeDataFolder(dataDir: string): Promise<void> {
 /** The core's bridge in the page, for a test to set things up or read them: `(await coreOf(window)).evaluate(...)`. */
 export const coreOf = (window: Page) =>
   window.evaluateHandle(() => (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind);
+
+/** How many Checkpoints the Note made last has, as its History lists them. */
+export async function checkpointsOfNewestNote(window: Page): Promise<number> {
+  return (await coreOf(window)).evaluate(async (core) => {
+    const [mind] = (await core.listMinds()).toSorted((a, b) =>
+      b.createdAt.localeCompare(a.createdAt),
+    );
+    return mind ? (await core.listCheckpoints(mind.id)).checkpoints.length : 0;
+  });
+}
 
 /**
  * What the core holds that a change to a Mind, Document, Folder, Tag, Linked folder or Recently

@@ -6,6 +6,7 @@ import {
   addDocuments,
   askInAssistant,
   assistantAnswers,
+  checkpointsOfNewestNote,
   createDataFolder,
   dismissChatSetup,
   enterContent,
@@ -413,6 +414,36 @@ test("a rewrite that would take out most of the User's own text waits, in Englis
   await pointAndClick(window, line.getByTestId("applied-apply"));
   await expect(spoken).toHaveText(/^修改了 \d+ 个段落$/);
   await setLanguage(window, "en");
+});
+
+// Value: protects=Apply on the assistant's rewrite held back saves a Checkpoint before it replaces the User's text (#2796); fails_when=their text is replaced with no new version in History; why_new=the held-rewrite test never read History; seam=none; no_claim=real-model rewrite quality (scripted model).
+test("Apply on the assistant's rewrite held back saves a version first, so the User's text can be brought back", async () => {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await useLocalChatModel(window);
+  await setWindowSize(app, window, 1100, 860);
+  await newMind(window);
+  await nameMind(window, "Harbour notes");
+  await enterContent(window);
+  await window.keyboard.type(NOTES[0] ?? "");
+  await window.keyboard.press("Enter");
+  await window.keyboard.type(NOTES[1] ?? "");
+  const editor = window.getByTestId("mind-editor");
+  const paragraphs = editor.locator(":scope > p");
+  await expect(paragraphs).toHaveText(NOTES);
+
+  await askInAssistant(window, "Rewrite the intro to be clearer");
+  const line = editor.getByTestId("applied-line");
+  await expect(line.getByTestId("applied-count")).toHaveText(
+    "Waiting for you: this rewrites most of your text",
+  );
+  const held = await checkpointsOfNewestNote(window);
+  await pointAndClick(window, line.getByTestId("applied-apply"));
+  await expect(paragraphs).toHaveText([
+    "Gulls wheel over the quay at dawn.",
+    "Boats rest on the mud at low water.",
+  ]);
+  await expect.poll(() => checkpointsOfNewestNote(window)).toBe(held + 1);
 });
 
 /** The request the newest Answer's change made, once that Answer is done; null before. */

@@ -83,12 +83,7 @@ import {
   namesOneOf,
   sourcesAsText,
 } from "../../shared/namedSources";
-import {
-  decisionsOn,
-  recordProposalRequest,
-  resolveProposals,
-  waitingChanges,
-} from "../../shared/proposals";
+import { decisionsOn, resolveProposals, waitingChanges } from "../../shared/proposals";
 import { moneyOf } from "../../shared/readBudget";
 import {
   filingFolder,
@@ -183,6 +178,7 @@ import type { ExecAccess } from "../execution";
 import { LANGUAGES, type Language } from "../language";
 import type { MindContent } from "../mindContent";
 import { plainText } from "../mindText";
+import type { Changes } from "../proposals/apply";
 import { docOf } from "../proposals/merge";
 import { proposeBlocks } from "../proposals/write";
 import {
@@ -618,6 +614,8 @@ function lastAnswerOf(
 
 export interface AnswersOptions {
   content: MindContent;
+  /** The one way a change reaches a Mind (../proposals/apply). */
+  changes: Changes;
   events: ReturnType<typeof createEventHub>;
   engine: AnswerEngine;
   /** Throws `NotFoundError` unless the Mind exists; returns its id. */
@@ -3906,9 +3904,15 @@ export function createAnswers(options: AnswersOptions) {
         });
       }
       const request = randomUUID();
-      const wrote = content.edit(mindId, (blocks) => {
+      // Its changes wait for the User: accepting them saves the Checkpoint.
+      const change = options.changes.start({
+        mindId,
+        request,
+        made: { source: "answer", providerId: model.providerId, modelId: model.modelId, answerId },
+      });
+      const wrote = change.write((blocks) => {
         const found = findBlock(blocks, ANSWER_BLOCK, answerId);
-        if (!found) return false;
+        if (!found) return { changed: false, value: null };
         const { element } = found;
         resolveProposals(element, () => true, "reject");
         const nodes = answer.blocks();
@@ -3917,16 +3921,7 @@ export function createAnswers(options: AnswersOptions) {
             blocks.doc,
             figureRunsOfAnswer({ id: answerId, analyses: answer.analyses }, nodes),
           );
-        const written = proposeBlocks(element, nodes, request, randomUUID);
-        if (written.proposals.length > 0 && blocks.doc) {
-          recordProposalRequest(blocks.doc, request, {
-            source: "answer",
-            providerId: model.providerId,
-            modelId: model.modelId,
-            createdAt: new Date().toISOString(),
-            answerId,
-          });
-        }
+        proposeBlocks(element, nodes, request, randomUUID);
         setAttributes(element, {
           status: "done",
           errorKind: null,
@@ -3937,9 +3932,9 @@ export function createAnswers(options: AnswersOptions) {
           toolCalls: answer.toolCalls.length > 0 ? JSON.stringify(answer.toolCalls) : null,
           citationSupport: answer.support,
         });
-        return true;
+        return { changed: true, value: null };
       });
-      if (!wrote) return false;
+      if (wrote.kind !== "written") return false;
       // What it holds once every change is accepted is what the model wrote.
       const generated = docOf(content.state(mindId));
       try {
@@ -4460,7 +4455,8 @@ export function createAnswers(options: AnswersOptions) {
     const current = content.read(mindId, (blocks) => answerFor(blocks, questionId));
     const currentId = current && textAttribute(current, BLOCK_ID_ATTRIBUTE);
     if (currentId) active.get(currentId)?.finish({ status: "stopped" });
-    beforeWriting?.(mindId);
+    // Over the User's edits it comes as changes that wait: none is saved until they are accepted.
+    if (!(current && isEdited(current))) beforeWriting?.(mindId);
 
     /** What the Answer is written from: its Question context and Search scope, as they are now. */
     type Asked = {

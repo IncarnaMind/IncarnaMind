@@ -6214,6 +6214,7 @@ export const zhCN = {
   "meetings.line.gapSleep": "{time} 处有 {missed}没有录到：电脑当时处于睡眠状态。",
   "meetings.line.saveFailed": "无法保存音频：{message}",
   "meetings.line.microphoneDenied": "IncarnaMind 没有使用麦克风的权限。",
+  "meetings.line.microphoneSilent": "15 秒没有麦克风声音：可能已静音，或选错了麦克风。",
   "meetings.line.microphoneUnavailable": "找不到麦克风。",
   "meetings.line.microphoneEnded": "麦克风已断开，也无法打开其他麦克风。",
   "meetings.line.systemDenied": "只录到了麦克风：没有录制电脑声音的权限。",
@@ -7258,6 +7259,9 @@ export const zhCN = {
     "{name} 中有引用放在了公式或链接地址这类无法保留引用的地方：把它写在所引用的文字之后。",
   "agents.propose.unplaced":
     "无法写入这些修改：其中有 IncarnaMind 没有添加的引用、脚注或计算结果。引用时只用 IncarnaMind 给出的 [cite:…]。",
+  "agents.propose.typedTag":
+    "{name} 的文字漏掉了用户在这一段输入的 <removed> 标记，会删掉用户的文字，因此没有写入任何修改。请按原样保留每个标记。",
+  "agents.propose.misnamed": "{name} 的文字没有说清替换哪一段，因此没有写入任何修改。",
   "agents.mind.namedChoice": "named 必须是 true 或 false。",
   "settings.pages.agents": "智能体",
   "agents.settings.experimental": "实验",

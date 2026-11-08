@@ -732,6 +732,8 @@ export type ProposalRequest =
       reason?: string;
       /** The assistant said the User asked only for text to go: a change that does more waits for them (#2356). */
       removesOnly?: true;
+      /** What its new text left out of the passage stayed, unless it quoted it as taken out (#880, #2180): made again, it still does (#2796). */
+      keepsLeftOut?: true;
     })
   | (ProposalMaker & { source: "answer"; answerId: string })
   | (ProposalMaker & {
@@ -1439,12 +1441,7 @@ export interface AnalysisCall {
  * still wait in the text it was to change, which the assistant can't revise
  * (someone else's, or the User's own requests), `count` of them in the Mind;
  * "mixed": its own waiting text sits beside the User's there. "model": the
- * model failed, as `message` says. "no-table": a table it wrote couldn't be
- * made, so none of its text went in (#961). "unplaced": text it marked to take
- * out isn't in the Mind word for word, so none of its text went in (#2180).
- * "misnamed": the rewrite named a paragraph wrongly, so none of its text went in (#2356).
- * "typed-tag": the rewrite left out a <removed> tag the User typed, so none of its text went in (#2356).
- * "not-placed": the rewrite would hold a Citation, footnote or figure its reply didn't place, so none of its text went in (#2424).
+ * model failed, as `message` says. A refusal (`changeRefusals`): none of its text went in.
  */
 export type MindProblem =
   | { kind: "waiting"; mindId: string; count: number; mixed: boolean }
@@ -1463,11 +1460,7 @@ export type MindProblem =
         | "changed"
         | "content-not-own"
         | "stopped"
-        | "no-table"
-        | "unplaced"
-        | "misnamed"
-        | "typed-tag"
-        | "not-placed"
+        | ChangeRefusalKind
         | "uncited"
         /** New text off the length the User asked for (#1385). */
         | "length"
@@ -6865,6 +6858,27 @@ export interface RegenerateProposalInput {
   model?: ChatModelChoice | null;
 }
 
+/**
+ * Why a model's change to a Note was refused, whichever feature wrote it (#2796), in the order
+ * they are checked: nothing of the change stays in the Note.
+ * - "not-placed": it would hold a Citation, footnote or figure its text didn't place, or change
+ *   one that was there (#2424).
+ * - "misnamed": it named a paragraph the passage hasn't, named one twice, or named one and wrote
+ *   no words for it, so which paragraph it replaces can't be told (#2356).
+ * - "typed-tag": it rewrote a paragraph without a <removed> tag the User typed there, which would
+ *   take their words out (#2356).
+ * - "no-table": it wrote lines that read as a table's rows but make no table (#961).
+ * - "unplaced": it marked text to take out that isn't there word for word in one place (#2180).
+ */
+export const changeRefusals = [
+  "not-placed",
+  "misnamed",
+  "typed-tag",
+  "no-table",
+  "unplaced",
+] as const;
+export type ChangeRefusalKind = (typeof changeRefusals)[number];
+
 /** What Edit with AI did. */
 export type EditWithAiResult =
   /**
@@ -6933,31 +6947,12 @@ export type EditWithAiResult =
   | { kind: "block-too-long"; cause: "cap" | "model" }
   /** The User stopped it (`cancelEdit`). */
   | { kind: "cancelled" }
-  /**
-   * The model wrote lines that read as a table's rows but make no table
-   * (#961): nothing was written. `text`: the passage's new text, as it wrote it.
-   */
+  /** The change was refused (`changeRefusals`): nothing was written. */
+  | { kind: Exclude<ChangeRefusalKind, "no-table" | "unplaced"> }
+  /** `text`: the passage's new text, as the model wrote it. */
   | { kind: "no-table"; text: string }
-  /**
-   * The model marked text to take out that the passage doesn't have word for word in one
-   * place (#2180): nothing was written. `quotes`: that text, as it wrote it.
-   */
+  /** `quotes`: the text it marked to take out, as it wrote it. */
   | { kind: "unplaced"; quotes: string[] }
-  /**
-   * The model named a paragraph the passage hasn't, named one twice, or named one and wrote no
-   * words for it (#2356): which paragraph its text replaces can't be told, so nothing was written.
-   */
-  | { kind: "misnamed" }
-  /**
-   * The model rewrote a paragraph without a <removed> tag the User typed in it, which would take
-   * their words out (#2356): nothing was written.
-   */
-  | { kind: "typed-tag" }
-  /**
-   * What the change wrote would hold a Citation, footnote or figure its reply didn't place, or
-   * change one that was there (#2424): nothing was written.
-   */
-  | { kind: "not-placed" }
   /** The model failed, or gave nothing back. */
   | { kind: "failed"; error: ProviderError };
 
@@ -11215,7 +11210,8 @@ export type MeetingKind = "meeting" | "memo";
  * - "starting": asked for, not heard from yet.
  * - "recording": its audio is coming in.
  * - "silent": the computer's sound has been nothing but silence for a minute,
- *   which is what macOS gives when IncarnaMind isn't allowed to record it.
+ *   which is what macOS gives when IncarnaMind isn't allowed to record it; or
+ *   the microphone for fifteen seconds, which a muted or wrong one gives.
  * - "denied": this computer doesn't allow IncarnaMind to record it.
  * - "unavailable": there is none (no microphone), or this computer can't
  *   record it (the computer's sound on Linux, for now).

@@ -18,19 +18,19 @@
  * joiner, and when the reading still finds a marker no token placed (one emphasis joined to a
  * number, "[**1**]"), every "[" gets one. The User's Citations the agent has no token for, and
  * their footnotes, it reads as handles ("[kept:1]", "[note:1]") that keep them where they are,
- * once each. Who made the changes is
- * recorded with them; their text is marked third-party once the User accepts it
+ * once each. The changes are written as every model's change is (../proposals/apply): tried on
+ * a copy of the Note, checked, and refused whole, with the reason, when a part can't be written.
+ * Who made them is recorded with them; their text is marked third-party once the User accepts it
  * (`decideProposals`), and read as such while it waits.
  */
 import * as Y from "yjs";
 import { asGenerated } from "../../shared/aiText";
 import { type NodeJSON, replaceMarkers } from "../../shared/blockJson";
+import { REFUSAL_WORDS } from "../../shared/changeRefusals";
 import { INERT_BRACKET, inertBrackets } from "../../shared/inertBrackets";
 import {
   readProposalAttribute,
   readProposalRef,
-  recordProposalRequest,
-  resolveProposals,
   targetHash,
   waitingChanges,
 } from "../../shared/proposals";
@@ -46,11 +46,13 @@ import {
   PROPOSAL_ATTRIBUTE,
   PROPOSAL_DELETE_MARK,
   PROPOSAL_INSERT_MARK,
-  type ProposalAttribute,
 } from "../api";
-import { readRemovals } from "../edits/prompt";
+import { escapeNames, paragraphName, readName, readRemovals, unescapeNames } from "../edits/prompt";
+import type { MindContent } from "../mindContent";
+import { createChanges, refusalOf, type WriteReport, type Wrote } from "../proposals/apply";
 import { citationKey, citingKey, holdsOnlyPlaced, tally, tallyCiting } from "../proposals/placed";
 import {
+  blockProposal,
   layout,
   proposeRewrite,
   readSelection,
@@ -98,13 +100,6 @@ const HANDLE = /(?<!\\)\[(note|kept):(\d{1,4})\]/g;
 const handle = (kind: "note" | "kept", n: number) => `[${kind}:${n}]`;
 const escapeHandles = (text: string) => text.replace(/\[(?=(?:note|kept):\d)/g, "\\[");
 const unescapeHandles = (text: string) => text.replace(/\\\[(?=(?:note|kept):\d)/g, "[");
-
-/** A paragraph's name, by its place: ¶1 is the first. */
-const paragraphName = (index: number) => `¶${index + 1}`;
-
-/** Every ¶ in the User's words escaped, so it never reads as a name. */
-const escapeNames = (text: string) => text.replace(/¶/g, "\\¶");
-const unescapeNames = (text: string) => text.replace(/\\¶/g, "¶");
 
 /**
  * Words with a word joiner after each "[" that reads as a marker as written ("[1]", "[^1]",
@@ -269,8 +264,7 @@ export class ChangeRefused extends Error {
     readonly key:
       | "agents.propose.formula"
       | "agents.propose.lost"
-      | "agents.propose.table"
-      | "agents.propose.unplaced",
+      | (typeof REFUSAL_WORDS)[keyof typeof REFUSAL_WORDS]["agent"],
     readonly paragraph: string,
   ) {
     super(`${paragraph}: ${key}`);
@@ -289,8 +283,11 @@ export class HeldParagraph extends Error {
   }
 }
 
-/** A name the agent may have written at the start of its own text, as the Note reads. */
-const LEADING_NAME = /^\s*¶(?:\d+\+?|\+)\s+/;
+/** The agent's text without a name it may have written at its start, as the Note reads one (`readName`). */
+function withoutName(written: string): string {
+  const { name, rest } = readName(written.trimStart());
+  return name && !("unclear" in name) ? rest : written;
+}
 
 /** The same Citation: the same quote of the same Document, at the same place. */
 const sameCitation = (had: Attributes, minted: CitedToken["minted"]) =>
@@ -352,8 +349,7 @@ function rewriteText(
       return out + plain(part.slice(at));
     };
     // A table's cells name their sources in brackets ("[Tides, p. 3]"): there, every "[" is words.
-    const text = written
-      .replace(LEADING_NAME, "")
+    const text = withoutName(written)
       .split("\n")
       .map((line) =>
         withTokens(line, (part) => words(part, line.includes("|") ? inertBrackets : guard), marker),
@@ -419,7 +415,7 @@ function newBlocks(
     if (each) each.back += 1;
   };
   const markdown = withTokens(
-    written.replace(LEADING_NAME, ""),
+    withoutName(written),
     (part) => unescapeNames(part).replace(HOLDING, ""),
     hold,
   );
@@ -463,12 +459,7 @@ function newBlocks(
 
 /** A whole new Block, or list item, as a Proposal of `request` that adds it. */
 function proposedElement(node: NodeJSON, options: ProposeOptions): Y.XmlElement {
-  const proposal: ProposalAttribute = {
-    id: options.newId(),
-    request: options.request,
-    target: targetHash(""),
-    kind: "insert",
-  };
+  const proposal = blockProposal({ id: options.newId(), request: options.request }, "insert", "");
   return createElement({ ...node, attrs: { ...node.attrs, [PROPOSAL_ATTRIBUTE]: proposal } });
 }
 
@@ -553,8 +544,9 @@ function uncitedOf(blocks: Y.XmlFragment, request: string): string[] {
  * Writes the agent's changes into the Note as Proposals of `options.request`, waiting for the
  * User, and records who made them. `note` must be the Note as named in this same Yjs
  * transaction. Nothing is written unless every change can be: a paragraph held is refused
- * (`HeldParagraph`), and a change that can't be written as it is (`ChangeRefused`). Returns how
- * many changes wait, and the sentences they leave uncited.
+ * (`HeldParagraph`), and a change that can't be written as it is (`ChangeRefused`), with the
+ * reason the one check gives for any writer (../proposals/apply). Returns how many changes wait,
+ * and the sentences they leave uncited.
  */
 export function proposeNamed(
   blocks: Y.XmlFragment,
@@ -566,26 +558,29 @@ export function proposeNamed(
   if (!doc || doc.getXmlFragment(MIND_CONTENT_FIELD) !== blocks) {
     throw new Error("The Note's Blocks aren't in its document.");
   }
-  // Written on a copy first, so a refusal leaves the Note as it was; then into the Note itself,
-  // as its own client. Applying the copy's update instead would add a client to its state
-  // vector, and Yjs gives a document a new client when an update writes under its own.
-  const draft = new Y.Doc();
-  try {
-    Y.applyUpdate(draft, Y.encodeStateAsUpdate(doc));
-    writeNamed(draft.getXmlFragment(MIND_CONTENT_FIELD), note, changes, options);
-  } finally {
-    draft.destroy();
-  }
-  try {
-    return writeNamed(blocks, note, changes, options);
-  } catch (error) {
-    // The copy took it, so only a callback that answered differently gets here: what it wrote goes.
-    resolveProposals(blocks, (each) => each.request === options.request, "reject");
-    console.error(
-      `Proposals: an outside agent's request ${options.request} failed in the Note after its copy took it; its changes were rejected`,
-      error,
-    );
-    throw error;
+  // This one Note, already in the caller's transaction: any id names it.
+  const notes: Pick<MindContent, "read" | "edit"> = {
+    read: (_mindId, look) => look(blocks),
+    edit: (_mindId, change) => doc.transact(() => change(blocks)),
+  };
+  const { createdAt, ...made } = options.made;
+  const change = createChanges({ notes, now: () => new Date(createdAt) }).start({
+    mindId: doc.guid,
+    request: options.request,
+    made,
+  });
+  const outcome = change.write((copy) => writeNamed(copy, note, changes, options));
+  switch (outcome.kind) {
+    case "written":
+      return outcome.value;
+    case "unchanged":
+      return { waiting: 0, uncited: [] };
+    case "changed":
+      throw new Error(
+        `An outside agent's request ${options.request} would change the User's text.`,
+      );
+    default:
+      throw new ChangeRefused(REFUSAL_WORDS[outcome.kind].agent, outcome.at ?? "");
   }
 }
 
@@ -594,7 +589,7 @@ function writeNamed(
   note: NamedNote,
   changes: readonly NamedChange[],
   options: ProposeOptions,
-): { waiting: number; uncited: string[] } {
+): Wrote<{ waiting: number; uncited: string[] }> {
   const elements = new Map<string, Y.XmlElement>();
   for (const { element } of textBlocks(blocks)) {
     const id = element.getAttribute(BLOCK_ID_ATTRIBUTE);
@@ -652,20 +647,22 @@ function writeNamed(
   }
   for (const attributes of citedAnew) tally(placed, citationKey(attributes), 1);
 
+  const refused = (report: WriteReport) => ({
+    changed: false,
+    value: { waiting: 0, uncited: [] },
+    ...report,
+  });
   for (const { selection, name, text, fresh } of rewrites) {
     const written = proposeRewrite(selection, text, options.request, options.newId, fresh);
-    if (written.unmadeTable || (written.unplaced?.length ?? 0) > 0) {
-      throw new ChangeRefused("agents.propose.table", name);
-    }
-    if (written.notPlaced) throw new ChangeRefused("agents.propose.unplaced", "");
+    if (refusalOf(written)) return refused({ ...written, at: name });
   }
   for (const { element, nodes } of additions) {
     if (nodes.length > 0) addAfter(blocks, element, nodes, options);
   }
-  if (!holdsOnlyPlaced(blocks, options.request, placed)) {
-    throw new ChangeRefused("agents.propose.unplaced", "");
-  }
+  if (!holdsOnlyPlaced(blocks, options.request, placed)) return refused({ notPlaced: true });
   const waiting = waitingChanges(blocks, (each) => each.request === options.request);
-  if (blocks.doc && waiting > 0) recordProposalRequest(blocks.doc, options.request, options.made);
-  return { waiting, uncited: uncitedOf(blocks, options.request) };
+  return {
+    changed: waiting > 0,
+    value: { waiting, uncited: uncitedOf(blocks, options.request) },
+  };
 }

@@ -24,6 +24,7 @@ import {
   readProposalAttribute,
   readProposalRef,
   resolveProposals,
+  targetText,
   waitingChanges,
 } from "../../shared/proposals";
 import { createElement, type NodeJSON, nodeOf, topLevelBlocks } from "../answers/blocks";
@@ -39,7 +40,7 @@ import {
   PROPOSAL_INSERT_MARK,
   type TextPlace,
 } from "../api";
-import { citationsIn, proposeOver, setProposal, textBlocks } from "./write";
+import { blockProposal, citationsIn, proposeOver, setProposal, textBlocks } from "./write";
 
 /** The assistant's own waiting Blocks a stretch is in, from the first's top-level Block to the last's. */
 export interface OwnWaiting {
@@ -556,9 +557,16 @@ export function replaceApplied(
   if (!old || !last) return null;
   if (!whole) return proposeOver(blocks, old, revised, request, randomUUID);
   const added = revised.map(createElement);
-  for (const element of old) setProposal(element, { id: randomUUID(), request, kind: "delete" });
+  for (const element of old) {
+    setProposal(
+      element,
+      blockProposal({ id: randomUUID(), request }, "delete", targetText(element)),
+    );
+  }
   blocks.insert(blocks.toArray().indexOf(last) + 1, added);
-  for (const element of added) setProposal(element, { id: randomUUID(), request, kind: "insert" });
+  for (const element of added) {
+    setProposal(element, blockProposal({ id: randomUUID(), request }, "insert", ""));
+  }
   return added.map(idOf);
 }
 
@@ -630,7 +638,8 @@ export function replaceOwn(
   const at = blocks.toArray().indexOf(first);
   blocks.delete(at, old.length);
   blocks.insert(at, [...revised]);
-  for (const element of revised)
-    setProposal(element, { id: randomUUID(), request, kind: "insert" });
+  for (const element of revised) {
+    setProposal(element, blockProposal({ id: randomUUID(), request }, "insert", ""));
+  }
   return revised.map(idOf);
 }

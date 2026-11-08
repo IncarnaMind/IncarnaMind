@@ -87,6 +87,8 @@ const DISCONTINUITY_MS = 1000;
 
 /** The computer's sound, all silence for this long, is said to be silent: macOS gives silence when it isn't allowed. */
 const SILENT_SAMPLES = MEETING_SAMPLE_RATE * 60;
+/** The microphone, all silence for this long, is said to be silent: a muted one, or the wrong one, gives none. */
+const MICROPHONE_SILENT_SAMPLES = MEETING_SAMPLE_RATE * 15;
 
 /** How often audio past its day is looked for. */
 const SWEEP_INTERVAL_MS = 60_000;
@@ -171,6 +173,8 @@ interface Live {
   ends: Map<AudioSource, number>;
   /** All-silent samples in a row from the computer's sound. */
   silent: number;
+  /** All-silent samples in a row from the microphone. */
+  micSilent: number;
   /** Some sound has come from the computer's sound: without it, a macOS that isn't allowing it can't be told from a quiet call. */
   systemSignal: boolean;
   saveError: string | null;
@@ -504,10 +508,12 @@ export function createMeetings(options: MeetingsOptions) {
         transcripts?.captureStalled(current.meetingId, stalledFrom, run.startMs);
       }
     }
+    const quiet = samples.every((sample) => sample === 0);
     if (source === "system") {
-      const quiet = samples.every((sample) => sample === 0);
       current.silent = quiet ? current.silent + samples.length : 0;
       if (!quiet) current.systemSignal = true;
+    } else {
+      current.micSilent = quiet ? current.micSilent + samples.length : 0;
     }
     transcripts?.hear(current.meetingId, source, samples, run.startMs + msOf(run.samples));
     tellLevel(current, source, samples);
@@ -520,7 +526,10 @@ export function createMeetings(options: MeetingsOptions) {
     setSource(
       current,
       source,
-      source === "system" && current.silent >= SILENT_SAMPLES ? "silent" : "recording",
+      (source === "system" && current.silent >= SILENT_SAMPLES) ||
+        (source === "microphone" && current.micSilent >= MICROPHONE_SILENT_SAMPLES)
+        ? "silent"
+        : "recording",
     );
   }
 
@@ -582,6 +591,7 @@ export function createMeetings(options: MeetingsOptions) {
       runs: new Map(),
       ends: new Map(),
       silent: 0,
+      micSilent: 0,
       systemSignal: false,
       saveError: null,
       levels: { microphone: 0, system: 0 },
