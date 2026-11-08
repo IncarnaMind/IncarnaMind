@@ -26,3 +26,24 @@ What the rule now keeps, counted over recorded replies at no cost (Claude Haiku 
 The rule changes so that an option or reading that still holds no Citation once the reply ends may be judged and dropped as before, while a written option's "→" line is never taken back. The check then runs again, on `call-help-checks` (20 presses, 10 a language, copied unchanged with the others; no run of this work reads it before then), with the same arms, models, judge and bar, two runs, within the same $3.
 
 A line that fails keeps the change from shipping as it is, and the numbers go on the issue.
+
+## The runs (2026-11-08, at 08749fe6e)
+
+Two runs, `help-form-judged` (main's rule) as the first arm and `today` (this branch's) as the second, each arm first in half the pairs of each cell (92 pairs a run: 48 and 44 in the first, as the runner turns them). Claude Haiku 5.5 on a direct Anthropic key and DeepSeek V4.1 Flash 1017 (`deepseek-flash`), both meant and both ran; judge Claude Opus 5.5. Every press finished on both arms. Spent $2.46 of the $3: $0.03 on a one-press smoke run of the wiring, then $1.20 and $1.23. Each run started at a 15-minute load of 24 or less (23.8 and 23.3); one-minute load 4.8 to 79.4 in the first, 4.9 to 17.1 in the second.
+
+Main's rule → this branch's, per run's range over the two runs (pooled count in brackets), over the 23 presses of each language both arms finished, the two slices together:
+
+| Model · language | False Supported | Expected Passages cited | Judged right | Every Citation found |
+|---|---|---|---|---|
+| Claude Haiku 5.5 · English | 8–9 → 9–9 (17 → 18) | 18–23 → 19–20 (41 → 39) | 16–18 → 20–21 (34 → 41) | 20–22 → 19–22 (42 → 41) |
+| Claude Haiku 5.5 · Chinese | 7–14 → 10–12 (21 → 22) | 18–21 → 17–19 (39 → 36) | 15–17 → 15–16 (32 → 31) | 20–23 → 19–22 (43 → 41) |
+| DeepSeek V4.1 Flash · English | 6–11 → 6–9 (17 → 15) | 19–22 → 19–20 (41 → 39) | 17–19 → 18–19 (36 → 37) | 20–22 → 21–22 (42 → 43) |
+| DeepSeek V4.1 Flash · Chinese | 9–12 → 9–14 (21 → 23) | 17–21 → 19–20 (38 → 39) | **17–18 → 15–16** (35 → 31) | 21–23 → 22–22 (44 → 44) |
+
+**The bar:** false Supported, cited and every Citation found hold in every cell, so false Supported did not rise by this check's measure and the rule stays as it is. **Judged right fails as written in one cell,** DeepSeek V4.1 Flash in Chinese, and this check says so.
+
+## How the runs were read (added after them)
+
+- **The failed line.** Seven DeepSeek Chinese presses were judged right on main's arm and not on this branch's (`zh2-answer-earlier` in both runs; `zh2-answer-unknown`, `zh2-want` and `zh2-ask-store` in the first; `zh2-say-offline` and `zh3-answer-android` in the second). In each, the first request had the same input on both arms (5,144 to 7,892 tokens, alike to the token), and the model's first output already differed: in length (66 to 278 tokens) and in four of them in whether it recorded Citations first or wrote first. The rule acts only after a step that recorded Citations, so these differences came from sampling before it could act. In `zh2-answer-earlier`, the case that failed in both runs, main's arm wrote the free training day the User offered and this branch's arm never wrote it; the rule takes nothing out of an option or reading. This reading explains the line; it doesn't change it.
+- **False Supported** differs between the arms in 70 of the 184 pairs over both runs: 36 with one only on this branch's arm and 34 only on main's, for every kind of press, short lines among them. Pooled it moved 17 → 18 and 21 → 22 on Haiku, 17 → 15 and 21 → 23 on DeepSeek.
+- **What the rule spares** on these runs can't be counted from the reports, which keep the panel's text and not the reply as written; the counts over the vanish check's recorded replies above stand for it.

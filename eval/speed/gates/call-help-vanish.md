@@ -115,3 +115,16 @@ The done time's median, main's 240 → the head's 240 (reported, not held; the e
 
 
 **A third fresh run, written before it, 2026-11-08:** the same 240 presses (30 a case) at 08749fe6e, the narrowed rule, with the same bar and `INCARNAMIND_EVAL_SPEED_STOP_USD=0.5`, inside the $3 approved for the quality check.
+
+### The third fresh run (2026-11-08, at 08749fe6e's code)
+
+240 presses, every one finished, on Claude Haiku 5.5 (a direct Anthropic key) and DeepSeek V4.1 Flash 1017 (`deepseek-flash`); both were meant and both ran. Spent $0.10. One-minute load 5.6 at the start and 10.7 at the end (15-minute 11.2 and 10.0).
+
+| Model · language | a → line shown, then gone at the end | words, then none at the end | no item at the end | an item shown, then taken back by the core | an item shown, then hidden though the reply has it |
+|---|---|---|---|---|---|
+| Claude Haiku 5.5 · English | 1 → **0** | 0 → 0 | 0 → 0 | 2 → 1 | 1 → 1 |
+| Claude Haiku 5.5 · Chinese | 1 → **0** | 0 → 0 | 0 → 0 | 1 → 0 | 0 → 0 |
+| DeepSeek V4.1 Flash · English | 0 → 0 | 0 → 0 | 0 → 0 | 0 → 0 | 0 → 0 |
+| DeepSeek V4.1 Flash · Chinese | 0 → 0 | 0 → 0 | 0 → 0 | 0 → 0 | 0 → 0 |
+
+**The bar holds on every line.** The item taken back (Haiku, `en-want`) is a remark the model began after its reading's "→" line, "Note: Before you cite…", drawn for 0.2 s as the line being written and judged the model's working, as on main. The item hidden (Haiku, `en-want`) is a remark between two readings, "Wait — I must follow the format exactly…", drawn as the line being written and left out once the next reading came: the dated exception above.
