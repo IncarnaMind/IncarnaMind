@@ -23,6 +23,10 @@ const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
 async function shot(page: Page | Locator, name: string): Promise<void> {
   if (!SCREENSHOTS) return;
   await mkdir(SCREENSHOTS, { recursive: true });
+  const window = "page" in page ? page.page() : page;
+  await window.evaluate(() =>
+    Promise.all(document.getAnimations().map((animation) => animation.finished)),
+  );
   await page.screenshot({ path: join(SCREENSHOTS, `${name}.png`) });
 }
 
@@ -100,16 +104,17 @@ test("call help's model: Same as Answers by default, Fastest offered on Anthropi
   if (!rowBox || !control) throw new Error("The row isn't laid out.");
   expect(control.x + control.width).toBeLessThanOrEqual(rowBox.x + rowBox.width);
   await shot(settings.getByTestId("help-settings"), "call-help-model-row-zh-900");
+  await bridge.evaluate((core) => core.updateSettings({ user: { language: "en" } }));
   await closeSettings(window);
 
   // A provider not offered yet: no row and no command.
-  await bridge.evaluate((core) => core.updateSettings({ user: { language: "en" } }));
   await bridge.evaluate((core) =>
     core.saveChatProvider({ kind: "openai", apiKey: "sk-test", modelId: "gpt-6.1-sol" }),
   );
   await openSettings(window, "meetings");
   await expect(settings.getByTestId("help-settings")).toBeVisible();
   await expect(row).toHaveCount(0);
+  await shot(settings.getByTestId("help-settings"), "call-help-model-not-offered-en-900");
   await closeSettings(window);
   await window.keyboard.press("ControlOrMeta+k");
   await window.keyboard.type("Call help model");
