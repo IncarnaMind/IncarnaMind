@@ -30,3 +30,23 @@ The notes are done sooner on the branch than on main, on the median of each mode
 ## Spend
 
 Within what is left of this work's $5, counted by the app's own meter and the judge's catalog price.
+
+## Result (2026-11-08): it fails, so it isn't shipped
+
+Measured in the built app on test builds of `b2ae19bf8` (main) and `c66d4bcb7` (the branch), with the call played as the other side's sound. Two runs per model and language, the builds taking turns, at a 15-minute load of 4.3–5.6. Claude Sonnet 5.5 judged how many of the 6 facts each run gave; the "facts" column sums both runs.
+
+| Model | Call | First fill request after Stop, main → branch | Notes in, main → branch | Facts, main → branch | Sentences the Transcript doesn't say |
+|---|---|---|---|---|---|
+| Claude Haiku 5.5 | EN | 5.9, 5.9 → 0.05, 0.06 s | 36.2, 35.1 → 25.8, 27.0 s | 12 → 12 | 0 → 1 |
+| Claude Haiku 5.5 | ZH | 7.1, 6.7 → 0.06, 0.07 s | 32.1, 28.5 → 17.9, 23.5 s | 12 → 0 | 0 → 0 |
+| DeepSeek V4.1 Flash | EN | 6.0, 5.6 → 0.06, 0.05 s | 37.8, 59.2 → 74.1, 58.6 s | 12 → 11 | 0 → 0 |
+| DeepSeek V4.1 Flash | ZH | 7.0, 6.5 → 0.06, 0.06 s | 68.6, 66.6 → 63.3, 61.6 s | 12 → 11 | 0 → 0 |
+
+The speaker pass renamed no one in any run, so every branch run made its notes once, from the Transcript as the pass left it. In every run the request started 5.6–7.1 s sooner. It still fails these lines:
+
+- **The same notes, Claude Haiku 5.5 in Chinese.** Both branch runs left their items out (6 and 7). These are the Chinese notes the branch writes for a Chinese call; main wrote English ones (#2770). Outside the app, 9 more fills of this call on each code left most items out in 3 of 9 on the branch and 2 of 9 on main. Each such fill either wrote timestamps where the line addresses go or wrote its records as text instead of calling `cite`.
+- **The same notes, DeepSeek.** It gave one fact fewer in each language. In the Chinese run, the engine had transcribed that line as "�".
+- **No new unstated sentence, Claude Haiku 5.5 in English.** One sentence was flagged: "The Great Enterprise plan…", made from "Great. Enterprise is…".
+- **Faster, DeepSeek in English.** In one branch run its thinking took 62.9 s, against 24.0 s in main's, so the median came later.
+
+The change is parked, built and tested, on the branch `perf/2773-notes-before-speakers`. Two runs a side can't tell a change that sends the same request apart from the models' own spread. A next try needs a guard for that, such as the request's words being the same, decided before its runs.
