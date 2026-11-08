@@ -46,8 +46,11 @@ export interface FinishOptions {
   mindExists(mindId: string): boolean;
   /** The Folder a Mind is in; null for none. */
   folderOfMind(mindId: string): string | null;
-  /** Makes a Mind in a Folder (or none), as New Mind does; returns its id. */
-  createMind(title: string, folderId: string | null): string;
+  /**
+   * Makes a Mind in a Folder (or none), as New Mind does, asked with `model` (#2836); returns its
+   * id.
+   */
+  createMind(title: string, folderId: string | null, model: ChatModelChoice): string;
   /** Puts a Mind in a Folder: where a Task's own Mind goes once its sources were filed. */
   moveMind(mindId: string, folderId: string): void;
   /**
@@ -369,6 +372,7 @@ export function draftMind(
   folderId: string | null,
   ownMind: boolean,
   wallId: string | null,
+  model: ChatModelChoice,
 ): string | null {
   const made = madeMind(options, task, target);
   if (made) {
@@ -382,7 +386,7 @@ export function draftMind(
     folderId ?? (task.mindId ? options.folderOfMind(task.mindId) : null),
   );
   if (home === null) return null;
-  const mindId = options.createMind(cutTitle(title), home.folderId);
+  const mindId = options.createMind(cutTitle(title), home.folderId, model);
   task.started(MIND_RECORD);
   task.settled(MIND_RECORD, "completed", { mindId });
   return mindId;
@@ -468,6 +472,7 @@ export async function writeDraft(
     found.folderId,
     input.ownMind,
     input.wallId,
+    model,
   );
   if (mindId === null) {
     task.settled(DRAFT_STEP, "failed", { problem: KEPT_INSIDE });

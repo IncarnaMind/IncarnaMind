@@ -35,6 +35,8 @@ export interface Arm {
   checks?: { quickFirstLook?: boolean };
   /** Whether a call's notes start before its speakers are told apart (#2773); unset: the core's default. */
   notes?: { beforeSpeakers?: boolean };
+  /** Whether call help's own form may be judged the model's working, as before #2778; unset: it isn't. */
+  helpFormJudged?: boolean;
 }
 
 /** The most of the live transcript `newest-stretch` keeps: some three minutes of talk. */
@@ -153,6 +155,27 @@ export const ARMS: readonly Arm[] = [
     }),
   },
   {
+    id: "help-answers-model",
+    label: "call help on the Answers model: Settings › Meetings' Same as Answers, as before #2526",
+    prepare: async (core) => {
+      await core.updateSettings({ user: { callHelpModel: "answers" } });
+    },
+  },
+  {
+    id: "help-fastest",
+    label:
+      "call help on the quick model of the Answers model's provider: Settings › Meetings' Fastest, the User's choice since #2526",
+    prepare: async (core) => {
+      await core.updateSettings({ user: { callHelpModel: "fastest" } });
+    },
+  },
+  {
+    id: "help-form-judged",
+    label:
+      "call help's own options, readings and short lines judged as the model's working, as before #2778",
+    helpFormJudged: true,
+  },
+  {
     id: "retrieve-first",
     label:
       "the Question searched before the first call, answered from those Passages unless it needs more (#1633)",
@@ -198,6 +221,7 @@ export function armSwitch() {
     answerPaths,
     checkPaths,
     notesBeforeSpeakers: () => current?.notes?.beforeSpeakers,
+    helpFormJudged: () => current?.helpFormJudged,
     /** The prompts sent since it was last asked, oldest first. */
     takeSent: (): string[] => sent.splice(0),
     use(arm: Arm): void {

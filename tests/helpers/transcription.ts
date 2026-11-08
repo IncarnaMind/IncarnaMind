@@ -189,6 +189,7 @@ export async function transcribingCore(
     systemLanguages,
     answerPaths,
     notesBeforeSpeakers,
+    helpFormJudged,
     examples,
     serving,
     engineFactory,
@@ -225,6 +226,7 @@ export async function transcribingCore(
     answerPaths?: CoreAdapters["answerPaths"];
     /** Whether a call's notes start before its speakers are told apart, instead of the default. */
     notesBeforeSpeakers?: CoreAdapters["notesBeforeSpeakers"];
+    helpFormJudged?: CoreAdapters["helpFormJudged"];
     /** The shipped examples' folder, for a core that makes them. */
     examples?: string;
     /** The Mac's calendars, for a Meeting started from a calendar event (#190). */
@@ -259,6 +261,7 @@ export async function transcribingCore(
     ...(systemLanguages && { systemLanguages: () => systemLanguages }),
     ...(answerPaths && { answerPaths }),
     ...(notesBeforeSpeakers && { notesBeforeSpeakers }),
+    ...(helpFormJudged && { helpFormJudged }),
     ...(examples && { paths: { dataDir, examples } }),
     ...(systemCalendar && { systemCalendar }),
   });

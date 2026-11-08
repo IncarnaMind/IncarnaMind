@@ -73,7 +73,7 @@ export const pcmBytes = (samples: Int16Array): Uint8Array =>
 export const base64Pcm = (samples: Int16Array): string =>
   Buffer.from(samples.buffer, samples.byteOffset, samples.byteLength).toString("base64");
 
-const UNSPACED = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}　-〿＀-￯]/u;
+export const UNSPACED = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}　-〿＀-￯]/u;
 
 /**
  * Words a service gave one by one, as a line reads: a space between them, but none between two

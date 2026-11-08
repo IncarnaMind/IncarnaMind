@@ -2,17 +2,17 @@
  * Soniox's real-time transcription (#141): all of the stream's audio goes over the socket as it
  * comes, and text comes back token by token, each with who said it. Tokens that aren't final
  * yet can still change; final ones never do. The service ends an utterance with an `<end>`
- * token when the speaker pauses; a line ends there, or where the speaker changes.
+ * token when the speaker pauses; a line ends there, where the speaker changes, or at a sentence's
+ * end (./lineEnds).
  */
 import type { CloudLoss } from "../../adapters";
 import { cleanSpeech } from "../speechText";
+import { CLOSES, endsAfter, endsBefore, startsWord } from "./lineEnds";
 import { createLiveStream, pcmBytes } from "./live";
 import type { CloudStreamHandle, CloudStreamOptions } from "./stream";
 
 export const SONIOX_URL = "wss://stt-rt.soniox.com/transcribe-websocket";
 
-/** A line this long ends even without a pause, so its final text never waits long. */
-const LONGEST_LINE_MS = 20_000;
 /** The key is wrong, or may not use the service; or the account has no credit left. */
 const lossOf = (errorCode: number): CloudLoss =>
   errorCode === 401 || errorCode === 403 ? "refused" : errorCode === 402 ? "credit" : "dropped";
@@ -84,12 +84,19 @@ export function createSonioxStream(options: CloudStreamOptions): CloudStreamHand
     ) {
       close();
     }
-    if (
-      line &&
-      line.tokens.length > 0 &&
-      token.end - (line.tokens[0] as Token).start > LONGEST_LINE_MS
-    ) {
-      close();
+    const first = line?.tokens[0];
+    if (line && first) {
+      const text = wordsOf(line.tokens);
+      const ms = (line.tokens.at(-1) as Token).end - first.start;
+      const wordStart = startsWord(text, token.text);
+      // A sentence ends at the piece after it, unless that piece closes it ("?" then "”") or goes
+      // on with its word ("3." then "5").
+      if (
+        (!CLOSES.test(token.text) && endsAfter(text, ms, wordStart)) ||
+        endsBefore(token.end - first.start, wordStart)
+      ) {
+        close();
+      }
     }
     line ??= { id: nextId++, tokens: [], speaker: null };
     line.tokens.push(token);

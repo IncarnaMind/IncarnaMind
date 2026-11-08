@@ -1,6 +1,6 @@
 import { type KeyboardEvent, type Ref, type SelectHTMLAttributes, useId } from "react";
 import { CheckLineIcon, ChevronUpDownLineIcon } from "../lineIcons";
-import { menuClass, menuItemClass } from "../ui";
+import { menuFrameClass, menuItemClass } from "../ui";
 import { usePopoverMenu } from "../usePopoverMenu";
 import { SettingsRow } from "./SettingsGroup";
 
@@ -27,6 +27,7 @@ export function PopUpButton<Value extends string>({
   options,
   onChange,
   labelledBy,
+  describedBy,
   testId,
   disabled,
 }: {
@@ -35,6 +36,8 @@ export function PopUpButton<Value extends string>({
   /** Called with the option picked, also when it is the one already shown. */
   onChange(value: Value): void;
   labelledBy?: string;
+  /** The id of a line saying more about the choice, as a row's detail does. */
+  describedBy?: string;
   testId?: string;
   disabled?: boolean;
 }) {
@@ -55,6 +58,8 @@ export function PopUpButton<Value extends string>({
         type="button"
         id={id}
         aria-labelledby={labelledBy ? `${labelledBy} ${id}` : undefined}
+        aria-describedby={describedBy}
+        title={chosen?.label}
         data-testid={testId}
         data-value={value}
         disabled={disabled}
@@ -69,7 +74,8 @@ export function PopUpButton<Value extends string>({
         role="menu"
         aria-labelledby={id}
         data-testid={testId === undefined ? undefined : `${testId}-menu`}
-        className={menuClass}
+        // An option names its model, as "Same as Answers (Claude Sonnet 5.5)", on one line.
+        className={`${menuFrameClass} w-max max-w-80 min-w-48`}
       >
         {options.map((option) => (
           // biome-ignore lint/a11y/useAriaPropsSupportedByRole: a menuitemradio takes aria-checked.

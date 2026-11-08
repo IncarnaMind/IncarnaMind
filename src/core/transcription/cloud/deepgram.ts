@@ -11,14 +11,12 @@
 
 import { isDeepgramHost } from "../../../shared/deepgram";
 import { cleanSpeech } from "../speechText";
+import { endsAfter, endsBefore } from "./lineEnds";
 import { closedLoss, createLiveStream, joinWords, pcmBytes } from "./live";
 import type { CloudAuth } from "./socket";
 import type { CloudStreamHandle, CloudStreamOptions } from "./stream";
 
 export { DEEPGRAM_MODEL, DEEPGRAM_URL } from "./protocol";
-
-/** A line this long ends even without a pause, so its final text never waits long. */
-const LONGEST_LINE_MS = 20_000;
 
 interface Word {
   text: string;
@@ -129,16 +127,12 @@ export function createDeepgramStream(
     if (line && line.speaker !== null && word.speaker !== null && word.speaker !== line.speaker) {
       close();
     }
-    if (
-      line &&
-      line.words.length > 0 &&
-      word.end - (line.words[0] as Word).start > LONGEST_LINE_MS
-    ) {
-      close();
-    }
+    const first = line?.words[0];
+    if (first && endsBefore(word.end - first.start, true)) close();
     line ??= { id: nextId++, words: [], speaker: null };
     line.words.push(word);
     line.speaker ??= word.speaker;
+    if (endsAfter(textOf(line.words), word.end - (line.words[0] as Word).start, true)) close();
   }
 
   function partial(pending: readonly Word[]): void {

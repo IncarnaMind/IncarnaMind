@@ -6,11 +6,16 @@ import {
   type ComparisonRow,
   type Core,
   InvalidInputError,
+  MIND_ORIGINS_FIELD,
+  MIND_SIGN_OFFS_FIELD,
   MindReadOnlyError,
   NotFoundError,
 } from "../../src/core";
 import { idleToThin } from "../../src/core/checkpoints/thinning";
+import { messageReference } from "../../src/core/references";
+import { setOrigins } from "../../src/shared/blockOrigins";
 import { citationState } from "../../src/shared/citations";
+import { addSignOff } from "../../src/shared/signOffs";
 import { answerEnded, askAndFinish, citingModel, setUpWithDocuments } from "../helpers/citations";
 import { createTempDataFolder, manualClock, queryDatabase, startCore } from "../helpers/core";
 import { sha256, waitForProcessing } from "../helpers/documents";
@@ -692,4 +697,70 @@ describe("Citations in Checkpoints", { timeout: 30_000 }, () => {
       changedAfterCited: true,
     });
   });
+});
+
+/*
+ * A Checkpoint holds everything in a Note's document but its own choices (#2836): a change only to
+ * the model it is asked with leaves the last one current, but a sign-off or a mark of what the AI
+ * wrote is saved before the next AI change, and restoring that Checkpoint keeps it.
+ */
+describe("A change beside the Blocks", () => {
+  const parts = [
+    {
+      what: "a “Checked by me” sign-off",
+      field: MIND_SIGN_OFFS_FIELD,
+      write: (doc: Y.Doc) =>
+        addSignOff(doc, {
+          id: "sign-off-1",
+          target: { kind: "citation", id: "citation-1" },
+          at: "2026-11-08T08:30:00.000Z",
+          contentHash: "basis-1",
+          deletedAt: null,
+          name: "Ada Lovelace",
+          personId: "person-1",
+        }),
+      key: "sign-off-1",
+    },
+    {
+      what: "a mark of the text the AI wrote",
+      field: MIND_ORIGINS_FIELD,
+      write: (doc: Y.Doc) =>
+        setOrigins(doc, ["block-1"], {
+          from: messageReference("conversation-1", "answer-1"),
+          question: "Write a launch brief.",
+        }),
+      key: "block-1",
+    },
+  ];
+
+  for (const part of parts) {
+    test(`${part.what} alone is saved before the next AI change, and restoring that Checkpoint keeps it`, async () => {
+      const dataDir = await createTempDataFolder();
+      const core = startCore(dataDir);
+      const { mind, client } = await mindWith(core, ["The tide comes in twice a day."]);
+      const first = await core.saveCheckpoint(mind.id, "accept");
+
+      part.write(client.doc);
+      await client.settled();
+      // What the core saves just before an AI change.
+      const before = await core.saveCheckpoint(mind.id, "accept");
+      expect(before.id).not.toBe(first.id);
+      const saved = queryDatabase<{ data: Uint8Array }>(
+        dataDir,
+        "SELECT data FROM mind_checkpoints WHERE id = ?",
+        [before.id],
+      )[0];
+      const kept = new Y.Doc();
+      Y.applyUpdate(kept, saved?.data ?? new Uint8Array());
+      expect(kept.getMap(part.field).has(part.key)).toBe(true);
+
+      writeMind(client, [note("The tide comes in twice a day."), note("Added by the AI.")]);
+      await client.settled();
+      await core.restoreCheckpoint(mind.id, before.id);
+      await client.settled();
+
+      expect(lines(client)).toEqual(["The tide comes in twice a day."]);
+      expect(client.doc.getMap(part.field).has(part.key)).toBe(true);
+    });
+  }
 });

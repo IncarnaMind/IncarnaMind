@@ -149,6 +149,11 @@ export interface CreateMindInput {
   kind?: MindKind;
   /** The Folder to make it in; none, or null: Not in a Folder. */
   folderId?: string | null;
+  /**
+   * The model it is made from a conversation with (#2836): it becomes the Note's own pick, unless
+   * it is the Answers default or its provider isn't saved.
+   */
+  model?: ChatModelChoice | null;
 }
 
 /**
@@ -3361,6 +3366,11 @@ export interface UserSettings {
    */
   imageModel: ChatModelChoice | null;
   /**
+   * The model call help answers on (#2526): "answers", the Answers model itself, by default;
+   * "fastest", its provider's quick model where one is offered (`ModelRoles.callHelp`).
+   */
+  callHelpModel: CallHelpModel;
+  /**
    * Suggest as the User writes, from their Documents (see `suggestNext`): off
    * until they turn it on. Turning it on asks for consent to the "suggestions"
    * flow first, when the default chat model sends to a service.
@@ -3532,12 +3542,6 @@ export interface DeviceSettings {
   motion: MotionPreference;
   /** Light or dark here (Settings → General → Appearance): see `Appearance`. */
   appearance: Appearance;
-  /**
-   * The model the User last chose here, in a composer or as the Answers default: a Mind with no
-   * pick of its own and the assistant with no Mind in focus use it (`modelInUse`). Null until
-   * they choose, and again once its provider is removed: they follow `UserSettings.chatModel` then.
-   */
-  lastChatModel: ChatModelChoice | null;
 }
 
 /**
@@ -5637,6 +5641,9 @@ export const MODEL_SOURCE_CHOICES: readonly ModelSourceChoice[] = [
   "modelscope",
 ];
 
+export const CALL_HELP_MODELS = ["fastest", "answers"] as const;
+export type CallHelpModel = (typeof CALL_HELP_MODELS)[number];
+
 export interface EmbeddingModelStatus {
   /** The model's name, e.g. "multilingual-e5-small". */
   name: string;
@@ -6761,6 +6768,12 @@ export interface ModelRoles {
   quickTasks: ChatModelChoice | null;
   /** Null when no model reads images. */
   images: ChatModelChoice | null;
+  /**
+   * The quick model call help may be set to answer on (`UserSettings.callHelpModel`), for the
+   * model a new Note answers on: its provider's own, where that provider's is offered. Null where
+   * none is: no Answers model, a model on this computer, or a provider not offered yet.
+   */
+  callHelp: ChatModelChoice | null;
 }
 
 export interface SetChatModelInMenuInput {

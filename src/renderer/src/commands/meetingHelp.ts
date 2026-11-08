@@ -13,6 +13,7 @@ import {
   addHelpToNotes,
   askHelpInAssistant,
   helpKeysLabel,
+  helpToKeepOf,
   liveMeetingNow,
   useMeetingHelp,
 } from "../meetingHelp";
@@ -119,7 +120,12 @@ export const meetingHelpCommands: readonly Command[] = [
       if (shown !== true) return shown;
       return liveMeetingNow()?.help ? true : { reason: "meetings.help.none" };
     },
-    run: () => files.meetingPanelCommand("pin"),
+    async run() {
+      const help = liveMeetingNow()?.help;
+      // Unpinning is always offered; pinning, as in the panel, only what has something to keep.
+      if (help && !useMeetingHelp.getState().panel.pinned) await helpToKeepOf(help);
+      files.meetingPanelCommand("pin");
+    },
   },
   {
     id: "meeting.help-add",

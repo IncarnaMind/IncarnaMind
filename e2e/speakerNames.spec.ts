@@ -14,6 +14,7 @@ import {
   runCommand,
   setLanguage,
   setWindowSize,
+  turnOf,
   useLocalChatModel,
 } from "./app";
 import { encode, film } from "./feel";
@@ -55,13 +56,13 @@ const WORDS = {
   en: {
     me: "Me",
     them: "Them",
-    who: "Who speaks this line?",
+    who: "Who speaks this part?",
     newSpeaker: "New speaker…",
     all: "Apply to all",
     name: "Dana Whitfield",
     label: "Speaker 9",
     allSet: "Dana Whitfield speaks every line by this speaker",
-    set: "Dana Whitfield speaks this line",
+    set: "Dana Whitfield speaks this part",
     change: "Change who speaks",
     showTranscript: "Show the Transcript",
     showNotes: "Show notes",
@@ -69,7 +70,7 @@ const WORDS = {
   "zh-CN": {
     me: "我",
     them: "对方",
-    who: "这一行是谁说的？",
+    who: "这一段是谁说的？",
     newSpeaker: "新建发言人…",
     all: "全部应用",
     name: "王丽",
@@ -87,7 +88,15 @@ const meetingsOf = (window: Page): Promise<Meeting[]> =>
     (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.listMeetings(),
   );
 
+/** Each turn's Speaker, in order. */
 const speakersOf = (lines: Locator) => lines.getByTestId("transcript-speaker").allInnerTexts();
+
+/** The first turn a Speaker speaks. */
+const turnBy = (window: Page, lines: Locator, speaker: string) =>
+  lines
+    .getByTestId("transcript-turn")
+    .filter({ has: window.getByTestId("transcript-speaker").getByText(speaker, { exact: true }) })
+    .first();
 
 /** The menu fits in the window at its width: nothing of it is cut off at an edge. */
 async function expectInWindow(window: Page, menu: Locator): Promise<void> {
@@ -101,7 +110,7 @@ async function expectInWindow(window: Page, menu: Locator): Promise<void> {
 }
 
 for (const language of ["en", "zh-CN"] as const) {
-  test.describe(`Who speaks a Transcript's line (${language})`, () => {
+  test.describe(`Who speaks a Transcript's turn (${language})`, () => {
     let dataDir: string;
     test.beforeEach(async () => {
       dataDir = await createDataFolder();
@@ -110,7 +119,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await removeDataFolder(dataDir);
     });
 
-    // protects=on a saved Transcript a Speaker's name opens the menu of the Meeting's people, New speaker… and Apply to all; a new name for every line by "Them" shows on each of their lines, the User's stay "Me", and the Note's Citations of them show it; F2 on a line and ⌘K open the menu, a pick moves one line, and ⌘Z takes back each choice in turn; the menu fits at 1,100 px in English and Chinese; fails_when=the menu is missing or cut off, a choice waits for the core, "Me" changes with "Them", a Citation keeps the old name, or ⌘Z leaves a name; no_claim=the speaker pass, which the core tests cover, and a real model's fill.
+    // protects=on a saved Transcript a Speaker's name opens the menu of the Meeting's people, New speaker… and Apply to all; a new name for every line by "Them" shows on each of their lines, the User's stay "Me", and the Note's Citations of them show it; F2 on a line and ⌘K open its turn's menu, a pick moves that turn alone and keeps the focus on the line, and ⌘Z takes back each choice in turn; the menu fits at 1,100 px in English and Chinese; fails_when=the menu is missing or cut off, a choice waits for the core, "Me" changes with "Them", a Citation keeps the old name, or ⌘Z leaves a name; no_claim=the speaker pass, which the core tests cover, and a real model's fill.
     test("a Speaker is named from the line, by mouse, F2 and ⌘K, the Citations follow, and ⌘Z takes each choice back", async () => {
       const words = WORDS[language];
       const { app, window } = await launchApp(dataDir, { fakeChat: true });
@@ -145,17 +154,11 @@ for (const language of ["en", "zh-CN"] as const) {
       expect(new Set(before)).toEqual(new Set([words.me, words.them]));
       await shot(window, `speakers-transcript-before-${language}`);
 
-      // The mouse: the first "Them" line's name, Apply to all, and a new name.
-      const theirs = lines
-        .getByTestId("transcript-line")
-        .filter({
-          has: window.getByTestId("transcript-speaker").getByText(words.them, { exact: true }),
-        })
-        .first();
-      const theirName = theirs.getByTestId("transcript-speaker");
+      // The mouse: the first "Them" turn's name, Apply to all, and a new name.
+      const theirName = turnBy(window, lines, words.them).getByTestId("transcript-speaker");
       await expect(theirName).toHaveAttribute("title", words.change);
       await pointAndClick(window, theirName);
-      // Each line has its menu; the one open is the line's whose name was chosen.
+      // Each turn has its menu; the one open is the turn's whose name was chosen.
       const menu = window.locator('[data-testid="speaker-menu"]:popover-open');
       await expect(menu).toBeVisible();
       await expect(menu.getByText(words.who)).toBeVisible();
@@ -184,15 +187,11 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(window.getByTestId("undo-line")).toContainText(words.allSet);
       await shot(window, `speakers-transcript-named-${language}`);
 
-      // The keyboard: F2 on the User's first line, which the filled notes cite, opens its menu;
-      // a pick moves that line alone.
-      const firstMine = lines
-        .getByTestId("transcript-line")
-        .filter({
-          has: window.getByTestId("transcript-speaker").getByText(words.me, { exact: true }),
-        })
-        .first();
+      // The keyboard: F2 on the User's first line, which the filled notes cite, opens its turn's
+      // menu; a pick moves that turn alone, and the focus stays on the line.
+      const firstMine = turnBy(window, lines, words.me).getByTestId("transcript-line").first();
       const mine = lines.locator(`[data-line="${await firstMine.getAttribute("data-line")}"]`);
+      const mineSpeaker = turnOf(mine).getByTestId("transcript-speaker");
       await mine.focus();
       await window.keyboard.press("F2");
       await expect(menu).toBeVisible();
@@ -201,8 +200,11 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(menu.locator(":focus")).toHaveText(words.name);
       await window.keyboard.press("Enter");
       await expect(menu).toHaveCount(0);
-      await expect(mine.getByTestId("transcript-speaker")).toHaveText(words.name);
+      await expect(mineSpeaker).toHaveText(words.name);
       await expect(mine).toBeFocused();
+      const turnsBy = (speakers: string[], speaker: string) =>
+        speakers.filter((each) => each === speaker).length;
+      expect(turnsBy(await speakersOf(lines), words.me)).toBe(turnsBy(named, words.me) - 1);
       await expect(window.getByTestId("undo-line")).toContainText(words.set);
 
       // ⌘K reaches it for the line in focus, and Esc closes it with nothing changed.
@@ -225,7 +227,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await runCommand(window, "meeting.showTranscript", words.showTranscript);
       await mine.focus();
       await window.keyboard.press("ControlOrMeta+z");
-      await expect(mine.getByTestId("transcript-speaker")).toHaveText(words.me);
+      await expect(mineSpeaker).toHaveText(words.me);
       await runCommand(window, "meeting.showNotes", words.showNotes);
       await expect(chips.first()).toHaveText(at.replace(words.name, words.me));
       await runCommand(window, "meeting.showTranscript", words.showTranscript);
