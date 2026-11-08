@@ -186,6 +186,41 @@ describe("an open card's own actions in ⌘K", () => {
   });
 });
 
+describe("⌘K's names and actions, in the order Enter takes them", () => {
+  const item = (name: string): Palette.PaletteItem => ({
+    kind: "command",
+    id: "check.againstDocuments",
+    key: `command:${name}`,
+    name,
+    meta: "",
+    purpose: "",
+    shortcut: null,
+    ranges: [],
+  });
+  const group = (id: string, names: string[]): Palette.PaletteGroup => ({
+    id,
+    title: "palette.group.actions",
+    items: names.map(item),
+  });
+  const first = (query: string, names: string[], actions: string[]) =>
+    palette.rankedNamesAndActions(
+      [group("minds", names)],
+      [group("actions", actions)],
+      palette.readQuery(query).words,
+    )[0]?.id;
+
+  // protects=⌘K's Enter runs Check with "check" typed beside a Note named "Checking: …" (#2771); fails_when=the Note's name, which only starts with the letters, is listed before the command.
+  test("a command that matches the words more closely than a Note is listed first", () => {
+    expect(
+      first("check", ["Checking: Estuary memo from a colleague"], ["Check against Documents"]),
+    ).toBe("actions");
+  });
+
+  test("a Note that is the words typed keeps its place above a command that only starts with them", () => {
+    expect(first("check", ["Check"], ["Check against Documents"])).toBe("minds");
+  });
+});
+
 describe("⌘K's actions", () => {
   const actions = (query: string, language: "en" | "zh-CN" = "en") =>
     shown(
