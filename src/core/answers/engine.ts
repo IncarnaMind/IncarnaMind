@@ -527,6 +527,11 @@ export interface AnswerRequest {
    */
   isReply?(text: string): boolean;
   /**
+   * For a reply laid out in a form of its own (call help's): the spans of the text written so far
+   * that are its own lines, which are never judged the model's working.
+   */
+  ownLines?(text: string): readonly { from: number; to: number }[];
+  /**
    * Told what the first model call wrote once its Tools have returned, before any further call:
    * a Run it stops there makes none.
    */
@@ -821,6 +826,30 @@ function workingCandidates(text: string): TextPart[] {
     out.push(paragraph);
   }
   return out;
+}
+
+/**
+ * The parts that hold none of a reply's own lines (`own`, in the text kept so far, which `shift`
+ * long comes before the parts): a part that holds some is judged by its other lines.
+ */
+function besideOwnLines(
+  parts: readonly TextPart[],
+  own: readonly { from: number; to: number }[],
+  shift: number,
+): TextPart[] {
+  const apart = (part: TextPart) =>
+    !own.some((each) => shift + part.from < each.to && shift + part.to > each.from);
+  return parts.flatMap((part) =>
+    apart(part)
+      ? [part]
+      : linesOf(part.text)
+          .map((line) => ({
+            from: part.from + line.from,
+            to: part.from + line.to,
+            text: line.text,
+          }))
+          .filter(apart),
+  );
 }
 
 /** `text` without `parts`, its blank runs closed up. */
@@ -2304,7 +2333,13 @@ async function* toolLoop(
             setAside.push({ text: stepText, searched });
         } else {
           const candidates =
-            recorded && request.toolSet !== "check" ? workingCandidates(stepText) : [];
+            recorded && request.toolSet !== "check"
+              ? besideOwnLines(
+                  workingCandidates(stepText),
+                  request.ownLines?.(keptText + stepText) ?? [],
+                  keptText.length,
+                )
+              : [];
           /** The candidates the judgement called the model's working. */
           let working: TextPart[] = [];
           if (candidates.length > 0) {

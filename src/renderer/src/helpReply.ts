@@ -4,7 +4,16 @@
  * or readings, the recommended first after "★", each followed by "→" and what
  * it leads to; or up to three short lines. It reads a part still streaming.
  */
-import type { HelpShape } from "../../shared/meetingHelp";
+import type { AnswerStatus } from "../../core/api";
+import {
+  EFFECT_MARK,
+  HELP_SHAPE,
+  type HelpShape,
+  LINE_MARK,
+  type MeetingHelpKind,
+  plainLine,
+  RECOMMENDED_MARK,
+} from "../../shared/meetingHelp";
 
 /** A run of text, a Citation's marker ("[^2]") or a calculated figure's ("[=1]"). */
 export type ReplyPiece =
@@ -24,9 +33,6 @@ export interface ReplyItem {
   effect: ReplyPiece[] | null;
 }
 
-const EFFECT = /^(?:→|->)\s*/;
-const RECOMMENDED = /^(?:★|⭐)\s*/;
-const BULLET = /^(?:[-*•]|\d+[.)])\s+/;
 const DEFINITION = /^\[\^\d+\]:/;
 
 export function pieces(text: string): ReplyPiece[] {
@@ -68,9 +74,6 @@ export function quoted(lead: readonly ReplyPiece[]): ReplyPiece[] {
   });
 }
 
-/** Bold and italics marks a model may add, which the panel doesn't show. */
-const plain = (line: string) => line.replace(/\*\*|__/g, "").trim();
-
 /**
  * What the panel shows of a reply in its button's shape: at most two options or readings, after
  * the one line "Am I leading them?" or "the live text is behind" puts first (`leadIn`), the last
@@ -80,8 +83,16 @@ const plain = (line: string) => line.replace(/\*\*|__/g, "").trim();
  */
 export function shownItems(
   items: readonly ReplyItem[],
-  { shape, leadIn, streaming }: { shape: HelpShape; leadIn: boolean; streaming: boolean },
+  shown: { shape: HelpShape; leadIn: boolean; streaming: boolean },
 ): ReplyItem[] {
+  const { lead, options } = laidOut(items, shown);
+  return [...lead, ...options];
+}
+
+function laidOut(
+  items: readonly ReplyItem[],
+  { shape, leadIn, streaming }: { shape: HelpShape; leadIn: boolean; streaming: boolean },
+): { lead: ReplyItem[]; options: ReplyItem[] } {
   const [first] = items;
   if (shape === "lines") {
     const bullets = items.filter((item) => item.bullet);
@@ -89,7 +100,7 @@ export function shownItems(
     // While it is written, text before the first short line is a model's notes, taken back once it
     // records its Citations (#2526): the outline stays in its place instead.
     const rest = bullets.length > 0 ? bullets : streaming ? [] : items.slice(lead.length);
-    return [...lead, ...rest].slice(0, 3);
+    return { lead, options: rest.slice(0, 3 - lead.length) };
   }
   const lead = leadIn && first && first.effect === null ? [first] : [];
   // While it is written, text before the first "★" line is a model's notes, taken back once it
@@ -98,13 +109,48 @@ export function shownItems(
   const from = !streaming ? 0 : star === -1 ? items.length : star;
   const last = items.at(-1);
   // An item with no "→" line that another follows is a remark between options. The last is an
-  // option still being written, or one whose "→" line never came or was taken back as the model's
-  // working (#2767): it stays as written once the reply ends, so what showed doesn't vanish.
+  // option still being written, or one whose "→" line never came (#2767): it stays as written once
+  // the reply ends, so what showed doesn't vanish.
   const options = items
     .slice(from)
     .filter((item) => !lead.includes(item) && (item.effect !== null || item === last))
     .slice(0, 2);
+  return { lead, options };
+}
+
+type HelpAnswer = { text: string; status: AnswerStatus; steps?: { textBehind?: true } | null };
+
+/**
+ * What the panel shows of a button's Answer: the line it puts first, then the options, readings
+ * or short lines. One stopped while it was written is read as it was then: what came before its
+ * first option is still a model's notes (#2526).
+ */
+export function helpParts(
+  answer: HelpAnswer,
+  kind: MeetingHelpKind,
+): { lead: ReplyItem[]; options: ReplyItem[] } {
+  return laidOut(readHelpReply(answer.text), {
+    shape: HELP_SHAPE[kind],
+    leadIn: kind === "leading" || answer.steps?.textBehind === true,
+    streaming: answer.status === "streaming" || answer.status === "stopped",
+  });
+}
+
+export function helpItems(answer: HelpAnswer, kind: MeetingHelpKind): ReplyItem[] {
+  const { lead, options } = helpParts(answer, kind);
   return [...lead, ...options];
+}
+
+/**
+ * Whether a button's Answer has anything to pin or add to the note: it ended with an option,
+ * reading or short line, or with the lead-in of "Am I leading them?", which is its answer; the
+ * app's own line that the live text is behind isn't.
+ */
+export function helpToKeep(answer: HelpAnswer, kind: MeetingHelpKind): boolean {
+  const { lead, options } = helpParts(answer, kind);
+  return (
+    answer.status === "done" && (options.length > 0 || (kind === "leading" && lead.length > 0))
+  );
 }
 
 /**
@@ -129,18 +175,18 @@ export function citationNumbers(
 export function readHelpReply(markdown: string): ReplyItem[] {
   const items: ReplyItem[] = [];
   for (const raw of markdown.split("\n")) {
-    const line = plain(raw);
+    const line = plainLine(raw);
     if (line === "" || DEFINITION.test(line) || /^#+\s/.test(line)) continue;
     const current = items.at(-1);
-    if (EFFECT.test(line)) {
-      const effect = pieces(line.replace(EFFECT, ""));
+    if (EFFECT_MARK.test(line)) {
+      const effect = pieces(line.replace(EFFECT_MARK, ""));
       if (current && current.effect === null) current.effect = effect;
       else items.push({ recommended: false, bullet: false, lead: [], notes: [], effect });
       continue;
     }
-    const recommended = RECOMMENDED.test(line);
-    const bullet = BULLET.test(line);
-    const text = line.replace(RECOMMENDED, "").replace(BULLET, "");
+    const recommended = RECOMMENDED_MARK.test(line);
+    const bullet = LINE_MARK.test(line);
+    const text = line.replace(RECOMMENDED_MARK, "").replace(LINE_MARK, "");
     if (!recommended && !bullet && current && current.effect === null && current.lead.length > 0) {
       current.notes.push(pieces(text));
       continue;
