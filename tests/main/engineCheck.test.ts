@@ -15,6 +15,7 @@ const engines = vi.hoisted(() => ({
   pictures: 1,
   withoutGlyphs: [] as string[],
   exits: [] as number[],
+  calendarHelper: null as string | null,
 }));
 
 vi.mock("electron", async () => {
@@ -44,6 +45,15 @@ vi.mock("../../src/main/rerankerProcess?modulePath", () => ({ default: "reranker
 vi.mock("../../src/main/scanReaderProcess?modulePath", () => ({ default: "scanReader.js" }));
 vi.mock("../../src/main/transcriberProcess?modulePath", () => ({ default: "transcriber.js" }));
 vi.mock("../../src/main/speakerProcess?modulePath", () => ({ default: "speaker.js" }));
+vi.mock("../../src/main/systemCalendar", () => ({
+  calendarHelperCheck: () => ({
+    name: "the calendar helper",
+    load: async () => {
+      if (engines.calendarHelper !== null) throw new Error(engines.calendarHelper);
+      return "not-asked";
+    },
+  }),
+}));
 vi.mock("../../src/main/platform", () => ({
   seccompHelper: () => undefined,
   analysisRuntime: () => ({
@@ -77,6 +87,7 @@ beforeEach(() => {
   engines.pythonEnd = { kind: "done" };
   engines.pictures = 1;
   engines.withoutGlyphs = [];
+  engines.calendarHelper = null;
   engines.answers.set("embedder.js", { found: [loaded("onnxruntime-node")] });
   engines.answers.set("transcriber.js", { found: [loaded("sherpa-onnx-node")] });
 });
@@ -124,6 +135,22 @@ describe("The engine check", () => {
       module: null,
       problem: "stopped with a FatalError at v8::internal::Heap::FatalProcessOutOfMemory",
     });
+  });
+
+  it("asks the Mac's calendar helper whether it may read on macOS only, and names it when it fails", async () => {
+    const helper = (checks: Awaited<ReturnType<typeof checkEngines>>) =>
+      checks.filter((each) => each.module === "the calendar helper");
+    expect(helper(await checkEngines(log))).toEqual(
+      process.platform === "darwin"
+        ? [{ process: "main process", module: "the calendar helper", problem: null }]
+        : [],
+    );
+    engines.calendarHelper = "spawn ENOENT";
+    expect(helper(await checkEngines(log))).toEqual(
+      process.platform === "darwin"
+        ? [{ process: "main process", module: "the calendar helper", problem: "spawn ENOENT" }]
+        : [],
+    );
   });
 
   it("gives Python's own message when Pyodide or its packages don't load", async () => {

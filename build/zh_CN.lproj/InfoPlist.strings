@@ -1,3 +1,5 @@
-/* Meetings (ADR-0015): what macOS shows, in Chinese, when IncarnaMind first asks to record. */
+/* Meetings (ADR-0015, #190): what macOS shows, in Chinese, when IncarnaMind first asks to record or to read the calendar. */
 "NSMicrophoneUsageDescription" = "录制会议时，IncarnaMind 会录制你的麦克风。音频只保存在这台 Mac 上。";
 "NSAudioCaptureUsageDescription" = "录制会议时，IncarnaMind 会录制电脑声音，也就是会议中其他人的声音。音频只保存在这台 Mac 上。";
+"NSCalendarsFullAccessUsageDescription" = "IncarnaMind 会读取你的日历，用来显示即将开始的会议并填写会议笔记。日程只保存在这台 Mac 上。";
+"NSCalendarsUsageDescription" = "IncarnaMind 会读取你的日历，用来显示即将开始的会议并填写会议笔记。日程只保存在这台 Mac 上。";
