@@ -1453,10 +1453,10 @@ export function createTranscripts(options: TranscriptsOptions) {
     pass
       .run(state.meetingId, [...state.cues])
       .then(
-        (cues) => {
-          if (current() && !named(state) && cues) tellApart(state, cues, saved);
-          return "done" as const;
-        },
+        (cues) =>
+          current() && !named(state) && cues && !tellApart(state, cues, saved)
+            ? ("failed" as const)
+            : ("done" as const),
         (error: unknown) => {
           log.error("speakers.failed", { meetingId: state.meetingId, message: messageOf(error) });
           return "failed" as const;
@@ -1496,12 +1496,13 @@ export function createTranscripts(options: TranscriptsOptions) {
   /**
    * Who the pass found spoke each line, kept as the Transcript's who's who, as the User's choices
    * are (#2839): its file and versions stay, so nothing is indexed or checked again, and every
-   * Citation of a line, a call's notes' among them, names who said it from then on.
+   * Citation of a line, a call's notes' among them, names who said it from then on. False when
+   * it couldn't be kept, so the Transcript says its speakers couldn't be told apart, with Try again.
    */
-  function tellApart(state: State, cues: readonly Cue[], saved: string): void {
+  function tellApart(state: State, cues: readonly Cue[], saved: string): boolean {
     const path = state.savedPath;
     const documentId = state.documentId;
-    if (!path || documentId === null) return;
+    if (!path || documentId === null) return true;
     const lines: Record<string, string> = {};
     for (const [at, cue] of cues.entries()) {
       const before = state.cues[at];
@@ -1510,16 +1511,18 @@ export function createTranscripts(options: TranscriptsOptions) {
         lines[lineKey(Math.round(before.startMs), before.speaker)] = cue.speaker;
       }
     }
-    if (Object.keys(lines).length === 0) return;
+    if (Object.keys(lines).length === 0) return true;
     try {
       // Its keys are the file's lines: kept only while the file holds the lines told apart.
       if (readFileSync(path, "utf8") !== saved) {
         log.warn("speakers.fileChanged", { meetingId: state.meetingId });
-        return;
+        return true;
       }
       documents.setSpeakers(documentId, { labels: {}, lines });
+      return true;
     } catch (error) {
       log.error("speakers.writeFailed", { meetingId: state.meetingId, message: messageOf(error) });
+      return false;
     }
   }
 
