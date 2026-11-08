@@ -199,12 +199,14 @@ async function answer(
 }
 
 describe("An Answer's request to a model that thinks", () => {
-  // protects=Claude 5 models are asked for their summarized thinking, at the default effort for a call of no kind and for a Task's but on Haiku 5.5 (its id or dated id, not one it begins), low for an Answer and Haiku 5.5's Task, and high for an Answer that checks or calculates, and older ones get no thinking turned on; fails_when=a call of no kind, Sonnet's Task or another id's Task carries an effort, an Answer or Haiku's Task lacks its effort, or Claude 4.8's carries thinking; no_claim=the fake API doesn't check what Anthropic accepts.
+  // protects=Claude 5 models are asked for their summarized thinking, at the default effort for a call of no kind and for a Task's but on Haiku 5.5 (its id or dated id, not one it begins), low for an Answer, a Meeting's notes (#2773) and Haiku 5.5's Task, and high for an Answer that checks or calculates, and older ones get no thinking turned on; fails_when=a call of no kind, Sonnet's Task or another id's Task carries an effort, an Answer or Haiku's Task lacks its effort, or Claude 4.8's carries thinking; no_claim=the fake API doesn't check what Anthropic accepts.
   test.each([
     ["claude-sonnet-5-5", "summary", { type: "adaptive", display: "summarized" }, undefined],
     ["claude-sonnet-5-5", "answer", { type: "adaptive", display: "summarized" }, { effort: "low" }],
     ["claude-haiku-5-5", "answer", { type: "adaptive", display: "summarized" }, { effort: "low" }],
     ["claude-opus-5-5", "answer", { type: "adaptive", display: "summarized" }, { effort: "low" }],
+    ["claude-haiku-5-5", "notes", { type: "adaptive", display: "summarized" }, { effort: "low" }],
+    ["claude-sonnet-5-5", "notes", { type: "adaptive", display: "summarized" }, { effort: "low" }],
     [
       "claude-sonnet-5-5",
       "careful",
@@ -300,6 +302,15 @@ describe("An Answer's request to a model that thinks", () => {
       expect(bodies[0]?.reasoning_effort).toBeUndefined();
     },
   );
+
+  // protects=a Meeting's notes on DeepSeek Flash think at reasoning_effort low, one level below DeepSeek's default (#2773), while its other kinds keep the default (above); fails_when=the notes carry no effort, another effort, or thinking turned off; no_claim=the fake API doesn't check what DeepSeek accepts.
+  test("DeepSeek Flash, a Meeting's notes: reasoning_effort low", async () => {
+    const bodies = fakeApi(completion);
+    await generateText({ model: modelOf("deepseek", "deepseek-flash", "notes"), prompt: "OK?" });
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0]?.reasoning_effort).toBe("low");
+    expect(bodies[0]?.thinking).toBeUndefined();
+  });
 });
 
 /** A chat completion as OpenAI-compatible APIs (Qwen, GLM, OpenRouter) give it, not streamed. */

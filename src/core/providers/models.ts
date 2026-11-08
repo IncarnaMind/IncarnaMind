@@ -205,7 +205,9 @@ function effortOf(
   kind: ThinkingKind,
 ): ProviderOptions | undefined {
   const own = effort?.models?.[modelId] ?? effort?.models?.[withoutDateSuffix(modelId)];
-  return own && kind in own ? own[kind] : effort?.kinds?.[kind];
+  if (own && kind in own) return own[kind];
+  if (effort?.kinds && kind in effort.kinds) return effort.kinds[kind];
+  return kind === "notes" ? effortOf(effort, modelId, "answer") : undefined;
 }
 
 /** Whether thinking can be turned off on this model: not on one the provider says always thinks, nor one the catalog knows doesn't think. */

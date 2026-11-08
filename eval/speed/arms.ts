@@ -97,9 +97,8 @@ export const ARMS: readonly Arm[] = [
   },
   {
     id: "notes-without-thinking",
-    label:
-      "every call that would think as an Answer made with thinking off: in the meeting-notes set, the fill's request alone (#2773)",
-    spec: (spec) => (spec.thinking === "answer" ? { ...spec, thinking: "off" } : spec),
+    label: "a Meeting's notes made with thinking off (#2773)",
+    spec: (spec) => (spec.thinking === "notes" ? { ...spec, thinking: "off" } : spec),
   },
   {
     id: "speakers-first",
@@ -113,9 +112,15 @@ export const ARMS: readonly Arm[] = [
     notes: { beforeSpeakers: true },
   },
   {
+    id: "notes-answer-effort",
+    label:
+      "a Meeting's notes think at the effort an Answer has, as before #2773: on DeepSeek, its default",
+    spec: (spec) => (spec.thinking === "notes" ? { ...spec, thinking: "answer" } : spec),
+  },
+  {
     id: "notes-low-effort",
     label:
-      "every DeepSeek request that thinks does so at reasoning_effort low, one level down from its default high: in the meeting-notes set, the fill's request alone (#2773)",
+      "every DeepSeek request that thinks does so at reasoning_effort low, one level down from its default high: in the meeting-notes set, the fill's requests and the claims' checks (#2773)",
     request: (params) => {
       const deepseek = params.providerOptions?.deepseek;
       const thinking = deepseek?.thinking;

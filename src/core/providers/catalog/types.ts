@@ -152,12 +152,14 @@ export interface RequestQuirks {
 
 /**
  * The kinds of call that think before they write, for their effort (`RequestQuirks.effort`):
- * - "answer": an Answer to a Question, a write or an edit in the assistant, and a Meeting's notes;
+ * - "answer": an Answer to a Question, and a write or an edit in the assistant;
  * - "careful": an Answer to a Question that asks to check or calculate;
  * - "task": a Task's Answer: a comparison table's cell (a Research step and draft think at the
- *   provider's default).
+ *   provider's default);
+ * - "notes": a Meeting's notes, filled in from its Transcript. Where neither the provider nor the
+ *   model names this kind, it takes the effort "answer" has (#2773).
  */
-export type ThinkingKind = "answer" | "careful" | "task";
+export type ThinkingKind = "answer" | "careful" | "task" | "notes";
 
 /**
  * How far IncarnaMind stands behind a provider (ADR-0019). A first-class one is

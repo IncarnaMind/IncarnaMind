@@ -38,3 +38,29 @@ If DeepSeek holds every line, a Meeting's notes get a kind of their own for effo
 ## Spend
 
 Within this piece of work's $5, of which $0.99 is spent, held by the runner's ledger and `INCARNAMIND_EVAL_SPEED_STOP_USD` at $2 for this run.
+
+## Result of the first run (2026-11-08): it held, but on more than the notes
+
+The arm lowers every DeepSeek request that thinks. The claims' checks ask for no kind of call, so they think at DeepSeek's default too, not with thinking off as "The runs" says above. The run therefore lowered the fill's requests and the claims' checks together, not the fill's alone. It ran at commit `dc6cf81bd`, as two passes on one ledger (reports `speed-paired-2026-11-08T06-41-15-093Z` and `…T07-08-43-542Z`): 24 pairs, each arm first in 12, read together.
+
+| Guard, items both finished | today | notes-low-effort | lost / gained | holds |
+|---|---|---|---|---|
+| Expected Passages cited | 22 | 22 | 0 / 0 | yes (2 fewer allowed) |
+| Judged right | 20 | 22 | 0 / 2 | yes |
+| Every Citation found | 22 | 22 | 0 / 0 | yes |
+| False Supported (items) | 17 | 16 | 4 / 5 | yes |
+| Other guard failed + failed to run | 0 + 2 | 1 + 1 | | yes (2 more allowed) |
+| Duplicate Answer, change claimed | 0 | 0 | | yes |
+
+- **Faster:** notes in, median 69.7 → 53.1 s. Paired median −20.1 s over the 24 pairs, sooner in 18; English −20.8 s, Chinese −15.1 s.
+- **Reported:** false Supported sentences 64 → 86. Most of the rise is in Chinese, where the "，详见上文" pointer lines under "会上说了、你的文档里没有的" carry Citations (15 and 17 on one call, against 2 and 1). Between identical requests in `notes-before-speakers-2.md`, this count moved 22 → 16 on 12 pairs.
+- **Spend:** $1.06, the judge's and the stopped first try's included.
+
+What ran isn't the change this gate describes, so it ships nothing by itself.
+
+## The second run: the notes alone (written before it)
+
+- **The change:** a Meeting's notes are a kind of call of their own (`notes`), which takes an Answer's effort unless a provider or model names its own. DeepSeek Flash names `reasoning_effort` low for it, a candidate (`src/core/providers/catalog/providers.ts`). The claims' checks keep DeepSeek's default on both arms.
+- **Arms:** `notes-answer-effort` (the notes at an Answer's effort, on DeepSeek its default high, as before) against `today` (DeepSeek Flash's notes at low).
+- **Everything else as above:** the meeting-notes set in two passes on one ledger, 24 pairs, and the same guards and margins. The cap is $1.50 for the two passes.
+- **What passing changes:** the candidate stays, and DeepSeek Flash's notes think at low. If the run fails a line, the kind and the entry are taken out again.
