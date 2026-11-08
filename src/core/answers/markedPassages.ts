@@ -1,38 +1,38 @@
 /**
  * The records of a reply that names its Passages in its markers (#2526): call help on a listed
  * model is offered no `cite`, and each marker holds the number of the Passage it rests on, "[^3]"
- * for P3 (a marker written "[^P3]", the id itself, is read the same). IncarnaMind picks each quote,
- * and call help runs no claim check, so the green mark the Citation check gives a quote is the
- * User's only verdict on it: the picker may take a Citation away on weak evidence, never give one.
- * A sentence's markers are recorded only when the quotes taken for them hold the whole sentence;
- * otherwise they go, and the sentence shows uncited rather than found.
+ * for P3 ("[^P3]" is read the same). IncarnaMind picks each quote, and call help runs no claim
+ * check, so the green mark the Citation check gives a quote is the User's only verdict on it: the
+ * picker may take a Citation away on weak evidence, never give one. A run of markers is recorded
+ * only when the quotes taken for it hold its clause; otherwise its markers go, and the clause shows
+ * uncited rather than found.
  *
- * - A claim is the marker's sentence; a marker after the full stop belongs to the sentence before,
- *   as `markedSentence` reads it. It is matched by its words, endings folded ("includes",
- *   "included"), and by each two neighbouring CJK characters, so Chinese and mixed text need no
- *   spaces; and by its figures, each with its kind: "$9" is not "9 years", "50%" not "50 drivers",
- *   a call's time "0:30" not "30", and "two" or 两 is 2.
- * - The words of the Document's name and of its headings are its topic, not evidence: the name
- *   heads the Document and a heading its section, and both recur in the text.
- * - A heading is never quoted: a "#" line, a table's header row, a line wholly in bold, or a short
- *   line with no closing punctuation that starts a block (with no figure, unless it stands alone).
- * - The first quote is the line holding the most of the claim's figures, then of its words, and
- *   at least two of them. Up to `MAX_QUOTES` in all, a further line is quoted when it adds two of
- *   them, a figure beside one of the claim's words, or a word no other line of the Passage holds,
- *   so a claim resting on several lines is quoted from each; never a line whose figures are all
+ * - A run of markers vouches for the words from the markers before it; one opening a sentence,
+ *   after the full stop, for the sentence before, as `markedSentence` reads it. Words are matched
+ *   with their endings folded, and CJK by each two neighbouring characters, so Chinese and mixed
+ *   text need no spaces. A marker may rest on a sibling Passage of the same Document.
+ * - Figures keep their kind: "$9" is no "9 years", "50%" no "50 drivers", "0:30" no "30",
+ *   "12 months" no "12 weeks", "$52k" no "$52", "-30" no "30"; "two", 两 and "one week" are
+ *   numbers. Every figure of the clause is in a quote, but a year of the Document's name, and a
+ *   figure the call said that stands beside one of its kind a quote holds or meets the quote's bound
+ *   ("At 250 sensors" for "From 200 sensors").
+ * - A name any Passage given gives a row (a table row's first cell, a line's lead before its colon,
+ *   a capitalised word past a sentence's start), which the claim says and doesn't deny, is in a
+ *   quote whenever a quote names another: "Team is $52" gets nothing from "Enterprise plan: $52".
+ * - Words of the Document's name and headings are no evidence, and a heading is never quoted: a
+ *   "#" line, a table's header row, a line wholly in bold, or a short line with no closing
+ *   punctuation that starts a block (with no figure, unless it stands alone).
+ * - The first quote holds the most of the claim's figures, then of its words, and at least two of
+ *   them; up to `MAX_QUOTES` in all, a further line is quoted when it adds two of them, a figure
+ *   beside one of its words, or a word no other line holds; never a line whose figures are all
  *   other than the claim's.
- * - A Passage with a line saying the opposite of the claim gives it nothing: a word said with a
- *   negation on one side and without one on the other ("doesn't include" against "is included",
- *   不含 against 含), the negations being those ./unmarkedQuotes counts. A reply's own "No,"
- *   before its claim negates nothing in it.
- * - Every figure of a sentence, and every word of it that a line of a Passage it names holds, is in
- *   a quote taken for its markers, or none of them is recorded: "Team is $52" gets nothing from
- *   "Enterprise plan: $52", since "Team" is on another line. A figure said in the call may stand
- *   beside one a quote holds, as in "your Android 10 phones won't run it: it needs Android 11".
- * - A claim that says "they" and not "we" (or 对方, 他们) quotes no line the transcript marks "Me",
- *   and one that says "I" or "we" and not "they" quotes none marked "Them".
- * - A marker an earlier reply of the same Answer recorded is read as naming its Passage anew, under
- *   a marker of its own: on this path "[^5]" always means P5, never the record 5 already holds.
+ * - A Passage whose line most like the claim says its opposite gives it nothing, and no line saying
+ *   its opposite is quoted ("doesn't include" against "is included", 不含 against 含), the
+ *   negations being those ./unmarkedQuotes counts; a reply's own "No," negates nothing.
+ * - A claim quotes no transcript line of another side than the one it names first: "they", "the
+ *   customer", 对方 or 客户 for "Them"; "I" or "we" for "Me".
+ * - A marker an earlier reply recorded is read as naming its Passage anew, under a marker of its
+ *   own; a marker no rule reads (in a table row of the reply, or naming no Passage given) goes.
  *
  * A calculation's input that names a Passage the same way ("citation": 3 for P3) quotes its
  * sentence holding the number.
@@ -56,9 +56,10 @@ const MAX_TITLE_WORDS = 8;
 const MIN_LINE_SHARE = 1 / 3;
 
 /** A reply's own answer before its claim, "No," or "不，": no negation of what follows. */
-const ANSWER = /^[^\p{L}\p{N}]*([\p{L}\p{N}' ]+?)\s*[,，:：;；.。!！—–]/u;
-/** The most words a reply's own answer before its claim has. */
-const MAX_ANSWER_WORDS = 2;
+const ANSWER = /^[^\p{L}\p{N}]*([\p{L}\p{N}'’ ]+?)\s*[,，:：;；.。!！—–]/u;
+/** The words of a reply's own answer: "No,", "Not quite,", "不，", "不是，", "Sorry, no,". */
+const ANSWER_WORDS =
+  /^(?:\s|no|not|nope|yes|quite|really|exactly|sorry|unfortunately|afraid|i'm|i’m|不|没|是|有|对|行|好|能|抱歉|恐怕)+$/iu;
 
 /** A marker as a model may write it: "[^3]", or the Passage's id, "[^P3]". */
 const NAMED = /\[\^[Pp]?(\d{1,4})\]/g;
@@ -75,8 +76,8 @@ const CLAUSE_END = /[.,;:!?。，；：！？、()（）—–\n]/u;
 const CUE = /^\[\d{1,2}(?::\d{2}){1,2}\b[^\]]*\]\s*/u;
 /** The side a transcript line's mark names: the User ("Me") or the other side ("Them"). */
 const SIDE = /^\[\d{1,2}(?::\d{2}){1,2}\s+(Me|Them)\]/u;
-/** Words a claim says the other side by: "they asked", 对方说. */
-const THEIRS = /\b(?:they|them|their|theirs)\b|他们|对方/iu;
+/** Words a claim says the other side by: "they asked", 对方说. The first such word, ours or theirs, is its subject. */
+const THEIRS = /\b(?:they|them|their|theirs|the customer|the client)\b|他们|对方|客户/iu;
 /** Words a claim says the User's side by: "I'll send", "we connect", 我们. */
 const OURS = /\b(?:i|i'm|i'll|me|my|we|we're|we'll|our|us)\b|我/iu;
 const LIST_MARK = /^(?:[-*•]|\d+[.)])\s+/u;
@@ -85,11 +86,11 @@ const CLOSING = /[.!?。！？:：;；,，]["'”’)\]）」』]*$/u;
 const BOLD = /^(\*\*|__)(.+)\1$/u;
 
 /**
- * A figure as written: a call's time, an amount after its currency sign, or a number with what
- * may follow it, a percent sign or a currency's name.
+ * A figure as written: a call's time, an amount after its currency sign, or a number. What follows
+ * a number is read by `kindAfter`.
  */
 const FIGURE =
-  /(\d{1,2}:\d{2}(?::\d{2})?)(?!\d)|([$€£¥￥])\s?(\d+(?:[.,]\d+)*)|(\d+(?:[.,]\d+)*)(?:\s?(%|％|percent\b|per cent\b|dollars?\b|usd\b|euros?\b|eur\b|pounds?\b|gbp\b|yuan\b|rmb\b|元|块))?/giu;
+  /(\d{1,2}:\d{2}(?::\d{2})?)(?!\d)|([$€£¥￥])\s?(\d+(?:[.,]\d+)*)|(\d+(?:[.,]\d+)*)/gu;
 const CURRENCY: Record<string, string> = {
   "￥": "¥",
   dollar: "$",
@@ -106,6 +107,84 @@ const CURRENCY: Record<string, string> = {
   元: "¥",
   块: "¥",
 };
+const SCALE: Record<string, string> = {
+  k: "k",
+  thousand: "k",
+  千: "k",
+  m: "m",
+  million: "m",
+  bn: "bn",
+  billion: "bn",
+  万: "万",
+  亿: "亿",
+};
+const UNIT: Record<string, string> = {
+  second: "second",
+  sec: "second",
+  秒: "second",
+  minute: "minute",
+  min: "minute",
+  分钟: "minute",
+  分: "minute",
+  hour: "hour",
+  hr: "hour",
+  小时: "hour",
+  day: "day",
+  天: "day",
+  日: "day",
+  工作日: "day",
+  week: "week",
+  周: "week",
+  星期: "week",
+  month: "month",
+  月: "month",
+  year: "year",
+  年: "year",
+};
+/** What may follow a number: a scale, then a percent sign, a currency's name or a unit of time. */
+const AFTER =
+  /^(?:\s?(k|m|bn|thousand|million|billion|千|万|亿)(?![a-z]))?(?:\s?(%|％|percent\b|per cent\b)|\s?(dollars?|usd|euros?|eur|pounds?|gbp|yuan|rmb)\b|\s?(元|块)|[\s-]?(?:business |working )?(seconds?|secs?|minutes?|mins?|hours?|hrs?|days?|weeks?|months?|years?)\b|\s?个?(秒|分钟|分|小时|天|日|工作日|周|星期|月|年))?/iu;
+
+/**
+ * A number's kind from what follows it: "$52k" is not "$52", "12 months" not "12 weeks", "50%"
+ * not "50". A unit of time is kept after "@", so a claim's "30 days" is held by "30 days" or a bare
+ * "30", but never by "30 minutes".
+ */
+function withKind(digits: string, sign: string, before: string, after: string): string {
+  const [, scale, percent, currencyWord, currencyCharacter, unit, cjkUnit] =
+    AFTER.exec(after) ?? [];
+  const negative = /(?:^|[\s(（:：])[-−]$|(?:minus|零下)\s*$/iu.test(before) ? "-" : "";
+  const currency =
+    sign !== ""
+      ? (CURRENCY[sign] ?? sign)
+      : (CURRENCY[(currencyWord ?? currencyCharacter ?? "").toLowerCase()] ?? "");
+  const scaled = scale ? (SCALE[scale.toLowerCase()] ?? "") : "";
+  const time = unit
+    ? UNIT[
+        unit
+          .toLowerCase()
+          .replace(/s$/u, "")
+          .replace(/^hrs?$/u, "hr")
+          .replace(/^secs?$/u, "sec")
+          .replace(/^mins?$/u, "min")
+      ]
+    : cjkUnit
+      ? UNIT[cjkUnit]
+      : undefined;
+  return `${negative}${currency}${digits}${scaled}${percent ? "%" : ""}${time ? `@${time}` : ""}`;
+}
+
+/** A line's "every minute" or 每分钟: one of the unit, as a claim's "one-minute" says it. */
+const EVERY_UNIT =
+  /\bevery (second|minute|hour|day|week|month|year)\b|每(秒|分钟|小时|天|周|月|年)/giu;
+
+/** Whether `figures` hold `figure`: itself, or for a figure with a unit of time, its bare number. */
+const holdsFigure = (figures: ReadonlySet<string>, figure: string) =>
+  figures.has(figure) || (figure.includes("@") && figures.has(figure.replace(/@.*$/u, "")));
+
+/** A figure's kind: "$#", "#%", "#@day", "#". */
+const kindOf = (figure: string) => figure.replace(/[\d.,:]+/u, "#");
+
 const NUMBER_WORDS: Record<string, number> = {
   one: 1,
   two: 2,
@@ -204,41 +283,68 @@ function chineseValue(run: string): number {
 }
 
 /**
- * The figures a text gives, each with its kind: "$1,200" as "$1200", "50%", a time "0:30", "two
- * weeks" as "2". `alone`: false leaves out "one" and a lone 一, which a reply says for "the one" or
- * 每一; a line's are read, so a claim's "1 business day" is held by "one business day".
+ * The figures a text gives, each with its kind: "$1,200" as "$1200", "50%", "-30", a time "0:30",
+ * "two weeks" as "2@week". `alone`: false leaves out a lone "one" or 一 with no unit after it,
+ * which a reply says for "the one" or 每一; a line's are read, and its "every minute" too, so a
+ * claim's "1 business day" is held by "one business day" and "one-minute" by "every minute".
  */
 function figuresOf(text: string, alone = true): string[] {
   const plain = text.replace(MARKER, " ").replace(FIGURE_MARKER, " ");
   const figures: string[] = [];
+  const add = (at: number, length: number, digits: string, sign = "") => {
+    const before = plain.slice(Math.max(0, at - 8), at);
+    const after = plain.slice(at + length, at + length + 24);
+    const figure = withKind(digits, sign, before, after);
+    if (!alone && digits === "1" && !figure.includes("@") && !/^\d/.test(plain.slice(at))) return;
+    figures.push(figure);
+  };
   for (const found of plain.matchAll(FIGURE)) {
-    const [, time, sign, signed, number, after] = found;
-    if (time) {
-      figures.push(time);
-      continue;
+    const [whole, time, sign, signed, number] = found;
+    if (time) figures.push(time);
+    else {
+      const digits = (signed ?? number ?? "").replace(/,(?=\d{3}(?!\d))/g, "");
+      add(found.index, whole.length, digits, sign ?? "");
     }
-    const digits = (signed ?? number ?? "").replace(/,(?=\d{3}(?!\d))/g, "");
-    if (sign) figures.push(`${CURRENCY[sign] ?? sign}${digits}`);
-    else if (after && /^(?:%|％|per)/iu.test(after)) figures.push(`${digits}%`);
-    else if (after) figures.push(`${CURRENCY[after.toLowerCase()] ?? after}${digits}`);
-    else figures.push(digits);
   }
   for (const found of plain.matchAll(WORDED_NUMBER)) {
-    if (!alone && /^one$/iu.test(found[0].trim())) continue;
-    const following = /^\s?(dollars?|usd|euros?|eur|pounds?|gbp|yuan|rmb)\b/iu.exec(
-      plain.slice(found.index + found[0].length),
-    )?.[1];
-    const value = String(wordedValue(found[0]));
-    figures.push(following ? `${CURRENCY[following.toLowerCase()]}${value}` : value);
+    add(found.index, found[0].length, String(wordedValue(found[0])));
   }
   for (const found of plain.matchAll(CHINESE_FIGURE)) {
     const run = found[1] ?? "";
-    if (!alone && run === "一") continue;
-    const unit = plain[found.index + run.length];
-    const value = String(chineseValue(run));
-    figures.push(unit === "元" || unit === "块" ? `¥${value}` : value);
+    add(found.index, run.length, String(chineseValue(run)));
+  }
+  if (alone) {
+    for (const found of plain.matchAll(EVERY_UNIT)) {
+      const unit = UNIT[(found[1] ?? found[2] ?? "").toLowerCase()];
+      if (unit) figures.push(`1@${unit}`);
+    }
   }
   return figures;
+}
+
+/** Words before a figure that make it a least ("from 200 sensors", 200 个起) or a most. */
+const LEAST_BEFORE = /(?:from|over|above|more than|at least|starting at)\s+[$€£¥]?\s*$/u;
+const MOST_BEFORE = /(?:up to|under|below|less than|at most|within|no more than)\s+[$€£¥]?\s*$/u;
+const LEAST_AFTER =
+  /^\s?[^\d，。；,.;]{0,6}?(?:起|以上)|^\+|^\s(?:and|or) (?:later|more|above|up)\b/u;
+const MOST_AFTER =
+  /^\s?[^\d，。；,.;]{0,6}?(?:以内|以下|之内)|^\s(?:or|and) (?:less|fewer|below|earlier)\b/u;
+
+/**
+ * Whether `said` meets the bound the line sets with `figure`: at least it for "from 200", at most
+ * it for "up to 40". A figure that sets no bound is met by nothing.
+ */
+function meetsBound(said: string, figure: string, line: string): boolean {
+  const value = Number.parseFloat(digitsOf(said));
+  const bound = Number.parseFloat(digitsOf(figure));
+  const digits = digitsOf(figure);
+  const at = line.indexOf(digits);
+  if (at < 0 || Number.isNaN(value) || Number.isNaN(bound)) return false;
+  const before = line.slice(0, at);
+  const after = line.slice(at + digits.length);
+  if (LEAST_BEFORE.test(before) || LEAST_AFTER.test(after)) return value >= bound;
+  if (MOST_BEFORE.test(before) || MOST_AFTER.test(after)) return value <= bound;
+  return false;
 }
 
 /** A figure's digits without its kind: "250" of "¥250". */
@@ -353,6 +459,8 @@ interface Said {
   negated: Negated[];
   /** The negated terms it also says without a negation: "we can't fix it, but prices are fixed". */
   affirmed: Set<string>;
+  /** The words of its lead before a colon, which name what all of it is about: "Team plan: …". */
+  lead: Set<string>;
 }
 
 /** The negated terms of `text` that it also says elsewhere without a negation. */
@@ -385,18 +493,19 @@ function claimOf(sentence: string): Claim {
   const words = wordSet(text);
   const answer = ANSWER.exec(text);
   const lead = answer?.[1] ?? "";
-  const own = lead.trim().split(/\s+/u).length <= MAX_ANSWER_WORDS && answer ? answer[0] : "";
+  const own = answer && ANSWER_WORDS.test(lead) ? answer[0] : "";
   const claimed = text.slice(own.length);
   const negated = negatedOf(claimed);
-  const theirs = THEIRS.test(text);
-  const ours = OURS.test(text);
+  const theirs = THEIRS.exec(text)?.index ?? Number.POSITIVE_INFINITY;
+  const ours = OURS.exec(text)?.index ?? Number.POSITIVE_INFINITY;
   return {
-    ...(theirs !== ours && { side: theirs ? "Them" : "Me" }),
+    ...(theirs !== ours && { side: theirs < ours ? "Them" : "Me" }),
     text,
     words,
     lower: text.toLowerCase(),
     negated,
     affirmed: affirmedOf(claimed, negated),
+    lead: new Set(),
     latin: [...words].filter((word) => !CJK.test(word)),
     cjk: text.match(CJK_RUN) ?? [],
     figures: figuresOf(text, false),
@@ -421,9 +530,12 @@ function contradicts(a: Said, b: Said, names: ReadonlySet<string>): boolean {
   const turned = (one: Said, other: Said) =>
     one.negated.some(({ term, after, before, clause }) => {
       if (
-        one.affirmed.has(term) ||
         other.negated.some((each) => each.span.includes(term) || clause.includes(each.term)) ||
-        [...other.words].some((word) => names.has(word) && word !== term && !clause.includes(word))
+        (clause.length > 0 &&
+          [...other.words].some(
+            (word) =>
+              names.has(word) && word !== term && !clause.includes(word) && !one.lead.has(word),
+          ))
       ) {
         return false;
       }
@@ -434,7 +546,9 @@ function contradicts(a: Said, b: Said, names: ReadonlySet<string>): boolean {
           : []),
       ];
       return (
-        (holdsTerm(other, term) && context.every((word) => holdsTerm(other, word))) ||
+        (!one.affirmed.has(term) &&
+          holdsTerm(other, term) &&
+          context.every((word) => holdsTerm(other, word))) ||
         (clause.length >= MIN_HELD && clause.every((word) => holdsTerm(other, word)))
       );
     });
@@ -542,18 +656,21 @@ function readOf(passage: { text: string; name?: string }): Read {
   const rows = passage.text.split("\n");
   const lines: Line[] = [];
   const topic = wordSet(passage.name ?? "");
-  const topicFigures = new Set(figuresOf(passage.name ?? ""));
+  const topicFigures = new Set(
+    figuresOf(passage.name ?? "").filter((figure) => /^\d{4}$/u.test(figure)),
+  );
   const labels = new Set<string>();
   for (const [index, raw] of rows.entries()) {
     const row = raw.trim();
     if (row === "") continue;
     if (isHeading(rows, index)) {
       for (const word of wordSet(row)) topic.add(word);
-      for (const figure of figuresOf(row)) topicFigures.add(figure);
+      for (const figure of figuresOf(row)) if (/^\d{4}$/u.test(figure)) topicFigures.add(figure);
       continue;
     }
     for (const label of labelsOf(row)) labels.add(label);
-    const side = SIDE.exec(row)?.[1] as "Me" | "Them" | undefined;
+    const mark = SIDE.exec(row)?.[1];
+    const side = mark === "Me" || mark === "Them" ? mark : undefined;
     for (const span of sentenceSpans(row)) {
       const sentence = row.slice(span.from, span.to).trim();
       const quote = asQuoted(sentence);
@@ -565,6 +682,7 @@ function readOf(passage: { text: string; name?: string }): Read {
         lower: quote.toLowerCase(),
         negated: negatedOf(quote),
         affirmed: affirmedOf(quote, negatedOf(quote)),
+        lead: wordSet(LEAD.exec(quote)?.[1] ?? ""),
         figures: new Set(figuresOf(sentence)),
         counted: new Set(figuresOf(sentence, false)),
         at: lines.length,
@@ -637,6 +755,9 @@ export function markedPassages(
     reads.set(passage.id, read);
     return read;
   };
+  // A row's name is known from any Passage given: a reply citing the wrong one ("Team is $52" on a
+  // Passage of Enterprise's lines) names a row its quote doesn't.
+  const names = new Set(passages.flatMap((passage) => [...readFor(passage).labels]));
   // A figure the call said is matched by its digits: "250" said, "250 元" in the reply.
   const said = new Set(
     passages.flatMap((passage) =>
@@ -656,34 +777,93 @@ export function markedPassages(
   const records: CitationRecordInput[] = [];
   const rewritten: { at: number; length: number; markers: number[] }[] = [];
 
-  for (const { text: part, marks } of claimsOf(named)) {
+  const claims = claimsOf(named);
+  // A marker no rule reads (in a table's row of the reply) would show whatever record holds its
+  // number, from another sentence or an earlier reply: it goes.
+  const read = new Set(claims.flatMap(({ marks }) => marks.map((mark) => mark.at)));
+  for (const found of named.matchAll(MARKER)) {
+    if (read.has(found.index)) continue;
+    const space = /\s$/u.test(named.slice(0, found.index)) ? 1 : 0;
+    rewritten.push({ at: found.index - space, length: found[0].length + space, markers: [] });
+  }
+  for (const { text: part, marks } of claims) {
     const claim = claimOf(part);
     const picked = marks.flatMap((mark) => {
       const passage = shown.get(`P${mark.number}`);
-      if (!passage) return [];
+      if (!passage) {
+        const space = /\s$/u.test(named.slice(0, mark.at)) ? 1 : 0;
+        rewritten.push({ at: mark.at - space, length: mark.length + space, markers: [] });
+        return [];
+      }
+      // A long Document comes as several Passages, a transcript's windows overlapping: a marker
+      // naming one of them may rest on a line its neighbour holds.
+      const siblings = passages.filter(
+        (other) => other !== passage && !!passage.name && other.name === passage.name,
+      );
+      for (const candidate of [passage, ...siblings]) {
+        const read = readFor(candidate);
+        const quotes = quotesFor(candidate.id, read, claim, said, names, found);
+        if (quotes.length > 0 || candidate === siblings.at(-1)) {
+          return [{ ...mark, passage: candidate, read, quotes }];
+        }
+      }
       const read = readFor(passage);
-      return [{ ...mark, passage, read, quotes: quotesFor(passage.id, read, claim, said, found) }];
+      return [{ ...mark, passage, read, quotes: [] }];
     });
     const quotes = picked.flatMap((mark) => mark.quotes);
     const held = new Set(quotes.flatMap((line) => [...line.figures]));
     const missing = claim.figures.filter(
-      (figure) => !held.has(figure) && !picked.some((mark) => mark.read.topicFigures.has(figure)),
+      (figure) =>
+        !holdsFigure(held, figure) && !picked.some((mark) => mark.read.topicFigures.has(figure)),
     );
+    const claimed = new Set(claim.figures);
+    /** The quotes' figures the claim doesn't give, with the line each is in. */
+    const others = quotes.flatMap((line) =>
+      [...line.counted]
+        .filter(
+          (figure) => !holdsFigure(claimed, figure) && !claimed.has(figure.replace(/@.*$/u, "")),
+        )
+        .map((figure) => ({ figure, line })),
+    );
+    // A figure the call said may stand beside one of its kind a quote holds ("your Android 10 phones
+    // won't run it: it needs Android 11"), but not in place of the quote's own: "15% off" said for a
+    // line's "10% off" is the line misread, unless the line's figure is a bound the said one meets
+    // ("At 250 sensors" for "From 200 sensors").
+    const heldKinds = new Set(
+      claim.figures.filter((figure) => holdsFigure(held, figure)).map(kindOf),
+    );
+    const standsBeside = (figure: string) =>
+      said.has(digitsOf(figure)) &&
+      (heldKinds.has(kindOf(figure)) ||
+        others.every(
+          (other) =>
+            kindOf(other.figure) !== kindOf(figure) ||
+            meetsBound(figure, other.figure, other.line.lower),
+        ));
     const figuresStated =
       missing.length === 0 ||
-      (missing.every((figure) => said.has(digitsOf(figure))) &&
-        claim.figures.some((figure) => held.has(figure)));
+      (missing.every(standsBeside) && claim.figures.some((figure) => holdsFigure(held, figure)));
     // "Team is $52" quoted from "Enterprise plan: $52" holds every figure and most words: a name
     // the claim gives and no quote holds, beside a name the quotes give and the claim doesn't, is
     // one row's fact said of another. A quote naming nothing ("A faulty device is replaced") may
     // stand for a named thing ("rugged tablets").
     const isName = (word: string) =>
-      picked.some((mark) => mark.read.labels.has(word) && !mark.read.topic.has(word));
+      names.has(word) && !picked.some((mark) => mark.read.topic.has(word));
+    // A quote for a clause the claim negates ("I can't add live traffic to Team" from "Live traffic
+    // is included on Enterprise only") names the row the claim denies it of: that is no other row.
+    const naming = quotes.filter(
+      (line) =>
+        !claim.negated.some(
+          ({ clause }) => clause.filter((word) => line.words.has(word)).length >= MIN_HELD,
+        ),
+    );
+    // A name the claim says is absent ("I don't see NetSuite on our list") no quote need hold.
+    const denied = new Set(claim.negated.flatMap(({ term, clause }) => [term, ...clause]));
     const namesStated =
       [...claim.words].every(
-        (word) => !isName(word) || quotes.some((line) => line.words.has(word)),
+        (word) => !isName(word) || denied.has(word) || quotes.some((line) => line.words.has(word)),
       ) ||
-      quotes.every((line) =>
+      naming.every((line) =>
         [...line.words].every((word) => !isName(word) || claim.words.has(word)),
       );
     const stated = figuresStated && namesStated;
@@ -724,9 +904,10 @@ export function markedPassages(
  */
 function quotesFor(
   passage: string,
-  { lines, topic, labels }: Read,
+  { lines, topic }: Read,
   claim: Claim,
   said: ReadonlySet<string>,
+  names: ReadonlySet<string>,
   found: (passage: string, quote: string) => boolean,
 ): Line[] {
   const evidence = (line: Line) => (word: string) => line.words.has(word) && !topic.has(word);
@@ -735,7 +916,8 @@ function quotesFor(
   /** Of the claim's figures, those the call didn't say: one the call said, in a line, is chance. */
   const own = claim.figures.filter((figure) => !said.has(digitsOf(figure)));
   const figuresIn = (taken: readonly Line[], figures = own) =>
-    new Set(figures.filter((figure) => taken.some((line) => line.figures.has(figure)))).size;
+    new Set(figures.filter((figure) => taken.some((line) => holdsFigure(line.figures, figure))))
+      .size;
   /** Whether the claim holds a word only this line holds, and at least `MIN_LINE_SHARE` of its words. */
   const onlyHere = (line: Line) => {
     const own = [...line.words].filter((word) => !topic.has(word));
@@ -753,11 +935,11 @@ function quotesFor(
   const aboutOtherFigures = (line: Line) =>
     claim.figures.length > 0 &&
     line.counted.size > 0 &&
-    claim.figures.every((figure) => !line.counted.has(figure));
+    claim.figures.every((figure) => !holdsFigure(line.counted, figure));
   // A Passage whose line most like the claim says its opposite quotes nothing for it: its other
   // lines, each sharing a few of its words, would make it look stated. Another line saying the
   // opposite is never quoted.
-  const turned = new Set(lines.filter((line) => contradicts(claim, line, labels)));
+  const turned = new Set(lines.filter((line) => contradicts(claim, line, names)));
   // "They will start with 100 sensors" is no quote of the User's own "Most teams start with 100".
   const saidBy = (line: Line) => !claim.side || !line.side || line.side === claim.side;
   const likest = lines.reduce<Line | undefined>(

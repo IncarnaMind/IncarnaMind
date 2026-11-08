@@ -44,7 +44,7 @@ describe("Records for a reply that names its Passages in its markers", () => {
     });
   });
 
-  // protects=a quote the Citation check wouldn't find is passed over for the next line holding the claim that it finds; a marker naming no Passage given gets no record, and one an earlier reply recorded is read as naming its Passage anew, under a marker of its own, so it never shows the record its number already holds; fails_when=an unfound quote is recorded, a record is made for a Passage not given, or a recorded marker keeps the earlier record; no_claim=what becomes of the unbacked marker (the core's test) (#2526).
+  // protects=a quote the Citation check wouldn't find is passed over for the next line holding the claim that it finds; a marker naming no Passage given gets no record and goes, so it never shows a record its number holds, and one an earlier reply recorded is read as naming its Passage anew, under a marker of its own, so it never shows the record its number already holds; fails_when=an unfound quote is recorded, a record is made for a Passage not given, or a recorded marker keeps the earlier record; no_claim=what becomes of the unbacked marker (the core's test) (#2526).
   test("takes the line holding the claim that the check finds, nothing for a marker naming no Passage, and a marker of its own for a recorded one", () => {
     const sheet = {
       id: "P2",
@@ -53,13 +53,13 @@ describe("Records for a reply that names its Passages in its markers", () => {
     const text = "Enterprise is $52 a driver a month [^2], and route plans come weekly [^7]";
     const found = (_: string, quote: string) => !quote.startsWith("Enterprise plan");
     expect(markedPassages(text, [sheet], found, none)).toEqual({
-      text,
+      text: "Enterprise is $52 a driver a month [^2], and route plans come weekly",
       records: [
         { marker: 2, passage: "P2", quote: "On Enterprise, each driver costs $52 a month." },
       ],
     });
     expect(markedPassages(text, [sheet], found, (marker) => marker === 2)).toEqual({
-      text: text.replace("[^2]", "[^8]"),
+      text: "Enterprise is $52 a driver a month [^8], and route plans come weekly",
       records: [
         { marker: 8, passage: "P2", quote: "On Enterprise, each driver costs $52 a month." },
       ],
@@ -600,6 +600,18 @@ describe("Records for a reply that names its Passages in its markers", () => {
     ).toEqual([
       { marker: 2, passage: "P2", quote: "Live traffic data is included on Enterprise only." },
     ]);
+    const routes = {
+      id: "P2",
+      text: "- Routes are re-planned every 15 minutes during the day.\n- A route holds up to 200 stops.\n- Live traffic data is included on Enterprise only.",
+    };
+    expect(
+      markedPassages(
+        "I can't add live traffic to Team, but Team still gives you routes of up to 200 stops, re-planned every 15 minutes [^2]",
+        [{ id: "P1", text: "Team plan: $29 per driver a month." }, routes],
+        everywhere,
+        none,
+      ).records.length,
+    ).toBeGreaterThan(0);
     const connectors = {
       id: "P2",
       text: "- SAP connector: Enterprise only, at $300 a month.\n- Shopify connector: free on every plan.",
@@ -669,6 +681,201 @@ describe("Records for a reply that names its Passages in its markers", () => {
     ).toEqual([{ marker: 1, passage: "P1", quote: "Most teams start with 100 sensors." }]);
     expect(markedPassages("对方先上 100 个传感器 [^1]", [call], everywhere, none).records).toEqual([
       { marker: 1, passage: "P1", quote: "我们先上 100 个传感器。" },
+    ]);
+  });
+  // protects=the trust pre-review's figure cases: "one week" is 1 against "two weeks", a unit of time is part of a figure ("12 weeks" is not "12 months", "30 days" not "30 minutes"), a multiplier ("$52k") and a minus sign ("-30 °C") too, a line's "every minute" holds a claim's "one-minute", and only a year of the Document's name is no figure to hold ("Q3" is); fails_when=the line is quoted for another quantity (#2526).
+  test("a figure keeps its unit, scale and sign, and 'one week' is a figure", () => {
+    const plan = {
+      id: "P4",
+      name: "Q3 price sheet",
+      text: "Onboarding takes about two weeks.\nMinimum term: 12 months.\nPremium answers critical alerts within 30 minutes.\nEnterprise plan: $52 per driver a month.\nProbes work from -30 °C to +60 °C.",
+    };
+    for (const claim of [
+      "Onboarding takes one week [^4]",
+      "Onboarding takes 3 weeks [^4]",
+      "The minimum term is 12 weeks [^4]",
+      "Premium answers critical alerts within 30 days [^4]",
+      "Enterprise plan is $52k per driver a month [^4]",
+      "Probes work from 30 °C to 60 °C [^4]",
+      "Onboarding takes 3 sessions over about two weeks [^4]",
+    ]) {
+      expect(markedPassages(claim, [plan], everywhere, none).records, claim).toEqual([]);
+    }
+    for (const [claim, quote] of [
+      ["Onboarding takes about 2 weeks [^4]", "Onboarding takes about two weeks."],
+      ["The minimum term is 12 months [^4]", "Minimum term: 12 months."],
+      ["Probes work from -30 °C to +60 °C [^4]", "Probes work from -30 °C to +60 °C."],
+    ] as const) {
+      expect(markedPassages(claim, [plan], everywhere, none).records, claim).toEqual([
+        { marker: 4, passage: "P4", quote },
+      ]);
+    }
+    const zh = { id: "P3", text: "上线约两周完成。" };
+    expect(markedPassages("上线约一周完成 [^3]", [zh], everywhere, none).records).toEqual([]);
+    const battery = {
+      id: "P2",
+      text: "Battery life is about 5 years when a probe reports every 15 minutes, and 2 years at every minute.",
+    };
+    expect(
+      markedPassages(
+        "At one-minute reporting, the battery lasts about 2 years [^2]",
+        [battery],
+        everywhere,
+        none,
+      ).records,
+    ).toEqual([{ marker: 2, passage: "P2", quote: battery.text }]);
+  });
+
+  // protects=a figure the call said stands in a claim only beside the quote's figures, never in place of the quote's own figure of its kind ("15% off" said for a line's "10% off", "from 40 drivers" for "from 50"), unless the line's figure is a bound the said one meets ("At 250 sensors" for "From 200 sensors") or the claim holds a quote's figure of its kind beside it ("Android 10" beside "Android 11", the line's "iOS 16" notwithstanding); fails_when=a figure the customer asked for is shown found as the Document's (#2526).
+  test("a figure the call said never stands in place of the quote's own figure", () => {
+    const volume = { id: "P2", text: "Volume: 10% off Enterprise from 50 seats." };
+    const asked = {
+      id: "P1",
+      text: "[0:10 Them] We want a 15% discount, and we'll have 40 seats.",
+    };
+    for (const claim of [
+      "Enterprise is 15% off from 50 seats [^2]",
+      "From 40 seats, Enterprise is 10% off [^2]",
+    ]) {
+      expect(markedPassages(claim, [asked, volume], everywhere, none).records, claim).toEqual([]);
+    }
+    const phones = { id: "P1", text: "[0:03 Them] Our drivers have Android 10 phones." };
+    const app = {
+      id: "P2",
+      text: "The driver app runs on Android 11 and later and iOS 16 and later.",
+    };
+    expect(
+      markedPassages(
+        "No, the driver app needs Android 11 or later, so your Android 10 phones won't run it [^2]",
+        [phones, app],
+        everywhere,
+        none,
+      ).records,
+    ).toEqual([{ marker: 2, passage: "P2", quote: app.text }]);
+    const larger = { id: "P1", text: "[0:10 Them] We'll have 60 seats." };
+    expect(
+      markedPassages("At 60 seats, Enterprise is 10% off [^2]", [larger, volume], everywhere, none)
+        .records,
+    ).toEqual([{ marker: 2, passage: "P2", quote: "Volume: 10% off Enterprise from 50 seats." }]);
+  });
+
+  // protects=the trust pre-review's negation cases: "cannot", a Chinese claim whose first clause holds its negation (不含…，需另付费), an English lead that is no answer word ("Not included:"), a line whose negation sits after its lead ("Team plan: …, single sign-on not included."), and a claim saying a word both ways whose negated clause restates the line; fails_when=the line saying the opposite is quoted (#2526).
+  test("more ways of saying the opposite give nothing", () => {
+    const included = { id: "P2", text: "Single sign-on is included in the Team plan." };
+    for (const claim of [
+      "The Team plan cannot include single sign-on [^2]",
+      "Not included: single sign-on on the Team plan [^2]",
+      "Single sign-on isn't included in the Team plan, but it is included in Enterprise [^2]",
+    ]) {
+      expect(markedPassages(claim, [included], everywhere, none).records, claim).toEqual([]);
+    }
+    expect(
+      markedPassages(
+        "团队版不含单点登录，需另付费 [^2]",
+        [{ id: "P2", text: "团队版含单点登录。" }],
+        everywhere,
+        none,
+      ).records,
+    ).toEqual([]);
+    expect(
+      markedPassages(
+        "The Team plan includes single sign-on [^2]",
+        [{ id: "P2", text: "Team plan: $39 per seat a month, single sign-on not included." }],
+        everywhere,
+        none,
+      ).records,
+    ).toEqual([]);
+  });
+
+  // protects=a row's name is known from every Passage given, so a reply naming the wrong Passage ("Team is $52" on the Passage holding Enterprise's line, with Team's on another) gets nothing; fails_when=only the named Passage's names count and the Enterprise line is quoted for Team (#2526).
+  test("a name from another Passage given counts against a quote naming another row", () => {
+    const team = { id: "P2", text: "Team plan: $29 per driver a month." };
+    const enterprise = { id: "P3", text: "Enterprise plan: $52 per driver a month." };
+    expect(
+      markedPassages("Team is $52 a driver a month [^3]", [team, enterprise], everywhere, none)
+        .records,
+    ).toEqual([]);
+  });
+
+  // protects=a claim's side is the first one it names ("They asked whether we…" is theirs), and "the customer" or 客户 is the other side; a speaker's mark is no word of the line ("Let me start you on it" shares "me" only with the mark); fails_when=the User's own line is quoted for what the other side asked, or a line is quoted on its speaker's mark (#2526).
+  test("the side a claim names first decides, and a speaker's mark is no word", () => {
+    const call = {
+      id: "P1",
+      text: "[0:00 Me] We can do Enterprise at forty dollars a driver.\n[0:05 Me] 大多数团队先上 100 个传感器。\n[0:09 Me] Most teams your size start on Standard.",
+    };
+    for (const claim of [
+      "They asked whether we can do Enterprise at forty dollars [^1]",
+      "客户要先上 100 个传感器 [^1]",
+      "Let me start you on it [^1]",
+    ]) {
+      expect(markedPassages(claim, [call], everywhere, none).records, claim).toEqual([]);
+    }
+  });
+
+  // protects=a marker no rule reads, in a table row of the reply, goes rather than show the record its number holds for another sentence; fails_when=the table's "[^2]" stays and shows Enterprise's line as found for "Team $45" (#2526).
+  test("a marker in a table row of the reply goes", () => {
+    expect(
+      markedPassages(
+        "| Team | $45 [^2] |\n\nEnterprise is $52 a driver a month [^2]",
+        [PRICES],
+        everywhere,
+        none,
+      ),
+    ).toEqual({
+      text: "| Team | $45 |\n\nEnterprise is $52 a driver a month [^2]",
+      records: [
+        {
+          marker: 2,
+          passage: "P2",
+          quote: "Enterprise plan: $52 per driver a month, with route optimisation.",
+        },
+      ],
+    });
+  });
+  // protects=a marker naming one Passage of a Document may rest on a line its sibling Passage (a transcript's next window) holds, and a name the claim says is absent ("I don't see NetSuite") needs no quote; fails_when=a transcript line in the next window, or a claim denying a name, loses its Citation (#2526).
+  test("a sibling Passage of the same Document may hold the line, and a denied name needs no quote", () => {
+    const first = {
+      id: "P1",
+      name: "Transcript · Meeting",
+      text: "[0:00 Them] Let's run the pilot with twelve drivers.",
+    };
+    const second = {
+      id: "P2",
+      name: "Transcript · Meeting",
+      text: "[6:01 Them] Our drivers need something they can learn in a single day.",
+    };
+    expect(
+      markedPassages(
+        "They need something drivers can learn in a single day [^1]",
+        [first, second],
+        everywhere,
+        none,
+      ).records,
+    ).toEqual([
+      {
+        marker: 1,
+        passage: "P2",
+        quote: "Our drivers need something they can learn in a single day.",
+      },
+    ]);
+    const integrations = {
+      id: "P3",
+      text: "- Connectors: Shopify on every plan, SAP on Enterprise only.",
+    };
+    const call = { id: "P1", text: "[0:04 Them] We run our books on NetSuite." };
+    expect(
+      markedPassages(
+        "I don't see NetSuite among our connectors, only Shopify and SAP [^3]",
+        [call, integrations],
+        everywhere,
+        none,
+      ).records,
+    ).toEqual([
+      {
+        marker: 3,
+        passage: "P3",
+        quote: "Connectors: Shopify on every plan, SAP on Enterprise only.",
+      },
     ]);
   });
 });

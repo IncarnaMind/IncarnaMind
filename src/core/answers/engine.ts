@@ -2140,15 +2140,14 @@ async function* toolLoop(
         keptText = figured;
         if (!request.meetingFacts) {
           const placed = yield* missingMarkerEvents(keptText, cited, request.documents);
-          // On the marks path every Citation is one IncarnaMind picked by its rules: a model asked
-          // for the rest could quote a line for a claim those rules refused (#2526).
-          yield* citeUnmarked(
-            request,
-            placed,
-            temperature,
-            budget,
-            () => !request.marksPassages && nudges.take("unmarked-quotes"),
-          );
+          // On the marks path every Citation is one IncarnaMind picked by its rules: matching a
+          // sentence to its likest line, or asking a model for the rest, would cite a claim those
+          // rules refused (#2526).
+          if (!request.marksPassages) {
+            yield* citeUnmarked(request, placed, temperature, budget, () =>
+              nudges.take("unmarked-quotes"),
+            );
+          }
         }
       }
     }

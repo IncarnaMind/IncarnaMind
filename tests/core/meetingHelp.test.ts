@@ -258,6 +258,27 @@ describe("Help during the call", { timeout: 60_000 }, () => {
     );
   });
 
+  // protects=on the path that names Passages in markers, a claim the picker refused (another row's price, "Team" on Enterprise's line) stays uncited: the engine doesn't match it to its likest line afterwards; fails_when=the near-duplicate matcher cites the sentence the picker refused (#2526).
+  test("on the path that names Passages in markers, a sentence the picker refused isn't cited afterwards by its likest line", async () => {
+    const { core, meeting } = await setUp(
+      priceSheet(),
+      {},
+      {
+        model: namingModelSaying(
+          "The Team plan costs $45 per seat a month, single sign-on included",
+        ),
+        answerPaths: { marksPassages: () => true },
+      },
+    );
+
+    const { answer } = await press(core, meeting, "answer");
+
+    expect(answer.citations).toEqual([]);
+    expect(answer.text).toContain(
+      "The Team plan costs $45 per seat a month, single sign-on included\n",
+    );
+  });
+
   // protects=a press whose Documents are in another language than the call keeps cite on the path that names Passages in markers, since its quotes are picked by shared words and a reply in another language shares none; fails_when=cite is taken away from a cross-language press; no_claim=which models take the path (answerPaths.test.ts) (#2526).
   test("a press whose Document is in another language than the call is offered cite on the path that names Passages in markers", async () => {
     const { core, meeting, calls } = await setUp(
