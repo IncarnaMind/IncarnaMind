@@ -2100,9 +2100,10 @@ export const zhCN = {
   "command.rename.keywords": "名称 标题 改名",
   "command.language": "界面语言：English",
   "command.language.keywords": "yuyan 语言 界面 切换 英文 中文 english chinese",
-  "command.appearance": "切换浅色或深色",
+  "command.appearance.dark": "切换到深色",
+  "command.appearance.light": "切换到浅色",
   "command.appearance.keywords":
-    "waiguan zhuti shense qianse 外观 主题 深色 浅色 夜间 模式 theme dark light",
+    "waiguan zhuti shense qianse 外观 主题 深色模式 深色 浅色 夜间 模式 theme dark light",
   "documents.add.keywords": "导入 上传 文件 PDF Word 本机",
   "documents.add.linkFolder.keywords": "同步 文件夹 关联 保持同步",
   "documents.moveTo": "移动到…",

@@ -6,6 +6,7 @@ import {
   dismissChatSetup,
   launchApp,
   openSettings,
+  paletteOffers,
   removeDataFolder,
   runCommand,
   setLanguage,
@@ -13,8 +14,8 @@ import {
 } from "./app";
 
 /*
- * Light, Dark or Same as system (#1262): Settings › General › Appearance and ⌘K's Switch theme
- * change the theme at once and keep it; Same as system follows the system's change live; and a
+ * Light, Dark or Same as system (#1262): Settings › General › Appearance and ⌘K's "Switch to Dark"
+ * or "Switch to Light" change the theme at once and keep it; Same as system follows the system's change live; and a
  * launch in Dark paints its first frame dark. A Document's page stays paper-white in both.
  * The colours are the sheet's and the frame's tokens in each theme (styles.css).
  */
@@ -124,19 +125,51 @@ for (const language of ["en", "zh-CN"] as const) {
   });
 }
 
-test("⌘K's Switch theme turns the window dark, and back", async () => {
+for (const language of ["en", "zh-CN"] as const) {
+  const words =
+    language === "en"
+      ? {
+          toDark: "Switch to Dark",
+          toLight: "Switch to Light",
+          keywords: ["theme", "appearance", "dark mode"],
+        }
+      : { toDark: "切换到深色", toLight: "切换到浅色", keywords: ["主题", "外观", "深色模式"] };
+
+  test(`⌘K names the theme it switches to, finds it by its keywords, and switches there and back (${language})`, async () => {
+    const { app, window } = await launchApp(dataDir);
+    try {
+      await setWindowSize(app, window, 1100, 720);
+      await dismissChatSetup(window);
+      await setLanguage(window, language);
+      for (const keyword of words.keywords) {
+        expect(await paletteOffers(window, "appearance.switch", keyword), keyword).toBe(1);
+      }
+
+      await runCommand(window, "appearance.switch", words.toDark);
+      await expect(window.locator("html")).toHaveAttribute("data-theme", "dark");
+      await expect.poll(() => pageColour(window)).toBe(SHEET.dark);
+      await expect.poll(() => keptAppearance(window)).toBe("dark");
+
+      await runCommand(window, "appearance.switch", words.toLight);
+      await expect(window.locator("html")).toHaveAttribute("data-theme", "light");
+      await expect.poll(() => pageColour(window)).toBe(SHEET.light);
+      await expect.poll(() => keptAppearance(window)).toBe("light");
+    } finally {
+      await app.close();
+    }
+  });
+}
+
+test("under Same as system, ⌘K names the theme the system isn't showing", async () => {
   const { app, window } = await launchApp(dataDir);
   try {
     await setWindowSize(app, window, 1100, 720);
     await dismissChatSetup(window);
-    await runCommand(window, "appearance.switch", "Switch theme");
-    await expect(window.locator("html")).toHaveAttribute("data-theme", "dark");
+    await window.emulateMedia({ colorScheme: "dark" });
     await expect.poll(() => pageColour(window)).toBe(SHEET.dark);
-    await expect.poll(() => keptAppearance(window)).toBe("dark");
-
-    await runCommand(window, "appearance.switch", "Switch theme");
+    await runCommand(window, "appearance.switch", "Switch to Light");
     await expect(window.locator("html")).toHaveAttribute("data-theme", "light");
-    await expect.poll(() => pageColour(window)).toBe(SHEET.light);
+    await expect.poll(() => keptAppearance(window)).toBe("light");
   } finally {
     await app.close();
   }

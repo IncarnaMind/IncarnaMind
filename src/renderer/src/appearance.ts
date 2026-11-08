@@ -11,20 +11,29 @@ export type Theme = "light" | "dark";
 
 const DARK_QUERY = "(prefers-color-scheme: dark)";
 
+let chosen: Appearance = "system";
+let system: Theme = "light";
+
+/** Follows the system's light or dark, which Same as system shows. */
+export function installAppearance(): void {
+  const query = window.matchMedia(DARK_QUERY);
+  system = query.matches ? "dark" : "light";
+  query.addEventListener("change", (event) => {
+    system = event.matches ? "dark" : "light";
+  });
+}
+
 export function showAppearance(appearance: Appearance): void {
+  chosen = appearance;
   const root = document.documentElement;
   if (appearance === "system") delete root.dataset.theme;
   else root.dataset.theme = appearance;
 }
 
 /** The theme the window shows now: the one chosen, or the system's. */
-export function shownTheme(): Theme {
-  const chosen = document.documentElement.dataset.theme;
-  if (chosen === "light" || chosen === "dark") return chosen;
-  return window.matchMedia(DARK_QUERY).matches ? "dark" : "light";
-}
+export const shownTheme = (): Theme => (chosen === "system" ? system : chosen);
 
-/** The other theme, which ⌘K's switch chooses. */
+/** The other theme, which ⌘K's switch chooses and names. */
 export const otherTheme = (): Theme => (shownTheme() === "dark" ? "light" : "dark");
 
 /** The User's choice, shown at once; then as the core kept it, the old one if it refused. */

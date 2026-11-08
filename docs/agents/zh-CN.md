@@ -227,7 +227,7 @@ The year is left out when it is this year, except in a Date, and a time today is
 | sign in / sign out | 登录 / 退出登录 | |
 | ChatGPT plan | ChatGPT 订阅 | |
 | Settings | 设置 | |
-| Appearance | 外观 | Settings › General: 浅色、深色、跟随系统, as macOS, Feishu and WeChat name them. ⌘K's Switch theme is 切换浅色或深色; never 主题 or 夜间模式 on screen (they stay ⌘K keywords). |
+| Appearance | 外观 | Settings › General: 浅色、深色、跟随系统, as macOS, Feishu and WeChat name them. ⌘K names the theme it switches to: Switch to Dark is 切换到深色, Switch to Light 切换到浅色; never 主题 or 深色模式 on screen (they stay ⌘K keywords). |
 
 ### File and editing words
 
