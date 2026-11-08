@@ -138,6 +138,7 @@ beforeAll(async () => {
 
 beforeEach(() => {
   for (const each of methods.values()) each.mockReset();
+  method("startOrganize").mockResolvedValue({ ready: true, model: "chat" });
   method("getLibrary").mockResolvedValue(planning);
   method("getOrganizeReview").mockResolvedValue(empty);
   useAppStore.setState({ layout: libraryShown, library: planning, documents: [] });
@@ -253,15 +254,104 @@ describe("Organize, wherever it is asked from", () => {
     expect(state().open).toBe(true);
   });
 
-  test("with no model chosen, asks for one first and sends nothing", async () => {
+  test("with no model at all, asks for one first and sends nothing", async () => {
     useAppStore.setState({
       library: snapshot({ kind: "automatic" }),
       documents: [doc("d-1"), doc("d-2")],
     });
+    method("startOrganize").mockResolvedValue({ ready: false, needs: "model", noProvider: true });
 
     await organizing.organizeDocuments(null);
-    expect(organizing.useOrganizeAsk.getState().ids).toEqual(["d-1", "d-2"]);
+    expect(organizing.useOrganizeAsk.getState().asked).toEqual({
+      target: { ids: null },
+      needs: { ready: false, needs: "model", noProvider: true },
+    });
     expect(method("organizeLibrary")).not.toHaveBeenCalled();
+  });
+});
+
+describe("The first time a cloud service would read the Documents (#1569, ADR-0022)", () => {
+  const anthropic = { id: "https://api.anthropic.com", name: "Anthropic" };
+  const asks = (declined: boolean) => ({
+    ready: false,
+    needs: "consent",
+    service: anthropic,
+    declined,
+    model: "chat",
+  });
+  beforeEach(() => {
+    method("changeLayout").mockResolvedValue(libraryShown);
+  });
+
+  // protects=Organize asks before it sends, from the Library's button and from a Folder's own Organize; fails_when=it plans before the card's Allow; no_claim=the card's looks.
+  test("the card asks first, and nothing is planned or allowed until the User answers", async () => {
+    method("startOrganize").mockResolvedValue(asks(false));
+
+    await organizing.organizeDocuments(null);
+    expect(organizing.useOrganizeAsk.getState().asked).toEqual({
+      target: { ids: null },
+      needs: asks(false),
+    });
+    await organizing.organizeFolder("contracts");
+    expect(organizing.useOrganizeAsk.getState().asked?.target).toEqual({ folderId: "contracts" });
+    expect(method("organizeLibrary")).not.toHaveBeenCalled();
+    expect(method("allowOrganize")).not.toHaveBeenCalled();
+  });
+
+  // protects=Not now sends nothing and records nothing; fails_when=closing the card allows the service or runs Organize; no_claim=which button has the focus.
+  test("Not now records nothing and runs nothing", async () => {
+    method("startOrganize").mockResolvedValue(asks(false));
+    await organizing.organizeDocuments(["d-1"]);
+
+    organizing.useOrganizeAsk.getState().close();
+    expect(organizing.useOrganizeAsk.getState().asked).toBeNull();
+    expect(method("allowOrganize")).not.toHaveBeenCalled();
+    expect(method("organizeLibrary")).not.toHaveBeenCalled();
+  });
+
+  // protects=Allow and organize records the consent for the service it named, then runs Organize at once for that service alone; fails_when=it runs before the consent, or for another service; no_claim=what the Review proposes.
+  test("Allow and organize allows the service it named, then plans for it at once", async () => {
+    method("startOrganize").mockResolvedValue(asks(false));
+    method("allowOrganize").mockResolvedValue({ ready: true, model: "chat" });
+    method("organizeLibrary").mockResolvedValue(planned(2));
+    method("getOrganizeReview").mockResolvedValue(waiting);
+    await organizing.organizeDocuments(["d-1"]);
+
+    await organizing.allowAndOrganize();
+    expect(method("allowOrganize")).toHaveBeenCalledWith(anthropic.id);
+    expect(method("organizeLibrary")).toHaveBeenCalledWith({
+      documentIds: ["d-1"],
+      forService: anthropic.id,
+    });
+    expect(method("allowOrganize").mock.invocationCallOrder[0]).toBeLessThan(
+      method("organizeLibrary").mock.invocationCallOrder[0] ?? 0,
+    );
+    expect(organizing.useOrganizeAsk.getState().asked).toBeNull();
+    expect(state().open).toBe(true);
+  });
+
+  // protects=after a standing no, Allow covers this run alone and records nothing (#2252); fails_when=it stores the consent or runs without its permit; no_claim=the core's permit itself.
+  test("after the User's earlier no, Allow runs this once and stores nothing", async () => {
+    method("startOrganize").mockResolvedValue(asks(true));
+    method("organizeLibrary").mockResolvedValue(planned(2));
+    method("getOrganizeReview").mockResolvedValue(waiting);
+    await organizing.organizeDocuments(null);
+
+    await organizing.allowAndOrganize();
+    expect(method("allowOrganize")).not.toHaveBeenCalled();
+    expect(method("organizeLibrary")).toHaveBeenCalledWith({
+      forService: anthropic.id,
+      once: true,
+    });
+  });
+
+  // protects=a service already allowed never asks again; fails_when=a second press shows the card; no_claim=the run's result.
+  test("once allowed, a press runs without asking", async () => {
+    method("organizeLibrary").mockResolvedValue(planned(0));
+
+    await organizing.organizeDocuments(null);
+    expect(organizing.useOrganizeAsk.getState().asked).toBeNull();
+    expect(method("organizeLibrary")).toHaveBeenCalledWith({});
   });
 });
 

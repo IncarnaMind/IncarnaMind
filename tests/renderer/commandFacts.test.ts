@@ -38,14 +38,17 @@ const done = (more: Partial<CommandDone> & Pick<CommandDone, "command">): Comman
 });
 
 describe("What the assistant's Organize asks, and what its Allow sends (#2252)", () => {
-  // protects=the card gives the Library's details line and, after a standing no, says Allow sends this time only; fails_when=the card lists less than the Library or joins Chinese with a space; no_claim=the card's layout.
-  test("the details line, then the this-time-only line, in English and Chinese", () => {
+  // protects=the card gives the Library card's line of what goes and, after a standing no, says Allow sends this time only; fails_when=the card lists less than the Library or joins Chinese with a space; no_claim=the card's layout.
+  test("what goes, then the this-time-only line, in English and Chinese", () => {
     const ask = { service: "OpenAI", declined: true };
     expect(organizeAskWhy(en, enGap, ask)).toBe(
-      "Organize reads what each Document says and suggests the Folder that fits. Nothing moves until you confirm them. Sends document names and excerpts to OpenAI. Each Document’s name and the start of its text (for a scan, images of its first pages), your Folders’ names and descriptions, the kinds of Document, and your own Tags’ names and descriptions go to OpenAI. You said no to this before. Allow sends them this time only.",
+      "Organize reads what each Document says and suggests the Folder that fits. Nothing moves until you confirm them. Allowing it sends each Document’s name, kind and page count, the start of its text and its slide titles or sheet names, with your Folders’ names and descriptions, any matching Tags’ names and descriptions and your interface language, to OpenAI, each time you organize. You said no to this before. Allow sends them this time only.",
     );
     expect(organizeAskWhy(zh, zhGap, ask)).toBe(
-      "整理会读取每个文档的内容，建议合适的文件夹。你确认前不会移动任何文档。会把文档名称和摘录发送给 OpenAI。每个文档的名称和开头的文字（扫描件则是前几页的图片），以及文件夹的名称与描述、文档类别和你自己的标签的名称与描述，会发送给 OpenAI。你之前选择了不发送。点“允许”只在这一次发送。",
+      "整理会读取每个文档的内容，建议合适的文件夹。你确认前不会移动任何文档。允许后，每次整理都会把文档的名称、类型和页数、开头部分的文字及幻灯片标题或工作表名称，连同你的文件夹名称和描述、相符标签的名称和描述以及你的界面语言，发送给 OpenAI。你之前选择了不发送。点“允许”只在这一次发送。",
+    );
+    expect(organizeAskWhy(en, enGap, ask)).toContain(
+      translate("en", "library.organize.consent.sends", { service: "OpenAI" }),
     );
   });
 

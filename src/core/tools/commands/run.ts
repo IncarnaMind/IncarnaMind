@@ -160,13 +160,15 @@ export interface CommandsHost {
    */
   allowCloudRead(service: ExternalService): Promise<void>;
   /**
-   * With no model chosen for Organize, the one the Library offers as "Use {company}" (Automatic's
-   * pick) and where it sends; null when one is chosen or Automatic has none (#2252).
+   * With no model chosen for Organize, the one the Library offers (Automatic's pick) and where
+   * it sends; null when one is chosen or Automatic has none (#2252).
    */
   offeredOrganizeModel(): Promise<{ classifier: TaggingClassifier; route: TaggingRoute } | null>;
+  /** Local mode is on: nothing goes to a cloud service, so nothing asks to send there (ADR-0022). */
+  localOnly(): boolean;
   /**
    * Saves that pick as Organize's model. It records no consent and lifts no decline: the card's
-   * Allow is the consent, and the Library's "Use {company}" is the answer that does both.
+   * Allow is the consent, and the Library's "Allow and organize" does both.
    */
   keepOrganizeModel(classifier: TaggingClassifier): Promise<void>;
   /**

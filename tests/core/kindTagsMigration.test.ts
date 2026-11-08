@@ -1,5 +1,5 @@
 /**
- * Migration 138 (#2339): a preset Tag of a kind becomes that kind's Tag, shown in the interface's
+ * Migration 140 (#2339): a preset Tag of a kind becomes that kind's Tag, shown in the interface's
  * language unless the User changed it; a Tag tagging made under a kind's name is merged into it;
  * the User's own Tags stay as they are; and an uncertain Tag waits in the Review instead of on
  * its Document. Through the core's public interface once migrated.
@@ -15,13 +15,13 @@ import { tagNamesOf } from "../helpers/tags";
 
 const AT = "2026-11-01T09:00:00.000Z";
 
-describe("Migration 138: kinds and uncertain Tags", () => {
+describe("Migration 140: kinds and uncertain Tags", () => {
   test("each kind of existing Tag becomes what the design says", async () => {
     const dataDir = await createTempDataFolder();
     const db = openDatabase(join(dataDir, DATABASE_FILE));
     migrate(
       db,
-      migrations.filter((each) => each.version <= 137),
+      migrations.filter((each) => each.version <= 139),
     );
     const id = () => randomUUID();
     const tag = {

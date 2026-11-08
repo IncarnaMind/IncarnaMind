@@ -24,6 +24,7 @@ import {
   type ExportFormat,
   type SaveChatProviderInput,
 } from "../src/core/api";
+import type { SystemCalendarFixture } from "../src/core/calendars/fakeSystem";
 import { openDatabase } from "../src/core/storage";
 import type { FakeTranscriberOptions } from "../src/core/transcription/fake";
 import { LOG_FILE } from "../src/main/log";
@@ -152,7 +153,7 @@ export interface LaunchOptions {
    * What the Meeting's fake microphone does: makes a tone (by default), is denied and says so,
    * or waits for the system's permission prompt until the test answers it.
    */
-  microphone?: "allowed" | "denied" | "waiting";
+  microphone?: "allowed" | "denied" | "waiting" | "silent";
   /**
    * Where the guide for a permission added by hand opens, whatever the screen: in a window
    * beside System Settings, or as text in the app's window. Without it, the system decides.
@@ -219,6 +220,15 @@ export interface LaunchOptions {
   jev?: string;
   /** A stand-in for every decision model host (#1907), at this base URL. */
   decisions?: string;
+  /**
+   * A stand-in for Google Calendar and Microsoft 365 (#190), at this origin
+   * (tests/helpers/fakeCalendars.ts). Without it a test build offers neither.
+   */
+  calendars?: string;
+  /** What the Mac's calendar holds and answers (#190), on any system. Without it there is none. */
+  systemCalendar?: SystemCalendarFixture;
+  /** How often calendars are read while the app runs, in milliseconds, instead of 5 minutes. */
+  calendarSyncMs?: number;
   /**
    * More of the app's environment, by name: a made-up credential, or a switch such as
    * ELECTRON_DISABLE_SANDBOX. Nothing else comes from the test's own (`launchEnvironment`), and
@@ -303,6 +313,9 @@ export async function launchApp(
     realEngines = false,
     jev,
     decisions,
+    calendars,
+    systemCalendar,
+    calendarSyncMs,
     extraEnv,
     trace = false,
     switches = [],
@@ -343,6 +356,9 @@ export async function launchApp(
     INCARNAMIND_TEST_COPILOT: copilot,
     INCARNAMIND_TEST_JEV: jev,
     INCARNAMIND_TEST_DECISIONS: decisions,
+    INCARNAMIND_TEST_CALENDARS: calendars,
+    INCARNAMIND_TEST_SYSTEM_CALENDAR: systemCalendar && JSON.stringify(systemCalendar),
+    INCARNAMIND_TEST_CALENDAR_SYNC_MS: calendarSyncMs ? String(calendarSyncMs) : undefined,
     INCARNAMIND_TEST_SCANS: scans,
     INCARNAMIND_TEST_SCANS_AT_ONCE: scansAtOnce ? String(scansAtOnce) : undefined,
     INCARNAMIND_TEST_MODEL_DOWNLOADS: modelDownloads && JSON.stringify(modelDownloads),
@@ -1463,6 +1479,16 @@ export async function interceptOpenDialog(app: ElectronApplication, path: string
       canceled: false,
       filePaths: [picked],
     })) as unknown as typeof dialog.showOpenDialog;
+  }, path);
+}
+
+/** Test hook for the system's save dialog: from now on it answers `path` at once, as if chosen. */
+export async function interceptSaveDialog(app: ElectronApplication, path: string) {
+  await app.evaluate(({ dialog }, picked) => {
+    dialog.showSaveDialog = (async () => ({
+      canceled: false,
+      filePath: picked,
+    })) as unknown as typeof dialog.showSaveDialog;
   }, path);
 }
 
@@ -3498,6 +3524,16 @@ export async function removeDataFolder(dataDir: string): Promise<void> {
 /** The core's bridge in the page, for a test to set things up or read them: `(await coreOf(window)).evaluate(...)`. */
 export const coreOf = (window: Page) =>
   window.evaluateHandle(() => (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind);
+
+/** How many Checkpoints the Note made last has, as its History lists them. */
+export async function checkpointsOfNewestNote(window: Page): Promise<number> {
+  return (await coreOf(window)).evaluate(async (core) => {
+    const [mind] = (await core.listMinds()).toSorted((a, b) =>
+      b.createdAt.localeCompare(a.createdAt),
+    );
+    return mind ? (await core.listCheckpoints(mind.id)).checkpoints.length : 0;
+  });
+}
 
 /**
  * What the core holds that a change to a Mind, Document, Folder, Tag, Linked folder or Recently

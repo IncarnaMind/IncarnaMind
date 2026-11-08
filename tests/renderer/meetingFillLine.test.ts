@@ -98,7 +98,7 @@ const meetingOf = (fill: MeetingFill | null): Meeting => ({
   gaps: [],
   startedAt: "2026-11-04T10:00:00.000Z",
   stoppedAt: "2026-11-04T10:01:00.000Z",
-  audio: { kept: false, expiresAt: null, deletedAt: null },
+  audio: { kept: false, expiresAt: null, deletedAt: null, keptUntilDeleted: false },
   saveError: null,
   transcript: {
     documentId: "actual-transcript-document",

@@ -18,8 +18,8 @@ export interface FakeCaptureOptions {
   systemAudio?: boolean;
   /** What the computer's sound does when asked for: plays, is denied, or gives only silence. */
   system?: "allowed" | "denied" | "silent";
-  /** What the microphone does when asked for: records (by default), is denied, or waits for the system's permission prompt. */
-  microphone?: "allowed" | "denied" | "waiting";
+  /** What the microphone does when asked for: records (by default), is denied, gives silence, or waits for the system's permission prompt. */
+  microphone?: "allowed" | "denied" | "silent" | "waiting";
   /** Makes audio by itself, as captured, every `realTime` ms. */
   realTime?: number;
   /** The computer's sound plays these samples once, then silence; the microphone is quiet meanwhile. */
@@ -83,6 +83,7 @@ export function createFakeCapture(options: FakeCaptureOptions = {}): FakeCapture
     const count = Math.round((ms * MEETING_SAMPLE_RATE) / 1000);
     const samples = new Int16Array(count);
     if (quiet || (source === "system" && system === "silent")) return samples;
+    if (source === "microphone" && microphone === "silent") return samples;
     if (options.recording) {
       if (source === "system")
         samples.set(options.recording.subarray(made.system, made.system + count));

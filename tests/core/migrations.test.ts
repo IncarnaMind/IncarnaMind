@@ -141,7 +141,7 @@ describe("Migrations", () => {
 
     migrate(
       db,
-      migrations.filter((migration) => migration.version < 138),
+      migrations.filter((migration) => migration.version < 140),
     );
     const after = descriptions();
     expect(baselines()).toEqual(["00000000-0000-4000-8000-000000000004"]);

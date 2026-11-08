@@ -1,13 +1,5 @@
 import { type KeyboardEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import type {
-  Document,
-  LibraryGroup,
-  LibrarySettings,
-  TaggingClassifier,
-  TaggingModelOption,
-} from "../../../../core/api";
-import { organizeModelOf } from "../../../../shared/libraryModels";
-import { core } from "../../core";
+import type { Document, LibraryGroup } from "../../../../core/api";
 import { useDraggedRef, useDragSource, useDropTarget } from "../../dragDrop";
 import { folderDrag, folderTarget } from "../../folderDrag";
 import { folderPathLabel } from "../../folders";
@@ -21,7 +13,7 @@ import {
   type LibrarySection as Section,
 } from "../../libraryPage";
 import { formatCount } from "../../linkedFolders";
-import { organizeDocuments, useOrganizeAsk } from "../../organizeDocuments";
+import { organizeDocuments } from "../../organizeDocuments";
 import { fixOrganizeProblem } from "../../organizeFix";
 import { organizeStateOf } from "../../organizeOutcome";
 import { useFoldersWaiting, useOrganizeReview } from "../../organizeReview";
@@ -38,18 +30,15 @@ import { useSidebarMove } from "../../sidebarMoves";
 import { useAppStore } from "../../store";
 import { foldKeys, isMoveToKey, TREE_ROW } from "../../treeKeys";
 import { useRename } from "../../useRename";
-import { DetailsLine } from "../DetailsLine";
 import { InlineName } from "../InlineName";
 import { ChevronRightLineIcon, FolderLineIcon, LockLineIcon } from "../lineIcons";
 import { ObjectMenu, useObjectMenu } from "../ObjectMenu";
-import { NeedsModelCard } from "../providers/NeedsModelCard";
 import {
   dropAfterClass,
   dropBeforeClass,
   dropIntoClass,
   rowActionButtonClass,
 } from "../sidebarRows";
-import { providerOf } from "../TaggingSettings";
 import { FolderForm } from "./FolderForm";
 import { LibraryRow, pageRowClass } from "./LibraryRow";
 import { SectionHead, sectionNameClass } from "./SectionHead";
@@ -121,7 +110,6 @@ export function LibrarySection({
       ) : (
         <LooseHead documents={documents} open={open} />
       )}
-      {!section.folder && <OrganizeNeedsModel />}
       {open &&
         section.folder &&
         childrenOf(folders, section.folder.id)
@@ -599,9 +587,6 @@ function LooseHead({ documents, open }: { documents: readonly Document[]; open: 
   );
 }
 
-const organizeHasModel = (settings: LibrarySettings | undefined) =>
-  !!settings && organizeModelOf(settings) !== null;
-
 /**
  * Organize, for the Documents in no Folder, Folders or none (#2308), or how it is going, or what
  * it couldn't do, with one action.
@@ -688,129 +673,5 @@ function Organize({ documents }: { documents: readonly Document[] }) {
     >
       {t("library.classify")}
     </button>
-  );
-}
-
-/**
- * Organize with no model chosen (#763): a row under Not in a Folder's head says so where it was
- * asked. With no AI model at all, first run's key field is offered in place (#1922); once one
- * works, the model Automatic sorts with, saying what would go to its company. The answer is
- * kept, so Organize asks once.
- */
-function OrganizeNeedsModel() {
-  const t = useT();
-  const language = useLanguage();
-  const ids = useOrganizeAsk((state) => state.ids);
-  const hasModel = useAppStore((state) => organizeHasModel(state.library?.settings));
-  // Only "no provider at all" is what first run's key field answers; every other reason has its own line.
-  const noProvider = useAppStore(
-    (state) => state.chatReadiness?.ready === false && state.chatReadiness.reason === "no-provider",
-  );
-  const [automatic, setAutomatic] = useState<TaggingModelOption | null>(null);
-  const asked = ids !== null && !hasModel;
-  useEffect(() => {
-    if (!asked || noProvider) return;
-    let current = true;
-    const load = () =>
-      core.getTaggingModels().then(
-        (models) => {
-          if (current) setAutomatic(models.automatic);
-        },
-        (error: unknown) => console.error("Organize couldn't work out the model to offer.", error),
-      );
-    load();
-    const stop = core.on("chatReadiness.changed", () => void load());
-    return () => {
-      current = false;
-      stop();
-    };
-  }, [asked, noProvider]);
-  if (!asked) return null;
-  const close = () => useOrganizeAsk.getState().close();
-  const use = async (classifier: TaggingClassifier) => {
-    const settings = useAppStore.getState().library?.settings;
-    if (!settings || ids === null) return;
-    try {
-      await core.saveLibrarySettings({ ...settings, organizeWith: classifier });
-      await useAppStore.getState().refreshLibrary();
-      close();
-      await organizeDocuments(ids);
-    } catch (error) {
-      useAppStore.getState().reportError(error);
-    }
-  };
-  const dismiss = (
-    <button
-      type="button"
-      data-testid="library-organize-dismiss"
-      onClick={close}
-      className={`self-start ${quietButtonClass}`}
-    >
-      {t("library.organize.dismiss")}
-    </button>
-  );
-  if (noProvider) {
-    return (
-      <div
-        role="status"
-        data-testid="library-organize-needs-model"
-        className="flex flex-col gap-1 border-b border-rule py-2 pl-14 text-[13px] leading-5 text-ink-meta"
-      >
-        <NeedsModelCard
-          line="needsModel.organize"
-          testId="library-organize-key"
-          onDone={() => {
-            // The key saved, Organize goes on with the model it now reaches (#1922).
-            void core.getTaggingModels().then(
-              (models) => models.automatic && use(models.automatic.classifier),
-              (error: unknown) => useAppStore.getState().reportError(error),
-            );
-          }}
-        />
-        {dismiss}
-      </div>
-    );
-  }
-  const company = automatic && (providerOf(automatic, language) ?? t("providers.kind.ollama"));
-  return (
-    <div
-      role="status"
-      data-testid="library-organize-needs-model"
-      className="flex flex-col gap-0.5 border-b border-rule py-2 pl-14 text-[13px] leading-5 text-ink-meta"
-    >
-      <p>{t("library.organize.needsModel")}</p>
-      {automatic && automatic.group !== "local" && company && (
-        <DetailsLine
-          testId="library-organize-sends"
-          details={t("library.organize.sends.details", { company })}
-        >
-          {t("library.organize.sends", { company })}
-        </DetailsLine>
-      )}
-      <p className="flex flex-wrap gap-x-4">
-        {automatic && company && (
-          <button
-            type="button"
-            data-testid="library-organize-use"
-            onClick={() => void use(automatic.classifier)}
-            className={quietButtonClass}
-          >
-            {t("library.organize.use", { company })}
-          </button>
-        )}
-        <button
-          type="button"
-          data-testid="library-organize-set-up"
-          onClick={() => {
-            close();
-            useAppStore.getState().openSettings("models", "tagging");
-          }}
-          className={quietButtonClass}
-        >
-          {t("library.organize.setUp")}
-        </button>
-        {dismiss}
-      </p>
-    </div>
   );
 }

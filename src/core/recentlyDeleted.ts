@@ -136,6 +136,12 @@ function purge(
       [at, at, list],
     );
     db.run(`DELETE FROM mind_checkpoints WHERE mind_id ${IN}`, [list]);
+    // The calendar event it was made for (#190): its title, times, people and call link.
+    db.run(
+      `UPDATE calendar_event_notes SET event = '{}', deleted_at = coalesce(deleted_at, ?),
+         updated_at = ? WHERE mind_id ${IN}`,
+      [at, at, list],
+    );
     // The Word package it was imported from goes once no other Mind keeps it (`sweepWordPackages`).
     db.run(
       `UPDATE word_packages SET deleted_at = ?, updated_at = ? WHERE mind_id ${IN} AND deleted_at IS NULL`,

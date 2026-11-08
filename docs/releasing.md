@@ -102,6 +102,12 @@ The terms the project keeps are in the [code signing policy](code-signing-policy
 
 Users can opt in to crash reports in **Settings → Privacy**; they go to Sentry, scrubbed of file paths, Document text, Note content, Questions and Answers (`src/main/crashScrubber.ts`). Only a build made with a Sentry DSN offers them: set `MAIN_VITE_SENTRY_DSN` when building (electron-vite reads it from the environment or a `.env.local` file). The release workflow passes the `SENTRY_DSN` repository secret; without it, releases don't offer crash reports. Never commit a DSN.
 
+## Calendars
+
+Meetings read Google Calendar and Microsoft 365 with the build's own sign-in clients (#190). Only a build made with them offers those services; the Mac's own calendar needs none. Set `MAIN_VITE_GOOGLE_CALENDAR_CLIENT_ID` and `MAIN_VITE_GOOGLE_CALENDAR_CLIENT_SECRET` (Google's desktop client and its secret, which Google's token endpoint asks for and doesn't treat as confidential in an installed app) and `MAIN_VITE_MICROSOFT_CALENDAR_CLIENT_ID` (Microsoft's public client, which has no secret) when building. The release workflow passes the `GOOGLE_CALENDAR_CLIENT_ID` and `MICROSOFT_CALENDAR_CLIENT_ID` repository variables and the `GOOGLE_CALENDAR_CLIENT_SECRET` repository secret. Never commit the secret.
+
+The macOS app reads the Mac's calendar through a small helper of IncarnaMind's own (`native/calendar-helper`), which the packager builds with the Swift compiler of Xcode's command line tools after laying the app out and before signing it (`scripts/afterPack.mjs`), so it is signed and notarized with the app. A Mac that packages the app needs those tools (`xcode-select --install`); GitHub's macOS runners have them.
+
 ## Usage data
 
 Users can agree to send anonymous usage data, listed event by event in [privacy.md](privacy.md#usage-data); it goes to PostHog. Only a build made with a PostHog project sends it, or asks: set `MAIN_VITE_POSTHOG_KEY` (the project's API key, `phc_…`) and `MAIN_VITE_POSTHOG_HOST` (its host over https, PostHog's EU cloud or a self-hosted server) when building. The release workflow passes the `POSTHOG_KEY` and `POSTHOG_HOST` repository variables; without them, releases send no usage data. In the PostHog project, turn on **Discard client IP data**.

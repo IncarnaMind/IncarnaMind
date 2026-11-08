@@ -504,7 +504,6 @@ test("Undo of a Confirm after an Organize that began with no model leaves the Do
     await window.getByTestId("open-library").click();
     const library = window.getByTestId("library");
     await pointAndClick(window, organize(library));
-    await pointAndClick(window, library.getByTestId("library-organize-use"));
 
     // It proposes, and files nothing before Confirm.
     const rows = card(window, "Research").getByTestId("organize-review-row");
@@ -567,9 +566,8 @@ test("Organize's Review and Confirm's line say what they do, in English and Chin
     const review = reviewOf(window);
     const line = window.getByTestId("undo-line-here").getByTestId("undo-message");
 
-    // Organize asks for its model, runs, and the Review says what will move, in English.
+    // A model on this computer runs Organize without asking; the Review says what will move.
     await pointAndClick(window, organize(library));
-    await pointAndClick(window, library.getByTestId("library-organize-use"));
     await expect(review.getByTestId("organize-review-title")).toHaveText("Suggested Folders", {
       timeout: 30_000,
     });
@@ -619,7 +617,7 @@ test("onboarding offers starter folders, and Organize with no model chosen opens
     await pointAndClick(window, organize(window.getByTestId("library")));
     const needs = window.getByTestId("library-organize-needs-model");
     await expect(needs).toContainText(
-      "整理需要一个 AI 模型。它会把文档名称和摘录，以及文件夹的名称与描述、文档类别和你自己的标签的名称与描述，发送给你设置的模型。",
+      "整理需要一个 AI 模型。经你允许后，它会把文档的名称、类型和页数、开头部分的文字及幻灯片标题或工作表名称，连同你的文件夹名称和描述、相符标签的名称和描述以及你的界面语言，发送给你设置的模型。",
     );
     await expect(needs.getByTestId("library-organize-key")).toBeVisible();
     await needs.getByTestId("library-organize-dismiss").click();

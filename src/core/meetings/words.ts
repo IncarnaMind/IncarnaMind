@@ -1,11 +1,14 @@
 /**
  * The words a Meeting's speech may hold (#1031), gathered when it is first transcribed, from what
  * IncarnaMind already holds, with nothing read again from a file and nothing sent anywhere: the
- * names in its Note's title and text, the User's Words to know (Settings › Meetings), its Folder's
- * name, and the names its Folder's Documents use most. The meeting's own come first: the
- * engine is told only as many as fit (../transcription/context).
+ * people on its calendar event and their companies (#190), the names in its Note's title and text,
+ * the User's Words to know (Settings › Meetings), its Folder's name, and the names its Folder's
+ * Documents use most. The meeting's own come first: the engine is told only as many as fit
+ * (../transcription/context).
  */
 import { wordKey } from "../../shared/meetingWords";
+import type { CalendarAttendee } from "../api";
+import { companiesOf } from "../calendars/events";
 import type { Database } from "../storage";
 import { namesIn } from "./names";
 
@@ -31,6 +34,8 @@ export interface MeetingWordSources {
   folderName(folderId: string): string | null;
   /** The live Documents in that Folder. */
   folderDocuments(folderId: string): readonly string[];
+  /** The people on the calendar event the Note was made for (#190); none for any other. */
+  attendees?(mindId: string): readonly CalendarAttendee[];
 }
 
 export function meetingWords(sources: MeetingWordSources): string[] {
@@ -53,6 +58,9 @@ export function meetingWords(sources: MeetingWordSources): string[] {
     [sources.meetingId],
   );
   if (note) {
+    const others = (sources.attendees?.(note.mind_id) ?? []).filter((person) => !person.self);
+    for (const person of others) if (!person.name.includes("@")) addFound(person.name);
+    for (const company of companiesOf(others)) addFound(company);
     const text = db
       .all<{ text: string }>(
         "SELECT text FROM mind_blocks WHERE mind_id = ? AND deleted_at IS NULL ORDER BY position",

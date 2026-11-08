@@ -116,6 +116,8 @@ const files: FilesBridge = {
   pickOutputLocation: () => invoke(FILES_CHANNELS.pickOutputLocation),
   saveMindCopy: (mindId) => invoke(FILES_CHANNELS.saveMindCopy, mindId),
   savePicture: (name, bytes) => invoke(FILES_CHANNELS.savePicture, name, bytes),
+  saveMeetingRecording: (meetingId, name) =>
+    invoke(FILES_CHANNELS.saveMeetingRecording, meetingId, name),
   openDataFolder: () => invoke(FILES_CHANNELS.openDataFolder),
   openLogsFolder: () => invoke(FILES_CHANNELS.openLogsFolder),
   pickSkill: (kind) => invoke(FILES_CHANNELS.pickSkill, kind),

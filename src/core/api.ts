@@ -733,6 +733,8 @@ export type ProposalRequest =
       reason?: string;
       /** The assistant said the User asked only for text to go: a change that does more waits for them (#2356). */
       removesOnly?: true;
+      /** What its new text left out of the passage stayed, unless it quoted it as taken out (#880, #2180): made again, it still does (#2796). */
+      keepsLeftOut?: true;
     })
   | (ProposalMaker & { source: "answer"; answerId: string })
   | (ProposalMaker & {
@@ -1442,12 +1444,7 @@ export interface AnalysisCall {
  * still wait in the text it was to change, which the assistant can't revise
  * (someone else's, or the User's own requests), `count` of them in the Mind;
  * "mixed": its own waiting text sits beside the User's there. "model": the
- * model failed, as `message` says. "no-table": a table it wrote couldn't be
- * made, so none of its text went in (#961). "unplaced": text it marked to take
- * out isn't in the Mind word for word, so none of its text went in (#2180).
- * "misnamed": the rewrite named a paragraph wrongly, so none of its text went in (#2356).
- * "typed-tag": the rewrite left out a <removed> tag the User typed, so none of its text went in (#2356).
- * "not-placed": the rewrite would hold a Citation, footnote or figure its reply didn't place, so none of its text went in (#2424).
+ * model failed, as `message` says. A refusal (`changeRefusals`): none of its text went in.
  */
 export type MindProblem =
   | { kind: "waiting"; mindId: string; count: number; mixed: boolean }
@@ -1466,11 +1463,7 @@ export type MindProblem =
         | "changed"
         | "content-not-own"
         | "stopped"
-        | "no-table"
-        | "unplaced"
-        | "misnamed"
-        | "typed-tag"
-        | "not-placed"
+        | ChangeRefusalKind
         | "uncited"
         /** New text off the length the User asked for (#1385). */
         | "length"
@@ -2370,25 +2363,33 @@ export interface TurnPlace {
 }
 
 /**
- * A Citation looked for again for a Note outside the walled Folder that keeps its Document (#1934):
- * nothing was read, so nothing is known of the new version, and the result it was made with stands.
+ * A Citation looked for again for a Note or conversation outside the walled Folder that keeps its
+ * Document (#1934): nothing was read, so nothing is known of the new version, and the result it
+ * was made with stands.
  */
 export interface CitationKeptInside {
   /** The walled Folder's name. */
   keptInside: string;
 }
 
-/** What looking for a Citation again for a Note came to: checked, or kept inside a wall. */
+/** What looking for a Citation again for a Note or conversation came to: checked, or kept inside a wall. */
 export type RecheckResult = CitationRecheck | CitationKeptInside;
 
 export interface RecheckCitationInput extends CitationToRecheck {
   /**
-   * The Note the Citation is in, or going into; null for one shown in no Note (an Answer in the
-   * assistant, the Document's viewer), which is read as browsing is. A Document kept inside a
-   * walled Folder isn't read again for a Note outside it: the check it was made with stands
-   * (#1934). Never left out.
+   * The Note the Citation is in, or going into; null for one shown in no Note (the Document's
+   * viewer, or an Answer that names its conversation below), which is read as browsing is unless
+   * a conversation is given too. A Document kept inside a walled Folder isn't read again for a
+   * Note outside it: the check it was made with stands (#1934). Never left out.
    */
   mindId: string | null;
+  /**
+   * The conversation the Citation is in, when it is in an Answer: one shown with no Note reads
+   * as browsing only when this is null too, so a Document kept inside a walled Folder the
+   * conversation is outside isn't read again (#2782). Absent or null for a Citation in a Note
+   * or in a Document's viewer.
+   */
+  conversationId?: string | null;
 }
 
 /**
@@ -3469,6 +3470,12 @@ export interface DeviceSettings {
   tips: Record<string, number>;
   /** What a Meeting records unless the start block says otherwise: the computer's sound too ("Me and them"), or only the microphone. */
   meetingSystemAudio: boolean;
+  /**
+   * "Keep a meeting's audio" (#687): a Meeting that starts recording while it is on keeps its
+   * audio until the User deletes it, instead of for a day. Off by default; turning it on or off
+   * leaves Meetings already recorded as they are.
+   */
+  keepMeetingAudio: boolean;
   /**
    * The source a failed model download's line picked on this device (#1578), leading the others.
    * "auto" by default: the probe orders them.
@@ -6535,6 +6542,12 @@ export interface OrganizeLibraryInput {
   folderId?: string;
   /** The service the User allowed on the press: a run for another sends nothing (#2308). */
   forService?: string;
+  /**
+   * With `forService`: the User allowed this run alone, under their earlier no to that service
+   * (#2252, ADR-0022). It sends there under a permit, on the model the Library offers when none
+   * is chosen, and keeps neither the consent nor the model.
+   */
+  once?: boolean;
   /** The User saw the estimate and went on. */
   costAccepted?: boolean;
   /**
@@ -6547,6 +6560,27 @@ export interface OrganizeLibraryInput {
 
 /** How many new Folders a plan made again aims at, against how many the last plan proposed. */
 export type FolderCountAim = { fewerThan: number } | { moreThan: number };
+
+/**
+ * What Organize needs before a run of the User's own (#1569, ADR-0022). `model`: the kind of model
+ * it runs on, the chosen one or the one the Library offers.
+ */
+export type OrganizeStart =
+  /** It runs now: its model is on this computer, or its service is allowed. */
+  | { ready: true; model: TaggingClassifier["kind"] }
+  /** No model can organize. `noProvider`: no AI model is set up at all. */
+  | { ready: false; needs: "model"; noProvider: boolean }
+  /**
+   * The first time this cloud service would read the Documents for Organize: the card says what
+   * goes there. `declined`: the User said no to it before, so its Allow covers one run (`once`).
+   */
+  | {
+      ready: false;
+      needs: "consent";
+      service: ExternalService;
+      declined: boolean;
+      model: TaggingClassifier["kind"];
+    };
 
 export type OrganizeLibraryResult =
   /** Estimated at more than $1: nothing was sent, and the User is asked first. */
@@ -6872,6 +6906,27 @@ export interface RegenerateProposalInput {
   model?: ChatModelChoice | null;
 }
 
+/**
+ * Why a model's change to a Note was refused, whichever feature wrote it (#2796), in the order
+ * they are checked: nothing of the change stays in the Note.
+ * - "not-placed": it would hold a Citation, footnote or figure its text didn't place, or change
+ *   one that was there (#2424).
+ * - "misnamed": it named a paragraph the passage hasn't, named one twice, or named one and wrote
+ *   no words for it, so which paragraph it replaces can't be told (#2356).
+ * - "typed-tag": it rewrote a paragraph without a <removed> tag the User typed there, which would
+ *   take their words out (#2356).
+ * - "no-table": it wrote lines that read as a table's rows but make no table (#961).
+ * - "unplaced": it marked text to take out that isn't there word for word in one place (#2180).
+ */
+export const changeRefusals = [
+  "not-placed",
+  "misnamed",
+  "typed-tag",
+  "no-table",
+  "unplaced",
+] as const;
+export type ChangeRefusalKind = (typeof changeRefusals)[number];
+
 /** What Edit with AI did. */
 export type EditWithAiResult =
   /**
@@ -6940,31 +6995,12 @@ export type EditWithAiResult =
   | { kind: "block-too-long"; cause: "cap" | "model" }
   /** The User stopped it (`cancelEdit`). */
   | { kind: "cancelled" }
-  /**
-   * The model wrote lines that read as a table's rows but make no table
-   * (#961): nothing was written. `text`: the passage's new text, as it wrote it.
-   */
+  /** The change was refused (`changeRefusals`): nothing was written. */
+  | { kind: Exclude<ChangeRefusalKind, "no-table" | "unplaced"> }
+  /** `text`: the passage's new text, as the model wrote it. */
   | { kind: "no-table"; text: string }
-  /**
-   * The model marked text to take out that the passage doesn't have word for word in one
-   * place (#2180): nothing was written. `quotes`: that text, as it wrote it.
-   */
+  /** `quotes`: the text it marked to take out, as it wrote it. */
   | { kind: "unplaced"; quotes: string[] }
-  /**
-   * The model named a paragraph the passage hasn't, named one twice, or named one and wrote no
-   * words for it (#2356): which paragraph its text replaces can't be told, so nothing was written.
-   */
-  | { kind: "misnamed" }
-  /**
-   * The model rewrote a paragraph without a <removed> tag the User typed in it, which would take
-   * their words out (#2356): nothing was written.
-   */
-  | { kind: "typed-tag" }
-  /**
-   * What the change wrote would hold a Citation, footnote or figure its reply didn't place, or
-   * change one that was there (#2424): nothing was written.
-   */
-  | { kind: "not-placed" }
   /** The model failed, or gave nothing back. */
   | { kind: "failed"; error: ProviderError };
 
@@ -9315,6 +9351,7 @@ export const dataKinds = [
   "file-properties",
   "absence-documents",
   "watched-sentences",
+  "calendar-request",
 ] as const;
 
 export type DataKind = (typeof dataKinds)[number];
@@ -9380,6 +9417,10 @@ export type DataKind = (typeof dataKinds)[number];
  *   the sentence with its paragraph and the whole text of the Document or
  *   Folder they pick, to the chat model's provider. Asked where it is used;
  *   none in local mode.
+ * - "calendars": the User's sign-in and which of their calendars and days to read, to Google
+ *   Calendar or Microsoft 365, every few minutes while the app runs (#190). The events come back
+ *   and stay on this computer. Connecting the account allows it; background work, which never
+ *   asks; none in local mode. The Mac's own calendar is read on this computer and isn't a flow.
  */
 export const dataFlowIds = [
   "chat",
@@ -9400,6 +9441,7 @@ export const dataFlowIds = [
   "transcription",
   "scan-images",
   "document-check",
+  "calendars",
 ] as const;
 
 export type DataFlowId = (typeof dataFlowIds)[number];
@@ -11222,7 +11264,8 @@ export type MeetingKind = "meeting" | "memo";
  * - "starting": asked for, not heard from yet.
  * - "recording": its audio is coming in.
  * - "silent": the computer's sound has been nothing but silence for a minute,
- *   which is what macOS gives when IncarnaMind isn't allowed to record it.
+ *   which is what macOS gives when IncarnaMind isn't allowed to record it; or
+ *   the microphone for fifteen seconds, which a muted or wrong one gives.
  * - "denied": this computer doesn't allow IncarnaMind to record it.
  * - "unavailable": there is none (no microphone), or this computer can't
  *   record it (the computer's sound on Linux, for now).
@@ -11565,6 +11608,11 @@ export interface MeetingAudio {
   expiresAt: string | null;
   /** When the User, or the day's limit, last deleted it. */
   deletedAt: string | null;
+  /**
+   * Kept until the User deletes it (#687): they chose Keep audio, or "Keep a meeting's audio" was
+   * on when the Meeting started recording. It then has no `expiresAt`.
+   */
+  keptUntilDeleted: boolean;
 }
 
 /**
@@ -11594,6 +11642,108 @@ export interface StartMeetingInput {
   meetingId: string;
   /** Record the computer's sound too. Defaults to the Settings choice ("What is recorded"). */
   systemAudio?: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Calendars (#190)
+
+/**
+ * Where IncarnaMind reads the User's Meetings coming up from: Google Calendar, Microsoft 365
+ * (Outlook), or the Mac's own Calendar app, which holds the iCloud, Exchange and CalDAV accounts
+ * added there.
+ */
+export const calendarServices = ["google", "microsoft", "mac"] as const;
+export type CalendarService = (typeof calendarServices)[number];
+
+/**
+ * Why a calendar account isn't read now, said on its row in Settings › Meetings:
+ * - "offline": the service couldn't be reached; the last events read stay;
+ * - "sign-in": its sign-in ended (expired or revoked): Sign in again;
+ * - "local-mode": "Keep everything on this computer" is on (Google and Microsoft only);
+ * - "not-allowed": the User turned the calendars flow off in Settings › Privacy;
+ * - "denied": the Mac's calendar access was refused in System Settings;
+ * - "failed": the service answered with something IncarnaMind couldn't use.
+ */
+export type CalendarProblem =
+  | "offline"
+  | "sign-in"
+  | "local-mode"
+  | "not-allowed"
+  | "denied"
+  | "failed";
+
+export interface CalendarInfo {
+  id: string;
+  name: string;
+  /** Its events show in Coming up. By default the User's own calendars count. */
+  counted: boolean;
+  /** For the Mac's calendar: the account it is in there ("iCloud", "Exchange"); null otherwise. */
+  group: string | null;
+}
+
+export interface CalendarAccount {
+  id: string;
+  service: CalendarService;
+  /** The account's address for Google and Microsoft; null for the Mac's calendar. */
+  name: string | null;
+  calendars: CalendarInfo[];
+  /** When its events were last read (ISO 8601, UTC); null before the first read. */
+  syncedAt: string | null;
+  problem: CalendarProblem | null;
+  /** The service the calendars flow goes to, which Allow allows; null for the Mac's calendar. */
+  consentServiceId: string | null;
+}
+
+export interface CalendarsState {
+  /**
+   * The services this copy can connect: Google and Microsoft when the build has their client IDs
+   * (#209), the Mac's calendar on macOS. Those connected already are among them.
+   */
+  services: CalendarService[];
+  accounts: CalendarAccount[];
+  /** The service whose sign-in is waiting in the browser, which `cancelCalendarSignIn` stops. */
+  signingIn: CalendarService | null;
+}
+
+export interface CalendarAttendee {
+  /** As the invite names them, else their address. */
+  name: string;
+  email: string | null;
+  /** The User: the account the event was read from. "Me" in a Transcript. */
+  self: boolean;
+}
+
+/** A Meeting on a counted calendar: timed, not cancelled and not declined. */
+export interface CalendarEvent {
+  id: string;
+  title: string;
+  /** ISO 8601, UTC. */
+  startsAt: string;
+  endsAt: string;
+  attendees: CalendarAttendee[];
+  /** The call's address (Meet, Teams, Zoom and the like), https only; null when it has none. */
+  joinUrl: string | null;
+  service: CalendarService;
+  /** The Note Take notes made for it, while it is there. */
+  mindId: string | null;
+}
+
+/** The calendar event a Note was made for with Take notes, as it is on the calendar now. */
+export interface NoteEvent {
+  /** The event's id while it is read from a counted calendar; null once it isn't. */
+  eventId: string | null;
+  title: string;
+  startsAt: string;
+  endsAt: string;
+  attendees: CalendarAttendee[];
+  joinUrl: string | null;
+}
+
+export interface ListCalendarEventsInput {
+  /** ISO 8601: events that end after this… */
+  from: string;
+  /** …and start before this. */
+  to: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -11886,11 +12036,13 @@ export interface CoreApi {
    * it waits for the User, and its Tags; nothing is filed (#1569). A Document the User filed is
    * proposed a move only in a run on its `folderId`. With `forService`, a continuation of a
    * press authorized for that service: a different destination queues and clears nothing, and a
-   * change while the run waits sends nothing there.
+   * change while the run waits sends nothing there. With `once` too, the User allowed this run
+   * alone under their earlier no (see `OrganizeLibraryInput.once`): it sorts them before it
+   * returns, and throws what stopped it.
    */
   classifyDocuments(
     documentIds?: string[],
-    options?: { forService?: string; folderId?: string },
+    options?: { forService?: string; folderId?: string; once?: boolean },
   ): Promise<void>;
   /**
    * Stops automatic Tagging with AI where the Documents waiting to be
@@ -12002,6 +12154,20 @@ export interface CoreApi {
    * its consent not given for its service, Local mode.
    */
   tagDocuments(input?: { documentIds?: string[] }): Promise<OrganizeLibraryResult>;
+  /**
+   * Organize's first step on the User's press (#1569, ADR-0022): what it needs before it runs.
+   * A model the Library offers that may run without asking (one on this computer, or one whose
+   * service the User allowed) is kept as Organize's. In Local mode nothing asks: a cloud model
+   * throws TaggingNotReadyError, as its run would.
+   */
+  startOrganize(): Promise<OrganizeStart>;
+  /**
+   * The card's "Allow and organize": Organize may send to `serviceId` from now on, through the
+   * classification flow's consent, on the model the Library offers when none is chosen, which is
+   * kept. Records nothing when that isn't what Organize asks now, or under the User's earlier no,
+   * whose Allow covers one run (`OrganizeLibraryInput.once`). Returns what Organize needs now.
+   */
+  allowOrganize(serviceId: string): Promise<OrganizeStart>;
 
   /**
    * Brings back deleted Minds with their content, conversations with their messages,
@@ -13927,6 +14093,37 @@ export interface CoreApi {
   /** Answers a save's question (see `FileWriteRequest`). One already answered does nothing. */
   respondToFileWrite(requestId: string, accept: boolean): Promise<void>;
 
+  /** The calendars connected on this device, and those that can be (#190). */
+  getCalendars(): Promise<CalendarsState>;
+  /**
+   * Connects a calendar: Google or Microsoft by signing in in the browser, which allows the
+   * calendars flow to it (ADR-0022); the Mac's calendar by asking the system for access, which it
+   * asks only here, never in the background. Its events are read at once. Null when the User
+   * cancelled the sign-in. Rejects when the sign-in fails, and for Google or Microsoft in Local
+   * mode. The Mac's calendar with access refused is kept, its `problem` "denied", so its row says
+   * how to allow it.
+   */
+  connectCalendar(service: CalendarService): Promise<CalendarAccount | null>;
+  /** Stops a sign-in waiting in the browser. */
+  cancelCalendarSignIn(): Promise<void>;
+  /** Forgets the account on this device: its sign-in, calendars and events. Notes stay. */
+  disconnectCalendar(accountId: string): Promise<CalendarsState>;
+  /** Whether a calendar's events count, shown in Coming up. */
+  setCalendarCounted(input: { calendarId: string; counted: boolean }): Promise<CalendarsState>;
+  /** Reads every account's events now: Try again. */
+  syncCalendars(): Promise<CalendarsState>;
+  /** The Meetings on counted calendars between two times, in order, each once. */
+  listCalendarEvents(input: ListCalendarEventsInput): Promise<CalendarEvent[]>;
+  /**
+   * Take notes: the event's Note, made now, named for it, or the one made for it before while
+   * it is there.
+   */
+  takeEventNotes(eventId: string): Promise<{ mindId: string; created: boolean }>;
+  /** The calendar event a Note was made for, as the calendar has it now; null for any other Note. */
+  getNoteEvent(mindId: string): Promise<NoteEvent | null>;
+  /** Opens the system's Calendars privacy settings, after the Mac's calendar access was refused. */
+  openCalendarSettings(): Promise<void>;
+
   /** Every Meeting, newest first. */
   listMeetings(): Promise<Meeting[]>;
   /**
@@ -13975,6 +14172,12 @@ export interface CoreApi {
   stopMeeting(meetingId: string): Promise<Meeting>;
   /** Deletes the Meeting's audio on this computer now; a recording goes on keeping what comes next. */
   deleteMeetingAudio(meetingId: string): Promise<Meeting>;
+  /**
+   * Keep audio (#687): keeps a Meeting's audio until the User deletes it, or with `kept` false
+   * lets it go a day after its last stretch again, as its Undo does; past that, at the next
+   * sweep. InvalidInputError with no audio to keep.
+   */
+  keepMeetingAudio(input: { meetingId: string; kept: boolean }): Promise<Meeting>;
   /**
    * Up to 30 seconds of a stopped Meeting's audio, from `fromMs` (#138). NotFoundError once its
    * audio is deleted or its files are gone, and while it records.
@@ -14312,6 +14515,10 @@ export interface CoreEvents {
    * `listMeetings` now returns it.
    */
   "meetings.changed": Meeting[];
+  /** Calendar accounts were connected, chosen, read or failed (#190). */
+  "calendars.changed": CalendarsState;
+  /** The events on counted calendars changed: listCalendarEvents again. */
+  "calendarEvents.changed": null;
   /** About ten times a second while a Meeting's audio is captured: how loud each source is. */
   "meetings.level": MeetingLevel;
   /** A notification that a Meeting's notes were filled in was clicked: its Mind is shown (#142). */
@@ -14632,6 +14839,8 @@ const methods: Record<CoreApiMethod, true> = {
   organizeLibrary: true,
   stopOrganizeLibrary: true,
   tagDocuments: true,
+  startOrganize: true,
+  allowOrganize: true,
   restore: true,
   deleteAgain: true,
   undoCommands: true,
@@ -14738,6 +14947,16 @@ const methods: Record<CoreApiMethod, true> = {
   undoMeetingJoin: true,
   listMeetingsLeftApart: true,
   meetingsLeftApartSaid: true,
+  getCalendars: true,
+  connectCalendar: true,
+  cancelCalendarSignIn: true,
+  disconnectCalendar: true,
+  setCalendarCounted: true,
+  syncCalendars: true,
+  listCalendarEvents: true,
+  takeEventNotes: true,
+  getNoteEvent: true,
+  openCalendarSettings: true,
   createMeeting: true,
   discardMeeting: true,
   startMeeting: true,
@@ -14746,6 +14965,7 @@ const methods: Record<CoreApiMethod, true> = {
   resumeMeeting: true,
   stopMeeting: true,
   deleteMeetingAudio: true,
+  keepMeetingAudio: true,
   readMeetingAudio: true,
   listTranscriptionServices: true,
   setTranscriptionKey: true,

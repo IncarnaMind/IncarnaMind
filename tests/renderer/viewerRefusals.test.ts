@@ -240,6 +240,7 @@ describe("A viewer refuses what its reader refuses (#762)", () => {
       pageTo: 1,
       quote,
       mindId: null,
+      conversationId: null,
       location,
     });
   });

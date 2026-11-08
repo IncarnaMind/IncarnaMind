@@ -28,6 +28,7 @@ registerMenu("mind", [
   "mind.check",
   "mind.tieOut",
   "mind.exportMenu",
+  "meeting.saveRecording",
   "mind.history",
   "mind.moveTo",
   "mind.rename",

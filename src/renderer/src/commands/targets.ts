@@ -26,6 +26,25 @@ export function everyDocument(ctx: CommandContext, test: (document: Document) =>
   return count > 0 && documents.length === count && documents.every(test);
 }
 
+/**
+ * The one Mind a command acts on: the Mind's row or the tab its menu was opened on, else the Mind
+ * in the tab the User is in (⇧⌘E, ⌘K). None for several selected.
+ */
+export function mindOf(ctx: CommandContext): string | null {
+  const targets = targetsOf(ctx);
+  if (targets.length > 1) return null;
+  const [target] = targets;
+  if (target?.kind === "mind") return target.id;
+  const { layout } = useAppStore.getState();
+  const tab =
+    target === undefined
+      ? currentTabOf(layout)
+      : target.kind === "tab"
+        ? findTab(layout, target.id)
+        : undefined;
+  return tab?.item.kind === "mind" ? tab.item.mindId : null;
+}
+
 /** The Minds a menu or ⌘K acts on, in the store's order: a tab shows its Mind. */
 export function mindsOf(ctx: CommandContext): Mind[] {
   const ids = new Set(idsOf(ctx, "mind"));

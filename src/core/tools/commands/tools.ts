@@ -375,9 +375,10 @@ export function commandTools(options: CommandToolsOptions): {
       let ran: Awaited<ReturnType<CheckedCommand["run"]>>;
       // The card named the cloud service and what goes to it: the User's Allow is that consent.
       // This run sends under a permit for that service, and the Allow is stored after it, as the
-      // Library stores "Use {company}" after it saves the model: a consent stored first would
-      // read as a turn-on of the switch for tagging by itself (#2308). A standing no is theirs to
-      // change in Settings: this Allow carries the permit for this run only, and nothing is stored.
+      // Library's "Allow and organize" stores it after keeping the model: a consent stored first
+      // would read as a turn-on of the switch for tagging by itself (#2308). A standing no is
+      // theirs to change in Settings: this Allow carries the permit for this run only, and nothing
+      // is stored.
       const permit: CloudReadPermit | undefined = command.cloud && {
         flow: "classification",
         serviceId: command.cloud.id,

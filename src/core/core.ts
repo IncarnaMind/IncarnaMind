@@ -141,6 +141,7 @@ import {
   type MindExportPreview,
   type NetworkTrafficId,
   NOT_IN_A_FOLDER_ID,
+  type OrganizeStart,
   type OwnFileKind,
   type PassageSearchPlace,
   type ProviderError,
@@ -163,6 +164,7 @@ import {
 } from "./api";
 import { createApprovals } from "./approvals";
 import { createBackgroundQueue } from "./backgroundQueue";
+import { createCalendars } from "./calendars";
 import { describeModel } from "./chatModelNames";
 import { createCheckpoints } from "./checkpoints";
 import { createCheckRecord } from "./checkRecord";
@@ -294,11 +296,16 @@ import { createModelSpend } from "./modelSpend";
 import { newestReads, readNewest } from "./newest";
 import { createNoteAdding, insertBlocks } from "./noteAdding";
 import { createNoteConversations } from "./noteConversations";
-import { createOrganizeReview, organizeReviewCount } from "./organizeReview";
+import {
+  createOrganizeReview,
+  type OrganizeReviewRun,
+  organizeReviewCount,
+} from "./organizeReview";
 import { createOutputFiles, fileProblem, fingerprintOf } from "./outputFiles";
 import { PAPER as PAGE_PAPER } from "./pageDefaults";
 import { nativePageSetup } from "./pageSetup";
 import { createPrivacy, type NetworkTrafficRegistry } from "./privacy";
+import { createChanges } from "./proposals/apply";
 import { KeyCharacterError, storedApiKey } from "./providers/apiKey";
 import { readsImages } from "./providers/capabilities";
 import { retrievesFirst, writesThenCites } from "./providers/catalog/answerPaths";
@@ -451,6 +458,12 @@ export interface Core extends CoreApi, CoreEventSource {
    * `shell` adapter. Throws NotFoundError for any other path.
    */
   showSavedFile(path: string): Promise<void>;
+  /**
+   * Save recording… (#687): writes a Meeting's audio as one WAV file at `path`, which the host's
+   * save dialog gave. Not while it records; NotFoundError when it has no audio, or its audio is
+   * deleted while it is written, which then leaves nothing at `path`.
+   */
+  writeMeetingRecording(meetingId: string, path: string): Promise<void>;
   /**
    * Opens a file IncarnaMind saved since it started in the default app for its
    * type, through the `shell` adapter. Throws NotFoundError for any other path.
@@ -764,6 +777,7 @@ export function createCore(adapters: CoreAdapters): Core {
     content,
     mindIds: () => minds.list().map((mind) => mind.id),
   });
+  const changes = createChanges({ notes: content, now: () => adapters.now?.() ?? new Date() });
   // A Mind waiting in Recently deleted comes back with its Citations, so it counts until it is purged.
   const eachCitingMind = (
     visit: (blocks: Y.XmlFragment, mindId: string) => void,
@@ -1318,6 +1332,8 @@ export function createCore(adapters: CoreAdapters): Core {
   let transcriptionGateChanged = (): Promise<void> => Promise.resolve();
   /** Set once Connectors exist: Local mode pauses those on other computers. */
   let connectorsLocalModeChanged = () => {};
+  /** Set once calendars exist: Local mode stops reading Google and Microsoft. */
+  let calendarsLocalModeChanged = () => {};
   /**
    * Local mode on or off: embeddings may switch back to the built-in model,
    * rerank pauses, usage data stops, and outside agents pause.
@@ -1341,6 +1357,7 @@ export function createCore(adapters: CoreAdapters): Core {
       events.emit("library.changed", null);
       agentsLocalModeChanged();
       connectorsLocalModeChanged();
+      calendarsLocalModeChanged();
       await rerankChanged();
       // Questions to a cloud model are refused now (or allowed again): the chat model's readiness changed.
       await readinessChanged();
@@ -2084,26 +2101,13 @@ export function createCore(adapters: CoreAdapters): Core {
     proposeFolder: (name, about) =>
       organizeReview.proposeFolders([{ name, description: about }])[0] ?? null,
     withdrawOrganizeRun: (runId, folderIds) => organizeReview.withdraw(runId, folderIds),
-    allowCloudRead: async (service) => {
-      consent.choose(["classification"], service);
-      await dataFlowsChanged().catch((error: unknown) =>
-        console.error("The window couldn't be told which services may read the Documents.", error),
-      );
-    },
+    allowCloudRead: (service) => allowOrganizeRead(service),
     offeredOrganizeModel: async () => {
-      if (organizeModelOf(library.settings())) return null;
-      const { automatic } = await taggingModels();
-      return (
-        automatic && { classifier: automatic.classifier, route: routeOf(automatic.classifier) }
-      );
+      const offered = await organizeOffer();
+      return offered && { classifier: offered, route: routeOf(offered) };
     },
-    keepOrganizeModel: async (classifier) => {
-      const saved = library.settings();
-      if (organizeModelOf(saved)) return;
-      library.saveSettings({ ...saved, organizeWith: classifier });
-      await dataFlowsChanged();
-      await taggingChanged();
-    },
+    keepOrganizeModel: (classifier) => keepOrganizeModel(classifier),
+    localOnly: () => embedding.localOnly(),
     lendOrganizeModel: (classifier) => library.lendOrganizeModel(classifier),
     allows: async (input, touches, mindId, wallOverride) => {
       const wallId = wallOverride === undefined ? walledFolder(mindId) : wallOverride;
@@ -2213,6 +2217,7 @@ export function createCore(adapters: CoreAdapters): Core {
   });
   const answers = createAnswers({
     content,
+    changes,
     events,
     engine: answerEngine,
     ...(adapters.analysisRuntime && { analysisRuntime: adapters.analysisRuntime }),
@@ -2388,6 +2393,7 @@ export function createCore(adapters: CoreAdapters): Core {
       checkpoint: (mindId) => {
         checkpoints.save(mindId, "accept");
       },
+      now: () => adapters.now?.() ?? new Date(),
       create: (title, folderId, headed) => {
         const mind = makeMind({ title, kind: DEFAULT_MIND_KIND, folderId }, { headed });
         return { id: mind.id, name: mindName(mind) || title };
@@ -2533,7 +2539,7 @@ export function createCore(adapters: CoreAdapters): Core {
       const permitted = ids.filter((id) => allowed.includes(id));
       return evidence.scope(mindId, permitted).documentIds ?? [...permitted];
     },
-    checkpoint: (mindId) => checkpoints.save(mindId, "compare"),
+    changes,
     tasks: {
       start: (kind, mindId, input) => tasks.start(kind, mindId, input),
       unfinished: () => tasks.unfinished(),
@@ -2843,6 +2849,7 @@ export function createCore(adapters: CoreAdapters): Core {
   // Edit with AI (#93): the change comes back as Proposals; Citations it keeps are checked again.
   const edits = createEdits({
     content,
+    changes,
     requireMind: (mindId) => {
       writableMind(mindId);
     },
@@ -2881,7 +2888,6 @@ export function createCore(adapters: CoreAdapters): Core {
     checkpoint: (mindId) => {
       checkpoints.save(mindId, "accept");
     },
-    now: () => adapters.now?.() ?? new Date(),
   });
 
   // Check against Documents (#96): check Runs that can only search and cite.
@@ -3132,12 +3138,30 @@ export function createCore(adapters: CoreAdapters): Core {
   });
 
   /**
-   * A Citation checked again in the Note it goes into: one whose Document is kept inside a walled
-   * Folder that Note is outside isn't read from there, so the check it was made with stands, as
-   * for a Citation made before the wall (#1934).
+   * Whether a Citation may be read again from where it is shown (#1934, #2782): the wall of the
+   * Note it is in, or of the conversation it is in when that has no Note; somewhere with neither
+   * reads as browsing is, which may. A place whose wall can't be judged (its Note or conversation
+   * gone) may not.
+   */
+  const mayRecheckFrom = (place: TurnPlace, documentId: string): boolean => {
+    const wall = walledDocument(documentId);
+    if (wall === null) return true;
+    if (place.mindId === null && place.conversationId === null) return true;
+    try {
+      return wall === turnWall(place);
+    } catch (error) {
+      if (error instanceof NotFoundError) return false;
+      throw error;
+    }
+  };
+  /**
+   * A Citation checked again in the Note or conversation it is shown in: one whose Document is
+   * kept inside a walled Folder that place is outside isn't read from there, so the check it was
+   * made with stands, as for a Citation made before the wall (#1934, #2782).
    */
   const recheckIn = (input: RecheckCitationInput): RecheckResult => {
-    if (mayRecheckIn(input.mindId, input.documentId)) return recheckCitation(documents, input);
+    const place = { mindId: input.mindId, conversationId: input.conversationId ?? null };
+    if (mayRecheckFrom(place, input.documentId)) return recheckCitation(documents, input);
     return { keptInside: walledFolderName(input.documentId) ?? "" };
   };
   // "Add to note" into a Mind that isn't open (#201), with its Citations checked where they land.
@@ -3887,6 +3911,80 @@ export function createCore(adapters: CoreAdapters): Core {
         : null;
     const pages = reader && chat.describeModel(reader)?.service;
     return [...(service ? [service] : []), ...(pages && pages.id !== service?.id ? [pages] : [])];
+  };
+  /** The model the Library offers Organize, Automatic's pick; null when one is chosen or none. */
+  const organizeOffer = async (): Promise<TaggingClassifier | null> =>
+    organizeModelOf(library.settings())
+      ? null
+      : ((await taggingModels()).automatic?.classifier ?? null);
+  /** Keeps `classifier` as Organize's model when none is chosen. It records no consent. */
+  const keepOrganizeModel = async (classifier: TaggingClassifier) => {
+    const saved = library.settings();
+    if (organizeModelOf(saved)) return;
+    library.saveSettings({ ...saved, organizeWith: classifier });
+    await dataFlowsChanged();
+    await taggingChanged();
+  };
+  /** The User allowed Organize to send to `service` where its words said what goes (ADR-0022). */
+  const allowOrganizeRead = async (service: ExternalService) => {
+    consent.choose(["classification"], service);
+    await dataFlowsChanged().catch((error: unknown) =>
+      console.error("The window couldn't be told which services may read the Documents.", error),
+    );
+  };
+  /** What Organize needs before the User's own run, and the model the Library offers (#1569). */
+  const organizeNeeds = async (): Promise<{
+    start: OrganizeStart;
+    offered: TaggingClassifier | null;
+  }> => {
+    const offered = await organizeOffer();
+    const classifier = organizeModelOf(library.settings()) ?? offered;
+    // Local mode sends nothing to a cloud service, so nothing asks: it says so, as the run would.
+    const paused = () => new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
+    if (!classifier) {
+      const readiness = await chat.readiness();
+      const noProvider = !readiness.ready && readiness.reason === "no-provider";
+      // Automatic offers no cloud model in Local mode, though one is set up.
+      if (embedding.localOnly() && !noProvider) throw paused();
+      return { start: { ready: false, needs: "model", noProvider }, offered };
+    }
+    const route = routeOf(classifier);
+    if (route.where === "cloud") {
+      if (embedding.localOnly()) throw paused();
+      const decided = consent.status("classification", route.service);
+      if (decided !== "accepted")
+        return {
+          start: {
+            ready: false,
+            needs: "consent",
+            service: route.service,
+            declined: decided === "declined",
+            model: classifier.kind,
+          },
+          offered,
+        };
+    }
+    return { start: { ready: true, model: classifier.kind }, offered };
+  };
+  /**
+   * A run the User allowed alone under their earlier no (#2252, ADR-0022): a permit for the
+   * service they allowed, on the model the Library offers there, lent for the run when none is
+   * chosen. Nothing is kept.
+   */
+  const allowedOnce = async (
+    input: unknown,
+  ): Promise<{ permit: CloudReadPermit; giveBack(): void } | null> => {
+    if (!isRecord(input) || input.once === undefined || input.once === false) return null;
+    if (input.once !== true || typeof input.forService !== "string" || input.forService === "")
+      throw new InvalidInputError({ key: "error.organize.invalid" });
+    const offered = await organizeOffer();
+    return {
+      permit: { flow: "classification", serviceId: input.forService },
+      giveBack:
+        offered && tagging.service(offered)?.id === input.forService
+          ? library.lendOrganizeModel(offered)
+          : () => {},
+    };
   };
   consent.registry.register({
     id: "classification",
@@ -4810,6 +4908,7 @@ export function createCore(adapters: CoreAdapters): Core {
           folderName: (folderId) =>
             library.folders().find((folder) => folder.id === folderId)?.name ?? null,
           folderDocuments: (folderId) => library.treeDocumentIds(folderId),
+          attendees: (mindId) => calendars.attendeesOf(mindId),
         }),
       lineText: (text, words) => inScript(text, settings.get().chineseScript, words),
       purgedPaths: () =>
@@ -4834,6 +4933,7 @@ export function createCore(adapters: CoreAdapters): Core {
     capture: adapters.audioCapture,
     noticeAccepted: () => settings.get().device.meetingNoticeAccepted,
     systemAudioByDefault: () => settings.get().device.meetingSystemAudio,
+    keepAudioByDefault: () => settings.get().device.keepMeetingAudio,
     language: () => settings.get().language,
     createMind: (title, folderId) => {
       const mind = minds.create(parseCreateMindInput({ title, folderId }));
@@ -4862,6 +4962,45 @@ export function createCore(adapters: CoreAdapters): Core {
     log: adapters.log ?? silentLogger,
   });
   listMeetings = () => meetings.list();
+  // Calendars (#190): Meetings coming up, and a Note started for one.
+  const googleCalendarSecret = adapters.calendarServices?.google?.clientSecret;
+  if (googleCalendarSecret) rememberSecret(googleCalendarSecret);
+  const calendars = createCalendars({
+    db,
+    now,
+    clock: () => (adapters.now?.() ?? new Date()).getTime(),
+    secrets,
+    consent,
+    localOnly: () => embedding.localOnly(),
+    browser: adapters.browser,
+    services: adapters.calendarServices ?? {},
+    system: adapters.systemCalendar,
+    fetch: adapters.calendarFetch ?? globalThis.fetch,
+    ...(adapters.calendarSync?.intervalMs !== undefined && {
+      intervalMs: adapters.calendarSync.intervalMs,
+    }),
+    ...(adapters.calendarSync?.retryMs && { retryMs: adapters.calendarSync.retryMs }),
+    language: () => settings.get().language,
+    createNote: (title) => {
+      const mind = minds.create(parseCreateMindInput({ title }));
+      startInWritingStyle(mind.id);
+      mindsChanged();
+      return mind.id;
+    },
+    noteLive: (mindId) => {
+      try {
+        minds.get(mindId);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    changed: (state) => events.emit("calendars.changed", state),
+    eventsChanged: () => events.emit("calendarEvents.changed", null),
+    log: adapters.log ?? silentLogger,
+  });
+  calendarsLocalModeChanged = () => calendars.localModeChanged();
+  calendars.start();
   // One meeting is one item (#2528): a pair an earlier version left apart is put right first.
   db.transaction(() => {
     for (const { deletedAt, documentIds } of transcriptsApart(db, now())) {
@@ -5901,6 +6040,14 @@ export function createCore(adapters: CoreAdapters): Core {
       if (input.mindId !== null && typeof input.mindId !== "string") {
         throw new InvalidInputError({ key: "error.citation.recheckNote" });
       }
+      // A conversation named must be one that can be judged; left out, the Citation is browsing.
+      if (
+        input.conversationId !== undefined &&
+        input.conversationId !== null &&
+        (typeof input.conversationId !== "string" || input.conversationId === "")
+      ) {
+        throw new InvalidInputError({ key: "error.citation.recheckPlace" });
+      }
       return recheckIn({
         documentId: input.documentId,
         quote: typeof input.quote === "string" ? input.quote : "",
@@ -5910,6 +6057,7 @@ export function createCore(adapters: CoreAdapters): Core {
         quotedWords: parseQuotedWords(input.quotedWords),
         ...(input.location !== undefined && { location: parseLocation(input.location) }),
         mindId: input.mindId,
+        conversationId: input.conversationId ?? null,
       });
     },
     citeSelection: async (input) => {
@@ -6489,13 +6637,27 @@ export function createCore(adapters: CoreAdapters): Core {
       return routeOf(classifier);
     },
     classifyDocuments: async (ids, options) => {
-      library.classify(
-        ids,
-        options?.forService,
-        options?.folderId
-          ? { origin: "folder", folderId: library.folder(options.folderId).id }
-          : { origin: "library" },
-      );
+      const run: OrganizeReviewRun = options?.folderId
+        ? { origin: "folder", folderId: library.folder(options.folderId).id }
+        : { origin: "library" };
+      const once = await allowedOnce(options);
+      if (once) {
+        // Sorted before it returns: the model it is lent is given back then.
+        try {
+          const { failed } = await library.organizeAtOnce(
+            ids ?? documents.list().map((each) => each.id),
+            lifetime.signal,
+            undefined,
+            once.permit,
+            run,
+          );
+          if (failed !== null) throw failed;
+        } finally {
+          once.giveBack();
+        }
+      } else {
+        library.classify(ids, options?.forService, run);
+      }
       const classifier = organizeModelOf(library.settings());
       if (classifier) {
         usageData.record({
@@ -6580,7 +6742,30 @@ export function createCore(adapters: CoreAdapters): Core {
     redoOrganizeReviewConfirmation: async (id) => organizeReview.redoConfirmation(id),
     discardOrganizeReview: async (itemIds) => organizeReview.discard(itemIds),
     restoreDiscardedOrganizeReview: async (id) => organizeReview.restoreDiscarded(id),
-    organizeLibrary: (input) => libraryOrganizer.organize(input),
+    organizeLibrary: async (input) => {
+      const once = await allowedOnce(input);
+      try {
+        return await libraryOrganizer.organize(input, once ? { permit: once.permit } : undefined);
+      } finally {
+        once?.giveBack();
+      }
+    },
+    startOrganize: async () => {
+      const { start, offered } = await organizeNeeds();
+      // A model that may run without asking is kept, as the card's Allow keeps the one it names.
+      if (start.ready && offered) await keepOrganizeModel(offered);
+      return start;
+    },
+    allowOrganize: async (serviceId) => {
+      if (typeof serviceId !== "string" || serviceId === "")
+        throw new InvalidInputError({ key: "error.organize.invalid" });
+      const { start, offered } = await organizeNeeds();
+      if (start.ready || start.needs !== "consent" || start.declined) return start;
+      if (start.service.id !== serviceId) return start;
+      if (offered) await keepOrganizeModel(offered);
+      await allowOrganizeRead(start.service);
+      return (await organizeNeeds()).start;
+    },
     tagDocuments: async (input) => {
       rateLimit.resumeNow();
       return libraryOrganizer.tag(input);
@@ -7182,6 +7367,16 @@ export function createCore(adapters: CoreAdapters): Core {
     listFileWriteRequests: async () => outputs.requests(),
     respondToFileWrite: (requestId, accept) => outputs.respond(requestId, accept),
 
+    getCalendars: async () => calendars.state(),
+    connectCalendar: (service) => calendars.connect(service),
+    cancelCalendarSignIn: () => calendars.cancelSignIn(),
+    disconnectCalendar: (accountId) => calendars.disconnect(accountId),
+    setCalendarCounted: (input) => calendars.setCounted(input),
+    syncCalendars: () => calendars.syncNow(),
+    listCalendarEvents: async (input) => calendars.list(input),
+    takeEventNotes: async (eventId) => calendars.takeNotes(eventId),
+    getNoteEvent: async (mindId) => calendars.noteEvent(mindId),
+    openCalendarSettings: () => calendars.openSettings(),
     listMeetings: async () => meetings.list(),
     listJoinedMeetings: async () => joinedMeetings(db),
     joinedMeetingsSaid: async (ids) => joinedMeetingsSaid(db, ids, now()),
@@ -7226,6 +7421,8 @@ export function createCore(adapters: CoreAdapters): Core {
       return meetingFill.followUndo(id, input.undone);
     },
     deleteMeetingAudio: async (meetingId) => meetings.deleteAudio(meetingId),
+    keepMeetingAudio: async (input) => meetings.keepAudio(input),
+    writeMeetingRecording: (meetingId, path) => meetings.writeRecording(meetingId, path),
     readMeetingAudio: async (input) => meetings.readAudio(input),
     retryTranscript: async (meetingId) => meetings.retryTranscript(meetingId),
     listTranscriptionServices: () => cloudTranscription.list(),
@@ -7320,7 +7517,10 @@ export function createCore(adapters: CoreAdapters): Core {
       }
       return unsaved.atEnd();
     },
-    systemAwake: () => meetings.awake(),
+    systemAwake: () => {
+      meetings.awake();
+      calendars.awake();
+    },
     on: (event, listener) => events.on(event, listener),
     onAnyEvent: (listener) => events.onAny(listener),
     dataFlows: consent.registry,
@@ -7334,6 +7534,7 @@ export function createCore(adapters: CoreAdapters): Core {
       lifetime.abort();
       // What a Meeting has captured is saved before anything else stops.
       meetings.close();
+      calendars.close();
       transcripts?.close();
       speakerModel?.close();
       // Notes being filled in are left as they were: the next start says so.

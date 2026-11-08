@@ -17,6 +17,7 @@ import { ProblemLine } from "../ProblemLine";
 import { UndoLineAt } from "../UndoLine";
 import { useTaggingService } from "../useTaggingService";
 import { quietButtonClass } from "./LibrarySection";
+import { OrganizeAsk } from "./OrganizeAsk";
 
 function Action({ label, testId, onClick }: { label: string; testId: string; onClick(): void }) {
   return (
@@ -52,10 +53,10 @@ function Line({
 }
 
 /**
- * Organize's one state, said once at the Library's top (#1569): "Organizing 12 of 40…" with Stop
- * while it runs; its cost first when that is over $1; after Stop, that nothing moved; while
- * Documents wait to be confirmed, how many with Review, in the update's own words until the Review
- * is first opened; and what Confirm or Discard did, with Undo.
+ * Organize's one state, said once at the Library's top (#1569): what it asks before it runs;
+ * "Organizing 12 of 40…" with Stop while it runs; its cost first when that is over $1; after Stop,
+ * that nothing moved; while Documents wait to be confirmed, how many with Review, in the update's
+ * own words until the Review is first opened; and what Confirm or Discard did, with Undo.
  */
 export function OrganizeLines() {
   const t = useT();
@@ -81,6 +82,7 @@ export function OrganizeLines() {
   return (
     <>
       <UndoLineAt place={LIBRARY_UNDO_PLACE} className="mt-2 -ml-4 empty:hidden" />
+      {!run && <OrganizeAsk />}
       {run ? (
         <Line testId="organize-running">
           <span className="tabular-nums">

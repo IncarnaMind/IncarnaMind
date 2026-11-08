@@ -5,9 +5,9 @@
  * inside a wall, it sorts each into the Folders it may choose. Nothing moves from the chat
  * (#1569): what it proposes waits in Suggestions, and the reply's Review button opens them. It
  * asks only before a cloud service first reads the Documents for it, and its Undo takes its
- * proposals back out. With no model chosen for Organize it takes the one the
- * Library offers as "Use {company}", asks where that Library question would, and keeps it as
- * Organize's model; under a standing no it only lends it for the run (#2252).
+ * proposals back out. With no model chosen for Organize it takes the one the Library offers,
+ * asks where the Library's card would (#1569), and keeps it as Organize's model; under a
+ * standing no it only lends it for the run (#2252).
  */
 
 import { translate } from "../../../shared/i18n";
@@ -141,11 +141,13 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
           (each) => each.flow.id === "classification" && each.flow.service.id === route.service.id,
         )
       : null;
-  const cloud = route.where === "cloud" && flow?.consent !== "accepted" ? route.service : null;
-  const cloudDeclined = route.where === "cloud" && flow?.consent === "declined";
+  // In Local mode nothing asks: the run itself says nothing went (#1569).
+  const asks = route.where === "cloud" && !host.localOnly();
+  const cloud = asks && flow?.consent !== "accepted" ? route.service : null;
+  const cloudDeclined = asks && flow?.consent === "declined";
   /**
-   * Runs with the pick as Organize's model: kept, as the Library keeps "Use {company}", except
-   * under a standing no, where this Allow is for this run only and the model is lent, not kept.
+   * Runs with the pick as Organize's model: kept, as the Library's "Allow and organize" keeps it,
+   * except under a standing no, where this Allow is for this run only and the model is lent.
    */
   const withPick =
     (run: CheckedCommand["run"]): CheckedCommand["run"] =>
