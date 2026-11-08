@@ -2770,6 +2770,11 @@ export function createDocuments(options: DocumentsOptions) {
       return find(documentId)?.content_hash ?? null;
     },
 
+    /** A live Document's name, or null if it was deleted. */
+    documentName(documentId: string): string | null {
+      return find(documentId)?.name ?? null;
+    },
+
     /**
      * A live Document's date, as Answers see it beside its Passages (#548):
      * the date it states (its reference record's, else its creation date),

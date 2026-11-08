@@ -24,7 +24,7 @@ import {
   type SearchScope,
 } from "../../core/api";
 import { overlapsCitation } from "../../shared/citationOverlap";
-import { parseQuotedWords, quotedWordsFoundIn } from "../../shared/citations";
+import { parseQuotedWords, type QuotedWordsOnPage, quotedWordsAt } from "../../shared/citations";
 import { core } from "./core";
 import { citationDecision, partDecisions } from "./editor/alreadyCited";
 import type { NumberedCitation } from "./editor/citationNumbers";
@@ -496,12 +496,18 @@ export const citationClosingLength = (words: string): number =>
  * Citation's own check stands for it now. One step for ⌘Z. Only when the card
  * offers it, so a sentence already citing those words gets no second Citation.
  */
-export function addAsCitation(editor: Editor, claim: ShownClaim): boolean {
+export function addAsCitation(
+  editor: Editor,
+  claim: ShownClaim,
+  onPage?: QuotedWordsOnPage,
+): boolean {
   const evidence = claim.check.evidence;
   const { state } = editor;
   const type = state.schema.nodes[CITATION_NODE];
   const mark = state.schema.marks[CLAIM_CHECK_MARK];
-  if (!evidence || !type || !mark || citationDecision(state, claim).kind !== "add") return false;
+  if (!evidence || !type || !mark || citationDecision(state, claim, onPage).kind !== "add") {
+    return false;
+  }
   const words = state.doc.textBetween(claim.sentence.from, claim.sentence.to, "\n", "￼");
   const closing = citationClosingLength(words);
   const at = claim.sentence.to - closing;
@@ -523,6 +529,7 @@ export function addPartCitations(
   editor: Editor,
   claim: ShownClaim,
   parts: readonly ClaimCheckPart[],
+  onPage?: QuotedWordsOnPage,
 ): "added" | "nothing" | "changed" {
   const { state } = editor;
   const type = state.schema.nodes[CITATION_NODE];
@@ -531,7 +538,7 @@ export function addPartCitations(
   const inserts: { at: number; citations: CitationAttributes[] }[] = [];
   for (const part of parts) {
     // A Passage cited after one part is already cited for the next, as a second add would find.
-    const citations = partDecisions(state, claim, part).flatMap(({ evidence, decision }) =>
+    const citations = partDecisions(state, claim, part, onPage).flatMap(({ evidence, decision }) =>
       decision.kind === "add" &&
       !added.some(
         (each) => each.documentId === evidence.documentId && overlapsCitation(each, evidence),
@@ -603,16 +610,17 @@ export function widenCitation(
 
 /**
  * Points the sentence's Citation that doesn't hold at the Passage the check
- * found instead, again in place (#1620). Only that Passage's quote was
- * checked: it must hold the words the sentence put in quotation marks for the
- * Citation to be found, and those words stay on it for the core's re-check.
- * The old verdict described the old quote, so it goes.
+ * found instead, again in place (#1620). The words the sentence put in
+ * quotation marks must be on that Passage's page for the Citation to be found
+ * (`quotedWordsAt`), and they stay on it for the core's re-check. The old
+ * verdict described the old quote, so it goes.
  */
 export function replaceCitation(
   editor: Editor,
   { citation, evidence }: { citation: NumberedCitation; evidence: CitationAttributes },
+  onPage?: QuotedWordsOnPage,
 ): boolean {
-  if (!quotedWordsFoundIn(evidence.quote ?? "", citation.attributes.quotedWords)) return false;
+  if (!quotedWordsAt(citation.attributes.quotedWords, evidence, onPage)) return false;
   return rewriteCitation(editor, citation, {
     ...evidence,
     check: "found",

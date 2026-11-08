@@ -725,6 +725,7 @@ describe("Scanned pages are read on this computer (#397)", { timeout: 60_000 }, 
     };
     const documents = {
       currentVersion: () => "hash",
+      documentName: () => "Annual report.pdf",
       pageTexts: () => [unit],
       passagesCovering: () => [{ id: "passage-1", text }],
     };

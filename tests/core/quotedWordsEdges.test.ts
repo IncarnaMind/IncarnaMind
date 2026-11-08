@@ -247,6 +247,7 @@ describe("Quoted words, at the edges", { timeout: 30_000 }, () => {
   describe("a Citation kept through Edit with AI", () => {
     const documentsWith = (text: string): RecheckDocuments => ({
       currentVersion: () => "v2",
+      documentName: () => "Site safety report.md",
       pageTexts: () => [{ page: 1, text, kind: "page" }],
       passagesCovering: () => [{ id: "passage", text }],
     });

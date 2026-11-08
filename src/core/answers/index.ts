@@ -2858,13 +2858,18 @@ export function createAnswers(options: AnswersOptions) {
                 const asText = sourcesAsText(markdown, known);
                 const sourced = linkKnownSources(markdown, known, link);
                 const tables = linkTableSources(sourced.text, link);
+                const checked = session.checkedNodes(quotedWordsIn(tables.markdown));
                 const drawn = withAnalysisPictures(
-                  markdownToBlocks(tables.markdown),
+                  markdownToBlocks(
+                    checked.translated.length > 0
+                      ? withoutQuotationMarks(tables.markdown, new Set(checked.translated))
+                      : tables.markdown,
+                  ),
                   markerAnalyses,
                 );
                 const cited = drawn.flatMap((block, index) =>
                   withCitations([block], (marker) => {
-                    const node = session.checkedNode(marker);
+                    const node = checked.node(marker);
                     if (!node) {
                       unrecorded++;
                       if (firstUnrecorded < 0) firstUnrecorded = index;

@@ -174,6 +174,7 @@ for (const language of ["en", "zh-CN"] as const) {
     const units = transcriptUnits(readVtt(file.contents));
     const documents = {
       currentVersion: () => citation.contentHash,
+      documentName: () => citation.documentName,
       pageTexts: () => units,
       passagesCovering: () => [
         { id: citation.passageId ?? "review", text: units.map((unit) => unit.text).join("\n") },
