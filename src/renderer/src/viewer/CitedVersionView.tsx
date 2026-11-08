@@ -16,7 +16,7 @@ import { DocumentView } from "./DocumentView";
 import { HighlightedText } from "./highlightedText";
 import { CitationMark, marginRoom, markTopFor, quoteMarkOf, quoteTone } from "./quoteMark";
 import { ViewerFrameContext, ViewerHeader } from "./ViewerHeader";
-import { ViewerMessage } from "./ViewerMessage";
+import { OpeningDocument, ViewerMessage } from "./ViewerMessage";
 
 type Loaded =
   | { kind: "loading" }
@@ -144,7 +144,11 @@ export function CitedVersionView({
     <>
       <ViewerHeader openable={false} showingCited />
       {loaded.kind === "loading" ? (
-        <ViewerMessage>{t("viewer.loading")}</ViewerMessage>
+        <OpeningDocument
+          key={attempt}
+          openable={false}
+          retry={() => setAttempt((count) => count + 1)}
+        />
       ) : (
         <CitedVersionContent
           document={document}

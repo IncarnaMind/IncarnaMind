@@ -27,6 +27,23 @@ interface ImportMetaEnv {
    * Otherwise the first run asks, and it is off unless the User agrees.
    */
   readonly MAIN_VITE_TESTER_BUILD?: string;
+  /**
+   * Google Calendar's OAuth client for a desktop app (#190, #209), set by the release workflow
+   * from a repository variable. Unset or empty, or without its secret, the build doesn't offer
+   * Google Calendar.
+   */
+  readonly MAIN_VITE_GOOGLE_CALENDAR_CLIENT_ID?: string;
+  /**
+   * That client's secret, which Google's token endpoint asks a desktop app for alongside PKCE.
+   * Google doesn't treat an installed app's secret as confidential, but it stays out of the
+   * repository: the release workflow sets it from a repository secret, and it is never logged.
+   */
+  readonly MAIN_VITE_GOOGLE_CALENDAR_CLIENT_SECRET?: string;
+  /**
+   * Microsoft 365's public client (#190, #209), set by the release workflow from a repository
+   * variable. It has no secret. Unset or empty, the build doesn't offer Microsoft 365.
+   */
+  readonly MAIN_VITE_MICROSOFT_CALENDAR_CLIENT_ID?: string;
 }
 
 // A file's text, as Vite imports it with "?raw": the analysis helper, hashed into each run's record.

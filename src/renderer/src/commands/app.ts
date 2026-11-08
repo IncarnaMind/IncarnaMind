@@ -29,6 +29,7 @@ import { answerTableCommands } from "./answerTables";
 import { appearanceCommands } from "./appearance";
 import { assistantCommands } from "./assistant";
 import { bibliographyCommands } from "./bibliography";
+import { calendarCommands } from "./calendars";
 import { chartCommands } from "./charts";
 import { checkCommands } from "./checks";
 import { commentCommands } from "./comments";
@@ -208,6 +209,7 @@ const appCommands: readonly Command[] = [
   ...figureScheduleCommands,
   ...tabCommands,
   ...meetingCommands,
+  ...calendarCommands,
   ...meetingHelpCommands,
   ...webPageCommands,
   ...viewerSelectionCommands,

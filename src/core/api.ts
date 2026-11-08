@@ -9338,6 +9338,7 @@ export const dataKinds = [
   "file-properties",
   "absence-documents",
   "watched-sentences",
+  "calendar-request",
 ] as const;
 
 export type DataKind = (typeof dataKinds)[number];
@@ -9403,6 +9404,10 @@ export type DataKind = (typeof dataKinds)[number];
  *   the sentence with its paragraph and the whole text of the Document or
  *   Folder they pick, to the chat model's provider. Asked where it is used;
  *   none in local mode.
+ * - "calendars": the User's sign-in and which of their calendars and days to read, to Google
+ *   Calendar or Microsoft 365, every few minutes while the app runs (#190). The events come back
+ *   and stay on this computer. Connecting the account allows it; background work, which never
+ *   asks; none in local mode. The Mac's own calendar is read on this computer and isn't a flow.
  */
 export const dataFlowIds = [
   "chat",
@@ -9423,6 +9428,7 @@ export const dataFlowIds = [
   "transcription",
   "scan-images",
   "document-check",
+  "calendars",
 ] as const;
 
 export type DataFlowId = (typeof dataFlowIds)[number];
@@ -11623,6 +11629,108 @@ export interface StartMeetingInput {
   meetingId: string;
   /** Record the computer's sound too. Defaults to the Settings choice ("What is recorded"). */
   systemAudio?: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Calendars (#190)
+
+/**
+ * Where IncarnaMind reads the User's Meetings coming up from: Google Calendar, Microsoft 365
+ * (Outlook), or the Mac's own Calendar app, which holds the iCloud, Exchange and CalDAV accounts
+ * added there.
+ */
+export const calendarServices = ["google", "microsoft", "mac"] as const;
+export type CalendarService = (typeof calendarServices)[number];
+
+/**
+ * Why a calendar account isn't read now, said on its row in Settings › Meetings:
+ * - "offline": the service couldn't be reached; the last events read stay;
+ * - "sign-in": its sign-in ended (expired or revoked): Sign in again;
+ * - "local-mode": "Keep everything on this computer" is on (Google and Microsoft only);
+ * - "not-allowed": the User turned the calendars flow off in Settings › Privacy;
+ * - "denied": the Mac's calendar access was refused in System Settings;
+ * - "failed": the service answered with something IncarnaMind couldn't use.
+ */
+export type CalendarProblem =
+  | "offline"
+  | "sign-in"
+  | "local-mode"
+  | "not-allowed"
+  | "denied"
+  | "failed";
+
+export interface CalendarInfo {
+  id: string;
+  name: string;
+  /** Its events show in Coming up. By default the User's own calendars count. */
+  counted: boolean;
+  /** For the Mac's calendar: the account it is in there ("iCloud", "Exchange"); null otherwise. */
+  group: string | null;
+}
+
+export interface CalendarAccount {
+  id: string;
+  service: CalendarService;
+  /** The account's address for Google and Microsoft; null for the Mac's calendar. */
+  name: string | null;
+  calendars: CalendarInfo[];
+  /** When its events were last read (ISO 8601, UTC); null before the first read. */
+  syncedAt: string | null;
+  problem: CalendarProblem | null;
+  /** The service the calendars flow goes to, which Allow allows; null for the Mac's calendar. */
+  consentServiceId: string | null;
+}
+
+export interface CalendarsState {
+  /**
+   * The services this copy can connect: Google and Microsoft when the build has their client IDs
+   * (#209), the Mac's calendar on macOS. Those connected already are among them.
+   */
+  services: CalendarService[];
+  accounts: CalendarAccount[];
+  /** The service whose sign-in is waiting in the browser, which `cancelCalendarSignIn` stops. */
+  signingIn: CalendarService | null;
+}
+
+export interface CalendarAttendee {
+  /** As the invite names them, else their address. */
+  name: string;
+  email: string | null;
+  /** The User: the account the event was read from. "Me" in a Transcript. */
+  self: boolean;
+}
+
+/** A Meeting on a counted calendar: timed, not cancelled and not declined. */
+export interface CalendarEvent {
+  id: string;
+  title: string;
+  /** ISO 8601, UTC. */
+  startsAt: string;
+  endsAt: string;
+  attendees: CalendarAttendee[];
+  /** The call's address (Meet, Teams, Zoom and the like), https only; null when it has none. */
+  joinUrl: string | null;
+  service: CalendarService;
+  /** The Note Take notes made for it, while it is there. */
+  mindId: string | null;
+}
+
+/** The calendar event a Note was made for with Take notes, as it is on the calendar now. */
+export interface NoteEvent {
+  /** The event's id while it is read from a counted calendar; null once it isn't. */
+  eventId: string | null;
+  title: string;
+  startsAt: string;
+  endsAt: string;
+  attendees: CalendarAttendee[];
+  joinUrl: string | null;
+}
+
+export interface ListCalendarEventsInput {
+  /** ISO 8601: events that end after this… */
+  from: string;
+  /** …and start before this. */
+  to: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -13976,6 +14084,37 @@ export interface CoreApi {
   /** Answers a save's question (see `FileWriteRequest`). One already answered does nothing. */
   respondToFileWrite(requestId: string, accept: boolean): Promise<void>;
 
+  /** The calendars connected on this device, and those that can be (#190). */
+  getCalendars(): Promise<CalendarsState>;
+  /**
+   * Connects a calendar: Google or Microsoft by signing in in the browser, which allows the
+   * calendars flow to it (ADR-0022); the Mac's calendar by asking the system for access, which it
+   * asks only here, never in the background. Its events are read at once. Null when the User
+   * cancelled the sign-in. Rejects when the sign-in fails, and for Google or Microsoft in Local
+   * mode. The Mac's calendar with access refused is kept, its `problem` "denied", so its row says
+   * how to allow it.
+   */
+  connectCalendar(service: CalendarService): Promise<CalendarAccount | null>;
+  /** Stops a sign-in waiting in the browser. */
+  cancelCalendarSignIn(): Promise<void>;
+  /** Forgets the account on this device: its sign-in, calendars and events. Notes stay. */
+  disconnectCalendar(accountId: string): Promise<CalendarsState>;
+  /** Whether a calendar's events count, shown in Coming up. */
+  setCalendarCounted(input: { calendarId: string; counted: boolean }): Promise<CalendarsState>;
+  /** Reads every account's events now: Try again. */
+  syncCalendars(): Promise<CalendarsState>;
+  /** The Meetings on counted calendars between two times, in order, each once. */
+  listCalendarEvents(input: ListCalendarEventsInput): Promise<CalendarEvent[]>;
+  /**
+   * Take notes: the event's Note, made now, named for it, or the one made for it before while
+   * it is there.
+   */
+  takeEventNotes(eventId: string): Promise<{ mindId: string; created: boolean }>;
+  /** The calendar event a Note was made for, as the calendar has it now; null for any other Note. */
+  getNoteEvent(mindId: string): Promise<NoteEvent | null>;
+  /** Opens the system's Calendars privacy settings, after the Mac's calendar access was refused. */
+  openCalendarSettings(): Promise<void>;
+
   /** Every Meeting, newest first. */
   listMeetings(): Promise<Meeting[]>;
   /**
@@ -14367,6 +14506,10 @@ export interface CoreEvents {
    * `listMeetings` now returns it.
    */
   "meetings.changed": Meeting[];
+  /** Calendar accounts were connected, chosen, read or failed (#190). */
+  "calendars.changed": CalendarsState;
+  /** The events on counted calendars changed: listCalendarEvents again. */
+  "calendarEvents.changed": null;
   /** About ten times a second while a Meeting's audio is captured: how loud each source is. */
   "meetings.level": MeetingLevel;
   /** A notification that a Meeting's notes were filled in was clicked: its Mind is shown (#142). */
@@ -14795,6 +14938,16 @@ const methods: Record<CoreApiMethod, true> = {
   undoMeetingJoin: true,
   listMeetingsLeftApart: true,
   meetingsLeftApartSaid: true,
+  getCalendars: true,
+  connectCalendar: true,
+  cancelCalendarSignIn: true,
+  disconnectCalendar: true,
+  setCalendarCounted: true,
+  syncCalendars: true,
+  listCalendarEvents: true,
+  takeEventNotes: true,
+  getNoteEvent: true,
+  openCalendarSettings: true,
   createMeeting: true,
   discardMeeting: true,
   startMeeting: true,

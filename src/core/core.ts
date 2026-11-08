@@ -164,6 +164,7 @@ import {
 } from "./api";
 import { createApprovals } from "./approvals";
 import { createBackgroundQueue } from "./backgroundQueue";
+import { createCalendars } from "./calendars";
 import { describeModel } from "./chatModelNames";
 import { createCheckpoints } from "./checkpoints";
 import { createCheckRecord } from "./checkRecord";
@@ -1322,6 +1323,8 @@ export function createCore(adapters: CoreAdapters): Core {
   let transcriptionGateChanged = (): Promise<void> => Promise.resolve();
   /** Set once Connectors exist: Local mode pauses those on other computers. */
   let connectorsLocalModeChanged = () => {};
+  /** Set once calendars exist: Local mode stops reading Google and Microsoft. */
+  let calendarsLocalModeChanged = () => {};
   /**
    * Local mode on or off: embeddings may switch back to the built-in model,
    * rerank pauses, usage data stops, and outside agents pause.
@@ -1345,6 +1348,7 @@ export function createCore(adapters: CoreAdapters): Core {
       events.emit("library.changed", null);
       agentsLocalModeChanged();
       connectorsLocalModeChanged();
+      calendarsLocalModeChanged();
       await rerankChanged();
       // Questions to a cloud model are refused now (or allowed again): the chat model's readiness changed.
       await readinessChanged();
@@ -4870,6 +4874,7 @@ export function createCore(adapters: CoreAdapters): Core {
           folderName: (folderId) =>
             library.folders().find((folder) => folder.id === folderId)?.name ?? null,
           folderDocuments: (folderId) => library.treeDocumentIds(folderId),
+          attendees: (mindId) => calendars.attendeesOf(mindId),
         }),
       lineText: (text, words) => inScript(text, settings.get().chineseScript, words),
       purgedPaths: () =>
@@ -4923,6 +4928,45 @@ export function createCore(adapters: CoreAdapters): Core {
     log: adapters.log ?? silentLogger,
   });
   listMeetings = () => meetings.list();
+  // Calendars (#190): Meetings coming up, and a Note started for one.
+  const googleCalendarSecret = adapters.calendarServices?.google?.clientSecret;
+  if (googleCalendarSecret) rememberSecret(googleCalendarSecret);
+  const calendars = createCalendars({
+    db,
+    now,
+    clock: () => (adapters.now?.() ?? new Date()).getTime(),
+    secrets,
+    consent,
+    localOnly: () => embedding.localOnly(),
+    browser: adapters.browser,
+    services: adapters.calendarServices ?? {},
+    system: adapters.systemCalendar,
+    fetch: adapters.calendarFetch ?? globalThis.fetch,
+    ...(adapters.calendarSync?.intervalMs !== undefined && {
+      intervalMs: adapters.calendarSync.intervalMs,
+    }),
+    ...(adapters.calendarSync?.retryMs && { retryMs: adapters.calendarSync.retryMs }),
+    language: () => settings.get().language,
+    createNote: (title) => {
+      const mind = minds.create(parseCreateMindInput({ title }));
+      startInWritingStyle(mind.id);
+      mindsChanged();
+      return mind.id;
+    },
+    noteLive: (mindId) => {
+      try {
+        minds.get(mindId);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    changed: (state) => events.emit("calendars.changed", state),
+    eventsChanged: () => events.emit("calendarEvents.changed", null),
+    log: adapters.log ?? silentLogger,
+  });
+  calendarsLocalModeChanged = () => calendars.localModeChanged();
+  calendars.start();
   // One meeting is one item (#2528): a pair an earlier version left apart is put right first.
   db.transaction(() => {
     for (const { deletedAt, documentIds } of transcriptsApart(db, now())) {
@@ -5026,6 +5070,7 @@ export function createCore(adapters: CoreAdapters): Core {
   const meetingFill = createMeetingFill({
     content,
     meetings,
+    userName: () => settings.get().user.authorName,
     transcript: async (documentId) => {
       await extracted(documentId, LIVE_TRANSCRIPT_WAIT_MS);
       return documents.passagesBetween(documentId, 0, Number.MAX_SAFE_INTEGER);
@@ -7284,6 +7329,16 @@ export function createCore(adapters: CoreAdapters): Core {
     listFileWriteRequests: async () => outputs.requests(),
     respondToFileWrite: (requestId, accept) => outputs.respond(requestId, accept),
 
+    getCalendars: async () => calendars.state(),
+    connectCalendar: (service) => calendars.connect(service),
+    cancelCalendarSignIn: () => calendars.cancelSignIn(),
+    disconnectCalendar: (accountId) => calendars.disconnect(accountId),
+    setCalendarCounted: (input) => calendars.setCounted(input),
+    syncCalendars: () => calendars.syncNow(),
+    listCalendarEvents: async (input) => calendars.list(input),
+    takeEventNotes: async (eventId) => calendars.takeNotes(eventId),
+    getNoteEvent: async (mindId) => calendars.noteEvent(mindId),
+    openCalendarSettings: () => calendars.openSettings(),
     listMeetings: async () => meetings.list(),
     listJoinedMeetings: async () => joinedMeetings(db),
     joinedMeetingsSaid: async (ids) => joinedMeetingsSaid(db, ids, now()),
@@ -7424,7 +7479,10 @@ export function createCore(adapters: CoreAdapters): Core {
       }
       return unsaved.atEnd();
     },
-    systemAwake: () => meetings.awake(),
+    systemAwake: () => {
+      meetings.awake();
+      calendars.awake();
+    },
     on: (event, listener) => events.on(event, listener),
     onAnyEvent: (listener) => events.onAny(listener),
     dataFlows: consent.registry,
@@ -7438,6 +7496,7 @@ export function createCore(adapters: CoreAdapters): Core {
       lifetime.abort();
       // What a Meeting has captured is saved before anything else stops.
       meetings.close();
+      calendars.close();
       transcripts?.close();
       speakerModel?.close();
       // Notes being filled in are left as they were: the next start says so.
