@@ -11,6 +11,7 @@ import type * as Y from "yjs";
 import { create } from "zustand";
 import {
   ANSWER_BLOCK,
+  type ChangeRefusalKind,
   type ChatModelChoice,
   type ChatReadiness,
   type EditAction,
@@ -69,11 +70,7 @@ export type EditProblem = (
         | "block-too-long"
         | "local-mode"
         | "cant-regenerate"
-        | "no-table"
-        | "unplaced"
-        | "misnamed"
-        | "typed-tag"
-        | "not-placed"
+        | ChangeRefusalKind
         | "cut-short"
         | "late"
         | "part-changed"

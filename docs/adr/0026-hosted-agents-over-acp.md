@@ -80,7 +80,8 @@ This section is only about an outside agent connected over MCP (#351) and acting
 - `propose_changes` on pairings only: a run grant gets the write tools above instead, and a pairing never does;
 - the caller's identity as the access layer gives it (a pairing or a run grant), with tokens looked up by caller (decision 3);
 - a `ProposalRequest` (`source: "outside-agent"`) that records the agent's shown name and the pairing's id;
-- the same Citation check of proposed text, with uncited sentences marked, proposed text recorded as third-party, and the AI use record naming the agent.
+- the same Citation check of proposed text, with uncited sentences marked, proposed text recorded as third-party, and the AI use record naming the agent;
+- the same path as every model's change to a Note (ADR-0003, amended for #2796): a part that can't be written, such as a paragraph rewritten without a <removed> the User typed there, refuses the whole change, and the agent is told why.
 
 ### 5. Everything outside our tools waits on the approval card
 
