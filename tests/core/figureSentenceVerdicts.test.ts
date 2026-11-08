@@ -985,42 +985,47 @@ describe("Claude Haiku 5.5's replies: its last verdict counts, a quote it never 
   });
 });
 
-test.each<Shape>([
+const NO_FIGURES_LINE_CASES = [
   {
     sentence: "The Company pays the Employee 950 a month for the flat.",
     state: "contradicted",
-    figures: ["supported"],
+    figures: ["not-checked"],
     asks: 1,
     evidence: 0,
+    quote: true,
   },
   {
     sentence: "甲方每月向乙方支付一千五百元租金。",
     state: "contradicted",
-    figures: ["supported"],
+    figures: ["not-checked"],
     asks: 1,
     evidence: 0,
+    quote: true,
   },
   {
     sentence: "The salary is 62,000 per year.",
-    state: "contradicted",
-    figures: ["contradicted"],
+    state: "not-checked",
+    figures: ["not-checked"],
     asks: 1,
     evidence: 0,
+    quote: false,
   },
   {
     sentence: "乙方月工资为人民币两万五千元。",
-    state: "contradicted",
-    figures: ["contradicted"],
+    state: "not-checked",
+    figures: ["not-checked"],
     asks: 1,
     evidence: 0,
+    quote: false,
   },
-])(
-  "asked for its remainder, a reply that gives its verdict again without a Figures line keeps the figures of the reply asked about: $sentence (#2184)",
-  async ({ sentence, state, figures, asks, evidence }) => {
+];
+test.each<(typeof NO_FIGURES_LINE_CASES)[number]>(NO_FIGURES_LINE_CASES)(
+  "asked for its remainder, a reply that gives its verdict again without a Figures line decides no figure, and a verdict that stood on one goes Not checked: $sentence (#2184, #2591)",
+  async ({ sentence, state, figures, asks, evidence, quote }) => {
     const checked = await checkSentence(sentence);
     expect(checked.check).toMatchObject({
       state,
-      evidence: { quote: CASES[sentence]?.quotes[0] },
+      ...(quote && { evidence: { quote: CASES[sentence]?.quotes[0] } }),
     });
     expect(checked.check?.figures?.map((figure) => figure.state)).toEqual(figures);
     expect(checked.asked).toHaveLength(asks);
