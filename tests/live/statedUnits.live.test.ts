@@ -25,6 +25,7 @@ import { appendFile } from "node:fs/promises";
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
 import type { ClaimCheckAttributes, Core, FigureScheduleRow } from "../../src/core";
+import { createAiSdkChatModel } from "../../src/core/providers/models";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
@@ -519,7 +520,7 @@ const pdfOf = (file: SourceFile, language: Language) =>
 
 async function newCore(language: Language) {
   const dataDir = await createTempDataFolder();
-  const core: Core = startCore(dataDir);
+  const core: Core = startCore(dataDir, { createChatModel: createAiSdkChatModel });
   core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
   await core.updateSettings({ user: { language: language === "zh" ? "zh-CN" : "en" } });
   await core.saveChatProvider({ kind: "anthropic", apiKey: KEY ?? "", modelId: MODEL });
