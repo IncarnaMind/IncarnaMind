@@ -103,14 +103,12 @@ export const zhCN = {
   "organizeReview.estimate": "整理 {count} 个文档：{cost}",
   "organizeReview.waiting": "{count} 个文档待确认",
   "organizeReview.waiting.one": "1 个文档待确认",
+  "organizeReview.waiting.migrated": "“整理”建议的 {count} 个文档已移出文件夹，确认后才会放回",
+  "organizeReview.waiting.migrated.one": "“整理”建议的 1 个文档已移出文件夹，确认后才会放回",
   "organizeReview.organized": "已整理 {count} 个文档",
   "organizeReview.organized.one": "已整理 1 个文档",
   "organizeReview.discarded": "已放弃这些建议。",
-  "organizeReview.moved":
-    "“整理”之前为 {count} 个文档建议的文件夹现在等你确认，确认前它们不在任何文件夹中。",
-  "organizeReview.moved.one":
-    "“整理”之前为 1 个文档建议的文件夹现在等你确认，确认前它不在任何文件夹中。",
-  "organizeReview.moved.dismiss": "关闭",
+  "organizeReview.dismiss": "关闭",
   "organizeReview.confirmCommand": "确认建议的文件夹",
   "organizeReview.confirmCommand.keywords": "queren jianyi wenjianjia 确认 建议 文件夹 整理",
   "library.review.part": "{count} 个 → “{folder}”",

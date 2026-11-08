@@ -105,14 +105,14 @@ export const en = {
   "organizeReview.estimate": "Organizing {count} Documents: {cost}",
   "organizeReview.waiting": "{count} Documents to confirm",
   "organizeReview.waiting.one": "1 Document to confirm",
+  "organizeReview.waiting.migrated":
+    "{count} Documents Organize suggested are out of their Folders until you confirm them",
+  "organizeReview.waiting.migrated.one":
+    "1 Document Organize suggested is out of its Folder until you confirm it",
   "organizeReview.organized": "Organized {count} Documents",
   "organizeReview.organized.one": "Organized 1 Document",
   "organizeReview.discarded": "Discarded the suggestions.",
-  "organizeReview.moved":
-    "Organize’s earlier suggestions for {count} Documents now wait for you to confirm them. Until then they’re in no Folder.",
-  "organizeReview.moved.one":
-    "Organize’s earlier suggestion for 1 Document now waits for you to confirm it. Until then it’s in no Folder.",
-  "organizeReview.moved.dismiss": "Dismiss",
+  "organizeReview.dismiss": "Dismiss",
   "organizeReview.confirmCommand": "Confirm Suggested Folders",
   "organizeReview.confirmCommand.keywords": "confirm suggested folders organize apply",
   "library.review.part": "{count} → {folder}",

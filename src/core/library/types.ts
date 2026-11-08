@@ -256,7 +256,7 @@ export interface LibrarySnapshot {
   reviewCount: number;
   /**
    * How many Documents an upgrade moved from their Suggested Folders into Suggestions, where they
-   * are in no Folder until confirmed: the Library says so once, until the User closes the line.
+   * are in no Folder until confirmed: the Library's top line says so until the Review is opened.
    */
   reviewMoved?: number;
 }

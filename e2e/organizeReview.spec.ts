@@ -1,7 +1,9 @@
+import { randomUUID } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
+import { openDatabase } from "../src/core/storage";
 import { type MessageKey, type MessageParams, translate } from "../src/shared/i18n";
 import {
   addDocuments,
@@ -277,6 +279,60 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(card(window, "Lease")).toContainText("Contracts ›");
       await screenshot(window, `organize-this-folder-${language}`);
       expect(await core(window).folders()).toEqual(["Contracts"]);
+    } finally {
+      await app?.close();
+    }
+  });
+}
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`${language}: after the update, the Library's top line says the suggested Documents are out of their Folders, until the Review is opened`, async () => {
+    test.setTimeout(150_000);
+    const say = t(language);
+    let app: ElectronApplication | undefined;
+    try {
+      const started = await start(language, 1440, 900);
+      app = started.app;
+      await addDocuments(started.window, await files());
+      await runCommand(started.window, "library.open", say("library.open"));
+      await pointAndClick(started.window, started.window.getByTestId("library-sort-into-folders"));
+      await expect(started.window.getByTestId("organize-review")).toBeVisible({ timeout: 30_000 });
+      await pointAndClick(started.window, started.window.getByTestId("organize-review-not-now"));
+      const waiting = await core(started.window).waiting();
+      expect(waiting).toBeGreaterThan(0);
+      await app.close();
+      app = undefined;
+
+      // What the update leaves behind: the Documents it took out of their Suggested Folders.
+      const db = openDatabase(join(dataDir, "incarnamind.db"));
+      const at = new Date().toISOString();
+      db.run(
+        `INSERT INTO device_settings (id, key, value, created_at, updated_at)
+         VALUES (?, 'organizeReviewMovedNotice', ?, ?, ?)`,
+        [randomUUID(), JSON.stringify(waiting), at, at],
+      );
+      db.close();
+
+      const reopened = await launchApp(dataDir, { fakeChat: true });
+      app = reopened.app;
+      const { window } = reopened;
+      await setWindowSize(app, window, 1440, 900);
+      await runCommand(window, "library.open", say("library.open"));
+      // The usual line, in the update's words, with Review alone: no second line, no Dismiss.
+      const line = window.getByTestId("organize-waiting");
+      const migrated = say("organizeReview.waiting.migrated", { count: String(waiting) });
+      await expect(line).toContainText(migrated);
+      await expect(line.getByRole("button")).toHaveText([say("library.review")]);
+      await expect(window.getByTestId("organize-waiting")).toHaveCount(1);
+      await screenshot(window, `migrated-${language}`);
+
+      // Once the Review has been opened, the line says what waits in its usual words.
+      await pointAndClick(window, window.getByTestId("organize-waiting-review"));
+      await expect(window.getByTestId("organize-review")).toBeVisible();
+      await pointAndClick(window, window.getByTestId("organize-review-not-now"));
+      await expect(line).toContainText(say("organizeReview.waiting", { count: String(waiting) }));
+      await expect(line).not.toContainText(migrated);
+      await screenshot(window, `migrated-seen-${language}`);
     } finally {
       await app?.close();
     }

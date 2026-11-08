@@ -1,5 +1,4 @@
 import { type ReactNode, useId, useState } from "react";
-import { core } from "../../core";
 import { estimateText } from "../../cost";
 import { useLanguage, useT } from "../../i18n";
 import { formatCount } from "../../linkedFolders";
@@ -55,7 +54,8 @@ function Line({
 /**
  * Organize's one state, said once at the Library's top (#1569): "Organizing 12 of 40…" with Stop
  * while it runs; its cost first when that is over $1; after Stop, that nothing moved; while
- * Documents wait to be confirmed, how many with Review; and what Confirm or Discard did, with Undo.
+ * Documents wait to be confirmed, how many with Review, in the update's own words until the Review
+ * is first opened; and what Confirm or Discard did, with Undo.
  */
 export function OrganizeLines() {
   const t = useT();
@@ -133,9 +133,16 @@ export function OrganizeLines() {
           {count > 0 && (
             <Line testId="organize-waiting">
               <span className="tabular-nums">
-                {t(count === 1 ? "organizeReview.waiting.one" : "organizeReview.waiting", {
-                  count: formatCount(count, language),
-                })}
+                {moved > 0
+                  ? t(
+                      moved === 1
+                        ? "organizeReview.waiting.migrated.one"
+                        : "organizeReview.waiting.migrated",
+                      { count: formatCount(moved, language) },
+                    )
+                  : t(count === 1 ? "organizeReview.waiting.one" : "organizeReview.waiting", {
+                      count: formatCount(count, language),
+                    })}
               </span>
               <Action
                 label={t("library.review")}
@@ -147,43 +154,7 @@ export function OrganizeLines() {
         </>
       )}
       {!run && <FailedLine />}
-      {moved > 0 && <ReviewMovedLine count={moved} />}
     </>
-  );
-}
-
-/**
- * Said once after the update (#1569): Documents that waited in a Suggested Folder wait to be
- * confirmed now, in no Folder until then.
- */
-function ReviewMovedLine({ count }: { count: number }) {
-  const t = useT();
-  const language = useLanguage();
-  const close = () =>
-    core.dismissReviewMoved().catch((error: unknown) => useAppStore.getState().reportError(error));
-  return (
-    <ProblemLine
-      role="status"
-      testId="organize-moved"
-      className="mt-1"
-      action={{
-        label: t("library.review"),
-        testId: "organize-moved-review",
-        onClick: () => {
-          void close();
-          openReview();
-        },
-      }}
-      also={{
-        label: t("organizeReview.moved.dismiss"),
-        testId: "organize-moved-dismiss",
-        onClick: () => void close(),
-      }}
-    >
-      {t(count === 1 ? "organizeReview.moved.one" : "organizeReview.moved", {
-        count: formatCount(count, language),
-      })}
-    </ProblemLine>
   );
 }
 
@@ -213,7 +184,7 @@ function FailedLine() {
         onClick: retryFailed,
       }}
       also={{
-        label: t("organizeReview.moved.dismiss"),
+        label: t("organizeReview.dismiss"),
         testId: "organize-failed-dismiss",
         onClick: dismissFailed,
       }}

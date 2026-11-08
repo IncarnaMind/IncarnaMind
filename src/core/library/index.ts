@@ -1567,7 +1567,7 @@ export function createLibrary(options: {
       );
       if (done.length > 0) announce(done);
     },
-    dismissReviewMoved(): void {
+    reviewMovedSeen(): void {
       if (reviewMoved() === 0) return;
       settings.writeDeviceValue(REVIEW_MOVED_NOTICE, 0);
       changed();

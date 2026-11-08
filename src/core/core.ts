@@ -6640,7 +6640,7 @@ export function createCore(adapters: CoreAdapters): Core {
       tagger.resume();
     },
     dismissAutomaticOffNotice: async () => library.dismissAutomaticOffNotice(),
-    dismissReviewMoved: async () => library.dismissReviewMoved(),
+    reviewMovedSeen: async () => library.reviewMovedSeen(),
 
     getJevSettings: () => jev.status(),
     saveJevSettings: async (input) => {

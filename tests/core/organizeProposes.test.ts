@@ -370,7 +370,7 @@ describe("Suggestions from before an upgrade (migration 136)", () => {
     const library = await upgraded.getLibrary();
     expect(library.groups.map((each) => each.name)).toEqual(["Kitchen", "Race"]);
     expect(library.reviewMoved).toBe(1);
-    await upgraded.dismissReviewMoved();
+    await upgraded.reviewMovedSeen();
     expect((await upgraded.getLibrary()).reviewMoved).toBeUndefined();
   });
 

@@ -11853,8 +11853,8 @@ export interface CoreApi {
   setTaggingWithAi(folderId: string | null, on: boolean): Promise<void>;
   /** Closes the Library's one-time line that automatic tagging and sorting went off (`LibrarySnapshot.automaticOffNotice`). */
   dismissAutomaticOffNotice(): Promise<void>;
-  /** Closes the Library's one-time line that suggestions moved into Suggestions (`LibrarySnapshot.reviewMoved`). */
-  dismissReviewMoved(): Promise<void>;
+  /** The Review was opened: the Library's top line says what waits in its usual words from now on (`LibrarySnapshot.reviewMoved`). */
+  reviewMovedSeen(): Promise<void>;
   /**
    * A manual choice, including Not in a Folder (null), wins over in-flight classification.
    * Returns the change it made, its place and tagging before and after, for `restoreAssignment`.
@@ -14546,7 +14546,7 @@ const methods: Record<CoreApiMethod, true> = {
   stopTagging: true,
   setTaggingWithAi: true,
   dismissAutomaticOffNotice: true,
-  dismissReviewMoved: true,
+  reviewMovedSeen: true,
   assignDocumentGroup: true,
   moveToFolder: true,
   restoreAssignment: true,

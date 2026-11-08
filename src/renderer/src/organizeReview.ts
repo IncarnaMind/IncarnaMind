@@ -127,9 +127,12 @@ core.on("organize.progress", (progress) => {
 
 /** Opens the Review over the Library's page, as its count's Review does. */
 export function openReview(): void {
-  useAppStore.getState().openLibrary();
+  const app = useAppStore.getState();
+  app.openLibrary();
   useOrganizeReview.setState({ open: true, stopped: null });
   void refreshReview().catch(report);
+  // The update's own words at the Library's top last until the Review is first opened (#1569).
+  if ((app.library?.reviewMoved ?? 0) > 0) void core.reviewMovedSeen().catch(report);
 }
 
 /** Not Now: the Suggestions stay as they are, and the Library's top counts them. */
