@@ -1067,12 +1067,15 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     );
     if (signal.aborted) {
       // Stopped before a sentence's check ended: it lands Not checked, so a found Citation never
-      // reads as checked (#2710). The marks that landed stay.
+      // reads as checked (#2710). The marks that landed, and a held verdict that was checked,
+      // stay.
       const at = options.now().toISOString();
+      const heldLandings = held.sort((a, b) => a.index - b.index).map(({ landing }) => landing);
+      const heldSentences = new Set(heldLandings.map((landing) => landing.sentence));
       landAll([
-        ...held.sort((a, b) => a.index - b.index).map(({ landing }) => landing),
+        ...heldLandings,
         ...sentences
-          .filter((sentence) => !landedSentences.has(sentence))
+          .filter((sentence) => !landedSentences.has(sentence) && !heldSentences.has(sentence))
           .map(
             (sentence): Landing => ({
               sentence,

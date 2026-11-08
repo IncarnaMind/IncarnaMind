@@ -1133,7 +1133,8 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
       ["Neap tides are twice as strong .", "not-checked", "stopped"],
     ]);
     const [change] = changesIn(stopped);
-    expect(change?.checking).toBe(2);
+    // The check stopped mid-way never reports its end: the row says what the call did (#2710).
+    expect(change).not.toHaveProperty("checking");
     expect(change?.selfCheck).toBeUndefined();
   });
 
@@ -1197,7 +1198,8 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
       ["Neap tides are twice as strong .", "not-checked", "stopped"],
     ]);
     const [change] = changesIn(stopped);
-    expect(change).toMatchObject({ proposals: 1, cited: 2, checking: 2 });
+    expect(change).toMatchObject({ proposals: 1, cited: 2 });
+    expect(change).not.toHaveProperty("checking");
     expect(change?.selfCheck).toBeUndefined();
   });
 
