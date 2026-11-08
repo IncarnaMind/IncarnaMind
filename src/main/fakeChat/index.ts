@@ -33,7 +33,7 @@ import { CHECK_RUN, fakeAbsence, fakePresence, fakeSentenceBatch } from "./check
 import { fakeClaims, findsClaims } from "./claims";
 import { fakeConfirm, fakeRewrite } from "./confirm";
 import { editParts, fakeEdit } from "./edit";
-import { helpModelParts } from "./meetingHelp";
+import { helpModelParts, holdsHelp } from "./meetingHelp";
 import { asksForPlan, fakePlan } from "./plan";
 import {
   type GenerateOptions,
@@ -358,6 +358,7 @@ export const createFakeChatModel: ChatModelFactory = (spec) => {
       // Its first section whole in the Note, a write asked to pause halfway holds until it is
       // stopped, so a spec stops it there whatever the machine's pace (#2768).
       const halfway = !search && !edit && PAUSE_HALFWAY.test(lastQuestion(prompt));
+      const holds = edit?.holds || holdsHelp(spec.modelId, prompt);
       let headings = 0;
       const stream = new ReadableStream<StreamPart>({
         async pull(controller) {
@@ -366,7 +367,7 @@ export const createFakeChatModel: ChatModelFactory = (spec) => {
             controller.close();
             return;
           }
-          if (edit?.holds && part.type === "stream-start") await holdUntilStopped();
+          if (holds && part.type === "stream-start") await holdUntilStopped();
           if (halfway && part.type === "tool-input-delta") {
             if (headings >= 2) await holdUntilStopped();
             if (part.delta.includes("##")) headings++;

@@ -336,6 +336,7 @@ import {
   FOUND_TOKEN_LIMIT,
   foundWithin,
   HELP_DOCUMENTS,
+  helpOwnLines,
   LIVE_TEXT_BEHIND_NOTE,
   languageSaid,
   meetingHelpInstructions,
@@ -640,6 +641,8 @@ export interface AnswersOptions {
    * records or is paused: its text is the button's name. Null for any other Question.
    */
   meetingHelp?(mindId: string, question: string): MeetingHelpKind | null;
+  /** See `CoreAdapters.helpFormJudged`. */
+  helpFormJudged?(): boolean;
   providerExists(providerId: string): boolean;
   /**
    * An Answer's sentences with Citations, checked against what they cite before it ends (#2311):
@@ -3590,6 +3593,8 @@ export function createAnswers(options: AnswersOptions) {
         gate,
         streamsInput,
         toolSet: input.toolSet ?? (help ? "documents" : undefined),
+        ...(help &&
+          !options.helpFormJudged?.() && { ownLines: (text: string) => helpOwnLines(help, text) }),
         ...(input.outputKind && { outputKind: input.outputKind }),
         ...(keepsQuestionsLanguage && {
           languageNote: () => (skillNamesNoLanguage ? skillLanguageNote(language) : null),

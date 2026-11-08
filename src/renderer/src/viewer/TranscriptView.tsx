@@ -11,7 +11,6 @@ import {
 } from "react";
 import type { Document, Meeting } from "../../../core/api";
 import {
-  type Cue,
   type GapReason,
   listedGaps,
   readVtt,
@@ -21,13 +20,8 @@ import {
 } from "../../../core/documents/formats/vtt";
 import { paddedClockTime } from "../../../shared/clock";
 import type { MessageKey } from "../../../shared/i18n";
-import {
-  type FileLine,
-  partsOf,
-  speakerName,
-  type TranscriptLine,
-  withLineSplit,
-} from "../../../shared/speakers";
+import { partsOf, speakerName, type TranscriptLine, withLineSplit } from "../../../shared/speakers";
+import { TURN_PAUSE_MS } from "../../../shared/transcriptTurns";
 import { timeAt } from "../../../shared/wordTimes";
 import { transcriptHandle, useHandle } from "../commands/handles";
 import { MicOffLineIcon } from "../components/lineIcons";
@@ -48,7 +42,8 @@ import { markQuote, textNodes, unmarkQuote } from "./domQuote";
 import { FileStates } from "./FileStates";
 import { CitationMark, marginRoom, markTopFor, quoteMarkOf, quoteTone } from "./quoteMark";
 import { TranscriptPlayerBar } from "./TranscriptPlayerBar";
-import { type PartRow, TranscriptRow } from "./TranscriptRow";
+import { TranscriptTurn } from "./TranscriptTurn";
+import { fileLineOf, lineId, type PartRow, type TurnRow, turnRowsOf } from "./transcriptTurnRows";
 import { piecesBetween, wordPieces } from "./transcriptWords";
 import type { LoadedFile } from "./useDocumentFile";
 import { ViewerFrameContext, ViewerHeader } from "./ViewerHeader";
@@ -195,23 +190,12 @@ export function MeetingTranscriptView({
 }
 
 type Row =
-  | ({ kind: "cue" } & PartRow)
+  | { kind: "turn"; turn: TurnRow }
   | { kind: "gap"; gap: TranscriptGap }
   | { kind: "microphone"; fromMs: number };
 
 /** How long "Added to the note" shows in the header. */
 const ADDED_SHOWN_MS = 3000;
-
-/** Names a line: two can start together, so its start alone doesn't. */
-const lineId = (startMs: number, endMs: number, speaker: string | null) =>
-  `${startMs}-${endMs}-${speaker ?? ""}`;
-
-const fileLineOf = (cue: Cue): FileLine => ({
-  startMs: cue.startMs,
-  endMs: cue.endMs,
-  text: cue.text,
-  label: cue.speaker ?? "",
-});
 
 /** The word before or after the caret, or the line's first or last when it has none. */
 function wordBeside(
@@ -231,17 +215,19 @@ function wordBeside(
   return index < 0 ? null : (words[index + direction] ?? null);
 }
 
+/** The Speaker button of the turn a line is in. */
 const speakerButtonOf = (line: Element | null | undefined) =>
-  line?.querySelector<HTMLButtonElement>("[data-speaker-button]") ?? null;
+  line?.closest("[data-turn]")?.querySelector<HTMLButtonElement>("[data-speaker-button]") ?? null;
 
-/** The line after or before this one: the Transcript's gaps between them aren't lines. */
-function lineBeside(from: Element, direction: "next" | "previous"): HTMLElement | null {
-  let each = direction === "next" ? from.nextElementSibling : from.previousElementSibling;
-  while (each) {
-    if (each instanceof HTMLElement && each.dataset.start !== undefined) return each;
-    each = direction === "next" ? each.nextElementSibling : each.previousElementSibling;
-  }
-  return null;
+/** The line after or before this one, in this turn or the next: gaps and Speakers aren't lines. */
+function lineBeside(
+  list: HTMLElement,
+  from: Element,
+  direction: "next" | "previous",
+): HTMLElement | null {
+  const all = [...list.querySelectorAll<HTMLElement>("[data-line]")];
+  const index = all.indexOf(from as HTMLElement);
+  return index < 0 ? null : (all[index + (direction === "next" ? 1 : -1)] ?? null);
 }
 
 const NOT_SAID: NonNullable<Meeting["transcript"]>["partials"] = [];
@@ -313,10 +299,21 @@ function TranscriptContent({
   );
   const partsRef = useRef(parts);
   partsRef.current = parts;
+  const breaks = useMemo(
+    () => [
+      ...listedGaps(transcript.gaps).map((gap) => gap.fromMs),
+      ...(microphonePausedAtMs === null ? [] : [microphonePausedAtMs]),
+    ],
+    [transcript, microphonePausedAtMs],
+  );
+  const turns = useMemo(
+    () => turnRowsOf(parts, speakers, breaks, rest?.line ?? null),
+    [parts, speakers, breaks, rest],
+  );
   const rows = useMemo<Row[]>(
     () =>
       [
-        ...parts.map((row): Row & { at: number } => ({ kind: "cue", ...row, at: row.cue.startMs })),
+        ...turns.map((turn): Row & { at: number } => ({ kind: "turn", turn, at: turn.startMs })),
         ...listedGaps(transcript.gaps).map((gap): Row & { at: number } => ({
           kind: "gap",
           gap,
@@ -332,8 +329,19 @@ function TranscriptContent({
               },
             ]),
       ].sort((a, b) => a.at - b.at),
-    [parts, transcript, microphonePausedAtMs],
+    [turns, transcript, microphonePausedAtMs],
   );
+  // Words being said join the last turn when it is their Speaker's and goes on: else they show
+  // as a turn of their own after it.
+  const lastTurn = rows.at(-1)?.kind === "turn" ? turns.at(-1) : undefined;
+  const lastEnd = lastTurn?.paragraphs.at(-1)?.at(-1)?.part.endMs ?? 0;
+  const goesOn = partials.find(
+    (partial) =>
+      lastTurn !== undefined &&
+      partial.speaker === lastTurn.speaker &&
+      partial.startMs - lastEnd < TURN_PAUSE_MS,
+  );
+  const ownTurns = partials.filter((partial) => partial !== goesOn);
   const units = useMemo(() => transcriptUnits(transcript), [transcript]);
   const lines = useMemo<TranscriptLine[]>(
     () =>
@@ -520,9 +528,22 @@ function TranscriptContent({
   useHandle(transcriptHandle, lend);
   const firstId = parts[0]?.id;
 
+  // A focused line that a regrouping of turns moves to another turn is drawn anew: the focus follows it.
+  const focusedLine = useRef<HTMLElement | null>(null);
+  useLayoutEffect(() => {
+    const id = activeId.current;
+    const gone = focusedLine.current && !focusedLine.current.isConnected;
+    if (!id || !gone || globalThis.document.activeElement !== globalThis.document.body) return;
+    focusedLine.current =
+      list.current?.querySelector<HTMLElement>(`[data-line="${CSS.escape(id)}"]`) ?? null;
+    focusedLine.current?.focus({ preventScroll: true });
+  });
+
   const onFocusRow = (row: PartRow) => {
     setActive(row.id);
     activeId.current = row.id;
+    focusedLine.current =
+      list.current?.querySelector<HTMLElement>(`[data-line="${CSS.escape(row.id)}"]`) ?? null;
     if (caretRef.current && caretRef.current.line !== row.id) setCaret(null);
   };
 
@@ -566,7 +587,13 @@ function TranscriptContent({
       event.preventDefault();
       button.click();
     } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-      const next = lineBeside(event.currentTarget, event.key === "ArrowDown" ? "next" : "previous");
+      const next =
+        list.current &&
+        lineBeside(
+          list.current,
+          event.currentTarget,
+          event.key === "ArrowDown" ? "next" : "previous",
+        );
       if (!next) return;
       event.preventDefault();
       next.focus();
@@ -615,7 +642,7 @@ function TranscriptContent({
   useLayoutEffect(() => {
     const container = scroller.current;
     if (container && following.current) container.scrollTop = container.scrollHeight;
-  }, [rows.length, partials]);
+  }, [parts.length, partials]);
 
   useLayoutEffect(() => {
     const element = column.current;
@@ -712,19 +739,20 @@ function TranscriptContent({
                 className="transcript-lines"
               >
                 {rows.map((row) =>
-                  row.kind === "cue" ? (
-                    <TranscriptRow
-                      key={`c${row.id}`}
-                      row={row}
+                  row.kind === "turn" ? (
+                    <TranscriptTurn
+                      key={`t${row.turn.id}`}
+                      turn={row.turn}
                       meetingId={meetingId}
-                      focusable={(active ?? firstId) === row.id}
+                      focused={active ?? firstId}
                       hintId={hintId}
                       nameable={nameable}
                       lines={lines}
                       speakers={speakers}
                       playable={playable}
-                      caretAt={caret?.line === row.id ? caret.at : null}
-                      rest={rest?.line === row.id ? rest : null}
+                      caret={caret}
+                      rest={rest?.line === row.turn.id ? rest : null}
+                      saying={row.turn === lastTurn && goesOn ? goesOn : null}
                       onFocus={onFocusRow}
                       onKeyDown={onLineKey}
                       onWord={onWord}
@@ -786,13 +814,13 @@ function TranscriptContent({
                     </li>
                   ),
                 )}
-                {partials.map((partial) => (
+                {ownTurns.map((partial) => (
                   <li
                     key={`p${partial.startMs}:${partial.speaker ?? ""}`}
                     data-testid="transcript-partial"
                     data-quote-skip=""
                     aria-live="polite"
-                    className="transcript-line transcript-line--partial"
+                    className="transcript-turn transcript-turn--partial"
                   >
                     <span className="transcript-time">{paddedClockTime(partial.startMs)}</span>
                     <div className="min-w-0">

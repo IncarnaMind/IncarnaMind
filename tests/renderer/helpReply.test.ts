@@ -6,10 +6,14 @@
 import { describe, expect, test } from "vitest";
 import {
   citationNumbers,
+  helpItems,
+  helpParts,
+  helpToKeep,
   quoted,
   readHelpReply,
   shownItems,
 } from "../../src/renderer/src/helpReply";
+import type { MeetingHelpKind } from "../../src/shared/meetingHelp";
 
 const textOf = (pieces: ReturnType<typeof readHelpReply>[number]["lead"]) =>
   pieces.map((piece) => (piece.kind === "text" ? piece.text : `[${piece.marker}]`)).join("");
@@ -221,6 +225,64 @@ describe("A help reply", () => {
     }
     expect(shown(remark, "readings", false)).toEqual(["One", "Two"]);
     expect(shown("One\n→ a\n\n★ Two\n→ b", "options", false)).toEqual(["One", "Two"]);
+  });
+
+  // protects=a help Answer stopped while it was written is read as it was then: what came before its first option stays undrawn, so one stopped before it shows no item and the panel says it was stopped, while what it wrote of its form stays, in English and Chinese; fails_when=a stopped Answer's notes show as an option, or what it wrote of its form is dropped; no_claim=the panel's wording (the smoke test) (#2778).
+  test("a stopped Answer shows only what it wrote of its form, its lead-in line apart, in English and Chinese", () => {
+    const notes = "The newest lines ask about the Enterprise price, and the price sheet has it.";
+    const shown = (text: string, kind: MeetingHelpKind, status: "stopped" | "done" = "stopped") =>
+      helpItems({ text, status }, kind).map((item) => textOf(item.lead));
+    expect(shown("", "want")).toEqual([]);
+    expect(shown(notes, "answer")).toEqual([]);
+    expect(shown("最新的几句在问企业版的价格。", "want")).toEqual([]);
+    expect(shown(notes, "sum")).toEqual([]);
+    expect(shown(`${notes}\n\n★ Yes, Enterprise is $45 a se`, "answer")).toEqual([
+      "Yes, Enterprise is $45 a se",
+    ]);
+    expect(shown("最新的几句在问价格。\n\n★ 对方想先确认价格\n→ 先报价", "want")).toEqual([
+      "对方想先确认价格",
+    ]);
+    expect(shown(`${notes}\n- The launch moves to 18 November`, "sum")).toEqual([
+      "The launch moves to 18 November",
+    ]);
+    expect(shown(notes, "answer", "done")).toEqual([notes]);
+    const behind = "The live text is behind, so this rests on the lines so far.";
+    const parts = (text: string, kind: MeetingHelpKind, textBehind: boolean) => {
+      const { lead, options } = helpParts(
+        { text, status: "stopped", steps: textBehind ? { textBehind } : null },
+        kind,
+      );
+      return { lead: lead.map((item) => textOf(item.lead)), options: options.length };
+    };
+    expect(parts(`${behind}\n\n`, "want", true)).toEqual({ lead: [behind], options: 0 });
+    expect(parts("实时转写跟不上，以下只依据已转写的内容。\n\n", "sum", true)).toEqual({
+      lead: ["实时转写跟不上，以下只依据已转写的内容。"],
+      options: 0,
+    });
+    expect(parts("A little: it suggests the answer.", "leading", false)).toEqual({
+      lead: ["A little: it suggests the answer."],
+      options: 0,
+    });
+    expect(parts(`${behind}\n\n★ One\n→ a`, "answer", true)).toEqual({
+      lead: [behind],
+      options: 1,
+    });
+  });
+
+  // protects=Pin and Add to note are offered only for an ended Answer that shows an option, reading, short line or Am I leading them?'s lead-in, never for the app's line that the live text is behind alone, a stopped Answer or nothing, in English and Chinese; fails_when=they are offered with nothing to keep, or withheld from a suggestion; no_claim=the panel's layout (#2778).
+  test("an Answer has something to pin or add only when it ended with a line of its own", () => {
+    const behind = "The live text is behind, so this rests on the lines so far.";
+    const keeps = (text: string, kind: MeetingHelpKind, status: "done" | "stopped" = "done") =>
+      helpToKeep({ text, status, steps: { textBehind: true } }, kind);
+    expect(keeps(`${behind}\n\n★ One\n→ a`, "answer")).toBe(true);
+    expect(keeps("实时转写跟不上，以下只依据已转写的内容。\n\n- 一行", "sum")).toBe(true);
+    expect(keeps(behind, "answer")).toBe(false);
+    expect(keeps("实时转写跟不上，以下只依据已转写的内容。", "sum")).toBe(false);
+    expect(keeps(`${behind}\n\n★ One\n→ a`, "answer", "stopped")).toBe(false);
+    expect(
+      helpToKeep({ text: "A little: it suggests the answer.", status: "done" }, "leading"),
+    ).toBe(true);
+    expect(helpToKeep({ text: "## What to ask next", status: "done" }, "ask")).toBe(false);
   });
 
   test("while it streams, an option before its arrow has no effect yet", () => {
