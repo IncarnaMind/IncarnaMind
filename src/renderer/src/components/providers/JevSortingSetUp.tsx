@@ -47,6 +47,7 @@ export function JevSortingSetUp({
                 provider: service,
                 decisionModel: true,
               }}
+              choosing={false}
             />
           ),
           choose,

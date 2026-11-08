@@ -247,7 +247,7 @@ function SortingRow({ id }: { id: string }) {
       ) : (
         <div className="flex flex-col gap-1">
           {keyProvider && !current?.unresolved && <UsesKeyLine catalogId={keyProvider} />}
-          <SortingLine option={current} reading={read.state === "loading"} />
+          <SortingLine option={current} reading={read.state === "loading"} choosing={false} />
           {library && !library.settings.automatic && current && !current.unresolved && (
             <TurnOnTagging option={current} />
           )}

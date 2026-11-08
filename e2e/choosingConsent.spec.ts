@@ -164,7 +164,8 @@ test("first run: choosing a provider with a key is the consent for what runs by 
   expect(await consentAsked()).toEqual([]);
 
   // Settings › Privacy: OpenAI was allowed when it was chosen, for the uses that run by
-  // themselves — Tags and sorting. Page images are a flow of their own and still ask.
+  // themselves, and Tags when they were turned on. Organize asks when it first runs, and page
+  // images are a flow of their own that still asks.
   const settings = await openSettings(window, "privacy");
   const service = settings.getByTestId("data-service");
   await expect(service).toHaveCount(1);
@@ -173,15 +174,7 @@ test("first run: choosing a provider with a key is the consent for what runs by 
     "Some uses aren’t allowed yet",
   );
   await service.getByTestId("data-service-decision-details").click();
-  for (const flow of [
-    "chat",
-    "edits",
-    "checks",
-    "document-check",
-    "suggestions",
-    "tagging",
-    "classification",
-  ]) {
+  for (const flow of ["chat", "edits", "checks", "document-check", "suggestions", "tagging"]) {
     await expect(service.locator(`[data-testid="data-flow"][data-flow-id="${flow}"]`)).toHaveCount(
       1,
     );
