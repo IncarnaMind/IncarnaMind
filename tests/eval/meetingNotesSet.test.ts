@@ -23,6 +23,20 @@ const isFill = (call: ModelCall) =>
   call.prompt.includes("Fill them in from the transcript") || call.prompt.includes("took no notes");
 
 /** One fact of the fill's reply, in its sections, citing the markers its body holds. */
+/** The notes' overview, which a fill needs to be whole. */
+function overview(body: string): string {
+  return [
+    "### OVERVIEW",
+    "```json",
+    JSON.stringify({
+      citations: [...body.matchAll(/\[\^(\d+)\]/g)].map((match) => Number(match[1])),
+    }),
+    "```",
+    body,
+    "### END OVERVIEW",
+  ].join("\n");
+}
+
 function fact(id: string, body: string): string {
   return [
     `### FACT ${id}`,
@@ -179,6 +193,7 @@ describe("Stop during the call", { timeout: 180_000 }, () => {
         fact("P1_budget", "Their budget is fixed at eight thousand dollars a month [^2]."),
         fact("P1_trial", "The trial runs in a separate workspace [^3]."),
         fact("P1_contact", "They get a named onboarding contact for three months [^4]."),
+        overview("The call covered the trial and the onboarding contact [^3]."),
       ].join("\n"),
       { grade: "right", unstated: [] },
     );
@@ -194,13 +209,13 @@ describe("Stop during the call", { timeout: 180_000 }, () => {
     expect(run.firstSignMs).toEqual(expect.any(Number));
     expect(run.firstWordsMs ?? 0).toBeGreaterThanOrEqual(run.firstSignMs ?? Infinity);
     expect(run.doneMs ?? 0).toBeGreaterThanOrEqual(run.firstWordsMs ?? Infinity);
-    expect(run.citations).toBe(4);
-    expect(run.found).toBe(4);
+    expect(run.citations).toBe(5);
+    expect(run.found).toBe(5);
     expect(run.cited).toBe(true);
     expect(run.grade).toBe("right");
     expect(run.falseSupported).toBe(0);
     expect(run.failures).toEqual([]);
-    expect(judged[0]).toContain("Their budget is fixed at eight thousand dollars a month [2]");
+    expect(judged[0]).toContain("Their budget is fixed at eight thousand dollars a month [3]");
     expect(judged[0]).toContain("(found)");
   });
 
@@ -217,5 +232,7 @@ describe("Stop during the call", { timeout: 180_000 }, () => {
     expect(run.cited).toBe(false);
     expect(run.grade).toBe("partly");
     expect(run.falseSupported).toBe(1);
+    // With no overview the note is only partly filled in, which fails the item.
+    expect(run.failures).toEqual(["fill-partial"]);
   });
 });
