@@ -238,9 +238,14 @@ const openBeside = (mindId: string) =>
  * any Mind; the conversation's name goes on it only when the User gave the conversation one,
  * never the name it takes from the first Question, which is an instruction (#1174). A table's
  * first cell is no name either, so "Open as a table" passes the Question as the title (#1345).
+ * It goes on with the model its Question was asked with (#2836).
  */
 const newMindFor = (added: AddedAnswer, title = added.conversation?.title ?? "") =>
-  core.createMind({ title, folderId: added.conversation?.folderId ?? null });
+  core.createMind({
+    title,
+    folderId: added.conversation?.folderId ?? null,
+    model: questionOf(added.answer)?.model ?? null,
+  });
 
 const putIn = (mindId: string, added: AddedAnswer) =>
   core.addToNote({

@@ -13,6 +13,7 @@ import type {
   RunEstimate,
   SearchScope,
 } from "../../core/api";
+import { conversationModelOf } from "../../shared/mindModel";
 import { conversationName } from "../../shared/naming";
 import { settleAsk, useAnswers } from "./answers";
 import { applyNotAsked, applyWhatIsAsked, applyWhatWasAsked } from "./askedChanges";
@@ -21,6 +22,7 @@ import { watchMindsMadeBy } from "./assistantMinds";
 import { offeredCommands } from "./assistantWindow";
 import { clientId } from "./clientId";
 import { composerKey, useComposer } from "./composer";
+import { forgetConversationPick, showConversationModel } from "./conversationModel";
 import { core } from "./core";
 import { describeError } from "./errors";
 import { cancelExplain } from "./explainQueue";
@@ -72,6 +74,16 @@ export const useConversations = create<ConversationsState>()(() => ({
   stopWanted: false,
   sought: null,
 }));
+
+// The chip with no Note in view reads the conversation shown, and its last Question's model (#2836).
+useConversations.subscribe((state, previous) => {
+  if (state.openId === previous.openId && state.messages === previous.messages) return;
+  const lastId = state.messages.findLast((message) => message.kind === "question")?.id ?? null;
+  showConversationModel(
+    state.openId,
+    lastId === null ? null : { id: lastId, model: conversationModelOf(state.messages) },
+  );
+});
 
 const report = (error: unknown) => useAppStore.getState().reportError(error);
 
@@ -183,6 +195,7 @@ export async function showKeptConversation(conversationId: string): Promise<void
       keepShown(openId);
       return;
     }
+    forgetConversationPick();
     useConversations.setState({ openId: conversationId, messages });
   } catch (error) {
     if (describeError(error).wording?.key !== "error.conversation.notFound") {
@@ -205,6 +218,7 @@ export function followShownConversation(): void {
 /** A new chat: the assistant shows an empty conversation, which its first Question makes. */
 export function startNewChat(): void {
   moves += 1;
+  forgetConversationPick();
   useConversations.setState({
     openId: null,
     messages: [],
@@ -226,6 +240,7 @@ export async function openConversation(
   try {
     const { messages } = await core.getConversation(conversationId);
     if (move !== moves) return false;
+    forgetConversationPick();
     useConversations.setState({
       openId: conversationId,
       messages,

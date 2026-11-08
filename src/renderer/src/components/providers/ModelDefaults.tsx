@@ -8,6 +8,7 @@ import type {
 import { catalogProvider } from "../../../../core/providers/catalog/providers";
 import { core } from "../../core";
 import { useGap, useLanguage, useT } from "../../i18n";
+import { setAnswersModel } from "../../modelInUse";
 import { useModelNames } from "../../modelNames";
 import type { SettingsTarget } from "../../settingsPages";
 import { useSettingsTarget } from "../../settingsTarget";
@@ -434,17 +435,12 @@ export function RoleSelect({
     const choice = choiceOf(next);
     if (job === "chatModel" && !choice) return;
     setValue(next);
-    void updateSettings(
-      job === "chatModel"
-        ? // Quick tasks and reading images are automatic, with no row of their own (#1922).
-          {
-            user: { chatModel: choice, quickTasksModel: null, imageModel: null },
-            device: { lastChatModel: choice },
-          }
-        : {
-            user: job === "quickTasksModel" ? { quickTasksModel: choice } : { imageModel: choice },
-          },
-    );
+    if (job === "chatModel" && choice) void setAnswersModel(choice);
+    else {
+      void updateSettings({
+        user: job === "quickTasksModel" ? { quickTasksModel: choice } : { imageModel: choice },
+      });
+    }
     onChosen?.();
   };
 
