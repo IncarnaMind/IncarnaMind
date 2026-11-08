@@ -72,6 +72,7 @@ Each rule has a check a reviewer can apply. A UI change that breaks a rule says 
 | Files dropped on the composer | They become Documents and that Question's scope | Claude, ChatGPT |
 | Insert | "/" in the note, matching pinyin for Chinese | Notion, Feishu, Yuque |
 | Changes the AI proposes | Shown as changes in the note; one key accepts all, one rejects all | Cursor, Notion AI |
+| Hover tips | A tip opens after the pointer rests on its trigger for 500 ms, and at once while another tip is open; keyboard focus and a click open it at once; a pointer only passing over opens nothing; the trigger's own hover shows at once. All of it lives in `useTip` (`src/renderer/src/components/useTip.ts`) | macOS and Windows tooltips |
 | Learning a feature | Seen where it lives, in its menu and in ⌘K, with at most one tip when it helps; nothing in onboarding beyond the first checked Answer | Claude, ChatGPT, Linear |
 
 ## In an issue that changes UI
