@@ -1621,10 +1621,16 @@ export function createCore(adapters: CoreAdapters): Core {
       ? tunedSearch(tuning, query, options, (tuned) => documents.searchTool(query, tuned))
       : documents.searchTool(query, options);
   };
+  /** Whether a scope names Folders inside `wallId` only: a Note behind a wall reads such a scope itself (#2427). */
+  const scopeInsideWall = (scope: SearchScope, wallId: string): boolean =>
+    scope.tagIds.length === 0 &&
+    scope.documentIds.length === 0 &&
+    scope.folderIds.length > 0 &&
+    scope.folderIds.every((id) => library.wallOf(id) === wallId);
   const constrainedScope = (scope: SearchScope, mindId: string | null = null): SearchScope => {
     const own = mindId !== null && mindExists(mindId) ? minds.get(mindId).folderId : null;
     const ownWall = own === null ? null : library.wallOf(own);
-    if (ownWall !== null) return folderScope(ownWall);
+    if (ownWall !== null) return scopeInsideWall(scope, ownWall) ? scope : folderScope(ownWall);
     return { ...scope, folderIds: scope.folderIds.filter((id) => library.wallOf(id) === null) };
   };
   const resolveScope = (scope: SearchScope | null, mindId: string | null = null) => {
@@ -1878,7 +1884,6 @@ export function createCore(adapters: CoreAdapters): Core {
   const searchedScope = (scope: SearchScope | null, mindId: string | null) => {
     const folderId = mindId !== null && mindExists(mindId) ? minds.get(mindId).folderId : null;
     const wall = walledFolderId(folderId);
-    if (wall !== null) return folderScope(wall);
     const holds =
       folderId !== null &&
       documents
@@ -1889,7 +1894,11 @@ export function createCore(adapters: CoreAdapters): Core {
       folderId,
       holds,
     );
-    return hasSearchScope(searched) ? searched : null;
+    // A Note behind a wall reads its own Folder or a Folder inside the wall, never one beside it;
+    // with nothing of its own to search, the wall stands for every Document (#2427).
+    if (hasSearchScope(searched))
+      return wall === null ? searched : constrainedScope(searched, mindId);
+    return wall === null ? null : folderScope(wall);
   };
   // A scope's Folder is a Library Folder, or one of a Linked folder's (the "@" picker offers both).
   const scopeItemName = (kind: ScopeKind, id: string): string | null =>
