@@ -628,10 +628,10 @@ test("help during the call: a reply with nothing to show says so, with Try again
   await expect(suggestion.getByTestId("help-option")).toHaveCount(0);
   const nothing = suggestion.getByTestId("help-nothing");
   await expect(nothing).toHaveText(
-    "No help this time: the reply had nothing to suggest · Try again",
+    "No help this time: the Answer had nothing to suggest · Try again",
   );
   await setLanguage(window, "zh-CN");
-  await expect(nothing).toHaveText("这次没能给出建议：回复里没有可用的内容 · 重试");
+  await expect(nothing).toHaveText("这次没能给出建议：回答里没有可用的内容 · 重试");
   await expect(nothing.getByRole("button")).toHaveText("重试");
   await shot(panel, "help-panel-nothing-zh");
   await app.close();

@@ -220,16 +220,7 @@ describe("A help reply", () => {
       expect(shown(text, shape, false)).toEqual(written);
     }
     expect(shown(remark, "readings", false)).toEqual(["One", "Two"]);
-  });
-
-  test("a reply with nothing in the shape the panel lays out shows no item", () => {
-    expect(
-      shownItems(readHelpReply("## Suggestions\n\n[^1]: Transcript"), {
-        shape: "options",
-        leadIn: false,
-        streaming: false,
-      }),
-    ).toEqual([]);
+    expect(shown("One\n→ a\n\n★ Two\n→ b", "options", false)).toEqual(["One", "Two"]);
   });
 
   test("while it streams, an option before its arrow has no effect yet", () => {

@@ -74,9 +74,9 @@ const plain = (line: string) => line.replace(/\*\*|__/g, "").trim();
 /**
  * What the panel shows of a reply in its button's shape: at most two options or readings, after
  * the one line "Am I leading them?" or "the live text is behind" puts first (`leadIn`), the last
- * included before its "→" line; or at most three short lines. What a model adds anyway around
- * them (a lead-in, a remark, a third option) is left out. The same text shows no less once the
- * reply ends than while it was `streaming`.
+ * included before its "→" line; or at most three short lines. What a model adds anyway (a lead-in,
+ * a remark between options, a third option) is left out, but a line after the last option shows
+ * as written. The same text shows no less once the reply ends than while it was `streaming`.
  */
 export function shownItems(
   items: readonly ReplyItem[],
@@ -92,10 +92,10 @@ export function shownItems(
     return [...lead, ...rest].slice(0, 3);
   }
   const lead = leadIn && first && first.effect === null ? [first] : [];
-  // Text before the first "★" line is a model's notes, taken back once it records its Citations
-  // (#2526): while it is written, the outline stays in its place instead.
+  // While it is written, text before the first "★" line is a model's notes, taken back once it
+  // records its Citations (#2526): the outline stays in its place instead.
   const star = items.findIndex((item) => item.recommended);
-  const from = star !== -1 ? star : streaming ? items.length : 0;
+  const from = !streaming ? 0 : star === -1 ? items.length : star;
   const last = items.at(-1);
   // An item with no "→" line that another follows is a remark between options. The last is an
   // option still being written, or one whose "→" line never came or was taken back as the model's

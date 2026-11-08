@@ -287,8 +287,9 @@ test.skipIf(env("VANISH") === null && env("VANISH_REPLAY") === null)(
               break run;
             }
             const pressed = await press(core, opened.meeting.id, each.kind);
-            presses.push({ model: name, case: each.id, language: each.language, ...pressed });
-            const read = readPress(presses.at(-1) as Press);
+            const kept: Press = { model: name, case: each.id, language: each.language, ...pressed };
+            presses.push(kept);
+            const read = readPress(kept);
             log(
               `${name} · ${each.id} ${time}/${times}: ${
                 COUNTED.filter(([key]) => read[key])
