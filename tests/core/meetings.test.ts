@@ -6,6 +6,7 @@ import { MEETING_AUDIO_KEPT_MS } from "../../src/core/api";
 import { createFakeEmbedder } from "../../src/core/embedding/fake";
 import { listParts, meetingFolder } from "../../src/core/meetings/audioFiles";
 import { createFakeCapture, type FakeCaptureOptions } from "../../src/core/meetings/fakeCapture";
+import { translate } from "../../src/shared/i18n";
 import { createTempDataFolder, manualClock, nextEvent, nextTurn, startCore } from "../helpers/core";
 import { createSourceFolder, waitForProcessing, writeSourceFile } from "../helpers/documents";
 
@@ -577,6 +578,62 @@ describe("Keeping a Meeting's audio, and saving it (#687)", () => {
     vi.advanceTimersByTime(MINUTE);
     expect((await meetingOf(core, id)).audio).toMatchObject({ kept: false, expiresAt: null });
     expect(existsSync(folder)).toBe(false);
+  });
+
+  // protects=Resume never brings new audio under an old deadline: a deletion already due (a Delete now that failed on a paused Meeting, or a day that ended in the minute before the sweep) runs first, so only the old audio goes; while it still fails, Resume is refused with the reason in English and Chinese and the Meeting stays paused; fails_when=the sweep after Resume deletes audio recorded after it, or Resume goes ahead with the old audio still there; no_claim=where the window shows the reason, the bar's own problem line.
+  test("Resume deletes what is due first, and refuses while it can't, so new audio is never deleted", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    const dataDir = await createTempDataFolder();
+    const { core, record, clock } = await meetingCore(dataDir);
+
+    // A Delete now that fails on a paused Meeting, then Resume before the sweep tries again.
+    const { id } = await core.createMeeting();
+    await core.startMeeting({ meetingId: id });
+    record(12 * SECOND);
+    await core.pauseMeeting(id);
+    const folder = meetingFolder(dataDir, id);
+    chmodSync(folder, 0o555);
+    try {
+      await expect(core.deleteMeetingAudio(id)).rejects.toMatchObject({
+        wording: { key: "error.meeting.audioNotDeleted" },
+      });
+      const refused = await core.resumeMeeting(id).catch((error: unknown) => error);
+      expect(refused).toMatchObject({ wording: { key: "error.meeting.resumeAudioNotDeleted" } });
+      expect(translate("en", "error.meeting.resumeAudioNotDeleted")).toBe(
+        "This meeting’s earlier audio couldn’t be deleted yet, so recording can’t resume. Try again in a minute.",
+      );
+      expect(translate("zh-CN", "error.meeting.resumeAudioNotDeleted")).toBe(
+        "这场会议之前的音频尚未删除，暂时无法继续录制。一分钟后再试。",
+      );
+      expect((await meetingOf(core, id)).status).toBe("paused");
+    } finally {
+      chmodSync(folder, 0o755);
+    }
+    await core.resumeMeeting(id);
+    expect(partsOf(dataDir, id)).toEqual([]);
+    record(10 * SECOND);
+    await core.stopMeeting(id);
+    vi.advanceTimersByTime(MINUTE);
+    expect(partsOf(dataDir, id)).toEqual(["microphone@12+10", "system@12+10"]);
+    expect((await meetingOf(core, id)).audio).toMatchObject({
+      kept: true,
+      expiresAt: "2026-10-07T09:00:22.000Z",
+    });
+
+    // A day that ended in the minute before the sweep: Resume deletes the old audio first.
+    const { id: late } = await core.createMeeting();
+    await core.startMeeting({ meetingId: late });
+    record(6 * SECOND);
+    await core.pauseMeeting(late);
+    clock.advance(DAY + 30 * SECOND);
+    await core.resumeMeeting(late);
+    expect(partsOf(dataDir, late)).toEqual([]);
+    record(10 * SECOND);
+    vi.advanceTimersByTime(MINUTE);
+    await core.stopMeeting(late);
+    vi.advanceTimersByTime(MINUTE);
+    expect(partsOf(dataDir, late)).toEqual(["microphone@6+10", "system@6+10"]);
+    expect((await meetingOf(core, late)).audio.kept).toBe(true);
   });
 
   // protects="Keep a meeting's audio" keeps the audio of Meetings that start while it is on, and leaves Meetings already recorded as they were, turned on or off; fails_when=turning it on keeps an older Meeting's audio, turning it off lets a kept one go, or a new Meeting's audio is swept; no_claim=the words the notice and Settings show, which the window spec covers.

@@ -654,8 +654,8 @@ export function createMeetings(options: MeetingsOptions) {
   };
 
   /**
-   * When the audio goes once a stretch ends or another begins: a delete the User asked for that
-   * didn't finish stays due, so the next sweep tries it again (#687).
+   * When the audio goes once a stretch ends: a deletion due and not yet done (a Delete now that
+   * failed, a day ended just now) stays due, so the next sweep, or Resume, does it (#687).
    */
   const dueOr = (row: Pick<MeetingRow, "audio_expires_at">, otherwise: string | null) =>
     row.audio_expires_at !== null && row.audio_expires_at <= now()
@@ -1020,6 +1020,20 @@ export function createMeetings(options: MeetingsOptions) {
       const row = rowOf(meetingId);
       if (row.status !== "paused") throw new InvalidInputError({ key: "error.meeting.notPaused" });
       assertNoneCapturing(row.id);
+      // A deletion already due goes first, so what is recorded next never falls under its date
+      // (#687); one that still fails keeps the Meeting paused, and says why.
+      if (dueOr(row, null) !== null) {
+        try {
+          deleteAudio(row.id, "expired");
+        } catch (error) {
+          log.error("meeting.resumeDeleteFailed", { meetingId: row.id, code: codeOf(error) });
+          throw new TranslatableError(
+            { key: "error.meeting.resumeAudioNotDeleted" },
+            { cause: error },
+          );
+        }
+        save(row.id, { audio_deleted_at: now(), audio_expires_at: null });
+      }
       const periods = periodsOf(row);
       const period: Period = {
         start: now(),
@@ -1031,7 +1045,7 @@ export function createMeetings(options: MeetingsOptions) {
         status: "recording",
         paused_by: null,
         periods: JSON.stringify([...periods, period]),
-        audio_expires_at: dueOr(row, null),
+        audio_expires_at: null,
       });
       begin(rowOf(row.id), period);
       log.info("meeting.resumed", { meetingId: row.id });

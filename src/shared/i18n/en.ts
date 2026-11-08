@@ -5962,6 +5962,8 @@ export const en = {
   "error.meeting.recordingTooLong": "This recording is too long for one file: over 37 hours.",
   "error.meeting.audioNotDeleted":
     "Some of this meeting’s audio couldn’t be deleted. IncarnaMind tries again in a minute.",
+  "error.meeting.resumeAudioNotDeleted":
+    "This meeting’s earlier audio couldn’t be deleted yet, so recording can’t resume. Try again in a minute.",
   "error.meeting.saveWhileRecording": "Stop the recording to save it.",
   "error.meeting.savingRecording": "This recording is already being saved.",
   "error.meeting.joinMoved": "The meeting has moved since, so this can’t be undone.",
