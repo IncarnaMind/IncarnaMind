@@ -4,11 +4,13 @@ import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
 import type { Core } from "../../src/core";
 import { calculatedFigureNode, readCalculatedFigure } from "../../src/shared/calculatedFigures";
+import { workbookFormulaText } from "../../src/shared/figureSchedule";
 import { answerEnded, type ShownPassage, shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { unsupportedWorkbook } from "../helpers/financeWorkbooks";
 import { scriptedModel, scriptedModels } from "../helpers/models";
+import { rentalPropertyWorkbook } from "../helpers/rentalHeldOut";
 import { libreOfficeFixture } from "../helpers/workbookFixtures";
 
 type Call = { tool: string; input: unknown };
@@ -93,8 +95,7 @@ const growthAt3 = (passage: string): Call => ({
     passage,
     cell: "DCF!E5",
     label: "EBITDA 2027 at 3% growth",
-    input: "Growth",
-    value: "3%",
+    changes: [{ input: "Growth", value: "3%" }],
   },
 });
 
@@ -122,7 +123,7 @@ describe("a workbook's formulas in an Answer", () => {
         show: { language },
         workbook: {
           cell: { sheet: "DCF", ref: "E5", formula: "E4*Margin", label: "EBITDA 2027" },
-          change: null,
+          changes: [],
           kept: [],
         },
       });
@@ -151,7 +152,7 @@ describe("a workbook's formulas in an Answer", () => {
       expect(changed).toMatchObject({
         shown: "240.4",
         workbook: {
-          change: { input: growth?.name, value: 0.03, shown: "3.0%" },
+          changes: [{ input: growth?.name, value: 0.03, shown: "3.0%" }],
           kept: [],
         },
       });
@@ -161,7 +162,7 @@ describe("a workbook's formulas in an Answer", () => {
       // Each figure is cited to its cell, so the Answer is never called uncited.
       expect(answer.steps?.notCitedAfterAsking).toBeUndefined();
       expect(answer.citations.map((citation) => citation.quote)).toContain(
-        traced?.workbook?.cell.input.citation.quote,
+        traced?.workbook?.cell.input?.citation.quote,
       );
       expect(traced?.workbook?.cell.input).toMatchObject({
         number: { chars: "254.7" },
@@ -172,9 +173,143 @@ describe("a workbook's formulas in an Answer", () => {
       expect(await sha256(file)).toBe(before);
 
       const node = calculatedFigureNode(changed as NonNullable<typeof changed>, "figure-1");
-      expect(readCalculatedFigure(JSON.parse(JSON.stringify(node.attrs?.figure)))).toEqual(
+      const stored: unknown = JSON.parse(JSON.stringify(node.attrs?.figure));
+      expect(readCalculatedFigure(stored)).toEqual(
         expect.objectContaining({ workbook: changed?.workbook }),
       );
+      // A Note kept before a what-if could change several inputs at once holds its one as `change`.
+      const old = JSON.parse(JSON.stringify(stored));
+      old.workbook.change = old.workbook.changes[0];
+      delete old.workbook.changes;
+      expect(readCalculatedFigure(old)?.workbook?.changes).toEqual([changed?.workbook?.changes[0]]);
+    },
+  );
+
+  test.each([
+    [
+      "en",
+      "What if WACC were 8% and the EBITDA margin 25% at the same time? What would the value per share be?",
+      "The value per share would be [=1].",
+    ],
+    ["zh-CN", "如果 WACC 是 8%，同时 EBITDA 利润率是 25%，每股价值是多少？", "每股价值为 [=1]。"],
+  ] as const)(
+    "%s: a what-if that changes two inputs at once gives the figure, names both changes, and leaves the file as it was",
+    async (language, question, reply) => {
+      const model = modelling({
+        query: "value per share WACC EBITDA margin",
+        calls: [
+          (passage) => ({
+            tool: "what_if",
+            input: {
+              passage,
+              cell: "DCF!B21",
+              label: "Value per share",
+              changes: [
+                { input: "WACC", value: "8%" },
+                { input: "Assumptions!B5", value: "25%" },
+              ],
+            },
+          }),
+        ],
+        answer: reply,
+      });
+      const { core, file } = await setUp(model, "dcf.xlsx", libreOfficeFixture("dcf"));
+      const before = await sha256(file);
+      const answer = await ask(core, question);
+      const [figure] = answer.figures;
+      expect(figure?.value).toBe(27.73);
+      // Shown as its cell does, one decimal for the fixture's money format.
+      expect(figure?.shown).toBe("27.7");
+      expect(figure?.show.language).toBe(language);
+      expect(figure?.workbook?.saved).toBe(18.93);
+      expect(figure?.workbook?.changes).toEqual([
+        { input: "Assumptions_B10", value: 0.08, shown: "8.0%" },
+        { input: "Assumptions_B5", value: 0.25, shown: "25.0%" },
+      ]);
+      const changed = figure?.workbook?.changes.map((change) =>
+        figure.inputs.find((input) => input.name === change.input),
+      );
+      expect(changed?.map((input) => `${input?.cell?.sheet}!${input?.cell?.ref}`)).toEqual([
+        "Assumptions!B10",
+        "Assumptions!B5",
+      ]);
+      expect(changed?.map((input) => input?.citation.location)).toEqual([
+        { kind: "rows", sheet: "Assumptions", from: 10, to: 10 },
+        { kind: "rows", sheet: "Assumptions", from: 5, to: 5 },
+      ]);
+      const mentions = (text: string | null) =>
+        text !== null && ["8.0%", "25.0%"].every((value) => text.includes(value));
+      expect(mentions(figure?.label ?? null)).toBe(true);
+      expect(mentions(figure ? workbookFormulaText(figure, language) : null)).toBe(true);
+      // The label names it as a what-if, in the Answer's language, with a space before 和 after a percent.
+      expect(figure?.label).toContain(language === "en" ? "what-if:" : "假设情形");
+      expect(figure?.label).toContain(language === "en" ? "8.0% and " : "8.0% 和");
+      expect(told(model, "what_if")).toContain("the User's file is unchanged");
+      expect(told(model, "what_if")).toContain("Assumptions!B10");
+      expect(told(model, "what_if")).toContain("Assumptions!B5");
+      expect(await sha256(file)).toBe(before);
+    },
+  );
+
+  test.each([
+    ["en", "Is the covenant met in year 1? Trace the flag.", "The year 1 covenant is [=1]."],
+    ["zh-CN", "第一年的 DSCR 约束满足了吗？追踪一下这个标记。", "第一年的约束标记为 [=1]。"],
+  ] as const)(
+    "%s: a text result traces to its input cells, with Citations",
+    async (language, question, reply) => {
+      const model = modelling({
+        query: "covenant DSCR",
+        calls: [
+          (passage) => ({
+            tool: "trace_formulas",
+            input: { passage, cell: "Operations!B18", label: "Covenant, year 1" },
+          }),
+        ],
+        answer: reply,
+      });
+      const { core } = await setUp(
+        model,
+        "Rental property.xlsx",
+        new Uint8Array(rentalPropertyWorkbook().xlsx()),
+      );
+      const answer = await ask(core, question);
+      const [figure] = answer.figures;
+      expect(figure?.value).toBe("Breach");
+      expect(figure?.shown).toBe("Breach");
+      expect(figure?.show).toMatchObject({ language });
+      expect(figure?.workbook?.saved).toBe("Breach");
+      expect(figure?.workbook?.cell.input).toBeNull();
+      expect(figure?.workbook?.text).toMatchObject({
+        value: "Breach",
+        citation: {
+          check: "found",
+          location: { kind: "rows", sheet: "Operations", from: 18, to: 18 },
+        },
+      });
+      expect(figure?.inputs.length).toBeGreaterThan(0);
+      expect(figure?.inputs.every((input) => input.citation.check === "found")).toBe(true);
+      // The figure is cited to its cell, so the Answer is never called uncited.
+      expect(answer.steps?.notCitedAfterAsking).toBeUndefined();
+      expect(answer.citations.map((citation) => citation.quote)).toContain(
+        figure?.workbook?.text?.citation.quote,
+      );
+      expect(told(model, "trace_formulas")).toContain("Recorded [=1] = Breach");
+      expect(told(model, "trace_formulas")).toContain("its cell holds text");
+      const node = calculatedFigureNode(figure as NonNullable<typeof figure>, "figure-1");
+      const stored = JSON.parse(JSON.stringify(node.attrs?.figure));
+      expect(readCalculatedFigure(stored)).toEqual(
+        expect.objectContaining({ value: "Breach", workbook: figure?.workbook }),
+      );
+      // A text figure is a string value with its workbook's text, and only that pairing reads (#2403).
+      const withoutText = JSON.parse(JSON.stringify(stored));
+      withoutText.workbook.text = null;
+      expect(readCalculatedFigure(withoutText)).toBeNull();
+      const numbered = JSON.parse(JSON.stringify(stored));
+      numbered.value = 0;
+      expect(readCalculatedFigure(numbered)).toBeNull();
+      const otherText = JSON.parse(JSON.stringify(stored));
+      otherText.workbook.text.value = "OK";
+      expect(readCalculatedFigure(otherText)).toBeNull();
     },
   );
 
@@ -198,7 +333,9 @@ describe("a workbook's formulas in an Answer", () => {
     const { core } = await setUp(model, "dcf.xlsx", libreOfficeFixture("dcf"));
     const answer = await ask(core, "What would 2027 EBITDA be at 3% growth?");
     const [changed] = answer.figures;
-    const growth = changed?.inputs.find((input) => input.name === changed.workbook?.change?.input);
+    const growth = changed?.inputs.find(
+      (input) => input.name === changed.workbook?.changes[0]?.input,
+    );
     expect(growth?.citation.location).toEqual({
       kind: "rows",
       sheet: "Assumptions",
@@ -207,7 +344,7 @@ describe("a workbook's formulas in an Answer", () => {
     });
     const cited = answer.citations.map((citation) => citation.quote);
     expect(cited).toEqual([growth?.citation.quote]);
-    expect(cited).not.toContain(changed?.workbook?.cell.input.citation.quote);
+    expect(cited).not.toContain(changed?.workbook?.cell.input?.citation.quote);
     expect(answer.steps?.notCitedAfterAsking).toBeUndefined();
   });
 
@@ -217,7 +354,12 @@ describe("a workbook's formulas in an Answer", () => {
       calls: [
         (passage) => ({
           tool: "what_if",
-          input: { passage, cell: "Cases!D2", label: "Figure", input: "Cases!B2", value: "20" },
+          input: {
+            passage,
+            cell: "Cases!D2",
+            label: "Figure",
+            changes: [{ input: "Cases!B2", value: "20" }],
+          },
         }),
         (passage) => ({
           tool: "trace_formulas",
@@ -236,7 +378,7 @@ describe("a workbook's formulas in an Answer", () => {
       expect.objectContaining({
         value: 5.2,
         workbook: expect.objectContaining({
-          change: null,
+          changes: [],
           kept: [{ sheet: "Cases", ref: "C2", reason: "volatile", name: "RAND" }],
         }),
       }),
@@ -254,8 +396,7 @@ describe("a workbook's formulas in an Answer", () => {
             quote: "EBITDA\t231.0\t242.6\t254.7\t267.4\t280.8",
             number: "254.7",
             label: "EBITDA 2027 at 3% growth",
-            input: "Assumptions!B3",
-            value: "3%",
+            changes: [{ input: "Assumptions!B3", value: "3%" }],
           },
         }),
         (passage) => ({
@@ -265,8 +406,7 @@ describe("a workbook's formulas in an Answer", () => {
             quote: "EBITDA\t231.0\t242.6\t254.7\t267.4\t280.8",
             number: "254.7",
             label: "EBITDA 2027 at 3% growth",
-            input: "Assumptions!B4",
-            value: "3%",
+            changes: [{ input: "Assumptions!B4", value: "3%" }],
           },
         }),
       ],
@@ -281,7 +421,7 @@ describe("a workbook's formulas in an Answer", () => {
     expect(results).toContain("Assumptions!B4 Revenue growth 5.0%");
     expect(answer.figures).toHaveLength(1);
     expect(answer.figures[0]?.value).toBeCloseTo(240.39994, 9);
-    expect(answer.figures[0]?.workbook?.change).toMatchObject({ value: 0.03, shown: "3.0%" });
+    expect(answer.figures[0]?.workbook?.changes[0]).toMatchObject({ value: 0.03, shown: "3.0%" });
   });
 
   test.each([
@@ -306,7 +446,7 @@ describe("a workbook's formulas in an Answer", () => {
       const system = JSON.stringify(call?.prompt[0] ?? "");
       expect(system.includes("call trace_formulas")).toBe(offered);
       // A what-if is the workbook's own; a Python result is the Analysis's, never the workbook's (#2378, #2383).
-      expect(system.includes("call what_if, not run_analysis")).toBe(offered);
+      expect(system.includes("call what_if once with all of them, not run_analysis")).toBe(offered);
       expect(system.includes("never the workbook's recalculation")).toBe(offered);
     },
   );
@@ -382,7 +522,7 @@ describe("a workbook's formulas in an Answer", () => {
           "[=1]: 12 is written into its formula beside e27 (DCF!E5) of dcf, cells that workbook's own formulas work out or read. If it is a value the Question supposes",
         );
         expect(replies).toContain(
-          "call what_if with the figure's cell, that input and its new value",
+          "call what_if with the figure's cell, and each input the Question supposes with its new value",
         );
         expect(answer.figures).toHaveLength(1);
         expect(answer.figures[0]).toMatchObject({ formula: "e27 * 12" });
@@ -509,7 +649,12 @@ describe("a workbook's formulas in an Answer", () => {
       (value: string) =>
       (passage: string): Call => ({
         tool: "what_if",
-        input: { passage, cell: "DCF!E5", label: "EBITDA 2027", input: "Assumptions!B3", value },
+        input: {
+          passage,
+          cell: "DCF!E5",
+          label: "EBITDA 2027",
+          changes: [{ input: "Assumptions!B3", value }],
+        },
       });
     const model = modelling({
       query: "EBITDA revenue growth",
@@ -520,6 +665,37 @@ describe("a workbook's formulas in an Answer", () => {
     const answer = await ask(core, "What would 2027 EBITDA be if 2024 revenue were 1.5?");
     expect(told(model, "what_if")).toContain('"1,5" can be read more than one way');
     expect(answer.figures).toHaveLength(1);
-    expect(answer.figures[0]?.workbook?.change).toMatchObject({ value: 1.5 });
+    expect(answer.figures[0]?.workbook?.changes[0]).toMatchObject({ value: 1.5 });
+  });
+
+  test("an input given twice in one what-if is refused, named; each input once records both", async () => {
+    const at3AndMargin =
+      (second: { input: string; value: string }) =>
+      (passage: string): Call => ({
+        tool: "what_if",
+        input: {
+          passage,
+          cell: "DCF!E5",
+          label: "EBITDA 2027",
+          changes: [{ input: "Assumptions!B4", value: "3%" }, second],
+        },
+      });
+    const model = modelling({
+      query: "EBITDA revenue growth margin",
+      calls: [
+        at3AndMargin({ input: "Growth", value: "4%" }),
+        at3AndMargin({ input: "Assumptions!B5", value: "25%" }),
+      ],
+      answer: "At 3% growth and a 25% margin, 2027 EBITDA would be [=1].",
+    });
+    const { core } = await setUp(model, "dcf.xlsx", libreOfficeFixture("dcf"));
+    const answer = await ask(core, "What would 2027 EBITDA be at 3% growth and a 25% margin?");
+    expect(told(model, "what_if")).toContain(
+      "Nothing was recorded: Assumptions!B4 is given twice; give each input once.",
+    );
+    expect(answer.figures).toHaveLength(1);
+    expect(answer.figures[0]?.workbook?.changes.map((change) => change.value)).toEqual([
+      0.03, 0.25,
+    ]);
   });
 });

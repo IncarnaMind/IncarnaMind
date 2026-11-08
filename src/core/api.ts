@@ -395,8 +395,13 @@ export interface CreateMindInput {
  *   would then be re-run by a Note move or a scope comparison, so it opens
  *   these Notes read-only. Older content is version 54 content as it is: a
  *   mark without it was checked by this Note itself.
+ * - 56: a workbook's what-if figure keeps its changed inputs as a list
+ *   (`changes`, #2403), where it kept one as `change`. An older version reads
+ *   a what-if as the workbook's own figure, so it opens these Notes read-only.
+ *   Older content is version 55 content as it is: a figure without it is the
+ *   workbook's own, or a what-if of the one input it names.
  */
-export const CONTENT_SCHEMA_VERSION = 55;
+export const CONTENT_SCHEMA_VERSION = 56;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -2932,8 +2937,8 @@ export interface CalculatedFigure {
   /** In Excel's formula syntax, over the inputs' names: "rev2025 / rev2024 - 1". */
   formula: string;
   inputs: FigureInput[];
-  /** As worked out, a double, as Excel computes it; true or false for a comparison. */
-  value: number | boolean;
+  /** As worked out, a double, as Excel computes it; true or false for a comparison; the text a workbook's cell holds for a text figure (#2389). */
+  value: number | boolean | string;
   unit: ResultUnit;
   /** Worked out from an approximate input, so approximate too. */
   approximate: boolean;
@@ -3008,27 +3013,32 @@ export interface WorkbookFigureStep {
 
 /**
  * A figure worked out from a workbook's own formulas (#2347): a cell of it, or
- * that cell worked out again with one input changed (what-if), in memory,
- * never in the User's file. Its inputs are the cells holding numbers that
- * drive it, each cited to its cell.
+ * that cell worked out again with one or more inputs changed (what-if), in
+ * memory, never in the User's file. Its inputs are the cells holding numbers
+ * that drive it, each cited to its cell.
  */
 export interface FigureFromWorkbook {
   /**
    * The figure's cell, with its formula and the number it shows read as an input is, cited to
-   * the cell: a Check reads it again there.
+   * the cell: a Check reads it again there. Null for a text figure, which no arithmetic holds.
    */
-  cell: WorkbookFigureStep & { input: FigureInput };
+  cell: WorkbookFigureStep & { input: FigureInput | null };
   /** The formulas it is worked out through, nearest first, its own excluded. */
   steps: WorkbookFigureStep[];
   /** How many formula cells were worked out for it, and its inputs past those listed. */
   formulaCells: number;
   moreInputs: number;
   /** The value the workbook saved for the cell, which IncarnaMind's own result matched. */
-  saved: number;
+  saved: number | string;
   /** That value as the cell shows it: "254.7". */
   savedShown: string;
-  /** A what-if's one changed input: its name among the inputs, and the value it was given. */
-  change: { input: string; value: number; shown: string } | null;
+  /** A text figure's text, cited to the cell it is in (#2389); null for a number. */
+  text: { value: string; citation: Citation } | null;
+  /**
+   * A what-if's changed inputs, each one's name among the inputs and the value it was given;
+   * empty for a figure the workbook gives.
+   */
+  changes: { input: string; value: number; shown: string }[];
   /**
    * The cells it depends on that can't be worked out here, so they and it keep the values the
    * workbook saved, the first few; empty when every formula was worked out again.
@@ -6959,6 +6969,8 @@ export type ClaimVerdict = "supported" | "unsupported" | "contradicted";
  *   saved value differs from its formulas, it links to another file, it changes each time, its
  *   formulas refer to each other, it reads a sheet or rows that weren't read, Excel saved no value
  *   for it, or any other formula IncarnaMind can't work out), so its cell's number backs nothing.
+ * - "workbook-text": a figure whose cell holds text, such as a covenant's "OK" or "Breach" (#2389),
+ *   which isn't compared with a number.
  * - "figures-not-read": the figures in a text of a Document the check read couldn't be read; its
  *   detail is where, as `src/shared/unreadFigures.ts` writes it, or null when that isn't known.
  * - "sentence-figures-not-read": the figures in the sentence itself couldn't be read.
@@ -6996,6 +7008,8 @@ export type ClaimCheckFailure =
   | "workbook-not-read"
   | "workbook-no-saved-value"
   | "workbook-unsupported"
+  /** A figure whose cell holds text (#2389), which a Check doesn't compare with a number. */
+  | "workbook-text"
   | "figures-not-read"
   | "sentence-figures-not-read"
   /** A figure's equal number that the quoted table gives in another row's or column's cell. */
@@ -11255,7 +11269,8 @@ export interface Meeting {
  * The Mind's notes filled in from the Transcript after Stop (#142), with no question first:
  * under each of the User's lines, or, with none, in sections. Every addition is AI text citing
  * the Transcript's times; the User's own text never changes.
- * - "waiting": for the Transcript to be finished and saved;
+ * - "waiting": for the Transcript to be finished and saved. A call's notes may already be under
+ *   way while its speakers are told apart; they are written once that ends (#2773);
  * - "filling": the model is writing;
  * - "filled": written, and one Undo takes it all back;
  * - "undone": taken back;

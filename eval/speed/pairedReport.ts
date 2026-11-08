@@ -14,8 +14,60 @@ export interface PairedRow {
   model: string;
   /** Which time this item ran, from 1. */
   run: number;
+  /** The arm that ran first in this pair: 0 the baseline, 1 the candidate. */
+  first: 0 | 1;
+  /** Both arms' first requests were the same, ids and times aside; set only when the run asks. */
+  sameRequest?: boolean;
   baseline: ArmRun;
   candidate: ArmRun;
+}
+
+/**
+ * Which arm goes first in each pair of a run (#2791). The order turns from pair to pair within each
+ * cell of the run, a model on a set in one language (`cellOf`), so in each cell each arm goes first
+ * in half the pairs, give or take one, whatever groups, models and languages the run holds:
+ * neither arm always meets a cache, or a model's load, that the other warmed.
+ */
+export function armTurns(): (cell: string) => readonly [0 | 1, 0 | 1] {
+  const pairs = new Map<string, number>();
+  return (cell) => {
+    const before = pairs.get(cell) ?? 0;
+    pairs.set(cell, before + 1);
+    return before % 2 === 0 ? [0, 1] : [1, 0];
+  };
+}
+
+/** The cell of a run a pair is counted in: its model, on its set, in its language. */
+export const cellOf = (row: Pick<PairedRow, "model" | "set" | "language">) =>
+  `${row.model} · ${row.set} · ${row.language}`;
+
+/** What tells two arms' libraries apart in a request: ids, and the times files were made. */
+const PER_LIBRARY = [
+  /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g,
+  /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z/g,
+  /file-modified=\\"[^"\\]*\\"/g,
+];
+
+/** Whether two arms sent the same first request, what differs between their libraries aside. */
+export function sameRequestOf(baseline: string | null, candidate: string | null): boolean {
+  if (baseline === null || candidate === null) return false;
+  const masked = (prompt: string) =>
+    PER_LIBRARY.reduce((text, pattern) => text.replace(pattern, "·"), prompt);
+  return masked(baseline) === masked(candidate);
+}
+
+/** How many of `rows` each arm went first in, baseline then candidate. */
+export const wentFirst = (rows: readonly Pick<PairedRow, "first">[]): [number, number] => [
+  rows.filter((row) => row.first === 0).length,
+  rows.filter((row) => row.first === 1).length,
+];
+
+/** The same, cell by cell, in the order the cells first ran. */
+export function wentFirstByCell(
+  rows: readonly Pick<PairedRow, "first" | "model" | "set" | "language">[],
+): [string, [number, number]][] {
+  const cells = [...new Set(rows.map(cellOf))];
+  return cells.map((cell) => [cell, wentFirst(rows.filter((row) => cellOf(row) === cell))]);
 }
 
 /** The candidate gave a false Supported on an item the baseline didn't: the run stops there. */

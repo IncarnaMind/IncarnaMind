@@ -1005,10 +1005,11 @@ export const zhCN = {
   "figures.workbook.formulas": "共计算了 {count} 个公式",
   "figures.workbook.change": "已将“{input}”（{cell}）从 {from} 改为 {to}",
   "figures.workbook.inWorkbook": "工作簿中的原值：{value}",
-  "figures.workbook.whatIfFormula":
-    "假设情形：{cell} = {formula}，其中“{input}”取 {to}（工作簿中为 {from}）",
+  "figures.workbook.whatIfFormula": "假设情形：{cell} = {formula}，其中{changes}",
+  "figures.workbook.whatIfChange": "“{input}”取 {to}（工作簿中为 {from}）",
   "figures.workbook.whatIfInput": "为假设情形而改",
-  "figures.workbook.whatIfLabel": "{label}（假设情形：“{input}”取 {value}）",
+  "figures.workbook.whatIfLabel": "{label}（假设情形：{changes}）",
+  "figures.workbook.whatIfAt": "“{input}”取 {value}",
   "figures.workbook.moreInputs": "另有 {count} 项所用数据未列出",
   "figures.workbook.keptNote":
     "这是工作簿保存的值：IncarnaMind 无法重新计算，原因见上。每项所用数据都引用到所在单元格。",
@@ -1384,6 +1385,7 @@ export const zhCN = {
   "claim.reason.workbook-no-saved-value":
     "它用到的某个公式没有 Excel 保存的值，因此无法核对这个数。",
   "claim.reason.workbook-unsupported": "它用到了 IncarnaMind 无法计算的公式，因此无法核对这个数。",
+  "claim.reason.workbook-text": "这是“OK”或“Breach”这样的文本结果，不按数字核对。",
   "claim.reason.workbook-changed":
     "按工作簿现在的单元格，已得不出这个数。请重新提问，按工作簿现在的内容再算一次。",
   "claim.reason.figures-not-read": "无法读取“{document}”{location}中的数字。",
@@ -4929,7 +4931,8 @@ export const zhCN = {
   "export.table.comma": "、",
   "export.figure.workbook": "按工作簿中的公式计算得出（{cell} = {formula}）：{figure}。",
   "export.figure.whatIf":
-    "按工作簿中的公式计算得出（{cell} = {formula}），其中“{input}”改为 {value}：{figure}。",
+    "按工作簿中的公式计算得出（{cell} = {formula}），其中{changes}：{figure}。",
+  "export.figure.whatIfChange": "“{input}”改为 {value}",
   "export.figure.inputs": "{inputs}：{source}。",
   "export.figure.cluster": "据{cluster}计算",
   "export.figure.cluster.note": "据{cluster}计算",
@@ -6766,6 +6769,7 @@ export const zhCN = {
   "meetings.help.textBehind": "实时转写跟不上，通话内容还没有转写出来，会议结束后才会转写。",
   "meetings.help.textBehind.some": "实时转写跟不上，以下只依据已转写的内容。",
   "meetings.help.failed": "这次没能给出建议：{message}",
+  "meetings.help.nothing": "回答里没有可用的内容",
   "meetings.help.retry": "重试",
   "meetings.help.theySaid": "对方说：“{text}”",
   "meetings.help.youSaid": "你说：“{text}”",

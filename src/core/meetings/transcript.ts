@@ -171,6 +171,8 @@ interface Live {
   /** Microphone streams a pause ended, until their last lines are in: a closed gate drops them too. */
   finishing: Finishing[];
   started: boolean;
+  /** The engine let its models go while idle: the next audio starts it again (#2673). */
+  unloaded: boolean;
   /** Audio waiting for the engine to start. */
   held: TrackedAudio[];
   /** How far audio has gone to the engine, and how far its text is final on every stream, in the Meeting's time. */
@@ -275,9 +277,16 @@ export interface TranscriptsOptions {
   decoded?(modelId: string, decodeMs: number, audioSeconds: number): void;
   /**
    * The Meeting's Transcript is finished (#142): saved, its Document in its place and its
-   * speakers told apart (#138), or with no lines.
+   * speakers told apart (#138), or with no lines. `renamed`: the speaker pass changed who spoke
+   * a line, so what was read of it before has other labels now.
    */
-  saved?(meetingId: string): void;
+  saved?(meetingId: string, renamed: boolean): void;
+  /**
+   * A call's Transcript is saved, its Document in its place, and its speakers are being told
+   * apart (#138): its words are final, and its labels change only where the pass finds more than
+   * one voice on the other side (#2773).
+   */
+  written?(meetingId: string): void;
   /**
    * The words the Meeting's speech may hold (#1031): gathered when it is first transcribed, and
    * told to the engine on this computer for each of its streams.
@@ -744,6 +753,37 @@ export function createTranscripts(options: TranscriptsOptions) {
     options.changed();
   }
 
+  /** The engine unloaded its models after a long idle (#2673): nothing failed, and its next audio starts it again. */
+  function engineUnloaded(): void {
+    if (closed) return;
+    log.info("transcript.engineUnloaded", {});
+    for (const state of states.values()) {
+      const live = state.live;
+      if (!live?.started) continue;
+      // The process ends only with no stream open: audio still sent on a stream the core holds was
+      // never decoded, so it is a gap from that stream's own progress and read again from the kept
+      // audio after Stop, as a crash's is (#2673). A pause's finished stream has left
+      // `live.streams` already, and its last stretch is transcribed, so it is no gap.
+      const open = Object.values(live.streams);
+      if (open.length > 0) {
+        const from = Math.min(...open.map((each) => each.doneMs));
+        const lost = { fromMs: from, toMs: Math.max(from, live.pushedMs) };
+        if (live.pendingFrom === null && lost.toMs > lost.fromMs) {
+          state.gaps.push({ ...lost, reason: "restarted" });
+          state.pending = addRange(state.pending, lost);
+        }
+      }
+      live.started = false;
+      live.unloaded = true;
+      live.stream = `${state.meetingId}:${++streams}`;
+      live.streams = {};
+      live.doneMs = live.pushedMs;
+      live.heardMs = live.doneMs;
+      state.partials.clear();
+    }
+    options.changed();
+  }
+
   /** The transcriber moved a stream to another engine (#141, #462): the Meeting's health says when, and why. */
   function heardSwitch(change: EngineSwitch): void {
     const found = owner(change.stream);
@@ -874,6 +914,7 @@ export function createTranscripts(options: TranscriptsOptions) {
     // Not the engine's message: one from a cloud service could quote what it was sent.
     failed: (stream) => log.warn("transcript.decodeFailed", { stream }),
     stopped: engineStopped,
+    unloaded: engineUnloaded,
     switched: heardSwitch,
     lost: heardLost,
     opened: heardOpened,
@@ -1136,6 +1177,10 @@ export function createTranscripts(options: TranscriptsOptions) {
       return;
     }
     live.held.push(audio);
+    if (live.unloaded) {
+      live.unloaded = false;
+      startEngine(state);
+    }
     // Audio that waited too long is transcribed after Stop: live text starts from what is left.
     const newest = audio.atMs + audio.lengthMs;
     while ((live.held[0]?.atMs ?? newest) < newest - HELD_MS) {
@@ -1329,7 +1374,7 @@ export function createTranscripts(options: TranscriptsOptions) {
   async function save(state: State): Promise<void> {
     if (state.cues.length === 0) {
       state.state = "empty";
-      options.saved?.(state.meetingId);
+      options.saved?.(state.meetingId, false);
       return;
     }
     const file = writeWhole(vttPath(state.meetingId), transcriptOf(state));
@@ -1339,7 +1384,7 @@ export function createTranscripts(options: TranscriptsOptions) {
     log.info("transcript.saved", { meetingId: state.meetingId, lines: state.cues.length });
     if (options.speakers && !state.memo) state.speakers = "due";
     await documents.checkNow(state.documentId, file.path);
-    if (state.speakers !== "due") options.saved?.(state.meetingId);
+    if (state.speakers !== "due") options.saved?.(state.meetingId, false);
   }
 
   // Voices a cloud service told apart as they spoke stand: the pass leaves that side.
@@ -1369,18 +1414,30 @@ export function createTranscripts(options: TranscriptsOptions) {
     }
     state.separating = true;
     options.changed();
+    if (isCall(state.cues)) {
+      // The pass runs whatever the notes do with this: they wait for its end at the latest.
+      try {
+        options.written?.(state.meetingId);
+      } catch (error) {
+        log.error("transcript.writtenFailed", {
+          meetingId: state.meetingId,
+          message: messageOf(error),
+        });
+      }
+    }
     const saved = transcriptOf(state);
     const current = () => !closed && states.get(state.meetingId) === state;
+    let renamed = false;
     pass
       .run(state.meetingId, [...state.cues])
       .then(
-        (cues) => {
+        async (cues) => {
           if (
             current() &&
             !named(state) &&
             cues?.some((cue, at) => cue.speaker !== state.cues[at]?.speaker)
           ) {
-            relabel(state, cues, saved);
+            renamed = await relabel(state, cues, saved);
           }
           return "done" as const;
         },
@@ -1391,7 +1448,7 @@ export function createTranscripts(options: TranscriptsOptions) {
       )
       .then((outcome) => {
         state.separating = false;
-        if (current()) settle(state, outcome);
+        if (current()) settle(state, outcome, renamed);
       })
       .catch((error: unknown) => {
         log.error("speakers.settleFailed", {
@@ -1401,11 +1458,11 @@ export function createTranscripts(options: TranscriptsOptions) {
       });
   }
 
-  function settle(state: State, outcome: "done" | "failed"): void {
+  function settle(state: State, outcome: "done" | "failed", renamed = false): void {
     state.speakers = outcome;
     persist(state);
     options.changed();
-    options.saved?.(state.meetingId);
+    options.saved?.(state.meetingId, renamed);
   }
 
   function modelProblem(state: State, status: TranscriptionModelStatus): TranscriptProblem | null {
@@ -1420,27 +1477,34 @@ export function createTranscripts(options: TranscriptsOptions) {
   const speakersProblem = (state: State): TranscriptProblem | null =>
     state.speakers === "failed" ? { kind: "speakers", message: "" } : null;
 
-  function relabel(state: State, cues: Cue[], saved: string): void {
+  /**
+   * Whether the lines were written with their new labels. Its Document is read again before this
+   * resolves, so what reads the Transcript once it is finished reads them (#2773).
+   */
+  async function relabel(state: State, cues: Cue[], saved: string): Promise<boolean> {
     const path = state.savedPath;
-    if (!path) return;
+    if (!path) return false;
     try {
       // Written over only while it still holds the lines that were saved.
       if (readFileSync(path, "utf8") !== saved) {
         log.warn("speakers.fileChanged", { meetingId: state.meetingId });
-        return;
+        return false;
       }
       state.cues = cues;
       writeWhole(path, transcriptOf(state));
     } catch (error) {
       log.error("speakers.writeFailed", { meetingId: state.meetingId, message: messageOf(error) });
-      return;
+      return false;
     }
-    documents.check(path).catch((error: unknown) => {
+    try {
+      await documents.checkNow(state.documentId, path);
+    } catch (error) {
       log.error("transcript.indexFailed", {
         meetingId: state.meetingId,
         message: messageOf(error),
       });
-    });
+    }
+    return true;
   }
 
   function finishStreams(state: State, live: Live, endMs: number): void {
@@ -1629,6 +1693,7 @@ export function createTranscripts(options: TranscriptsOptions) {
         microphoneStreams: 0,
         finishing: [],
         started: false,
+        unloaded: false,
         held: [],
         pushedMs: offsetMs,
         doneMs: offsetMs,

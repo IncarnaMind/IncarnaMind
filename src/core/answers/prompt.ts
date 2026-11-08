@@ -27,6 +27,13 @@ export function questionLanguage(question: string): string | null {
     : detectLanguage(question.replace(CJK_CHARACTERS, " "), QUESTION_COMMON_WORDS);
 }
 
+/** A transcript line's time and speaker ("[12:07 Them] "): who spoke and when, not what was said. */
+const SPEECH_MARK = /\[[^\]]*\]/g;
+
+/** The language a transcript's `passages` are said in, their marks left out. */
+export const languageSpoken = (passages: readonly { text: string }[]): string | null =>
+  questionLanguage(passages.map((passage) => passage.text.replace(SPEECH_MARK, " ")).join("\n"));
+
 function isWritten(question: string, documentNames: readonly string[]): boolean {
   const keys = [question.trim(), question.trim().replace(EXTENSION, "")].map(nameKey);
   if (documentNames.some((name) => keys.includes(nameKey(name)))) return false;
@@ -117,7 +124,7 @@ export function webInstructions(offered: boolean): string {
 export function workbookInstructions(offered: boolean): string {
   if (!offered) return "";
   return [
-    "A figure in an Excel workbook is worked out by the workbook's own formulas, which its Passages never show: a Passage marked formulas=\"…\" names the rows whose values its formulas worked out. Before the Answer says how such a figure is worked out, names the cells or assumptions it is worked out from, or compares their effect on it, call trace_formulas for that figure: the rows' labels and values only suggest the formulas, and a guess from them would read as fact. When the Question supposes a different value for one of the workbook's inputs, call what_if, not run_analysis: what_if works the figure out again through every formula between them. Write the marker each gives in the Answer where its figure's number goes.",
+    "A figure in an Excel workbook is worked out by the workbook's own formulas, which its Passages never show: a Passage marked formulas=\"…\" names the rows whose values its formulas worked out. Before the Answer says how such a figure is worked out, names the cells or assumptions it is worked out from, or compares their effect on it, call trace_formulas for that figure: the rows' labels and values only suggest the formulas, and a guess from them would read as fact. When the Question supposes different values for one or more of the workbook's inputs, call what_if once with all of them, not run_analysis: what_if works the figure out again through every formula between them. Write the marker each gives in the Answer where its figure's number goes.",
     "- Never work a what-if out yourself, with calculate, with run_analysis or in words, from the values a Passage shows, and never say how a figure is worked out, or that a sheet doesn't show its formulas, without trace_formulas. A number an Analysis works out in Python is the Analysis's own calculation, never the workbook's recalculation. When either says a formula can't be worked out, say so in the Answer.",
   ].join("\n");
 }
@@ -583,7 +590,7 @@ const FORMULA_ROWS_PASSAGE = /<passage [^>]*\bformulas="/;
  */
 export function formulaRowsNote(passages: string): string {
   if (!FORMULA_ROWS_PASSAGE.test(passages)) return "";
-  return "In a Passage marked formulas=\"…\", the rows it names hold values the workbook's own formulas worked out, and no Passage shows those formulas. Before saying how such a figure is worked out, which cells or assumptions it comes from, or how much each one counts, call trace_formulas for the figure; for the figure with one of the workbook's inputs at another value, call what_if.";
+  return "In a Passage marked formulas=\"…\", the rows it names hold values the workbook's own formulas worked out, and no Passage shows those formulas. Before saying how such a figure is worked out, which cells or assumptions it comes from, or how much each one counts, call trace_formulas for the figure; for the figure with one or more of the workbook's inputs at other values, call what_if once with all of them.";
 }
 
 /**

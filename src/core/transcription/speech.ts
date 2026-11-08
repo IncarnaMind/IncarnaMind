@@ -65,6 +65,11 @@ export interface SpeechReport {
   failed(stream: string, message: string): void;
 }
 
+export interface SpeechHostOptions {
+  /** Called when the host has nothing left to do: no stream open and nothing being decoded. */
+  onIdle?(): void;
+}
+
 /** How often speech in progress is decoded again. */
 export const PARTIAL_EVERY_MS = 2500;
 /** Speech shorter than this has no partial text: its final text comes soon. */
@@ -167,7 +172,11 @@ interface Stream {
   dropped: boolean;
 }
 
-export function createSpeechHost(engine: SpeechEngine, report: SpeechReport) {
+export function createSpeechHost(
+  engine: SpeechEngine,
+  report: SpeechReport,
+  options: SpeechHostOptions = {},
+) {
   const streams = new Map<string, Stream>();
   const finals: Job[] = [];
   /** The latest partial asked for, by stream: an older one is no use. */
@@ -179,6 +188,15 @@ export function createSpeechHost(engine: SpeechEngine, report: SpeechReport) {
    * no stream is open, so each Meeting starts with them.
    */
   let reads = engine.live !== undefined;
+
+  /** Nothing is open and nothing is decoded: the engine has no work until a stream comes again. */
+  function idle(): boolean {
+    return streams.size === 0 && !decoding && finals.length === 0 && partials.size === 0;
+  }
+
+  function becameIdle(): void {
+    if (idle()) options.onIdle?.();
+  }
 
   /** The kept samples from `from` to `to` (exclusive), in the stream's samples. */
   function slice(stream: Stream, from: number, to = stream.received): Float32Array {
@@ -226,6 +244,7 @@ export function createSpeechHost(engine: SpeechEngine, report: SpeechReport) {
       streams.delete(stream.name);
       resolve();
     }
+    becameIdle();
   }
 
   /** Decoding time over audio time, every stream's over the last minute of its audio: `liveWork`, the streaming model's. */
@@ -356,6 +375,7 @@ export function createSpeechHost(engine: SpeechEngine, report: SpeechReport) {
       }
     }
     void pump();
+    becameIdle();
   }
 
   /**
@@ -450,6 +470,8 @@ export function createSpeechHost(engine: SpeechEngine, report: SpeechReport) {
       streamOf(name).words = words;
     },
 
+    idle,
+
     push(name: string, samples: Float32Array): void {
       if (closed || samples.length === 0) return;
       const stream = streamOf(name);
@@ -486,6 +508,7 @@ export function createSpeechHost(engine: SpeechEngine, report: SpeechReport) {
         if (finals[i]?.stream === name) finals.splice(i, 1);
       }
       stream.finishing?.resolve();
+      becameIdle();
     },
 
     close(): void {

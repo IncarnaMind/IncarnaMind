@@ -5,6 +5,7 @@ import { useT } from "../i18n";
 import { useFillStep } from "../meetingFillSteps";
 import { useMeetings } from "../meetings";
 import { showMeetingNoteView } from "../meetingViews";
+import { speechModelDownload } from "../speechModelDownload";
 import { CheckLineIcon } from "./lineIcons";
 import { type ProblemAction, ProblemLine } from "./ProblemLine";
 import { useTabPlace } from "./tabs/tabItems";
@@ -43,7 +44,7 @@ const WORDS = {
 
 /**
  * Where filling the notes in from the Transcript is (#142), one line under a stopped Meeting:
- * waiting for the Transcript, filling in (on this computer, where it is), "Notes filled in ·
+ * finishing the Transcript, filling in (on this computer, where it is), "Notes filled in ·
  * Undo", or why they weren't, with Try again. A voice memo's says its note was written, or that
  * its Transcript went in as it is, and why. `editor`: the one it shows in, whose own Undo may
  * hold the fill. What the User asked of it and couldn't be done says so in its place.
@@ -98,13 +99,26 @@ export function MeetingFillLine({ meeting, editor }: { meeting: Meeting; editor?
     );
   }
   if (fill.state === "waiting" || fill.state === "filling") {
-    const text =
-      fill.state === "waiting"
-        ? t(words.waiting)
-        : t(fill.local ? words.fillingLocal : words.filling);
+    // From Stop, a call's note says what is under way: its Transcript's last lines and speakers,
+    // then the note, which a finished Transcript starts at once (#2773). A Transcript that
+    // stopped says why in its own line.
+    const transcript = meeting.transcript;
+    const call = meeting.kind === "meeting" && fill.state === "waiting" && !transcript?.problem;
+    const finished = transcript?.state === "saved" && !transcript.separating;
+    const finishing = call && !finished;
+    const downloading = finishing ? speechModelDownload(transcript?.model ?? null, t) : null;
+    const text = downloading
+      ? t("meetings.transcript.finishingDownload", downloading)
+      : finishing
+        ? t("meetings.transcript.finishing")
+        : fill.state === "waiting" && !call
+          ? t(words.waiting)
+          : t(fill.local ? words.fillingLocal : words.filling);
     return (
       <ProblemLine testId="meeting-fill-line" role="status" className="">
-        <span className={fill.state === "filling" ? "answer-writing" : undefined}>{text}</span>
+        <span className={fill.state === "filling" || call ? "answer-writing" : undefined}>
+          {text}
+        </span>
       </ProblemLine>
     );
   }

@@ -151,12 +151,13 @@ function misses(answer: ConversationAnswer, held: HeldOutCase): string[] {
     change &&
     !answer.figures.some((figure) => {
       const book = figure.workbook;
-      const input = figure.inputs.find((each) => each.name === book?.change?.input);
+      const changed = book?.changes[0];
+      const input = figure.inputs.find((each) => each.name === changed?.input);
       return (
         book !== undefined &&
         `${book.cell.sheet}!${book.cell.ref}` === change.cell &&
         `${input?.cell?.sheet}!${input?.cell?.ref}` === change.input &&
-        book.change?.value === change.value &&
+        changed?.value === change.value &&
         Math.abs((figure.value as number) - change.result) < 1e-9
       );
     })
@@ -172,7 +173,7 @@ const located = (answer: ConversationAnswer) => [
   ),
   ...answer.figures.map(
     (figure) =>
-      `- [=${figure.marker}] ${figure.shown} ${figure.label}${figure.workbook ? ` (${figure.workbook.cell.sheet}!${figure.workbook.cell.ref}${figure.workbook.change ? `, ${figure.workbook.change.input} → ${figure.workbook.change.shown}` : ""})` : ` = ${figure.formula}`}; inputs ${figure.inputs.map((input) => `${input.name} ${input.cell ? input.cell.ref : "?"}`).join(", ")}`,
+      `- [=${figure.marker}] ${figure.shown} ${figure.label}${figure.workbook ? ` (${figure.workbook.cell.sheet}!${figure.workbook.cell.ref}${figure.workbook.changes.length > 0 ? `, ${figure.workbook.changes.map((change) => `${change.input} → ${change.shown}`).join(", ")}` : ""})` : ` = ${figure.formula}`}; inputs ${figure.inputs.map((input) => `${input.name} ${input.cell ? input.cell.ref : "?"}`).join(", ")}`,
   ),
 ];
 

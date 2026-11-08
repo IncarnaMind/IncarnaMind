@@ -244,6 +244,16 @@ const failure = (error: unknown): EditWithAiResult => ({
   error: { kind: "unknown", message: errorMessage(error, t) },
 });
 
+/** Closes the selection at the end of the text an edit is about, as an action does, unless the User has moved it. */
+function closeSelection(editor: Editor, range: { from: number; to: number }): void {
+  const { selection } = editor.state;
+  if (selection.from === range.from && selection.to === range.to) {
+    editor.view.dispatch(
+      editor.state.tr.setSelection(TextSelection.create(editor.state.doc, range.to)),
+    );
+  }
+}
+
 /**
  * Asks the core to change the selected text (or `range`) as `action` says.
  * While the AI works the text is marked and the composer says so, with Stop;
@@ -264,7 +274,16 @@ export async function requestEdit(
   from?: "menu",
 ): Promise<boolean> {
   const selection = selectionForEdit(editor.state, range);
-  if (!selection || editor.isDestroyed || useEdits.getState().pending[mindId]) return false;
+  if (!selection || editor.isDestroyed) return false;
+  if (useEdits.getState().pending[mindId]) {
+    // One change at a time in a Mind, said where the menu action's own line lands (#2123).
+    if (from === "menu") {
+      noteBusy(mindId, { blockId: selection.from.blockId, at: Date.now() });
+      // As an action does: the menu closes over the words, and the line shows in the page.
+      closeSelection(editor, selection.range);
+    }
+    return false;
+  }
   if (rewriting(mindId)) return false;
   const requestId = crypto.randomUUID();
   set("problems", mindId, null);
@@ -277,12 +296,7 @@ export async function requestEdit(
     ...(from === "menu" && { menu: { blockId: selection.from.blockId, at: Date.now() } }),
   });
   setEditTarget(editor, selection.range);
-  const { selection: now } = editor.state;
-  if (now.from === selection.range.from && now.to === selection.range.to) {
-    editor.view.dispatch(
-      editor.state.tr.setSelection(TextSelection.create(editor.state.doc, selection.range.to)),
-    );
-  }
+  closeSelection(editor, selection.range);
   const watch = watchMovedOn(editor);
   const applying = startApplying(editor, mindId, requestId);
 

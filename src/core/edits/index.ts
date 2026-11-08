@@ -172,8 +172,11 @@ export interface EditsOptions {
   consent: Consent;
   /** Local mode: only models on this computer. */
   localOnly(): boolean;
-  /** A Citation's attributes checked again now, or null when its check comes out the same. */
-  recheck(attributes: Attributes): Attributes | null;
+  /**
+   * A Citation's attributes checked again now: its new attributes, or null when its check comes
+   * out the same, or the Note may not read its Document (#2746).
+   */
+  recheck(attributes: Attributes, mindId: string): Attributes | null;
   /**
    * Says where a request writes next in a Mind as its changes come in (#202); null once it has
    * stopped. `part`: a long selection edited in parts says which of how many is written now (#2348).
@@ -342,6 +345,7 @@ function takeBack(doc: Y.Doc, blocks: Y.XmlFragment, proposalId: string) {
 function freshCitations(
   selection: Selection,
   recheck: EditsOptions["recheck"],
+  mindId: string,
 ): (reply: string) => ReadonlyMap<number, Attributes> {
   const fresh = new Map<number, Attributes>();
   const checked = new Set<number>();
@@ -351,7 +355,7 @@ function freshCitations(
       if (checked.has(marker)) continue;
       checked.add(marker);
       const attributes = selection.citations[marker - 1];
-      const again = attributes ? recheck(attributes) : null;
+      const again = attributes ? recheck(attributes, mindId) : null;
       if (again) fresh.set(marker, again);
     }
     return fresh;
@@ -834,7 +838,7 @@ export function createEdits(options: EditsOptions) {
           selection,
           request,
           randomUUID,
-          freshCitations(selection, options.recheck),
+          freshCitations(selection, options.recheck, mindId),
           {
             // An edit the User asked for applies at once, here or from the assistant, and what its
             // reply leaves out without quoting it as taken out stays (#880, #2180).
@@ -1236,7 +1240,7 @@ export function createEdits(options: EditsOptions) {
           return doc !== null && own.requests.some((each) => removesOnlyAsked(doc, each));
         });
       const written = fork.transact(() => {
-        const fresh = freshCitations(selection, options.recheck)(reply);
+        const fresh = freshCitations(selection, options.recheck, input.mindId)(reply);
         // Only the call's own word sets a reply aside: an inherited one only holds it (#2356).
         const rewritten = proposeRewrite(selection, reply, request, randomUUID, fresh, {
           named,

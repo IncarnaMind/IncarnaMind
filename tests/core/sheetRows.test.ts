@@ -704,12 +704,22 @@ test("a workbook's formula Tools say when a figure or the input changed is in a 
     { tool: "trace_formulas", input: { passage, cell: "Quote!D4", label: "Total" } },
     {
       tool: "what_if",
-      input: { passage, cell: "Quote!D4", label: "Total", input: "Quote!C2", value: "15" },
+      input: {
+        passage,
+        cell: "Quote!D4",
+        label: "Total",
+        changes: [{ input: "Quote!C2", value: "15" }],
+      },
     },
     { tool: "trace_formulas", input: { passage, cell: "Quote!D7", label: "Total" } },
     {
       tool: "what_if",
-      input: { passage, cell: "Quote!D7", label: "Total", input: "Quote!C5", value: "15" },
+      input: {
+        passage,
+        cell: "Quote!D7",
+        label: "Total",
+        changes: [{ input: "Quote!C5", value: "15" }],
+      },
     },
   ];
   const model = scriptedModel((call) => {

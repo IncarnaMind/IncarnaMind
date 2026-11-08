@@ -142,7 +142,7 @@ export function figureScheduleBook(
         text("number", String(row.number)),
         text(
           "figure",
-          row.calculated?.figure.workbook?.change
+          row.calculated?.figure.workbook?.changes.length
             ? `= ${row.reading.chars} · ${workbookFormulaText(row.calculated.figure, language)}`
             : `${row.calculated ? "= " : ""}${row.reading.chars}`,
         ),

@@ -41,18 +41,6 @@ const TIMES_FAIL = process.env.CI !== undefined;
 export const KNOWN: readonly Known[] = [
   { flow: "library-2000", step: "show all 2,000", kind: "input", max: 2900, issue: 1313 },
   { flow: "library-2000", step: "show all 2,000", kind: "long-task", max: 2500, issue: 1313 },
-  {
-    // The tab group's own shift as the check's card opens, 0.0017 shown at four decimals; the
-    // bound is just under a 26 px jump's score. A card or a foot that moves is a real jump and is
-    // not excused (#2519).
-    flow: "first-open",
-    step: "check the Mind",
-    kind: "shift",
-    moved: ["tab-group"],
-    max: 0.0018,
-    sometimes: true,
-    issue: 2519,
-  },
 ];
 
 interface Shift {

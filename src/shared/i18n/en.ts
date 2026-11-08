@@ -1028,10 +1028,11 @@ export const en = {
   "figures.workbook.formulas": "{count} formulas worked out in all",
   "figures.workbook.change": "Changed {input} ({cell}) from {from} to {to}",
   "figures.workbook.inWorkbook": "In the workbook as it is: {value}",
-  "figures.workbook.whatIfFormula":
-    "What-if: {cell} = {formula}, with {input} at {to} ({from} in the workbook)",
+  "figures.workbook.whatIfFormula": "What-if: {cell} = {formula}, with {changes}",
+  "figures.workbook.whatIfChange": "{input} at {to} ({from} in the workbook)",
   "figures.workbook.whatIfInput": "Changed for the what-if",
-  "figures.workbook.whatIfLabel": "{label} (what-if: {input} at {value})",
+  "figures.workbook.whatIfLabel": "{label} (what-if: {changes})",
+  "figures.workbook.whatIfAt": "{input} at {value}",
   "figures.workbook.moreInputs": "{count} more inputs not listed",
   "figures.workbook.keptNote":
     "This is the value the workbook saved: IncarnaMind couldn’t work it out again, for the reason above. Each input is cited to its cell.",
@@ -1431,6 +1432,8 @@ export const en = {
     "A formula it uses has no value saved by Excel, so this figure can’t be checked.",
   "claim.reason.workbook-unsupported":
     "It uses a formula IncarnaMind can’t work out, so this figure can’t be checked.",
+  "claim.reason.workbook-text":
+    "It’s a text result, such as “OK” or “Breach”, so it isn’t checked against a number.",
   "claim.reason.workbook-changed":
     "The workbook’s cells no longer give this figure. Ask again to work it out from the workbook as it is now.",
   "claim.reason.figures-not-read": "The figures in “{document}”, {location}, couldn’t be read.",
@@ -5157,7 +5160,8 @@ export const en = {
   "export.figure.workbook":
     "Worked out from the workbook’s formulas ({cell} = {formula}): {figure}.",
   "export.figure.whatIf":
-    "Worked out from the workbook’s formulas ({cell} = {formula}) with {input} changed to {value}: {figure}.",
+    "Worked out from the workbook’s formulas ({cell} = {formula}) with {changes} changed: {figure}.",
+  "export.figure.whatIfChange": "{input} to {value}",
   "export.figure.inputs": "{inputs}: {source}.",
   "export.figure.cluster": "calculated from {cluster}",
   "export.figure.cluster.note": "Calculated from {cluster}",
@@ -7134,6 +7138,7 @@ export const en = {
   "meetings.help.button": "{name} ({shortcut})",
   "meetings.help.setUp": "Choose an AI model to get help during the call",
   "meetings.help.failed": "No help this time: {message}",
+  "meetings.help.nothing": "the Answer had nothing to suggest",
   "meetings.help.textBehind":
     "The live text is behind, so none of the call is written yet. It is transcribed after the meeting stops.",
   "meetings.help.textBehind.some": "The live text is behind, so this rests on the lines so far.",

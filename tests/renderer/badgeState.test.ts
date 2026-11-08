@@ -87,6 +87,20 @@ describe("The check badge", () => {
     expect(badgeOf({ ...NOTHING, checked: 24 })?.checked).toBe(24);
     expect(badgeOf({ ...NOTHING, checked: null })).toBeNull();
   });
+
+  // protects=a check that marked nothing keeps the one width it had while running, so ending it
+  // moves nothing (#2519); fails_when=0 is read as no check, the badge shrinks to its words and a
+  // layout shift is recorded; no_claim=where the width comes from.
+  test("a check that marked nothing is still a finished check: the badge keeps its width", () => {
+    expect(badgeOf({ ...NOTHING, checkable: 1, checked: 0 })).toEqual({
+      marks: [],
+      toCheck: 0,
+      running: false,
+      checked: 0,
+    });
+    // It adds no badge where there was none, and its words say nothing of 0 checked.
+    expect(badgeOf({ ...NOTHING, checked: 0 })).toBeNull();
+  });
 });
 
 describe("Whether the check badge shows (#1194, #1909, D266)", () => {

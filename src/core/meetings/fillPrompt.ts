@@ -14,8 +14,9 @@ import {
   speakerName,
 } from "../../shared/speakers";
 import type { QuestionContext } from "../answers/context";
+import { languageSpoken } from "../answers/prompt";
 import { CITATION_NODE } from "../api";
-import { LANGUAGE_NAMES, LANGUAGES } from "../language";
+import { LANGUAGE_NAMES, LANGUAGES, type Language } from "../language";
 
 /** A line the User wrote, as the model is shown it. */
 export interface FillLine {
@@ -71,18 +72,44 @@ const speakerWords = LANGUAGES.filter((language) => language !== "en").map((lang
   return `in ${LANGUAGE_NAMES[language]} ${marks.map((mark) => `${mark} is ${speakerName(mark, t)}`).join(", ")}`;
 });
 
-const rules = [
+/**
+ * The languages a call's notes have section titles in, by the name the transcript's language is
+ * told by. Their notes are written in it, whatever the interface's (#2770).
+ */
+export const CALL_LANGUAGES = { English: "en", Chinese: "zh-CN" } as const satisfies Record<
+  string,
+  Language
+>;
+
+export type CallLanguage = keyof typeof CALL_LANGUAGES;
+
+const isCallLanguage = (name: string | null): name is CallLanguage =>
+  name !== null && Object.hasOwn(CALL_LANGUAGES, name);
+
+/** The language the call was held in, told from all that was said; null where it isn't one above. */
+export function callLanguage(passages: readonly { text: string }[]): CallLanguage | null {
+  const language = languageSpoken(passages);
+  return isCallLanguage(language) ? language : null;
+}
+
+const rules = (spoken: CallLanguage | null) => [
   "- Every sentence and bullet ends with its citation marker, citing the transcript line it comes from.",
   "- Write only what the transcript says. Leave out what it doesn't.",
-  "- Write in the language of the call.",
+  spoken
+    ? `- Write in ${spoken}, the language of the call.`
+    : "- Write in the language of the call.",
   `- The transcript's marks are not names. Someone never named is written with their mark's word in the language you write in: in English Me is I, Them is the other side, and a numbered voice keeps its mark (Speaker 2); ${speakerWords.join("; ")}. Never call the User "the User" or 用户.`,
 ];
 
-/** Under each of the User's lines, what the call said about it; then the sections, each fact once. */
+/**
+ * Under each of the User's lines, what the call said about it; then the sections, each fact once.
+ * `spoken`: the call's language, when it is one the notes have section titles in.
+ */
 export function notesContext(
   lines: readonly FillLine[],
   question: string,
   history?: FillHistory,
+  spoken: CallLanguage | null = null,
 ): QuestionContext {
   const shown = lines.map(
     (line) => `${line.marker}${line.heading ? " (heading)" : ""}: ${line.text}`,
@@ -98,7 +125,11 @@ export function notesContext(
     "- Each fact has one stable id, a short topic label, its complete wording once, its Citation marker inventory, and its related lines and sections. Keep an action, all its actual owners and its spoken deadline together, without restating the same owner or deadline within that fact. Write a decision once, as finally agreed: not the proposal and then its confirmation, and never its figures twice. A first-person commitment belongs to that Transcript speaker, not automatically Me; a reported third-party assignment belongs to that third party.",
     "- Write the User, who reads these notes, in the first person (I, my; 我 in Chinese), even when the call gave their name, and as we or our (我们) where they spoke for their side. Name everyone else as they introduced themselves or were named in the call, on either side: a named person is never the other side, 对方 or they. The speaker marks (Me, Them and numbered voices, or their translations) are not names: anyone else who was never named is the other side (对方), or in a recording of a room their numbered voice as marked.",
     "- The topic is a label only: no full assertion, figures, dates, owner, deadline or machine address. The complete wording belongs only in the paragraph after the metadata, not in the label or a second frame. Different facts may share a Citation, name or date; those are not reasons to merge their identities.",
-    "- lines lists related ordinary L addresses, most relevant first; use [] only when no ordinary line asks about this fact. Include the final answer under its line even when a template section also needs the fact. Never put an H address in lines.",
+    // With no line to point to, Claude Haiku 5.5 filled lines with the transcript's times, and
+    // every fact was left out for its metadata (#2773).
+    lines.some((line) => !line.heading)
+      ? "- lines lists related ordinary L addresses, most relevant first; use [] only when no ordinary line asks about this fact. Include the final answer under its line even when a template section also needs the fact. Never put an H address in lines."
+      : "- The User wrote no ordinary L lines, so lines is always [], never a time, a transcript line or an H address, and every fact names at least one section (summary for anything else).",
     '- sections uses only these ids: "decisions" for final choices actually agreed, "actions" for actual commitments, "questions" for questions explicitly raised and left unanswered, "summary" for other figures/terms that need recording. Use multiple ids only when the same fact genuinely belongs to each. Do not turn a rejected option, hypothetical or undecided proposal into a decision, infer an open question, invent an owner/deadline, or turn a reported event into a promise.',
     "- claim selects factual statements to check against the User's Documents. Code checks the same full fact; do not write a second CLAIMS inventory. Overview metadata has only citations.",
     "- Only a structural heading, never an ordinary paragraph, can host a section. A heading hosts the section its words ask for, in any wording or language, whether or not the User typed lines under it: SUMMARY for what the call was about overall, DECISIONS for final choices, ACTIONS for commitments and their owners, QUESTIONS for questions left open, CLAIMS for what was said that the User's Documents should be checked against. NONE is only for the Note's title or a heading that names a subject of the meeting (a topic, a person, an agenda item) rather than one of those kinds of content.",
@@ -130,7 +161,7 @@ export function notesContext(
           "```",
         ]
       : []),
-    ...rules,
+    ...rules(spoken),
     "- Each Citation quote must be contiguous words from one transcript line, without its time or speaker label. When the words occur more than once, set the cite record's location to the timestamp of the occurrence you mean.",
     "- Then, in the same reply, call cite once with a record for every marker in the notes.",
     "",
@@ -145,8 +176,12 @@ export function notesContext(
 }
 
 /** The meeting's notes in sections, when the User took none. */
-export function sectionsContext(question: string, history?: FillHistory): QuestionContext {
-  return notesContext([], question, history);
+export function sectionsContext(
+  question: string,
+  history?: FillHistory,
+  spoken: CallLanguage | null = null,
+): QuestionContext {
+  return notesContext([], question, history, spoken);
 }
 
 /** A node's plain text: a Citation has none. */

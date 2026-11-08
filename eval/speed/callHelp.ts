@@ -12,7 +12,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { generateText, type LanguageModel } from "ai";
-import type { ConversationAnswer, Core, MeetingHelpKind } from "../../src/core";
+import type { ConversationAnswer, Core, CoreAdapters, MeetingHelpKind } from "../../src/core";
 import { toolTextIn } from "../../src/core/answers/toolText";
 import { createFakeCapture, type FakeCapture } from "../../src/core/meetings/fakeCapture";
 import {
@@ -481,6 +481,8 @@ export async function openCall(
   base: GroupOptions,
   each: CallHelpCase,
   name: string,
+  /** What tells the call's speakers apart after Stop; none: the labels stay where lines came from. */
+  speakers?: Pick<CoreAdapters, "speakerSeparator" | "speakerModelSource">,
 ): Promise<OpenedGroup> {
   const turns = callOf(each);
   const folder = await mkdtemp(join(tmpdir(), "incarnamind-paired-call-"));
@@ -495,7 +497,7 @@ export async function openCall(
     ...base,
     name,
     documents,
-    meetings: rig.adapters,
+    meetings: { ...rig.adapters, ...speakers },
   });
   try {
     const { core } = library;
