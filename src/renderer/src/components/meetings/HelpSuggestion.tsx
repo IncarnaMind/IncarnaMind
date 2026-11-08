@@ -13,7 +13,7 @@ import { useAnswers } from "../../answers";
 import { core } from "../../core";
 import {
   citationNumbers,
-  helpItems,
+  helpParts,
   quoted,
   type ReplyItem,
   type ReplyPiece,
@@ -289,7 +289,8 @@ export function HelpSuggestion({
       )
     : (answer.errorMessage ?? "");
   const streaming = answer.status === "streaming";
-  const items = helpItems(answer, help.kind);
+  const { lead, options } = helpParts(answer, help.kind);
+  const items = [...lead, ...options];
   const numbers = citationNumbers(
     items,
     (marker) => streaming || answer.citations.some((each) => each.marker === marker),
@@ -319,7 +320,7 @@ export function HelpSuggestion({
       {answer.status === "done" && items.length === 0 && (
         <NoHelp testId="help-nothing" message={t("meetings.help.nothing")} onRetry={onRetry} />
       )}
-      {answer.status === "stopped" && items.length === 0 && (
+      {answer.status === "stopped" && options.length === 0 && (
         <NoHelp testId="help-stopped" message={t("answer.status.stopped")} onRetry={onRetry} />
       )}
       <Sources answer={answer} numbers={numbers} />

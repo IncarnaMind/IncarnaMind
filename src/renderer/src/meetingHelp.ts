@@ -21,6 +21,7 @@ import { keysHere } from "./commands/keymap";
 import { noMoveSinceAsked, openConversation, useConversations } from "./conversations";
 import { core, files } from "./core";
 import { errorMessage } from "./errors";
+import { helpToKeep } from "./helpReply";
 import { translateNow } from "./i18n";
 import { isLive, useMeetings } from "./meetings";
 import { useAppStore } from "./store";
@@ -130,18 +131,32 @@ export async function askHelpInAssistant(kind: MeetingHelpKind): Promise<void> {
 }
 
 /**
+ * A help Answer that has something to pin or add to the note, as the panel offers it. Throws while
+ * it is still being written, and, in the panel's words, when it was stopped or has nothing to keep.
+ */
+export async function helpToKeepOf(help: MeetingHelp) {
+  const { messages } = await core.getConversation(help.conversationId);
+  const answer = messages.find((message) => message.id === help.answerId);
+  if (answer?.kind !== "answer" || answer.status === "streaming") {
+    throw new Error(translateNow("meetings.help.stillWriting"));
+  }
+  if (!helpToKeep(answer, help.kind)) {
+    throw new Error(
+      translateNow(answer.status === "stopped" ? "answer.status.stopped" : "meetings.help.nothing"),
+    );
+  }
+  return answer;
+}
+
+/**
  * Puts a help Answer into its meeting's notes, at their end, with a link back to it; resolves to
- * the Blocks added, for Undo. Throws while it is still being written.
+ * the Blocks added, for Undo. Throws when it has nothing to add (`helpToKeepOf`).
  */
 export async function addHelpToNotes(
   meeting: Meeting,
   help: MeetingHelp,
 ): Promise<{ mindId: string; blockIds: string[] }> {
-  const { messages } = await core.getConversation(help.conversationId);
-  const answer = messages.find((message) => message.id === help.answerId);
-  if (answer?.kind !== "answer" || answer.status !== "done") {
-    throw new Error(translateNow("meetings.help.stillWriting"));
-  }
+  const answer = await helpToKeepOf(help);
   const question = translateNow(helpLabel(help.kind));
   const { blockIds } = await core.addToNote({
     mindId: meeting.mindId,

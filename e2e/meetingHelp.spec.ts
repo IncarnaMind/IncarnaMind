@@ -580,8 +580,8 @@ test("help during the call: a model's notes before its records never show, the o
   await removeDataFolder(sources);
 });
 
-// protects=a reading that showed while it was written stays once the reply ends, though its "→" line was taken back, instead of the panel keeping only its heading; fails_when=the reading vanishes when the reply ends; no_claim=why the core takes a line back (#2767).
-test("help during the call: a reading whose → line was taken back stays once the reply ends", async () => {
+// protects=a reading that showed while it was written stays once the reply ends, though it came without its "→" line, instead of the panel keeping only its heading; fails_when=the reading vanishes when the reply ends; no_claim=why a reply comes without the line (#2767).
+test("help during the call: a reading that came without its → line stays once the reply ends", async () => {
   const { app, window } = await launchApp(dataDir, {
     fakeChat: true,
     transcriber: { theirLines: BUYER },
@@ -632,6 +632,13 @@ test("help during the call: a reply with nothing to show says so, with Try again
   );
   await expect(panel.getByTestId("help-pin")).toHaveCount(0);
   await expect(panel.getByTestId("help-add")).toHaveCount(0);
+  const notice = window.getByTestId("error-notice-message");
+  await fromPalette(window, "Add the latest suggestion to the note");
+  await expect(notice).toHaveText("That didn’t work: the Answer had nothing to suggest");
+  await expect(window.getByTestId("undo-message")).toHaveCount(0);
+  await fromPalette(window, "Pin the latest suggestion");
+  await expect(notice).toHaveText("That didn’t work: the Answer had nothing to suggest");
+  await expect(panel.getByTestId("help-pin")).toHaveCount(0);
   await setLanguage(window, "zh-CN");
   await expect(nothing).toHaveText("这次没能给出建议：回答里没有可用的内容 · 重试");
   await expect(nothing.getByRole("button")).toHaveText("重试");
@@ -657,7 +664,6 @@ test("help during the call: an Answer stopped before its first option says so in
   await close.evaluate((button) => setTimeout(() => (button as HTMLElement).click(), 0));
   await expect.poll(() => panelOpen(app)).toBe(false);
 
-  // Asked at the top of the assistant, and stopped there before its first word.
   await pointAndClick(
     window,
     window
@@ -682,7 +688,6 @@ test("help during the call: an Answer stopped before its first option says so in
   await expect(stopped).toHaveText("这次没能给出建议：已停止 · 重试");
   await shot(shown, "help-panel-stopped-zh");
 
-  // Try again asks once more, its outline holding while it is written.
   await pointAndClick(shown, stopped.getByRole("button"));
   await expect(shown.getByTestId("help-outline").first()).toBeVisible();
   await expect(stopped).toHaveCount(0);

@@ -7,6 +7,7 @@ import { describe, expect, test } from "vitest";
 import {
   citationNumbers,
   helpItems,
+  helpParts,
   quoted,
   readHelpReply,
   shownItems,
@@ -226,7 +227,7 @@ describe("A help reply", () => {
   });
 
   // protects=a help Answer stopped while it was written is read as it was then: what came before its first option stays undrawn, so one stopped before it shows no item and the panel says it was stopped, while what it wrote of its form stays, in English and Chinese; fails_when=a stopped Answer's notes show as an option, or what it wrote of its form is dropped; no_claim=the panel's wording (the smoke test) (#2778).
-  test("a stopped Answer shows only what it wrote of its form, in English and Chinese", () => {
+  test("a stopped Answer shows only what it wrote of its form, its lead-in line apart, in English and Chinese", () => {
     const notes = "The newest lines ask about the Enterprise price, and the price sheet has it.";
     const shown = (text: string, kind: MeetingHelpKind, status: "stopped" | "done" = "stopped") =>
       helpItems({ text, status }, kind).map((item) => textOf(item.lead));
@@ -244,6 +245,27 @@ describe("A help reply", () => {
       "The launch moves to 18 November",
     ]);
     expect(shown(notes, "answer", "done")).toEqual([notes]);
+    const behind = "The live text is behind, so this rests on the lines so far.";
+    const parts = (text: string, kind: MeetingHelpKind, textBehind: boolean) => {
+      const { lead, options } = helpParts(
+        { text, status: "stopped", steps: textBehind ? { textBehind } : null },
+        kind,
+      );
+      return { lead: lead.map((item) => textOf(item.lead)), options: options.length };
+    };
+    expect(parts(`${behind}\n\n`, "want", true)).toEqual({ lead: [behind], options: 0 });
+    expect(parts("实时转写跟不上，以下只依据已转写的内容。\n\n", "sum", true)).toEqual({
+      lead: ["实时转写跟不上，以下只依据已转写的内容。"],
+      options: 0,
+    });
+    expect(parts("A little: it suggests the answer.", "leading", false)).toEqual({
+      lead: ["A little: it suggests the answer."],
+      options: 0,
+    });
+    expect(parts(`${behind}\n\n★ One\n→ a`, "answer", true)).toEqual({
+      lead: [behind],
+      options: 1,
+    });
   });
 
   test("while it streams, an option before its arrow has no effect yet", () => {

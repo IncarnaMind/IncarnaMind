@@ -83,8 +83,16 @@ export function quoted(lead: readonly ReplyPiece[]): ReplyPiece[] {
  */
 export function shownItems(
   items: readonly ReplyItem[],
-  { shape, leadIn, streaming }: { shape: HelpShape; leadIn: boolean; streaming: boolean },
+  shown: { shape: HelpShape; leadIn: boolean; streaming: boolean },
 ): ReplyItem[] {
+  const { lead, options } = laidOut(items, shown);
+  return [...lead, ...options];
+}
+
+function laidOut(
+  items: readonly ReplyItem[],
+  { shape, leadIn, streaming }: { shape: HelpShape; leadIn: boolean; streaming: boolean },
+): { lead: ReplyItem[]; options: ReplyItem[] } {
   const [first] = items;
   if (shape === "lines") {
     const bullets = items.filter((item) => item.bullet);
@@ -92,7 +100,7 @@ export function shownItems(
     // While it is written, text before the first short line is a model's notes, taken back once it
     // records its Citations (#2526): the outline stays in its place instead.
     const rest = bullets.length > 0 ? bullets : streaming ? [] : items.slice(lead.length);
-    return [...lead, ...rest].slice(0, 3);
+    return { lead, options: rest.slice(0, 3 - lead.length) };
   }
   const lead = leadIn && first && first.effect === null ? [first] : [];
   // While it is written, text before the first "★" line is a model's notes, taken back once it
@@ -107,23 +115,35 @@ export function shownItems(
     .slice(from)
     .filter((item) => !lead.includes(item) && (item.effect !== null || item === last))
     .slice(0, 2);
-  return [...lead, ...options];
+  return { lead, options };
 }
 
+type HelpAnswer = { text: string; status: AnswerStatus; steps?: { textBehind?: true } | null };
+
 /**
- * What the panel shows of a button's Answer. One stopped while it was written is read as it was
- * then: what came before its first option is still a model's notes (#2526).
+ * What the panel shows of a button's Answer: the line it puts first, then the options, readings
+ * or short lines. One stopped while it was written is read as it was then: what came before its
+ * first option is still a model's notes (#2526).
  */
-export function helpItems(
-  answer: { text: string; status: AnswerStatus; steps?: { textBehind?: true } | null },
+export function helpParts(
+  answer: HelpAnswer,
   kind: MeetingHelpKind,
-): ReplyItem[] {
-  return shownItems(readHelpReply(answer.text), {
+): { lead: ReplyItem[]; options: ReplyItem[] } {
+  return laidOut(readHelpReply(answer.text), {
     shape: HELP_SHAPE[kind],
     leadIn: kind === "leading" || answer.steps?.textBehind === true,
     streaming: answer.status === "streaming" || answer.status === "stopped",
   });
 }
+
+export function helpItems(answer: HelpAnswer, kind: MeetingHelpKind): ReplyItem[] {
+  const { lead, options } = helpParts(answer, kind);
+  return [...lead, ...options];
+}
+
+/** Whether a button's Answer has anything to pin or add to the note: it ended, and shows a line. */
+export const helpToKeep = (answer: HelpAnswer, kind: MeetingHelpKind): boolean =>
+  answer.status === "done" && helpItems(answer, kind).length > 0;
 
 /**
  * The number each Citation shows with, from 1 in the order the shown items cite them, as the
