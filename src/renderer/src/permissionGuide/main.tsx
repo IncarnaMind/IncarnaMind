@@ -4,6 +4,7 @@
  */
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import { showAppearance } from "../appearance";
 import { core } from "../core";
 import { installErrorLog } from "../errorLog";
 import "../fonts.css";
@@ -24,6 +25,8 @@ core.on("settings.changed", (settings) => useAppStore.setState({ settings }));
 useAppStore.subscribe((state, before) => {
   const motion = state.settings?.device.motion;
   if (motion && motion !== before.settings?.device.motion) setMotionPreference(motion);
+  const appearance = state.settings?.device.appearance;
+  if (appearance && appearance !== before.settings?.device.appearance) showAppearance(appearance);
 });
 
 const container = document.getElementById("root");

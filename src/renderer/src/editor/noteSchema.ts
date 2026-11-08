@@ -214,7 +214,7 @@ export function noteExtensions({
       // A click puts the cursor in a link and shows its address with Open, Edit and Remove (LinkBubble).
       link: { openOnClick: false },
       // Shows where a dragged Block will land.
-      dropcursor: { color: "rgb(14 165 233)", width: 2 },
+      dropcursor: { color: "var(--color-accent)", width: 2 },
     }),
     InlineCode,
     MindDocument,

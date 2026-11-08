@@ -315,7 +315,7 @@ export function FormatMenu({
                 onMouseDown={keepSelection}
                 onClick={() => act(() => setTextColor(editor, color))}
                 className="format-menu-swatch"
-                style={{ backgroundColor: `#${color}` }}
+                style={{ backgroundColor: `var(--color-text-${id})` }}
               />
             ))}
           </div>

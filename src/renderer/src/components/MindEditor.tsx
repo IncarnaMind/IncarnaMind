@@ -1093,7 +1093,7 @@ function MindEditorView({
         {readOnly && <MindNotice kind="read-only" />}
         <div
           ref={frame}
-          className={`mind-editor-frame ${guide ? "mind-editor-frame--guide" : ""} ${wordLook?.className ?? ""}`}
+          className={`mind-editor-frame ${guide ? "mind-editor-frame--guide" : ""} ${wordLook ? `mind-editor-frame--word ${wordLook.className}` : ""}`}
         >
           {wordLook && <style>{wordLook.css}</style>}
           {wordLook && <WordTableFades frame={frame} />}

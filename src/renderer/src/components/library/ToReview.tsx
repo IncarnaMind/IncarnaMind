@@ -135,7 +135,7 @@ export function ToReview({
               >
                 {t("library.review.acceptAll")}
                 {keys && (
-                  <kbd className="rounded-sm bg-white/20 px-1 font-sans text-[11px] leading-4 @max-[680px]/page:hidden">
+                  <kbd className="rounded-sm bg-on-primary/20 px-1 font-sans text-[11px] leading-4 @max-[680px]/page:hidden">
                     {keys}
                   </kbd>
                 )}

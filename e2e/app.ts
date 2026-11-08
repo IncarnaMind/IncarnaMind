@@ -229,6 +229,11 @@ export interface LaunchOptions {
   trace?: boolean;
   /** Chromium switches the app starts with, such as a proxy that stands in for the network. */
   switches?: readonly string[];
+  /**
+   * The pages see the system's light or dark as Electron gives it (#1262), not the light that
+   * every page is shown otherwise so a spec reads the same on any computer.
+   */
+  systemColours?: boolean;
 }
 
 /**
@@ -301,6 +306,7 @@ export async function launchApp(
     extraEnv,
     trace = false,
     switches = [],
+    systemColours = false,
   }: LaunchOptions = {},
 ): Promise<RunningApp> {
   const appHome = home ?? (await mkdtemp(join(tmpdir(), "incarnamind-home-")));
@@ -359,6 +365,7 @@ export async function launchApp(
       ...APP_ARGS,
     ],
     env,
+    ...(systemColours && { colorScheme: null }),
     chromiumSandbox: sandboxed || sandboxNotice === "environment" || sandboxNotice === "on",
     ...(KEEP_ARTIFACTS && {
       recordVideo: { dir: test.info().outputPath("video", basename(dataDir)) },

@@ -105,7 +105,11 @@ async function prepareDebugger(contents: WebContents, log: Logger): Promise<void
     waitForDebuggerOnStart: true,
     flatten: true,
   });
-  await tools.sendCommand("Emulation.setEmulatedMedia", { media: "screen" });
+  // A page is kept as it looks on paper (#1262): never in its own dark style because the app is dark.
+  await tools.sendCommand("Emulation.setEmulatedMedia", {
+    media: "screen",
+    features: [{ name: "prefers-color-scheme", value: "light" }],
+  });
 }
 
 export function createPageLook({

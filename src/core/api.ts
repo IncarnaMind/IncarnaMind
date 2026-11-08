@@ -3463,6 +3463,8 @@ export interface DeviceSettings {
   meetingHelpKeys: HelpKeys;
   /** How the window moves here (Settings → General → Motion): see `MotionPreference`. */
   motion: MotionPreference;
+  /** Light or dark here (Settings → General → Appearance): see `Appearance`. */
+  appearance: Appearance;
   /**
    * The model the User last chose here, in a composer or as the Answers default: a Mind with no
    * pick of its own and the assistant with no Mind in focus use it (`modelInUse`). Null until
@@ -3589,6 +3591,13 @@ export interface SetTranscriptionKeyInput {
  */
 export const MOTION_PREFERENCES = ["system", "on", "reduced", "off"] as const;
 export type MotionPreference = (typeof MOTION_PREFERENCES)[number];
+
+/**
+ * The window's theme on a device (#1262): as the system's appearance is ("system", the default,
+ * followed live), or always light or dark. Documents and pages stay paper-white in both.
+ */
+export const APPEARANCES = ["system", "light", "dark"] as const;
+export type Appearance = (typeof APPEARANCES)[number];
 
 /**
  * How the programs Tools start (Skill scripts) are confined:
