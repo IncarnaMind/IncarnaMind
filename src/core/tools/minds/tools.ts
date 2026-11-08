@@ -2067,8 +2067,10 @@ export function mindTools(options: MindToolsOptions): {
     if (checked) {
       redrawCharts(mindId, ids);
       const { request, blocks, checkable, cited, sent, failed, stop, blocked } = checked;
+      // Ended: the row says what the call did again, never that it is still checking (#2710).
+      const { checking: _ended, ...before } = written.change;
       written.change = {
-        ...written.change,
+        ...before,
         selfCheck: {
           request,
           blocks,
@@ -2081,6 +2083,11 @@ export function mindTools(options: MindToolsOptions): {
           ...(blocked && { blocked }),
         },
       };
+    }
+    if (!checked && reported) {
+      // Thrown: the row says what the call did again, never that it is still checking (#2710).
+      const { checking: _ended, ...before } = written.change;
+      written.change = before;
     }
     if (reported || checked) options.changed(toolCallId, written.change);
     return checked;
