@@ -1301,16 +1301,14 @@ export function createLibrary(options: {
     return group(id);
   }
 
-  function parseGroup(input: unknown, exceptId?: string) {
+  function parseGroup(input: unknown, existing?: { id: string; parentId: string | null }) {
     if (!isRecord(input) || typeof input.name !== "string" || typeof input.description !== "string")
       throw new InvalidInputError({ key: "error.folder.nameAndDescription" });
     const name = input.name.trim();
     const description = input.description.trim();
     if (!name || name.length > 100 || description.length > 500)
       throw new InvalidInputError({ key: "error.folder.lengths" });
-    if (groups().some((item) => item.id !== exceptId && sameName(item.name, name)))
-      throw new InvalidInputError({ key: "error.folder.nameTaken" });
-    if (!exceptId && groups().length >= 100)
+    if (existing === undefined && groups().length >= 100)
       throw new InvalidInputError({ key: "error.folder.limit" });
     const { countsOwnFiles, keepInside, parentId } = input;
     if (countsOwnFiles !== undefined && typeof countsOwnFiles !== "boolean")
@@ -1319,12 +1317,20 @@ export function createLibrary(options: {
       throw new InvalidInputError({ key: "error.folder.keepInside" });
     if (parentId !== undefined && parentId !== null && typeof parentId !== "string")
       throw new InvalidInputError({ key: "error.folder.parentId" });
-    const inside = parentId === undefined ? undefined : parentId;
-    if (inside !== undefined && inside !== null) {
+    const inside = parentId === undefined ? (existing?.parentId ?? null) : parentId;
+    if (inside !== null) {
       group(inside);
-      if (exceptId !== undefined && (inside === exceptId || subtree(exceptId).includes(inside)))
+      if (
+        existing !== undefined &&
+        (inside === existing.id || subtree(existing.id).includes(inside))
+      )
         throw new InvalidInputError({ key: "error.folder.insideItself" });
     }
+    // A name is one a Folder in the same place has, not one any Folder has (#2425).
+    const taken = groups().some(
+      (item) => item.id !== existing?.id && item.parentId === inside && sameName(item.name, name),
+    );
+    if (taken) throw new InvalidInputError({ key: "error.folder.nameTaken" });
     return { name, description, countsOwnFiles, keepInside, parentId: inside };
   }
 
@@ -1569,7 +1575,7 @@ export function createLibrary(options: {
     create,
     update(id: unknown, input: unknown) {
       const existing = group(id);
-      const value = parseGroup(input, existing.id);
+      const value = parseGroup(input, existing);
       const counts = value.countsOwnFiles ?? existing.countsOwnFiles;
       const keepInside = value.keepInside ?? existing.keepInside;
       const parentId = value.parentId === undefined ? existing.parentId : value.parentId;
@@ -1626,6 +1632,14 @@ export function createLibrary(options: {
       }
       const changes = moving;
       if (changes.length === 0) return [];
+      // Two Folders with one name may not become siblings by a move (#2425).
+      const named = new Map<string, string>();
+      for (const folder of live.values()) {
+        const parent = parentAfter.get(folder.id) ?? null;
+        const key = `${parent ?? ""}\u0000${folder.name.toLowerCase()}`;
+        if (named.has(key)) throw new InvalidInputError({ key: "error.folder.nameTaken" });
+        named.set(key, folder.id);
+      }
       db.transaction(() => {
         const at = now();
         for (const change of changes)
@@ -1737,16 +1751,29 @@ export function createLibrary(options: {
       if (!row) throw new NotFoundError({ key: "error.folder.notFound" });
       const folders = row.deleted_at === null ? [id] : deletedWith(id, row.deleted_at);
       const live = groups();
-      const takenNames = new Set(live.map((folder) => folder.name.toLowerCase()));
-      for (const folder of db.all<{ name: string }>(
-        "SELECT name FROM library_groups WHERE id IN (SELECT value FROM json_each(?))",
+      const liveIds = new Set(live.map((folder) => folder.id));
+      const returning = db.all<{ id: string; name: string; parent_id: string | null }>(
+        "SELECT id, name, parent_id FROM library_groups WHERE id IN (SELECT value FROM json_each(?))",
         [JSON.stringify(folders)],
-      )) {
-        if (takenNames.has(folder.name.toLowerCase()))
+      );
+      const returningIds = new Set(returning.map((folder) => folder.id));
+      // The place each comes back to: its parent's, unless that Folder stays deleted and it goes
+      // to the top level; a name is free when no Folder in that place has it (#2425).
+      const placeOf = (parentId: string | null) =>
+        parentId !== null && (liveIds.has(parentId) || returningIds.has(parentId))
+          ? parentId
+          : null;
+      const named = new Map<string, string>();
+      for (const folder of live)
+        named.set(`${folder.parentId ?? ""}\u0000${folder.name.toLowerCase()}`, folder.id);
+      for (const folder of returning) {
+        const key = `${placeOf(folder.parent_id) ?? ""}\u0000${folder.name.toLowerCase()}`;
+        if (named.has(key))
           throw new InvalidInputError({
             key: "error.restore.folderNameTaken",
             values: { name: folder.name },
           });
+        named.set(key, folder.id);
       }
       if (live.length + folders.length > 100)
         throw new InvalidInputError({ key: "error.restore.folderLimit" });
@@ -1938,7 +1965,9 @@ export function createLibrary(options: {
       const classifier = await options.prepare(settings, permit);
       if (!classifier.proposeFolders)
         throw new InvalidInputError({ key: "error.library.cantPropose" });
-      const existing = groups().map((each) => each.name);
+      const existing = groups()
+        .filter((each) => each.parentId === null)
+        .map((each) => each.name);
       const proposed = await classifier.proposeFolders(
         samplesOf(docs),
         existing,
@@ -1947,7 +1976,8 @@ export function createLibrary(options: {
       );
       const made: LibraryGroup[] = [];
       for (const folder of proposed) {
-        if (groups().some((each) => sameName(each.name, folder.name))) continue;
+        if (groups().some((each) => each.parentId === null && sameName(each.name, folder.name)))
+          continue;
         if (groups().length >= 100) break;
         made.push(create(folder));
       }
