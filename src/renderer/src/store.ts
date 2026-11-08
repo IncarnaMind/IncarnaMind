@@ -254,6 +254,8 @@ export interface AppState extends LayoutSlice {
    * the Documents, the examples and the interface language.
    */
   readyQuestion: ReadyQuestion | null;
+  /** The User's own newest Document still being read, named: shown in place of the Question (#2127). */
+  readyReading: string | null;
   ownAnswerArrived: boolean;
   askedOwnAtLaunch: boolean;
   usageNotice: "auto" | "kept" | "answered";
@@ -1142,6 +1144,7 @@ export const useAppStore = create<AppState>()((set, get) => {
     examples: null,
     otherExamples: [],
     readyQuestion: null,
+    readyReading: null,
     ownAnswerArrived: false,
     askedOwnAtLaunch: false,
     usageNotice: "auto",
@@ -1173,7 +1176,7 @@ export const useAppStore = create<AppState>()((set, get) => {
           linkedFolders,
           keptCitationTexts,
           examples,
-          readyQuestion,
+          firstOpen,
           otherExamples,
           connectors,
           rerank,
@@ -1224,7 +1227,8 @@ export const useAppStore = create<AppState>()((set, get) => {
         set({
           ...fresh,
           examples,
-          readyQuestion,
+          readyQuestion: firstOpen?.ready ?? null,
+          readyReading: firstOpen?.reading ?? null,
           otherExamples: otherExamples.filter(isMade),
           askedOwnAtLaunch: settings.device.gettingStarted.askedOwn,
           status: { kind: "ready" },
@@ -2350,7 +2354,11 @@ useAppStore.subscribe((state, before) => {
       state.settings?.language !== before.settings?.language)
   ) {
     core.readyQuestion().then(
-      (readyQuestion) => useAppStore.setState({ readyQuestion }),
+      (firstOpen) =>
+        useAppStore.setState({
+          readyQuestion: firstOpen?.ready ?? null,
+          readyReading: firstOpen?.reading ?? null,
+        }),
       (error: unknown) => console.error("Couldn't read the first open's ready Question.", error),
     );
   }

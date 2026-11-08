@@ -5245,6 +5245,17 @@ export interface ReadyQuestion {
 }
 
 /**
+ * What the first open's Ask step shows (#2127): the ready Question, and the User's own Document
+ * still being read, named, so the line that says so needs no second read.
+ */
+export interface FirstOpenQuestion {
+  /** The ready Question; null while there is none, as when the only Document of theirs is being read. */
+  ready: ReadyQuestion | null;
+  /** The User's own newest Document still being read; the step shows it in place of the Question. */
+  reading: string | null;
+}
+
+/**
  * What asking the example's ready Question did: the conversation its Question and Answer are in.
  * `stopped`: Stop came while it waited for the example's Documents to be read, so its Answer says
  * "Stopped" and has no text.
@@ -12589,11 +12600,12 @@ export interface CoreApi {
   /** An example Mind and its Documents, if made (see `Examples`); the credit paper by default. */
   getExamples(group?: ExampleGroup): Promise<Examples>;
   /**
-   * The first open's ready Question (see `ReadyQuestion`): about the most recently added of
-   * the User's own Documents that a search can answer from, and the example's only while they
-   * have none. Null while theirs are still being read, or when there is nothing to ask.
+   * The first open's Ask step (see `FirstOpenQuestion`): its ready Question, about the most
+   * recently added of the User's own Documents that a search can answer from, and the example's
+   * only while they have none; and, named, the Document of theirs still being read, which the
+   * step shows in its place until it can be answered.
    */
-  readyQuestion(): Promise<ReadyQuestion | null>;
+  readyQuestion(): Promise<FirstOpenQuestion>;
   /**
    * Whether a Document is one of the examples' (see `Examples`): read with them,
    * and left out of the User's own Folders, Tags and search (#1942).
