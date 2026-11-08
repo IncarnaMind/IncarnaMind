@@ -536,7 +536,7 @@ export function createVerify(options: VerifyOptions) {
         const doc = blocks.doc;
         if (!doc) return;
         const nodes = markdown
-          ? markdownToBlocks(text.pages.map((each) => each.text).join("\n"))
+          ? markdownToBlocks(text.pages.map((each) => each.text).join("\n\n"))
           : found.map(({ node }) => node);
         const elements = nodes.map((node) => createElement(node));
         blocks.insert(0, elements);
