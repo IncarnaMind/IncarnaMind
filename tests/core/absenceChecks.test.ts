@@ -3,8 +3,12 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { fitsWholeRead, WHOLE_READ } from "../../src/core/answers/checks/absence";
+import { createClaimCheck } from "../../src/core/answers/checks/claimCheck";
 import { readPresence } from "../../src/core/answers/checks/prompt";
+import { createAiSdkAnswerEngine } from "../../src/core/answers/engine";
+import type { CitationSource } from "../../src/core/documents";
 import { createFakeTextRecognizer } from "../../src/core/documents/scan/fake";
+import { resolveCapabilities } from "../../src/core/providers/capabilities";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { readFigures } from "../../src/shared/figures";
 import { checkGenerate, checkReply } from "../helpers/checks";
@@ -779,6 +783,8 @@ describe("An absence is one part of its sentence, judged by the whole read alone
     parts: [string, Plan][];
     /** The whole read's reply for the absence part. */
     read?: Record<string, unknown> | string;
+    /** What each look at a quote the read gives says: there when absent. */
+    look?: string;
   }
 
   async function checkedInNote(each: Case, language: "en" | "zh-CN") {
@@ -796,7 +802,7 @@ describe("An absence is one part of its sentence, judged by the whole read alone
       },
       {
         generate: (call) => {
-          if (looks(call)) return THERE;
+          if (looks(call)) return each.look === undefined ? THERE : { text: each.look };
           requests.push(call.system);
           if (call.system.startsWith("Read the whole Documents")) {
             reads.push({ system: call.system, prompt: call.prompt });
@@ -890,6 +896,7 @@ describe("An absence is one part of its sentence, judged by the whole read alone
               { marker: 2, passage: "$PASSAGE", quote: each.quote },
             ],
           },
+          look: "not",
         },
         language,
       );
@@ -1289,13 +1296,172 @@ describe("An absence is one part of its sentence, judged by the whole read alone
   });
 });
 
+describe("A whole read that says the absence holds is judged with what it cites (#2816)", () => {
+  const HELD = {
+    en: {
+      claim: "The lease has no break clause.",
+      clause: "Either party may break this lease on six months' notice.",
+      absent: "break clause",
+      issue:
+        '{"absence":"holds","citations":[{"marker":1,"passage":"P3","quote":"Either party may break this lease on six months\' notice"}]}',
+      cites: (passage: string) =>
+        `{"absent":"break clause","absence":"holds","citations":[{"marker":1,"passage":"${passage}","quote":"Either party may break this lease on six months' notice"}]}`,
+      holds: '{"absent":"break clause","absence":"holds"}',
+    },
+    "zh-CN": {
+      claim: "租约没有提前解约条款。",
+      clause: "任何一方均可提前六个月通知解除本租约。",
+      absent: "提前解约条款",
+      issue:
+        '{"absence":"holds","citations":[{"marker":1,"passage":"P3","quote":"任何一方均可提前六个月通知解除本租约"}]}',
+      cites: (passage: string) =>
+        `{"absent":"提前解约条款","absence":"holds","citations":[{"marker":1,"passage":"${passage}","quote":"任何一方均可提前六个月通知解除本租约"}]}`,
+      holds: '{"absent":"提前解约条款","absence":"holds"}',
+    },
+  };
+
+  async function checked(language: keyof typeof HELD, clause: boolean, read: string) {
+    const each = HELD[language];
+    const plans = { [each.claim]: { verdict: "supported", absence: true } as const };
+    const model = scriptedModel((call) => checkReply(call, plans), {
+      generate: (call) => {
+        if (looks(call)) return THERE;
+        if (call.system.startsWith("Read the whole Documents")) {
+          const passage = shownPassages(call.prompt).find((one) => one.text.includes(each.clause));
+          return { text: read.replace("$PASSAGE", passage?.id ?? "P1") };
+        }
+        return checkGenerate(plans)(call);
+      },
+    });
+    const { core } = await setUpWithDocuments(model, [
+      {
+        name: "Lease.md",
+        contents: `# Lease\n\n${TERM}\n\n${clause ? each.clause : "The tenant pays rent monthly."}\n`,
+      },
+    ]);
+    if (language === "zh-CN") await core.updateSettings({ user: { language: "zh-CN" } });
+    return core.checkClaim({ claim: each.claim });
+  }
+
+  test.each(["en", "zh-CN"] as const)(
+    "%s: holds with no absent, or citing the very clause, is Not checked; holds alone is Supported",
+    async (language) => {
+      const each = HELD[language];
+      expect(await checked(language, true, each.issue)).toMatchObject({
+        verdict: "not-checked",
+        reason: "malformed",
+      });
+      expect(await checked(language, true, each.cites("$PASSAGE"))).toMatchObject({
+        verdict: "not-checked",
+        reason: "malformed",
+      });
+      expect(await checked(language, false, each.holds)).toMatchObject({
+        verdict: "supported",
+        evidence: null,
+      });
+    },
+  );
+});
+
+describe("A whole read that is stopped (#2816)", () => {
+  async function checked(claim: string, term: string, stop: boolean) {
+    const stopping = new AbortController();
+    const plans = { [claim]: { verdict: "unsupported", absence: true } as const };
+    const model = scriptedModel((call) => checkReply(call, plans), {
+      generate: (call) =>
+        call.system.startsWith("Read the whole Documents")
+          ? { text: JSON.stringify(HOLDS) }
+          : checkGenerate(plans)(call),
+    });
+    const generate = model.doGenerate.bind(model);
+    model.doGenerate = async (options) => {
+      const system = options.prompt.find((message) => message.role === "system");
+      if (stop && system?.role === "system" && system.content.startsWith("Read the whole")) {
+        stopping.abort();
+        throw new DOMException("This operation was aborted", "AbortError");
+      }
+      return generate(options);
+    };
+    const source: CitationSource = {
+      passageId: "passage-1",
+      documentId: "document-1",
+      documentName: "Lease",
+      documentKind: "markdown",
+      contentHash: "hash-1",
+      text: term,
+      pageFrom: null,
+      pageTo: null,
+      documentDeleted: false,
+      notCited: false,
+      yourNoteAt: null,
+    };
+    const passage = { ...source, seq: 1, position: 0, windowFrom: 0, windowTo: 0 };
+    const check = createClaimCheck({
+      language: () => "en",
+      walledDocument: () => null,
+      walledFolderName: () => null,
+      engine: createAiSdkAnswerEngine(),
+      evidence: { search: async () => ({ passages: [passage], excluded: [] }) },
+      documents: {
+        searchableCount: () => 1,
+        searchableLanguages: () => [],
+        searchableBySize: () => [{ id: "document-1", name: "Lease", size: 100 }],
+        passagesBetween: () => [passage],
+        savedBySearch: () => false,
+        unitCounts: () => new Map([["document-1", 1]]),
+        citationSource: (id) => (id === source.passageId ? source : null),
+        pageTexts: () => [{ page: 1, text: term, kind: "page", label: null }],
+        documentDate: () => null,
+      },
+    });
+    return check({
+      claim,
+      scope: { documentIds: null, excluded: new Map() },
+      model: {
+        model,
+        provider: {
+          id: "test",
+          kind: "anthropic",
+          catalogId: null,
+          endpoint: null,
+          baseUrl: null,
+          service: null,
+          hasApiKey: false,
+        },
+        modelId: "scripted-check",
+        support: "tools",
+        summarizesReasoning: false,
+        capabilities: resolveCapabilities({ catalog: { tools: true, temperature: true } }),
+      },
+      signal: stopping.signal,
+    });
+  }
+
+  test.each([
+    ["The lease has no break clause.", "The lease runs for three years."],
+    ["租约没有提前解约条款。", "租期为三年。"],
+  ])(
+    "reads as stopped, never as a failed connection; one that ends holds: %s",
+    async (claim, term) => {
+      expect(await checked(claim, term, true)).toMatchObject({
+        verdict: "not-checked",
+        reason: "stopped",
+      });
+      expect(await checked(claim, term, false)).toMatchObject({
+        verdict: "supported",
+        evidence: null,
+      });
+    },
+  );
+});
+
 describe("A look at a whole read's quote is read from its form", () => {
   test.each([
     ["there", "there"],
     ["**Not.**", "not"],
     ["elsewhere", "elsewhere"],
     ["Absent: pets in the lease\nQuote: a dog in the handbook\nJudgement: elsewhere", "elsewhere"],
-    ["Judgement: there\nJudgement: not", "not"],
+    ["Judgement: there\nJudgement: not", null],
     ["There is no rent review in this quote.", null],
     ["Not stated in the quote, so the sentence holds.", null],
     ["Judgement: there, the quote states it", null],

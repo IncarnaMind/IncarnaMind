@@ -65,7 +65,9 @@ async function checked(example: (typeof CASES)[number]) {
                 citations: [{ marker: 1, passage: "P1", quote: example.stray }],
               }),
             }
-          : checkGenerate(plans)(call),
+          : call.system.startsWith("A sentence the User wrote says something is absent")
+            ? { text: "not" }
+            : checkGenerate(plans)(call),
     },
   );
   const { core, client, mind } = await setUpWithDocuments(model, [
