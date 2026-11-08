@@ -239,3 +239,58 @@ The share of found Citations the judge read as unstated (found-but-unstated), pe
 - Neither arm searched again in any Sonnet run; DeepSeek's today arm did once.
 - The sentences, step's arm, Sonnet rerun (English): en2-answer-unknown "Webhooks and the API are available, so I'll confirm options in writing" quoting only the webhooks line, and "your IT team could connect NetSuite themselves" (twice); en2-say-competitor "so it isn't free on every plan. Shopify is included in every plan" (twice); en2-say-offline, three options promising a two-week trial, a named contact and a written rota from separate lines; en2-want, two moments whose words or time the quoted line doesn't hold; en2-sum, the five summary lines above; en2-no-deposit "walk through how the refund works"; en2-ask-store, the API line for "Webhooks are in every plan", and the webhooks line for "We connect to Shopify on every plan" (the review's case); en2-check-right, "which matches the 30-day term" against the speaker's own line (three).
 - Today's arm, same run (English): en2-answer-total's computed $2,808 (three), en2-answer-earlier's "the on-site day is free" (three), en2-say-offline (two), en2-sum (four), en2-answer-edition (one), en2-ask-store (two).
+
+## Third look: the picker after the review's probes (added 2026-11-08, committed before any run on this code)
+
+The second look's code (53c7af2b6) was never run. Before its run, probes of its rules (replies written by hand, run through `markedPassages`) still found a Citation shown found for a claim its quote doesn't state:
+
+- "Team is $52 a driver" quoted from "Enterprise plan: $52 per driver", and 团队版 from 企业版's line: the figure was held, the row named was another's;
+- "The Team plan doesn't include single sign-on" quoted from "Single sign-on is included in the Team plan", and 不含 or 没有 against 含: a "not" said in other words;
+- "They need 30 seats" quoted from "[0:30 Them] We need about 20 seats": a call's time read as a figure;
+- "The minimum term is twelve months" from "24 months", 八折 from 九折: a number in words;
+- "Standard keeps readings for 9 years" from "| Standard | $9 | 1 year |": an amount read as a count;
+- a heading running straight into its text, or in bold.
+
+### What changes
+
+`src/core/answers/markedPassages.ts` says each rule; in short:
+
+- **Names:** a name any Passage given gives a row or a thing, which the claim says, is in a quote whenever a quote names another one (a quote for a clause the claim negates, "I can't add live traffic to Team" from "…on Enterprise only", names no other row): a table row's first cell, a line's lead before its colon ("Team plan:", 团队版：), a word in capitals past a sentence's start ("on Standard and Premium", "SAP"). A quote naming nothing ("A faulty device is replaced within two business days") may stand for a named thing ("rugged tablets").
+- **Figures with their kind:** "$9" is an amount, "50%" a share, "0:30" a time, "12 months" a span, "$52k" a scaled amount, "-30" a negative, each held only by its kind; "two", 两 and "one week" are numbers. A year of the Document's name or a heading ("2026" of "Service levels 2026") needs no quote. A figure the call said may stand beside a figure of its kind the quote holds ("your Android 10 phones" beside "Android 11"), but never in place of one ("15% off" said for a line's "10% off"), unless the line's figure is a bound the said one meets ("At 250 sensors" for "From 200 sensors"); and it draws no further quote from a line that happens to hold it ("minus forty" against "40 probes").
+- **Negation:** a Passage whose line most like the claim says its opposite gives it nothing, and another line saying it is never quoted: a word said with a negation on one side and without one on the other, beside the same word ("doesn't include single sign-on"), unless the line names something the negated clause doesn't ("Team can't include live traffic" against "…on Enterprise only"); or the negated clause said again without it ("Not quite, single sign-on is in the Team plan"). "without", "cannot", "neither", "nor" and "none" count as negations, here and in `unmarkedQuotes.ts`. A reply's own answer before a comma ("No,", "Not quite,", 不，) negates nothing in its claim; any other lead does.
+- **Headings:** also a "#" line inside a block, a line wholly in bold, and a short line with no closing punctuation and no figure that starts a block. Their words, like the name's, are no evidence.
+- **Words:** endings are folded ("includes", "included"; "batteries", "battery"; "yearly", "year").
+- **Sides of the call:** a claim quotes no transcript line of the other side than the one it names first: "they", "the customer", 对方, 他们 or 客户 for "Them"; "I" or "we" for "Me" (the trust review's "Speaker").
+- **A marker vouches for its clause:** the words from the markers before it, so "Enterprise is $52 [^2], and route plans come weekly [^7]" is read for [^2] without its second clause. A marker may rest on a sibling Passage of the same Document (a transcript's next window).
+- **A name the claim denies** ("I don't see NetSuite on our list") needs no quote.
+- **A marker an earlier reply recorded** is read as naming its Passage anew, under a marker of its own (the trust review's "Marker numbers across replies"). A marker no rule reads, in a table row of the reply or naming no Passage given, goes, so it never shows a record its number holds.
+- **Nothing after the picker:** on this path the engine no longer matches an uncited sentence to its likest line either, so a sentence the picker refused stays uncited.
+
+### Checked before the run, at no cost
+
+- **Hand-written replies on `call-help-documents`:** 24 right replies and 9 wrong ones, as the second look said. Every right reply keeps its Citations, but the two presses in another language than their Documents, which keep `cite`. Every wrong one loses them, but three that no rule here can tell (below).
+- **The step arm's earlier Sonnet 5.5 replies,** from the runs at 5680e53a0 on `call-help-fresh` and the 24 cases, rebuilt from their records and run through this picker on a scripted press. So the fresh slice's earlier replies have been read while writing these rules: its run below is weaker evidence for them than `call-help-documents`, whose replies no rule has seen. Counted per option line, against how the judge had read its Citations then:
+  - A first try asked every word of a claim that some line holds to be in a quote. It took away 23 English and 9 Chinese Citations the judge had read as stated, against 14 and 5 it had read as unstated, so it was narrowed to the names above.
+  - This code (a769dd5a9): English keeps 78 of the 91 read as stated and Chinese 80 of 87; it takes away 8 and 5 of those read as unstated, and keeps a Citation, perhaps on another quote, on 20 and 21. On the fresh slice it loses none read as stated, but two whose markers the rebuild couldn't name.
+  - The 13 English lost: three options giving a sum the reply worked out without `calculate` ("$2,808 a month"), three questions or quotes sharing one word with their line, four transcript lines the scripted press didn't show, two whose markers the rebuild couldn't name, and one ("I don't see NetSuite…, only Shopify and SAP") not traced. The 7 Chinese: one question, one year of the other edition's name (2025 against the 2026 sheet), and five lines the scripted press didn't show.
+
+### The independent pre-review (2026-11-08, before the run)
+
+A pre-review of this code, whose job was to break it, found more ways a quote could be recorded for a claim it doesn't state. Each general one was fixed before the run, with a test: units, scales and signs of figures; "one week"; a figure the call said standing in for the line's; "cannot"; a Chinese claim's first clause read as the reply's own "No"; a line's negation after its lead; a two-subject claim; a reply citing the wrong Passage; the side named first; a marker in a reply's table; and the engine matching a refused sentence to its likest line afterwards. The rest are below.
+
+### What no rule here can tell
+
+- Which figure goes with which in one sentence giving several: "about 5 years when a probe reports every 15 minutes, 3 years at every 5 minutes, and 2 years at every minute" holds "5 years at every minute".
+- A condition left out: "Standard is $8" from "From 200 sensors, Standard drops to $8", and 55 元 the same way in Chinese.
+- A row named only in the same sentence as another's fact: "基础版含短信告警" from "标准版和高级版含短信告警；基础版每条短信 0.3 元".
+- Which side of the call said a line, where the claim says neither "they" nor "we", or both.
+- A row named only by a line no other line names it in: "Text-message alerts are included on Basic" from that line and "On Basic, each text message costs $0.05", where no table names Basic.
+- A row named in no Passage given: "Team is $52" on a Passage holding only Enterprise's line.
+- A word the Passage doesn't hold at all, another word or a wrong one: "phone answers" for "email answers", "free" for "costs $5", "minimum term" for "Maximum term".
+- An opposite said in other words than a negation: "excluded", "stopped including", 缺少, "every plan" for "Enterprise only", a ✗ in a table.
+- A table's column: "$390 a month" from "| Team | $39 | $390 |" whose header says $390 is the year's.
+- A person named instead of a side ("Sarah wants…").
+
+### The runs and the bar
+
+The runs are made at the commit that adds this section, whose code is a769dd5a9 (origin/main merged at 38cf2e90a). As the second look says: Claude Sonnet 5.5 on the direct Anthropic key, judged by Claude Opus 5.5; `today` against `help-marks-passages`, three runs, false Supported counted, on `call-help-documents` and on `call-help-fresh`, with the arms' order turning per model, set and language (#2791). The bar is the second look's. Spend: about $6, within this look's $10.
