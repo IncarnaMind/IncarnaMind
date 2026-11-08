@@ -282,6 +282,47 @@ describe("Help during the call", { timeout: 60_000 }, () => {
     );
   });
 
+  // protects=on the path that names Passages in markers, a check reply that marks only the call's line while saying the price sheet agrees gets the price sheet's line too, found, and one saying it agrees with a figure the sheet doesn't hold shows uncited, so the call's line never stands as the Document's word; fails_when=only the call's line is cited, or the call's line stays found under a sentence the sheet doesn't support; no_claim=what a real model writes (the gate) (#2526).
+  test("on the path that names Passages in markers, a check that says the price sheet agrees gets its line, or shows uncited", async () => {
+    const checking = (said: string) => (calls: ModelCall[]) =>
+      scriptedModel((call) => {
+        calls.push(call);
+        const heard = shownPassages(block(call.prompt, "live-transcript") ?? "").find((passage) =>
+          passage.text.includes("Enterprise is"),
+        );
+        return { text: `- You said ${said} [^${heard?.id.slice(1)}]; the price sheet agrees` };
+      });
+    const lines = ["Enterprise is $45 a seat a month, single sign-on included."];
+
+    const agrees = await setUp(
+      priceSheet(),
+      { lines },
+      {
+        model: checking("Enterprise is $45 a seat a month with single sign-on"),
+        answerPaths: { marksPassages: () => true },
+      },
+    );
+    const { answer } = await press(agrees.core, agrees.meeting, "check");
+    expect(answer.citations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ documentName: "Price sheet", quote: PRICE, check: "found" }),
+      ]),
+    );
+    expect(answer.text).toMatch(/the price sheet agrees \[\^\d+\]/u);
+
+    const differs = await setUp(
+      priceSheet(),
+      { lines: ["Enterprise is $39 a seat a month, single sign-on included."] },
+      {
+        model: checking("Enterprise is $39 a seat a month with single sign-on"),
+        answerPaths: { marksPassages: () => true },
+      },
+    );
+    const uncited = await press(differs.core, differs.meeting, "check");
+    expect(uncited.answer.citations).toEqual([]);
+    expect(uncited.answer.text).toContain("with single sign-on; the price sheet agrees");
+  });
+
   // protects=a press whose Documents are in another language than the call keeps cite on the path that names Passages in markers, since its quotes are picked by shared words and a reply in another language shares none; fails_when=cite is taken away from a cross-language press; no_claim=which models take the path (answerPaths.test.ts) (#2526).
   test("a press whose Document is in another language than the call is offered cite on the path that names Passages in markers", async () => {
     const { core, meeting, calls } = await setUp(

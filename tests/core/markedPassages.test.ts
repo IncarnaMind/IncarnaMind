@@ -895,3 +895,218 @@ describe("Records for a reply that names its Passages in its markers", () => {
     ]);
   });
 });
+
+describe("A check that says a Document agrees, a sentence about two rows, and the line holding the most", () => {
+  const call = {
+    id: "P1",
+    name: "Transcript · Meeting",
+    text: "[0:02 Me] Overtime counts after 40 hours a week, unless you switch a location to daily overtime after 8 hours.\n[0:09 Them] Okay, that matches what our payroll lead expected.",
+  };
+  const payroll = {
+    id: "P2",
+    name: "Payroll export",
+    text: "# Payroll export\n\nHours are exported every pay period.\n\nOvertime is worked out after 40 hours a week by default; a location can set it to daily overtime after 8 hours instead.",
+  };
+  const privacy = {
+    id: "P3",
+    name: "Data and privacy",
+    text: "# Data and privacy\n\nAdmins sign in with single sign-on on Chain; on Starter and Growth they use two-factor authentication.",
+  };
+  const OVERTIME =
+    "Overtime is worked out after 40 hours a week by default; a location can set it to daily overtime after 8 hours instead.";
+
+  // protects=a sentence whose marker names only the call's line, and whose words after it say a Document agrees, gets the Document's line holding what was said, under a marker of its own after those words, by the word for Documents or the Document's whole name, in English and Chinese; fails_when=only the call's line is recorded, so the sentence shows the call's line as the Document's word, or the Document's marker goes elsewhere; no_claim=what a real model writes (the gate) (#2526).
+  test("a check marking only the call's line while it says a Document agrees gets the Document's line", () => {
+    expect(
+      markedPassages(
+        "You said overtime counts after 40 hours a week, or after 8 hours daily if a location switches [^1]; the payroll export document agrees.",
+        [call, payroll, privacy],
+        everywhere,
+        none,
+      ),
+    ).toEqual({
+      text: "You said overtime counts after 40 hours a week, or after 8 hours daily if a location switches [^1]; the payroll export document agrees [^2].",
+      records: [
+        {
+          marker: 1,
+          passage: "P1",
+          quote:
+            "Overtime counts after 40 hours a week, unless you switch a location to daily overtime after 8 hours.",
+        },
+        { marker: 2, passage: "P2", quote: OVERTIME },
+      ],
+    });
+    expect(
+      markedPassages(
+        "Overtime after 40 hours a week, or daily after 8 hours [^1], as the Payroll export says",
+        [call, payroll, privacy],
+        everywhere,
+        none,
+      ).records.map((record) => record.passage),
+    ).toEqual(["P1", "P2"]);
+    const sundays = {
+      id: "P5",
+      name: "Overtime rules",
+      text: "Overtime is worked out after 40 hours a week. On Sundays, it starts after 8 hours.",
+    };
+    expect(
+      markedPassages(
+        "You said overtime starts after 40 hours a week, and after 8 hours on Sundays [^1]; the document agrees.",
+        [call, sundays],
+        everywhere,
+        none,
+      ).records.map((record) => record.quote),
+    ).toEqual([
+      "Overtime counts after 40 hours a week, unless you switch a location to daily overtime after 8 hours.",
+      "On Sundays, it starts after 8 hours.",
+      "Overtime is worked out after 40 hours a week.",
+    ]);
+    const zhCall = {
+      id: "P1",
+      text: "[0:02 Me] 加班默认按每周超过 40 小时算，门店也可以改成每天超过 8 小时算。",
+    };
+    const zhPayroll = {
+      id: "P2",
+      name: "工资导出",
+      text: "# 工资导出\n\n加班默认按每周超过 40 小时计算；门店也可以改为每天超过 8 小时计加班。",
+    };
+    expect(
+      markedPassages(
+        "你说加班默认每周超过 40 小时、门店可改为每天超过 8 小时 [^1]；文档一致",
+        [zhCall, zhPayroll],
+        everywhere,
+        none,
+      ).text,
+    ).toBe("你说加班默认每周超过 40 小时、门店可改为每天超过 8 小时 [^1]；文档一致 [^2]");
+  });
+
+  // protects=such a sentence shows uncited when no line of the Documents holds what was said, with no figure the call said standing in for the line's, and a sentence saying a Document doesn't cover it keeps the call's line and gets no Document's; fails_when=the call's line stays found under a sentence saying the Document agrees, a line giving another figure or another row is recorded, or a negated verdict takes the call's line away (#2526).
+  test("such a sentence goes uncited when no line holds what was said, and a verdict that the Documents don't cover it is left as it is", () => {
+    const said = {
+      id: "P1",
+      text: "[0:02 Them] So admins on Growth get single sign-on, overtime counts after 45 hours, and it costs $10 an hour, right?",
+    };
+    for (const reply of [
+      "They said admins on Growth get single sign-on [^1]; the document agrees.",
+      "They said overtime counts after 45 hours [^1]; the Payroll export supports this.",
+      "They said overtime counts after 40 hours a week and costs $10 an hour [^1]; the document agrees.",
+    ]) {
+      expect(markedPassages(reply, [said, payroll, privacy], everywhere, none), reply).toEqual({
+        text: reply.replace(" [^1]", ""),
+        records: [],
+      });
+    }
+    expect(
+      markedPassages(
+        "They said that matches what their payroll lead expected [^1]; the Documents don't cover what the payroll lead expected.",
+        [call, payroll, privacy],
+        everywhere,
+        none,
+      ).records,
+    ).toEqual([
+      { marker: 1, passage: "P1", quote: "Okay, that matches what our payroll lead expected." },
+    ]);
+  });
+
+  // protects=a Passage's sentence of two clauses naming different rows is read clause by clause, so another row's fact is never quoted ("Admins on Growth get single sign-on" from "…single sign-on on Chain; on Starter and Growth they use two-factor authentication"), one row's figure keeps no other row's fact out (成长版含人工成本预测 from its clause, not an overview line), and a clause naming no row stands for the row the clause before it names; fails_when=the whole sentence is quoted for another row's fact, the overview line is quoted, or a nameless clause stands for another row (#2526).
+  test("a sentence of two clauses about two rows is quoted clause by clause, a nameless clause about the row before it", () => {
+    expect(
+      markedPassages("Admins on Growth get single sign-on [^3]", [call, privacy], everywhere, none),
+    ).toEqual({ text: "Admins on Growth get single sign-on", records: [] });
+    expect(
+      markedPassages(
+        "Growth admins use two-factor authentication [^3]",
+        [call, privacy],
+        everywhere,
+        none,
+      ).records,
+    ).toEqual([
+      {
+        marker: 3,
+        passage: "P3",
+        quote: "on Starter and Growth they use two-factor authentication.",
+      },
+    ]);
+    const plans = {
+      id: "P2",
+      name: "排班方案",
+      text: "# 排班方案\n\n各方案的区别在于覆盖多少门店，以及是否含人工成本预测。\n\n| 方案 | 每家门店每月 |\n|---|---|\n| 入门版 | 299 元 |\n| 成长版 | 549 元 |\n| 连锁版 | 869 元 |\n\n成长版和连锁版含人工成本预测；入门版每家门店每月另收 99 元。\n\n20 家门店起，连锁版降到每家每月 749 元。",
+    };
+    expect(
+      markedPassages(
+        "成长版含人工成本预测，要是门店超过 20 家，连锁版每家每月降到 749 元 [^2]",
+        [plans],
+        everywhere,
+        none,
+      ).records.map((record) => record.quote),
+    ).toEqual(["20 家门店起，连锁版降到每家每月 749 元。", "成长版和连锁版含人工成本预测"]);
+    const sheet = {
+      id: "P2",
+      text: "Team plan: $29 a seat; Enterprise plan: $45 a seat; includes single sign-on.",
+    };
+    const basic = { id: "P3", text: "| Basic | $9 a seat |" };
+    expect(
+      markedPassages("Basic includes single sign-on [^2]", [sheet, basic], everywhere, none)
+        .records,
+    ).toEqual([]);
+    expect(
+      markedPassages(
+        "Enterprise includes single sign-on [^2]",
+        [sheet, basic],
+        everywhere,
+        none,
+      ).records.map((record) => record.quote),
+    ).toContain("includes single sign-on.");
+  });
+
+  // protects=of a transcript's windows, the one whose line holds the most of the claim gives its quote, not the window named when it has only a weak line, and "I'll" gives no word "ll", so two lines sharing "I'll" and one word aren't a quote of each other; fails_when=the named window's line sharing two words wins, or "I'll put it in writing" is quoted for "I'll send the prices in writing" (#2526).
+  test("the window holding the most of the claim gives its quote, and I'll gives no word", () => {
+    const early = {
+      id: "P1",
+      name: "Transcript · Meeting",
+      text: "[3:20 Them] We pick two people early in the week.",
+    };
+    const later = {
+      id: "P4",
+      name: "Transcript · Meeting",
+      text: "[5:20 Them] We'll pick up the trolleys early every morning from the loading bay.",
+    };
+    expect(
+      markedPassages(
+        "They'll pick up the trolleys early every morning [^1]",
+        [early, later],
+        everywhere,
+        none,
+      ).records,
+    ).toEqual([
+      {
+        marker: 1,
+        passage: "P4",
+        quote: "We'll pick up the trolleys early every morning from the loading bay.",
+      },
+    ]);
+    const promise = { id: "P1", text: "[1:00 Me] I'll put the dates in writing." };
+    expect(
+      markedPassages("I'll send the prices in writing [^1]", [promise], everywhere, none),
+    ).toEqual({ text: "I'll send the prices in writing", records: [] });
+  });
+
+  // protects="2-business-day" is read as two days, so a claim giving it and another figure gets the line holding each; fails_when=the line holding "2 business days" is left out as one about other figures (#2526).
+  test("a hyphenated business day is read as days", () => {
+    const kiosks = {
+      id: "P2",
+      text: "Each kiosk costs $240. A broken kiosk is swapped within 2 business days. One kiosk serves up to 60 staff.",
+    };
+    expect(
+      markedPassages(
+        "Finance may want the 2-business-day swap for broken kiosks and the 60-staff limit per kiosk [^2]",
+        [kiosks],
+        everywhere,
+        none,
+      ).records.map((record) => record.quote),
+    ).toEqual([
+      "A broken kiosk is swapped within 2 business days.",
+      "One kiosk serves up to 60 staff.",
+    ]);
+  });
+});

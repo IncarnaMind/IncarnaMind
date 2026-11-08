@@ -10,7 +10,11 @@
  * - A run of markers vouches for the words from the markers before it; one opening a sentence,
  *   after the full stop, for the sentence before, as `markedSentence` reads it. Words are matched
  *   with their endings folded, and CJK by each two neighbouring characters, so Chinese and mixed
- *   text need no spaces. A marker may rest on a sibling Passage of the same Document.
+ *   text need no spaces; "I'll" gives no word "ll". A marker may rest on a sibling Passage of the
+ *   same Document or transcript: of them, the one whose lines hold the most of its claim.
+ * - A Passage's sentence of two clauses about two rows ("Express and Premium include it; on
+ *   Standard it costs $0.30") is read clause by clause, so one row's figure keeps no other row's
+ *   fact out, and no row's fact is quoted for another.
  * - Figures keep their kind: "$9" is no "9 years", "50%" no "50 drivers", "0:30" no "30",
  *   "12 months" no "12 weeks", "$52k" no "$52", "-30" no "30"; "two", 两 and "one week" are
  *   numbers. Every figure of the clause is in a quote, but a year of the Document's name, and a
@@ -34,6 +38,12 @@
  *   customer", 对方 or 客户 for "Them"; "I" or "we" for "Me".
  * - A marker an earlier reply recorded is read as naming its Passage anew, under a marker of its
  *   own; a marker no rule reads (in a table row of the reply, or naming no Passage given) goes.
+ * - A sentence whose markers name only the call's lines, and whose words after them say a Document
+ *   agrees ("You said … [^1]; the payroll export document agrees", 文档一致), gets the line of the
+ *   Documents given that holds what was said, under the rules above with no figure of the call
+ *   standing in for one of the line's, recorded under a marker of its own after those words. When
+ *   no line holds it, the sentence's markers go: Claude Sonnet 5.5 marked only the call's line on
+ *   such checks, even when told to mark both.
  *
  * A calculation's input that names a Passage the same way ("citation": 3 for P3) quotes its
  * sentence holding the number.
@@ -147,7 +157,7 @@ const UNIT: Record<string, string> = {
 };
 /** What may follow a number: a scale, then a percent sign, a currency's name or a unit of time. */
 const AFTER =
-  /^(?:\s?(k|m|bn|thousand|million|billion|千|万|亿)(?![a-z]))?(?:\s?(%|％|percent\b|per cent\b)|\s?(dollars?|usd|euros?|eur|pounds?|gbp|yuan|rmb)\b|\s?(元|块)|[\s-]?(?:business |working )?(seconds?|secs?|minutes?|mins?|hours?|hrs?|days?|weeks?|months?|years?)\b|\s?个?(秒|分钟|分|小时|天|日|工作日|周|星期|月|年))?/iu;
+  /^(?:\s?(k|m|bn|thousand|million|billion|千|万|亿)(?![a-z]))?(?:\s?(%|％|percent\b|per cent\b)|\s?(dollars?|usd|euros?|eur|pounds?|gbp|yuan|rmb)\b|\s?(元|块)|[\s-]?(?:(?:business|working)[\s-])?(seconds?|secs?|minutes?|mins?|hours?|hrs?|days?|weeks?|months?|years?)\b|\s?个?(秒|分钟|分|小时|天|日|工作日|周|星期|月|年))?/iu;
 
 /**
  * A number's kind from what follows it: "$52k" is not "$52", "12 months" not "12 weeks", "50%"
@@ -251,6 +261,9 @@ const CJK_AFTER_NEGATION = new Set([..."有是在会能要用必"]);
  */
 const MORE_NEGATIONS = /^(?:without|cannot|neither|nor|none)$|n’t$/iu;
 const negating = (word: string) => negates(word) || MORE_NEGATIONS.test(word);
+
+/** The ends of "I'll", "we're" and "they've", which are no words of a claim or a line. */
+const CONTRACTION_ENDS = new Set(["ll", "re", "ve"]);
 
 /** The pieces of "doesn't" and its kin, which `negating` reads whole. */
 const CONTRACTED = new Set(
@@ -385,7 +398,8 @@ const wordSet = (text: string): Set<string> =>
             !/^\d/.test(word) &&
             NUMBER_WORDS[word] === undefined &&
             !negating(word) &&
-            !CONTRACTED.has(word)),
+            !CONTRACTED.has(word) &&
+            !CONTRACTION_ENDS.has(word)),
       )
       .map(folded),
   );
@@ -594,6 +608,11 @@ interface Line extends Said {
   counted: Set<string>;
   /** Who said it, for a transcript line marked "Me" or "Them". */
   side?: "Me" | "Them";
+  /**
+   * The words that tell what it is about: its own, and for a clause naming no row, those of the
+   * clause before it in its sentence ("Team plan: $29" for "includes single sign-on").
+   */
+  named: Set<string>;
   at: number;
 }
 
@@ -610,6 +629,8 @@ interface Read {
    * ("included on Standard and Premium", "SAP").
    */
   labels: Set<string>;
+  /** Whether it is lines of the call, each with its time and speaker. */
+  call: boolean;
 }
 
 /** A line's lead before its colon, "Team plan" of "Team plan: $29 per driver a month". */
@@ -663,6 +684,40 @@ function isHeading(rows: readonly string[], index: number): boolean {
 }
 
 /** A Passage's sentences a quote may be, headings left out, and its topic. */
+/** Where a sentence of a Passage divides into clauses. */
+const CLAUSE_BREAK = /\s*[;；]\s*/u;
+
+/**
+ * A sentence of a Passage as the stretches a quote may be, each with the words that tell what it
+ * is about: its clauses when two or more name rows of their own, and different ones ("Admins sign
+ * in with single sign-on on Chain; on Starter and Growth they use two-factor authentication"), so
+ * one row's fact is never quoted for another's; otherwise the whole sentence. A clause naming no
+ * row is about the row the clause before it names.
+ */
+function stretchesOf(
+  sentence: string,
+  labels: ReadonlySet<string>,
+): { text: string; named: Set<string> }[] {
+  const clauses = sentence
+    .split(CLAUSE_BREAK)
+    .filter((clause) => wordSet(clause).size > 0)
+    .map((text) => ({ text, words: wordSet(asQuoted(text)) }));
+  const rowsOf = (words: ReadonlySet<string>) =>
+    [...words]
+      .filter((word) => labels.has(word))
+      .sort()
+      .join(" ");
+  const rows = new Set(clauses.map(({ words }) => rowsOf(words)).filter((each) => each !== ""));
+  if (rows.size < 2) return [{ text: sentence, named: wordSet(asQuoted(sentence)) }];
+  let before = new Set<string>();
+  return clauses.map(({ text, words }) => {
+    const named = rowsOf(words) === "" ? new Set([...words, ...before]) : words;
+    before = named;
+    return { text, named };
+  });
+}
+
+/** A Passage's sentences a quote may be, headings left out, and its topic. */
 function readOf(passage: { text: string; name?: string }): Read {
   const rows = passage.text.split("\n");
   const lines: Line[] = [];
@@ -670,37 +725,49 @@ function readOf(passage: { text: string; name?: string }): Read {
   const topicFigures = new Set(
     figuresOf(passage.name ?? "").filter((figure) => /^\d{4}$/u.test(figure)),
   );
-  const labels = new Set<string>();
+  const heading = rows.map((_, index) => isHeading(rows, index));
+  const labels = new Set(
+    rows.flatMap((raw, index) => (raw.trim() === "" || heading[index] ? [] : labelsOf(raw.trim()))),
+  );
+  let call = false;
   for (const [index, raw] of rows.entries()) {
     const row = raw.trim();
     if (row === "") continue;
-    if (isHeading(rows, index)) {
+    if (heading[index]) {
       for (const word of wordSet(row)) topic.add(word);
       for (const figure of figuresOf(row)) if (/^\d{4}$/u.test(figure)) topicFigures.add(figure);
       continue;
     }
-    for (const label of labelsOf(row)) labels.add(label);
+    const cued = CUE.test(row);
+    call ||= cued;
     const mark = SIDE.exec(row)?.[1];
     const side = mark === "Me" || mark === "Them" ? mark : undefined;
     for (const span of sentenceSpans(row)) {
       const sentence = row.slice(span.from, span.to).trim();
-      const quote = asQuoted(sentence);
-      if (quote === "") continue;
-      lines.push({
-        ...(side && { side }),
-        quote,
-        words: wordSet(quote),
-        lower: quote.toLowerCase(),
-        negated: negatedOf(quote),
-        affirmed: affirmedOf(quote, negatedOf(quote)),
-        lead: wordSet(LEAD.exec(quote)?.[1] ?? ""),
-        figures: new Set(figuresOf(sentence)),
-        counted: new Set(figuresOf(sentence, false)),
-        at: lines.length,
-      });
+      // A call's line keeps its time with it, which a clause would lose.
+      const stretches = cued
+        ? [{ text: sentence, named: wordSet(asQuoted(sentence)) }]
+        : stretchesOf(sentence, labels);
+      for (const { text, named } of stretches) {
+        const quote = asQuoted(text);
+        if (quote === "") continue;
+        lines.push({
+          ...(side && { side }),
+          quote,
+          words: wordSet(quote),
+          lower: quote.toLowerCase(),
+          negated: negatedOf(quote),
+          affirmed: affirmedOf(quote, negatedOf(quote)),
+          lead: wordSet(LEAD.exec(quote)?.[1] ?? ""),
+          figures: new Set(figuresOf(text)),
+          counted: new Set(figuresOf(text, false)),
+          named,
+          at: lines.length,
+        });
+      }
     }
   }
-  return { lines, topic, topicFigures, labels };
+  return { lines, topic, topicFigures, labels, call };
 }
 
 /** A marker in a reply, by offset. */
@@ -710,14 +777,30 @@ interface Mark {
   number: number;
 }
 
+/** Closing punctuation at a sentence's end, which a marker goes before. */
+const SENTENCE_CLOSE = /[\s.!?。！？…]*["'”’」』)）\]]*\s*$/u;
+
+/** A run of markers and the claim it vouches for. */
+interface Claimed {
+  /** The words it vouches for, the words after it to the sentence's end among them. */
+  text: string;
+  /** The words before it, from the run before: what the claim says, for a run not opening it. */
+  before: string;
+  /** For a sentence's last run, the words after it to the sentence's end. */
+  after: string;
+  /** Where a marker for the words after it goes: before the sentence's closing punctuation. */
+  end: number;
+  marks: Mark[];
+}
+
 /**
  * Each run of markers in `text` with the claim it vouches for: its sentence from the run of
  * markers before it, and to the sentence's end after the last; for markers opening a sentence,
  * after the full stop, the sentence before, as `markedSentence` reads it. A marker vouches for
  * the words before it, not for a clause another marker covers.
  */
-function claimsOf(text: string): { text: string; marks: Mark[] }[] {
-  const claims: { text: string; marks: Mark[] }[] = [];
+function claimsOf(text: string): Claimed[] {
+  const claims: Claimed[] = [];
   const sentences = answerSentences(text);
   for (const [index, sentence] of sentences.entries()) {
     const slice = text.slice(sentence.start, sentence.end);
@@ -735,15 +818,151 @@ function claimsOf(text: string): { text: string; marks: Mark[] }[] {
       } else runs.push({ from: found.index, to: found.index + found[0].length, marks: [mark] });
     }
     for (const [at, run] of runs.entries()) {
-      const before = sentences[index - 1];
-      const opening = at === 0 && slice.slice(0, run.from).trim() === "";
-      let claimed = slice.slice(runs[at - 1]?.to ?? 0, run.from);
-      if (at === runs.length - 1) claimed += ` ${slice.slice(run.to)}`;
-      if (opening && before && wordsOf(before.text).size > 0) claimed = before.text;
-      claims.push({ text: claimed, marks: run.marks });
+      const previous = sentences[index - 1];
+      const opening =
+        at === 0 &&
+        slice.slice(0, run.from).trim() === "" &&
+        previous !== undefined &&
+        wordsOf(previous.text).size > 0;
+      const before = opening ? previous.text : slice.slice(runs[at - 1]?.to ?? 0, run.from);
+      const after = at === runs.length - 1 && !opening ? slice.slice(run.to) : "";
+      const end = sentence.start + run.to + after.replace(SENTENCE_CLOSE, "").length;
+      claims.push({ text: `${before} ${after}`, before, after, end, marks: run.marks });
     }
   }
   return claims;
+}
+
+/** What a Passage gave a run's marker: its quotes, none when it gives the claim nothing. */
+interface Taken {
+  read: Read;
+  quotes: readonly Line[];
+}
+
+/** How much of a claim a Passage's quotes hold: its figures, then its words. */
+const heldBy = (claim: Claim, { read, quotes }: Taken) =>
+  claim.figures.filter((figure) => quotes.some((line) => holdsFigure(line.figures, figure)))
+    .length +
+  amount(claim, (word) => !read.topic.has(word) && quotes.some((line) => line.words.has(word)));
+
+/**
+ * Whether the quotes taken for a run's markers hold its claim: every figure, but a year of the
+ * Document's name and a figure of the call (`said`) standing beside one of its kind, and the rows
+ * it names.
+ */
+function holdsClaim(
+  claim: Claim,
+  taken: readonly Taken[],
+  said: ReadonlySet<string>,
+  names: ReadonlySet<string>,
+): boolean {
+  const quotes = taken.flatMap((each) => each.quotes);
+  const held = new Set(quotes.flatMap((line) => [...line.figures]));
+  const missing = claim.figures.filter(
+    (figure) =>
+      !holdsFigure(held, figure) && !taken.some((each) => each.read.topicFigures.has(figure)),
+  );
+  const claimed = new Set(claim.figures);
+  /** The quotes' figures the claim doesn't give, with the line each is in. */
+  const others = quotes.flatMap((line) =>
+    [...line.counted]
+      .filter(
+        (figure) => !holdsFigure(claimed, figure) && !claimed.has(figure.replace(/@.*$/u, "")),
+      )
+      .map((figure) => ({ figure, line })),
+  );
+  // A figure the call said may stand beside one of its kind a quote holds ("your Android 10 phones
+  // won't run it: it needs Android 11"), but not in place of the quote's own: "15% off" said for a
+  // line's "10% off" is the line misread, unless the line's figure is a bound the said one meets
+  // ("At 250 sensors" for "From 200 sensors").
+  const heldKinds = new Set(
+    claim.figures.filter((figure) => holdsFigure(held, figure)).map(kindOf),
+  );
+  const standsBeside = (figure: string) =>
+    said.has(digitsOf(figure)) &&
+    (heldKinds.has(kindOf(figure)) ||
+      others.every(
+        (other) =>
+          kindOf(other.figure) !== kindOf(figure) ||
+          meetsBound(figure, other.figure, other.line.lower),
+      ));
+  const figuresStated =
+    missing.length === 0 ||
+    (missing.every(standsBeside) && claim.figures.some((figure) => holdsFigure(held, figure)));
+  // "Team is $52" quoted from "Enterprise plan: $52" holds every figure and most words: a name
+  // the claim gives and no quote holds, beside a name the quotes give and the claim doesn't, is
+  // one row's fact said of another. A quote naming nothing ("A faulty device is replaced") may
+  // stand for a named thing ("rugged tablets").
+  const isName = (word: string) =>
+    names.has(word) && !taken.some((each) => each.read.topic.has(word));
+  // A quote for a clause the claim negates ("I can't add live traffic to Team" from "Live traffic
+  // is included on Enterprise only") names the row the claim denies it of: that is no other row.
+  const naming = quotes.filter(
+    (line) =>
+      !claim.negated.some(
+        ({ clause }) => clause.filter((word) => line.words.has(word)).length >= MIN_HELD,
+      ),
+  );
+  // A name the claim says is absent ("I don't see NetSuite on our list") no quote need hold.
+  const denied = new Set(claim.negated.flatMap(({ term, clause }) => [term, ...clause]));
+  const namesStated =
+    [...claim.words].every(
+      (word) => !isName(word) || denied.has(word) || quotes.some((line) => line.named.has(word)),
+    ) ||
+    naming.every((line) => [...line.named].every((word) => !isName(word) || claim.words.has(word)));
+  return figuresStated && namesStated;
+}
+
+/** The word a reply calls the User's Documents by. */
+const DOCUMENT_WORD = /\b(?:documents?|docs?)\b|文档|资料/iu;
+
+/**
+ * The Documents that `after`, a sentence's words after its markers, says something of: in a clause
+ * with no negation, those it names whole ("the Payroll export supports this"), or all of them for
+ * the word for Documents alone ("the document agrees", 文档一致); none when no clause does
+ * ("the Documents don't mention this", 文档未提及).
+ */
+function documentsSaidOf<P extends { name?: string }>(after: string, documents: readonly P[]): P[] {
+  let named: P[] = [];
+  let any = false;
+  for (const clause of after.split(CLAUSE_END)) {
+    if ([...clause.toLowerCase().matchAll(TOKEN)].some((found) => negating(found[0]))) continue;
+    const words = wordSet(clause);
+    const whole = documents.filter((document) => {
+      const name = [...wordSet(document.name ?? "")];
+      return (
+        name.length > 0 &&
+        name.every((word) => (CJK.test(word) ? clause.includes(word) : words.has(word)))
+      );
+    });
+    named = [...named, ...whole];
+    any ||= whole.length > 0 || DOCUMENT_WORD.test(clause);
+  }
+  if (!any) return [];
+  return named.length > 0 ? [...new Set(named)] : [...documents];
+}
+
+/**
+ * Of `documents`, the Passage whose lines hold what a check says was said (`what`), with its
+ * quotes; null when none does. Every figure of `what` is in a quote: the call's figures are the
+ * claim here, so none stands beside a figure of the line's in its place.
+ */
+function agreeingLines<P extends { id: string; text: string; name?: string }>(
+  what: Claim,
+  documents: readonly P[],
+  readFor: (passage: P) => Read,
+  said: ReadonlySet<string>,
+  names: ReadonlySet<string>,
+  found: (passage: string, quote: string) => boolean,
+): (Taken & { passage: P }) | null {
+  let most: (Taken & { passage: P }) | null = null;
+  for (const passage of documents) {
+    const read = readFor(passage);
+    const each = { passage, read, quotes: quotesFor(passage.id, read, what, said, names, found) };
+    if (each.quotes.length === 0 || !holdsClaim(what, [each], new Set(), names)) continue;
+    if (most === null || heldBy(what, each) > heldBy(what, most)) most = each;
+  }
+  return most;
 }
 
 /**
@@ -778,6 +997,7 @@ export function markedPassages(
         .flatMap((row) => figuresOf(asQuoted(row.trim())).map(digitsOf)),
     ),
   );
+  const documents = passages.filter((passage) => !readFor(passage).call);
   let next = Math.max(0, ...[...named.matchAll(MARKER)].map((each) => Number(each[1]))) + 1;
   const fresh = () => {
     while (recorded(next)) next++;
@@ -786,7 +1006,17 @@ export function markedPassages(
   /** The marker each quote was recorded under: the Passage's own number first. */
   const markerOf = new Map<string, number>();
   const records: CitationRecordInput[] = [];
-  const rewritten: { at: number; length: number; markers: number[] }[] = [];
+  const rewritten: { at: number; length: number; markers: number[]; before?: string }[] = [];
+  const record = (passage: string, quote: string, own?: number) => {
+    const key = `${passage}\n${quote}`;
+    const taken = markerOf.get(key);
+    if (taken !== undefined) return taken;
+    const marker =
+      own === undefined || recorded(own) || [...markerOf.values()].includes(own) ? fresh() : own;
+    markerOf.set(key, marker);
+    records.push({ marker, passage, quote });
+    return marker;
+  };
 
   const claims = claimsOf(named);
   // A marker no rule reads (in a table's row of the reply) would show whatever record holds its
@@ -797,7 +1027,7 @@ export function markedPassages(
     const space = /\s$/u.test(named.slice(0, found.index)) ? 1 : 0;
     rewritten.push({ at: found.index - space, length: found[0].length + space, markers: [] });
   }
-  for (const { text: part, marks } of claims) {
+  for (const { text: part, before, after, end, marks } of claims) {
     const claim = claimOf(part);
     const picked = marks.flatMap((mark) => {
       const passage = shown.get(`P${mark.number}`);
@@ -807,90 +1037,40 @@ export function markedPassages(
         return [];
       }
       // A long Document comes as several Passages, a transcript's windows overlapping: a marker
-      // naming one of them may rest on a line its neighbour holds.
+      // naming one of them may rest on a line its neighbour holds, and the one holding the most of
+      // the claim gives it, so a weak line in the window named never wins over a whole one.
       const siblings = passages.filter(
         (other) => other !== passage && !!passage.name && other.name === passage.name,
       );
-      for (const candidate of [passage, ...siblings]) {
-        const read = readFor(candidate);
-        const quotes = quotesFor(candidate.id, read, claim, said, names, found);
-        if (quotes.length > 0 || candidate === siblings.at(-1)) {
-          return [{ ...mark, passage: candidate, read, quotes }];
-        }
-      }
-      const read = readFor(passage);
-      return [{ ...mark, passage, read, quotes: [] }];
+      const best = [passage, ...siblings]
+        .map((candidate) => {
+          const read = readFor(candidate);
+          return {
+            passage: candidate,
+            read,
+            quotes: quotesFor(candidate.id, read, claim, said, names, found),
+          };
+        })
+        .reduce((most, each) => (heldBy(claim, each) > heldBy(claim, most) ? each : most));
+      return [{ ...mark, ...best }];
     });
-    const quotes = picked.flatMap((mark) => mark.quotes);
-    const held = new Set(quotes.flatMap((line) => [...line.figures]));
-    const missing = claim.figures.filter(
-      (figure) =>
-        !holdsFigure(held, figure) && !picked.some((mark) => mark.read.topicFigures.has(figure)),
-    );
-    const claimed = new Set(claim.figures);
-    /** The quotes' figures the claim doesn't give, with the line each is in. */
-    const others = quotes.flatMap((line) =>
-      [...line.counted]
-        .filter(
-          (figure) => !holdsFigure(claimed, figure) && !claimed.has(figure.replace(/@.*$/u, "")),
-        )
-        .map((figure) => ({ figure, line })),
-    );
-    // A figure the call said may stand beside one of its kind a quote holds ("your Android 10 phones
-    // won't run it: it needs Android 11"), but not in place of the quote's own: "15% off" said for a
-    // line's "10% off" is the line misread, unless the line's figure is a bound the said one meets
-    // ("At 250 sensors" for "From 200 sensors").
-    const heldKinds = new Set(
-      claim.figures.filter((figure) => holdsFigure(held, figure)).map(kindOf),
-    );
-    const standsBeside = (figure: string) =>
-      said.has(digitsOf(figure)) &&
-      (heldKinds.has(kindOf(figure)) ||
-        others.every(
-          (other) =>
-            kindOf(other.figure) !== kindOf(figure) ||
-            meetsBound(figure, other.figure, other.line.lower),
-        ));
-    const figuresStated =
-      missing.length === 0 ||
-      (missing.every(standsBeside) && claim.figures.some((figure) => holdsFigure(held, figure)));
-    // "Team is $52" quoted from "Enterprise plan: $52" holds every figure and most words: a name
-    // the claim gives and no quote holds, beside a name the quotes give and the claim doesn't, is
-    // one row's fact said of another. A quote naming nothing ("A faulty device is replaced") may
-    // stand for a named thing ("rugged tablets").
-    const isName = (word: string) =>
-      names.has(word) && !picked.some((mark) => mark.read.topic.has(word));
-    // A quote for a clause the claim negates ("I can't add live traffic to Team" from "Live traffic
-    // is included on Enterprise only") names the row the claim denies it of: that is no other row.
-    const naming = quotes.filter(
-      (line) =>
-        !claim.negated.some(
-          ({ clause }) => clause.filter((word) => line.words.has(word)).length >= MIN_HELD,
-        ),
-    );
-    // A name the claim says is absent ("I don't see NetSuite on our list") no quote need hold.
-    const denied = new Set(claim.negated.flatMap(({ term, clause }) => [term, ...clause]));
-    const namesStated =
-      [...claim.words].every(
-        (word) => !isName(word) || denied.has(word) || quotes.some((line) => line.words.has(word)),
-      ) ||
-      naming.every((line) =>
-        [...line.words].every((word) => !isName(word) || claim.words.has(word)),
-      );
-    const stated = figuresStated && namesStated;
+    const stated = holdsClaim(claim, picked, said, names);
+    // "You said … [^1]; the payroll export document agrees": the Document's line holding what was
+    // said, or nothing, so the call's line never shows as the Document's word.
+    const agreeing =
+      picked.some((mark) => mark.read.call) &&
+      !(stated && picked.some((mark) => !mark.read.call && mark.quotes.length > 0))
+        ? documentsSaidOf(after, documents)
+        : [];
+    const agreed =
+      agreeing.length === 0
+        ? undefined
+        : agreeingLines(claimOf(before), agreeing, readFor, said, names, found);
+    const kept = stated && agreed !== null;
     for (const mark of picked) {
-      const markers = (stated ? mark.quotes : []).map((line) => {
-        const key = `${mark.passage.id}\n${line.quote}`;
-        const taken = markerOf.get(key);
-        if (taken !== undefined) return taken;
-        const marker =
-          recorded(mark.number) || [...markerOf.values()].includes(mark.number)
-            ? fresh()
-            : mark.number;
-        markerOf.set(key, marker);
-        records.push({ marker, passage: mark.passage.id, quote: line.quote });
-        return marker;
-      });
+      const markers = (kept ? mark.quotes : []).map((line) =>
+        record(mark.passage.id, line.quote, mark.number),
+      );
       if (markers.length === 0) {
         const space = /\s$/u.test(named.slice(0, mark.at)) ? 1 : 0;
         rewritten.push({ at: mark.at - space, length: mark.length + space, markers });
@@ -898,11 +1078,16 @@ export function markedPassages(
         rewritten.push({ at: mark.at, length: mark.length, markers });
       }
     }
+    if (agreed) {
+      const markers = agreed.quotes.map((line) => record(agreed.passage.id, line.quote));
+      const space = /\s$/u.test(named.slice(0, end)) ? "" : " ";
+      rewritten.push({ at: end, length: 0, markers, before: space });
+    }
   }
   let marked = named;
-  for (const { at, length, markers } of rewritten.sort((a, b) => b.at - a.at)) {
+  for (const { at, length, markers, before = "" } of rewritten.sort((a, b) => b.at - a.at)) {
     const written = markers.map((marker) => `[^${marker}]`).join("");
-    marked = `${marked.slice(0, at)}${written}${marked.slice(at + length)}`;
+    marked = `${marked.slice(0, at)}${before}${written}${marked.slice(at + length)}`;
   }
   return { text: marked, records };
 }
