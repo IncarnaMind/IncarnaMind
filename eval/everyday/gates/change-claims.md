@@ -14,9 +14,9 @@ Written and committed on 2026-11-08, before any run it gates, with the ten held-
 - **Arms:** `main`, the branch's base on `origin/main` when the runs start (its `src/` only, under the branch's `eval/`, so both arms are scored the same way), against `branch`, the branch's head. Each result names both commits.
 - **Models:** Claude Haiku 5.5 on a direct Anthropic key, and DeepSeek V4.1 Flash 1017 (`deepseek-flash`) on DeepSeek's key. The claims are judged by Claude Sonnet 5.5 in both. The app's own check runs on each provider's quick-tasks model, as the User has it: Claude Haiku 5.5 and DeepSeek V4.1 Flash.
 - **The seven that failed:** `owner-2`, `owner-lib-empty-en`, `own-summary-longer-zh`, `edit-rewrite-paragraph-zh`, `notes-on-documents-en`, `notes-on-documents-zh` and `research-attention-long`, three runs each, on each arm and each model.
-- **All 41 of the pressure test** (its list of ids), once each, on `branch`, on each model. `main`'s run of the same 41 is the pressure test's own at `010cfcd12`, one run each on the same two models: the cap doesn't cover running them again.
+- **The 41 of the run #2769 reports** (its list of ids), once each, on `branch`, on each model. `main`'s run of the same 41 is that run, at `010cfcd12`, one run each on the same two models: the cap doesn't cover running them again.
 - **The change-claim probes** (`INCARNAMIND_EVAL_EVERYDAY=claim-probes`), three runs each, on each arm, with Claude Haiku 5.5 and DeepSeek V4.1 Flash as the quick model: the 47 already there, the three command probes and the backed write, and the ten held out for this change (`heldOut` in `claimProbes.everyday.ts`).
-- **Order:** the probes, then `branch`'s seven and its 41, then `main`'s seven. If the spend would pass the cap before `main`'s seven are done, they run twice instead, with the pressure test's run as their third, and the result says so.
+- **Order:** the probes, then `branch`'s seven and its 41, then `main`'s seven. If the spend would pass the cap before `main`'s seven are done, they run twice instead, with #2769's run as their third, and the result says so.
 
 ## The guards
 
@@ -36,7 +36,7 @@ If every guard holds, the branch's pull request is opened ready, with these numb
 
 ## Spend
 
-The cap is $6. Before this gate, finding the causes cost about $0.10: one run of `owner-2`, `notes-on-documents-en` and `edit-rewrite-paragraph-zh` on `main` with Claude Haiku 5.5 (their claim checks logged), and a few dozen of the app's checks replayed on records rebuilt from the pressure test's runs.
+The cap is $6. Before this gate, finding the causes cost about $0.10: one run of `owner-2`, `notes-on-documents-en` and `edit-rewrite-paragraph-zh` on `main` with Claude Haiku 5.5 (their claim checks logged), and a few dozen of the app's checks replayed on records rebuilt from #2769's runs.
 
 ## The probes' first run (2026-11-08), and what runs again (written before it does)
 
@@ -94,7 +94,7 @@ Branch at `8976c18e0` for the everyday runs (`f3f5737e1` for the probes and the 
 | 4. A new Note's name in its request's language | `notes-on-documents-en` English 3 of 3, `-zh` Chinese 3 of 3; no Note named outside it | the same | yes |
 | 5. Probes: existing no worse than main; each held-out 2 of 3 | unmade 98 to main's 99; `done-unmade-*` and `card-unmade-*` 0 of 3 (main 0 of 3) | unmade 95 to 95; `card-unmade-zh` 0 of 3 (main 1 of 3) | **no** |
 
-The seven, by arm (main: two runs and the pressure test's as the third):
+The seven, by arm (main: two runs and #2769's as the third):
 
 | Model | Arm | At their floor | Runs passed | Asked again |
 |---|---|---|---|---|
@@ -105,6 +105,6 @@ The seven, by arm (main: two runs and the pressure test's as the third):
 
 Guard 3's three, three more runs each on the branch: `follow-longer-zh` 3 of 3, `sounds-like` 2 of 3, `add-to-notes-en` 3 of 3. `sounds-like`'s failures are the same chain each time: DeepSeek's check flags the shorter version shown in the panel, which it does on main's check in 6 of 6 replays.
 
-Reported: the research questions' cited sentences Supported, Claude Haiku 5.5 7 of 9 English and 9 of 11 Chinese, DeepSeek 13 of 17 and 8 of 12 (the pressure test's main run: 9 of 9 and 6 of 9, 7 of 12 and 15 of 17); this change touches neither the Answers' Citations nor their checks. The 15-minute load was 5 to 17 at the starts of the runs, and rose to 34 during the last. Spend: $4.34 for the everyday runs with their judge, $0.16 for the probes, about $0.05 for the replays, and about $0.3 for the run stopped at `69d0136b9`: about $4.85 of the $6 cap, before main's diagnosis runs.
+Reported: the research questions' cited sentences Supported, Claude Haiku 5.5 7 of 9 English and 9 of 11 Chinese, DeepSeek 13 of 17 and 8 of 12 (#2769's run on main: 9 of 9 and 6 of 9, 7 of 12 and 15 of 17); this change touches neither the Answers' Citations nor their checks. The 15-minute load was 5 to 17 at the starts of the runs, and rose to 34 during the last. Spend: $4.34 for the everyday runs with their judge, $0.16 for the probes, about $0.05 for the replays, and about $0.3 for the run stopped at `69d0136b9`: about $4.85 of the $6 cap, before main's diagnosis runs.
 
 Guards 3 and 5 fail, so by this gate the branch doesn't merge as it is. What the failures are is above; the decision is the reviewer's.
