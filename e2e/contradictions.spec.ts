@@ -213,9 +213,12 @@ test("In Chinese and a narrow window: a Mind in no Folder, and a Folder of only 
 
   await bridge(window).folder("潮汐", ["Tides"]);
   await pointAndClick(window, problem.getByTestId("checks-problem-close"));
-  // The Mind's own menu, on its tab.
+  // The Mind's own menu, on its tab, one step further under More ›.
   await window.getByTestId("mind-tab").first().click({ button: "right" });
-  const item = window.getByRole("menuitem", { name: "核对矛盾" });
+  await window.getByRole("menuitem", { name: "更多" }).hover();
+  const item = window
+    .getByRole("menu", { name: "更多" })
+    .getByRole("menuitem", { name: "核对矛盾" });
   await expect(item).toBeVisible();
   await pointAndClick(window, item);
   await expect(window.getByTestId("check-card").getByTestId("checks-problem")).toContainText(
