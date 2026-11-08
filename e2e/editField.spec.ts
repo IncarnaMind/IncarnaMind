@@ -12,6 +12,7 @@ import {
   setWindowSize,
   slideSelect,
   useLocalChatModel,
+  wordsBox,
 } from "./app";
 
 /*
@@ -451,6 +452,7 @@ const LINES = {
   en: {
     making: "Making the changes…",
     stop: "Stop",
+    busy: "Another edit is still running. Wait for it, or stop it.",
     applied: "Changed 1 paragraph",
     undo: "Undo",
     failed: /Edit with AI didn.t work/,
@@ -459,6 +461,7 @@ const LINES = {
   "zh-CN": {
     making: "正在修改…",
     stop: "停止",
+    busy: "上一次修改还在进行。等它完成，或先停止。",
     applied: "修改了 1 个段落",
     undo: "撤销",
     failed: /用 AI 编辑未能完成/,
@@ -1104,3 +1107,160 @@ test("at 900 px the menu is over the page's bottom fade, and its field is not un
   expect(Number(layers.frame)).toBeGreaterThan(Number(layers.foot === "auto" ? 0 : layers.foot));
   await app.close();
 });
+
+/** The line the tall paragraph tests end with: its last words, which a person selects. */
+const TALL_TAIL = "The last light fades over the water. the turning tide comes very slowly at last";
+/** The words a person selects at the foot of that paragraph: lowercase, with a filler "very", so each of the three changes it. */
+const TALL_WORDS = "very slowly at last";
+/** The words just before it, which no action changes: where the User is reading. */
+const TALL_BEFORE = "the turning tide comes";
+/** Enough paragraphs of one long paragraph to stand taller than any view the tests use. */
+const tallText = () => {
+  const filler = Array.from(
+    { length: 220 },
+    (_, index) => `Line ${index + 1}: the harbour tide is strong and regular.`,
+  ).join(" ");
+  return `${filler} ${TALL_TAIL}`;
+};
+
+for (const language of ["en", "zh-CN"] as const) {
+  for (const [width, sidebar] of [
+    [900, "hidden"],
+    [1600, "shown"],
+  ] as const) {
+    test(`a second menu action while one runs says one change at a time where the running line is, in ${language}, at ${width}px with the sidebar ${sidebar} (#2123)`, async () => {
+      const { app, window } = await launchApp(dataDir, { fakeChat: true });
+      await dismissChatSetup(window);
+      await useLocalChatModel(window);
+      await setLanguage(window, language);
+      await setWindowSize(app, window, width, 820);
+      await newMind(window);
+      const editor = window.getByTestId("mind-editor");
+      const menu = window.getByTestId("selection-menu");
+      const running = editor.getByTestId("menu-edit-line");
+      const applied = editor.getByTestId("applied-line");
+      const words = LINES[language];
+      const line = "The tide turns very slowly and the harbour is quiet all evening.";
+      const chosen = "tide turns very slowly and the harbour is quiet";
+      if (sidebar === "hidden") await hideSidebar(window);
+      await editor.click();
+      await window.keyboard.type(line);
+      const note = editor.locator(":scope > p").first();
+
+      // A slow change runs, its line in the page.
+      await slideSelect(window, note, chosen);
+      await chooseAction(window, "improve");
+      await expect(running).toBeVisible();
+      await expect(running).toContainText(words.making);
+
+      // Choosing another action while it runs says one change at a time, in that same line...
+      await slideSelect(window, note, chosen);
+      await chooseAction(window, "shorten");
+      await expect(menu).toHaveCount(0);
+      await expect(running).toContainText(words.busy);
+      await expect(running.getByTestId("menu-edit-stop")).toHaveText(words.stop);
+      expect(await onScreen(running)).toBe(true);
+      await expect(note).toHaveText(line);
+
+      // ...and the change that was running carries on to its own Undo line, one change in all.
+      await expect(applied).toBeVisible({ timeout: 40_000 });
+      await expect(applied.getByTestId("applied-count")).toHaveText(words.applied);
+      await expect(note).toHaveText(
+        "The Tide turns very slowly and the harbour is quiet all evening.",
+      );
+      await editor.focus();
+      await window.keyboard.press("ControlOrMeta+z");
+      await expect(note).toHaveText(line);
+      await expect(applied).toHaveCount(0);
+      await app.close();
+    });
+  }
+}
+
+for (const language of ["en", "zh-CN"] as const) {
+  for (const [width, sidebar] of [
+    [900, "hidden"],
+    [1600, "shown"],
+  ] as const) {
+    test(`a paragraph taller than the view keeps its running line, its Undo line and a failure in sight without moving the words, in ${language}, at ${width}px with the sidebar ${sidebar} (#2123)`, async () => {
+      test.setTimeout(180_000);
+      const { app, window } = await launchApp(dataDir, { fakeChat: true });
+      await dismissChatSetup(window);
+      await useLocalChatModel(window);
+      await setLanguage(window, language);
+      await setWindowSize(app, window, width, 820);
+      await newMind(window);
+      const editor = window.getByTestId("mind-editor");
+      if (sidebar === "hidden") await hideSidebar(window);
+      await editor.click();
+      // The Note is typed at its last width, so the paragraph's height is the one it keeps.
+      const view = await window
+        .locator(".mind-scroller")
+        .evaluate((element) => element.clientHeight);
+      await window.keyboard.insertText(tallText());
+      const note = editor.locator(":scope > p").first();
+      await expect(note).toContainText(TALL_WORDS);
+      const height = (await note.boundingBox())?.height ?? 0;
+      expect(height).toBeGreaterThanOrEqual(2 * view);
+
+      const scroller = window.locator(".mind-scroller");
+      const running = editor.getByTestId("menu-edit-line");
+      const applied = editor.getByTestId("applied-line");
+      const problem = editor.getByTestId("edit-problem");
+      const words = LINES[language];
+      // Where the words the User is reading are, and the view they are in.
+      const reading = async () => ({
+        words: await wordsBox(note, TALL_BEFORE),
+        scroll: await scroller.evaluate((element) => element.scrollTop),
+      });
+      // Selected with the keyboard from the paragraph's end: the tail never wraps as a drag over
+      // it could on a machine whose fonts break it elsewhere, and the menu opens over it the same.
+      const selectTail = async () => {
+        const last = await wordsBox(note, "at last");
+        await window.mouse.click(last.right + 2, last.y);
+        for (let index = 0; index < TALL_WORDS.length; index++) {
+          await window.keyboard.press("Shift+ArrowLeft");
+        }
+        await expect.poll(async () => selectedInMind(editor)).toBe(TALL_WORDS);
+      };
+
+      for (const action of CHANGING) {
+        await selectTail();
+        const before = await reading();
+        await chooseAction(window, action);
+
+        await expect(running).toBeVisible();
+        await expect(running).toContainText(words.making);
+        expect(await onScreen(running)).toBe(true);
+        expect(await onScreen(running.getByTestId("menu-edit-stop"))).toBe(true);
+        expect(await reading()).toEqual(before);
+
+        await expect(applied).toBeVisible({ timeout: 40_000 });
+        await expect(applied.getByTestId("applied-count")).toHaveText(words.applied);
+        expect(await onScreen(applied)).toBe(true);
+        expect(await onScreen(applied.getByTestId("applied-undo"))).toBe(true);
+        expect(await reading()).toEqual(before);
+
+        await editor.focus();
+        await window.keyboard.press("ControlOrMeta+z");
+        await expect(applied).toHaveCount(0);
+        await expect(note).toContainText(TALL_WORDS);
+      }
+
+      // A failure and its Try again show in sight the same way, with nothing moved.
+      await useLocalChatModel(window, "fake-not-found");
+      await selectTail();
+      const before = await reading();
+      await chooseAction(window, "shorten");
+      await expect(problem).toBeVisible({ timeout: 40_000 });
+      await expect(problem).toContainText(words.failed);
+      expect(await onScreen(problem)).toBe(true);
+      expect(await onScreen(problem.getByTestId("menu-edit-action"))).toBe(true);
+      await expect(problem.getByTestId("menu-edit-action")).toHaveText(words.retry);
+      expect(await reading()).toEqual(before);
+      await pointAndClick(window, problem.getByTestId("menu-edit-close"));
+      await expect(problem).toHaveCount(0);
+      await app.close();
+    });
+  }
+}
