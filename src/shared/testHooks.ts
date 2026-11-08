@@ -49,6 +49,11 @@ export interface TestHooks {
    */
   setSilentWaitMs(ms: number): void;
   /**
+   * Shortens how long a Document may take to open before the viewer says it couldn't (15
+   * seconds), so a test needn't wait for it.
+   */
+  setViewerOpenLimitMs(ms: number): void;
+  /**
    * Opens the menu Shift+F10 opens for this Block, without moving the caret:
    * a command naming one Block while the caret is in another list.
    */

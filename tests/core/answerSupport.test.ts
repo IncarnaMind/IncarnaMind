@@ -311,6 +311,43 @@ describe("an Answer works at once, and its Citations wait for their sentences' j
     { language: "English", question: "When is the kiln installed?", answer: ANSWER },
     { language: "Chinese", question: "窑炉什么时候安装？", answer: ANSWER_ZH },
   ])(
+    "in $language, a judgement with its roles or time missing or misspelt leaves it not checked, never found (#2816)",
+    async (each) => {
+      const sentence = each.answer.replace("[^1]", "");
+      const judged = async (reply: string) => {
+        const { core } = await setUpWithDocuments(
+          answeringModel(
+            "kilns installed cost",
+            each.answer,
+            [INSTALLATION],
+            { [sentence]: { verdict: "supported", quote: INSTALLATION, says: sentence } },
+            { judge: () => ({ text: reply }) },
+          ),
+          [KILN_DECK],
+        );
+        return (await (await askedAnswer(core, each.question)).judged()).citations;
+      };
+
+      expect(await judged('{"sentences":[{"number":1,"verdict":"supported"}]}')).toMatchObject([
+        { marker: 1, check: "not-checked" },
+      ]);
+      expect(
+        await judged(
+          '{"sentences":[{"number":1,"kind":"fact","verdict":"supported","roles":"different","time":"same","says":"The slide says so."}]}',
+        ),
+      ).toMatchObject([{ marker: 1, check: "not-checked" }]);
+      expect(
+        await judged(
+          '{"sentences":[{"number":1,"kind":"fact","verdict":"supported","roles":"same","time":"same","says":"The slide says so."}]}',
+        ),
+      ).toMatchObject([{ marker: 1, check: "found" }]);
+    },
+  );
+
+  test.each([
+    { language: "English", question: "When is the kiln installed?", answer: ANSWER },
+    { language: "Chinese", question: "窑炉什么时候安装？", answer: ANSWER_ZH },
+  ])(
     "in $language, a judgement that fails leaves it not checked, never found, and Check again judges it",
     async (each) => {
       const sentence = each.answer.replace("[^1]", "");

@@ -1244,8 +1244,10 @@ describe("the live step", () => {
       "Checking 2 sentences in “Harbour notes”…",
     );
     expect(mindCallText(zh, call, "Harbour notes")).toBe("正在核对“Harbour notes”中的 2 句话…");
-    // Its row keeps what the call did, so a check a stop cut short never reads as still running.
-    expect(mindCallText(en, write(2), "Harbour notes")).toBe("Edited “Harbour notes” · 1 change");
+    // A check that outlives the call keeps the row saying so, as one after the Run does (#2710).
+    expect(mindCallText(en, write(2), "Harbour notes")).toBe(
+      "Checking 2 sentences in “Harbour notes”…",
+    );
     const checked = write();
     expect(live({ ...reply, toolCalls: [checked] }, { phase: "writing" })).toEqual({
       kind: "checking",

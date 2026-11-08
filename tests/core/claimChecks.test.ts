@@ -2630,7 +2630,7 @@ describe("When the model can't check a sentence", () => {
 
   test("a verdict given without its Passage is asked for once more, and counts once its quote is found", async () => {
     const plans: Record<string, Plan> = {
-      [SUPPORTED]: { verdict: "supported", says: "Tides says so." },
+      [SUPPORTED]: { verdict: "supported", says: "Tides says so.", judgement: "same" },
     };
     const model = checkingModel(
       plans,
@@ -2652,6 +2652,57 @@ describe("When the model can't check a sentence", () => {
     );
     expect(asked).toHaveLength(1);
   });
+
+  test.each([
+    {
+      language: "en",
+      document: {
+        name: "Tides.md",
+        contents:
+          "# Tides\n\nSpring tides happen at new moon and at full moon. Harbours publish the times of high water every year.",
+      },
+      claim: SUPPORTED,
+      backs: "Spring tides happen at new moon and at full moon",
+      other: "Harbours publish the times of high water every year",
+    },
+    {
+      language: "zh-CN",
+      document: {
+        name: "潮汐.md",
+        contents: "# 潮汐\n\n大潮出现在新月和满月时。港口每年公布高潮时间。",
+      },
+      claim: "大潮在新月和满月时出现。",
+      backs: "大潮出现在新月和满月时",
+      other: "港口每年公布高潮时间",
+    },
+  ])(
+    "$language: a quote given only when asked for after a Supported verdict is its Citation once a judge finds it says the sentence (#2816)",
+    async (each) => {
+      const checked = async (quote: string, judgement: "same" | "neither") => {
+        const plans: Record<string, Plan> = {
+          [each.claim]: { verdict: "supported", says: "It says so.", judgement },
+        };
+        const model = checkingModel(plans, [], JSON.stringify({ passage: "P1", quote }));
+        const { core } = await setUpWithDocuments(model, [each.document]);
+        core.on("consent.requested", (event) => void core.respondToConsent(event.requestId, true));
+        await core.saveChatProvider({
+          kind: "anthropic",
+          apiKey: "synthetic-test-key",
+          modelId: "claude-haiku-5-5",
+        });
+        return core.checkClaim({ claim: each.claim });
+      };
+
+      expect(await checked(each.other, "neither")).toMatchObject({
+        verdict: "not-checked",
+        reason: "no-evidence",
+      });
+      expect(await checked(each.backs, "same")).toMatchObject({
+        verdict: "supported",
+        evidence: { quote: each.backs, check: "found" },
+      });
+    },
+  );
 
   test("cost cap: nothing is sent, and the sentence says “not checked” with why", async () => {
     const calls: ModelCall[] = [];

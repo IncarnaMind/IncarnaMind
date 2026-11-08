@@ -1,5 +1,5 @@
 import { isMacOS } from "@tiptap/core";
-import { createContext, type ReactNode, useContext, useMemo, useRef, useState } from "react";
+import { createContext, type ReactNode, useContext, useMemo, useRef } from "react";
 import type { Document } from "../../../core/api";
 import { changedSourceLines, citationState } from "../../../shared/citations";
 import { displayName, sourceOf } from "../../../shared/documentNames";
@@ -13,18 +13,15 @@ import { DocumentLineIcon, NoteLineIcon, PinLineIcon } from "../components/lineI
 import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
 import { ProblemLine } from "../components/ProblemLine";
 import { DocumentTagChips } from "../components/TagChips";
-import { files } from "../core";
-import { errorMessage } from "../errors";
 import { useLeftOutOfEvidence } from "../evidence";
-import { userFile } from "../fileInfo";
 import { useGap, useLanguage, useT } from "../i18n";
-import { type Said, saidInLine } from "../lineNames";
 import { isListedDocument } from "../meetingTranscript";
 import { useAppStore, type ViewerTarget } from "../store";
 import { useRename } from "../useRename";
 import { pageDate } from "../webPages";
 import { AreaModeContext } from "./areaSelection";
 import { AreaIcon, OpenExternallyIcon } from "./icons";
+import { canOpenExternally, useOpenExternally } from "./openExternally";
 
 /** What every view's toolbar needs from its tab: the Document shown, and whether it is a preview. */
 export interface ViewerFrame {
@@ -145,8 +142,7 @@ export function ViewerHeader({
       ? (document.web.versions.find((each) => each.contentHash === cited?.contentHash)?.fetchedAt ??
         document.web.fetchedAt)
       : (document?.web?.fetchedAt ?? null);
-  /** Why the Document's own app couldn't open it, until it is tried again. */
-  const [problem, setProblem] = useState<Said | null>(null);
+  const { open: openExternally, problem } = useOpenExternally(document);
   const leftOut = useLeftOutOfEvidence(document);
   const objectMenu = useObjectMenu({ kind: "document", id: document?.id ?? "" });
   const panelOpen = useAnnotations((state) => state.panelOpen[tabId] === true);
@@ -157,19 +153,6 @@ export function ViewerHeader({
   const rename = useRename<HTMLButtonElement>(`viewer:${document?.id}`);
   const header = useRef<HTMLElement>(null);
   const renameDocument = useAppStore((state) => state.renameDocument);
-
-  // A copy named after the Document opens, as from the sidebar's file menu.
-  const openExternally = () => {
-    if (!document) return;
-    setProblem(null);
-    files.openDocumentExternally(document.id).catch((failure: unknown) => {
-      setProblem(
-        saidInLine(t, (t) =>
-          t("viewer.file.openFailed", { name: document.name, reason: errorMessage(failure, t) }),
-        ),
-      );
-    });
-  };
 
   if (embedded) {
     return children ? (
@@ -269,20 +252,18 @@ ${sourceOf(document)}`
             {t("webPages.fetched", { date: pageDate(fetchedAt, language) })}
           </span>
         )}
-        {document &&
-          (document.web ||
-            (userFile(document) && openable && document.fileStatus === "available")) && (
-            <button
-              type="button"
-              data-testid="viewer-open-externally"
-              aria-label={t(document.web ? "webPages.openLive" : "documents.copy.open")}
-              title={document.web ? document.web.address : t("documents.copy.open")}
-              onClick={openExternally}
-              className="viewer-icon-button"
-            >
-              <OpenExternallyIcon className="size-4" />
-            </button>
-          )}
+        {document && canOpenExternally(document, openable) && (
+          <button
+            type="button"
+            data-testid="viewer-open-externally"
+            aria-label={t(document.web ? "webPages.openLive" : "documents.copy.open")}
+            title={document.web ? document.web.address : t("documents.copy.open")}
+            onClick={openExternally}
+            className="viewer-icon-button"
+          >
+            <OpenExternallyIcon className="size-4" />
+          </button>
+        )}
         {document && (
           <button
             type="button"

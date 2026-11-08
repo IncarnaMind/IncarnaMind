@@ -16,6 +16,7 @@ const engines = vi.hoisted(() => ({
   withoutGlyphs: [] as string[],
   exits: [] as number[],
   calendarHelper: null as string | null,
+  callWatcher: null as string | null,
 }));
 
 vi.mock("electron", async () => {
@@ -54,6 +55,15 @@ vi.mock("../../src/main/systemCalendar", () => ({
     },
   }),
 }));
+vi.mock("../../src/main/calls/macWatcher", () => ({
+  callWatcherCheck: () => ({
+    name: "the call watcher",
+    load: async () => {
+      if (engines.callWatcher !== null) throw new Error(engines.callWatcher);
+      return true;
+    },
+  }),
+}));
 vi.mock("../../src/main/platform", () => ({
   seccompHelper: () => undefined,
   analysisRuntime: () => ({
@@ -88,6 +98,7 @@ beforeEach(() => {
   engines.pictures = 1;
   engines.withoutGlyphs = [];
   engines.calendarHelper = null;
+  engines.callWatcher = null;
   engines.answers.set("embedder.js", { found: [loaded("onnxruntime-node")] });
   engines.answers.set("transcriber.js", { found: [loaded("sherpa-onnx-node")] });
 });
@@ -149,6 +160,22 @@ describe("The engine check", () => {
     expect(helper(await checkEngines(log))).toEqual(
       process.platform === "darwin"
         ? [{ process: "main process", module: "the calendar helper", problem: "spawn ENOENT" }]
+        : [],
+    );
+  });
+
+  it("starts the Mac's call watcher on macOS only, and names it when it fails", async () => {
+    const watcher = (checks: Awaited<ReturnType<typeof checkEngines>>) =>
+      checks.filter((each) => each.module === "the call watcher");
+    expect(watcher(await checkEngines(log))).toEqual(
+      process.platform === "darwin"
+        ? [{ process: "main process", module: "the call watcher", problem: null }]
+        : [],
+    );
+    engines.callWatcher = "spawn ENOENT";
+    expect(watcher(await checkEngines(log))).toEqual(
+      process.platform === "darwin"
+        ? [{ process: "main process", module: "the call watcher", problem: "spawn ENOENT" }]
         : [],
     );
   });
