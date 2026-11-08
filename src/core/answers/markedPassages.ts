@@ -76,7 +76,10 @@ const CLAUSE_END = /[.,;:!?。，；：！？、()（）—–\n]/u;
 const CUE = /^\[\d{1,2}(?::\d{2}){1,2}\b[^\]]*\]\s*/u;
 /** The side a transcript line's mark names: the User ("Me") or the other side ("Them"). */
 const SIDE = /^\[\d{1,2}(?::\d{2}){1,2}\s+(Me|Them)\]/u;
-/** Words a claim says the other side by: "they asked", 对方说. The first such word, ours or theirs, is its subject. */
+/**
+ * Words a claim says the other side by: "they asked", 对方说. The first such word, ours or theirs,
+ * names the side the claim speaks of.
+ */
 const THEIRS = /\b(?:they|them|their|theirs|the customer|the client)\b|他们|对方|客户/iu;
 /** Words a claim says the User's side by: "I'll send", "we connect", 我们. */
 const OURS = /\b(?:i|i'm|i'll|me|my|we|we're|we'll|our|us)\b|我/iu;
@@ -87,7 +90,7 @@ const BOLD = /^(\*\*|__)(.+)\1$/u;
 
 /**
  * A figure as written: a call's time, an amount after its currency sign, or a number. What follows
- * a number is read by `kindAfter`.
+ * a number is read by `withKind`.
  */
 const FIGURE =
   /(\d{1,2}:\d{2}(?::\d{2})?)(?!\d)|([$€£¥￥])\s?(\d+(?:[.,]\d+)*)|(\d+(?:[.,]\d+)*)/gu;

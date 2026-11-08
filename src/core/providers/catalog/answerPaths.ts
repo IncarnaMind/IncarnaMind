@@ -55,8 +55,10 @@ const RETRIEVES_FIRST: readonly Admitted[] = [];
  * (#2526). A model joins only on paired runs against eval/speed/gates/call-help-marks-passages.md.
  * Left out (2026-11-07), each holding every quality line on the fresh slice: Claude Haiku 5.5,
  * whose first English option came 0.10 s later (0.79 → 0.89 s), and DeepSeek V4.1 Flash 1017,
- * whose first Chinese option came 0.09 s later (1.12 → 1.21 s). Sonnet 5.5 is off until the
- * gate's third look holds, its picker having changed since it was listed.
+ * whose first Chinese option came 0.09 s later (1.12 → 1.21 s). Claude Sonnet 5.5 left
+ * (2026-11-08) on the gate's third look: first whole option 4.90 → 1.79 s and done 4.90 → 2.51 s
+ * on the new set, English false Supported 15 → 7 presses, but English cited 35 → 33 and 24 → 22,
+ * its replies naming only the call's line where a Document's supports it too.
  */
 const MARKS_PASSAGES: readonly Admitted[] = [];
 
