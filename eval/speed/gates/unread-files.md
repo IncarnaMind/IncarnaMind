@@ -58,3 +58,26 @@ On both arms, from these runs:
 - **`ask` is now commit 135486889.** The runs of 5eea30e32 (steps 1 to 3 of one, whose step 4 couldn't start when the profile's setup timed out, and steps 1 and 2 of the next, stopped) are kept apart and not used. `main`'s second run timed out the same way in its setup and is run again. `main`'s first run is kept; the order goes on: `ask`, `main`, `ask`.
 - **What the bar on calls covers:** in step 2 the 2,000 hold no file not read, so it shows the key; in step 4 the Answers in the Note share a scope, so it shows both. Spent on this gate so far, with the runs set aside and a check of step 4's harness, about $0.95; the three runs left add about $1.10.
 - **Step 4, a run priced above $1** (later on 2026-11-08, before `main`'s second step 4): Check this Note asks first in its card when its price is above $1 (#2313). It did in `ask`'s first step 4, after the 2,000 were ready and the contradiction watch had them to check, so its check never started. From here the harness presses the card's Check when it asks: the card is then the first sign of the press, and the check is timed again from the card's Check. `ask`'s first step 4 runs again after the others; the one that never started is kept apart. `main`'s first step 4 didn't ask, and is kept.
+
+## Result (added after the runs, 2026-11-08)
+
+`main` f3d837b99 against `ask` 135486889 (the commits after it change only tests, comments and this file), two runs each, at a 15-minute load of 3.3 to 6.0. Spent on this gate, with the runs set aside, about $2.10. **Two bars are not met**, so by "What decides" the change ships no further unless that is accepted.
+
+| Bar | `main` | `ask` | Met |
+|---|---|---|---|
+| Unread-files calls while the 2,000 import, step 2 (two runs) | 228 calls, 570 ms of the main thread | 12 calls, 37 ms | yes |
+| The same, step 4 (each run) | 322 and 191 calls | 2 and 2 | yes |
+| Check this Note, sign / first verdict / end, 29 Documents (median, `main`'s spread) | 0.23 / 6.3 / 16.4 s (0.02 / 1.8 / 4.4) | 0.23 / 5.6 / 15.5 s | yes |
+| the same, during the import | 0.26 / 5.9 / 15.2 s (0.01 / 1.3 / 0.9) | 0.27 / 5.2 / 15.2 s | yes |
+| the same, 2,630 Documents | 0.30 / 5.3 / 14.2 s (0.02 / 0.8 / 1.6) | 0.29 / **6.7** / **16.6** s | **no**: first verdict 1.4 s and end 2.4 s later, past `main`'s spread |
+| Questions, first words / end, 29 / during the import / 2,630 | 5.0 / 6.2, 4.7 / 6.7, 4.5 / 5.7 s | 5.0 / 6.2, 4.6 / 6.1, 4.3 / 5.6 s | yes |
+| Each Answer's unread line, of 36 an arm | "2 files couldn't be read" in 36 | the same in 36 | yes |
+| False Supported (the four sentences not stated, 12 checks an arm) | 0 | 0 | yes |
+| Judged right in the checks, of 96 | 79 | 78 | yes (one in 96) |
+| Answers with every Citation's quote found, of 36 | 35 | **30** | **no**: 5 fewer |
+| Failed requests | 0 | 0 | yes |
+
+What was measured beside the two bars, without claiming a cause:
+- **Check this Note on 2,630 Documents.** During those checks the window asked for unread files 12 times in each arm, at 5.0 to 5.2 ms of the main thread each, and the checks' own calls took the same time (planning 23 to 24 ms, start 23 to 24 ms). The event loop's delay was the same (p99 13.4 ms in each). In `ask`'s second run the model's slowest first byte was 3.0 s in English and 3.8 s in Chinese, against 1.3 to 2.1 s in `main`'s runs. `ask`'s first verdicts were 6.2, 6.7, 8.5 and 6.7 s; `main`'s were 5.2, 5.3, 6.0 and 5.4 s.
+- **Quotes not found.** All six of `ask`'s are on one Question, the Chinese contract one, asked three times in each run. In each run its first Answer cited one long sentence of the payment terms, and its later Answers in the same conversation repeated it. `main`'s Answers to that Question cited the terms clause by clause. `main`'s one miss is on another Question. The Answers' content was right in all 36 of `ask`'s.
+- **#2772's remaining criteria**, on both arms: Check this Note's first sign while the 2,000 import was 0.25 to 0.28 s in step 2. In step 4, with a Claude Sonnet 5.5 Question and typing at the same time and a 300-Block Note open, it was 0.20 to 0.25 s, and no check asked first. Claude Haiku 5.5's first words on 2,630 Documents against 29, by median: English 5.1 against 4.9 s on `main` (1.03×) and 4.2 against 5.1 s on `ask`; Chinese 4.3 against 6.5 s on `main` and 4.3 against 4.7 s on `ask`.
