@@ -430,6 +430,35 @@ for (const language of ["en", "zh-CN"] as const) {
   });
 }
 
+test("Stop in a Task's progress, reached by keyboard, leaves the focus in the composer, in English and Simplified Chinese (#2125)", async () => {
+  test.setTimeout(180_000);
+  const folder = await createDataFolder();
+  try {
+    for (const language of ["en", "zh-CN"] as const) {
+      const { app, window } = await launchApp(dataDir, { scriptedTasks: true });
+      await dismissChatSetup(window);
+      await setWindowSize(app, window, 1440, 860);
+      await newMind(window);
+      await window.keyboard.type("Credit memo");
+      const memo = await mindIdOf(window, "Credit memo");
+      await setLanguage(window, language);
+      await startScriptedTask(app, memo, { folder, files: ["a.txt"] });
+
+      const progress = window.getByTestId("assistant-thread").getByTestId("task-progress");
+      const stop = progress.getByTestId("task-progress-stop");
+      await stop.focus();
+      await expect(stop).toBeFocused();
+      await window.keyboard.press("Enter");
+      await expect(progress).toHaveAttribute("data-status", "stopped");
+      // The button went with the Task: the User's place is the composer, not the page.
+      await expect(window.getByTestId("composer-input")).toBeFocused();
+      await app.close();
+    }
+  } finally {
+    await removeDataFolder(folder);
+  }
+});
+
 test("Stop in a Task's progress ends it and withdraws its ask; the progress fits the assistant's 320px in Chinese, under a header with no chat icon", async () => {
   const folder = await createDataFolder();
   try {
