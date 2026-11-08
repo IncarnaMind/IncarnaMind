@@ -164,3 +164,24 @@ test.each([
     expect(unnamed).not.toContain("{{me}}");
   },
 );
+
+// protects=a later part of a long call is shown each kept fact's heading, so its facts on the same topic go under the same heading (#2306); fails_when=the history leaves the heading out; no_claim=a real model reusing it.
+test("a later part is shown each kept fact's heading, so a topic keeps its words", () => {
+  const prompt = JSON.stringify(
+    notesContext([], "Write the notes", {
+      part: 2,
+      facts: [
+        {
+          id: "P1_F1",
+          topic: "fee",
+          heading: "价格与付款",
+          text: "费用是 2%。",
+          lines: [],
+          sections: [],
+        },
+      ],
+    }).messages,
+  );
+  expect(prompt).toContain("Use new ids P2_F1");
+  expect(prompt).toContain('\\"heading\\":\\"价格与付款\\"');
+});

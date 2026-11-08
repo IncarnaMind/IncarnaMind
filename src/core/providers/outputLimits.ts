@@ -15,9 +15,10 @@ export const OUTPUT_LIMITS = {
   answer: { most: 8_000 },
   "answer-step": { most: 32_000 },
   "check-step": { most: 8_000 },
-  // A Meeting's notes: the User's lines filled out and the sections after them, with the thinking
-  // before them, can pass an Answer's room (#2306).
-  "meeting-fill": { most: 16_000 },
+  // A Meeting's notes: the User's lines filled out, the call's topics in short facts and the
+  // sections after them, with the thinking before them, passed 16,000 tokens on DeepSeek V4.1
+  // Flash (#2306).
+  "meeting-fill": { most: 32_000 },
   "search-query": { most: 256 },
   tags: { most: 512 },
   organize: { most: 512 },

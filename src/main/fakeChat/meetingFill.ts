@@ -2,6 +2,7 @@
  * The smoke fixtures' framed Meeting facts (#2306), with ordinary cite records. A voice memo
  * (#1568) keeps its title and tidied-prose protocol.
  */
+import { interviewReply } from "./meetingInterview";
 import { passagesIn, recordFor, withSurroundingWords } from "./passages";
 import { lastUserText, type Prompt, type Reply, toolResults } from "./prompt";
 
@@ -13,6 +14,8 @@ const block = (text: string, tag: string) =>
 export function fillReply(prompt: Prompt, tools: readonly string[]): Reply | null {
   const asked = lastUserText(prompt);
   if (!FILLING.test(asked)) return null;
+  const interview = interviewReply(asked, prompt, tools);
+  if (interview) return interview;
   const heard = passagesIn(block(asked, "live-transcript"));
   const first = heard[0];
   const firstLine = first?.text.split("\n").find((line) => line.trim() !== "") ?? "";

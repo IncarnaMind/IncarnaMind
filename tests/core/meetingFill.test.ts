@@ -947,6 +947,47 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     },
   );
 
+  // protects=a reply whose facts after the first leave their json fence open still fills every fact in, each cited, as a real model's reply did (#2306); fails_when=the facts after the first are read as code and left out; no_claim=how often a model does it.
+  test("facts whose metadata fence the model left open are all filled in", async () => {
+    const closedFence = /(\{"topic"[^\n]*\})\n```\n/g;
+    const facts = [
+      fact("P1_price", "price", "We agreed the enterprise price is 45 dollars a seat [^1].", {
+        heading: "Pricing",
+      }),
+      fact("P1_contract", "contract", "Dana will send the contract by Friday [^2].", {
+        heading: "Contract",
+      }),
+      fact("P1_rollout", "rollout", "The rollout starts in the second quarter [^3].", {
+        heading: "Rollout",
+      }),
+    ];
+    const [first = "", ...rest] = facts;
+    const model = fillingModel(
+      [
+        overview("The call covered price, contract and rollout [^1]."),
+        first,
+        ...rest.map((each) => each.replace(closedFence, "$1\n")),
+      ].join("\n\n"),
+      { 1: MY_LINES[0] as string, 2: MY_LINES[1] as string, 3: MY_LINES[2] as string },
+    );
+    const { core, meeting, client } = await recorded(model, null);
+
+    expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", omitted: 0 });
+    await vi.waitFor(() =>
+      expect(outline(client)).toEqual([
+        "## «Summary»",
+        "«The call covered price, contract and rollout »\uFFFC«.»",
+        "## «Pricing»",
+        "- «We agreed the enterprise price is 45 dollars a seat »\uFFFC«.»",
+        "## «Contract»",
+        "- «Dana will send the contract by Friday »\uFFFC«.»",
+        "## «Rollout»",
+        "- «The rollout starts in the second quarter »\uFFFC«.»",
+      ]),
+    );
+    core.close();
+  });
+
   // protects=in Simplified Chinese, with no notes taken, the sections start the Note where its blank lines were, with none above them, and the model is told the Transcript's own Chinese words for who spoke, so it writes 我 and 对方 rather than Me, Them or 用户 (#2305); fails_when=a blank line is left above the first section, or the model is shown only the English marks; no_claim=a real model's wording, which tests/live/meetingNotes.live.test.ts measures.
   test("in Simplified Chinese, the sections start the Note with no blank line above, and the model is told the Transcript's words for who spoke", async () => {
     const prompts: string[] = [];
@@ -2009,7 +2050,7 @@ for (const call of CALLS) {
   describe(`With notes typed in the call, the sections they don't cover follow them (#2306, ${call.language})`, {
     timeout: 60_000,
   }, () => {
-    // protects=after a call with two typed lines, each line is filled out in place and then the template's sections follow, as AI text citing the Transcript, the User's lines unchanged, in a reply given room for both; fails_when=only the typed lines are filled out, a section is missing or uncited, a typed line changes, or the reply has only an Answer's room; no_claim=a real model's wording, which the PR's real-model run covers.
+    // protects=after a call with two typed lines, each line is filled out in place and then the template's sections follow, as AI text citing the Transcript, the User's lines unchanged, in a reply given room for both; fails_when=only the typed lines are filled out, a section is missing or uncited, a typed line changes, or the reply has less room than a fill needs; no_claim=a real model's wording, which the PR's real-model run covers.
     test("two typed lines are filled out in place, then the sections follow, each cited", async () => {
       const { core, meeting, client } = await recordedWith(typedLines());
       expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", mode: "notes" });
@@ -2029,9 +2070,10 @@ for (const call of CALLS) {
       expect(prompt).toContain("topic-only references");
       expect(prompt).toContain("do not write a second CLAIMS inventory");
       expect(prompt.indexOf("### OVERVIEW")).toBeGreaterThan(prompt.indexOf("### END P1_F1"));
-      // The lines and the sections, with the thinking before them, get twice an Answer's room.
+      // The lines, the topics and the sections, with the thinking before them, get four times an
+      // Answer's room.
       expect(limits.length).toBeGreaterThan(0);
-      expect(new Set(limits)).toEqual(new Set([16_000]));
+      expect(new Set(limits)).toEqual(new Set([32_000]));
       core.close();
     });
 
