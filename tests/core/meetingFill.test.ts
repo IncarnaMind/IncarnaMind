@@ -38,7 +38,7 @@ import {
   shownWithAiText,
   writeMind,
 } from "../helpers/minds";
-import { type ModelCall, scriptedModel } from "../helpers/models";
+import { type ModelCall, questionOf, scriptedModel } from "../helpers/models";
 import { fakeSeparator, savedCues, transcribingCore, until } from "../helpers/transcription";
 
 const SECOND = 1000;
@@ -2811,7 +2811,7 @@ describe("How a fill asks its model (#2306)", { timeout: 60_000 }, () => {
             const said = JSON.stringify(params.prompt);
             asked.push({
               fill: said.includes("Fill them in from the transcript"),
-              cites: said.includes(CITE_RETRY_INSTRUCTIONS.slice(0, 40)),
+              cites: questionOf(params) === "unmarked-quotes",
               thinking: spec.thinking,
               limit: params.maxOutputTokens,
             });

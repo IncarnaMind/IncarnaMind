@@ -34,7 +34,7 @@ import {
 } from "../helpers/citations";
 import { createTempDataFolder, manualClock, nextEvent, startCore } from "../helpers/core";
 import { linkAndProcess, writeSourceFile } from "../helpers/documents";
-import { scriptedModel } from "../helpers/models";
+import { scriptedModel, unscripted } from "../helpers/models";
 import { buildPdf } from "../helpers/pdf";
 
 const root = join(__dirname, "../..");
@@ -642,7 +642,11 @@ describe("Usage data: a week's model spend (#1993)", { timeout: 30_000 }, () => 
     scriptedModel(() => ({ text: "OK" }), {
       // The Answer's change-claim check reads a JSON verdict; "OK" would be logged as unreadable.
       generate: (call) =>
-        call.question === "claimed-changes" ? { text: '{"claims":[]}' } : { text: "OK" },
+        call.question === "claimed-changes"
+          ? { text: '{"claims":[]}' }
+          : call.question
+            ? unscripted(call.question, call.system)
+            : { text: "OK" },
       judgesItsAnswers: true,
     });
 

@@ -12,7 +12,7 @@ import { isCheckRun, listedSentences, sentenceOf } from "../helpers/checks";
 import { setUpWithDocuments, shownPassages } from "../helpers/citations";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
 import { readMind, writeMind } from "../helpers/minds";
-import { type ModelCall, type ScriptedReply, scriptedModel } from "../helpers/models";
+import { type ModelCall, type ScriptedReply, scriptedModel, unscripted } from "../helpers/models";
 
 const LANGUAGES = [
   {
@@ -85,7 +85,10 @@ async function setUp(example: Example) {
     },
     {
       generate(call) {
-        if (call.question !== "find-claims") return { text: JSON.stringify({ passage: null }) };
+        if (call.question === "evidence" || !call.question) {
+          return { text: JSON.stringify({ passage: null }) };
+        }
+        if (call.question !== "find-claims") return unscripted(call.question, call.system);
         const sentences = listedSentences(call.prompt).map(({ number, text }) => ({
           number,
           parts: factsIn(example, text),

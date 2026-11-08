@@ -33,6 +33,7 @@ import type { PageText } from "../../documents/passages";
 import type { WindowedPassage } from "../../documents/search";
 import { isRecord } from "../../errors";
 import type { SearchResultForModel } from "../engine";
+import { labelled } from "../judge";
 import type { TurnCheck } from "../turnChecks";
 import type {
   AtomicClaimCheckResult,
@@ -111,9 +112,11 @@ const PROPERTY_LINE =
  * the line can't be read.
  */
 export function declaredProperties(reply: string): ReadonlySet<FilePropertyName> | null {
-  const lines = reply.split("\n").map((each) => each.trim());
-  const line = PROPERTY.exec(lines.findLast((each) => PROPERTY.test(each)) ?? "")?.[1];
-  if (line === undefined) return null;
+  const line = labelled(
+    reply.split("\n").map((each) => each.trim()),
+    PROPERTY,
+  );
+  if (line === undefined || line === null) return null;
   const words = line
     .toLowerCase()
     .split(/[^a-z]+/)

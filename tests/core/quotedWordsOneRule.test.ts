@@ -35,7 +35,12 @@ import { waitForProcessing } from "../helpers/documents";
 import { wholeParagraph } from "../helpers/editing";
 import { connectToMind } from "../helpers/mindClient";
 import { resolveChanges, writeMind } from "../helpers/minds";
-import { type ModelCall, type ScriptedReply, scriptedModel } from "../helpers/models";
+import {
+  judgesNothing,
+  type ModelCall,
+  type ScriptedReply,
+  scriptedModel,
+} from "../helpers/models";
 import { buildPdf, type PdfPage } from "../helpers/pdf";
 
 vi.mock("../../src/renderer/src/core", () => ({ core: {} }));
@@ -504,7 +509,7 @@ function modelFor(wanted: Case, language: "en" | "zh", sentence: string) {
       if (!call.results.some((result) => result.tool === "cite")) return { calls: [cite] };
       return { text: sentence };
     },
-    { judgesItsAnswers: true },
+    { generate: judgesNothing, judgesItsAnswers: true },
   );
 }
 
@@ -762,7 +767,7 @@ async function answerCheck(language: "en" | "zh", answer: string) {
       }
       return { text: answer };
     },
-    { judgesItsAnswers: true },
+    { generate: judgesNothing, judgesItsAnswers: true },
   );
   const { core } = await setUpWithDocuments(model, [
     { name: fees.name, contents: buildPdf([...fees.pages]) },
@@ -873,7 +878,7 @@ async function outsideTheWall(words: string) {
       }
       return { text: sentence("[^1]") };
     },
-    { judgesItsAnswers: true },
+    { generate: judgesNothing, judgesItsAnswers: true },
   );
   const { core, documents } = await setUpWithDocuments(model, [
     { name: "Minutes.md", contents: `# Minutes\n\n${minutes}\n` },
@@ -1002,7 +1007,7 @@ async function boardCheck(language: "en" | "zh", answer: string) {
       }
       return { text: answer };
     },
-    { judgesItsAnswers: true },
+    { generate: judgesNothing, judgesItsAnswers: true },
   );
   const { core } = await setUpWithDocuments(model, [...wanted.files]);
   const { citations } = await askAssistant(core, { text: "What happened?" });
@@ -1047,7 +1052,7 @@ async function contractCheck(answer: string) {
       }
       return { text: answer };
     },
-    { judgesItsAnswers: true },
+    { generate: judgesNothing, judgesItsAnswers: true },
   );
   const { core } = await setUpWithDocuments(model, [CONTRACT]);
   const [citation] = (await askAssistant(core, { text: "Does the clause cover affiliates?" }))
@@ -1128,7 +1133,7 @@ async function costsBoardCheck(answer: string) {
       }
       return { text: answer };
     },
-    { judgesItsAnswers: true },
+    { generate: judgesNothing, judgesItsAnswers: true },
   );
   const { core } = await setUpWithDocuments(model, COSTS);
   const { citations } = await askAssistant(core, { text: "What do the costs cover?" });

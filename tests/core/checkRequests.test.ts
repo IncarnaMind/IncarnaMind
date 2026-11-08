@@ -31,6 +31,7 @@ import {
   type ModelCall,
   type ScriptedReply,
   scriptedModel,
+  unscripted,
 } from "../helpers/models";
 
 type Part = { kind: "fact" | "opinion"; text: string };
@@ -236,15 +237,18 @@ async function inFolder(core: Core, name: string, contents: string) {
 }
 
 /** Answers a sort with `parts` of each sentence listed; any other generated request with no record. */
-const sortingInto =
-  (parts: (text: string) => readonly Part[]) => (call: { system: string; prompt: string }) => {
-    if (!call.system.startsWith(SORTS)) return { text: JSON.stringify({ passage: null }) };
-    const sentences = listedSentences(call.prompt).map(({ number, text }) => ({
-      number,
-      parts: parts(text),
-    }));
-    return { text: JSON.stringify({ sentences }) };
-  };
+const sortingInto = (parts: (text: string) => readonly Part[]) => (call: GenerateCall) => {
+  if (call.question === "evidence" || !call.question) {
+    return { text: JSON.stringify({ passage: null }) };
+  }
+  if (call.question === "claimed-changes") return { text: JSON.stringify({ claims: [] }) };
+  if (call.question !== "find-claims") return unscripted(call.question, call.system);
+  const sentences = listedSentences(call.prompt).map(({ number, text }) => ({
+    number,
+    parts: parts(text),
+  }));
+  return { text: JSON.stringify({ sentences }) };
+};
 
 /** The assistant's model: it searches, cites `source`, writes `written` into a new Note and replies; check Runs as `check`. */
 function writingModel(

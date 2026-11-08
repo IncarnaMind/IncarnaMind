@@ -274,12 +274,12 @@ describe("What a reply says its Citations cover and don't", () => {
     },
   );
 
-  test("a repeated verdict replaces calculation declarations without dropping other fields", () => {
+  test("a repeated verdict keeps every calculation declared, and one taken back with none can't be read", () => {
     expect(
       readVerdict(
         "Verdict: supported\nScope: wider\nCalculation: 2.0x\nCalculation: 3.0x\nVerdict: supported\nCalculation: none",
       ),
-    ).toMatchObject({ scope: "wider", calculations: [] });
+    ).toBeNull();
     expect(
       readVerdict(
         "Verdict: supported\nCalculation: 2.0x\nCalculation: 3.0x\nVerdict: supported\nTopic: found",
@@ -288,35 +288,37 @@ describe("What a reply says its Citations cover and don't", () => {
   });
 
   test.each([
-    ["English reset at the end", "Calculation: 2.0x\nCalculation: none", []],
-    ["Chinese reset at the end", "计算：2.0倍\n计算：无", []],
+    ["English reset at the end", "Calculation: 2.0x\nCalculation: none", null],
+    ["Chinese reset at the end", "计算：2.0倍\n计算：无", null],
     [
       "English reset in the middle",
       "Calculation: 2.0x\nCalculation: none\nCalculation: 3.0x\nCalculation: 4.0x",
-      ["3.0x", "4.0x"],
+      null,
     ],
-    [
-      "Chinese reset in the middle",
-      "计算：2.0倍\n计算：无\n计算：3.0倍\n计算：4.0倍",
-      ["3.0倍", "4.0倍"],
-    ],
+    ["Chinese reset in the middle", "计算：2.0倍\n计算：无\n计算：3.0倍\n计算：4.0倍", null],
     ["English without a reset", "Calculation: 2.0x\nCalculation: 3.0x", ["2.0x", "3.0x"]],
     ["Chinese without a reset", "计算：2.0倍\n计算：3.0倍", ["2.0倍", "3.0倍"]],
-  ])("calculation declarations are sequential: %s", (_name, fields, calculations) => {
-    expect(
-      readVerdict(
+  ])(
+    "calculation declarations are a list, and one taken back with none can't be read: %s",
+    (_name, fields, calculations) => {
+      const read = readVerdict(
         `Verdict: supported\nScope: wider\nTopic: found\nRoles: differs\nCovered: the stated amount\nNot covered: the wider claim\n${fields}`,
-      ),
-    ).toMatchObject({
-      verdict: "supported",
-      scope: "wider",
-      topic: "found",
-      roles: "differs",
-      covered: "the stated amount",
-      uncovered: "the wider claim",
-      calculations,
-    });
-  });
+      );
+      if (calculations === null) {
+        expect(read).toBeNull();
+        return;
+      }
+      expect(read).toMatchObject({
+        verdict: "supported",
+        scope: "wider",
+        topic: "found",
+        roles: "differs",
+        covered: "the stated amount",
+        uncovered: "the wider claim",
+        calculations,
+      });
+    },
+  );
 
   test("a reply's roles are the field's last word, read apart from the explanation", () => {
     expect(

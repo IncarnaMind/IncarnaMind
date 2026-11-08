@@ -27,6 +27,7 @@ import { connectToMind, type MindClient, typeInto } from "../helpers/mindClient"
 import { readMind, writeMind } from "../helpers/minds";
 import {
   type GeneratedReply,
+  judgesNothing,
   type ModelCall,
   type ScriptedReply,
   scriptedModel,
@@ -250,6 +251,23 @@ describe("Check against Documents", () => {
     await check();
     expect((await shownChecks(core, client))[0]?.shown).toEqual({ state: "unsupported" });
   });
+
+  // protects=a reply that gives a second Verdict line whose word isn't one of the three, or names two different Evidence records, can't be read: Not checked, never Supported with the last record's quote; the same reply without that line is Supported (#2817); fails_when=its first verdict, or its last Evidence line, is taken.
+  test.each(["Verdict: not supported", "结论：不支持", "Evidence: [1]\nEvidence: [2]"])(
+    "a Supported reply that goes on to say %j is Not checked",
+    async (more) => {
+      const said = PLANS[SUPPORTED]?.says ?? "";
+      const shown = async (says: string) => {
+        const plans = { [SUPPORTED]: { ...PLANS[SUPPORTED], says } };
+        const { core, client, check } = await mindWith([SUPPORTED], checkingModel(plans));
+        await check();
+        return (await shownChecks(core, client))[0]?.shown;
+      };
+
+      expect(await shown(said)).toEqual({ state: "supported" });
+      expect(await shown(`${said}\n${more}`)).toMatchObject({ state: "not-checked" });
+    },
+  );
 
   // protects=a reply that gives two verdicts that differ is read as neither: Not checked, never the last one's (#2817); fails_when=its last verdict is taken.
   test("a reply that changes its verdict is Not checked", async () => {
@@ -2549,10 +2567,66 @@ describe("A sentence the Documents state only part of, with no Citation", () => 
     const again = await mindWith([STAFF], none);
     await again.check();
     expect((await shownChecks(again.core, again.client))[0]?.shown).toEqual({
-      state: "supported",
+      state: "unsupported",
     });
     expect(asked(none)).toBe(1);
   });
+
+  // protects=a Supported reply with a wider Scope whose parts reply can't be read (a label given twice with two values, nothing, one phrase alone) is Unsupported, never Supported, beside a readable one that shows its parts, in English and Chinese (#2817); fails_when=the sentence ends Supported; no_claim=how a real model words its parts.
+  test.each([
+    {
+      language: "en",
+      document: TIDES,
+      claim: STAFF,
+      quote: MOON,
+      scope: "Scope: Staff, wider\nTides says so.",
+      read: ["Covered: spring tides at new and full moon\nNot covered: the staff", "the staff"],
+      unreadable: [
+        "Covered: spring tides\nCovered: new moon\nNot covered: full moon",
+        "",
+        "Covered: spring tides at new and full moon",
+      ],
+    },
+    {
+      language: "zh-CN",
+      document: {
+        name: "潮汐.md",
+        contents:
+          "# 潮汐\n\n大潮出现在新月和满月时，此时太阳和月亮共同牵引。\n\n港口每年公布高潮时间。",
+      },
+      claim: "职员在港口堤坝上观看新月和满月时的大潮。",
+      quote: "大潮出现在新月和满月时",
+      scope: "范围：职员，wider\n文件这样写。",
+      read: ["已涵盖：新月和满月时的大潮\n未涵盖：职员", "职员"],
+      unreadable: ["已涵盖：大潮\n已涵盖：新月\n未涵盖：满月", "", "已涵盖：新月和满月时的大潮"],
+    },
+  ])(
+    "$language: a Supported reply with a wider Scope whose parts can't be read is Unsupported, never Supported",
+    async ({ document, claim, quote, scope, read, unreadable }) => {
+      const checked = async (part: string) => {
+        const plans: Record<string, Plan> = {
+          [claim]: { verdict: "supported", quote, says: scope, judgement: "same", part },
+        };
+        const { core } = await setUpWithDocuments(checkingModel(plans), [document]);
+        core.on("consent.requested", (event) => void core.respondToConsent(event.requestId, true));
+        await core.saveChatProvider({
+          kind: "anthropic",
+          apiKey: "synthetic-test-key",
+          modelId: "claude-haiku-5-5",
+        });
+        return core.checkClaim({ claim });
+      };
+
+      const [shown, uncovered] = read;
+      expect(await checked(shown ?? "")).toMatchObject({
+        verdict: "unsupported",
+        unsupported: { uncovered },
+      });
+      for (const part of unreadable) {
+        expect(await checked(part), part).toMatchObject({ verdict: "unsupported" });
+      }
+    },
+  );
 
   test("a sentence with its own Citations asks for no quote: its card shows them", async () => {
     const model = checkingModel(
@@ -3406,14 +3480,17 @@ describe("Stopping", () => {
     const held = new Promise<void>((resolve) => {
       release = resolve;
     });
-    const model = scriptedModel((call) => {
-      if (!call.results.some((result) => result.tool === "search_documents")) {
-        return { calls: [{ tool: "search_documents", input: { query: sentenceOf(call) } }] };
-      }
-      if (sentenceOf(call) === UNSUPPORTED)
-        return { text: "Verdict: unsupported\nAbsence: no", pause: { after: 0, until: held } };
-      return { text: "Verdict: unsupported\nAbsence: no" };
-    });
+    const model = scriptedModel(
+      (call) => {
+        if (!call.results.some((result) => result.tool === "search_documents")) {
+          return { calls: [{ tool: "search_documents", input: { query: sentenceOf(call) } }] };
+        }
+        if (sentenceOf(call) === UNSUPPORTED)
+          return { text: "Verdict: unsupported\nAbsence: no", pause: { after: 0, until: held } };
+        return { text: "Verdict: unsupported\nAbsence: no" };
+      },
+      { generate: judgesNothing },
+    );
     const { core, client, mind, block, body } = await mindWith([SUPPORTED, UNSUPPORTED], model);
     const running = core.checkSentences({
       requestId: "stop-me",

@@ -12,6 +12,7 @@ import {
   type ModelCall,
   type ScriptedReply,
   scriptedModel,
+  unscripted,
 } from "../helpers/models";
 
 const SPRING = "Spring tides happen at new moon and at full moon.";
@@ -28,7 +29,9 @@ const WRITES_THEN_CITES = { answerPaths: { writesThenCites: () => true } };
 const judging =
   (...parts: ("answer" | "working")[]) =>
   (call: GenerateCall): GeneratedReply =>
-    call.question === "working-text" ? { text: JSON.stringify({ parts }) } : { text: "" };
+    call.question === "working-text"
+      ? { text: JSON.stringify({ parts }) }
+      : unscripted(call.question, call.system);
 
 /** A model that searches, then writes its Answer and calls `cite` in one turn, as Claude Haiku 5.5 does. */
 function writesBesideCite(quotes: string[]) {

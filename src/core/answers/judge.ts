@@ -180,23 +180,86 @@ export const replyText = (raw: string): string =>
     .trim();
 
 /**
+ * Whether JSON that parses gives one key twice in an object, with values that differ: `JSON.parse`
+ * keeps the last, and a reply that changes its mind can't be read (#2817).
+ */
+function changesAKey(json: string): boolean {
+  let at = 0;
+  let changed = false;
+  const spaces = () => {
+    while (at < json.length && " \t\n\r".includes(json.charAt(at))) at++;
+  };
+  const string = (): string => {
+    const start = at++;
+    while (at < json.length && json.charAt(at) !== '"') at += json.charAt(at) === "\\" ? 2 : 1;
+    at++;
+    return JSON.parse(json.slice(start, at)) as string;
+  };
+  const value = (): void => {
+    spaces();
+    const opens = json.charAt(at);
+    if (opens === '"') {
+      string();
+      return;
+    }
+    if (opens !== "{" && opens !== "[") {
+      while (at < json.length && !",]} \t\n\r".includes(json.charAt(at))) at++;
+      return;
+    }
+    at++;
+    spaces();
+    if (json.charAt(at) === (opens === "{" ? "}" : "]")) {
+      at++;
+      return;
+    }
+    const given = new Map<string, string>();
+    for (;;) {
+      spaces();
+      if (opens === "{") {
+        const key = string();
+        spaces();
+        at++;
+        spaces();
+        const start = at;
+        value();
+        const said = JSON.stringify(JSON.parse(json.slice(start, at)));
+        if ((given.get(key) ?? said) !== said) changed = true;
+        given.set(key, said);
+      } else value();
+      spaces();
+      if (json.charAt(at++) !== ",") return;
+    }
+  };
+  try {
+    value();
+  } catch {
+    return true;
+  }
+  return changed;
+}
+
+/** JSON's value, unless it doesn't parse or gives a key two values; null then. */
+export function parseJson(text: string): { value: unknown } | null {
+  try {
+    const value: unknown = JSON.parse(text);
+    return changesAKey(text) ? null : { value };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * The reply's JSON, inside a code fence, after thinking or among other words; undefined if there is
- * none that parses whole. JSON that is cut off is never repaired (#2275): a repaired record would
- * hold a quote or figure cut short.
+ * none that parses whole, or it gives a key two values. JSON that is cut off is never repaired
+ * (#2275): a repaired record would hold a quote or figure cut short.
  */
 export function replyJson(raw: string): unknown {
   const text = replyText(raw);
-  const whole = (each: string) => {
-    try {
-      return { value: JSON.parse(each) as unknown };
-    } catch {
-      return null;
-    }
-  };
   const start = text.search(/[[{]/);
   const end = Math.max(text.lastIndexOf("}"), text.lastIndexOf("]"));
-  return (whole(text) ?? (start >= 0 && end > start ? whole(text.slice(start, end + 1)) : null))
-    ?.value;
+  return (
+    parseJson(text) ?? (start >= 0 && end > start ? parseJson(text.slice(start, end + 1)) : null)
+  )?.value;
 }
 
 /** Words a model refuses with, in English and Chinese. */
@@ -266,6 +329,55 @@ export function oneValue<T>(values: readonly T[]): T | null {
   if (first === undefined) return null;
   const said = JSON.stringify(first);
   return values.every((each) => JSON.stringify(each) === said) ? first : null;
+}
+
+/** A labelled value as it is compared: without case, spaces, or the marks and quotes around it. */
+function comparable(value: string): string {
+  const words = value
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[\s*_"'“”‘’`]+/gu, " ");
+  // Trimmed by hand: a pattern anchored at the end takes time quadratic in a long run of stops.
+  let end = words.length;
+  while (end > 0 && " .。".includes(words.charAt(end - 1))) end--;
+  return words.slice(0, end).trim();
+}
+
+/**
+ * The one value a reply's lines give `label`: the text its first group captures, alike on every
+ * line that gives it. Undefined when no line gives it; null when two give it values that differ,
+ * whatever their words: a reply that changes its mind can't be read (#2817). `given`: which of the
+ * label's lines are the field, when a model also writes the label in prose.
+ */
+export function labelled(
+  lines: readonly string[],
+  label: RegExp,
+  given: (value: string) => boolean = () => true,
+): string | null | undefined {
+  const values = lines.flatMap((line) => {
+    const value = label.exec(line)?.[1];
+    return value !== undefined && given(value) ? [value] : [];
+  });
+  const [first] = values;
+  if (first === undefined) return undefined;
+  return oneValue(values.map(comparable)) === null ? null : first;
+}
+
+/**
+ * Entries by the key each names (a marker, a sentence's number): a key two entries give is left
+ * out, since which of them is meant can't be told, and an entry with no key is skipped (#2817).
+ */
+export function byKey<T, K>(entries: readonly T[], keyOf: (entry: T) => K | undefined): Map<K, T> {
+  const read = new Map<K, T>();
+  const twice = new Set<K>();
+  for (const entry of entries) {
+    const key = keyOf(entry);
+    if (key === undefined) continue;
+    if (read.has(key)) twice.add(key);
+    read.set(key, entry);
+  }
+  for (const key of twice) read.delete(key);
+  return read;
 }
 
 /** Where the Answer whose work is running counts the tokens of its judges' calls. */

@@ -25,7 +25,7 @@
 import { jsonSchema } from "ai";
 import { outputTokens } from "../providers/outputLimits";
 import type { AnswerEngineEvent, AnswerRequest, UnfoundQuote } from "./engine";
-import { fieldsOf, judge, list, structured } from "./judge";
+import { byKey, fieldsOf, judge, list, structured } from "./judge";
 import { markedSentence, wordsOf } from "./markerPlacement";
 import {
   QUOTE_RETRY_INSTRUCTIONS,
@@ -110,21 +110,24 @@ export function nearestExcerpt(
   return withLineMark(text, startOf(from), pieces.slice(from, to).join("").trim());
 }
 
-/** The new quotes in the model's reply, by marker: only those given as text. */
+/**
+ * The new quotes in the model's reply, by marker: only those given as text, and none for a marker
+ * it gives twice, which stays as it was.
+ */
 export function parseCorrections(value: unknown): Map<number, string> {
-  const quotes = new Map<number, string>();
   const list = (value as { quotes?: unknown } | undefined)?.quotes;
-  if (!Array.isArray(list)) return quotes;
-  for (const item of list) {
-    if (typeof item !== "object" || item === null) continue;
+  const given = (Array.isArray(list) ? list : []).flatMap((item) => {
+    if (typeof item !== "object" || item === null) return [];
     const { marker, quote } = item as Record<string, unknown>;
     const number =
       typeof marker === "string" ? Number(/\d{1,4}/.exec(marker)?.[0] ?? Number.NaN) : marker;
-    if (typeof number === "number" && Number.isInteger(number) && typeof quote === "string") {
-      quotes.set(number, quote.trim());
-    }
-  }
-  return quotes;
+    return typeof number === "number" && Number.isInteger(number) && typeof quote === "string"
+      ? [{ marker: number, quote: quote.trim() }]
+      : [];
+  });
+  return new Map(
+    [...byKey(given, (each) => each.marker)].map(([marker, { quote }]) => [marker, quote]),
+  );
 }
 
 const correctionsSchema = jsonSchema<{ quotes: unknown }>({

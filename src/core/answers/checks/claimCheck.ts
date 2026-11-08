@@ -2048,7 +2048,8 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
       const nearest = differs ? undefined : null;
       if (part.covered && part.uncovered)
         return unsupported({ reason: verdict.says, ...part, found: true }, evidence, nearest);
-      if (differs) return unsupported({ ...UNBACKED, reason: verdict.says });
+      // Parts that can't be read still leave the sentence wider than its Passage: never Supported.
+      return unsupported({ ...UNBACKED, reason: verdict.says });
     }
     if (
       byCalculation &&

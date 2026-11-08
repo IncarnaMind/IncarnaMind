@@ -10,6 +10,7 @@ import {
   type GenerateCall,
   type ModelCall,
   scriptedModel,
+  unscripted,
 } from "../helpers/models";
 
 type Part = { kind: "fact" | "opinion"; text: string };
@@ -180,6 +181,12 @@ async function check(
               }),
             };
         }
+        if (call.question === "evidence" || call.question === "covered-evidence") {
+          return { text: JSON.stringify({ passage: null }) };
+        }
+        // Asked for a part's parts, it names none: what is covered isn't known.
+        if (call.question === "parts") return { text: "" };
+        if (call.question) return unscripted(call.question, call.system);
         return { text: JSON.stringify({ passage: null }) };
       },
     },

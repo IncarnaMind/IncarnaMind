@@ -8,6 +8,7 @@
 import { isRecord } from "../../../shared/record";
 import type { PromptTag } from "../../promptData";
 import {
+  byKey,
   fieldsOf,
   type JudgePart,
   judgePrompt,
@@ -125,22 +126,15 @@ const ENTRY = {
 export function readBatch(value: unknown, count: number): Map<number, BatchVerdict> | null {
   const reply = fieldsOf(value, { sentences: list });
   if (!reply) return null;
+  const entries = reply.sentences.filter(isRecord);
+  // An entry whose sentence can't be told might be any of them: none of the batch is judged.
+  if (entries.some((entry) => whole(entry.number) === undefined)) return null;
   const read = new Map<number, BatchVerdict>();
-  const seen = new Set<number>();
-  /** Numbers the reply gave twice, readably or not: which entry is the sentence's can't be told. */
-  const twice = new Set<number>();
-  for (const entry of reply.sentences) {
-    if (!isRecord(entry)) continue;
-    const number = whole(entry.number);
-    if (number === undefined) return null;
-    if (number < 1 || number > count) continue;
-    if (seen.has(number)) twice.add(number);
-    seen.add(number);
+  for (const [number, entry] of byKey(entries, (each) => whole(each.number))) {
     const fields = fieldsOf(entry, ENTRY);
-    if (!fields) continue;
+    if (number < 1 || number > count || !fields) continue;
     read.set(number, { ...fields, says: fields.says?.trim() || null });
   }
-  for (const number of twice) read.delete(number);
   return read;
 }
 

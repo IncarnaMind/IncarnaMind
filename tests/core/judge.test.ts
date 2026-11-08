@@ -23,6 +23,7 @@ import { readBatch } from "../../src/core/answers/checks/sentenceBatch";
 import { claimsReply } from "../../src/core/answers/claimedChanges";
 import { FIGURES_REPLY } from "../../src/core/answers/figureRetry";
 import {
+  byKey,
   countingJudges,
   fieldsOf,
   JUDGE_QUESTIONS,
@@ -31,9 +32,12 @@ import {
   json,
   judge,
   judgePrompt,
+  labelled,
   lines,
   oneValue,
+  parseJson,
   questionOf,
+  replyJson,
   text,
   word,
 } from "../../src/core/answers/judge";
@@ -439,6 +443,36 @@ describe("the module", () => {
     expect(oneValue(["same", "same"])).toBe("same");
     expect(oneValue(["same", "differs"])).toBeNull();
     expect(oneValue([])).toBeNull();
+  });
+
+  test("a label is read once: alike wherever it is given, whatever its words, or not at all", () => {
+    const evidence = /^Evidence:\s*(.*)$/;
+    expect(labelled(["Evidence: [1]", "It says so.", "**Evidence:** [1]."], evidence)).toBe("[1]");
+    expect(labelled(["Evidence: [1]", "Evidence: [2]"], evidence)).toBeNull();
+    expect(labelled(["Evidence: [1]", "Evidence: the rent line"], evidence)).toBeNull();
+    expect(labelled(["It says so."], evidence)).toBeUndefined();
+  });
+
+  test("a JSON object that gives a key two values can't be read; one that gives it twice alike can", () => {
+    expect(parseJson('{"verdict":"supported","says":"Yes."}')).toEqual({
+      value: { verdict: "supported", says: "Yes." },
+    });
+    expect(parseJson('{"verdict":"contradicted","says":"No.","verdict":"supported"}')).toBeNull();
+    expect(parseJson('[{"a":{"b":1,"b":2}}]')).toBeNull();
+    expect(parseJson('{"verdict":"supported","verdict":"supported"}')).toEqual({
+      value: { verdict: "supported" },
+    });
+    expect(replyJson('```json\n{"a":1,"a":2}\n```')).toBeUndefined();
+  });
+
+  test("entries are read by their key once: a key two entries give is left out", () => {
+    const entries = [
+      { marker: 1, quote: "A" },
+      { marker: 2, quote: "B" },
+      { marker: 1, quote: "C" },
+      { quote: "D" },
+    ];
+    expect([...byKey(entries, (each) => each.marker).keys()]).toEqual([2]);
   });
 
   test("every judge call made while an Answer's events are produced counts its tokens there, and none after", async () => {

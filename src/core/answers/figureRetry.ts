@@ -17,7 +17,7 @@ import { outputTokens } from "../providers/outputLimits";
 import { givenList, whole } from "./calculations";
 import { calculationsSchema } from "./calculationsSchema";
 import type { AnswerEngineEvent, AnswerRequest } from "./engine";
-import { fieldsOf, judge, structured } from "./judge";
+import { byKey, fieldsOf, judge, structured } from "./judge";
 import {
   FIGURE_RETRY_INSTRUCTIONS,
   type FigureToRetry,
@@ -113,10 +113,13 @@ export async function* retryFigures(
   if (!judged.ok && judged.reason === "stopped") return;
   if (!judged.ok && judged.error)
     console.error(`The figures couldn't be asked for again: ${judged.error.message}`);
-  const fixed = (judged.ok ? judged.value : []).filter((figure) => {
-    const marker = whole((figure as { marker?: unknown } | null)?.marker);
-    return marker !== null && markers.has(marker);
-  });
+  // A figure given twice stays out, as it was.
+  const fixed = [
+    ...byKey(judged.ok ? judged.value : [], (figure) => {
+      const marker = whole((figure as { marker?: unknown } | null)?.marker);
+      return marker !== null && markers.has(marker) ? marker : undefined;
+    }).values(),
+  ];
   if (fixed.length > 0) {
     try {
       documents.calculate(fixed, { structured: true });

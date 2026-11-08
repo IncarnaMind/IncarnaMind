@@ -19,7 +19,9 @@ import {
   fieldsOf,
   type JudgePart,
   judgePrompt,
+  labelled,
   oneValue,
+  parseJson,
   text,
   textOrNull,
   withoutThinking,
@@ -530,11 +532,13 @@ export function readPart(reply: string): { covered: string; uncovered: string } 
   const lines = withoutThinking(reply)
     .split("\n")
     .map((line) => line.trim());
-  const phrase = (label: RegExp) =>
-    oneValue(lines.flatMap((line) => label.exec(line)?.[1] ?? []).map(phraseOf));
-  const covered = phrase(COVERED);
-  const uncovered = phrase(NOT_COVERED);
-  return covered && uncovered ? { covered, uncovered } : null;
+  const covered = labelled(lines, COVERED);
+  const uncovered = labelled(lines, NOT_COVERED);
+  const phrases = [covered, uncovered].map((each) => (each ? phraseOf(each) : null));
+  const [coveredPhrase, uncoveredPhrase] = phrases;
+  return coveredPhrase && uncoveredPhrase
+    ? { covered: coveredPhrase, uncovered: uncoveredPhrase }
+    : null;
 }
 
 /** The request to confirm a contradiction: the sentence, the quote, and the Passage it is in. */
@@ -812,13 +816,7 @@ const declaresCoverage = <T>(value: T | null | undefined): value is T =>
   value !== null &&
   !(typeof value === "string" && NO_PHRASE.test(value.trim()));
 
-const jsonField = (value: string): unknown => {
-  try {
-    return JSON.parse(value);
-  } catch {
-    return null;
-  }
-};
+const jsonField = (value: string): unknown => parseJson(value)?.value ?? null;
 
 /** The JSON object a reply holds, fenced or not, when it has one with a verdict. */
 function jsonVerdict(reply: string): ReadVerdict | null {
@@ -826,7 +824,7 @@ function jsonVerdict(reply: string): ReadVerdict | null {
   const end = reply.lastIndexOf("}");
   if (start < 0 || end <= start) return null;
   try {
-    const value: unknown = JSON.parse(reply.slice(start, end + 1));
+    const value = parseJson(reply.slice(start, end + 1))?.value;
     if (typeof value !== "object" || value === null) return null;
     const {
       verdict,
@@ -1175,16 +1173,29 @@ const cleanSays = (text: string): string | null => {
   return said === "" ? null : said;
 };
 
+/** A field's label at a line's start, in bold or quoted too, with all that follows it. */
+const fieldLabel = (names: string) =>
+  new RegExp(`^[\\s>*_#\`"'“”-]*(?:${names})[\\s*_]*[:：](.*)$`, "i");
+
 /**
- * Each field a reply gives once, read from each line that gives it: a reply that gives one of them
- * two values changes its mind, and can't be read (#2817).
+ * Every field a check's reply gives one value, whatever words it holds: a reply that gives one of
+ * them twice with values that differ has changed its mind, and can't be read (#2817).
  */
-const SINGLE_FIELDS: readonly [RegExp, (line: string) => unknown][] = [
-  [SCOPE, (line) => [scopeOf(line), scopeNamesOf(line)]],
-  [TOPIC, topicOf],
-  [ROLES, (line) => [rolesOf(line), rolesSidesOf(line)]],
-  [TIME, timeOf],
-];
+const ONE_VALUE = [
+  "scope|范围",
+  "topic|主题",
+  "roles|角色",
+  "time|时间",
+  "absence|缺失",
+  "evidence|证据",
+  "coverage|覆盖情况",
+  "covered|已涵盖|涵盖",
+  "not covered|uncovered|未涵盖",
+  "reason kind|原因类型",
+  "property|属性",
+  "library|资料库",
+  "parts|部分",
+].map(fieldLabel);
 
 const verdictLines = (reply: string): string[] =>
   withoutThinking(reply)
@@ -1202,14 +1213,19 @@ const verdictLines = (reply: string): string[] =>
 export function changesItsMind(reply: string): boolean {
   const lines = verdictLines(reply);
   const bare = BARE.exec(lines[0] ?? "")?.[1];
-  const verdicts = [
-    ...lines.flatMap((each) => LABELLED.exec(each)?.[1] ?? []),
-    ...(bare === undefined ? [] : [bare]),
-  ].map((word) => word.toLowerCase());
-  return [
-    verdicts,
-    ...SINGLE_FIELDS.map(([label, read]) => lines.filter((each) => label.test(each)).map(read)),
-  ].some((values) => values.length > 0 && oneValue(values) === null);
+  const verdicts = lines.filter((line) => VERDICT_LABEL.test(line));
+  // "Verdict: not supported" and "结论：不支持" give a verdict that isn't one of the three words.
+  const words = verdicts.map((line) => LABELLED.exec(line)?.[1]?.toLowerCase());
+  const given = [...words, ...(bare === undefined ? [] : [bare.toLowerCase()])];
+  if (words.includes(undefined) || (given.length > 0 && oneValue(given) === null)) return true;
+  // "Calculation: none" beside a calculation it names takes that one back.
+  const calculations = lines.flatMap((line) => CALCULATION.exec(line)?.[1]?.trim() ?? []);
+  if (
+    calculations.some((each) => NO_PHRASE.test(each)) &&
+    calculations.some((each) => !NO_PHRASE.test(each))
+  )
+    return true;
+  return ONE_VALUE.some((field) => labelled(lines, field) === null);
 }
 
 /**
@@ -1223,10 +1239,10 @@ export function changesItsMind(reply: string): boolean {
 export function readVerdict(reply: string): ReadVerdict | null {
   const text = withoutThinking(reply).replace(DISPLAY_MARKERS, "").trim();
   const lines = verdictLines(reply);
-  const labelled = lines.findLastIndex((line) => LABELLED.test(line));
-  const at = labelled >= 0 ? labelled : BARE.test(lines[0] ?? "") ? 0 : -1;
+  const verdictAt = lines.findLastIndex((line) => LABELLED.test(line));
+  const at = verdictAt >= 0 ? verdictAt : BARE.test(lines[0] ?? "") ? 0 : -1;
   const line = lines[at];
-  const match = line === undefined ? null : (labelled >= 0 ? LABELLED : BARE).exec(line);
+  const match = line === undefined ? null : (verdictAt >= 0 ? LABELLED : BARE).exec(line);
   if (line !== undefined && match?.[1]) {
     if (changesItsMind(reply)) return null;
     const verdict = match[1].toLowerCase() as ClaimVerdict;
@@ -1235,9 +1251,9 @@ export function readVerdict(reply: string): ReadVerdict | null {
     const after = lines.slice(at + 1);
     // A reply that ends by repeating its verdict line leaves its fields above it (#1668).
     const fields = [...lines.slice(0, at), ...after];
-    const calculationFields = after.some((each) => CALCULATION.test(each)) ? after : fields;
-    const phrase = (label: RegExp) =>
-      phraseOf(label.exec(fields.findLast((each) => label.test(each)) ?? "")?.[1]);
+    // Every copy of a field is alike (`changesItsMind`): any one of them is the field.
+    const field = (label: RegExp) => fields.find((each) => label.test(each));
+    const phrase = (label: RegExp) => phraseOf(label.exec(field(label) ?? "")?.[1]);
     const next = after.find((each) => !FIELDS.some((field) => field.test(each)));
     const correction = readCorrection(verdict, fields, reply);
     return withShortReason({
@@ -1246,11 +1262,9 @@ export function readVerdict(reply: string): ReadVerdict | null {
       ...answered(absenceOf(fields.flatMap((each) => ABSENCE.exec(each)?.[1] ?? []))),
       says: cleanSays(rest || (next ?? "")),
       ...(() => {
-        const evidence = EVIDENCE.exec(fields.findLast((line) => EVIDENCE.test(line)) ?? "")?.[1];
-        const coverage = COVERAGE.exec(fields.findLast((line) => COVERAGE.test(line)) ?? "")?.[1];
-        const reasonKind = REASON_KIND.exec(
-          fields.findLast((line) => REASON_KIND.test(line)) ?? "",
-        )?.[1];
+        const evidence = EVIDENCE.exec(field(EVIDENCE) ?? "")?.[1];
+        const coverage = COVERAGE.exec(field(COVERAGE) ?? "")?.[1];
+        const reasonKind = REASON_KIND.exec(field(REASON_KIND) ?? "")?.[1];
         return {
           ...(evidence !== undefined && { evidence: markersOf(jsonField(evidence)) }),
           ...(declaresCoverage(coverage) && { coverage: coverageOf(jsonField(coverage)) }),
@@ -1261,20 +1275,17 @@ export function readVerdict(reply: string): ReadVerdict | null {
       })(),
       covered: phrase(COVERED),
       uncovered: phrase(NOT_COVERED),
-      scope: scopeOf(fields.findLast((each) => SCOPE.test(each))),
-      ...scopeNamesOf(fields.findLast((each) => SCOPE.test(each))),
-      topic: topicOf(fields.findLast((each) => TOPIC.test(each))),
-      roles: rolesOf(fields.findLast((each) => ROLES.test(each))),
-      ...rolesSidesOf(fields.findLast((each) => ROLES.test(each))),
-      ...timeOf(fields.findLast((each) => TIME.test(each))),
-      ...(calculationFields.some((line) => CALCULATION.test(line)) && {
-        calculations: calculationFields.reduce<string[]>((values, line) => {
-          const value = CALCULATION.exec(line)?.[1]?.trim();
-          if (value === undefined) return values;
-          if (NO_PHRASE.test(value)) values.length = 0;
-          else values.push(value);
-          return values;
-        }, []),
+      scope: scopeOf(field(SCOPE)),
+      ...scopeNamesOf(field(SCOPE)),
+      topic: topicOf(field(TOPIC)),
+      roles: rolesOf(field(ROLES)),
+      ...rolesSidesOf(field(ROLES)),
+      ...timeOf(field(TIME)),
+      ...(fields.some((each) => CALCULATION.test(each)) && {
+        calculations: fields.flatMap((each) => {
+          const value = CALCULATION.exec(each)?.[1]?.trim();
+          return value === undefined || NO_PHRASE.test(value) ? [] : [value];
+        }),
       }),
     });
   }
@@ -1339,10 +1350,9 @@ const linesOf = (turn: string): string[] =>
 function withFieldsSetAside(last: string, setAside: readonly string[]): string {
   const own = linesOf(last);
   const earlier = setAside.flatMap(linesOf);
+  // Every copy is kept: earlier turns that gave a field two values can't be read (`changesItsMind`).
   const kept = [ROLES, SCOPE, TIME].flatMap((field) =>
-    own.some((line) => field.test(line))
-      ? []
-      : (earlier.findLast((line) => field.test(line)) ?? []),
+    own.some((line) => field.test(line)) ? [] : earlier.filter((line) => field.test(line)),
   );
   return kept.length === 0 ? last : `${last}\n${kept.join("\n")}`;
 }

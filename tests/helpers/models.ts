@@ -13,6 +13,34 @@ export { questionOf } from "../../src/core/answers/judge";
 export const UNSCRIPTED: string[] = [];
 (globalThis as { unscriptedJudges?: string[] }).unscriptedJudges = UNSCRIPTED;
 
+/**
+ * A judge for a test of something else, which names it rather than leave a judge's question
+ * unscripted: it sorts each sentence as one fact, as a model with no script does, claims no change,
+ * judges none of an Answer's sentences, and finds no nearest line different. Any other request is
+ * refused, as a model that only streams refuses it.
+ */
+export function judgesNothing(call: GenerateCall): GeneratedReply {
+  switch (call.question) {
+    case "find-claims": {
+      const sentences = listedSentences(call.prompt).map(({ number, text }) => ({
+        number,
+        parts: [{ kind: "fact", text }],
+      }));
+      return { text: JSON.stringify({ sentences }) };
+    }
+    case "sentence-batch":
+      return { text: JSON.stringify({ sentences: [] }) };
+    case "nearest":
+      return { text: "neither" };
+    case "claimed-changes":
+      return { text: JSON.stringify({ claims: [] }) };
+    case undefined:
+      throw new Error("This scripted model only streams.");
+    default:
+      return unscripted(call.question, call.system);
+  }
+}
+
 /** A judge's question that compares a sentence with one quote and its Passage. */
 export const comparesAQuote = (call: { question: JudgeQuestion | undefined }): boolean =>
   call.question === "confirm" ||
@@ -322,6 +350,9 @@ export function claimCheckReply(
     | readonly { sentence: string; kind: ClaimedChange }[]
     | ((prompt: string) => readonly { sentence: string; kind: ClaimedChange }[]),
 ): GeneratedReply {
+  if (call.question && call.question !== "claimed-changes") {
+    return unscripted(call.question, call.system);
+  }
   const candidates = typeof unbacked === "function" ? unbacked(call.prompt) : unbacked;
   const reply = /<reply>\n([\s\S]*)\n<\/reply>/.exec(call.prompt)?.[1] ?? "";
   return {
@@ -469,7 +500,10 @@ export function scriptedModel(
         warnings: [],
       };
     }
-    if (!generate) throw new Error("This scripted model only streams.");
+    if (!generate) {
+      if (question) unscripted(question, systemOf(options.prompt));
+      throw new Error("This scripted model only streams.");
+    }
     const reply = generate({
       question,
       system: systemOf(options.prompt),

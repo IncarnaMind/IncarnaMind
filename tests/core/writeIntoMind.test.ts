@@ -26,6 +26,7 @@ import { boundEditor } from "../helpers/editor";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
 import { note, readMind, resolveChanges, shownWithChanges, writeMind } from "../helpers/minds";
 import {
+  judgesNothing,
   type ModelCall,
   type ScriptedReply,
   scriptedModel,
@@ -105,14 +106,17 @@ describe("A request to write something (#1109)", { timeout: 60_000 }, () => {
     "“%s” goes into a new Mind, every Document cited",
     async (request) => {
       const systems: string[] = [];
-      const model = scriptedModel((call) => {
-        systems.push(call.system);
-        return citingAll(call, () =>
-          called(call, "create_mind")
-            ? { text: "Done." }
-            : { calls: [{ tool: "create_mind", input: { title: "Summary", content: CITED } }] },
-        );
-      });
+      const model = scriptedModel(
+        (call) => {
+          systems.push(call.system);
+          return citingAll(call, () =>
+            called(call, "create_mind")
+              ? { text: "Done." }
+              : { calls: [{ tool: "create_mind", input: { title: "Summary", content: CITED } }] },
+          );
+        },
+        { generate: judgesNothing },
+      );
       const { core, mind, client } = await setUpWithDocuments(model, LEASES);
       writeMind(client, [note("Notes on the leases.")]);
       await client.settled();
@@ -128,10 +132,13 @@ describe("A request to write something (#1109)", { timeout: 60_000 }, () => {
   // protects=in an empty Mind, the model is told it is the page the User is in, where a piece goes; fails_when=it isn't told the Mind is open and empty; no_claim=none beyond protects.
   test("in an empty Mind, it fills that Mind", async () => {
     const systems: string[] = [];
-    const model = scriptedModel((call) => {
-      systems.push(call.system);
-      return { text: "Done." };
-    });
+    const model = scriptedModel(
+      (call) => {
+        systems.push(call.system);
+        return { text: "Done." };
+      },
+      { generate: judgesNothing },
+    );
     const { core } = await setUpWithDocuments(model, LEASES.slice(0, 1));
     const empty = await core.createMind({ title: "" });
 
@@ -149,16 +156,19 @@ describe("“Make it a document” after an Answer (#1109)", { timeout: 60_000 }
     async (request) => {
       const systems: string[] = [];
       let second: ModelCall[] = [];
-      const model = scriptedModel((call) => {
-        if (call.prompt.includes(request)) {
-          second = [...second, call];
-          systems.push(call.system);
-          return called(call, "create_mind")
-            ? { text: "Done." }
-            : { calls: [{ tool: "create_mind", input: { title: "Leases", answer: true } }] };
-        }
-        return citingAll(call, () => ({ text: CITED }));
-      });
+      const model = scriptedModel(
+        (call) => {
+          if (call.prompt.includes(request)) {
+            second = [...second, call];
+            systems.push(call.system);
+            return called(call, "create_mind")
+              ? { text: "Done." }
+              : { calls: [{ tool: "create_mind", input: { title: "Leases", answer: true } }] };
+          }
+          return citingAll(call, () => ({ text: CITED }));
+        },
+        { generate: judgesNothing },
+      );
       const { core, mind, client, documents } = await setUpWithDocuments(model, LEASES);
       writeMind(client, [note("Notes on the leases.")]);
       await client.settled();
@@ -237,7 +247,7 @@ describe("A request to write from part of the Documents (#1149)", { timeout: 60_
   test.each(["Based on my files, write a summary", "根据我现有的文件帮我写一份summary"])(
     "“%s” from 2 of 7 says so, and Use all writes the same Mind again from all 7",
     async (request) => {
-      const model = scriptedModel(summaryOfShown);
+      const model = scriptedModel(summaryOfShown, { generate: judgesNothing });
       const { core, mind, folder, scope } = await inAFolderOfTwo(model);
 
       const first = await askAssistant(core, { text: request, mindId: mind.id, scope });
@@ -282,7 +292,7 @@ describe("A request to write from part of the Documents (#1149)", { timeout: 60_
 
   // protects=the rewrite from all Documents is one change: rejecting it leaves the 2-Document text exactly; fails_when=any of the old text is lost or the new text stays; no_claim=none beyond protects.
   test("rejected, the rewrite leaves the 2-Document text as it was", async () => {
-    const model = scriptedModel(summaryOfShown);
+    const model = scriptedModel(summaryOfShown, { generate: judgesNothing });
     const { core, mind, scope } = await inAFolderOfTwo(model);
     const first = await askAssistant(core, {
       text: "Based on my files, write a summary",
@@ -311,8 +321,10 @@ describe("A request to write from part of the Documents (#1149)", { timeout: 60_
 
   // protects=with every Document in scope, or for a Question that writes nothing, no count is given; fails_when=the line shows when nothing was left out, or on an ordinary Question; no_claim=none beyond protects.
   test("with every Document in scope, or for a Question, no line", async () => {
-    const model = scriptedModel((call) =>
-      call.prompt.includes("What is the rent") ? { text: "1000 euros." } : summaryOfShown(call),
+    const model = scriptedModel(
+      (call) =>
+        call.prompt.includes("What is the rent") ? { text: "1000 euros." } : summaryOfShown(call),
+      { generate: judgesNothing },
     );
     const { core, mind, scope } = await inAFolderOfTwo(model);
 
@@ -365,7 +377,7 @@ function uncitedSummary(call: ModelCall): ScriptedReply {
 describe("Use all of a summary with no Citation (#1415)", { timeout: 60_000 }, () => {
   // protects=Use all writes an accepted uncited summary again in place through the same check as a new write: refused once, then, written again as it was, marked uncited, so the line under the Answer stays; fails_when=the rewrite in place is taken unchecked or unmarked, or makes a second Mind; no_claim=the line's words (tests/renderer/changeProblems.test.ts).
   test("refused once, and written again as it was, marked uncited", async () => {
-    const model = scriptedModel(uncitedSummary);
+    const model = scriptedModel(uncitedSummary, { generate: judgesNothing });
     const { core, mind, scope } = await inAFolderOfTwo(model);
     const first = await askAssistant(core, {
       text: "Based on my files, write a summary",
@@ -400,7 +412,7 @@ describe("Use all of a summary with no Citation (#1415)", { timeout: 60_000 }, (
 describe("Use all, where the text went (#1171 review)", { timeout: 60_000 }, () => {
   // protects=in an empty Mind, a request to write fills it, and Use all writes that same text again from every Document in its place, as one asked change, with no new Mind; rejected, it leaves the 2-Document text; fails_when=Use all makes a new Mind, or Undo leaves an empty Mind; no_claim=the window's own Undo step.
   test("in an empty Mind the request filled, Use all writes it again there", async () => {
-    const model = scriptedModel(summaryOfShown);
+    const model = scriptedModel(summaryOfShown, { generate: judgesNothing });
     const { core, mind, scope, client } = await inAFolderOfTwo(model, { empty: true });
     const minds = (await core.listMinds()).length;
     const first = await askAssistant(core, {
@@ -427,8 +439,9 @@ describe("Use all, where the text went (#1171 review)", { timeout: 60_000 }, () 
 
   // protects=Use all's text from every Document lands checked, as a first write's does: its cited sentences are checked and the card counts them (#1635); fails_when=the rewrite lands with found Citations and no check, which reads as checked; no_claim=the verdicts, which the written check's own tests hold.
   test("Use all checks the text it writes again", async () => {
-    const model = scriptedModel((call) =>
-      isCheckRun(call) ? checkReply(call, {}) : summaryOfShown(call),
+    const model = scriptedModel(
+      (call) => (isCheckRun(call) ? checkReply(call, {}) : summaryOfShown(call)),
+      { generate: judgesNothing },
     );
     const { core, mind, scope } = await inAFolderOfTwo(model);
     const first = await askAssistant(core, {
@@ -451,7 +464,7 @@ describe("Use all, where the text went (#1171 review)", { timeout: 60_000 }, () 
 
   // protects=text the User typed in since isn't taken away at once by Use all: the rewrite waits for them, as changes that would remove their words wait (#880), and the model is told it waits; fails_when=the rewrite applies at once over their words; no_claim=the window's line, which shows what waits.
   test("text the User typed in since makes the rewrite wait", async () => {
-    const model = scriptedModel(summaryOfShown);
+    const model = scriptedModel(summaryOfShown, { generate: judgesNothing });
     const { core, mind, scope } = await inAFolderOfTwo(model);
     const first = await askAssistant(core, {
       text: "Based on my files, write a summary",
@@ -517,7 +530,7 @@ function chartRows(doc: ProseMirrorNode): string[][] {
 describe("Use all of a chart asked for", { timeout: 60_000 }, () => {
   // protects=a chart asked for over 2 of 7 Documents, written again from all 7 with Use all, gets its chart drawn again from the new cited table, the table and the chart one change the User asked for, so it applies at once; rejecting it brings back both as they were; fails_when=Use all leaves the old chart, drops it, waits as the User's edited text would, or Undo can't bring back the 2-Document table and chart; no_claim=the window's own Undo step.
   test("Use all redraws the chart from the rewritten table, and rejecting brings both back", async () => {
-    const model = scriptedModel(chartOfShown);
+    const model = scriptedModel(chartOfShown, { generate: judgesNothing });
     const { core, mind, scope, client } = await inAFolderOfTwo(model);
     const first = await askAssistant(core, {
       text: "make a bar chart of the rents",
@@ -546,7 +559,7 @@ describe("Use all of a chart asked for", { timeout: 60_000 }, () => {
 
   // protects=accepted, the rewrite holds the table of all 7 and one chart of it, no second chart; fails_when=the old chart stays beside the new; no_claim=none beyond protects.
   test("accepted, the rewrite holds one chart, of all 7", async () => {
-    const model = scriptedModel(chartOfShown);
+    const model = scriptedModel(chartOfShown, { generate: judgesNothing });
     const { core, mind, scope, client } = await inAFolderOfTwo(model);
     const first = await askAssistant(core, {
       text: "make a bar chart of the rents",
@@ -587,19 +600,22 @@ describe("Use all after Reject all of a later rewrite (#1950)", { timeout: 60_00
    */
   async function rewritten(how: "content" | "instruction") {
     let later = false;
-    const model = scriptedModel((call): ScriptedReply => {
-      if ([EDIT_INSTRUCTIONS, EDIT_INSTRUCTIONS_NAMED].includes(call.system)) {
-        const passage = /<passage>\n([\s\S]*?)\n<\/passage>/.exec(call.prompt)?.[1] ?? "";
-        return { text: `${passage} Both are due on the first.\n<why>Longer.</why>` };
-      }
-      if (!later) return summaryOfShown(call);
-      if (called(call, "edit_mind")) return { text: "Done." };
-      const input =
-        how === "content"
-          ? { mind: "Lease notes", content: "The rent for unit 1 is 1000 euros a month." }
-          : { mind: "Lease notes", instruction: "Say when the rents are due" };
-      return { calls: [{ tool: "edit_mind", input }] };
-    });
+    const model = scriptedModel(
+      (call): ScriptedReply => {
+        if ([EDIT_INSTRUCTIONS, EDIT_INSTRUCTIONS_NAMED].includes(call.system)) {
+          const passage = /<passage>\n([\s\S]*?)\n<\/passage>/.exec(call.prompt)?.[1] ?? "";
+          return { text: `${passage} Both are due on the first.\n<why>Longer.</why>` };
+        }
+        if (!later) return summaryOfShown(call);
+        if (called(call, "edit_mind")) return { text: "Done." };
+        const input =
+          how === "content"
+            ? { mind: "Lease notes", content: "The rent for unit 1 is 1000 euros a month." }
+            : { mind: "Lease notes", instruction: "Say when the rents are due" };
+        return { calls: [{ tool: "edit_mind", input }] };
+      },
+      { generate: judgesNothing },
+    );
     const set = await inAFolderOfTwo(model, { empty: true });
     const { core, mind, scope, client } = set;
     const first = await askAssistant(core, {

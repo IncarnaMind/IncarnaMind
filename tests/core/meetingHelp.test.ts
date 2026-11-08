@@ -9,13 +9,12 @@ import { describe, expect, test } from "vitest";
 import type { Core, Meeting, MeetingHelpKind } from "../../src/core";
 import { helpOwnLines } from "../../src/core/answers/meetingHelp";
 import { CITE_RETRY_INSTRUCTIONS } from "../../src/core/answers/prompt";
-import { WORKING_TEXT_INSTRUCTIONS } from "../../src/core/answers/workingText";
 import { setMindModel } from "../../src/shared/mindModel";
 import { answerEnded, shownPassages } from "../helpers/citations";
 import { createTempDataFolder } from "../helpers/core";
 import { createSourceFolder, waitForProcessing, writeSourceFile } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
-import { type ModelCall, scriptedModel, scriptedModels } from "../helpers/models";
+import { type ModelCall, scriptedModel, scriptedModels, unscripted } from "../helpers/models";
 import { transcribingCore, until } from "../helpers/transcription";
 
 const SECOND = 1000;
@@ -69,7 +68,7 @@ const writesBesideCite = (reply: string, judged: string[][]) => (calls: ModelCal
     {
       judgesItsAnswers: true,
       generate: (call) => {
-        if (call.system !== WORKING_TEXT_INSTRUCTIONS) return { text: "" };
+        if (call.question !== "working-text") return unscripted(call.question, call.system);
         const parts = [...call.prompt.matchAll(/<reply id="\d+">\n([\s\S]*?)\n<\/reply>/g)].map(
           (match) => match[1] ?? "",
         );

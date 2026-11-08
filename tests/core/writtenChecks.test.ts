@@ -28,6 +28,7 @@ import { connectToMind, type MindClient, typeInto } from "../helpers/mindClient"
 import { editMind, readMind, resolveChanges, shownWithChanges, writeMind } from "../helpers/minds";
 import {
   type GenerateCall,
+  judgesNothing,
   type ModelCall,
   type ScriptedReply,
   scriptedModel,
@@ -256,7 +257,7 @@ function writingModel(
             return checkGenerate(PLANS)(call);
           },
         }
-      : undefined,
+      : { generate: judgesNothing },
   );
 }
 
@@ -1762,35 +1763,38 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
     try {
       let harbourClient: MindClient | null = null;
       const calls: ModelCall[] = [];
-      const model = scriptedModel((call): ScriptedReply => {
-        calls.push(call);
-        if (isCheckRun(call)) return checkReply(call, PLANS);
-        const { results } = call;
-        const search = results.find((result) => result.tool === "search_documents");
-        if (!search) {
-          return { calls: [{ tool: "search_documents", input: { query: "spring tides" } }] };
-        }
-        if (!results.some((result) => result.tool === "create_mind")) {
-          const content = "## Tides\n\nSpring tides come at new and full moon [^1].";
-          return { calls: [{ tool: "create_mind", input: { title: "Tide notes", content } }] };
-        }
-        if (!results.some((result) => result.tool === "add_to_mind")) {
-          return { calls: [{ tool: "add_to_mind", input: { content: `${UNBACKED} [^1].` } }] };
-        }
-        if (!results.some((result) => result.tool === "cite")) {
-          // A newer version writes the Note in front: its Citations can't go in after the Run.
-          harbourClient?.doc
-            .getMap(MIND_SETTINGS_FIELD)
-            .set(CONTENT_SCHEMA_VERSION_KEY, CONTENT_SCHEMA_VERSION + 1);
-          const [passage] = shownPassages(search.text);
-          const citations = [{ marker: 1, passage: passage?.id, quote: MOON }];
-          return {
-            calls: [{ tool: "cite", input: { citations } }],
-            pause: { after: 0, until: harbourClient?.settled() ?? Promise.resolve() },
-          };
-        }
-        return { text: "Wrote it from your Documents." };
-      });
+      const model = scriptedModel(
+        (call): ScriptedReply => {
+          calls.push(call);
+          if (isCheckRun(call)) return checkReply(call, PLANS);
+          const { results } = call;
+          const search = results.find((result) => result.tool === "search_documents");
+          if (!search) {
+            return { calls: [{ tool: "search_documents", input: { query: "spring tides" } }] };
+          }
+          if (!results.some((result) => result.tool === "create_mind")) {
+            const content = "## Tides\n\nSpring tides come at new and full moon [^1].";
+            return { calls: [{ tool: "create_mind", input: { title: "Tide notes", content } }] };
+          }
+          if (!results.some((result) => result.tool === "add_to_mind")) {
+            return { calls: [{ tool: "add_to_mind", input: { content: `${UNBACKED} [^1].` } }] };
+          }
+          if (!results.some((result) => result.tool === "cite")) {
+            // A newer version writes the Note in front: its Citations can't go in after the Run.
+            harbourClient?.doc
+              .getMap(MIND_SETTINGS_FIELD)
+              .set(CONTENT_SCHEMA_VERSION_KEY, CONTENT_SCHEMA_VERSION + 1);
+            const [passage] = shownPassages(search.text);
+            const citations = [{ marker: 1, passage: passage?.id, quote: MOON }];
+            return {
+              calls: [{ tool: "cite", input: { citations } }],
+              pause: { after: 0, until: harbourClient?.settled() ?? Promise.resolve() },
+            };
+          }
+          return { text: "Wrote it from your Documents." };
+        },
+        { generate: judgesNothing },
+      );
       const { core, folderId, mindId, client } = await harbour(model, undefined, undefined);
       harbourClient = client;
 

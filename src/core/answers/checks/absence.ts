@@ -14,7 +14,7 @@ import { isRecord } from "../../errors";
 import type { PromptTag } from "../../promptData";
 import type { AnswerDocuments, createCitationSession } from "../citations";
 import { answerTemperature, parseRecords } from "../engine";
-import { fieldsOf, type JudgePart, json, judge, judgePrompt, text, word } from "../judge";
+import { byKey, fieldsOf, type JudgePart, json, judge, judgePrompt, text, word } from "../judge";
 import type {
   AtomicClaimCheckResult,
   ClaimCheckDependencies,
@@ -274,9 +274,9 @@ export async function checkAbsence({
     }
     absence = judgment("supported", null);
   } else {
-    const citations = parseRecords(value.citations ?? []).filter((each) => each.marker === 1);
-    if (citations.length === 0) return notChecked("no-evidence");
-    if (!session.tools.cite(citations).startsWith("Recorded")) return notChecked("no-evidence");
+    const quoted = byKey(parseRecords(value.citations ?? []), (each) => each.marker).get(1);
+    if (!quoted) return notChecked("no-evidence");
+    if (!session.tools.cite([quoted]).startsWith("Recorded")) return notChecked("no-evidence");
     session.check();
     const evidence = session.finalCitation(1);
     if (evidence?.check !== "found") return notChecked("no-evidence");

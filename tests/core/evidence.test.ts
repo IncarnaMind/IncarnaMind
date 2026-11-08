@@ -15,7 +15,7 @@ import {
 import { exportMind, indexed, linkWithExports } from "../helpers/evidence";
 import { connectToMind } from "../helpers/mindClient";
 import { note, writeMind } from "../helpers/minds";
-import { scriptedModel, scriptedModels } from "../helpers/models";
+import { judgesNothing, scriptedModel, scriptedModels } from "../helpers/models";
 
 const MOON =
   "Spring tides happen at new moon and at full moon, when the Sun and the Moon pull together.";
@@ -236,10 +236,12 @@ describe("Files IncarnaMind wrote aren't evidence", () => {
   });
 
   test("an ordinary Answer's search still finds IncarnaMind's files", async () => {
-    const model = scriptedModel((call) =>
-      call.results.length === 0
-        ? { calls: [{ tool: "search_documents", input: { query: "spring tides full moon" } }] }
-        : { text: "Twice a month." },
+    const model = scriptedModel(
+      (call) =>
+        call.results.length === 0
+          ? { calls: [{ tool: "search_documents", input: { query: "spring tides full moon" } }] }
+          : { text: "Twice a month." },
+      { generate: judgesNothing },
     );
     const { core } = await setUp({ createChatModel: scriptedModels(model).createChatModel });
     await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
@@ -255,10 +257,12 @@ describe("Files IncarnaMind wrote aren't evidence", () => {
   });
 
   test("a sentence's check doesn't read IncarnaMind's files, and names the one that matched, for Count it", async () => {
-    const model = scriptedModel((call) =>
-      call.results.length === 0
-        ? { calls: [{ tool: "search_documents", input: { query: "spring tides full moon" } }] }
-        : { text: "Verdict: unsupported" },
+    const model = scriptedModel(
+      (call) =>
+        call.results.length === 0
+          ? { calls: [{ tool: "search_documents", input: { query: "spring tides full moon" } }] }
+          : { text: "Verdict: unsupported" },
+      { generate: judgesNothing },
     );
     const { core, moon } = await setUp({ createChatModel: scriptedModels(model).createChatModel });
     await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });

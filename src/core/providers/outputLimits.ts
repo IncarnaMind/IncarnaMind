@@ -40,7 +40,7 @@ export const OUTPUT_LIMITS = {
   "strict-figure": { most: 300 },
   recheck: { most: 300 },
   nearest: { most: 300 },
-  // Two phrases, which a record cite asked for within its own 400 before (#2817).
+  // Two phrases, which a record cite asks for too, as much room as its own judgement has.
   parts: { most: 400 },
   presence: { most: 300 },
   "strict-presence": { most: 300 },
