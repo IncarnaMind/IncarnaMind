@@ -723,6 +723,7 @@ app.whenReady().then(async () => {
     showWindow: () => void showFront(),
     showMeeting: (mindId) => showFrontAndSend(EVENT_CHANNEL, "meetings.notesShown", { mindId }),
     showSettings: () => showFrontAndSend(FILES_CHANNELS.menuCommand, "settings.open"),
+    showOffer: () => showFrontAndSend(EVENT_CHANNEL, "meetings.offerShown", null),
     keepRunning: keepsRunning(),
     quit: () => appEnd.quit("tray"),
     testHooks,

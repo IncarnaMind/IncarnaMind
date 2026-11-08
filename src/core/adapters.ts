@@ -726,10 +726,12 @@ export interface CallWatcher {
   /**
    * Starts watching: `apps` gets the ids of the call apps using the microphone now
    * (src/shared/meetingApps.ts), then again each time that changes; `problem` once this computer
-   * can't tell. Returns what stops watching.
+   * can't tell. A watcher that stopped says nothing until it runs again: no apps is never what it
+   * means. `exact` is false where the system can't say when one app lets go of the microphone
+   * (macOS 12 and 13), so an app missing then may still be in its call. Returns what stops watching.
    */
   watch(listener: {
-    apps(ids: readonly string[]): void;
+    apps(ids: readonly string[], exact: boolean): void;
     problem(problem: CallWatchProblem): void;
   }): () => void;
 }

@@ -93,9 +93,31 @@ describe("Opening at login", () => {
     expect(calls).toEqual([]);
   });
 
-  test("a path's quotes and dollars are escaped in the entry's Exec line", () => {
-    expect(autostartEntry('/opt/a "b" $c/IncarnaMind')).toContain(
-      'Exec="/opt/a \\"b\\" \\$c/IncarnaMind" --opened-at-login',
+  test("a path's quotes, dollars and percent signs are escaped in the entry's Exec line", () => {
+    expect(autostartEntry('/opt/a "b" $c/100%/IncarnaMind')).toContain(
+      'Exec="/opt/a \\"b\\" \\$c/100%%/IncarnaMind" --opened-at-login',
+    );
+  });
+
+  test("Linux points an entry that is on at the program running now, after an update moved it", async () => {
+    const configHome = await createTempDataFolder();
+    const before = createSystemLoginItem({
+      platform: "linux",
+      app: fakeApp().app,
+      program: "/home/ana/Apps/IncarnaMind-1.0.0.AppImage",
+      configHome,
+      openUrl,
+    });
+    before.set(true);
+    createSystemLoginItem({
+      platform: "linux",
+      app: fakeApp().app,
+      program: "/home/ana/Apps/IncarnaMind-1.1.0.AppImage",
+      configHome,
+      openUrl,
+    });
+    expect(readFileSync(join(configHome, "autostart", AUTOSTART_FILE), "utf8")).toContain(
+      'Exec="/home/ana/Apps/IncarnaMind-1.1.0.AppImage" --opened-at-login',
     );
   });
 

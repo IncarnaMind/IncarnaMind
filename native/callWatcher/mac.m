@@ -4,7 +4,8 @@
 // own notices and never polls, and it exits when its parent closes its stdin.
 //
 // macOS 14 and later say which process runs input. Before that only "the default input device is
-// running somewhere" is known, so the line names the app in front instead, with "exact":false.
+// running somewhere" is known, so the line says whether it runs and names the app in front, as
+// {"exact":false,"running":true,"apps":[...]}: an app missing from such a line may still be in its call.
 //
 // Built by the packager into the app (scripts/afterPack.mjs), and by `npm run call-watcher` for development.
 
@@ -87,7 +88,8 @@ static NSArray<NSString *> *exactUsers(void) API_AVAILABLE(macos(14.0)) {
   return users;
 }
 
-static NSArray<NSString *> *frontUserIfRunning(void) {
+static NSArray<NSString *> *frontUserIfRunning(BOOL *inputRuns) {
+  *inputRuns = NO;
   AudioObjectPropertyAddress defaultAddress = address(kAudioHardwarePropertyDefaultInputDevice);
   AudioObjectID device = kAudioObjectUnknown;
   UInt32 size = sizeof(device);
@@ -105,23 +107,24 @@ static NSArray<NSString *> *frontUserIfRunning(void) {
   if (AudioObjectGetPropertyData(device, &runningAddress, 0, NULL, &size, &running) != noErr ||
       running == 0)
     return @[];
+  *inputRuns = YES;
   NSRunningApplication *front = NSWorkspace.sharedWorkspace.frontmostApplication;
   if (!front) return @[];
   return @[ entry(front.processIdentifier, front.bundleIdentifier) ];
 }
 
 static void report(void) {
-  BOOL exact = NO;
-  NSArray<NSString *> *users;
+  NSString *line;
   if (@available(macOS 14.0, *)) {
-    exact = YES;
-    users = exactUsers();
+    line = [NSString stringWithFormat:@"{\"exact\":true,\"apps\":[%@]}",
+                                      [exactUsers() componentsJoinedByString:@","]];
   } else {
-    users = frontUserIfRunning();
+    BOOL inputRuns = NO;
+    NSArray<NSString *> *users = frontUserIfRunning(&inputRuns);
+    line = [NSString stringWithFormat:@"{\"exact\":false,\"running\":%@,\"apps\":[%@]}",
+                                      inputRuns ? @"true" : @"false",
+                                      [users componentsJoinedByString:@","]];
   }
-  NSString *line = [NSString stringWithFormat:@"{\"exact\":%@,\"apps\":[%@]}",
-                                              exact ? @"true" : @"false",
-                                              [users componentsJoinedByString:@","]];
   if ([line isEqualToString:lastLine]) return;
   lastLine = line;
   printf("%s\n", line.UTF8String);

@@ -281,7 +281,7 @@ const deviceScope: Scope<DeviceSettings> = {
     meetingHelpKeys: {},
     keepRunning: false,
     calendarOffers: true,
-    callOffers: true,
+    callOffers: false,
     callOffersOff: [],
     motion: "system",
     appearance: "system",

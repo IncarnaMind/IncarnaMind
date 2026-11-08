@@ -1,16 +1,20 @@
-import { spawn, spawnSync } from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
+import { EventEmitter } from "node:events";
 import { existsSync } from "node:fs";
 import { createInterface } from "node:readline";
-import { describe, expect, test } from "vitest";
+import { PassThrough } from "node:stream";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { DEV_WATCHER, WATCHER_NAME } from "../../scripts/callWatcher.mjs";
+import type { CallWatchProblem } from "../../src/core/api";
 import { isRecordingEvent, streamsOfJson, streamsOfText } from "../../src/main/calls/pactl";
 import {
-  appsOfMacLine,
   appsOfStreams,
-  appsOfWindowsLine,
+  createCallWatcher,
   MAC_WATCHER,
+  macCallApps,
+  readMacLine,
+  watchLines,
 } from "../../src/main/calls/watcher";
-import { windowsWatchScript } from "../../src/main/calls/windowsScript";
 
 const ours = { pids: () => new Set([4100, 4101]), bundles: ["com.incarnamind.app"] };
 
@@ -27,8 +31,12 @@ describe("macOS: Core Audio's processes running input", () => {
         { pid: 302, bundle: "" },
       ],
     });
-    expect(appsOfMacLine(line, ours).sort()).toEqual(["chrome", "zoom"]);
-    expect(appsOfMacLine('{"exact":true,"apps":[]}', ours)).toEqual([]);
+    expect(readMacLine(line, ours).apps.sort()).toEqual(["chrome", "zoom"]);
+    expect(readMacLine('{"exact":true,"apps":[]}', ours)).toEqual({
+      apps: [],
+      exact: true,
+      running: true,
+    });
   });
 
   test("Chrome for Testing is Chrome, and Safari's pages use the microphone through WebKit", () => {
@@ -39,7 +47,22 @@ describe("macOS: Core Audio's processes running input", () => {
         { pid: 2, bundle: "com.apple.WebKit.GPU" },
       ],
     });
-    expect(appsOfMacLine(line, ours).sort()).toEqual(["chrome", "safari"]);
+    expect(readMacLine(line, ours).apps.sort()).toEqual(["chrome", "safari"]);
+  });
+
+  test("on macOS 12 and 13, switching to another app isn't the call app letting go; input stopping is", () => {
+    const front = (bundle: string, running = true) =>
+      readMacLine(
+        JSON.stringify({ exact: false, running, apps: running ? [{ pid: 9, bundle }] : [] }),
+        ours,
+      );
+    const inZoom = macCallApps([], front("us.zoom.xos"));
+    expect(inZoom).toEqual(["zoom"]);
+    // The User switches to IncarnaMind, then to Notes, while Zoom keeps the microphone.
+    const inIncarnaMind = macCallApps(inZoom, front("com.incarnamind.app"));
+    expect(macCallApps(inIncarnaMind, front("com.apple.Notes"))).toEqual(["zoom"]);
+    expect(front("com.apple.Notes").exact).toBe(false);
+    expect(macCallApps(inIncarnaMind, front("", false))).toEqual([]);
   });
 
   test("the build ships the watcher under the name the app runs", () => {
@@ -61,43 +84,6 @@ describe("macOS: Core Audio's processes running input", () => {
       expect(await exited).toBe(0);
     },
   );
-});
-
-describe("Windows: the per-app record of microphone use", () => {
-  test("programs by their path, packaged apps by their family name", () => {
-    const line = JSON.stringify({
-      apps: [
-        "C:#Program Files#Zoom#bin#Zoom.exe",
-        "MSTeams_8wekyb3d8bbwe",
-        "C:#Users#ana#AppData#Local#Programs#IncarnaMind#IncarnaMind.exe",
-        "Microsoft.WindowsSoundRecorder_8wekyb3d8bbwe",
-        "C:#Program Files#Google#Chrome#Application#chrome.exe",
-      ],
-    });
-    expect(appsOfWindowsLine(line).sort()).toEqual(["chrome", "teams", "zoom"]);
-    expect(appsOfWindowsLine('{"apps":[]}')).toEqual([]);
-  });
-
-  test("the script asks for a parent process", () => {
-    expect(() => windowsWatchScript(0)).toThrow();
-    expect(windowsWatchScript(4100)).toContain("GetProcessById(4100)");
-  });
-
-  // GitHub's Ubuntu runners have PowerShell 7: the script must at least parse as PowerShell.
-  const pwsh = spawnSync("pwsh", ["-v"]).status === 0;
-  test.runIf(pwsh)("the script is PowerShell that parses", () => {
-    const parse = spawnSync(
-      "pwsh",
-      [
-        "-NoProfile",
-        "-NonInteractive",
-        "-Command",
-        "$errors = $null; [void][System.Management.Automation.Language.Parser]::ParseInput([Console]::In.ReadToEnd(), [ref]$null, [ref]$errors); $errors.Count",
-      ],
-      { input: windowsWatchScript(4100), encoding: "utf8" },
-    );
-    expect(parse.stdout.trim()).toBe("0");
-  });
 });
 
 describe("Linux: PulseAudio's recording streams", () => {
@@ -166,5 +152,107 @@ describe("Linux: PulseAudio's recording streams", () => {
     expect(isRecordingEvent("Event 'new' on source-output #41")).toBe(true);
     expect(isRecordingEvent("Event 'remove' on source-output #41")).toBe(true);
     expect(isRecordingEvent("Event 'change' on sink-input #12")).toBe(false);
+  });
+});
+
+/** A watcher process that a test ends, and says lines for. */
+function fakeChild(): ChildProcess & { say(line: string): void; end(): void } {
+  const child = new EventEmitter() as ChildProcess & { say(line: string): void; end(): void };
+  const stdout = new PassThrough();
+  Object.assign(child, {
+    stdout,
+    stderr: new PassThrough(),
+    kill: () => true,
+    say: (line: string) => stdout.write(`${line}\n`),
+    end: () => child.emit("exit", 1, null),
+  });
+  return child;
+}
+
+const quiet = { info() {}, warn() {}, error() {} };
+
+describe("A watcher that stops by itself", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  test("says nothing about the microphone, is started again after waits that double, and rests after six stops in a row", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const children: ReturnType<typeof fakeChild>[] = [];
+    const heard: string[] = [];
+    const problems: CallWatchProblem[] = [];
+    const clock = 0;
+    watchLines({
+      log: quiet,
+      listener: {
+        apps: (ids) => heard.push(ids.join(",")),
+        problem: (problem) => problems.push(problem),
+      },
+      start: () => {
+        const child = fakeChild();
+        children.push(child);
+        return child;
+      },
+      read: (line) => heard.push(line),
+      missing: "unavailable",
+      now: () => clock,
+    });
+    children[0]?.say("zoom");
+    await new Promise((resolve) => setImmediate(resolve));
+    children[0]?.end();
+    expect(heard).toEqual(["zoom"]);
+
+    const waits: number[] = [];
+    for (let stop = 1; stop < 6; stop += 1) {
+      const started = children.length;
+      let waited = 0;
+      while (children.length === started) {
+        vi.advanceTimersByTime(1000);
+        waited += 1000;
+      }
+      waits.push(waited);
+      children.at(-1)?.end();
+    }
+    expect(waits).toEqual([5000, 10_000, 20_000, 40_000, 80_000]);
+    expect(problems).toEqual(["unavailable"]);
+    vi.advanceTimersByTime(10 * 60_000);
+    expect(children).toHaveLength(6);
+    expect(heard).toEqual(["zoom"]);
+  });
+
+  test("starts the waits over after a healthy spell", () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const children: ReturnType<typeof fakeChild>[] = [];
+    let clock = 0;
+    watchLines({
+      log: quiet,
+      listener: { apps: () => undefined, problem: () => undefined },
+      start: () => {
+        const child = fakeChild();
+        children.push(child);
+        return child;
+      },
+      read: () => undefined,
+      missing: "unavailable",
+      now: () => clock,
+    });
+    children[0]?.end();
+    vi.advanceTimersByTime(5000);
+    children[1]?.end();
+    vi.advanceTimersByTime(10_000);
+    expect(children).toHaveLength(3);
+    clock += 61_000;
+    children[2]?.end();
+    vi.advanceTimersByTime(5000);
+    expect(children).toHaveLength(4);
+  });
+
+  test("Windows has no watcher yet, and says so", () => {
+    const problems: CallWatchProblem[] = [];
+    createCallWatcher({ log: quiet, platform: "win32", own: ours, macWatcher: null }).watch({
+      apps: () => undefined,
+      problem: (problem) => problems.push(problem),
+    });
+    expect(problems).toEqual(["not-on-windows"]);
   });
 });

@@ -18,3 +18,4 @@ export const useMeetingOffers = create<{ offers: MeetingOffers; load(): Promise<
 );
 
 core.on("meetings.offers", (offers) => useMeetingOffers.setState({ offers }));
+core.on("meetings.offerShown", () => void useAppStore.getState().openHome());

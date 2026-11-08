@@ -18,7 +18,9 @@ async function offersCore({ setUp = true } = {}) {
   const calls = createFakeCallWatcher();
   const capture = createFakeCapture({ now: () => clock.now().getTime() });
   const core = startCore(dataDir, { audioCapture: capture, now: clock.now, callWatcher: calls });
-  if (setUp) await core.updateSettings({ device: { meetingNoticeAccepted: true } });
+  // As the first-recording sheet leaves them: Meetings set up, and the offers turned on with them.
+  if (setUp)
+    await core.updateSettings({ device: { meetingNoticeAccepted: true, callOffers: true } });
   return { core, calls, clock, dataDir };
 }
 
@@ -67,8 +69,24 @@ describe("The switches for offers", () => {
     expect(offerAllowed((await core.getSettings()).device, { kind: "call", app: "zoom" })).toBe(
       false,
     );
-    await core.updateSettings({ device: { meetingNoticeAccepted: true } });
+    await core.updateSettings({ device: { meetingNoticeAccepted: true, callOffers: true } });
     expect(calls.watching()).toBe(true);
+  });
+
+  test("stay off for someone who set up Meetings before they were built, until they turn them on", async () => {
+    const { core, calls } = await offersCore({ setUp: false });
+    // Set up before: the notice read, and no word yet about offers.
+    await core.updateSettings({ device: { meetingNoticeAccepted: true } });
+    expect((await core.getSettings()).device).toMatchObject({
+      callOffers: false,
+      keepRunning: false,
+    });
+    calls.use(["zoom"]);
+    expect(calls.watching()).toBe(false);
+    expect((await core.getMeetingOffers()).offer).toBeNull();
+    await core.updateSettings({ device: { callOffers: true } });
+    expect(calls.watching()).toBe(true);
+    expect((await core.getMeetingOffers()).offer).toMatchObject({ app: "zoom" });
   });
 });
 
@@ -215,6 +233,35 @@ describe("Take notes", () => {
     calls.use(["teams"]);
     expect((await core.getMeetingOffers()).ending).toBeNull();
     vi.advanceTimersByTime(60_000);
+    expect((await recorded(core))[0]?.status).toBe("recording");
+  });
+
+  test("on macOS 12 and 13, which can't say when an app lets go, a call's end never stops it", async () => {
+    const { core, calls } = await offersCore();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    calls.use(["zoom"], false);
+    const offer = (await core.getMeetingOffers()).offer;
+    if (!offer) throw new Error("No offer.");
+    await core.takeMeetingOffer(offer.id);
+    // The watcher names only the app in front: IncarnaMind is, now, and Zoom is missing.
+    calls.use([], false);
+    expect((await core.getMeetingOffers()).ending).toBeNull();
+    vi.advanceTimersByTime(60_000);
+    await nextTurn();
+    expect((await recorded(core))[0]?.status).toBe("recording");
+  });
+
+  test("a watcher that stops mid-call keeps the recording going", async () => {
+    const { core, calls } = await offersCore();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    calls.use(["teams"]);
+    const offer = (await core.getMeetingOffers()).offer;
+    if (!offer) throw new Error("No offer.");
+    await core.takeMeetingOffer(offer.id);
+    calls.fail("unavailable");
+    vi.advanceTimersByTime(60_000);
+    await nextTurn();
+    expect(await core.getMeetingOffers()).toMatchObject({ ending: null, problem: "unavailable" });
     expect((await recorded(core))[0]?.status).toBe("recording");
   });
 

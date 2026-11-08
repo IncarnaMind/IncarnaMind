@@ -26,6 +26,8 @@ function templateImage(one: string, two: string): NativeImage {
 
 export interface AppTray {
   update(state: TrayState): void;
+  /** Opens the menu, where the system lets an app open it (macOS, Windows); false elsewhere. */
+  openMenu(): boolean;
   destroy(): void;
 }
 
@@ -64,6 +66,11 @@ export function createAppTray(actions: TrayActions, initial: TrayState): AppTray
   }
   show();
   return {
+    openMenu() {
+      if (platform === "linux") return false;
+      tray.popUpContextMenu(menu());
+      return true;
+    },
     update(next) {
       state = next;
       show();

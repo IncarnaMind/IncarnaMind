@@ -3503,7 +3503,11 @@ export interface DeviceSettings {
   keepRunning: boolean;
   /** Settings › General › Notifications: the offer to take notes before a calendar meeting (#207). */
   calendarOffers: boolean;
-  /** Settings › General › Notifications: the offer to take notes when a call app takes the microphone (#208). */
+  /**
+   * Settings › General › Notifications: the offer to take notes when a call app takes the
+   * microphone (#208). Off until the User sets up Meetings, whose sheet says it turns on; someone
+   * who set them up before this was built is asked once, on Home.
+   */
   callOffers: boolean;
   /** The call apps the User turned offers off for ("Don't ask for Zoom"), by id (src/shared/meetingApps.ts). */
   callOffersOff: string[];
@@ -3521,9 +3525,9 @@ export interface DeviceSettings {
 
 /**
  * Why this computer can't tell when a call starts (#208): PulseAudio's `pactl` is missing (Linux),
- * or the watcher couldn't run or stopped.
+ * Windows, which has no watcher yet, or the watcher couldn't run or stopped.
  */
-export type CallWatchProblem = "no-pactl" | "unavailable";
+export type CallWatchProblem = "no-pactl" | "not-on-windows" | "unavailable";
 
 /** An offer to take notes in a call that isn't on the calendar (#208): a call app took the microphone. */
 export interface CallOffer {
@@ -14584,6 +14588,11 @@ export interface CoreEvents {
   "meetings.notesShown": { mindId: string };
   /** The offer to take notes in a call, or a call's end, came or went (#208). */
   "meetings.offers": MeetingOffers;
+  /**
+   * Sent by the host, not the core: the User clicked an offer's notification where no menu can
+   * show it (#208). Home, which holds the offer with Take notes, comes in front.
+   */
+  "meetings.offerShown": null;
   /**
    * Connecting agents was turned on or off, Local mode paused or resumed them, or a pairing
    * was made, changed, used or removed: as `getAgents` now returns it.

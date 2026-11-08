@@ -39,8 +39,12 @@ const LOGIN_ITEMS_SETTINGS = "x-apple.systempreferences:com.apple.LoginItems-Set
 /** The autostart entry's file name: the app's id, so a second entry never appears beside it. */
 export const AUTOSTART_FILE = "com.incarnamind.app.desktop";
 
-/** A path in a desktop entry's Exec line, quoted as the Desktop Entry specification says. */
-const execQuoted = (path: string) => `"${path.replace(/(["`$\\])/g, "\\$1")}"`;
+/**
+ * A path in a desktop entry's Exec line, quoted as the Desktop Entry specification says, its "%"
+ * doubled so no launcher reads it as a field code.
+ */
+const execQuoted = (path: string) =>
+  `"${path.replace(/(["`$\\])/g, "\\$1").replaceAll("%", "%%")}"`;
 
 export function autostartEntry(program: string): string {
   return [
@@ -57,6 +61,12 @@ export function createSystemLoginItem(options: SystemLoginItemOptions): LoginIte
   const { platform, app } = options;
   const autostart = join(options.configHome, "autostart", AUTOSTART_FILE);
   const args = platform === "win32" ? [OPENED_AT_LOGIN] : undefined;
+  // An update can move the program (a new AppImage's name has its version): an entry that is on
+  // names the program running now.
+  if (platform === "linux" && existsSync(autostart)) {
+    const entry = autostartEntry(options.program);
+    if (readFileSync(autostart, "utf8") !== entry) writeFileSync(autostart, entry);
+  }
   const get = (): OpenAtLogin => {
     if (platform === "linux")
       return { supported: true, on: existsSync(autostart), needsApproval: false };

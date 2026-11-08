@@ -1,12 +1,9 @@
-import { spawn } from "node:child_process";
 import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { createInterface } from "node:readline";
 import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import type { BackgroundTestHooks } from "../src/main/backgroundHost";
 import type { FakeCalls } from "../src/main/calls/fakeWatcher";
-import { windowsWatchScript } from "../src/main/calls/windowsScript";
 import {
   createDataFolder,
   dismissChatSetup,
@@ -96,10 +93,16 @@ const clickNotification = (app: ElectronApplication, kind: "offer" | "ending", a
     [HOOKS, kind, action ?? null] as const,
   );
 
+/** As the first-recording sheet leaves a new User: Meetings set up, offers and the tray on. */
 const setUpMeetings = async (window: Page) =>
   (await bridge(window)).evaluate((core) =>
-    core.updateSettings({ device: { meetingNoticeAccepted: true, keepRunning: true } }),
+    core.updateSettings({
+      device: { meetingNoticeAccepted: true, keepRunning: true, callOffers: true },
+    }),
   );
+
+const deviceSettings = async (window: Page) =>
+  (await bridge(window)).evaluate(async (core) => (await core.getSettings()).device);
 
 const meetingStatuses = async (window: Page) =>
   (await bridge(window)).evaluate(async (core) =>
@@ -304,31 +307,6 @@ test("with the tray icon on, closing the window keeps IncarnaMind running, and i
   await exited;
 });
 
-// The Windows watcher as the app runs it, on the system's own PowerShell: it answers at once,
-// and stops once the process that started it is gone.
-test("on Windows, the call watcher's PowerShell says which apps use the microphone, and ends with its parent", async () => {
-  test.skip(process.platform !== "win32", "Windows only");
-  const parent = spawn(process.execPath, ["-e", "setTimeout(() => {}, 60000)"]);
-  if (parent.pid === undefined) throw new Error("No parent process.");
-  const watcher = spawn(
-    "powershell.exe",
-    ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", windowsWatchScript(parent.pid)],
-    { stdio: ["ignore", "pipe", "pipe"], windowsHide: true },
-  );
-  let said = "";
-  watcher.stderr.on("data", (data: Buffer) => {
-    said += data.toString();
-  });
-  const first = await new Promise<string>((resolve) =>
-    createInterface({ input: watcher.stdout }).once("line", resolve),
-  );
-  expect(said).toBe("");
-  expect(JSON.parse(first)).toEqual({ apps: expect.any(Array) });
-  const ended = new Promise<number | null>((resolve) => watcher.on("exit", resolve));
-  parent.kill();
-  expect(await ended).toBe(0);
-});
-
 test("once a calendar is connected, Settings › General shows its offers' switch, and turning it off is kept", async () => {
   const { app, window } = await launchApp(dataDir, {
     extraEnv: { INCARNAMIND_TEST_CALLS: "1" },
@@ -356,5 +334,68 @@ test("once a calendar is connected, Settings › General shows its offers' switc
       ),
     )
     .toBe(false);
+  await app.close();
+});
+
+test("a click on the notification itself records nothing: Home shows the offer, and its Take notes records", async () => {
+  const { app, window } = await launch();
+  await dismissChatSetup(window);
+  await setUpMeetings(window);
+  await callsUse(app, ["zoom"]);
+  await expect.poll(async () => (await notifications(app)).length).toBe(1);
+
+  await clickNotification(app, "offer");
+  const line = window.getByTestId("call-offer-line");
+  await expect(line).toContainText("Are you in a call right now? Zoom is using the microphone");
+  expect(await meetingStatuses(window)).toEqual([]);
+  expect(await notifications(app)).toHaveLength(1);
+
+  await line.getByTestId("call-offer-take").click();
+  await expect(window.getByTestId("meeting-bar")).toHaveAttribute("data-status", "recording");
+  await expect(line).toHaveCount(0);
+  await app.close();
+});
+
+test("someone who set up Meetings before this version is asked once on Home, and Turn on turns the offers on", async () => {
+  const { app, window } = await launch();
+  await dismissChatSetup(window);
+  // Set up before the offers were built: the notice read, and nothing else.
+  await (await bridge(window)).evaluate((core) =>
+    core.updateSettings({ device: { meetingNoticeAccepted: true } }),
+  );
+  await window.getByTestId("sidebar-home").click();
+  const tip = window.getByTestId("call-offers-tip");
+  await expect(tip).toBeVisible();
+  expect(await deviceSettings(window)).toMatchObject({ callOffers: false, keepRunning: false });
+  await callsUse(app, ["zoom"]);
+  expect(await notifications(app)).toEqual([]);
+
+  await tip.getByTestId("call-offers-turn-on").click();
+  await expect(tip).toHaveCount(0);
+  await expect
+    .poll(() => deviceSettings(window))
+    .toMatchObject({ callOffers: true, keepRunning: true });
+  await expect
+    .poll(async () => JSON.parse(await readFile(join(dataDir, "login-item.json"), "utf8")))
+    .toEqual({ on: true });
+  await app.close();
+});
+
+test("someone setting up Meetings now reads that the offers turn on, and Home never asks", async () => {
+  const { app, window } = await launch();
+  await dismissChatSetup(window);
+  await window.getByTestId("plus-menu").click();
+  await window.getByTestId("plus-record-meeting").click();
+  await window.getByTestId("meeting-start-record").click();
+  const notice = window.getByTestId("meeting-notice");
+  await expect(notice.getByTestId("meeting-notice-background")).toBeVisible();
+  await notice.getByTestId("meeting-notice-start").click();
+  await expect
+    .poll(() => deviceSettings(window))
+    .toMatchObject({ meetingNoticeAccepted: true, callOffers: true, keepRunning: true });
+  await window.getByTestId("meeting-stop").click();
+  await window.getByTestId("sidebar-home").click();
+  await expect(window.getByTestId("home")).toBeVisible();
+  await expect(window.getByTestId("call-offers-tip")).toHaveCount(0);
   await app.close();
 });

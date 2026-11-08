@@ -28,6 +28,8 @@ export interface BackgroundHostOptions {
   /** Shows the window with this Meeting's Note. */
   showMeeting(mindId: string): void;
   showSettings(): void;
+  /** Shows the window on Home, which holds the offer. */
+  showOffer(): void;
   quit(): void;
   /** A test build: the tray's menu and the notifications are reached through `globalThis`. */
   testHooks: boolean;
@@ -149,7 +151,12 @@ export function serveBackground(options: BackgroundHostOptions): BackgroundHost 
         body: t("offers.call.body", { app }),
         actions: [t("offers.take"), t("offers.dontAsk", { app })],
       },
-      () => actions.takeOffer(offer.id),
+      // Linux may show no buttons: a click on the notification only brings up where Take notes is,
+      // the menu bar's menu or Home. A smoke test never opens a system menu, which would hold it.
+      () => {
+        if (!options.testHooks && tray?.openMenu()) return;
+        options.showOffer();
+      },
       (index) => (index === 0 ? actions.takeOffer(offer.id) : actions.declineOffer(offer.id, true)),
     );
   };

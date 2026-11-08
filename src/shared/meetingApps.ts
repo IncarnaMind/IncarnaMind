@@ -15,7 +15,10 @@ export interface MeetingApp {
   kind: CallKind;
   /** Bundle identifiers, lower case; a helper's ("com.google.Chrome.helper") is its app's. */
   mac: readonly string[];
-  /** Executable names, lower case, or a packaged app's family name up to its "_". */
+  /**
+   * Executable names, lower case, or a packaged app's family name up to its "_", as Windows records
+   * microphone use: for the Windows watcher to come (#2843), and Settings' list of apps there.
+   */
   windows: readonly string[];
   /** What PulseAudio names the recording stream's program, lower case: its binary or its name. */
   linux: readonly string[];
@@ -184,20 +187,6 @@ export function appOfBundle(bundle: string): string | null {
   const id = bundle.toLowerCase();
   const found = MEETING_APPS.find((app) =>
     app.mac.some((each) => id === each || id.startsWith(`${each}.`)),
-  );
-  return found?.id ?? null;
-}
-
-/**
- * The app a program on Windows belongs to, from the name Windows records its microphone use
- * under: a packaged app's family name ("MSTeams_8wekyb3d8bbwe"), or a program's path with "#"
- * for each "\" ("C:#Program Files#Zoom#bin#Zoom.exe").
- */
-export function appOfWindowsProgram(name: string): string | null {
-  const lower = name.toLowerCase();
-  const file = lower.slice(lower.lastIndexOf("#") + 1);
-  const found = MEETING_APPS.find((app) =>
-    app.windows.some((each) => (each.endsWith("_") ? lower.startsWith(each) : file === each)),
   );
   return found?.id ?? null;
 }

@@ -1,15 +1,24 @@
 import { useId, useState } from "react";
+import type { CallWatchProblem } from "../../../core/api";
+import type { MessageKey } from "../../../shared/i18n";
 import { MEETING_APPS, meetingAppName } from "../../../shared/meetingApps";
 import { useCalendars } from "../calendars";
 import { useLanguage, useT } from "../i18n";
 import { useMeetingOffers } from "../meetingOffers";
 import { useSettingsTarget } from "../settingsTarget";
 import { useAppStore } from "../store";
+import { closeTip } from "../tips";
 import { ProblemLine } from "./ProblemLine";
 import { SettingsRow, SettingsSwitch, SettingsSwitchRow } from "./settings/SettingsGroup";
 import { ghostButtonClass } from "./ui";
 
 const TARGET = ["call-offers"] as const;
+
+const PROBLEM_LINES: Record<CallWatchProblem, MessageKey> = {
+  "no-pactl": "settings.callOffers.noPactl",
+  "not-on-windows": "settings.callOffers.notOnWindows",
+  unavailable: "settings.callOffers.unavailable",
+};
 
 /** The apps this computer's system can name as using the microphone. */
 function appsHere() {
@@ -70,7 +79,10 @@ export function MeetingOfferSettings() {
             </button>
             <SettingsSwitch
               checked={device.callOffers}
-              onChange={(on) => void updateSettings({ device: { callOffers: on } })}
+              onChange={(on) => {
+                closeTip("call-offers");
+                void updateSettings({ device: { callOffers: on } });
+              }}
               testId="call-offers-switch"
               ariaLabel={t("settings.callOffers")}
             />
@@ -79,11 +91,7 @@ export function MeetingOfferSettings() {
       >
         {device.callOffers && problem && (
           <ProblemLine role="status" testId="call-offers-problem">
-            {t(
-              problem === "no-pactl"
-                ? "settings.callOffers.noPactl"
-                : "settings.callOffers.unavailable",
-            )}
+            {t(PROBLEM_LINES[problem])}
           </ProblemLine>
         )}
         {perApp && (

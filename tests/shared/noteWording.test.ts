@@ -134,6 +134,8 @@ const ANOTHER_NOTE: readonly MessageKey[] = [
   "meetings.notice.background.other",
   "meetings.record.keywords",
   "offers.take",
+  "offers.turnOn.line",
+  "offers.turnOn.line.other",
   "settings.calendarOffers.detail",
   "settings.keepRunning.detail.mac",
   "settings.keepRunning.detail.other",

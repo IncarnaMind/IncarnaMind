@@ -6679,6 +6679,13 @@ export const en = {
   "settings.callOffers.perApp": "Per app…",
   "settings.callOffers.apps": "Ask when these apps use the microphone",
   "settings.callOffers.noPactl": "Needs PulseAudio’s pactl, which isn’t on this computer.",
+  "settings.callOffers.notOnWindows":
+    "Calls can’t be noticed on Windows yet. They will be in an update.",
+  "offers.turnOn.line":
+    "IncarnaMind can now stay in the menu bar, open at login and offer to take notes when a call starts.",
+  "offers.turnOn.line.other":
+    "IncarnaMind can now stay in the tray, open at login and offer to take notes when a call starts.",
+  "offers.turnOn": "Turn on",
   "settings.callOffers.unavailable":
     "This computer doesn’t say which app is using the microphone, so calls can’t be noticed.",
   "command.settings.background.keywords": "menu bar tray open at login startup background",

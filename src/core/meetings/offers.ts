@@ -109,23 +109,24 @@ export function createMeetingOffers(options: MeetingOffersOptions): MeetingOffer
     }
     if (ending?.app === app) {
       cancelEnding();
-      log.info("meeting.callBack", { app });
+      log.info("meeting.callBack");
       changed();
     }
     if (offer || declined.has(app)) return;
     if ([...taken.values()].includes(app)) return;
     if (options.busy() || !options.allowed(app)) return;
     offer = { id: options.newId(), app, at: options.now().toISOString() };
-    log.info("meeting.offered", { app });
+    log.info("meeting.offered");
     changed();
   };
 
-  const letGoOfMicrophone = (app: string) => {
+  const letGoOfMicrophone = (app: string, exact: boolean) => {
     letGo.set(
       app,
       setTimeout(() => callOver(app), SAME_CALL_MS),
     );
-    if (ending) return;
+    // Only a watcher that says when an app lets go may stop a recording.
+    if (ending || !exact) return;
     const meetingId = [...taken].find(
       ([id, takenApp]) => takenApp === app && options.live(id),
     )?.[0];
@@ -136,26 +137,25 @@ export function createMeetingOffers(options: MeetingOffersOptions): MeetingOffer
       taken.delete(meetingId);
       try {
         if (options.live(meetingId)) options.stop(meetingId);
-        log.info("meeting.stoppedAfterCall", { app });
+        log.info("meeting.stoppedAfterCall");
       } catch (error) {
         log.error("meeting.stopAfterCallFailed", {
-          app,
           message: error instanceof Error ? error.message : String(error),
         });
       }
       changed();
     }, STOP_AFTER_CALL_MS);
     ending = { meetingId, app, stopsAt, timer };
-    log.info("meeting.callEnded", { app });
+    log.info("meeting.callEnded");
     changed();
   };
 
-  const heard = (apps: readonly string[]) => {
+  const heard = (apps: readonly string[], exact: boolean) => {
     const now = new Set(apps);
     const before = using;
     using = now;
     for (const app of now) if (!before.has(app)) tookMicrophone(app);
-    for (const app of before) if (!now.has(app)) letGoOfMicrophone(app);
+    for (const app of before) if (!now.has(app)) letGoOfMicrophone(app, exact);
   };
 
   const stop = () => {
@@ -205,13 +205,13 @@ export function createMeetingOffers(options: MeetingOffersOptions): MeetingOffer
       changed();
       const meetingId = options.record(app);
       taken.set(meetingId, app);
-      log.info("meeting.offerTaken", { app });
+      log.info("meeting.offerTaken");
       return meetingId;
     },
     decline(offerId, always) {
       if (!offer || offer.id !== offerId) return;
       declined.add(offer.app);
-      log.info("meeting.offerDeclined", { app: offer.app, always });
+      log.info("meeting.offerDeclined", { always });
       offer = null;
       changed();
     },

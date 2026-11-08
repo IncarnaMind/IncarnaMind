@@ -2,7 +2,6 @@ import { describe, expect, test } from "vitest";
 import {
   appOfBundle,
   appOfLinuxStream,
-  appOfWindowsProgram,
   MEETING_APPS,
   meetingAppName,
 } from "../../src/shared/meetingApps";
@@ -13,12 +12,6 @@ describe("Call apps", () => {
     expect(appOfBundle("com.microsoft.teams2.helper")).toBe("teams");
     expect(appOfBundle("com.google.chromecast")).toBeNull();
     expect(appOfBundle("com.apple.VoiceMemos")).toBeNull();
-  });
-
-  test("Windows names a program by its path and a packaged app by its family", () => {
-    expect(appOfWindowsProgram("C:#Program Files#Slack#slack.exe")).toBe("slack");
-    expect(appOfWindowsProgram("5319275A.WhatsAppDesktop_cv1g1gvanyjgm")).toBe("whatsapp");
-    expect(appOfWindowsProgram("C:#Tools#notzoom.exe")).toBeNull();
   });
 
   test("Linux names a stream's program by its binary, else its name", () => {

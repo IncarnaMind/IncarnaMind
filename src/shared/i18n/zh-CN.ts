@@ -6328,6 +6328,12 @@ export const zhCN = {
   "settings.callOffers.perApp": "按应用…",
   "settings.callOffers.apps": "这些应用使用麦克风时询问",
   "settings.callOffers.noPactl": "需要 PulseAudio 的 pactl，这台电脑上没有。",
+  "settings.callOffers.notOnWindows": "Windows 上暂时还不能发现通话，后续版本会加入。",
+  "offers.turnOn.line":
+    "IncarnaMind 现在可以保留在菜单栏中、登录时打开，并在通话开始时提示你记录会议。",
+  "offers.turnOn.line.other":
+    "IncarnaMind 现在可以保留在系统托盘中、登录时打开，并在通话开始时提示你记录会议。",
+  "offers.turnOn": "开启",
   "settings.callOffers.unavailable": "这台电脑无法告知哪个应用在使用麦克风，因此无法发现通话。",
   "command.settings.background.keywords":
     "菜单栏 托盘 登录 开机 启动 后台 caidanlan tuopan denglu kaiji houtai",
