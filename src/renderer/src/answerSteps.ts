@@ -259,14 +259,17 @@ function searchBehind(
 
 /**
  * Every Citation the Answer gave the User: its reply's, then those of the text it wrote into
- * Notes (#2768), which are as much the sources it used.
+ * Notes (#2768), which are as much the sources it used. The last Answer written in as it was
+ * cites what that Answer used, not this one.
  */
 const citedBy = ({
   citations,
   toolCalls,
 }: Pick<StepsInput["answer"], "citations" | "toolCalls">): Citation[] => [
   ...citations,
-  ...toolCalls.flatMap((call) => call.mindChange?.citations ?? []),
+  ...toolCalls.flatMap((call) =>
+    call.input.answer === true ? [] : (call.mindChange?.citations ?? []),
+  ),
 ];
 
 // A web page the Answer read is named by its own call.

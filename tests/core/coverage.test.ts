@@ -722,7 +722,7 @@ describe("A name in the Question that fits several Documents (#1512)", () => {
     });
   });
 
-  // protects=a Document the Answer never used whose name also has another word of the Question ("summary") takes nothing from the line about the name it read; fails_when="Lease summary 2023" hides "I read “Lease - Office A”"; no_claim=none beyond protects.
+  // protects=a Document the Answer never used, whether its search found it or not, whose name also has another word of the Question ("summary") takes nothing from the line about the name it read; fails_when="Lease summary 2023" hides "I read “Lease - Office A”"; no_claim=none beyond protects.
   test("a fuller name only an unused Document has hides no line (#2768)", () => {
     const en = [
       { id: "a", name: "Lease - Office A" },
@@ -734,6 +734,10 @@ describe("A name in the Question that fits several Documents (#1512)", () => {
       used: [{ id: "a", name: "Lease - Office A" }],
       rest: ["b", "c"],
     });
+    // Found by the search and not used, it hides nothing either.
+    expect(
+      namedCoverage("Write a summary of the lease into this note", ["a"], ["a", "c"], en),
+    ).toEqual({ kind: "named", used: [{ id: "a", name: "Lease - Office A" }], rest: ["b"] });
     const zh = [
       { id: "a", name: "租赁合同A" },
       { id: "b", name: "租赁合同B" },
@@ -743,6 +747,11 @@ describe("A name in the Question that fits several Documents (#1512)", () => {
       kind: "named",
       used: [{ id: "a", name: "租赁合同A" }],
       rest: ["b", "c"],
+    });
+    expect(namedCoverage("写一段租赁合同的摘要", ["a"], ["a", "c"], zh)).toEqual({
+      kind: "named",
+      used: [{ id: "a", name: "租赁合同A" }],
+      rest: ["b"],
     });
   });
 

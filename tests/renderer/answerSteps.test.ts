@@ -450,7 +450,7 @@ describe("an Answer's steps", () => {
     expect(foldedLine(both)).toEqual({ kind: "searched", sources: 2, extraScopes: 0 });
   });
 
-  // protects=#2768: the Citations of what an Answer wrote into a Note are sources it used, on the line, on its search's row with their sources, and on the row of Documents read whole; the reply's check row stays the reply's; fails_when=a cited write reads "no sentence matched them" or "no sources", its search "0 used", or the write's Citations go to the reply's check; no_claim=which Citations a write keeps, which is the core's (tests/core/writtenSourcesLine.test.ts).
+  // protects=#2768: the Citations of what an Answer wrote into a Note are sources it used, on the line, on its search's row with their sources, and on the row of Documents read whole, but not those of the last Answer written in as it was; the reply's check row stays the reply's; fails_when=the last Answer's Citations count, a cited write reads "no sentence matched them" or "no sources", its search "0 used", or the write's Citations go to the reply's check; no_claim=which Citations a write keeps, which is the core's (tests/core/writtenSourcesLine.test.ts).
   test("a write's Citations are sources it used, beside the reply's", () => {
     const searches = [search("s1", "tide gauges", { passages: ["p1", "p2", "p3"] })];
     const { marker: _one, ...field } = citation(1, "p1", "d1", 3);
@@ -482,6 +482,14 @@ describe("an Answer's steps", () => {
     expect(foldedLine(input({ toolCalls: [...searches, wrote] }, { meeting: true }))).toEqual({
       kind: "listened",
       sources: 2,
+    });
+
+    // The last Answer written in as it was cites what that Answer used, not this one.
+    const lastAnswer: AnswerToolCall = { ...wrote, id: "w2", input: { answer: true } };
+    expect(foldedLine(input({ toolCalls: [...searches, lastAnswer] }))).toEqual({
+      kind: "read-passages",
+      passages: 3,
+      citedAfterChecking: 0,
     });
 
     // Documents sent whole with the Question: the row lists the write's Citations into them.

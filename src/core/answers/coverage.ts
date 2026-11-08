@@ -170,7 +170,7 @@ export function namedCoverage(
     // "the Field Report" names no other "report" (#2768).
     const namesAnother = documents.some(
       (each) =>
-        excluded.includes(each.id) &&
+        used.includes(each.id) &&
         said.every((term) => namedBy(each, term)) &&
         terms.some((term) => !said.includes(term) && namedBy(each, term)),
     );
