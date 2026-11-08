@@ -3495,6 +3495,22 @@ export interface DeviceSettings {
   meetingPanelHidden: boolean;
   /** The help buttons' global shortcuts the User changed; the others keep their defaults. */
   meetingHelpKeys: HelpKeys;
+  /**
+   * Settings › General › "Keep running in the menu bar" (in the tray on Windows and Linux, #189):
+   * its icon stays, and closing the window leaves IncarnaMind running. Turned on when the User sets
+   * up Meetings.
+   */
+  keepRunning: boolean;
+  /** Settings › General › Notifications: the offer to take notes before a calendar meeting (#207). */
+  calendarOffers: boolean;
+  /**
+   * Settings › General › Notifications: the offer to take notes when a call app takes the
+   * microphone (#208). Off until the User sets up Meetings, whose sheet says it turns on; someone
+   * who set them up before this was built is asked once, on Home.
+   */
+  callOffers: boolean;
+  /** The call apps the User turned offers off for ("Don't ask for Zoom"), by id (src/shared/meetingApps.ts). */
+  callOffersOff: string[];
   /** How the window moves here (Settings → General → Motion): see `MotionPreference`. */
   motion: MotionPreference;
   /** Light or dark here (Settings → General → Appearance): see `Appearance`. */
@@ -3505,6 +3521,45 @@ export interface DeviceSettings {
    * they choose, and again once its provider is removed: they follow `UserSettings.chatModel` then.
    */
   lastChatModel: ChatModelChoice | null;
+}
+
+/**
+ * Why this computer can't tell when a call starts (#208): PulseAudio's `pactl` is missing (Linux),
+ * Windows, which has no watcher yet, or the watcher couldn't run or stopped.
+ */
+export type CallWatchProblem = "no-pactl" | "not-on-windows" | "unavailable";
+
+/** An offer to take notes in a call that isn't on the calendar (#208): a call app took the microphone. */
+export interface CallOffer {
+  id: string;
+  /** The call app's id (src/shared/meetingApps.ts). */
+  app: string;
+  /** When the app took the microphone (ISO 8601). */
+  at: string;
+}
+
+/** A Meeting taken from a call offer whose call app let go of the microphone: it stops at `stopsAt` (ISO 8601) unless kept. */
+export interface CallEnding {
+  meetingId: string;
+  app: string;
+  stopsAt: string;
+}
+
+/** The offers to take notes as they are now (#208). */
+export interface MeetingOffers {
+  offer: CallOffer | null;
+  ending: CallEnding | null;
+  /** Why calls can't be noticed here; null while they can, or while offers for calls are off. */
+  problem: CallWatchProblem | null;
+}
+
+/** Whether IncarnaMind opens at login on this computer (#189). */
+export interface OpenAtLogin {
+  /** This copy can: false in a build the system can't open at login. */
+  supported: boolean;
+  on: boolean;
+  /** macOS waits for the User to allow it in System Settings › Login Items. */
+  needsApproval: boolean;
 }
 
 /**
@@ -9338,6 +9393,7 @@ export const dataKinds = [
   "file-properties",
   "absence-documents",
   "watched-sentences",
+  "calendar-request",
 ] as const;
 
 export type DataKind = (typeof dataKinds)[number];
@@ -9403,6 +9459,10 @@ export type DataKind = (typeof dataKinds)[number];
  *   the sentence with its paragraph and the whole text of the Document or
  *   Folder they pick, to the chat model's provider. Asked where it is used;
  *   none in local mode.
+ * - "calendars": the User's sign-in and which of their calendars and days to read, to Google
+ *   Calendar or Microsoft 365, every few minutes while the app runs (#190). The events come back
+ *   and stay on this computer. Connecting the account allows it; background work, which never
+ *   asks; none in local mode. The Mac's own calendar is read on this computer and isn't a flow.
  */
 export const dataFlowIds = [
   "chat",
@@ -9423,6 +9483,7 @@ export const dataFlowIds = [
   "transcription",
   "scan-images",
   "document-check",
+  "calendars",
 ] as const;
 
 export type DataFlowId = (typeof dataFlowIds)[number];
@@ -11623,6 +11684,108 @@ export interface StartMeetingInput {
   meetingId: string;
   /** Record the computer's sound too. Defaults to the Settings choice ("What is recorded"). */
   systemAudio?: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Calendars (#190)
+
+/**
+ * Where IncarnaMind reads the User's Meetings coming up from: Google Calendar, Microsoft 365
+ * (Outlook), or the Mac's own Calendar app, which holds the iCloud, Exchange and CalDAV accounts
+ * added there.
+ */
+export const calendarServices = ["google", "microsoft", "mac"] as const;
+export type CalendarService = (typeof calendarServices)[number];
+
+/**
+ * Why a calendar account isn't read now, said on its row in Settings › Meetings:
+ * - "offline": the service couldn't be reached; the last events read stay;
+ * - "sign-in": its sign-in ended (expired or revoked): Sign in again;
+ * - "local-mode": "Keep everything on this computer" is on (Google and Microsoft only);
+ * - "not-allowed": the User turned the calendars flow off in Settings › Privacy;
+ * - "denied": the Mac's calendar access was refused in System Settings;
+ * - "failed": the service answered with something IncarnaMind couldn't use.
+ */
+export type CalendarProblem =
+  | "offline"
+  | "sign-in"
+  | "local-mode"
+  | "not-allowed"
+  | "denied"
+  | "failed";
+
+export interface CalendarInfo {
+  id: string;
+  name: string;
+  /** Its events show in Coming up. By default the User's own calendars count. */
+  counted: boolean;
+  /** For the Mac's calendar: the account it is in there ("iCloud", "Exchange"); null otherwise. */
+  group: string | null;
+}
+
+export interface CalendarAccount {
+  id: string;
+  service: CalendarService;
+  /** The account's address for Google and Microsoft; null for the Mac's calendar. */
+  name: string | null;
+  calendars: CalendarInfo[];
+  /** When its events were last read (ISO 8601, UTC); null before the first read. */
+  syncedAt: string | null;
+  problem: CalendarProblem | null;
+  /** The service the calendars flow goes to, which Allow allows; null for the Mac's calendar. */
+  consentServiceId: string | null;
+}
+
+export interface CalendarsState {
+  /**
+   * The services this copy can connect: Google and Microsoft when the build has their client IDs
+   * (#209), the Mac's calendar on macOS. Those connected already are among them.
+   */
+  services: CalendarService[];
+  accounts: CalendarAccount[];
+  /** The service whose sign-in is waiting in the browser, which `cancelCalendarSignIn` stops. */
+  signingIn: CalendarService | null;
+}
+
+export interface CalendarAttendee {
+  /** As the invite names them, else their address. */
+  name: string;
+  email: string | null;
+  /** The User: the account the event was read from. "Me" in a Transcript. */
+  self: boolean;
+}
+
+/** A Meeting on a counted calendar: timed, not cancelled and not declined. */
+export interface CalendarEvent {
+  id: string;
+  title: string;
+  /** ISO 8601, UTC. */
+  startsAt: string;
+  endsAt: string;
+  attendees: CalendarAttendee[];
+  /** The call's address (Meet, Teams, Zoom and the like), https only; null when it has none. */
+  joinUrl: string | null;
+  service: CalendarService;
+  /** The Note Take notes made for it, while it is there. */
+  mindId: string | null;
+}
+
+/** The calendar event a Note was made for with Take notes, as it is on the calendar now. */
+export interface NoteEvent {
+  /** The event's id while it is read from a counted calendar; null once it isn't. */
+  eventId: string | null;
+  title: string;
+  startsAt: string;
+  endsAt: string;
+  attendees: CalendarAttendee[];
+  joinUrl: string | null;
+}
+
+export interface ListCalendarEventsInput {
+  /** ISO 8601: events that end after this… */
+  from: string;
+  /** …and start before this. */
+  to: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -13976,6 +14139,37 @@ export interface CoreApi {
   /** Answers a save's question (see `FileWriteRequest`). One already answered does nothing. */
   respondToFileWrite(requestId: string, accept: boolean): Promise<void>;
 
+  /** The calendars connected on this device, and those that can be (#190). */
+  getCalendars(): Promise<CalendarsState>;
+  /**
+   * Connects a calendar: Google or Microsoft by signing in in the browser, which allows the
+   * calendars flow to it (ADR-0022); the Mac's calendar by asking the system for access, which it
+   * asks only here, never in the background. Its events are read at once. Null when the User
+   * cancelled the sign-in. Rejects when the sign-in fails, and for Google or Microsoft in Local
+   * mode. The Mac's calendar with access refused is kept, its `problem` "denied", so its row says
+   * how to allow it.
+   */
+  connectCalendar(service: CalendarService): Promise<CalendarAccount | null>;
+  /** Stops a sign-in waiting in the browser. */
+  cancelCalendarSignIn(): Promise<void>;
+  /** Forgets the account on this device: its sign-in, calendars and events. Notes stay. */
+  disconnectCalendar(accountId: string): Promise<CalendarsState>;
+  /** Whether a calendar's events count, shown in Coming up. */
+  setCalendarCounted(input: { calendarId: string; counted: boolean }): Promise<CalendarsState>;
+  /** Reads every account's events now: Try again. */
+  syncCalendars(): Promise<CalendarsState>;
+  /** The Meetings on counted calendars between two times, in order, each once. */
+  listCalendarEvents(input: ListCalendarEventsInput): Promise<CalendarEvent[]>;
+  /**
+   * Take notes: the event's Note, made now, named for it, or the one made for it before while
+   * it is there.
+   */
+  takeEventNotes(eventId: string): Promise<{ mindId: string; created: boolean }>;
+  /** The calendar event a Note was made for, as the calendar has it now; null for any other Note. */
+  getNoteEvent(mindId: string): Promise<NoteEvent | null>;
+  /** Opens the system's Calendars privacy settings, after the Mac's calendar access was refused. */
+  openCalendarSettings(): Promise<void>;
+
   /** Every Meeting, newest first. */
   listMeetings(): Promise<Meeting[]>;
   /**
@@ -14095,6 +14289,23 @@ export interface CoreApi {
    * marks the stretch; the computer's sound goes on. Every Meeting starts with its microphone on.
    */
   setMeetingMicrophone(input: SetMeetingMicrophoneInput): Promise<Meeting>;
+  /** The offer to take notes in a call, and a call's end waiting to stop its Meeting (#208). */
+  getMeetingOffers(): Promise<MeetingOffers>;
+  /**
+   * Take notes: records the call offered in a new Note, opened in the main window. The click is
+   * what records: nothing else starts a Meeting from an offer. NotFoundError once the offer is gone.
+   */
+  takeMeetingOffer(offerId: string): Promise<Meeting>;
+  /** Not now, or with `always` "Don't ask for {app}": the offer goes, and nothing is recorded. */
+  declineMeetingOffer(input: { offerId: string; always: boolean }): Promise<void>;
+  /** Keep recording: the Meeting whose call app let go of the microphone doesn't stop. */
+  keepRecordingAfterCall(meetingId: string): Promise<void>;
+  /** Whether IncarnaMind opens at login on this computer (#189). */
+  getOpenAtLogin(): Promise<OpenAtLogin>;
+  /** Registers IncarnaMind to open at login, or stops it, through the system. */
+  setOpenAtLogin(on: boolean): Promise<OpenAtLogin>;
+  /** Opens the system's settings where opening at login waits for the User's approval (macOS). */
+  openLoginItemSettings(): Promise<void>;
 
   /** Outside agents (#351, experimental): the setting, what pauses them, and every pairing. */
   getAgents(): Promise<AgentSettings>;
@@ -14367,10 +14578,21 @@ export interface CoreEvents {
    * `listMeetings` now returns it.
    */
   "meetings.changed": Meeting[];
+  /** Calendar accounts were connected, chosen, read or failed (#190). */
+  "calendars.changed": CalendarsState;
+  /** The events on counted calendars changed: listCalendarEvents again. */
+  "calendarEvents.changed": null;
   /** About ten times a second while a Meeting's audio is captured: how loud each source is. */
   "meetings.level": MeetingLevel;
   /** A notification that a Meeting's notes were filled in was clicked: its Mind is shown (#142). */
   "meetings.notesShown": { mindId: string };
+  /** The offer to take notes in a call, or a call's end, came or went (#208). */
+  "meetings.offers": MeetingOffers;
+  /**
+   * Sent by the host, not the core: the User clicked an offer's notification where no menu can
+   * show it (#208). Home, which holds the offer with Take notes, comes in front.
+   */
+  "meetings.offerShown": null;
   /**
    * Connecting agents was turned on or off, Local mode paused or resumed them, or a pairing
    * was made, changed, used or removed: as `getAgents` now returns it.
@@ -14795,6 +15017,16 @@ const methods: Record<CoreApiMethod, true> = {
   undoMeetingJoin: true,
   listMeetingsLeftApart: true,
   meetingsLeftApartSaid: true,
+  getCalendars: true,
+  connectCalendar: true,
+  cancelCalendarSignIn: true,
+  disconnectCalendar: true,
+  setCalendarCounted: true,
+  syncCalendars: true,
+  listCalendarEvents: true,
+  takeEventNotes: true,
+  getNoteEvent: true,
+  openCalendarSettings: true,
   createMeeting: true,
   discardMeeting: true,
   startMeeting: true,
@@ -14818,6 +15050,13 @@ const methods: Record<CoreApiMethod, true> = {
   askMeetingHelp: true,
   setMeetingTemplate: true,
   setMeetingMicrophone: true,
+  getMeetingOffers: true,
+  takeMeetingOffer: true,
+  declineMeetingOffer: true,
+  keepRecordingAfterCall: true,
+  getOpenAtLogin: true,
+  setOpenAtLogin: true,
+  openLoginItemSettings: true,
   getAgents: true,
   setAgentsEnabled: true,
   connectAgent: true,

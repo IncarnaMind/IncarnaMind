@@ -867,11 +867,13 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     };
     // A Note a newer version wrote refuses every edit, so once one is refused the rest aren't tried.
     let refused = false;
+    const landedSentences = new Set<Sentence>();
     const landAll = (landings: readonly Landing[]) => {
       if (landings.length === 0 || refused) return;
       input.edit((note) => {
         for (const landing of landings) land(note, input.ids, landing);
       });
+      for (const landing of landings) landedSentences.add(landing.sentence);
       options.retainEvidence(mindId);
     };
     const couldNotLand = (error: unknown) =>
@@ -1063,7 +1065,28 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         },
       },
     );
-    if (signal.aborted) return null;
+    if (signal.aborted) {
+      // Stopped before a sentence's check ended: it lands Not checked, so a found Citation never
+      // reads as checked (#2710). The marks that landed, and a held verdict that was checked,
+      // stay.
+      const at = options.now().toISOString();
+      const heldLandings = held.sort((a, b) => a.index - b.index).map(({ landing }) => landing);
+      const heldSentences = new Set(heldLandings.map((landing) => landing.sentence));
+      landAll([
+        ...heldLandings,
+        ...sentences
+          .filter((sentence) => !landedSentences.has(sentence) && !heldSentences.has(sentence))
+          .map(
+            (sentence): Landing => ({
+              sentence,
+              nodes: null,
+              mark: () => notChecked(markOf(sentence), "stopped", null, at),
+            }),
+          ),
+      ]);
+      done.stop = stop;
+      return done;
+    }
     if (waiting) for (const sentence of sending) failed(sentence, "consent-widened", null);
     else if (holding) for (const sentence of sending) failed(sentence, "answer-failed", null);
     const at = options.now().toISOString();

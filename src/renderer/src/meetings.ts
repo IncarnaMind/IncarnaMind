@@ -9,7 +9,9 @@ import { errorMessage } from "./errors";
 import { translateNow } from "./i18n";
 import { currentMindIdOf } from "./layoutSlice";
 import { fillHeldInEditor, letGoOfUndoneFill, undoFillInEditor } from "./meetingFillSteps";
+import { offersCanTurnOn } from "./platformOffers";
 import { useAppStore } from "./store";
+import { closeTip } from "./tips";
 import { useUndo } from "./undo";
 
 interface MeetingsState {
@@ -37,6 +39,12 @@ interface MeetingsState {
    * the one-time notice, and shows the start block before.
    */
   record(): Promise<void>;
+  /**
+   * Join and record (#190): a Meeting in this Note, the one a calendar event's Take notes made,
+   * recording at once once the User has read the one-time notice; the Meeting recording now is
+   * opened instead, as Record a meeting opens it.
+   */
+  recordIn(mindId: string): Promise<void>;
   /**
    * "Record a voice memo" (#1568): the Meeting recording now, opened; else a memo records at
    * once, in the empty Mind in front, or in a new Mind in a tab of its own, in the Folder of the
@@ -142,6 +150,24 @@ export const useMeetings = create<MeetingsState>()((set, get) => {
     }
   };
 
+  /**
+   * A Meeting just made, shown (`show`) and started: at once once the one-time notice was read,
+   * else from its start block, which then takes the focus.
+   */
+  const startMade = async (meeting: Meeting, settings: Settings, show: () => Promise<unknown>) => {
+    const starts = settings.device.meetingNoticeAccepted;
+    if (starts) set((state) => ({ starting: { ...state.starting, [meeting.id]: true } }));
+    // The notes come first in a meeting: the text has the cursor, as in a Mind made with ⌘T.
+    // Under the start block it is the block's, so that Enter starts and Esc keeps the Mind as a note.
+    if (starts) useAppStore.setState({ bodyToFocus: meeting.mindId });
+    else set({ startToFocus: meeting.id });
+    await show();
+    if (starts) await get().start(meeting.id, meeting.systemAudio);
+    // The core's event can come after start() returns, and showing the start block between
+    // would flash it: the Meeting leaves "starting" with its status, or here if the start failed.
+    if (meeting.id in get().problems) set(stopStarting(meeting.id));
+  };
+
   return {
     meetings: [],
     problems: {},
@@ -179,22 +205,41 @@ export const useMeetings = create<MeetingsState>()((set, get) => {
         const folderId = minds.find((each) => each.id === inView)?.folderId ?? null;
         const meeting = await core.createMeeting(folderId ? { folderId } : undefined);
         created = meeting.id;
-        const starts = settings.device.meetingNoticeAccepted;
-        if (starts) set((state) => ({ starting: { ...state.starting, [meeting.id]: true } }));
-        // The notes come first in a meeting: the text has the cursor, as in a Mind made with ⌘T.
-        // Under the start block it is the block's, so that Enter starts and Esc keeps the Mind as a note.
-        if (starts) useAppStore.setState({ bodyToFocus: meeting.mindId });
-        else set({ startToFocus: meeting.id });
-        // A tab of its own, as New Mind opens one: never in place of the Mind the User is in.
-        await useAppStore.getState().changeLayout({
-          type: "open",
-          item: { kind: "mind", mindId: meeting.mindId },
-          where: { in: "group" },
-        });
-        if (starts) await get().start(meeting.id, meeting.systemAudio);
-        // The core's event can come after start() returns, and showing the start block between
-        // would flash it: the Meeting leaves "starting" with its status, or here if the start failed.
-        if (meeting.id in get().problems) set(stopStarting(meeting.id));
+        await startMade(meeting, settings, () =>
+          // A tab of its own, as New Mind opens one: never in place of the Mind the User is in.
+          useAppStore.getState().changeLayout({
+            type: "open",
+            item: { kind: "mind", mindId: meeting.mindId },
+            where: { in: "group" },
+          }),
+        );
+      } catch (error) {
+        useAppStore.getState().reportError(error);
+        if (created) set({ ...stopStarting(created)(get()), startToFocus: null });
+      }
+    },
+
+    async recordIn(mindId) {
+      const recording = get().meetings.find((each) => each.status === "recording");
+      if (recording) {
+        useAppStore.getState().openMind(recording.mindId);
+        return;
+      }
+      const { settings } = useAppStore.getState();
+      if (!settings) return;
+      if (settings.meetingAudio === "none") {
+        set({ cantRecord: true });
+        return;
+      }
+      let created: string | null = null;
+      try {
+        const meeting = await core.createMeeting({ mindId });
+        created = meeting.id;
+        // Listed at once, so the Note shows its start or its bar from the next paint.
+        set((state) => ({
+          meetings: [meeting, ...state.meetings.filter((each) => each.id !== meeting.id)],
+        }));
+        await startMade(meeting, settings, async () => undefined);
       } catch (error) {
         useAppStore.getState().reportError(error);
         if (created) set({ ...stopStarting(created)(get()), startToFocus: null });
@@ -245,7 +290,17 @@ export const useMeetings = create<MeetingsState>()((set, get) => {
         return;
       }
       await attempt(waiting.meetingId, async () => {
-        await core.updateSettings({ device: { meetingNoticeAccepted: true } });
+        // Setting up Meetings turns on the offers to take notes and what they need (#189), as the
+        // sheet says: Home's line for those set up before has nothing left to ask.
+        const offers = offersCanTurnOn();
+        await core.updateSettings({
+          device: {
+            meetingNoticeAccepted: true,
+            ...(offers && { keepRunning: true, callOffers: true }),
+          },
+        });
+        closeTip("call-offers");
+        if (offers) core.setOpenAtLogin(true).catch(useAppStore.getState().reportError);
         await core.startMeeting(waiting);
       });
     },

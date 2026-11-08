@@ -158,14 +158,15 @@ export function foldedWords(t: Translate, line: FoldedLine, words: FoldedWords):
 /** What a call of a Minds' Tool is doing, or did, in its row's words. */
 export function mindCallText(t: Translate, call: AnswerToolCall, mind: string): string {
   const change = call.mindChange;
+  // A check that outlives the call, as one after the Run does, keeps the row saying so until it ends (#2710).
+  const checking = change?.checking ?? 0;
+  if (checking > 0) {
+    return checking === 1
+      ? t("mindCall.checking.one", { mind })
+      : t("mindCall.checking", { mind, count: checking });
+  }
   if (call.status === "running") {
     if (call.tool === "read_mind") return t("mindCall.reading", { mind });
-    const checking = change?.checking ?? 0;
-    if (checking > 0) {
-      return checking === 1
-        ? t("mindCall.checking.one", { mind })
-        : t("mindCall.checking", { mind, count: checking });
-    }
     if (call.tool === "create_mind") {
       return mind ? t("mindCall.creating", { mind }) : t("mindCall.creating.new");
     }

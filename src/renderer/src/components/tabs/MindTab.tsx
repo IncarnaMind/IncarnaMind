@@ -28,6 +28,7 @@ import { MeetingInMind } from "../MeetingInMind";
 import { MeetingTranscriptInNote } from "../MeetingTranscriptInNote";
 import { MeetingViewChip } from "../MeetingViewChip";
 import { MindEditor } from "../MindEditor";
+import { EventBar } from "../meetings/EventBar";
 import { ChatReadinessNotice } from "../providers/ChatReadinessNotice";
 import { dropIntoClass } from "../sidebarRows";
 import { buttonStyle } from "../ui";
@@ -102,6 +103,7 @@ export function MindTab({ mindId }: { mindId: string }) {
               <div className="mind-measure">
                 {isExample && <ExampleIntro mindId={mindId} />}
                 <div ref={setTop} data-testid="mind-top-slot" />
+                <EventBar mindId={mind.id} />
                 <MeetingInMind mindId={mind.id} />
                 {/* The example works without a chat model: it says so in its Answer instead. */}
                 {!isExample && <ChatReadinessNotice />}
