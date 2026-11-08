@@ -32,3 +32,18 @@ Per language, from each run's per-case records (`report.json`), a range is the l
 ## Reported beside
 
 The first sign and the first words; done at the 90th percentile; where the time went (each request's first byte, first text and end); every case with a false Supported on either arm, with its sentence; the pooled count of presses with a false Supported per arm over the three runs; the spend and the load.
+
+## Result, 2026-11-08: English false Supported fails; it doesn't ship
+
+The run started at f8406b277 (`eval/results/speed-paired-2026-11-08T17-39-16-864Z`; its header names c2247b9d8, the commit when it ended, whose changes act only when the quick model is refused or busy, which no press met). Direct Anthropic key, judge Claude Opus 5.5, all 90 pairs finished, none failed. The 15-minute load was 23.8 at the start and 24.1–38.1 during the run (other work on the computer); it isn't run again, since the line that fails is quality, not time, and the cap leaves $0.68. Spent $3.32 with the one-case smoke run before it (the judge $1.12).
+
+Ranges over the three runs, `help-answers-model` (Sonnet 5.5) → `help-fastest` (Haiku 5.5); pooled counts over the 45 presses in brackets:
+
+| Language | False Supported | Every Citation found | Cited | Judged right | First whole option, median | Done, median |
+|---|---|---|---|---|---|---|
+| en | **3–5 → 6–10 (12 → 25)** | 15–15 → 14–15 (2 presses with a quote not found) | 15–15 → 13–15 | 14–15 → 13–13 | 4.64 → 0.95 s | 4.64 → 2.73 s |
+| zh-CN | 6–9 → 7–8 (23 → 23) | 15–15 → 13–15 (3 presses with a quote not found) | 15–15 → 12–14 | 14–15 → 9–13 | 5.02 → 0.96 s | 5.02 → 2.87 s |
+
+- **Fails:** in English, Haiku's lowest run (6) is above Sonnet's highest (5). Every Citation found and faster hold in both languages, and Chinese false Supported holds.
+- **What Haiku's English false Supported are** (read from the stored replies): a sentence that adds a fact its one marker's line doesn't hold ("…we can offer 10% off from 40 seats [1]", [1] the Enterprise price line), an inference cited as the line ("Team plan is $25 a seat, but single sign-on isn't in it [2]", [2] "Team plan: $25 per seat a month"), and a question to ask that carries a claim ("…does it include a shared inbox[1]?"). en-answer-total, en-no-price, en-check-wrong and en-answer-unknown had one in all three runs, against none, none, one and two on Sonnet.
+- So it doesn't ship, as the bar says: call help stays on the Answers model, and the numbers go on #2526. The branch `feat/2526-call-help-fastest` keeps the setting, the fallback and this gate for a next try, which needs Haiku's English replies to keep each fact to the line its marker names.
