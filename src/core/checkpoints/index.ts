@@ -33,8 +33,8 @@ import {
   CITATION_NODE,
   type CitationAttributes,
   CONTENT_SCHEMA_VERSION,
-  MIND_COMMENTS_FIELD,
   MIND_CONTENT_FIELD,
+  MIND_SETTINGS_FIELD,
   type MindComparison,
   RECENTLY_DELETED_DAYS,
   type RenamedCheckpoint,
@@ -155,12 +155,23 @@ const ordered = (value: unknown): unknown =>
         )
       : value;
 
-/** What the User and the AI wrote in a Mind: its Blocks and its comments, not its own choices. */
+/**
+ * Everything in a Mind's document but its own choices (`MIND_SETTINGS_FIELD`): its Blocks, and
+ * every other part, each a map (comments, sign-offs, which text the AI wrote, revisions, figure
+ * runs…), read with its keys in order. A part with nothing in it reads as no part.
+ */
 const writtenIn = (doc: Y.Doc): string =>
-  JSON.stringify([
-    doc.getXmlFragment(MIND_CONTENT_FIELD).toString(),
-    ordered(doc.getMap(MIND_COMMENTS_FIELD).toJSON()),
-  ]);
+  JSON.stringify(
+    [...doc.share.keys()]
+      .filter((name) => name !== MIND_SETTINGS_FIELD)
+      .sort()
+      .map((name) =>
+        name === MIND_CONTENT_FIELD
+          ? ([name, doc.getXmlFragment(name).toString()] as const)
+          : ([name, ordered(doc.getMap(name).toJSON())] as const),
+      )
+      .filter(([, value]) => value !== "" && !(isRecord(value) && Object.keys(value).length === 0)),
+  );
 
 export function createCheckpoints(options: CheckpointsOptions) {
   const { db, content, retention } = options;
