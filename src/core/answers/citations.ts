@@ -1790,7 +1790,7 @@ export interface Quoted {
   check(): CheckResult;
 }
 
-const toCitation = (record: Accepted, result: CheckResult | null): Citation => ({
+const toCitation = (record: Accepted, result: CheckResult | null, asShown = true): Citation => ({
   passageId: record.source.passageId,
   documentId: record.source.documentId,
   documentName: record.source.documentName,
@@ -1799,7 +1799,7 @@ const toCitation = (record: Accepted, result: CheckResult | null): Citation => (
   pageTo: record.range.pageTo,
   location: record.location,
   // A Citation that ends not found shows the words that weren't, not a sentence around them.
-  ...(record.shown && (!result || result.check === "found")
+  ...(asShown && record.shown && (!result || result.check === "found")
     ? { quote: record.shown, given: record.quote }
     : { quote: record.quote }),
   ...(record.source.yourNoteAt && { yourNoteAt: record.source.yourNoteAt }),
@@ -1837,12 +1837,6 @@ export interface CitationSessionEvents {
  * Passages, which a search that finds nothing gives instead, once. `ids`: the Citations the
  * Question context shows, which a record names by id to keep one as it is.
  */
-/** A quote's words alone, for telling two records' quotes are one: case, spaces and marks aside. */
-const quoteWords = (quote: string): string =>
-  normaliseText(quote)
-    .toLowerCase()
-    .replace(/[\p{P}\p{S}\s]+/gu, "");
-
 export function createCitationSession(
   documents: Omit<AnswerDocuments, "search" | "searchableCount"> &
     Partial<Pick<AnswerDocuments, "search" | "searchableCount">>,
@@ -1857,7 +1851,7 @@ export function createCitationSession(
   const records = new Map<number, Accepted>();
   /** Markers whose last record from a `cite` call was refused or came back with a problem to fix. */
   const toFix = new Set<number>();
-  /** Quotes `cite` has told the model two records share, by Document: each told once, never owed. */
+  /** Quotes `cite` has told the model two records share, by Document: each told once, as advice. */
   const toldSameQuote = new Set<string>();
   /** Records naming no Passage the model was given, or no marker: as given, and why. */
   const rejected: RejectedRecord[] = [];
@@ -2289,6 +2283,7 @@ export function createCitationSession(
   function cite(inputs: readonly CitationRecordInput[], options: CiteOptions = {}): string {
     const recorded: number[] = [];
     const problems: string[] = [];
+    const advice: string[] = [];
     for (const input of inputs) {
       const taken = take(input, options);
       if (!taken.ok) {
@@ -2310,20 +2305,21 @@ export function createCitationSession(
       } else toFix.delete(marker);
       const same = problem ? null : sameQuoteAs(record);
       const told =
-        same === null ? null : `${record.source.documentId}\n${quoteWords(record.quote)}`;
-      // Asked once, and never owed at the Answer's end: a claim the quote does state keeps it.
+        same === null ? null : `${record.source.documentId}\n${normaliseText(record.quote)}`;
       if (told !== null && !toldSameQuote.has(told)) {
         toldSameQuote.add(told);
-        problems.push(
-          `[^${marker}]: its quote is [^${same}]'s. Give it the words that state its own claim; if its claim is [^${same}]'s, cite [^${same}] there instead and leave [^${marker}] out.`,
+        advice.push(
+          ` [^${marker}] gives the quote of [^${same}]. If its claim is another, record it again with the words that state that claim; if it is the same claim, write [^${same}] for it.`,
         );
       }
     }
     const done = recorded.length
       ? `Recorded ${recorded.map((marker) => `[^${marker}]`).join(", ")}.`
       : "Nothing was recorded.";
+    // Advice, not a fix: asked as one, the gate's Answers were judged right less often and kept
+    // their shared quotes (#2739); and an Answer written beside `cite` stays complete.
     const fix = problems.length ? ` ${FIX_THESE}\n- ${problems.join("\n- ")}` : WRITE_NOW;
-    return `${done}${fix}`;
+    return `${done}${advice.join("")}${fix}`;
   }
 
   /**
@@ -2332,13 +2328,13 @@ export function createCitationSession(
    */
   function sameQuoteAs(record: Accepted): number | null {
     if (!events.quotesStateClaims?.() || record.kept || !record.quote) return null;
-    const words = quoteWords(record.quote);
+    const words = normaliseText(record.quote);
     for (const other of records.values()) {
       if (
         other.marker !== record.marker &&
         !other.kept &&
         other.source.documentId === record.source.documentId &&
-        quoteWords(other.quote) === words
+        normaliseText(other.quote) === words
       ) {
         return other.marker;
       }
@@ -2387,7 +2383,7 @@ export function createCitationSession(
     passageText: record.source.text,
     matching: matchingFor(record.source),
     // A figure reads its number from the words the model gave, not the sentence shown around them.
-    citation: { ...toCitation(record, null), quote: record.quote },
+    citation: toCitation(record, null, false),
     units: citedText(record),
     check: () => check(record),
   });
