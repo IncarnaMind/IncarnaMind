@@ -503,24 +503,81 @@ describe.each(["en", "zh-CN"] as const)("existing fill behavior in %s", (languag
     expect(await show(meetingOf(null))).toBeNull();
   });
 
+  // protects=after Stop, the line says each step only while it runs: the Transcript finishing, its speakers told apart while the notes wait for them, the note filled in, how many claims are checked, and the speakers still told apart beside a call's note being filled in (#2839); fails_when=a step's words show while another runs, the count or the pass is left out, or the line offers an action; no_claim=which step the core is in, which tests/core/meetingFill.test.ts covers.
   test.each([
-    ["waiting", true, false, "Finishing the transcript…", "正在完成转写稿…"],
-    ["waiting", false, false, "Filling in the note…", "正在补全笔记…"],
-    ["filling", false, false, "Filling in the note…", "正在补全笔记…"],
-    ["filling", false, true, "Filling in the note on this computer…", "正在这台电脑上补全笔记…"],
+    ["waiting", "finishing", false, false, 0, "Finishing the transcript…", "正在完成转写稿…", null],
+    ["waiting", "saved", true, false, 0, "Telling the speakers apart…", "正在区分发言人…", null],
+    ["waiting", "saved", false, false, 0, "Filling in the note…", "正在补全笔记…", null],
+    ["filling", "saved", false, false, 0, "Filling in the note…", "正在补全笔记…", null],
+    [
+      "filling",
+      "saved",
+      false,
+      true,
+      0,
+      "Filling in the note on this computer…",
+      "正在这台电脑上补全笔记…",
+      null,
+    ],
+    [
+      "filling",
+      "saved",
+      true,
+      false,
+      0,
+      "Filling in the note…",
+      "正在补全笔记…",
+      ["Telling the speakers apart…", "正在区分发言人…"],
+    ],
+    ["filling", "saved", false, false, 1, "Checking 1 claim…", "正在核对 1 条说法…", null],
+    [
+      "filling",
+      "saved",
+      true,
+      false,
+      17,
+      "Checking 17 claims…",
+      "正在核对 17 条说法…",
+      ["Telling the speakers apart…", "正在区分发言人…"],
+    ],
   ] as const)(
-    "%s (speakers being told apart: %s, local: %s) says what is under way, with the live dot and no actions",
-    async (state, separating, local, en, zh) => {
-      const meeting = meetingOf(fillOf({ state, local }));
+    "%s, Transcript %s (speakers being told apart: %s, local: %s, claims checked: %i) says what is under way, with the live dot and no actions",
+    async (state, transcriptState, separating, local, checking, en, zh, detail) => {
+      const meeting = meetingOf(fillOf({ state, local, checking }));
       const transcript = meeting.transcript;
       if (!transcript) throw new Error("The meeting has no Transcript.");
-      const line = await show({ ...meeting, transcript: { ...transcript, separating } });
-      expect(line?.textContent).toBe(language === "en" ? en : zh);
+      const line = await show({
+        ...meeting,
+        transcript: { ...transcript, state: transcriptState, separating },
+      });
+      const words = language === "en" ? en : zh;
+      const also = detail ? (language === "en" ? detail[0] : detail[1]) : null;
+      expect(line?.textContent).toBe(also ? `${words} · ${also}` : words);
       expect(line?.getAttribute("role")).toBe("status");
-      expect(line?.querySelector(".answer-writing")?.textContent).toBe(language === "en" ? en : zh);
+      expect(line?.querySelector(".answer-writing")?.textContent).toBe(words);
       expect(line?.querySelectorAll("button")).toHaveLength(0);
     },
   );
+
+  // protects=a call's note filled in while its speakers are still told apart says so beside its Undo until the pass ends, as its Citations may then name who spoke (#2839); fails_when=the line hides the pass, or keeps saying it once the pass has ended; no_claim=the Citations' speakers, which tests/core/meetingFill.test.ts covers.
+  test("a note filled in while its speakers are told apart says so until the pass ends", async () => {
+    const { holdFillSteps } = await import("../../src/renderer/src/meetingFillSteps");
+    const release = holdFillSteps("meeting-with-partial-notes", EDITOR, heldSteps());
+    const meeting = meetingOf(fillOf({ state: "filled" }));
+    const transcript = meeting.transcript;
+    if (!transcript) throw new Error("The meeting has no Transcript.");
+    const telling = await show({ ...meeting, transcript: { ...transcript, separating: true } });
+    expect(telling?.textContent).toBe(
+      language === "en"
+        ? "Note filled in from the call · Telling the speakers apart… · Undo"
+        : "已补全笔记 · 正在区分发言人… · 撤销",
+    );
+    const told = await show(meeting);
+    expect(told?.textContent).toBe(
+      language === "en" ? "Note filled in from the call · Undo" : "已补全笔记 · 撤销",
+    );
+    await act(async () => release());
+  });
 
   // protects=from Stop, while the speech model the Transcript is finished with still downloads, the note's line says how far, in the transcript's own words (#2773); fails_when=it says only that the transcript is being finished, or nothing; no_claim=the download itself.
   test("while the speech model downloads after Stop, the line says how far", async () => {

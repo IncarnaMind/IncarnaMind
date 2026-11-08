@@ -82,6 +82,13 @@ export function MeetingFillLine({ meeting, editor }: { meeting: Meeting; editor?
       { service: problem?.service ?? "" },
     );
 
+  const transcript = meeting.transcript;
+  // A call's notes go in while its speakers may still be told apart (#2839): the line says so
+  // until the pass ends, as their Citations may then name who spoke.
+  const separating =
+    meeting.kind === "meeting" && transcript?.state === "saved" && transcript.separating;
+  const telling = separating ? [t("meetings.transcript.separating")] : [];
+
   if (problem && fill.state !== "waiting" && fill.state !== "filling") {
     return (
       <ProblemLine
@@ -99,24 +106,34 @@ export function MeetingFillLine({ meeting, editor }: { meeting: Meeting; editor?
     );
   }
   if (fill.state === "waiting" || fill.state === "filling") {
-    // From Stop, a call's note says what is under way: its Transcript's last lines and speakers,
-    // then the note, which a finished Transcript starts at once (#2773). A Transcript that
-    // stopped says why in its own line.
-    const transcript = meeting.transcript;
-    const call = meeting.kind === "meeting" && fill.state === "waiting" && !transcript?.problem;
-    const finished = transcript?.state === "saved" && !transcript.separating;
-    const finishing = call && !finished;
+    // From Stop, a Meeting's note says what is under way, each step only while it runs: its
+    // Transcript's last lines, its speakers told apart, the note, then its claims' checks
+    // (#2839). A Transcript that stopped says why in its own line.
+    const waiting = meeting.kind === "meeting" && fill.state === "waiting" && !transcript?.problem;
+    const finishing = waiting && transcript?.state !== "saved";
     const downloading = finishing ? speechModelDownload(transcript?.model ?? null, t) : null;
+    const checking = fill.state === "filling" ? (fill.checking ?? 0) : 0;
     const text = downloading
       ? t("meetings.transcript.finishingDownload", downloading)
       : finishing
         ? t("meetings.transcript.finishing")
-        : fill.state === "waiting" && !call
-          ? t(words.waiting)
-          : t(fill.local ? words.fillingLocal : words.filling);
+        : waiting && separating
+          ? t("meetings.transcript.separating")
+          : fill.state === "waiting" && !waiting
+            ? t(words.waiting)
+            : checking > 0
+              ? t(checking === 1 ? "meetings.fill.checking.one" : "meetings.fill.checking", {
+                  count: checking,
+                })
+              : t(fill.local ? words.fillingLocal : words.filling);
     return (
-      <ProblemLine testId="meeting-fill-line" role="status" className="">
-        <span className={fill.state === "filling" || call ? "answer-writing" : undefined}>
+      <ProblemLine
+        testId="meeting-fill-line"
+        role="status"
+        className=""
+        details={fill.state === "filling" ? telling : []}
+      >
+        <span className={fill.state === "filling" || waiting ? "answer-writing" : undefined}>
           {text}
         </span>
       </ProblemLine>
@@ -137,6 +154,7 @@ export function MeetingFillLine({ meeting, editor }: { meeting: Meeting; editor?
         role={filled ? "status" : "alert"}
         title={!filled && fill.problem?.kind === "model" ? fill.problem.message : undefined}
         details={[
+          ...(filled ? telling : []),
           ...(omitted > 0
             ? [
                 t(omitted === 1 ? "meetings.fill.omitted.one" : "meetings.fill.omitted", {
@@ -175,7 +193,13 @@ export function MeetingFillLine({ meeting, editor }: { meeting: Meeting; editor?
     // A call's note fills in as any AI edit applies: its line goes once the User types (#2527).
     if (meeting.kind === "meeting" && step !== "top") return null;
     return (
-      <ProblemLine testId="meeting-fill-line" role="status" className="" action={undo}>
+      <ProblemLine
+        testId="meeting-fill-line"
+        role="status"
+        className=""
+        details={telling}
+        action={undo}
+      >
         {fill.mode === "transcript" ? (
           t("memos.fill.asIs", { reason: reasonOf(fill.problem) })
         ) : (

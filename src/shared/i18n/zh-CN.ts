@@ -6349,6 +6349,7 @@ export const zhCN = {
   "meetings.transcript.behind": "录制中… 实时转写跟不上，停止录制后会补全转写稿。",
   "meetings.transcript.behindPaused": "尚未全部转写，停止录制后会补全。",
   "meetings.transcript.finishing": "正在完成转写稿…",
+  "meetings.transcript.separating": "正在区分发言人…",
   "meetings.transcript.finishingDownload":
     "正在完成转写稿：正在下载语音模型（{percent}%，共 {size}）…",
   "meetings.transcript.saved": "转写稿已保存",
@@ -6371,6 +6372,8 @@ export const zhCN = {
   "meetings.fill.question.sections": "写出这次通话的笔记。",
   "meetings.fill.waiting": "转写稿保存后补全笔记…",
   "meetings.fill.filling": "正在补全笔记…",
+  "meetings.fill.checking.one": "正在核对 {count} 条说法…",
+  "meetings.fill.checking": "正在核对 {count} 条说法…",
   "meetings.fill.fillingLocal": "正在这台电脑上补全笔记…",
   "meetings.fill.filled": "已补全笔记",
   "meetings.fill.partial": "笔记未能全部补全",
