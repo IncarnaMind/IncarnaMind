@@ -3442,7 +3442,7 @@ async function withDocuments(core: Core, call: Call): Promise<string | null> {
   );
   const others = library
     ? (await readdir(library))
-        .filter((file) => /\.(?:md|txt)$/.test(file))
+        .filter((file) => /\.(?:md|txt|pdf)$/.test(file))
         .map((file) => join(library, file))
     : [];
   if (written.length + others.length === 0) return null;
