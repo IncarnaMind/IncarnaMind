@@ -191,6 +191,7 @@ import {
 import type { AnswerFlow } from "../providers/catalog/answerPaths";
 import type { ThinkingKind } from "../providers/catalog/types";
 import type { PreparedChatModel } from "../providers/chat";
+import { refusedGoesTo } from "../providers/modelRefusal";
 import type { ModelCallKind } from "../providers/outputLimits";
 import { classifyProviderError } from "../providers/providerErrors";
 import type { WebResult } from "../providers/webSearch";
@@ -441,6 +442,8 @@ interface WrittenAnswer {
   read: AnswerRead | null;
   /** How it was reached: what an Answer in a conversation shows above its text (#391). */
   steps: AnswerSteps;
+  /** The model writing it, where that isn't the one it was asked of: call help's own (#2526). */
+  writtenBy: ChatModelChoice | null;
 }
 
 /** The Mind a Question in a conversation reads, as read when it was asked (or its Answer regenerated). */
@@ -656,6 +659,13 @@ export interface AnswersOptions {
     choice: ChatModelChoice,
     thinking: "off" | "summary" | ThinkingKind,
   ): Promise<PreparedChatModel>;
+  /**
+   * The model call help answers on under `answers` (#2526), of the same provider; null:
+   * `answers` itself.
+   */
+  helpModel?(answers: ChatModelChoice): ChatModelChoice | null;
+  /** `model`, call help's, was refused by its provider, and the press went to `answers` instead. */
+  helpModelRefused?(model: ChatModelChoice, answers: ChatModelChoice, error: unknown): void;
   /**
    * The model for the calls that don't write the Answer, asked to skip thinking:
    * the quick-tasks model for an Answer asked with `answers`, which may be
@@ -1821,6 +1831,7 @@ export function createAnswers(options: AnswersOptions) {
             textOrigin,
             read,
             steps: steps(),
+            writtenBy,
           },
           outcome,
         );
@@ -1830,6 +1841,8 @@ export function createAnswers(options: AnswersOptions) {
       }
     };
 
+    /** Call help's own model while it writes the reply; null: the model it was asked of (#2526). */
+    let writtenBy: ChatModelChoice | null = null;
     let settled = false;
     /** The text as it ends: each quote checked, once, and the markers no Citation backs taken out. */
     const settle = () => {
@@ -2432,8 +2445,31 @@ export function createAnswers(options: AnswersOptions) {
       const thinking = help
         ? "off"
         : (input.thinking ?? (input.task ? "task" : careful ? "careful" : "answer"));
+      const helpModel = help ? (options.helpModel?.(model) ?? null) : null;
+      // A provider that refuses call help's model has the press answered on the Answers model,
+      // with nothing said in the panel (#2526).
+      const helpRefused = (refused: ChatModelChoice, error: unknown) => {
+        if (writtenBy !== null) {
+          writtenBy = model;
+          writeSoon();
+        }
+        options.helpModelRefused?.(refused, model, error);
+      };
       try {
         prepared = await options.prepareModel(model, thinking);
+        if (helpModel) {
+          try {
+            const quick = await options.prepareModel(helpModel, thinking);
+            const answers = prepared.model;
+            prepared = {
+              ...quick,
+              model: refusedGoesTo(quick.model, answers, (error) => helpRefused(helpModel, error)),
+            };
+            writtenBy = helpModel;
+          } catch (error) {
+            helpRefused(helpModel, error);
+          }
+        }
       } catch (error) {
         finish({ status: "failed", error: failureOf(error) });
         return;
@@ -3969,6 +4005,7 @@ export function createAnswers(options: AnswersOptions) {
         textOrigin: answer.textOrigin,
         read: answer.read,
         steps: answer.steps,
+        ...(answer.writtenBy && { model: answer.writtenBy }),
         ...(outcome && {
           outcome: {
             status: outcome.status,

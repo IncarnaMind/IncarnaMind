@@ -332,6 +332,7 @@ import {
 import { isCloudModelName } from "./providers/ollamaCloud";
 import { createOllamaModels } from "./providers/ollamaModels";
 import { outputTokens } from "./providers/outputLimits";
+import { classifyProviderError } from "./providers/providerErrors";
 import { createAiSdkRerankingModel, createRerank } from "./providers/rerank";
 import { createQuestions } from "./questions";
 import { createRecentlyDeleted } from "./recentlyDeleted";
@@ -2197,6 +2198,9 @@ export function createCore(adapters: CoreAdapters): Core {
     reportError: (mindId, error) =>
       console.error(`AI use recording failed for Mind ${mindId}:`, error),
   });
+  /** Call help's models their provider refused, by provider and model (#2526). */
+  const refusedHelp = new Set<string>();
+  const helpKey = ({ providerId, modelId }: ChatModelChoice) => `${providerId}\n${modelId}`;
   const answers = createAnswers({
     content,
     changes,
@@ -2224,6 +2228,24 @@ export function createCore(adapters: CoreAdapters): Core {
     readsImages: (choice) => chat.readsImages(choice),
     readiness: async (choice) => chat.readiness(await chat.answeringModel(choice)),
     prepareModel: (choice, thinking) => chat.prepareModel(choice, "chat", thinking),
+    helpModel(answers) {
+      if (settings.get().user.callHelpModel === "answers") return null;
+      const fastest = chat.fastestHelpModel(answers);
+      if (!fastest || fastest.modelId === answers.modelId || refusedHelp.has(helpKey(fastest)))
+        return null;
+      return fastest;
+    },
+    helpModelRefused(model, answers, error) {
+      // Kept until IncarnaMind restarts, so each press doesn't wait on the refusal first.
+      refusedHelp.add(helpKey(model));
+      const { kind, status } = classifyProviderError(error);
+      (adapters.log ?? silentLogger).warn("callHelp.modelRefused", {
+        model: model.modelId,
+        answeredOn: answers.modelId,
+        kind,
+        status,
+      });
+    },
     writesThenCites: ({ provider, modelId }, flow) =>
       writesThenCites({ catalogId: provider.catalogId, modelId }, flow, adapters.answerPaths),
     retrievesFirst: ({ provider, modelId }, flow) =>
@@ -6224,7 +6246,11 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     testChatConnection: (input) => loggingTest("chat")(chat.test(input)),
     testChatProvider: (providerId) => loggingTest("chat")(chat.testProvider(providerId)),
-    getModelRoles: async () => ({ quickTasks: chat.quickTasksModel(), images: chat.imageModel() }),
+    getModelRoles: async () => ({
+      quickTasks: chat.quickTasksModel(),
+      images: chat.imageModel(),
+      callHelp: chat.fastestHelpModel(),
+    }),
     getChatReadiness: () => chat.readiness(),
     listChatModels: () => chat.listModels(),
     setChatModelInMenu: async (input) => chat.setInMenu(input),

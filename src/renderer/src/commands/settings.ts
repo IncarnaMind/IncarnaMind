@@ -50,6 +50,19 @@ export const settingsPageCommands: readonly Command[] = [
     run: () => useAppStore.getState().openSettings("meetings", "meeting-words"),
   },
   {
+    id: "settings.callHelpModel",
+    label: "command.settings.callHelpModel",
+    keywords: [
+      "settings.title",
+      "settings.pages.meetings",
+      "meetings.callHelp",
+      "command.settings.callHelpModel.keywords",
+    ],
+    group: "open",
+    reversible: true,
+    run: () => useAppStore.getState().openSettings("meetings", "call-help-model"),
+  },
+  {
     id: "settings.addProvider",
     assistant: { never: "keys" },
     label: "command.settings.addProvider",

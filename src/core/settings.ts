@@ -11,6 +11,8 @@ import { DEFAULT_MIND_STYLE, isMindStyle } from "../shared/mindStyle";
 import {
   APPEARANCES,
   type Appearance,
+  CALL_HELP_MODELS,
+  type CallHelpModel,
   type ChatModelChoice,
   CITATION_PLACES,
   type DeviceSettings,
@@ -173,6 +175,7 @@ const userScope: Scope<UserSettings> = {
     chatModel: null,
     quickTasksModel: null,
     imageModel: null,
+    callHelpModel: "fastest",
     suggestWhileWriting: false,
     leaveOutOwnFiles: true,
     // Word is the deliverable most asked for; the deliverables leave the Questions out.
@@ -199,6 +202,8 @@ const userScope: Scope<UserSettings> = {
     chatModel: isModelSetting,
     quickTasksModel: isModelSetting,
     imageModel: isModelSetting,
+    callHelpModel: (value): value is CallHelpModel =>
+      CALL_HELP_MODELS.some((each) => each === value),
     suggestWhileWriting: isBoolean,
     leaveOutOwnFiles: isBoolean,
     exportOptions: isExportPreferences,

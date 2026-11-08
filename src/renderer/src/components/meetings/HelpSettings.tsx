@@ -1,5 +1,5 @@
-import { type KeyboardEvent, useId, useState } from "react";
-import type { Settings } from "../../../../core/api";
+import { type KeyboardEvent, useEffect, useId, useState } from "react";
+import type { CallHelpModel, ChatModelChoice, Settings } from "../../../../core/api";
 import {
   defaultHelpKeys,
   HELP_SHORTCUTS,
@@ -10,9 +10,12 @@ import {
 } from "../../../../shared/meetingHelp";
 import { SAYS_HIDDEN_FROM_SHARES } from "../../../../shared/meetingPanel";
 import { keysHere } from "../../commands/keymap";
-import { files } from "../../core";
+import { core, files } from "../../core";
 import { useT } from "../../i18n";
+import { useModelNames } from "../../modelNames";
+import { useSettingsTarget } from "../../settingsTarget";
 import { useAppStore } from "../../store";
+import { PopUpButton } from "../settings/PopUpButton";
 import {
   SettingsGroup,
   SettingsRow,
@@ -183,9 +186,82 @@ function ShortcutRow({ kind, device }: { kind: HelpShortcut; device: Settings["d
   );
 }
 
+const MODEL_TARGET = ["call-help-model"] as const;
+
+/** The fastest model call help can answer on, as the core works it out, asked again when the models change. */
+function useFastestHelpModel(): ChatModelChoice | null {
+  const chatModel = useAppStore((state) => state.settings?.user.chatModel);
+  const quickTasksModel = useAppStore((state) => state.settings?.user.quickTasksModel);
+  const [fastest, setFastest] = useState<ChatModelChoice | null>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: asked again whenever they change.
+  useEffect(() => {
+    core.getModelRoles().then(
+      (roles) => setFastest(roles.callHelp),
+      (failure: unknown) => console.error("Couldn't read call help's fastest model:", failure),
+    );
+  }, [chatModel, quickTasksModel]);
+  return fastest;
+}
+
+/**
+ * Which model call help answers on (#2526): the fastest, the Answers model's provider's quick
+ * model, by default; or the Answers model itself. Each option names its model.
+ */
+function CallHelpModelRow() {
+  const t = useT();
+  const labelId = useId();
+  const chosen = useAppStore((state) => state.settings?.user.callHelpModel);
+  const answers = useAppStore((state) => state.settings?.user.chatModel ?? null);
+  const updateSettings = useAppStore((state) => state.updateSettings);
+  const fastest = useFastestHelpModel();
+  const names = useModelNames();
+  const row = useSettingsTarget<HTMLDivElement>(MODEL_TARGET, chosen !== undefined, () =>
+    queueMicrotask(() =>
+      row.current?.querySelector<HTMLButtonElement>("button")?.focus({ preventScroll: true }),
+    ),
+  );
+  if (!chosen) return null;
+  const nameOf = (choice: ChatModelChoice | null) =>
+    choice && names(choice.modelId, choice.providerId).name;
+  const fastestName = nameOf(fastest);
+  const answersName = nameOf(answers);
+  return (
+    <SettingsRow
+      ref={row}
+      data-testid="call-help-model-row"
+      label={t("meetings.settings.helpModel")}
+      labelId={labelId}
+      tip={t("meetings.settings.helpModel.tip")}
+      control={
+        <PopUpButton<CallHelpModel>
+          value={chosen}
+          options={[
+            {
+              value: "fastest",
+              label: fastestName
+                ? t("meetings.settings.helpModel.fastest", { model: fastestName })
+                : t("meetings.settings.helpModel.fastestUnnamed"),
+            },
+            {
+              value: "answers",
+              label: answersName
+                ? t("meetings.settings.helpModel.answers", { model: answersName })
+                : t("meetings.settings.helpModel.answersUnnamed"),
+            },
+          ]}
+          onChange={(callHelpModel) => void updateSettings({ user: { callHelpModel } })}
+          labelledBy={labelId}
+          testId="call-help-model"
+        />
+      }
+    />
+  );
+}
+
 /**
  * Settings › Meetings › Help during the call: whether the floating panel shows while a
- * meeting records, whether it is kept out of the User's screen share, and the buttons' shortcuts.
+ * meeting records, whether it is kept out of the User's screen share, the model it answers on,
+ * and the buttons' shortcuts.
  */
 export function HelpSettings() {
   const t = useT();
@@ -214,6 +290,7 @@ export function HelpSettings() {
               switchTestId="help-hidden-setting"
             />
           )}
+          <CallHelpModelRow />
         </SettingsGroup>
       </SettingsSection>
       <SettingsSection
