@@ -385,6 +385,15 @@ The picker's rules stay, and code never records a line that doesn't hold its cla
 
 The slice below was written and committed before this code. The rules come from the fourth look's replies and from no press of this slice.
 
+### Changed before the run, after an independent pre-review (2026-11-08)
+
+The pre-review found ways the first version of this code showed a quote as found for a sentence it doesn't state, so the list above changed before any run:
+
+- **The Document's line holds the whole sentence,** with the words after the agreement too ("…agrees, though drivers start at 45 hours" gets nothing). It is recorded only when those words say the Document agrees (agree, confirm, support, match, the same; 一致, 相符, 支持 and their kin). "Differs" or "says otherwise" shows no negation, so it is left as it is, as is a sentence already citing the Document.
+- **The line found for such a sentence, which no model named,** gives each figure of its kind and unit exactly ("40 hours" is no "40 shifts"), each unit of time the sentence names ("a month" is no "a year"), no row the sentence doesn't name, and no "only", "but" or 只 that the sentence doesn't say.
+- **A sentence is read clause by clause only when each clause names rows of its own.** A clause is never quoted when its whole sentence says the claim's opposite. A further quote naming only rows other than the claim's is never added, and a quote naming only other rows holds none of the claim's figures.
+- **The window a marker names keeps its quote,** as before. Taking the window holding the most of the claim picked a line with another figure (25 admins for 40), and the diagnosed press didn't need it.
+
 ### The slice
 
 `../callHelpAgrees.ts` (`call-help-agrees`) holds 12 English and 12 Chinese presses. They are set at a hotel laundry service selling to a hotel group. Each language has four Documents: plans with a table, a volume price and a compound sentence about two plans; collection and delivery; damage and loss; billing terms. None of them is in a set before it.
