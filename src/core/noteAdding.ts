@@ -36,7 +36,6 @@ import {
   type BlockOrigin,
   type ChatModelChoice,
   PROPOSAL_ATTRIBUTE,
-  type ProposalAttribute,
   type ProposalRequest,
   type RecheckCitationInput,
   type RecheckResult,
@@ -45,6 +44,8 @@ import {
 } from "./api";
 import { InvalidInputError, isRecord } from "./errors";
 import type { MindContent } from "./mindContent";
+import { recordOf } from "./proposals/apply";
+import { blockProposal } from "./proposals/write";
 import { isChatModelChoice } from "./settings";
 
 export interface NoteAddingOptions {
@@ -69,11 +70,7 @@ const proposed = (block: NodeJSON, request: string): NodeJSON => ({
   ...block,
   attrs: {
     ...block.attrs,
-    [PROPOSAL_ATTRIBUTE]: {
-      id: randomUUID(),
-      request,
-      kind: "insert",
-    } satisfies ProposalAttribute,
+    [PROPOSAL_ATTRIBUTE]: blockProposal({ id: randomUUID(), request }, "insert", ""),
   },
 });
 
@@ -167,13 +164,15 @@ export function createNoteAdding(options: NoteAddingOptions) {
         if (doc && origin) setOrigins(doc, ids, origin);
         const brought = doc && carryAnswerScope(doc, asked, folderId);
         if (brought && ids[0]) carried.set(ids[0], brought);
-        if (doc && proposed && model && !proposalRequestOf(doc, request)) {
-          recordProposalRequest(doc, request, {
-            source: "answer-added",
-            providerId: model.providerId,
-            modelId: model.modelId,
-            createdAt: options.now().toISOString(),
-          });
+        if (doc && proposed && model && ids.length > 0 && !proposalRequestOf(doc, request)) {
+          recordProposalRequest(
+            doc,
+            request,
+            recordOf(
+              { source: "answer-added", providerId: model.providerId, modelId: model.modelId },
+              options.now(),
+            ),
+          );
         }
         return ids;
       });

@@ -295,6 +295,7 @@ import { createOutputFiles, fileProblem, fingerprintOf } from "./outputFiles";
 import { PAPER as PAGE_PAPER } from "./pageDefaults";
 import { nativePageSetup } from "./pageSetup";
 import { createPrivacy, type NetworkTrafficRegistry } from "./privacy";
+import { createChanges } from "./proposals/apply";
 import { KeyCharacterError, storedApiKey } from "./providers/apiKey";
 import { readsImages } from "./providers/capabilities";
 import { marksPassages, retrievesFirst, writesThenCites } from "./providers/catalog/answerPaths";
@@ -756,6 +757,7 @@ export function createCore(adapters: CoreAdapters): Core {
     content,
     mindIds: () => minds.list().map((mind) => mind.id),
   });
+  const changes = createChanges({ notes: content, now: () => adapters.now?.() ?? new Date() });
   // A Mind waiting in Recently deleted comes back with its Citations, so it counts until it is purged.
   const eachCitingMind = (
     visit: (blocks: Y.XmlFragment, mindId: string) => void,
@@ -2199,6 +2201,7 @@ export function createCore(adapters: CoreAdapters): Core {
   });
   const answers = createAnswers({
     content,
+    changes,
     events,
     engine: answerEngine,
     ...(adapters.analysisRuntime && { analysisRuntime: adapters.analysisRuntime }),
@@ -2376,6 +2379,7 @@ export function createCore(adapters: CoreAdapters): Core {
       checkpoint: (mindId) => {
         checkpoints.save(mindId, "accept");
       },
+      now: () => adapters.now?.() ?? new Date(),
       create: (title, folderId, headed) => {
         const mind = makeMind({ title, kind: DEFAULT_MIND_KIND, folderId }, { headed });
         return { id: mind.id, name: mindName(mind) || title };
@@ -2521,7 +2525,7 @@ export function createCore(adapters: CoreAdapters): Core {
       const permitted = ids.filter((id) => allowed.includes(id));
       return evidence.scope(mindId, permitted).documentIds ?? [...permitted];
     },
-    checkpoint: (mindId) => checkpoints.save(mindId, "compare"),
+    changes,
     tasks: {
       start: (kind, mindId, input) => tasks.start(kind, mindId, input),
       unfinished: () => tasks.unfinished(),
@@ -2839,6 +2843,7 @@ export function createCore(adapters: CoreAdapters): Core {
   // Edit with AI (#93): the change comes back as Proposals; Citations it keeps are checked again.
   const edits = createEdits({
     content,
+    changes,
     requireMind: (mindId) => {
       writableMind(mindId);
     },
@@ -2877,7 +2882,6 @@ export function createCore(adapters: CoreAdapters): Core {
     checkpoint: (mindId) => {
       checkpoints.save(mindId, "accept");
     },
-    now: () => adapters.now?.() ?? new Date(),
   });
 
   // Check against Documents (#96): check Runs that can only search and cite.

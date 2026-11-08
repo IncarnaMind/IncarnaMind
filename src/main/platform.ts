@@ -787,7 +787,9 @@ function audioCapture(log: Logger): AudioCapture | undefined {
           ? "denied"
           : process.env.INCARNAMIND_TEST_AUDIO_MICROPHONE === "waiting"
             ? "waiting"
-            : "allowed",
+            : process.env.INCARNAMIND_TEST_AUDIO_MICROPHONE === "silent"
+              ? "silent"
+              : "allowed",
     });
     (globalThis as { incarnamindFakeAudio?: FakeCapture }).incarnamindFakeAudio = fake;
     return fake;

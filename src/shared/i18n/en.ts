@@ -6548,6 +6548,8 @@ export const en = {
   "meetings.line.gapSleep": "{missed} not recorded at {time}: the computer was asleep.",
   "meetings.line.saveFailed": "Audio couldn’t be saved: {message}",
   "meetings.line.microphoneDenied": "IncarnaMind isn’t allowed to use the microphone.",
+  "meetings.line.microphoneSilent":
+    "No sound from the microphone for 15 seconds: it may be muted, or the wrong one chosen.",
   "meetings.line.microphoneUnavailable": "No microphone was found.",
   "meetings.line.microphoneEnded": "The microphone stopped, and no other could be opened.",
   "meetings.line.systemDenied": "Only your microphone is recorded: computer sound isn’t allowed.",
@@ -7648,6 +7650,10 @@ export const en = {
     "In {name}, a Citation sits where it can’t stay one, such as in a formula or a link’s address: write it after the words it cites.",
   "agents.propose.unplaced":
     "These changes would add a Citation, footnote or figure IncarnaMind didn’t place, so nothing was written. Cite only with [cite:…] tokens.",
+  "agents.propose.typedTag":
+    "The text for {name} leaves out a <removed> tag the User typed there, which would take their words out, so nothing was written. Keep each tag as the paragraph has it.",
+  "agents.propose.misnamed":
+    "The text for {name} doesn’t say clearly which paragraph it replaces, so nothing was written.",
   "agents.mind.namedChoice": "named must be true or false.",
   // Settings → Agents (#351): plain words for people who never edit a settings file.
   "settings.pages.agents": "Agents",

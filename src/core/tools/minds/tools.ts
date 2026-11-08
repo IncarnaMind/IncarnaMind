@@ -67,9 +67,7 @@ import {
   onlyRemoves,
   pendingProposals,
   readProposalAttribute,
-  recordProposalRequest,
   removesOnlyAsked,
-  resolveProposals,
   waitingChanges,
 } from "../../../shared/proposals";
 import { changedText, paragraphsRemoved, sentenceChanges } from "../../../shared/sentenceChanges";
@@ -113,6 +111,7 @@ import { detectLanguage } from "../../documents/textLanguage";
 import { LANGUAGES, type Language } from "../../language";
 import { plainText } from "../../mindText";
 import { insertBlocks } from "../../noteAdding";
+import { type Change, createChanges } from "../../proposals/apply";
 import {
   citationsDropped,
   keepingTitle,
@@ -188,6 +187,8 @@ export interface MindsForTools {
   ): { text: string; origins: readonly ThirdPartySource[] };
   /** Saves a Checkpoint of the Mind as it is, before the AI changes it (#113). */
   checkpoint(mindId: string): void;
+  /** The core's clock, which a change's record is made on. */
+  now(): Date;
   /** Makes a Mind, in the Folder `folderId` or in none; `headed`, its text starts with its title (`makeMind`). */
   create(title: string, folderId: string | null, headed: boolean): ChangeableMind;
   /** Removes a Mind a call made, when it holds nothing but its title. */
@@ -207,8 +208,8 @@ export interface MindsForTools {
     instruction: string;
     prepared: PreparedChatModel;
     signal: AbortSignal;
-    /** Runs just before the change's first Proposals are written. */
-    beforeWriting(): void;
+    /** A Checkpoint, just before the change first applies. */
+    checkpoint(): void;
     /** More of its Proposals are in the Mind, as they come. */
     written(request: string, count: number): void;
     requested: RequestedChange | null;
@@ -900,6 +901,12 @@ const addedSaid = (added: readonly string[]) => {
   return `${added.length === 1 ? "this sentence you added cites" : `these ${added.length} sentences you added cite`} nothing: ${shown.join(", ")}${more}`;
 };
 
+const changedWhileRead = (mind: ChangeableMind) =>
+  new Refusal(
+    { kind: "changed", mindId: mind.id },
+    `That text of “${mind.name}” changed while it was being read. Nothing was changed.`,
+  );
+
 function addedUncitedMessage(mind: ChangeableMind, added: readonly string[]): string {
   return `Nothing was changed in “${mind.name}”: ${addedSaid(added)}; cite each from the Passage that says it, recording it with cite and writing its marker after it, or leave it out: keep out what the Documents don't say, such as your own comment or what you take to follow from them. Then call edit_mind again with the whole text.`;
 }
@@ -1164,6 +1171,7 @@ export function mindTools(options: MindToolsOptions): {
   settle(failed?: boolean): Promise<void>;
 } {
   const { minds, focused } = options;
+  const modelChanges = createChanges({ notes: minds, now: minds.now });
   const ownRequests = new Set<string>();
   // A revision of text this Answer wrote takes its place: the Answer's card counts it once.
   const replacedOwn = (mindId: string, blockIds: readonly string[]) => {
@@ -1374,6 +1382,7 @@ export function mindTools(options: MindToolsOptions): {
     /** The `after` the call named, for telling a different place. */
     named: string | null;
     request: string;
+    change: Change;
     /** The top-level Block the next ones go after; null: the Mind's end. */
     anchor: string | null;
     /** How many of the call's Blocks are in. */
@@ -1402,6 +1411,18 @@ export function mindTools(options: MindToolsOptions): {
       mind,
       named: after,
       request,
+      // A Mind the call made has nothing before it to keep.
+      change: modelChanges.start({
+        mindId: mind.id,
+        request,
+        made: {
+          source: "answer-added",
+          providerId: options.prepared.provider.id,
+          modelId: options.prepared.modelId,
+          requested: "write",
+        },
+        ...(!made && { checkpoint: () => minds.checkpoint(mind.id) }),
+      }),
       anchor: place.after,
       written: 0,
       ids: [],
@@ -1411,35 +1432,33 @@ export function mindTools(options: MindToolsOptions): {
     };
   };
 
-  /** Writes those of `blocks` the writer hasn't yet, after the ones it has. */
-  const writeMore = (writer: Writer, blocks: readonly NodeJSON[]): void => {
-    const fresh = blocks.slice(writer.written);
-    if (fresh.length === 0) return;
-    const first = writer.written === 0;
-    if (first && !writer.made) minds.checkpoint(writer.mind.id);
-    minds.edit(writer.mind.id, (note) => {
+  /** Puts `blocks` after the top-level Block `after` (null: at the end), linked back to the Answer. */
+  const insertFor = (
+    writer: Pick<Writer, "change" | "request" | "origin">,
+    blocks: readonly NodeJSON[],
+    after: string | null,
+  ) =>
+    writer.change.write((note) => {
       const anchor = note
         .toArray()
         .find(
           (each): each is Y.XmlElement =>
-            each instanceof Y.XmlElement && writer.anchor !== null && idOf(each) === writer.anchor,
+            each instanceof Y.XmlElement && after !== null && idOf(each) === after,
         );
-      const ids = insertBlocks(note, fresh, { after: anchor ?? null, request: writer.request });
-      writer.anchor = ids.at(-1) ?? writer.anchor;
-      writer.ids.push(...ids);
-      const doc = note.doc;
-      if (!doc) return;
-      setOrigins(doc, ids, writer.origin);
-      if (first) {
-        recordProposalRequest(doc, writer.request, {
-          source: "answer-added",
-          providerId: options.prepared.provider.id,
-          modelId: options.prepared.modelId,
-          createdAt: options.now().toISOString(),
-          requested: "write",
-        });
-      }
+      const ids = insertBlocks(note, blocks, { after: anchor ?? null, request: writer.request });
+      if (note.doc) setOrigins(note.doc, ids, writer.origin);
+      return { changed: ids.length > 0, value: ids };
     });
+
+  /** Writes those of `blocks` the writer hasn't yet, after the ones it has. */
+  const writeMore = (writer: Writer, blocks: readonly NodeJSON[]): void => {
+    const fresh = blocks.slice(writer.written);
+    if (fresh.length === 0) return;
+    const outcome = insertFor(writer, fresh, writer.anchor);
+    if (outcome.kind === "unchanged") return;
+    if (outcome.kind !== "written") throw changedWhileRead(writer.mind);
+    writer.anchor = outcome.value.at(-1) ?? writer.anchor;
+    writer.ids.push(...outcome.value);
     writer.written = blocks.length;
   };
 
@@ -1593,12 +1612,7 @@ export function mindTools(options: MindToolsOptions): {
   };
 
   /** Takes back what a writer wrote: the call ended up meaning another Mind, or another place. */
-  const withdraw = (writer: Writer): void => {
-    if (writer.written === 0) return;
-    minds.edit(writer.mind.id, (note) => {
-      resolveProposals(note, (each) => each.request === writer.request, "reject");
-    });
-  };
+  const withdraw = (writer: Writer): void => writer.change.takeBack();
 
   /**
    * Calls of `add_to_mind` and `create_mind` whose content is coming in as the
@@ -1901,7 +1915,7 @@ export function mindTools(options: MindToolsOptions): {
   };
 
   const drawChart = (
-    writer: Pick<Writer, "mind" | "request" | "origin" | "made"> & { ids: readonly string[] },
+    writer: Pick<Writer, "mind" | "request" | "origin" | "change"> & { ids: readonly string[] },
     blocks: readonly NodeJSON[],
     asked: ChartAsked,
     markdown: string | null,
@@ -1942,12 +1956,9 @@ export function mindTools(options: MindToolsOptions): {
       analysisTableFor(table, analysisTables),
     );
     if ("problem" in drawn) return { problem: drawn.problem, said: drawn.why };
-    minds.edit(writer.mind.id, (note) => {
-      const after = topLevelBlocks(note).find((each) => idOf(each) === tableId) ?? null;
-      const ids = insertBlocks(note, [drawn.chart], { after, request: writer.request });
-      const doc = note.doc;
-      if (doc) setOrigins(doc, ids, writer.origin);
-    });
+    const outcome = insertFor(writer, [drawn.chart], tableId);
+    if (outcome.kind !== "written" && outcome.kind !== "unchanged")
+      throw changedWhileRead(writer.mind);
     return { said: "IncarnaMind drew the chart from the table, right after it." };
   };
 
@@ -2355,7 +2366,7 @@ export function mindTools(options: MindToolsOptions): {
       /** The assistant said the User asked only for text to go (#2356). */
       removesOnly?: boolean;
     } = {},
-  ): Written & { change: MindChange; dropped: number } => {
+  ): Written & { change: MindChange; writing: Change; dropped: number } => {
     const alone = withoutPointersBack(markdown);
     const content = options.blocksOf(alone.markdown);
     const { blocks, cited, notFound, unrecorded, searchTalk, analysisTables, ...notes } = content;
@@ -2371,41 +2382,43 @@ export function mindTools(options: MindToolsOptions): {
     const replaced = over.kind === "own" ? replacedOwn(mind.id, over.blockIds) : {};
     const request = randomUUID();
     ownRequests.add(request);
-    minds.checkpoint(mind.id);
-    const ids = minds.edit(mind.id, (note) => {
-      const asked =
-        over.kind === "own" ? ownAsked(note, over) : remade === undefined || !remade.typedSince;
+    const { asked, removing } = minds.read(mind.id, (note) => {
       const doc = note.doc;
-      // A revision asked only to take text out, or of a removal that was, is held to it.
-      const removing =
-        removesOnly ||
-        (over.kind === "own" &&
-          doc !== null &&
-          over.requests.some((each) => removesOnlyAsked(doc, each)));
+      return {
+        asked:
+          over.kind === "own" ? ownAsked(note, over) : remade === undefined || !remade.typedSince,
+        // A revision asked only to take text out, or of a removal that was, is held to it.
+        removing:
+          removesOnly ||
+          (over.kind === "own" &&
+            doc !== null &&
+            over.requests.some((each) => removesOnlyAsked(doc, each))),
+      };
+    });
+    const writing = modelChanges.start({
+      mindId: mind.id,
+      request,
+      made: {
+        source: "answer-added",
+        providerId: options.prepared.provider.id,
+        modelId: options.prepared.modelId,
+        ...(action && { action }),
+        ...(asked && { requested: remade ? ("write" as const) : ("edit" as const) }),
+        ...(removing && { removesOnly: true }),
+      },
+      checkpoint: () => minds.checkpoint(mind.id),
+    });
+    const outcome = writing.write((note) => {
       // `settle` writes Citations recorded later into the Blocks written, which only Blocks added whole can take.
       const written =
         over.kind === "own"
           ? replaceOwn(note, over, blocks.map(createElement), request, ownRequests)
           : replaceApplied(note, over, blocks, request, { whole: unrecorded > 0 });
-      if (!written || !doc) return written;
-      setOriginsOf(doc, request, written, options.origin);
-      recordProposalRequest(doc, request, {
-        source: "answer-added",
-        providerId: options.prepared.provider.id,
-        modelId: options.prepared.modelId,
-        createdAt: options.now().toISOString(),
-        ...(action && { action }),
-        ...(asked && { requested: remade ? ("write" as const) : ("edit" as const) }),
-        ...(removing && { removesOnly: true }),
-      });
-      return written;
+      if (written && note.doc) setOriginsOf(note.doc, request, written, options.origin);
+      return { changed: written !== null, value: written };
     });
-    if (!ids) {
-      throw new Refusal(
-        { kind: "changed", mindId: mind.id },
-        `That text of “${mind.name}” changed while it was being read. Nothing was changed.`,
-      );
-    }
+    const ids = outcome.kind === "written" ? outcome.value : null;
+    if (!ids) throw changedWhileRead(mind);
     const revision = (): MindChange => {
       const changed =
         over.kind === "applied"
@@ -2435,6 +2448,7 @@ export function mindTools(options: MindToolsOptions): {
     }
     return {
       change,
+      writing,
       notFound,
       unrecorded,
       searchTalk,
@@ -2641,7 +2655,7 @@ export function mindTools(options: MindToolsOptions): {
         instruction: sized,
         prepared: (await options.rewriting?.()) ?? options.prepared,
         signal,
-        beforeWriting: () => minds.checkpoint(mind.id),
+        checkpoint: () => minds.checkpoint(mind.id),
         written: (request, proposals) =>
           options.changed(toolCallId, { mindId: mind.id, created: false, request, proposals }),
         requested: "edit",
@@ -2862,10 +2876,9 @@ export function mindTools(options: MindToolsOptions): {
     const target = {
       mind,
       request: written.change.request,
+      change: written.writing,
       ids: written.blocks.ids,
       origin: options.origin,
-      // Over text the User typed in, the request keeps the rule `writeOver` gave it.
-      made: true,
     };
     const later = chart !== null && written.unrecorded > 0;
     const drawn =
