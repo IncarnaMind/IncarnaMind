@@ -172,8 +172,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await window.keyboard.press("Escape");
     await expect(done).toHaveCount(0);
 
-    // A clean check: one sentence the Documents support, still to cite: supported, and nothing
-    // says everything is checked (#1941).
+    // A clean check: one sentence the Documents support, still to cite: supported, and done.
     await newMind(window);
     const clean = window.getByTestId("mind-editor");
     await clean.click();
@@ -186,7 +185,8 @@ for (const language of ["en", "zh-CN"] as const) {
     const allDone = await checkCard(window);
     await expect(allDone.getByTestId("health-toCheck")).toHaveCount(0);
     await expect(allDone.getByTestId("health-look")).toHaveCount(0);
-    await expect(allDone.getByTestId("health-all-checked")).toHaveCount(0);
+    // Supported with no Citation yet is done: nothing holds back "Everything checked" (#2831).
+    await expect(allDone.getByTestId("health-all-checked")).toBeVisible();
     await expect(allDone.getByTestId("health-supported")).toContainText(words.uncited);
     await expect(allDone.getByTestId("health-noCitation")).toHaveCount(0);
     await screenshot(window, `check-counts-all-${language}`);
