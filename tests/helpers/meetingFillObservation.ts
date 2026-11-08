@@ -136,6 +136,8 @@ export function createRequestLedger(options: {
   }
   const requests: ObservedRequest[] = [];
   const logicalRequests: ObservedRequest[] = [];
+  /** Each request's prompt as it was sent, for checks of what left the computer; kept out of receipts. */
+  const prompts: string[] = [];
   const httpStatuses: (number | null)[] = [];
   const logical = new AsyncLocalStorage<ObservedRequest>();
   const sent = new WeakSet<ObservedRequest>();
@@ -184,13 +186,14 @@ export function createRequestLedger(options: {
     fault("credential");
     return text.split(key).join("<REDACTED>");
   };
-  const begin = (spec: ChatModelSpec) => {
+  const begin = (spec: ChatModelSpec, prompt: unknown) => {
     guard();
     if (options.strict && !transportActive) {
       fault("identity");
       throw stopped();
     }
     logicalCount++;
+    prompts.push(JSON.stringify(prompt));
     const request: ObservedRequest = {
       provider: spec.kind,
       model: spec.modelId,
@@ -458,6 +461,9 @@ export function createRequestLedger(options: {
         throw stopped();
       }
     },
+    get prompts(): readonly string[] {
+      return prompts;
+    },
     get usage() {
       return {
         calls: requests.length,
@@ -508,8 +514,8 @@ export function createRequestLedger(options: {
                 }
               : params;
           },
-          wrapStream: async ({ doStream }) => {
-            const request = begin(spec);
+          wrapStream: async ({ doStream, params }) => {
+            const request = begin(spec, params.prompt);
             try {
               const result = await logical.run(request, doStream);
               const reader = result.stream.getReader();
@@ -563,8 +569,8 @@ export function createRequestLedger(options: {
               throw failedRequest(request, error);
             }
           },
-          wrapGenerate: async ({ doGenerate }) => {
-            const request = begin(spec);
+          wrapGenerate: async ({ doGenerate, params }) => {
+            const request = begin(spec, params.prompt);
             try {
               const result = await logical.run(request, doGenerate);
               for (const part of result.content) capture(request, part);

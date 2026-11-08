@@ -12,5 +12,8 @@
     <!-- Meetings (ADR-0015): without it, a hardened-runtime build can't open the microphone. -->
     <key>com.apple.security.device.audio-input</key>
     <true/>
+    <!-- Meetings coming up (#190): the Mac's calendars, read by the calendar helper. -->
+    <key>com.apple.security.personal-information.calendars</key>
+    <true/>
   </dict>
 </plist>

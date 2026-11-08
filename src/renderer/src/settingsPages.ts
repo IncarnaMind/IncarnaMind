@@ -26,6 +26,7 @@ export type SettingsTarget =
   | "turn-on-tagging"
   | "meeting-words"
   | "call-help-model"
+  | "calendars"
   | SignInRoute;
 
 export const offeredSettingsPages: readonly SettingsPage[] = settingsPages.filter(

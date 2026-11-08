@@ -71,6 +71,7 @@
     "dist:dir": "electron-vite build && electron-builder --dir --publish never",
     "check:package": "node scripts/check-package.mjs",
     "icons": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/icons.ts",
+    "calendar-helper": "node scripts/calendarHelper.mjs",
     "samples:generate": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./scripts/tsResolve.mjs scripts/sampleDocuments/index.ts",
     "examples:credit:print": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./scripts/tsResolve.mjs scripts/exampleDocuments/index.ts",
     "eval:skills": "vitest run --config eval/skills/vitest.config.ts",
