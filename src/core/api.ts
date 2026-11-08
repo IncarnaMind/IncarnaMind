@@ -3543,6 +3543,8 @@ export interface TranscriptionServiceStatus {
   dataUse: { summary: Localized; url: Localized } | null;
   /** "provider": it uses the key of the chat provider of the same name in Settings › Models. */
   key: "provider" | "own";
+  /** The saved chat provider whose key it uses, for a `key` "provider" route that has one; null otherwise. */
+  providerId: string | null;
   hasKey: boolean;
   liveSpeakers: boolean;
   keyUrl: string | null;

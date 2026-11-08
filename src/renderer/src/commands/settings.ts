@@ -50,6 +50,20 @@ export const settingsPageCommands: readonly Command[] = [
     run: () => useAppStore.getState().openSettings("meetings", "meeting-words"),
   },
   {
+    // Where a transcription service's key is added, and where the meeting audio goes is chosen.
+    id: "settings.transcription",
+    assistant: { never: "keys" },
+    label: "command.settings.transcription",
+    keywords: [
+      "settings.title",
+      "settings.pages.models",
+      "command.settings.transcription.keywords",
+    ],
+    group: "open",
+    reversible: true,
+    run: () => useAppStore.getState().openSettings("models", "transcription"),
+  },
+  {
     id: "settings.addProvider",
     assistant: { never: "keys" },
     label: "command.settings.addProvider",

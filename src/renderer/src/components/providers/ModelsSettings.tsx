@@ -4,6 +4,7 @@ import type {
   ChatProvider,
   DecisionHostStatus,
   JevSettings,
+  TranscriptionServiceStatus,
 } from "../../../../core/api";
 import { catalogProvider, endpointOf } from "../../../../core/providers/catalog/providers";
 import { changedFromDefaults } from "../../../../shared/libraryModels";
@@ -17,6 +18,7 @@ import { clearModelFailure } from "../../modelHealth";
 import { useModelNames } from "../../modelNames";
 import { useSettingsTarget } from "../../settingsTarget";
 import { useAppStore } from "../../store";
+import { useTranscriptionServicesRead } from "../../transcriptionServices";
 import { PlusLineIcon } from "../lineIcons";
 import {
   SettingsGroup,
@@ -37,6 +39,7 @@ import { ProviderPage, providerName, type RemovedProvider } from "./ProviderPage
 import { SortingKeyRows } from "./SortingKeyRows";
 import { catalogIdOf, MODELS_UNDO_PLACE, regionFor, savedProviderFor } from "./shared";
 import { keptForSorting } from "./sortingOptions";
+import { TranscriptionKeyRows } from "./TranscriptionKeyRows";
 import { useJevSettings } from "./useJevSettings";
 
 type View =
@@ -63,7 +66,9 @@ export function ModelsSettings() {
   // Read with the providers, so the page lays out once: a section landing later would move the
   // one a link scrolled to (Plans, Advanced) out of view.
   const [hosts, setHosts] = useDecisionHosts();
-  const laidOut = providers !== null && hosts !== null;
+  // One read for the page: the Meeting transcription row and the keys in Your providers.
+  const services = useTranscriptionServicesRead();
+  const laidOut = providers !== null && hosts !== null && services.state !== "loading";
 
   const refresh = useCallback(() => {
     core.listChatProviders().then(setProviders, (failure: unknown) => {
@@ -125,7 +130,7 @@ export function ModelsSettings() {
     }
   }, [view.page]);
 
-  if (!providers || !hosts) return null;
+  if (!providers || !hosts || !laidOut) return null;
 
   const open = (next: View, from: string) => {
     opener.current = from;
@@ -207,12 +212,13 @@ export function ModelsSettings() {
           )}
           {removed && <RemovedLine removed={removed} providers={providers} />}
           <div ref={answers}>
-            <ModelDefaults groups={groups ?? []} providers={providers} />
+            <ModelDefaults groups={groups ?? []} providers={providers} services={services} />
           </div>
           <YourProviders
             providers={providers}
             groups={groups ?? []}
             hosts={hosts}
+            services={services.state === "ready" ? services.data : []}
             jev={jev}
             onHosts={setHosts}
             onJev={setJev}
@@ -247,6 +253,7 @@ function YourProviders({
   providers,
   groups,
   hosts,
+  services,
   jev,
   onHosts,
   onJev,
@@ -256,6 +263,7 @@ function YourProviders({
   providers: readonly ChatProvider[];
   groups: readonly ChatModelGroup[];
   hosts: readonly DecisionHostStatus[];
+  services: readonly TranscriptionServiceStatus[];
   jev: JevSettings | null;
   onHosts(hosts: DecisionHostStatus[]): void;
   onJev(jev: JevSettings): void;
@@ -264,7 +272,8 @@ function YourProviders({
 }) {
   const t = useT();
   const sortingKeys = hosts.some(keptForSorting) || (jev?.enabled && jev.hasApiKey);
-  const none = providers.length === 0 && !sortingKeys;
+  const transcriptionKeys = services.some((each) => each.key === "own" && each.hasKey);
+  const none = providers.length === 0 && !sortingKeys && !transcriptionKeys;
   return (
     <SettingsSection title={t("models.providers.title")} testId="your-providers">
       <SettingsGroup role={none ? undefined : "list"}>
@@ -279,10 +288,12 @@ function YourProviders({
                 key={provider.id}
                 provider={provider}
                 group={groups.find((each) => each.provider.id === provider.id)}
+                transcribes={services.some((each) => each.providerId === provider.id)}
                 onOpen={() => onOpen(provider)}
               />
             ))}
             <SortingKeyRows hosts={hosts} jev={jev} onHosts={onHosts} onJev={onJev} />
+            <TranscriptionKeyRows services={services} />
           </>
         )}
       </SettingsGroup>
@@ -305,10 +316,13 @@ function YourProviders({
 function ProviderRow({
   provider,
   group,
+  transcribes,
   onOpen,
 }: {
   provider: ChatProvider;
   group: ChatModelGroup | undefined;
+  /** Its key also transcribes meetings (OpenAI's, Google's, Qwen's, xAI's), so the row says both uses. */
+  transcribes: boolean;
   onOpen(): void;
 }) {
   const t = useT();
@@ -320,7 +334,7 @@ function ProviderRow({
       ? endpointOf(catalog, provider.endpoint)?.label[language === "zh-CN" ? "zh" : "en"]
       : undefined;
   const state = provider.hasApiKey
-    ? t("models.providers.keySaved")
+    ? t(transcribes ? "models.providers.forAnswersAndTranscription" : "models.providers.keySaved")
     : provider.apiKeyUnreadable
       ? t("models.providers.keyUnreadable")
       : catalog?.apiKey === "required"
@@ -349,7 +363,11 @@ function ProviderRow({
         </span>
       }
       detail={
-        <span data-testid="provider-row-status" className="block truncate">
+        <span
+          data-testid="provider-row-status"
+          className="block truncate"
+          title={joinMeta([state, models])}
+        >
           {joinMeta([state, models])}
         </span>
       }

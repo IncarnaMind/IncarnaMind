@@ -1,16 +1,32 @@
 import { useEffect, useRef, useState } from "react";
-import { TRANSCRIPTION_ROUTES, type TranscriptionRoute } from "../../../../core/api";
+import {
+  type CloudTranscriptionRoute,
+  TRANSCRIPTION_ROUTES,
+  type TranscriptionRoute,
+} from "../../../../core/api";
 import { useT } from "../../i18n";
 import { useAppStore } from "../../store";
 import { ROUTE_LABELS, type ServicesView } from "../../transcriptionServices";
 import { PopUpSelect } from "../settings/PopUpButton";
+
+const SET_UP = "set-up:";
+
+/**
+ * The rows at the foot of the list that set a service up in place, "Use Soniox…" and the like,
+ * under "Set up another transcription service". `open`: the one whose setup shows.
+ */
+export interface TranscriptionSetUpRows {
+  offers: readonly CloudTranscriptionRoute[];
+  open: CloudTranscriptionRoute | null;
+  onChoose(route: CloudTranscriptionRoute): void;
+}
 
 /**
  * Where meeting audio is transcribed, one setting wherever it is shown (Settings › Models,
  * Settings › Meetings, the first-run list). Unchosen it reads as this computer, and choosing that
  * stores it: a choice made on purpose is not the same as none (the first meeting asks only for none).
  * A cloud service is offered once there is a key for it (#141); choosing it is the consent to send
- * it meeting audio.
+ * it meeting audio. Where it is a setting, `setUp` ends the list with the services still to set up.
  */
 export function TranscriptionRouteSelect({
   id,
@@ -22,6 +38,7 @@ export function TranscriptionRouteSelect({
   testId = "meetings-route",
   saveOnChange = true,
   read,
+  setUp = null,
   onChosen,
   onBlur,
   onEscape,
@@ -42,6 +59,7 @@ export function TranscriptionRouteSelect({
   saveOnChange?: boolean;
   /** The view's read of the services, which says a failure; the select reads none of its own. */
   read: ServicesView;
+  setUp?: TranscriptionSetUpRows | null;
   onChosen?(chosen: TranscriptionRoute): void;
   onBlur?(): void;
   onEscape?(): void;
@@ -73,7 +91,7 @@ export function TranscriptionRouteSelect({
       aria-describedby={`${id}-tip`}
       aria-labelledby={labelledBy}
       data-testid={testId}
-      value={shown ?? "local"}
+      value={setUp?.open ? `${SET_UP}${setUp.open}` : (shown ?? "local")}
       onBlur={onBlur}
       onKeyDown={(event) => {
         if (event.key === "Escape" && onEscape) {
@@ -83,6 +101,11 @@ export function TranscriptionRouteSelect({
         }
       }}
       onChange={(event) => {
+        const offer = setUp?.offers.find((each) => `${SET_UP}${each}` === event.target.value);
+        if (offer) {
+          setUp?.onChoose(offer);
+          return;
+        }
         const chosen = TRANSCRIPTION_ROUTES.find((each) => each === event.target.value);
         if (!chosen) return;
         setValue(chosen);
@@ -96,6 +119,15 @@ export function TranscriptionRouteSelect({
           {t(ROUTE_LABELS[each])}
         </option>
       ))}
+      {setUp && setUp.offers.length > 0 && (
+        <optgroup label={t("meetings.setUp.group")}>
+          {setUp.offers.map((each) => (
+            <option key={each} value={`${SET_UP}${each}`}>
+              {t("meetings.setUp.row", { provider: t(ROUTE_LABELS[each]) })}
+            </option>
+          ))}
+        </optgroup>
+      )}
     </Field>
   );
 }

@@ -19,7 +19,7 @@ import {
 
 /**
  * The live routes with a key of their own (#866), with the pretend services every smoke test's
- * fake transcriber has: Deepgram's server kept with its key in Settings › Meetings, and an
+ * fake transcriber has: Deepgram's server kept with its key in Settings › Models, and an
  * account out of credit as one line in the meeting bar. Set INCARNAMIND_SCREENSHOTS to a folder
  * to also save screenshots.
  */
@@ -50,32 +50,27 @@ test.afterEach(async () => {
   await removeDataFolder(sources);
 });
 
-test("Deepgram's key row takes Cloudflare Workers AI's address too; choosing Deepgram then sends the audio to Cloudflare, as its line says", async () => {
+test("Deepgram's row in Your providers names the server it sends to; Change key opens with it, and Esc keeps it", async () => {
   const { app, window } = await launchApp(dataDir);
   await setWindowSize(app, window, 1600, 900);
   await dismissChatSetup(window);
   await acceptPlainTextKeys(window);
+  await window.evaluate(async (server) => {
+    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    await bridge.setTranscriptionKey({
+      route: "deepgram",
+      apiKey: "cf-test-token-0123456789",
+      server,
+    });
+  }, CLOUDFLARE);
 
-  const settings = await openSettings(window, "meetings");
-  const row = settings.getByTestId("transcription-key-deepgram");
-  await row.getByTestId("transcription-key-add").click();
-  await expect(row.getByTestId("transcription-key-input")).toBeFocused();
-  const server = row.getByRole("textbox", { name: "Server" });
-  await expect(server).toHaveAttribute("placeholder", "Deepgram’s own");
-  await expect(row).toContainText("Leave it empty for Deepgram.");
-  await expect(row).toContainText("Saving it first checks it with Deepgram");
-  await server.fill(CLOUDFLARE);
-  await expect(row).not.toContainText("Saving it first checks it");
-  await row.getByTestId("transcription-key-input").fill("cf-test-token-0123456789");
-  await row.getByTestId("transcription-key-save").click();
-  await expect(row.getByTestId("transcription-key-saved")).toHaveText("Saved");
-  await expect(row.getByTestId("transcription-key-server-saved")).toHaveText(
-    "Sent to wss://api.cloudflare.com/client/v4/accounts/0f0e0d/ai/run/@cf/deepgram/nova-3",
-  );
-  await expect(row).not.toContainText("Saving it first checks it");
-
+  // Choosing Deepgram in Settings › Meetings sends the audio to Cloudflare, as its line says.
+  let settings = await openSettings(window, "meetings");
   const route = settings.getByTestId("meetings-route");
-  await expect(route.locator("option:not([hidden])")).toHaveText(["On this computer", "Deepgram"]);
+  await expect(route.locator(":scope > option:not([hidden])")).toHaveText([
+    "On this computer",
+    "Deepgram",
+  ]);
   await route.selectOption("deepgram");
   const line = settings.getByTestId("meetings-route-line");
   await expect(line).toContainText("Audio goes to Cloudflare while you record.");
@@ -95,26 +90,39 @@ test("Deepgram's key row takes Cloudflare Workers AI's address too; choosing Dee
   );
   await shot(window, "settings-meetings-deepgram-cloudflare-en-1600");
 
-  // In Chinese, at the narrowest width, the address wraps inside its row.
+  settings = await showSettingsPage(window, "models");
+  const row = settings.locator('[data-testid="transcription-key-row"][data-host="deepgram"]');
+  const status = row.getByTestId("transcription-key-status");
+  await expect(status).toHaveText(
+    "For meeting transcription · sent to wss://api.cloudflare.com/client/v4/accounts/0f0e0d/ai/run/@cf/deepgram/nova-3",
+  );
+
+  // In Chinese, at the narrowest width, the address is cut inside its row, whole in its tooltip.
   await setLanguage(window, "zh-CN");
   await setWindowSize(app, window, 900, 720);
-  await expect(line).toContainText("录音期间，音频会发送给 Cloudflare。");
-  const saved = row.getByTestId("transcription-key-server-saved");
-  await expect(saved).toContainText("发送到 wss://api.cloudflare.com");
+  await expect(status).toContainText("用于会议转写 · 发送到 wss://api.cloudflare.com");
+  await expect(status).toHaveAttribute("title", /nova-3$/);
   const box = await row.boundingBox();
-  const text = await saved.boundingBox();
-  expect(box && text && text.x + text.width <= box.x + box.width).toBe(true);
-  await shot(window, "settings-meetings-deepgram-cloudflare-zh-900");
+  const text = await status.boundingBox();
+  const change = await row.getByTestId("transcription-key-change").boundingBox();
+  expect(text && change && text.x + text.width <= change.x).toBe(true);
+  expect(box && change && change.x + change.width <= box.x + box.width).toBe(true);
+  await shot(window, "settings-models-deepgram-cloudflare-zh-900");
+  settings = await showSettingsPage(window, "meetings");
+  await expect(line).toContainText("录音期间，音频会发送给 Cloudflare。");
   await setLanguage(window, "en");
 
-  // Esc closes the form and keeps what was saved.
-  await row.getByTestId("transcription-key-add").click();
+  // Change key opens with the server saved; Esc closes the form and keeps what was saved.
+  await showSettingsPage(window, "models");
+  await row.getByTestId("transcription-key-change").click();
+  await expect(row.getByTestId("transcription-key-input")).toBeFocused();
   await expect(row.getByRole("textbox", { name: "Server" })).toHaveValue(
     "wss://api.cloudflare.com/client/v4/accounts/0f0e0d/ai/run/@cf/deepgram/nova-3",
   );
+  await expect(row).not.toContainText("Saving it first checks it");
   await row.getByTestId("transcription-key-input").press("Escape");
   await expect(row.getByTestId("transcription-key-input")).toHaveCount(0);
-  await expect(row.getByTestId("transcription-key-saved")).toHaveText("Saved");
+  await expect(status).toContainText("sent to wss://api.cloudflare.com");
   await closeSettings(window);
 });
 
@@ -125,14 +133,15 @@ test("an AssemblyAI account out of credit is one line in the bar with Add credit
   await useOutputLocation(window, sources);
   await acceptPlainTextKeys(window);
 
+  // AssemblyAI set up from Settings › Meetings' fold: Use this keeps the key and chooses it.
   const settings = await openSettings(window, "meetings");
-  const row = settings.getByTestId("transcription-key-assemblyai");
-  await row.getByTestId("transcription-key-add").click();
-  await expect(row.getByRole("textbox", { name: "Server" })).toHaveCount(0);
-  await row.getByTestId("transcription-key-input").fill("aai-test-key-0123456789");
-  await row.getByTestId("transcription-key-save").click();
-  await expect(row.getByTestId("transcription-key-saved")).toHaveText("Saved");
-  await settings.getByTestId("meetings-route").selectOption("assemblyai");
+  await settings.getByTestId("meetings-route").selectOption("set-up:assemblyai");
+  const form = settings.getByTestId("transcription-key-form-assemblyai");
+  await expect(form.getByRole("textbox", { name: "Server" })).toHaveCount(0);
+  await form.getByTestId("transcription-key-input").fill("aai-test-key-0123456789");
+  await form.getByTestId("transcription-key-save").click();
+  await expect(form).toHaveCount(0);
+  await expect(settings.getByTestId("meetings-route")).toHaveValue("assemblyai");
   await expect(settings.getByTestId("meetings-route-line")).toContainText(
     "Audio goes to AssemblyAI while you record.",
   );
@@ -159,70 +168,43 @@ test("an AssemblyAI account out of credit is one line in the bar with Add credit
   await shot(window, "meeting-bar-assemblyai-credit-zh");
 });
 
-test("a meeting service's key row says Save checks the key with the service; in Local mode the key is kept, and the row says nothing was sent", async () => {
+test("each service set up from the picker says whether Save checks its key; Gladia, which can't be checked, chosen names what it does with the audio", async () => {
   const { app, window } = await launchApp(dataDir);
   await setWindowSize(app, window, 1600, 900);
   await dismissChatSetup(window);
   await acceptPlainTextKeys(window);
 
-  let settings = await openSettings(window, "meetings");
-  let row = settings.getByTestId("transcription-key-assemblyai");
-  await expect(row).toContainText(
-    "Kept on this computer and never shown again. Saving it first checks it with AssemblyAI, by a request that reads nothing of yours.",
-  );
+  let settings = await openSettings(window, "models");
+  const row = settings.getByTestId("model-default-row-transcription");
+  const picker = row.getByTestId("meetings-route");
+  for (const name of ["ElevenLabs", "Speechmatics", "AssemblyAI"]) {
+    await picker.selectOption(`set-up:${name.toLowerCase()}`);
+    const form = row.getByTestId(`transcription-key-form-${name.toLowerCase()}`);
+    await expect(form.getByTestId("transcription-key-kept")).toHaveText(
+      `Kept on this computer and never shown again. Saving it first checks it with ${name}, by a request that reads nothing of yours. Get a key ↗`,
+    );
+    await form.getByTestId("transcription-key-cancel").click();
+    await expect(form).toHaveCount(0);
+    await expect(picker).toBeFocused();
+  }
   await setLanguage(window, "zh-CN");
-  await expect(row).toContainText(
+  await picker.selectOption("set-up:assemblyai");
+  await expect(row.getByTestId("transcription-key-kept")).toContainText(
     "保存在这台电脑上，不会再显示。保存时会先请 AssemblyAI 检查这个密钥，这次请求不会读取你的任何内容。",
   );
+  await row.getByTestId("transcription-key-cancel").click();
   await setLanguage(window, "en");
 
-  settings = await showSettingsPage(window, "privacy");
-  await settings.getByTestId("local-only").check();
-  settings = await showSettingsPage(window, "meetings");
-  row = settings.getByTestId("transcription-key-assemblyai");
-  await expect(row).toContainText("Kept on this computer and never shown again.");
-  await expect(row).not.toContainText("Saving it first checks it");
-  await row.getByTestId("transcription-key-add").click();
-  await row.getByTestId("transcription-key-input").fill("aai-test-key-0123456789");
-  await row.getByTestId("transcription-key-save").click();
-  await expect(row.getByTestId("transcription-key-saved")).toHaveText("Saved");
-  const unchecked = row.getByTestId("provider-key-not-checked");
-  await expect(unchecked).toHaveText("Saved, not checked: nothing was sent to AssemblyAI.");
-  await shot(window, "transcription-key-local-mode-en");
-  await setLanguage(window, "zh-CN");
-  await expect(unchecked).toHaveText("已保存，未验证：没有向 AssemblyAI 发送任何内容。");
-  await shot(window, "transcription-key-local-mode-zh");
-});
-
-test("the new services' key rows say which checks the key on Save; Gladia, which can't be checked, chosen names what it does with the audio", async () => {
-  const { app, window } = await launchApp(dataDir);
-  await setWindowSize(app, window, 1600, 900);
-  await dismissChatSetup(window);
-  await acceptPlainTextKeys(window);
-
-  const settings = await openSettings(window, "meetings");
-  for (const name of ["ElevenLabs", "Speechmatics"]) {
-    await expect(settings.getByTestId(`transcription-key-${name.toLowerCase()}`)).toContainText(
-      `Saving it first checks it with ${name}, by a request that reads nothing of yours.`,
-    );
-  }
-  const row = settings.getByTestId("transcription-key-gladia");
-  await expect(row).toContainText("Kept on this computer and never shown again.");
-  await expect(row).not.toContainText("Saving it first checks it");
-  await row.getByTestId("transcription-key-add").click();
-  await expect(row.getByRole("textbox", { name: "Server" })).toHaveCount(0);
-  await row.getByTestId("transcription-key-input").fill("gladia-test-key-0123456789");
-  await row.getByTestId("transcription-key-save").click();
-  await expect(row.getByTestId("transcription-key-saved")).toHaveText("Saved");
-
-  const route = settings.getByTestId("meetings-route");
-  await expect(route.locator("option:not([hidden])")).toHaveText(["On this computer", "Gladia"]);
-  await route.selectOption("gladia");
-  const line = settings.getByTestId("meetings-route-line");
-  await expect(line).toContainText("Audio goes to Gladia while you record.");
-  await expect(line).toContainText(
-    "Gladia trains its models on the audio unless you opt out in your account",
+  await picker.selectOption("set-up:gladia");
+  const form = row.getByTestId("transcription-key-form-gladia");
+  await expect(form.getByTestId("transcription-key-kept")).toHaveText(
+    "Kept on this computer and never shown again. Get a key ↗",
   );
+  await expect(form.getByRole("textbox", { name: "Server" })).toHaveCount(0);
+  await form.getByTestId("transcription-key-input").fill("gladia-test-key-0123456789");
+  await form.getByTestId("transcription-key-save").click();
+  await expect(form).toHaveCount(0);
+  await expect(picker).toHaveValue("gladia");
   const chosen = await settingsNow(window);
   expect(chosen.flows).toContainEqual(
     expect.objectContaining({
@@ -233,20 +215,24 @@ test("the new services' key rows say which checks the key on Save; Gladia, which
       consent: "accepted",
     }),
   );
+
+  settings = await showSettingsPage(window, "meetings");
+  const meetings = settings.getByTestId("meetings-settings");
+  const line = meetings.getByTestId("meetings-route-line");
+  await expect(line).toContainText("Audio goes to Gladia while you record.");
+  await expect(line).toContainText(
+    "Gladia trains its models on the audio unless you opt out in your account",
+  );
   await line.scrollIntoViewIfNeeded();
   await shot(window, "after-settings-meetings-gladia-line-en-1600");
-  await row.scrollIntoViewIfNeeded();
-  await shot(window, "after-settings-meetings-keys-en-1600");
 
   await setLanguage(window, "zh-CN");
   await setWindowSize(app, window, 900, 720);
   await expect(line).toContainText("录音期间，音频会发送给 Gladia。");
   await expect(line).toContainText("除非你在 Gladia 账户中选择退出，否则它会用音频训练模型");
-  const box = await settings.getByTestId("transcription-key-gladia").boundingBox();
+  const box = await meetings.boundingBox();
   const text = await line.boundingBox();
   expect(box && text && text.x + text.width <= box.x + box.width).toBe(true);
   await line.scrollIntoViewIfNeeded();
   await shot(window, "after-settings-meetings-gladia-line-zh-900");
-  await row.scrollIntoViewIfNeeded();
-  await shot(window, "after-settings-meetings-keys-zh-900");
 });
