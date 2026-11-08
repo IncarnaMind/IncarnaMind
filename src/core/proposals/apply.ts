@@ -113,9 +113,12 @@ export interface Change {
   readonly refused: Refused | null;
   /**
    * Writes more of the change: `write` writes in the Blocks it is given and says what it wrote,
-   * and `step`, read once it has, how it reaches the Note.
+   * and `step`, reading the copy it was written in, how it reaches the Note.
    */
-  write<T>(write: (blocks: Y.XmlFragment) => Wrote<T>, step?: () => WriteStep): Outcome<T>;
+  write<T>(
+    write: (blocks: Y.XmlFragment) => Wrote<T>,
+    step?: (copy: Y.XmlFragment) => WriteStep,
+  ): Outcome<T>;
   /** Checks the change as its writer reads it once it is all written: refused, what it wrote goes. */
   finish(report: WriteReport): Refused | null;
   /** Takes back what it wrote. */
@@ -140,6 +143,8 @@ export interface ChangesOptions {
   notes: Pick<MindContent, "read" | "edit">;
   now(): Date;
 }
+
+const noStep = (): WriteStep => ({});
 
 export function createChanges(options: ChangesOptions) {
   const { notes } = options;
@@ -239,40 +244,48 @@ export function createChanges(options: ChangesOptions) {
   function start(input: ChangeInput): Change {
     const { mindId, request } = input;
     const change = around(input);
-    return change.handle(<T>(write: (blocks: Y.XmlFragment) => Wrote<T>, step = () => ({})) => {
-      if (change.state.refused) return change.state.refused;
-      const copy = docOf(
-        notes.read(mindId, (blocks) => {
-          if (!blocks.doc) throw new Error(`Note ${mindId} has no document.`);
-          return Y.encodeStateAsUpdate(blocks.doc);
-        }),
-      );
-      let tried: ReturnType<typeof change.tryIn<T>>;
-      try {
-        tried = change.tryIn(copy, copy.getXmlFragment(MIND_CONTENT_FIELD), write);
-      } finally {
-        copy.destroy();
-      }
-      if (tried.kind !== "tried") return tried;
-      change.reaching(step());
-      const value = notes.edit(mindId, (blocks) => {
-        const doc = blocks.doc;
-        if (!doc) throw new Error(`Note ${mindId} has no document.`);
+    return change.handle(
+      <T>(
+        write: (blocks: Y.XmlFragment) => Wrote<T>,
+        step: (copy: Y.XmlFragment) => WriteStep = noStep,
+      ) => {
+        if (change.state.refused) return change.state.refused;
+        const copy = docOf(
+          notes.read(mindId, (blocks) => {
+            if (!blocks.doc) throw new Error(`Note ${mindId} has no document.`);
+            return Y.encodeStateAsUpdate(blocks.doc);
+          }),
+        );
+        let tried: ReturnType<typeof change.tryIn<T>>;
+        let how: WriteStep = {};
         try {
-          return change.writeIn(doc, blocks, write).value;
-        } catch (error) {
-          // The copy took it, so only a writer that answered differently the second time gets here.
-          resolveProposals(blocks, (ref) => ref.request === request, "reject");
-          console.error(
-            `Proposals: request ${request} failed in the Note after its copy took it; its changes were rejected`,
-            error,
-          );
-          throw error;
+          const blocks = copy.getXmlFragment(MIND_CONTENT_FIELD);
+          tried = change.tryIn(copy, blocks, write);
+          if (tried.kind === "tried") how = step(blocks);
+        } finally {
+          copy.destroy();
         }
-      });
-      change.state.wrote = true;
-      return { kind: "written", value };
-    });
+        if (tried.kind !== "tried") return tried;
+        change.reaching(how);
+        const value = notes.edit(mindId, (blocks) => {
+          const doc = blocks.doc;
+          if (!doc) throw new Error(`Note ${mindId} has no document.`);
+          try {
+            return change.writeIn(doc, blocks, write).value;
+          } catch (error) {
+            // The copy took it, so only a writer that answered differently the second time gets here.
+            resolveProposals(blocks, (ref) => ref.request === request, "reject");
+            console.error(
+              `Proposals: request ${request} failed in the Note after its copy took it; its changes were rejected`,
+              error,
+            );
+            throw error;
+          }
+        });
+        change.state.wrote = true;
+        return { kind: "written", value };
+      },
+    );
   }
 
   /**
@@ -286,18 +299,23 @@ export function createChanges(options: ChangesOptions) {
   ): Change {
     const { mindId } = input;
     const change = around(input);
-    return change.handle(<T>(write: (blocks: Y.XmlFragment) => Wrote<T>, step = () => ({})) => {
-      if (change.state.refused) return change.state.refused;
-      const tried = change.tryIn(copy.doc, copy.blocks, write);
-      if (tried.kind !== "tried") return tried;
-      const update = forkChanges(copy.base, copy.doc, merge.state(mindId));
-      if (!update) return change.refuse({ kind: "changed" });
-      const how: WriteStep = step();
-      change.reaching(how);
-      merge.apply(mindId, update, how.cause);
-      change.state.wrote = true;
-      return { kind: "written", value: tried.value };
-    });
+    return change.handle(
+      <T>(
+        write: (blocks: Y.XmlFragment) => Wrote<T>,
+        step: (copy: Y.XmlFragment) => WriteStep = noStep,
+      ) => {
+        if (change.state.refused) return change.state.refused;
+        const tried = change.tryIn(copy.doc, copy.blocks, write);
+        if (tried.kind !== "tried") return tried;
+        const update = forkChanges(copy.base, copy.doc, merge.state(mindId));
+        if (!update) return change.refuse({ kind: "changed" });
+        const how = step(copy.blocks);
+        change.reaching(how);
+        merge.apply(mindId, update, how.cause);
+        change.state.wrote = true;
+        return { kind: "written", value: tried.value };
+      },
+    );
   }
 
   return { start, startOn };

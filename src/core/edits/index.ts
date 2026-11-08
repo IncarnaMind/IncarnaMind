@@ -30,6 +30,7 @@
 import { randomUUID } from "node:crypto";
 import { streamText } from "ai";
 import type * as Y from "yjs";
+import { appliesAtOnce } from "../../shared/askedChanges";
 import {
   outOfDateProposals,
   pendingProposals,
@@ -938,12 +939,11 @@ export function createEdits(options: EditsOptions) {
           const changed = write();
           return { changed, value: null, ...report() };
         },
-        () => {
+        (written) => {
+          if (requestId === undefined) return { applies: appliesAtOnce(written.doc, request) };
           // A window that asked takes it as it comes: drawn as applied while it maps onto the passage (#880).
-          const apply = requestId === undefined || appliesNow();
-          return requestId === undefined
-            ? { applies: apply }
-            : { applies: apply, cause: { requestId, request, apply } };
+          const apply = appliesNow();
+          return { applies: apply, cause: { requestId, request, apply } };
         },
       );
       if (outcome.kind === "not-placed") {
@@ -1260,16 +1260,19 @@ export function createEdits(options: EditsOptions) {
         },
         checkpoint: input.checkpoint,
       });
-      const outcome = change.write((mind) => {
-        const ids = replaceOwn(
-          mind,
-          own,
-          revised.map((element) => element.clone()),
-          request,
-          input.ownRequests,
-        );
-        return { changed: ids !== null, value: ids };
-      });
+      const outcome = change.write(
+        (mind) => {
+          const ids = replaceOwn(
+            mind,
+            own,
+            revised.map((element) => element.clone()),
+            request,
+            input.ownRequests,
+          );
+          return { changed: ids !== null, value: ids };
+        },
+        (written) => ({ applies: appliesAtOnce(written.doc, request) }),
+      );
       const blockIds = outcome.kind === "written" ? outcome.value : null;
       if (!blockIds) return nothing({ kind: "changed" });
       const proposals = content.read(input.mindId, (mind) =>

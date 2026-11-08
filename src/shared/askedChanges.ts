@@ -204,6 +204,13 @@ export function waitsForUser(doc: Y.Doc, requests: ReadonlySet<string>): boolean
 }
 
 /**
+ * Whether a change the assistant wrote in `doc` applies at once, with Undo (#880): the User asked
+ * for it, and it doesn't take out most of their own text.
+ */
+export const appliesAtOnce = (doc: Y.Doc | null, request: string): boolean =>
+  doc !== null && askedFor(doc, request) && !waitsForUser(doc, new Set([request]));
+
+/**
  * The requests in one Mind that `calls` asked for and the window applies at once, with Undo: the
  * changes it holds back because they take out most of the User's own text are left out (#2321).
  */

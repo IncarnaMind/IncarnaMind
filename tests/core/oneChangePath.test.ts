@@ -58,6 +58,7 @@ const WORDS = {
     typed: "Write <removed>draft</removed> in the subject line until the memo is final.",
     dropsTag: "Write draft in the subject line until the memo is final.",
     keepsTag: "Write \\<removed>draft\\</removed> in the subject line until it is final.",
+    most: "Sales were strong.",
     phrase: "very good",
     better: "excellent",
     noTable: "| Tide | When |\n| Spring | At new moon |",
@@ -70,6 +71,7 @@ const WORDS = {
     typed: "备忘录定稿前，主题行里写<removed>草稿</removed>。",
     dropsTag: "备忘录定稿前，主题行里写草稿。",
     keepsTag: "备忘录定稿前，主题行里写\\<removed>草稿\\</removed>两字。",
+    most: "好。",
     phrase: "非常好",
     better: "出色",
     noTable: "| 潮汐 | 时间 |\n| 大潮 | 新月 |",
@@ -241,6 +243,25 @@ const WRITERS: Writer[] = [
       const words = WORDS[language];
       const model = modelOf({
         rewrite: () => words.after,
+        tool: { tool: "edit_mind", input: { instruction: "Shorten it" } },
+      });
+      const set = await noteOf(model, [words.before]);
+      const checkpoints = await checkpointsOf(set.core, set.mind.id);
+      const answer = await askAssistant(set.core, { text: "Shorten it", mindId: set.mind.id });
+      await set.client.settled();
+      const request = changesIn(answer)[0]?.request ?? "";
+      return { core: set.core, mindId: set.mind.id, client: set.client, request, checkpoints };
+    },
+  },
+  {
+    name: "edit_mind that would take out most of the User's text",
+    origin: { source: "edit-with-ai", action: "instruction", instruction: "Shorten it" },
+    applies: false,
+    removes: true,
+    async write(language) {
+      const words = WORDS[language];
+      const model = modelOf({
+        rewrite: (passage) => passage.replace(words.before, words.most),
         tool: { tool: "edit_mind", input: { instruction: "Shorten it" } },
       });
       const set = await noteOf(model, [words.before]);
