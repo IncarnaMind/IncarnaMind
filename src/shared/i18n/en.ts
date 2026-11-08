@@ -412,6 +412,9 @@ export const en = {
   "command.palette.open": "Search…",
   "command.settings.page": "Settings: {page}",
   "command.settings.addProvider": "Add a model provider…",
+  "command.settings.transcription": "Set up meeting transcription…",
+  "command.settings.transcription.keywords":
+    "transcription transcribe key speech to text soniox deepgram assemblyai elevenlabs speechmatics gladia meeting audio cloud",
   "command.settings.meetingWords.keywords":
     "names hotwords vocabulary transcription spelling meetings",
   "command.settings.localMode.keywords": "local offline private cloud off settings privacy",
@@ -3910,7 +3913,7 @@ export const en = {
   "meetings.route.slow":
     "This computer may not keep up live; a cloud service keeps live text smooth.",
   "meetings.route.slowNoKey": "Live text may fall behind on this computer.",
-  "meetings.route.settingsLink": "Settings › Meetings",
+  "meetings.route.settingsLink": "Settings › Models",
   "meetings.route.consent": "A cloud service gets the meeting’s audio while you record.",
   "meetings.route.paused": "Paused: “Keep everything on this computer” is on.",
   "meetings.route.chooseAgain":
@@ -3923,6 +3926,10 @@ export const en = {
   "meetings.route.ownServer": "on your own server",
   "meetings.route.languages":
     "{provider} doesn’t transcribe {languages}: what’s said in it may be missing or wrong.",
+  "meetings.setUp.group": "Set up another transcription service",
+  "meetings.setUp.row": "Use {provider}…",
+  "meetings.setUp.line": "Transcribes meetings live with your {provider} key",
+  "meetings.setUp.ownServer": "On your own server",
   "meetings.key.title": "{provider} key",
   "meetings.key.line": "Kept on this computer and never shown again.",
   "meetings.key.lineChecked":
@@ -3931,15 +3938,10 @@ export const en = {
   "meetings.key.placeholder": "Paste the key",
   "meetings.key.save": "Save",
   "meetings.key.checking": "Checking…",
-  "meetings.key.saved": "Saved",
-  "meetings.key.add": "Add a key",
-  "meetings.key.replace": "Change key",
-  "meetings.key.remove": "Remove",
   "meetings.key.server": "Server",
   "meetings.key.serverPlaceholder": "Deepgram’s own",
   "meetings.key.serverTip":
     "Leave it empty for Deepgram. For Cloudflare Workers AI, paste its Nova-3 address; or your own server’s.",
-  "meetings.key.serverSaved": "Sent to {server}",
   "settings.advanced": "Advanced",
   "models.removed": "Removed {provider}.",
   "models.removed.answers": "Removed {provider}. Answers now use {model}.",
@@ -3961,6 +3963,9 @@ export const en = {
   "models.providers.forSorting": "For sorting and meeting hints",
   "models.providers.forSorting.account": "For sorting and meeting hints · account ID {id}",
   "models.providers.forSorting.workspace": "For sorting and meeting hints · workspace {id}",
+  "models.providers.forTranscription": "For meeting transcription",
+  "models.providers.forTranscription.server": "For meeting transcription · sent to {server}",
+  "models.providers.forAnswersAndTranscription": "For Answers and meeting transcription",
   "models.providers.changeKey": "Change key",
   "models.providers.removeKey": "Remove key",
   "models.providers.inMenu.one": "1 model in the menu",
