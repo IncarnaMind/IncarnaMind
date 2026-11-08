@@ -2379,6 +2379,13 @@ export interface RecheckCitationInput extends CitationToRecheck {
    * (#1934). Never left out.
    */
   mindId: string | null;
+  /**
+   * The conversation the Citation is in, when it is in an Answer: one shown with no Note reads
+   * as browsing only when this is null too, so a Document kept inside a walled Folder the
+   * conversation is outside isn't read again (#2782). Absent or null for a Citation in a Note
+   * or in a Document's viewer.
+   */
+  conversationId?: string | null;
 }
 
 /**

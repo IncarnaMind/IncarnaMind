@@ -450,6 +450,8 @@ export const en = {
   "error.folder.wall": "This Folder keeps its work inside it.",
   "error.turnPlace": "This needs to know which note or conversation it’s in.",
   "error.citation.recheckNote": "A Citation can only be checked again for the note it is in.",
+  "error.citation.recheckPlace":
+    "A Citation can only be checked again for the note or conversation it is in.",
   "error.folder.wallMove":
     "Not moved: a Folder that keeps its work inside it can’t have its work moved in or out by the assistant. You can still move it yourself.",
   "error.folder.notFiled":

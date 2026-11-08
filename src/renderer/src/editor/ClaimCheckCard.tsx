@@ -102,7 +102,7 @@ import { claimPartRows, markOf, type ShownClaim } from "./claimChecks";
 import { DocumentCheckAction } from "./DocumentCheckAction";
 import { ClaimMarkIcon, type ClaimMarkState } from "./icons";
 import { LibrarySource } from "./LibrarySource";
-import { MindIdContext, useCitedOrigin } from "./mindContext";
+import { ConversationIdContext, MindIdContext, useCitedOrigin } from "./mindContext";
 import { checkOpinion, opinionChecks } from "./opinionChecks";
 import { Popover } from "./Popover";
 import { PropertySource } from "./PropertySource";
@@ -195,6 +195,7 @@ export function ClaimMark({
   const onPage = useQuotedWordsOnPage(
     state === "supported" && claim.kind !== "chart" ? quotedWordsAsks(editor.state, claim) : [],
     mindId,
+    useContext(ConversationIdContext),
   );
   const decision =
     state === "supported" && claim.kind !== "chart"

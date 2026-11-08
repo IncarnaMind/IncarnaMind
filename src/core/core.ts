@@ -3130,12 +3130,29 @@ export function createCore(adapters: CoreAdapters): Core {
   });
 
   /**
-   * A Citation checked again in the Note it goes into: one whose Document is kept inside a walled
-   * Folder that Note is outside isn't read from there, so the check it was made with stands, as
-   * for a Citation made before the wall (#1934).
+   * Whether a Citation may be read again from where it is shown (#1934, #2782): the wall of the
+   * Note it is in, or of the conversation it is in when that has no Note; somewhere with neither
+   * reads as browsing is, which may. A place whose wall can't be judged (its Note or conversation
+   * gone) may not.
+   */
+  const mayRecheckFrom = (place: TurnPlace, documentId: string): boolean => {
+    const wall = walledDocument(documentId);
+    if (wall === null) return true;
+    if (place.mindId === null && place.conversationId === null) return true;
+    try {
+      return wall === turnWall(place);
+    } catch {
+      return false;
+    }
+  };
+  /**
+   * A Citation checked again in the Note or conversation it is shown in: one whose Document is
+   * kept inside a walled Folder that place is outside isn't read from there, so the check it was
+   * made with stands, as for a Citation made before the wall (#1934, #2782).
    */
   const recheckIn = (input: RecheckCitationInput): RecheckResult => {
-    if (mayRecheckIn(input.mindId, input.documentId)) return recheckCitation(documents, input);
+    const place = { mindId: input.mindId, conversationId: input.conversationId ?? null };
+    if (mayRecheckFrom(place, input.documentId)) return recheckCitation(documents, input);
     return { keptInside: walledFolderName(input.documentId) ?? "" };
   };
   // "Add to note" into a Mind that isn't open (#201), with its Citations checked where they land.
@@ -5866,6 +5883,14 @@ export function createCore(adapters: CoreAdapters): Core {
       if (input.mindId !== null && typeof input.mindId !== "string") {
         throw new InvalidInputError({ key: "error.citation.recheckNote" });
       }
+      // A conversation named must be one that can be judged; left out, the Citation is browsing.
+      if (
+        input.conversationId !== undefined &&
+        input.conversationId !== null &&
+        (typeof input.conversationId !== "string" || input.conversationId === "")
+      ) {
+        throw new InvalidInputError({ key: "error.citation.recheckPlace" });
+      }
       return recheckIn({
         documentId: input.documentId,
         quote: typeof input.quote === "string" ? input.quote : "",
@@ -5875,6 +5900,7 @@ export function createCore(adapters: CoreAdapters): Core {
         quotedWords: parseQuotedWords(input.quotedWords),
         ...(input.location !== undefined && { location: parseLocation(input.location) }),
         mindId: input.mindId,
+        conversationId: input.conversationId ?? null,
       });
     },
     citeSelection: async (input) => {
