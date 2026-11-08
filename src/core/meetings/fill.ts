@@ -59,6 +59,9 @@ import { textWithUserName, withUserName } from "./userName";
 /** The most of a Transcript one Run reads: about two hours of talk. */
 export const FILL_PART_TOKENS = 24_000;
 
+/** What a call agrees, sets someone to do or leaves open: never a claim to check. */
+const AGREED: ReadonlySet<FillSection> = new Set(["decisions", "actions", "questions"]);
+
 /** Claims checked at once on a model off this computer; one at a time on one on it. */
 const CLAIMS_AT_ONCE = 4;
 
@@ -951,11 +954,14 @@ export function createMeetingFill(options: MeetingFillOptions) {
     route: Routed,
     signal: AbortSignal,
   ): Promise<Set<string>> {
-    // With nothing to check against, every claim would be listed as not in the Documents (#2306).
+    // A decision, a task or a question is the call's own, which no Document holds yet; and with
+    // nothing to check against, every claim would be listed as not in the Documents (#2306).
+    const checked = facts.filter(
+      (fact) => fact.claim && !fact.sections.some((section) => AGREED.has(section)),
+    );
     const claims =
-      facts.some((fact) => fact.claim) &&
-      options.checkable({ mindId: meeting.mindId, transcriptId })
-        ? facts.filter((fact) => fact.claim)
+      checked.length > 0 && options.checkable({ mindId: meeting.mindId, transcriptId })
+        ? checked
         : [];
     let checking = 0;
     const supported = await inTurns(claims, route.local ? 1 : CLAIMS_AT_ONCE, (claim) => {

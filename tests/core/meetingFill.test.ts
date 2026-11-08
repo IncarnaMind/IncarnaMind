@@ -518,7 +518,6 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
         text: [
           overview("The call covered the budget [^1]."),
           fact("P1_budget", "budget", "The budget is approved for this year [^1].", {
-            sections: ["decisions"],
             claim: true,
           }),
         ].join("\n\n"),
@@ -809,13 +808,14 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     core.close();
   });
 
-  // protects=with no notes, the sections are filled in, each citing the Transcript, and "Said in the call, not in your Documents" keeps only the claims the User's Documents don't support; fails_when=a section is missing, uncited, or a supported claim is listed; no_claim=the template's sections (#688).
+  // protects=with no notes, the sections are filled in, each citing the Transcript, and "Said in the call, not in your Documents" keeps only the statements the User's Documents don't support, moved there whole, never a decision, task or open question, which is the call's own and isn't checked (#2306); fails_when=a section is missing, uncited, a decision is checked or listed, or a claim is written twice; no_claim=the template's sections (#688).
   test("with no notes, the sections, and only the claims the Documents don't support, written there once", async () => {
-    const supported = "The enterprise price is 45 dollars a seat.";
+    const decided = "The enterprise price is 45 dollars a seat";
+    const checks: string[] = [];
     const model = fillingModel(
       [
         overview("The call covered pricing and the contract [^1]."),
-        fact("P1_price", "pricing", `${supported.replace(".", "")} [^1].`, {
+        fact("P1_price", "pricing", `${decided} [^1].`, {
           sections: ["decisions"],
           claim: true,
         }),
@@ -836,17 +836,17 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
         3: THEIR_LINES[1] as string,
         4: THEIR_LINES[0] as string,
       },
+      {},
       {
-        "The enterprise price is 45 dollars a seat.": {
-          verdict: "supported",
-          quote: "Enterprise plan: 45 dollars a seat",
+        seen: (call) => {
+          if (isCheckRun(call)) checks.push(call.prompt);
         },
       },
     );
     const { core, meeting, client } = await recorded(model, null, async (core) => {
       const sources = await createSourceFolder();
       await addAndProcess(core, [
-        await writeSourceFile(sources, "Price list.md", "Enterprise plan: 45 dollars a seat.\n"),
+        await writeSourceFile(sources, "Price list.md", "Team plan: 30 dollars a seat.\n"),
       ]);
     });
 
@@ -864,6 +864,8 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
       "«Said in the call, not in your Documents»",
       "«The budget is approved for this year »\uFFFC«.»",
     ]);
+    expect(checks.some((prompt) => prompt.includes("The budget is approved"))).toBe(true);
+    expect(checks.some((prompt) => prompt.includes(decided))).toBe(false);
     core.close();
   });
 
