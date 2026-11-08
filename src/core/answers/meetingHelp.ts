@@ -156,6 +156,30 @@ export function helpOwnLines(kind: MeetingHelpKind, text: string): { from: numbe
   return [...(leadIn ? [leadIn] : []), ...own].map(({ from, to }) => ({ from, to }));
 }
 
+/**
+ * The lines of a button's reply in `text` that a Citation may go in (#2847): an option's sentence,
+ * a reading's quoted moment and a short line, never a "→" line or a reading's own sentence, which
+ * the form says is never a fact.
+ */
+export function helpCitableLines(
+  kind: MeetingHelpKind,
+  text: string,
+): { from: number; to: number }[] {
+  const readings = HELP_SHAPE[kind] === "readings";
+  return helpOwnLines(kind, text).flatMap((span) => {
+    const lines: { from: number; to: number }[] = [];
+    let at = span.from;
+    for (const raw of text.slice(span.from, span.to).split("\n")) {
+      const line = { from: at, to: at + raw.length };
+      at = line.to + 1;
+      const plain = plainLine(raw);
+      if (plain === "" || EFFECT_MARK.test(plain)) continue;
+      lines.push(line);
+    }
+    return readings ? lines.slice(1) : lines;
+  });
+}
+
 /** The most of the User's Documents a button's Question takes, found ahead for the newest lines. */
 export const FOUND_TOKEN_LIMIT = 2_000;
 

@@ -48,6 +48,7 @@ import {
   type MarkerRecord,
   withMissingMarkers,
   wordsOf,
+  wordsWorth,
 } from "./markerPlacement";
 import { CITE_RETRY_INSTRUCTIONS, citeRetryPrompt } from "./prompt";
 import { replyJson } from "./quoteRetry";
@@ -94,7 +95,7 @@ function capped<T extends { marker?: number }>(matches: readonly T[]): T[] {
   let added = 0;
   return matches.filter((match) => match.marker !== undefined || ++added <= MAX_ADDED);
 }
-/** Quoted text with fewer words than this (or CJK characters, by pairs) says too little to match. */
+/** Quoted text worth fewer words than this (`wordsWorth`) says too little to match. */
 const MIN_QUOTED_WORDS = 3;
 /** A sentence matches a Passage's sentence when they share this many words… */
 const MIN_SHARED_WORDS = 5;
@@ -179,7 +180,7 @@ function passageSentences(text: string): string[] {
 function quotationsIn(answer: string): { at: number; quote: string }[] {
   return [...answer.matchAll(QUOTATION)]
     .map((found) => ({ at: found.index, quote: (found[1] as string).trim() }))
-    .filter(({ quote }) => wordsOf(quote).size >= MIN_QUOTED_WORDS);
+    .filter(({ quote }) => wordsWorth(quote) >= MIN_QUOTED_WORDS);
 }
 
 /**

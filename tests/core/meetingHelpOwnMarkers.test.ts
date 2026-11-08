@@ -1,10 +1,11 @@
 /**
  * Call help's Citations, through the core's public interface as the floating panel reads them: the
  * panel shows a found Citation as checked with no judgement of its sentence, so a reply cites only
- * where the model wrote its markers (#2847).
+ * where the model wrote its markers, or after words its own record's quote holds (#2847).
  */
 import { describe, expect, test } from "vitest";
 import type { CoreAdapters, MeetingHelpKind } from "../../src/core";
+import { holds } from "../../src/core/answers/heldMarkers";
 import { answerEnded, shownPassages, taggedBlock } from "../helpers/citations";
 import { createTempDataFolder } from "../helpers/core";
 import { type ModelCall, scriptedModel, scriptedModels } from "../helpers/models";
@@ -85,8 +86,8 @@ const QUOTATIONS = [
     },
     said: "任何一方提前六十天书面通知就可以终止协议",
     reply:
-      "- 你说任何一方提前六十天书面通知就可以终止协议 [^1]\n- 对方的“律师预期”只是口头说法，文档中没有相关记录",
-    quotation: "律师预期",
+      "- 你说任何一方提前六十天书面通知就可以终止协议 [^1]\n- 对方说“这跟我们律师预期的一样”，文档中没有相关记录",
+    quotation: "这跟我们律师预期的一样",
   },
   {
     language: "English",
@@ -138,8 +139,94 @@ const UNMARKED = [
   },
 ];
 
+const HELD = [
+  {
+    language: "Chinese",
+    call: {
+      lines: ["冷链监控我们也有。", ...QUIET, "嗯。"],
+      theirLines: [
+        "温度超出设定范围 5 分钟后会发告警短信。",
+        "温度记录保存 3 年，可以导出 PDF 报告。",
+        ...QUIET,
+      ],
+    },
+    reply: "- 温度超标 5 分钟后发告警短信，记录保存 3 年，可导出 PDF 报告",
+    placed: "- 温度超标 5 分钟后发告警短信[^1]，记录保存 3 年，可导出 PDF 报告[^2]",
+    quotes: ["温度超出设定范围 5 分钟后会发告警短信", "温度记录保存 3 年，可以导出 PDF 报告"],
+  },
+  {
+    language: "English",
+    call: {
+      lines: ["We do cold-chain monitoring too.", ...QUIET_EN, "Okay."],
+      theirLines: [
+        "A text alert goes out 5 minutes after the temperature leaves the set range.",
+        "Temperature records are kept for 3 years and can be exported as PDF reports.",
+        ...QUIET_EN,
+      ],
+    },
+    reply:
+      "- An alert texts you 5 minutes after the temperature leaves its range, and records are kept 3 years as PDF reports",
+    placed:
+      "- An alert texts you 5 minutes after the temperature leaves its range[^1], and records are kept 3 years as PDF reports[^2]",
+    quotes: [
+      "A text alert goes out 5 minutes after the temperature leaves the set range.",
+      "Temperature records are kept for 3 years and can be exported as PDF reports.",
+    ],
+  },
+];
+
+const OPPOSITE = [
+  {
+    language: "Chinese",
+    call: {
+      lines: ["基础版覆盖大部分货物。", ...QUIET, "嗯。"],
+      theirLines: ["基础版不承保冷藏货物。", "我们回去再看看。", ...QUIET],
+    },
+    reply: "★ 基础版可以承保你们的冷藏货物\n→ 直接回答",
+    quote: "基础版不承保冷藏货物",
+  },
+  {
+    language: "English",
+    call: {
+      lines: ["Basic covers most of what you move.", ...QUIET_EN, "Okay."],
+      theirLines: [
+        "Refrigerated goods are not covered on the Basic plan.",
+        "We will look again.",
+        ...QUIET_EN,
+      ],
+    },
+    reply: "★ The Basic plan covers your refrigerated goods\n→ answers at once",
+    quote: "Refrigerated goods are not covered on the Basic plan.",
+  },
+];
+
 describe("Call help's Citations", { timeout: 60_000 }, () => {
-  // protects=a quotation in a help reply that the model gave no marker is never cited by the core, so no ✓ shows on a sentence the model didn't cite (the Chinese one is four characters, which counted as three words); fails_when=the core matches the quotation to the call and adds a found Citation; no_claim=how a real model places its markers (#2847).
+  // protects=a record the model left unmarked goes right after the clause its quote holds, so Haiku's Citations stay and each ✓ sits after its own words; fails_when=it goes at the sentence's end, after a clause its quote doesn't hold, or nowhere; no_claim=which records a real model leaves unmarked (#2847).
+  test.each(HELD)(
+    "a record the model left unmarked goes after the clause its quote holds: $language",
+    async ({ call, reply, placed, quotes }) => {
+      const { answer } = await pressed(call, citing(reply, quotes), "sum");
+
+      expect(cited(answer)).toEqual([
+        { marker: 1, quote: quotes[0], check: "found" },
+        { marker: 2, quote: quotes[1], check: "found" },
+      ]);
+      expect(answer.text).toBe(placed);
+    },
+  );
+
+  // protects=a record whose quote says the opposite of the reply's words never lands there as a ✓; fails_when=it is placed by the words they share; no_claim=a reply the model marked itself (#2847).
+  test.each(OPPOSITE)(
+    "a record whose quote says the opposite is never placed: $language",
+    async ({ call, reply, quote }) => {
+      const { answer } = await pressed(call, citing(reply, [quote]), "answer");
+
+      expect(answer.citations).toEqual([]);
+      expect(answer.text).toBe(reply);
+    },
+  );
+
+  // protects=a quotation in a help reply that the model gave no marker is never cited by the core, so no ✓ shows on a sentence the model didn't cite ; fails_when=the core matches the quotation to the call and adds a found Citation; no_claim=how a real model places its markers (#2847).
   test.each(QUOTATIONS)(
     "a quotation the model left uncited gets no Citation, its own marker keeps its found one: $language",
     async ({ call, said, reply }) => {
@@ -236,4 +323,42 @@ describe("Call help's Citations", { timeout: 60_000 }, () => {
       expect(asked).not.toContain("its Citation markers at its end");
     },
   );
+});
+
+describe("Whether a quote holds the words a record would go after", () => {
+  // protects=a quote holds words only with every figure of theirs by kind and unit, never saying their opposite, in English and Chinese; fails_when=another unit, another currency or a negated word passes; no_claim=how much of their words it must share beyond the cases here (#2847).
+  test.each([
+    {
+      quote: "Refunds are processed within 5 business days.",
+      words: "refunds come within 5 business days",
+      held: true,
+    },
+    {
+      quote: "Refunds are processed within 5 business days.",
+      words: "refunds come within 5 days",
+      held: false,
+    },
+    { quote: "Return labels cost $1.20 each.", words: "a return label costs $1.20", held: true },
+    {
+      quote: "A site can book up to 40 docks.",
+      words: "a site can book up to $40 of docks",
+      held: false,
+    },
+    {
+      quote: "Refrigerated goods are not covered on the Basic plan.",
+      words: "Basic covers refrigerated goods",
+      held: false,
+    },
+    { quote: "错过的时段保留 15 分钟。", words: "错过的时段会保留 15 分钟", held: true },
+    { quote: "错过的时段保留 15 分钟。", words: "错过的时段会保留 15 天", held: false },
+    {
+      quote: "注销账户的数据在注销 30 天后删除。",
+      words: "注销账户的数据三十天后删除",
+      held: true,
+    },
+    { quote: "基础版不承保冷藏货物。", words: "基础版承保冷藏货物", held: false },
+    { quote: "退货面单每张 8 元。", words: "好的", held: false },
+  ])("“$words” against “$quote”: $held", ({ quote, words, held }) => {
+    expect(holds(quote, words)).toBe(held);
+  });
 });

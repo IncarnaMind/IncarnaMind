@@ -121,6 +121,7 @@ import { calculationsSchema, checkCalculationsSchema } from "./calculationsSchem
 import { asksForFixes, WRITE_NOW } from "./citations";
 import { type AskedPicture, earlierContext, type RequestMind, withLineBefore } from "./context";
 import { retryFigures } from "./figureRetry";
+import { heldMarkerEvents, type Span } from "./heldMarkers";
 import {
   NOTHING_SHOWN_YET,
   SEARCH_QUERY_INSTRUCTIONS,
@@ -468,11 +469,12 @@ export interface AnswerRequest {
   /** Framed Meeting facts with missing Citations are omitted, never repaired (#2306). */
   meetingFacts?: true;
   /**
-   * Citations only where the model wrote their markers: a record it left unmarked is dropped, and
-   * a sentence it left uncited gets none (#2847). For call help, whose found Citations show as
-   * checked with no judgement of their sentences.
+   * For call help, whose found Citations show as checked with no judgement of their sentences
+   * (#2847): the spans of the reply a Citation may go in. A record the model left unmarked is
+   * placed in them only after words its quote holds (./heldMarkers), and a sentence it left
+   * uncited gets no Citation.
    */
-  ownMarkersOnly?: true;
+  heldMarkersIn?(text: string): readonly Span[];
   /** What a search says of the Answer's language after its Passages (see `DocumentToolsHooks`). */
   languageNote?(): string | null;
   /**
@@ -2157,7 +2159,9 @@ async function* toolLoop(
         const figured = request.documents.citeFigures?.(keptText) ?? keptText;
         yield* textEdits(keptText, figured);
         keptText = figured;
-        if (!request.meetingFacts && !request.ownMarkersOnly) {
+        if (request.heldMarkersIn) {
+          yield* heldMarkerEvents(keptText, cited, request.documents, request.heldMarkersIn);
+        } else if (!request.meetingFacts) {
           const placed = yield* missingMarkerEvents(keptText, cited, request.documents);
           yield* citeUnmarked(request, placed, temperature, budget, () =>
             nudges.take("unmarked-quotes"),
@@ -2624,13 +2628,14 @@ async function* structured(
     let placed = emitted;
     if (!request.meetingFacts) {
       // A small model often gives the records but leaves their markers out.
-      const marked = request.ownMarkersOnly
-        ? emitted
+      const marked = request.heldMarkersIn
+        ? yield* heldMarkerEvents(emitted, records, request.documents, request.heldMarkersIn)
         : yield* missingMarkerEvents(emitted, records, request.documents);
       if (budget) yield* retryQuotes(request, marked, temperature, budget);
       if (signal.aborted) return;
-      if (!request.ownMarkersOnly)
-        placed = yield* citeUnmarked(request, marked, temperature, budget);
+      placed = request.heldMarkersIn
+        ? marked
+        : yield* citeUnmarked(request, marked, temperature, budget);
     }
     if (signal.aborted) return;
     // Worked out once the quotes are as good as they will be, since figures read their numbers there.

@@ -336,6 +336,7 @@ import {
   FOUND_TOKEN_LIMIT,
   foundWithin,
   HELP_DOCUMENTS,
+  helpCitableLines,
   helpOwnLines,
   LIVE_TEXT_BEHIND_NOTE,
   languageSaid,
@@ -3608,7 +3609,10 @@ export function createAnswers(options: AnswersOptions) {
         toolSet: input.toolSet ?? (help ? "documents" : undefined),
         ...(help &&
           !options.helpFormJudged?.() && { ownLines: (text: string) => helpOwnLines(help, text) }),
-        ...(help && !options.helpMarksPlaced?.() && { ownMarkersOnly: true }),
+        ...(help &&
+          !options.helpMarksPlaced?.() && {
+            heldMarkersIn: (text: string) => helpCitableLines(help, text),
+          }),
         ...(input.outputKind && { outputKind: input.outputKind }),
         ...(keepsQuestionsLanguage && {
           languageNote: () => (skillNamesNoLanguage ? skillLanguageNote(language) : null),

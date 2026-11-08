@@ -269,6 +269,17 @@ describe("Matching sentences to Passages", () => {
     ]);
   });
 
+  // protects=a quotation is worth as many words in Chinese as its English twin, so two-word twins both go uncited and longer twins are both cited; fails_when=律师预期, two words' worth, is cited while "lawyer expected" isn't; no_claim=near-duplicates, which share words by their own rule (#2847).
+  test("a quotation counts alike in English and Chinese: two words' worth says too little", () => {
+    const said = "Good, the lawyer expected sixty days. 好，律师预期六十天。";
+    const cited = (quotation: string) =>
+      matchUnmarked(`They said “${quotation}” here.`, [{ id: "P1", text: said }], found(said))
+        .length;
+
+    expect([cited("lawyer expected"), cited("律师预期")]).toEqual([0, 0]);
+    expect([cited("lawyer expected sixty days"), cited("律师预期六十天")]).toEqual([1, 1]);
+  });
+
   // protects=a near-duplicate with another number, or a negation the Passage doesn't have, isn't cited, in English and Chinese; one saying the same is; fails_when=£739,800 is cited by £793,800, "is not" by "is", or 不是 by 是; no_claim=quotations, which the check reads word for word.
   test("a near-duplicate must give the same numbers and negations", () => {
     const rent = "The rent for the flat in Camden is £793,800 a year, paid monthly.";

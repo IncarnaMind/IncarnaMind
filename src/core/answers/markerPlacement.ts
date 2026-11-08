@@ -61,7 +61,7 @@ const MIN_SHARED = 2;
 const MIN_SIMILARITY = 0.2;
 
 /** Common English words, which say nothing about which sentence a quote supports. */
-const STOP_WORDS = new Set(
+export const STOP_WORDS = new Set(
   "a an and are as at be been but by can do does for from had has have he her his i if in into is it its may more most not of on or our she so such than that the their them then there these they this those to was we were what when which while who will with would you your".split(
     " ",
   ),
@@ -86,6 +86,20 @@ export function wordsOf(text: string): Set<string> {
     }
   }
   return words;
+}
+
+const CJK_CHARACTER = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/gu;
+
+/**
+ * How many words a text is worth, alike across scripts: its words and numbers, common English
+ * words aside, as `wordsOf` gives them, and its Chinese, Japanese or Korean characters in pairs,
+ * as the Citation card's nearest words count them (./closestWords). Counted by `wordsOf`'s
+ * neighbouring pairs, four characters such as 律师预期 were worth three words where "lawyer
+ * expected" is worth two (#2847).
+ */
+export function wordsWorth(text: string): number {
+  const latin = [...wordsOf(text.replace(CJK_CHARACTER, " "))].length;
+  return latin + Math.floor((text.match(CJK_CHARACTER)?.length ?? 0) / 2);
 }
 
 /** How alike two sets of words are: the shared words, and their Dice similarity. */
