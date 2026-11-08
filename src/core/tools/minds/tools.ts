@@ -1687,6 +1687,10 @@ export function mindTools(options: MindToolsOptions): {
     if (stream.copy !== null) {
       withdraw(writer);
       minds.writing(writer.mind.id, null);
+      // Stopped before the call ends, its card would still claim the text just taken back.
+      if (writer.written > 0) {
+        options.failed(toolCallId, repeatRefusal(writer.mind, stream.copy).problem);
+      }
       return;
     }
     const unmade = ready.findIndex(unmadeTable);

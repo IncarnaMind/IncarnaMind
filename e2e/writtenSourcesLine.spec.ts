@@ -132,14 +132,15 @@ test("a write stopped halfway names the source of what it wrote", async () => {
   await window.keyboard.press("ControlOrMeta+j");
   await expect(window.getByTestId("composer-input")).toBeFocused();
   await window.keyboard.type(
-    "Slowly write a detailed summary of the Field Report and the Quarterly Research Update into this note, with a section for each.",
+    "Write a detailed summary of the Field Report and the Quarterly Research Update into this note, with a section for each, and pause halfway.",
   );
   await window.keyboard.press("Enter");
   const answer = assistantAnswers(window).last();
-  // The first section's paragraph is in the Note, the second still being written.
+  // The scripted model holds once the first section is in the Note, until it is stopped.
   await expect(window.getByTestId("mind-editor").getByTestId("citation-chip")).toHaveCount(1, {
     timeout: 45_000,
   });
+  await expect(answer).toHaveAttribute("data-status", "streaming");
   await pointAndClick(window, window.getByTestId("composer-stop"));
   await expect(answer).toHaveAttribute("data-status", "stopped");
   await expect(window.getByTestId("mind-editor").getByTestId("citation-chip")).toHaveCount(1);

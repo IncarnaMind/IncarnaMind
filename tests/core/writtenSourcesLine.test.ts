@@ -16,6 +16,7 @@ import { shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
+import { shownWithChanges } from "../helpers/minds";
 import { type ScriptedReply, scriptedModel, scriptedModels } from "../helpers/models";
 import { transcribingCore, until } from "../helpers/transcription";
 
@@ -215,7 +216,7 @@ for (const language of ["en", "zh-CN"] as const) {
       return { answer, mindId: mind.id };
     };
 
-    // protects=a write whose reply cites nothing, with Citations in the Note, names those sources on its line and counts them used by its search; fails_when=the line says "no sentence matched them" or "no sources", or the search says "0 used"; no_claim=what a real model writes, which the PR's run on Claude Haiku 5.5 shows.
+    // protects=a write whose reply cites nothing, with Citations in the Note, names those sources on its line and counts them used by its search; fails_when=the line says "no sentence matched them" or "no sources", or the search says "0 used"; no_claim=what a real model writes, which tests/live/writtenSourcesLine.live.test.ts checks.
     test("a cited write names its sources", async () => {
       const { answer, mindId } = await written();
 
@@ -286,3 +287,154 @@ for (const language of ["en", "zh-CN"] as const) {
     });
   });
 }
+
+const LEASES = {
+  en: {
+    question: "Write a summary of the Harbour lease into this note.",
+    first: {
+      name: "Harbour lease 2023",
+      text: "The deposit was one month's rent.",
+      query: "deposit",
+    },
+    cited: {
+      name: "Harbour lease 2024",
+      text: "The rent rises by three percent each April.",
+      query: "rent rises",
+    },
+    unread: { name: "Harbour lease 2022", text: "The tenancy ended in March." },
+    content: "## Harbour lease\n\nThe rent rises by three percent each April [^1].",
+    reply: "I added a summary of the Harbour lease to this Note.",
+  },
+  "zh-CN": {
+    question: "把海港租约的摘要写进这个笔记。",
+    first: { name: "海港租约2023", text: "押金为一个月租金。", query: "押金" },
+    cited: { name: "海港租约2024", text: "租金每年四月上调百分之三。", query: "租金上调" },
+    unread: { name: "海港租约2022", text: "租期于三月结束。" },
+    content: "## 海港租约\n\n租金每年四月上调百分之三[^1]。",
+    reply: "我把海港租约的摘要加进了这个笔记。",
+  },
+} as const;
+
+for (const language of ["en", "zh-CN"] as const) {
+  const lease = LEASES[language];
+  const walk = WALKS[language];
+
+  describe(`the Document a write cites is the one named as read (${language})`, {
+    timeout: 60_000,
+  }, () => {
+    // protects=when a name fits several Documents, "I read X" names the one the Note's text cites, not the first its searches found; fails_when=it names "Harbour lease 2023", whose Passage only came first; no_claim=a request that names its Documents, held above.
+    test("“I read” names the Document the Note cites", async () => {
+      const model = scriptedModel((call): ScriptedReply => {
+        if (isCheckRun(call)) return checkReply(call, {});
+        const searches = call.results.filter((result) => result.tool === "search_documents");
+        if (searches.length === 0) {
+          return { calls: [{ tool: "search_documents", input: { query: lease.first.query } }] };
+        }
+        if (searches.length === 1) {
+          return { calls: [{ tool: "search_documents", input: { query: lease.cited.query } }] };
+        }
+        if (!call.results.some((result) => result.tool === "cite")) {
+          const passage = shownPassages(searches[1]?.text ?? "").find((each) =>
+            each.text.includes(lease.cited.text),
+          );
+          if (!passage) throw new Error(`The search didn't find “${lease.cited.text}”.`);
+          const citations = [{ marker: 1, passage: passage.id, quote: lease.cited.text }];
+          return { calls: [{ tool: "cite", input: { citations } }] };
+        }
+        if (!call.results.some((result) => result.tool === "add_to_mind")) {
+          return { calls: [{ tool: "add_to_mind", input: { content: lease.content } }] };
+        }
+        return { text: lease.reply };
+      });
+      const core = startCore(await createTempDataFolder(), {
+        createChatModel: scriptedModels(model).createChatModel,
+      });
+      await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+      const folder = await createSourceFolder();
+      const files = [
+        lease.first,
+        lease.cited,
+        lease.unread,
+        ...walk.fillers.map(([file, text]) => ({ name: file.replace(/\.md$/, ""), text })),
+      ];
+      const added = await addAndProcess(
+        core,
+        await Promise.all(
+          files.map(({ name, text }) =>
+            writeSourceFile(folder, `${name}.md`, `# ${name}\n\n${text}\n`),
+          ),
+        ),
+        30_000,
+      );
+      const idOf = (name: string) => added.find((document) => document.name === name)?.id;
+      const mind = await core.createMind({ title: "Leases" });
+
+      const answer = await askAssistant(core, { text: lease.question, mindId: mind.id });
+
+      expect(answer.citations).toEqual([]);
+      expect(answer.steps?.coverage).toEqual({
+        kind: "named",
+        used: [{ id: idOf(lease.cited.name), name: lease.cited.name }],
+        rest: [idOf(lease.unread.name)],
+      });
+    });
+  });
+}
+
+describe("a streamed write taken back as a second copy, then stopped", { timeout: 60_000 }, () => {
+  const RISKS = [
+    "## Risks",
+    "The supplier of the main part is three weeks late, and nobody has told us why.",
+    "The courier who takes the parts to the plant has raised its prices twice this year.",
+  ].join("\n\n");
+
+  // protects=a write that streamed in, was taken back as a second copy of the assistant's own waiting text, and was stopped before its call ended claims nothing in the Note: no change on its card, its row says it couldn't change it; fails_when=the call keeps the change it reported before the take-back, so its row reads "Edited “Q3 review”"; no_claim=the copy check itself, which tests/core/assistantTurns.test.ts holds.
+  test("claims nothing it took back", async () => {
+    const content = `${RISKS}\n\nThe courier is late too.`;
+    const after = JSON.stringify({ content }).indexOf("The courier is late too") + 3;
+    const model = scriptedModel((call): ScriptedReply => {
+      if (call.results.some((each) => each.tool === "add_to_mind")) return { text: "Done." };
+      const more = call.prompt.includes("write more about the risks");
+      return {
+        calls: [
+          { tool: "add_to_mind", input: { content: more ? content : RISKS }, streamInput: true },
+        ],
+        ...(more && { pause: { after, until: new Promise<void>(() => undefined) } }),
+      };
+    });
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: scriptedModels(model).createChatModel,
+    });
+    await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+    const mind = await core.createMind({ title: "Q3 review" });
+    const client = await connectToMind(core, mind.id);
+    const first = await askAssistant(core, { text: "add a risks section", mindId: mind.id });
+    const risks = () => shownWithChanges(client).filter((line) => line === "+ Risks").length;
+    let most = 0;
+    client.blocks.observeDeep(() => {
+      most = Math.max(most, risks());
+    });
+
+    const asked = await core.askInConversation({
+      text: "write more about the risks",
+      mindId: mind.id,
+      conversationId: first.conversationId,
+    });
+    if (!asked.asked) throw new Error("Not asked.");
+    await vi.waitFor(() => expect([most, risks()]).toEqual([2, 1]), { timeout: 20_000 });
+    await core.stopConversationAnswer({
+      conversationId: asked.conversation.id,
+      answerId: asked.answerId,
+    });
+    const { messages } = await core.getConversation(asked.conversation.id);
+    const answer = messages.find((message) => message.id === asked.answerId);
+    if (answer?.kind !== "answer") throw new Error("No Answer.");
+
+    const write = answer.toolCalls.find((call) => call.tool === "add_to_mind");
+    expect(write?.status).toBe("failed");
+    expect(write?.mindChange).toBeUndefined();
+    const en = (key: Parameters<typeof translate>[1], params?: Parameters<typeof translate>[2]) =>
+      translate("en", key, params);
+    expect(write && mindCallText(en, write, "Q3 review")).toBe("Couldn’t change “Q3 review”");
+  });
+});

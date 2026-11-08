@@ -722,6 +722,30 @@ describe("A name in the Question that fits several Documents (#1512)", () => {
     });
   });
 
+  // protects=a Document the Answer never used whose name also has another word of the Question ("summary") takes nothing from the line about the name it read; fails_when="Lease summary 2023" hides "I read “Lease - Office A”"; no_claim=none beyond protects.
+  test("a fuller name only an unused Document has hides no line (#2768)", () => {
+    const en = [
+      { id: "a", name: "Lease - Office A" },
+      { id: "b", name: "Lease - Office B" },
+      { id: "c", name: "Lease summary 2023" },
+    ];
+    expect(namedCoverage("Write a summary of the lease into this note", ["a"], ["a"], en)).toEqual({
+      kind: "named",
+      used: [{ id: "a", name: "Lease - Office A" }],
+      rest: ["b", "c"],
+    });
+    const zh = [
+      { id: "a", name: "租赁合同A" },
+      { id: "b", name: "租赁合同B" },
+      { id: "c", name: "租赁合同摘要2023" },
+    ];
+    expect(namedCoverage("写一段租赁合同的摘要", ["a"], ["a"], zh)).toEqual({
+      kind: "named",
+      used: [{ id: "a", name: "租赁合同A" }],
+      rest: ["b", "c"],
+    });
+  });
+
   // protects=a name that several Documents share offers all those it didn't read; fails_when=only one is counted, or one the name doesn't fit is; no_claim=none beyond protects.
   test("offers every other Document the name fits", () => {
     const contracts = [
