@@ -269,4 +269,16 @@ describe("The text without markers nothing backs", () => {
       "| A | B [^1] |\n|:--|:--|\n| C | D |",
     );
   });
+
+  // protects=a marker no Citation backs goes before a colon mid-line too, as before a table, in English and Chinese, while a definition starting its line stays (#2769); fails_when=a marker followed by a colon is read as a definition and stays in the text; no_claim=none beyond protects.
+  test("goes before a colon mid-line, and a definition starting its line stays", () => {
+    const backed = (marker: number) => marker === 1;
+    expect(
+      withoutDeadMarkers("Table 1 compares width *d*[^2]:\n\n| a | b |\n|:--|:--|", backed),
+    ).toBe("Table 1 compares width *d*:\n\n| a | b |\n|:--|:--|");
+    expect(withoutDeadMarkers("见下表[^2]:\n\n- 一[^1]", backed)).toBe("见下表:\n\n- 一[^1]");
+    expect(withoutDeadMarkers("Sources:\n   [^2]: Tides, p. 3", backed)).toBe(
+      "Sources:\n   [^2]: Tides, p. 3",
+    );
+  });
 });
