@@ -56,9 +56,12 @@ export function ViewerMessage({
 export function OpeningDocument({
   retry,
   waitingOn,
+  openable = true,
 }: {
   retry?: () => void;
   waitingOn?: () => string;
+  /** As the header's: false where the view shows something other than the file as it is now. */
+  openable?: boolean;
 }) {
   const t = useT();
   const { document } = useContext(ViewerFrameContext);
@@ -85,7 +88,7 @@ export function OpeningDocument({
 
   if (!late) return <ViewerMessage>{t("viewer.loading")}</ViewerMessage>;
   const action: ProblemAction | undefined =
-    document && canOpenExternally(document)
+    document && canOpenExternally(document, openable)
       ? {
           label: t(document.web ? "webPages.openLive" : "documents.copy.open"),
           testId: "viewer-not-opened-open",

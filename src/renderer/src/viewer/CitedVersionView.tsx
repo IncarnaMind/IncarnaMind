@@ -144,7 +144,11 @@ export function CitedVersionView({
     <>
       <ViewerHeader openable={false} showingCited />
       {loaded.kind === "loading" ? (
-        <OpeningDocument key={attempt} retry={() => setAttempt((count) => count + 1)} />
+        <OpeningDocument
+          key={attempt}
+          openable={false}
+          retry={() => setAttempt((count) => count + 1)}
+        />
       ) : (
         <CitedVersionContent
           document={document}
