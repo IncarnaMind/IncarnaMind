@@ -9,6 +9,8 @@
  * Library offers as "Use {company}", asks where that Library question would, and keeps it as
  * Organize's model; under a standing no it only lends it for the run (#2252).
  */
+
+import { translate } from "../../../shared/i18n";
 import type {
   Document,
   DocumentGroupAssignment,
@@ -21,6 +23,7 @@ import type {
   TagLinkChange,
   TagLinkState,
 } from "../../api";
+import type { Language } from "../../language";
 import { classifyProviderError } from "../../providers/providerErrors";
 import {
   type CheckedCommand,
@@ -115,6 +118,21 @@ function leftOutReason(items: readonly OrganizeReviewItem[]): string | null {
   return null;
 }
 
+/**
+ * How a reply says what Organize proposed, in the Answer's language and the Review's own words:
+ * models wrote "filed" and "moved" of proposals that wait (#1569).
+ */
+function replyExample(language: Language, folders: readonly { name: string; count: number }[]) {
+  const [first, ...rest] = folders.slice(0, 2);
+  if (!first) return "";
+  const nothingMoved = translate(language, "organizeReview.nothingMoved");
+  const suggested = translate(language, "organizeReview.title");
+  const review = translate(language, "library.review");
+  if (language === "zh-CN")
+    return `整理建议把 ${first.count} 个文档放进“${first.name}”${rest.map((each) => `，${each.count} 个放进“${each.name}”`).join("")}。${nothingMoved}：它们在“${suggested}”中，等你用“${review}”确认。`;
+  return `Organize suggests “${first.name}” for ${plural(first.count, "Document")}${rest.map((each) => ` and “${each.name}” for ${each.count}`).join("")}. ${nothingMoved}: they wait in ${suggested} until you confirm them with ${review}.`;
+}
+
 /** What the model is told of a plan that would cost more than IncarnaMind spends unshown. */
 function costSaid(count: number, estimate: RunEstimate): string {
   const cost = estimate.billing === "per-token" ? estimate.cost : null;
@@ -124,7 +142,7 @@ function costSaid(count: number, estimate: RunEstimate): string {
   return `Organizing ${plural(count, "Document")} would cost ${amount} on the Organize model, so nothing was sent and nothing was proposed. Tell the User they can start Organize from the Library, which shows the cost before it runs.`;
 }
 
-export const organizeChecker: Checker = async (input, host, { wallId }) => {
+export const organizeChecker: Checker = async (input, host, { wallId, language }) => {
   const { core } = host;
   const requested = input.folder;
   const documents =
@@ -266,7 +284,7 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
           counts.set(folder.name, { count: (was?.count ?? 0) + 1, made: folder.made });
         }
         const parts = [...counts].map(([name, { count, made }]) =>
-          made ? `${count} into the new Folder “${name}”` : `${count} into “${name}”`,
+          made ? `“${name}” (a new Folder) for ${count}` : `“${name}” for ${count}`,
         );
         // What Organize reached and couldn't place; the rest it never read.
         const unsorted = ids.length - untouched - placed.length;
@@ -324,7 +342,10 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
               ? `Organize stopped at “${reason ?? "a failure"}” before reading any Document; the other ${plural(untouched, "Document")} stayed as they were.`
               : placed.length === 0
                 ? `Organize proposed no Folder for any Document: ${reason ?? "no Folder fitted"}. Nothing moved.`
-                : `Organize proposed Folders for ${plural(placed.length, "Document")}: ${parts.join(", ")}. Nothing has moved yet: they wait in Suggested Folders, ${plural(review.count, "Document")} in all, until the User confirms them with Review.${unsorted > 0 ? ` ${plural(unsorted, "Document")} got no Folder: ${reason ?? "no Folder fitted"}.` : ""}${untouched > 0 ? ` It stopped at “${reason ?? "a failure"}”; the other ${plural(untouched, "Document")} stayed as they were.` : ""} Name each Folder and its count in your reply, not a list under it, and say that nothing moves until the User reviews them.`,
+                : `Organize only proposed Folders for ${plural(placed.length, "Document")}: ${parts.join(", ")}. Nothing has been filed or moved: they wait in Suggested Folders, ${plural(review.count, "Document")} in all, until the User confirms them in the Review.${unsorted > 0 ? ` ${plural(unsorted, "Document")} got no Folder: ${reason ?? "no Folder fitted"}.` : ""}${untouched > 0 ? ` It stopped at “${reason ?? "a failure"}”; the other ${plural(untouched, "Document")} stayed as they were.` : ""} In your reply, name each Folder with its count, and say nothing has moved yet. Never say the Documents were filed, moved, grouped or put anywhere. Say it like this: “${replyExample(
+                    language,
+                    [...counts].map(([name, { count }]) => ({ name, count })),
+                  )}”`,
         };
       }),
       documents.length > 0 ? "organize" : null,

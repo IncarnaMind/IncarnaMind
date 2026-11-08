@@ -509,7 +509,7 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
       .sort();
     expect(await proposedInto(core, "Leases")).toEqual(aboutRent);
     // The reply names what it proposes, and no Document the run left where it was.
-    expect(answer.text).toContain("Organize proposed Folders for 3 Documents");
+    expect(answer.text).toContain("Organize only proposed Folders for 3 Documents");
     // The record counts every Document it read, so a reply's "3 of the 4" adds up, and how many
     // wait, for its Review button.
     expect(commandCalls(answer).at(-1)?.command?.considered).toBe(4);

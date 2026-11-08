@@ -721,7 +721,10 @@ test("put the documents about rent together proposes them for Rent, the reply's 
   const answer = await askAndFinish(window, "Put the documents about rent together");
   const changes = answer.getByTestId("command-changes");
   await expect(changes.getByTestId("command-changes-title")).toHaveText(
-    "Proposed Folders for 2 Documents",
+    "2 Documents wait in Suggested Folders",
+  );
+  await expect(changes.getByTestId("command-changes-nothing-moved")).toHaveText(
+    "Nothing has moved yet",
   );
   // Nothing moves from the chat: Rent waits in Suggestions with the two, and isn't made yet.
   expect(await proposedOf(window)).toEqual({ Rent: ["Harbour Street", "Scan 0042"] });
@@ -786,7 +789,7 @@ test("the first cloud read for Organize asks on its card, and Allow is that cons
   const answer = assistantAnswers(window).last();
   await expect(answer).toHaveAttribute("data-status", "done", { timeout: 30_000 });
   await expect(answer.getByTestId("command-changes-title")).toHaveText(
-    "Proposed Folders for 6 Documents",
+    "6 Documents wait in Suggested Folders",
   );
   const consent = await window.evaluate(async () => {
     const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
@@ -837,7 +840,9 @@ test("中文：第一次用云端整理时，卡片写明会发送什么，允�
 
   const answer = assistantAnswers(window).last();
   await expect(answer).toHaveAttribute("data-status", "done", { timeout: 30_000 });
-  await expect(answer.getByTestId("command-changes-title")).toHaveText("已为 6 个文档建议文件夹");
+  await expect(answer.getByTestId("command-changes-title")).toHaveText(
+    "6 个文档在“建议的文件夹”中待确认",
+  );
   const consent = await window.evaluate(async () => {
     const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
     return (await core.listDataFlows()).find((each) => each.flow.id === "classification")?.consent;
@@ -856,7 +861,7 @@ test("Re organise the files proposes a Folder for every Document, makes none, an
   const answer = await askAndFinish(window, "Re organise the files");
   const changes = answer.getByTestId("command-changes");
   await expect(changes.getByTestId("command-changes-title")).toHaveText(
-    "Proposed Folders for 6 Documents",
+    "6 Documents wait in Suggested Folders",
   );
   await expect
     .poll(() => proposedOf(window))
@@ -868,6 +873,7 @@ test("Re organise the files proposes a Folder for every Document, makes none, an
 
   await pointAndClick(window, changes.getByTestId("command-changes-undo"));
   await expect(changes.getByTestId("command-changes-undone")).toBeVisible();
+  await expect(changes.getByTestId("command-changes-nothing-moved")).toHaveCount(0);
   await expect.poll(() => proposedOf(window)).toEqual({});
   expect(await foldersOf(window)).toEqual({});
   await app.close();
@@ -882,7 +888,12 @@ test("重新整理文件：为每个文档建议文件夹，不新建文件夹�
 
   const answer = await askAndFinish(window, "重新整理一下这些文件");
   const changes = answer.getByTestId("command-changes");
-  await expect(changes.getByTestId("command-changes-title")).toHaveText("已为 6 个文档建议文件夹");
+  await expect(changes.getByTestId("command-changes-title")).toHaveText(
+    "6 个文档在“建议的文件夹”中待确认",
+  );
+  await expect(changes.getByTestId("command-changes-nothing-moved")).toHaveText(
+    "还没有移动任何文档",
+  );
   await expect(changes.getByTestId("command-changes-review")).toHaveText("查看");
   await expect
     .poll(() => proposedOf(window))

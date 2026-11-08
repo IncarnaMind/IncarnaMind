@@ -419,6 +419,7 @@ export function commandTools(options: CommandToolsOptions): {
           findable: () => options.findable(options.focusedMindId, options.wallId),
           wallId: options.wallId ?? null,
           filing: options.filing,
+          language: options.language,
           answerId: options.answerId,
           runId: options.runId,
           toolCallId,

@@ -104,6 +104,7 @@ export function CommandsCard({
         const lines = [...madeLines(t, done), ...items.slice(0, ITEMS_SHOWN).map(itemText)];
         const more = items.length - Math.min(items.length, ITEMS_SHOWN);
         const going = done.every((each) => each.window?.running);
+        const proposed = !undone[run] && done.some((each) => (each.review?.count ?? 0) > 0);
         return (
           <div key={run} data-run={run}>
             <div className="mind-changes-head">
@@ -120,6 +121,17 @@ export function CommandsCard({
                 >
                   {waits ? t("mindCheck.waitingForOk") : runText(t, done)}
                 </span>
+                {proposed && (
+                  <>
+                    <Dot />
+                    <span
+                      data-testid="command-changes-nothing-moved"
+                      className="mind-changes-count"
+                    >
+                      {t("organizeReview.nothingMoved")}
+                    </span>
+                  </>
+                )}
                 {undone[run] ? (
                   <>
                     <Dot />
@@ -149,7 +161,7 @@ export function CommandsCard({
                     </>
                   )
                 )}
-                {!undone[run] && done.some((each) => (each.review?.count ?? 0) > 0) && (
+                {proposed && (
                   <>
                     <Dot />
                     <button
