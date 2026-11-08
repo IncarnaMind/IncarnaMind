@@ -753,12 +753,18 @@ export function createTranscripts(options: TranscriptsOptions) {
     for (const state of states.values()) {
       const live = state.live;
       if (!live?.started) continue;
-      // Audio sent as the process ended was never decoded: it is a gap, and read again from the
-      // kept audio after Stop, as a crash's is (#2673).
-      const lost = { fromMs: live.doneMs, toMs: Math.max(live.doneMs, live.pushedMs) };
-      if (live.pendingFrom === null && lost.toMs > lost.fromMs) {
-        state.gaps.push({ ...lost, reason: "restarted" });
-        state.pending = addRange(state.pending, lost);
+      // The process ends only with no stream open: audio still sent on a stream the core holds was
+      // never decoded, so it is a gap from that stream's own progress and read again from the kept
+      // audio after Stop, as a crash's is (#2673). A pause's finished stream has left
+      // `live.streams` already, and its last stretch is transcribed, so it is no gap.
+      const open = Object.values(live.streams);
+      if (open.length > 0) {
+        const from = Math.min(...open.map((each) => each.doneMs));
+        const lost = { fromMs: from, toMs: Math.max(from, live.pushedMs) };
+        if (live.pendingFrom === null && lost.toMs > lost.fromMs) {
+          state.gaps.push({ ...lost, reason: "restarted" });
+          state.pending = addRange(state.pending, lost);
+        }
       }
       live.started = false;
       live.unloaded = true;

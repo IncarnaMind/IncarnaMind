@@ -416,6 +416,11 @@ describe("A Meeting's live Transcript", { timeout: 60_000 }, () => {
       (transcript) => transcript.state === "live" && transcript.lines >= 4,
     );
     expect(built).toBe(2);
+    // The pause's last stretch was transcribed by its finish: the idle unload is no gap.
+    const path = join(dataDir, "Transcripts", `${meeting.id}.vtt`);
+    expect(
+      readVtt(readFileSync(path, "utf8")).gaps.filter((gap) => gap.reason === "restarted"),
+    ).toEqual([]);
     await core.stopMeeting(meeting.id);
     const saved = await until(core, meeting.id, (transcript) => transcript.state === "saved");
     expect(readVtt(readFileSync(saved.savedPath as string, "utf8")).gaps).toEqual([]);
