@@ -527,6 +527,11 @@ export interface AnswerRequest {
    */
   isReply?(text: string): boolean;
   /**
+   * For a reply laid out in a form of its own (call help's options): where the form lies in the
+   * text written so far, null before it begins. No part of it is judged the model's working.
+   */
+  formOf?(text: string): { from: number; to: number } | null;
+  /**
    * Told what the first model call wrote once its Tools have returned, before any further call:
    * a Run it stops there makes none.
    */
@@ -2303,8 +2308,16 @@ async function* toolLoop(
           if (recorded && !stepTools.some((each) => !recording(each)) && !again)
             setAside.push({ text: stepText, searched });
         } else {
+          const form = request.formOf?.(keptText + stepText) ?? null;
           const candidates =
-            recorded && request.toolSet !== "check" ? workingCandidates(stepText) : [];
+            recorded && request.toolSet !== "check"
+              ? workingCandidates(stepText).filter(
+                  (each) =>
+                    form === null ||
+                    keptText.length + each.to <= form.from ||
+                    keptText.length + each.from >= form.to,
+                )
+              : [];
           /** The candidates the judgement called the model's working. */
           let working: TextPart[] = [];
           if (candidates.length > 0) {

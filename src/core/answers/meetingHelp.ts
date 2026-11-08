@@ -5,7 +5,15 @@
  * (src/renderer/src/helpReply.ts), so the shape is fixed here.
  */
 
-import { HELP_SHAPE, type HelpShape, type MeetingHelpKind } from "../../shared/meetingHelp";
+import {
+  EFFECT_MARK,
+  HELP_SHAPE,
+  type HelpShape,
+  LINE_MARK,
+  type MeetingHelpKind,
+  plainLine,
+  RECOMMENDED_MARK,
+} from "../../shared/meetingHelp";
 import type { WindowedPassage } from "../documents/search";
 import { LANGUAGE_NAMES, type Language } from "../language";
 import { estimateTokens } from "./context";
@@ -101,6 +109,27 @@ const EXAMPLES: Readonly<Record<"en" | "zh", Readonly<Record<HelpShape, readonly
     lines: ["- 上线推迟到 11 月 18 日 [^1]", "- Dana 跟服务商确认日期"],
   },
 };
+
+/**
+ * Where a button's reply in `text` lays out its form: from its first option or reading (its "★"
+ * line) to the end of its last "→" line, or from its first short line to its last. Null while none
+ * is written. Before it are a model's notes (#2526) and after it a remark it added; the form itself
+ * is never the model's working, so no line of it is taken back (#2778).
+ */
+export function helpForm(kind: MeetingHelpKind, text: string): { from: number; to: number } | null {
+  const lines = HELP_SHAPE[kind] === "lines";
+  const opens = lines ? LINE_MARK : RECOMMENDED_MARK;
+  const goesOn = lines ? LINE_MARK : EFFECT_MARK;
+  let form: { from: number; to: number } | null = null;
+  let at = 0;
+  for (const line of text.split("\n")) {
+    const end = at + line.length;
+    if (form === null && opens.test(plainLine(line))) form = { from: at, to: end };
+    else if (form !== null && goesOn.test(plainLine(line))) form.to = end;
+    at = end + 1;
+  }
+  return form;
+}
 
 /** The most of the User's Documents a button's Question takes, found ahead for the newest lines. */
 export const FOUND_TOKEN_LIMIT = 2_000;

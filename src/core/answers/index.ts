@@ -335,6 +335,7 @@ import {
   FOUND_TOKEN_LIMIT,
   foundWithin,
   HELP_DOCUMENTS,
+  helpForm,
   LIVE_TEXT_BEHIND_NOTE,
   languageSaid,
   meetingHelpInstructions,
@@ -3550,6 +3551,7 @@ export function createAnswers(options: AnswersOptions) {
         gate,
         streamsInput,
         toolSet: input.toolSet ?? (help ? "documents" : undefined),
+        ...(help && { formOf: (text: string) => helpForm(help, text) }),
         ...(input.outputKind && { outputKind: input.outputKind }),
         ...(keepsQuestionsLanguage && {
           languageNote: () => (skillNamesNoLanguage ? skillLanguageNote(language) : null),
