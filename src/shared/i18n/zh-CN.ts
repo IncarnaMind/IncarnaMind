@@ -27,17 +27,18 @@ export const zhCN = {
   "library.organize.retry": "重试",
   "library.organize.explain": "为每个文档建议文件夹和标签，由你决定。",
   "library.organize.needsModel": "“整理”需要 AI 模型",
-  "library.organize.use": "使用 {company}",
   "library.toSort.one": "1 个待整理",
   "library.toSort.other": "{count} 个待整理",
   "library.toSort.allow": "允许 {service}",
   "library.toSort.sends.one":
-    "1 个文档等待整理：尚未允许 {service} 读取。允许后，会把这个文档的名称、类型和页数、开头部分的文字及幻灯片标题或工作表名称，连同你的文件夹名称和描述以及相符标签的名称和描述，发送给 {service}，包括这个文档和以后添加的文档。",
+    "1 个文档等待整理：尚未允许 {service} 读取。允许后，会把这个文档的名称、类型和页数、开头部分的文字及幻灯片标题或工作表名称，连同你的文件夹名称和描述、相符标签的名称和描述以及你的界面语言，发送给 {service}，包括这个文档和以后添加的文档。",
   "library.toSort.sends.other":
-    "{count} 个文档等待整理：尚未允许 {service} 读取。允许后，会把每个文档的名称、类型和页数、开头部分的文字及幻灯片标题或工作表名称，连同你的文件夹名称和描述以及相符标签的名称和描述，发送给 {service}，包括这些文档和以后添加的文档。",
-  "library.organize.sends": "会把文档名称和摘录发送给 {company}。",
-  "library.organize.sends.details":
-    "每个文档的名称和开头的文字（扫描件则是前几页的图片），以及文件夹和标签的名称与描述，会发送给 {company}。",
+    "{count} 个文档等待整理：尚未允许 {service} 读取。允许后，会把每个文档的名称、类型和页数、开头部分的文字及幻灯片标题或工作表名称，连同你的文件夹名称和描述、相符标签的名称和描述以及你的界面语言，发送给 {service}，包括这些文档和以后添加的文档。",
+  "library.organize.consent.title": "允许 {service} 读取你的文档？",
+  "library.organize.consent.sends":
+    "允许后，每次整理都会把文档的名称、类型和页数、开头部分的文字及幻灯片标题或工作表名称，连同你的文件夹名称和描述、相符标签的名称和描述以及你的界面语言，发送给 {service}。",
+  "library.organize.consent.declined": "你之前选择了不发送。点“允许并整理”只在这一次发送。",
+  "library.organize.allow": "允许并整理",
   "library.organize.dismiss": "以后再说",
   "library.organize.setUp": "在这台电脑上设置模型",
   "library.organize.noneFit": "未能为这些文档推荐文件夹",
@@ -3684,7 +3685,7 @@ export const zhCN = {
   "models.removed.automatic": "已移除{provider}。原先使用它的默认模型已改回“自动”。",
   "models.providers.title": "已添加的服务",
   "needsModel.organize":
-    "整理需要一个 AI 模型。它会把文档名称和摘录，以及文件夹和标签的名称与描述，发送给你设置的模型。",
+    "整理需要一个 AI 模型。经你允许后，它会把文档的名称、类型和页数、开头部分的文字及幻灯片标题或工作表名称，连同你的文件夹名称和描述、相符标签的名称和描述以及你的界面语言，发送给你设置的模型。",
   "needsModel.compare": "对比文档需要一个 AI 模型。它会把选中的文档发送给你设置的模型。",
   "needsModel.help": "通话助手需要一个 AI 模型。它会把会议转写稿发送给你设置的模型。",
   "models.providers.none": "还没有添加服务",

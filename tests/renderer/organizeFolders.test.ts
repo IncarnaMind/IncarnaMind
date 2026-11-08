@@ -24,6 +24,7 @@ vi.mock("../../src/renderer/src/core", () => ({
         taggingStopped: [],
       },
     }),
+    startOrganize: async () => ({ ready: true, model: "chat" }),
     organizeLibrary: async () => {
       throw new Error("The model is down.");
     },
