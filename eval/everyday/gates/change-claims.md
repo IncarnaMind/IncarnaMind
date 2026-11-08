@@ -172,3 +172,7 @@ The cap is $3 more.
 ### Guard 3's exception, as it stands
 
 On DeepSeek V4.1 Flash, the branch put `owner-1` under its floor where main didn't. It searched eleven times, ran out of steps and wrote nothing; in three more runs it passed 3 of 3 on the branch and 2 of 3 on main, which failed the same way once. Every request of that run carried this change's `create_mind` title description in its Tool list, so its cause is unproven. The guard stays failed, as a dated exception for the reviewer.
+
+### Before these runs (2026-11-08)
+
+Main moved on while the fixes were written, and the branch took it in: main is now `e2dab852d`, whose #2834 keeps what a write the stop cut short wrote. Such a write didn't finish, so it doesn't back "done" either (`tests/core/claimedChanges.test.ts`). The runs are at the branch's `ac90816ae` against `e2dab852d`'s source.
