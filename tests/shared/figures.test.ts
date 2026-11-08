@@ -780,6 +780,11 @@ const GOLDEN: { name: string; context: FigureContext; cases: Case[] }[] = [
     cases: [
       ["13800138000", []],
       ["电话13800138000", []],
+      // A unit stated in the text makes bare digits an amount unless a label names them a phone or an ID (#2736).
+      ["单位：元\n联系电话：13800138000", []],
+      ["单位：元\n手机：13800138000", []],
+      ["单位：万元\n身份证号：110101199003071234", []],
+      ["单位：元\n联系人：王芳\n电话：13800138000", []],
       ["身份证号110101199003071234", []],
       ["身份证号11010119900307123X", []],
       // Not a mobile's pattern, and an 18-digit run with no birth date in it, stay figures.
@@ -798,6 +803,7 @@ const GOLDEN: { name: string; context: FigureContext; cases: Case[] }[] = [
       ["一百五十万半", [f("一百五十万半", 1505000)]],
       ["一万亿半", [f("一万亿半", 1000050000000)]],
       ["1万2千半", [f("1万2千半", 12500, { scale: "万" })]],
+      ["1.5万半", [f("1.5万半", 20000, { scale: "万" })]],
       ["2万半", [f("2万半", 25000, { scale: "万" })]],
       ["两万半", [f("两万半", 25000, { scale: "万" })]],
       ["两千半导体", [f("两千", 2000)]],
