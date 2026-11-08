@@ -43,6 +43,29 @@ describe("an error from the core", () => {
     expect(describeError(new TypeError("Cannot read properties of undefined")).call).toBeNull();
   });
 
+  test("a programming failure of this window's is marked for the plain words, its stack for the log", () => {
+    const failure = new TypeError("core.startOrganize is not a function");
+    const { programError, stale, message, log } = describeError(failure);
+    expect(programError).toBe(true);
+    expect(stale).toBe(true);
+    expect(message).toBe("core.startOrganize is not a function");
+    expect(log).toContain("core.startOrganize is not a function");
+    expect(log).toMatch(/\n\s+at /);
+  });
+
+  test("a TypeError with no missing method asks a plain try again, not a restart", () => {
+    const { programError, stale } = describeError(new TypeError("Cannot read properties of null"));
+    expect(programError).toBe(true);
+    expect(stale).toBe(false);
+  });
+
+  test("a plain error of this window's, and one the core worded, stay as they are", () => {
+    expect(describeError(new Error("The picture wasn’t drawn.")).programError).toBe(false);
+    const worded = new TranslatableError({ key: "mindCheck.nothingToCheck" });
+    expect(describeError(worded).programError).toBe(false);
+    expect(describeError(ipc("core:x", "TypeError", "It can’t be done.")).programError).toBe(false);
+  });
+
   test("keeps the cause of a wrapped failure for the log, not the line", () => {
     const failure = new Error("The area couldn’t be captured. Try it again.", {
       cause: new Error("The area came out empty."),
@@ -130,10 +153,11 @@ describe("an error that did not cross the bridge", () => {
     expect(describeError(thrown).message).toBe("Nothing to check");
   });
 
-  test("loses its class's name in its message, and keeps it for the log", () => {
+  test("loses its class's name in its message, and keeps it, with its stack, for the log", () => {
     const { message, log } = describeError(new TypeError("Cannot read properties of undefined"));
     expect(message).toBe("Cannot read properties of undefined");
-    expect(log).toBe("TypeError: Cannot read properties of undefined");
+    expect(log.split("\n")[0]).toBe("TypeError: Cannot read properties of undefined");
+    expect(log).toMatch(/\n\s+at /);
   });
 
   test("is made of what it is given when it isn't an Error", () => {

@@ -66,6 +66,7 @@ describe("Settings", () => {
         chatModel: null,
         quickTasksModel: null,
         imageModel: null,
+        callHelpModel: "answers",
         suggestWhileWriting: false,
         leaveOutOwnFiles: true,
         exportOptions: DEFAULT_EXPORT,
@@ -197,6 +198,7 @@ describe("Settings", () => {
       chatModel: null,
       quickTasksModel: null,
       imageModel: null,
+      callHelpModel: "answers",
       suggestWhileWriting: false,
       leaveOutOwnFiles: true,
       exportOptions: DEFAULT_EXPORT,
@@ -541,6 +543,7 @@ describe("Settings", () => {
     await before.updateSettings({
       user: {
         language: "zh-CN",
+        callHelpModel: "fastest",
         suggestWhileWriting: true,
         leaveOutOwnFiles: false,
         exportOptions: PDF_EXPORT,
@@ -565,6 +568,7 @@ describe("Settings", () => {
         chatModel: null,
         quickTasksModel: null,
         imageModel: null,
+        callHelpModel: "fastest",
         suggestWhileWriting: true,
         leaveOutOwnFiles: false,
         exportOptions: PDF_EXPORT,
@@ -680,6 +684,10 @@ describe("Settings", () => {
     {
       name: "a place to transcribe meetings that isn't one",
       patch: { device: { transcriptionRoute: "carrier-pigeon" } },
+    },
+    {
+      name: "a model for call help that isn't one",
+      patch: { user: { callHelpModel: "slowest" } },
     },
     {
       name: "a default model without a model",

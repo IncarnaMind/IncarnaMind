@@ -344,7 +344,7 @@ describe("A provider's Test", () => {
 describe("The models for the other jobs", () => {
   test("follow the Answers model's provider until the User sets their own", async () => {
     const core = startCore(await createTempDataFolder(), { keychain: createMemoryKeychain() });
-    expect(await core.getModelRoles()).toEqual({ quickTasks: null, images: null });
+    expect(await core.getModelRoles()).toEqual({ quickTasks: null, images: null, callHelp: null });
     const provider = await core.saveChatProvider({
       kind: "anthropic",
       apiKey: "sk-ant-test",
@@ -353,6 +353,7 @@ describe("The models for the other jobs", () => {
     expect(await core.getModelRoles()).toEqual({
       quickTasks: { providerId: provider.id, modelId: "claude-haiku-5-5" },
       images: { providerId: provider.id, modelId: "claude-fable-5-1" },
+      callHelp: { providerId: provider.id, modelId: "claude-haiku-5-5" },
     });
 
     await core.updateSettings({
