@@ -361,7 +361,7 @@ describe("What a reply says its Citations cover and don't", () => {
 });
 
 describe("What a judgement of a sentence beside its quote says", () => {
-  test("is the last “Judgement:” line of a reply that writes the details first, else its first word", () => {
+  test("is the one “Judgement:” line that ends a reply that writes the details first, else the reply as one word", () => {
     expect(
       readJudgement(
         "Sentence: on Mondays and Fridays (2 named days)\nQuote: not stated\nJudgement: neither",

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { isRecentStyles } from "../shared/citationStyles";
+import { isMeetingAppId, MEETING_APPS } from "../shared/meetingApps";
 import { isHelpKeys } from "../shared/meetingHelp";
 import {
   type ChineseScript,
@@ -283,6 +284,10 @@ const deviceScope: Scope<DeviceSettings> = {
     meetingPanel: true,
     meetingPanelHidden: true,
     meetingHelpKeys: {},
+    keepRunning: false,
+    calendarOffers: true,
+    callOffers: false,
+    callOffersOff: [],
     motion: "system",
     appearance: "system",
     lastChatModel: null,
@@ -308,6 +313,14 @@ const deviceScope: Scope<DeviceSettings> = {
     meetingPanel: isBoolean,
     meetingPanelHidden: isBoolean,
     meetingHelpKeys: isHelpKeys,
+    keepRunning: isBoolean,
+    calendarOffers: isBoolean,
+    callOffers: isBoolean,
+    callOffersOff: (value): value is string[] =>
+      Array.isArray(value) &&
+      value.length <= MEETING_APPS.length &&
+      value.every(isMeetingAppId) &&
+      new Set(value).size === value.length,
     motion: (value): value is MotionPreference =>
       MOTION_PREFERENCES.some((preference) => preference === value),
     appearance: (value): value is Appearance => APPEARANCES.some((each) => each === value),

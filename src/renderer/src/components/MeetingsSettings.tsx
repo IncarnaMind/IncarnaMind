@@ -7,7 +7,8 @@ import { useAudioKeptKey, useTranscriptionServicesRead } from "../transcriptionS
 import { CalendarSettings } from "./meetings/CalendarSettings";
 import { HelpSettings } from "./meetings/HelpSettings";
 import { TranscriptionRouteSelect } from "./meetings/TranscriptionRouteSelect";
-import { TranscriptionKeyRows, TranscriptionRouteLine } from "./meetings/TranscriptionSettings";
+import { TranscriptionRouteLine } from "./meetings/TranscriptionSettings";
+import { useTranscriptionSetUp } from "./meetings/TranscriptionSetUp";
 import { WordsToKnow } from "./meetings/WordsToKnow";
 import { PopUpSelect } from "./settings/PopUpButton";
 import {
@@ -32,8 +33,9 @@ export function MeetingsSettings() {
   const scriptId = useId();
   const script = useAppStore((state) => state.settings?.chineseScript);
   const keptKey = useAudioKeptKey();
-  // The one read of this section: the route line, the choice and the key rows draw from it.
+  // The one read of this section: the route line and the choice draw from it.
   const services = useTranscriptionServicesRead();
+  const setUp = useTranscriptionSetUp(routeId, services);
   if (!device || !canRecord || !script) return null;
   const microphoneOnly = canRecord !== "both";
   const both = device.meetingSystemAudio && !microphoneOnly;
@@ -93,9 +95,18 @@ export function MeetingsSettings() {
             tip={t("models.defaults.meetings.tip")}
             tipId={`${routeId}-tip`}
             detail={<TranscriptionRouteLine read={services} />}
-            control={<TranscriptionRouteSelect id={routeId} popUp read={services} />}
-          />
-          <TranscriptionKeyRows read={services} />
+            control={
+              <TranscriptionRouteSelect
+                id={routeId}
+                popUp
+                read={services}
+                setUp={setUp.rows}
+                onChosen={setUp.onChosen}
+              />
+            }
+          >
+            {setUp.panel}
+          </SettingsRow>
           <SettingsRow
             label={t("meetings.script.title")}
             htmlFor={scriptId}

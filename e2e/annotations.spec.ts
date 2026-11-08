@@ -19,6 +19,7 @@ import {
   setWindowSize,
   slideSelect,
   splitFromTabMenu,
+  wordsBox,
 } from "./app";
 
 /**
@@ -369,7 +370,8 @@ test("a PDF highlight selected across a page break is drawn on both pages", asyn
   await writeFile(
     path,
     buildPdf([
-      { lines: ["The recovery peaks in the second quarter"] },
+      // A sentence that runs on over the break: the end of one page, the start of the next.
+      { placed: [{ text: "The recovery peaks in the second quarter", x: 72, y: 60, size: 11 }] },
       { lines: ["of the year, as Table 3 shows."] },
     ]),
   );
@@ -393,6 +395,19 @@ test("a PDF highlight selected across a page break is drawn on both pages", asyn
   });
   await expect(page1).toContainText("The recovery peaks");
   await expect(page2).toContainText("of the year");
+
+  // Both ends are in view, as a person needs them to drag from one to the other: a press above
+  // the page lands outside the viewer and never opens its menu.
+  const view = await viewer.getByTestId("pdf-scroller").boundingBox();
+  if (!view) throw new Error("The viewer's scroller isn't shown.");
+  for (const [line, words] of [
+    [page1, "in the second quarter"],
+    [page2, "of the year"],
+  ] as const) {
+    const { y } = await wordsBox(line, words);
+    expect(y).toBeGreaterThan(view.y);
+    expect(y).toBeLessThan(view.y + view.height);
+  }
 
   await slideSelect(window, page1, "in the second quarter", {
     line: page2,

@@ -537,21 +537,9 @@ export function confirmPrompt(input: {
   ].join("\n");
 }
 
-const JUDGED = /^[\s>*_#`"'“”-]*judge?ment[\s*_]*[:：][\s*_"'“”`]*(conflict|same|neither)\b/i;
-
-/** The judgement in a reply to any of those requests: its last "Judgement: …" line, else its first word; null when it can't be read. */
+/** The judgement in a reply to any of those requests, read as `judgedWord` reads it. */
 export function readJudgement(reply: string): "conflict" | "same" | "neither" | null {
-  const text = reply.replace(THINKING, "");
-  const labelled = text
-    .split("\n")
-    .map((line) => line.trim())
-    .findLast((line) => JUDGED.test(line));
-  const word = (
-    labelled === undefined
-      ? /^[\s*_"'“”`-]*(conflict|same|neither)\b/i.exec(text)
-      : JUDGED.exec(labelled)
-  )?.[1];
-  return word ? (word.toLowerCase() as "conflict" | "same" | "neither") : null;
+  return judgedWord(reply, ["conflict", "same", "neither"]);
 }
 
 const PRESENCE_TASK =
@@ -603,21 +591,35 @@ export function presencePrompt(input: {
 }
 
 const JUDGEMENT = /^[\s>*_#`"'“”-]*judge?ment[\s*_]*[:：](.*)$/i;
-const PRESENCE_WORD = /^[\s*_"'“”`]*(there|elsewhere|not)[\s*_"'“”`.。]*$/i;
+const WORD_EDGES = /^[\s*_"'“”`]+|[\s*_"'“”`.。]+$/g;
 
 /**
- * The word a look at such a quote gives, read from the reply's form alone: its last "Judgement:"
- * line, else the whole reply, each nothing but that one word. A sentence that only starts with it,
- * "There is no rent review in this quote.", can't be read: null.
+ * A one-word judgement read from the reply's form alone: its one "Judgement:" line, which ends the
+ * reply, else the whole reply, each nothing but one of `words`. A reply without the label that says
+ * more ("Same subject, but 61,500 is before tax."), two labels, or a label with lines after it can't
+ * be read: null, so a judge that hedges or changes its mind is read as neither word (#2816).
+ */
+function judgedWord<T extends string>(reply: string, words: readonly T[]): T | null {
+  const lines = reply
+    .replace(THINKING, "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line !== "");
+  const labelled = lines.filter((line) => JUDGEMENT_LABEL.test(line));
+  const [label] = labelled;
+  if (labelled.length > 1 || (label !== undefined && label !== lines.at(-1))) return null;
+  const said =
+    label === undefined ? (lines.length === 1 ? lines[0] : undefined) : JUDGEMENT.exec(label)?.[1];
+  const word = said?.replace(WORD_EDGES, "").toLowerCase();
+  return words.find((each) => each === word) ?? null;
+}
+
+/**
+ * The word a look at such a quote gives, read as `judgedWord` reads it: a sentence that only
+ * starts with it, "There is no rent review in this quote.", can't be read.
  */
 export function readPresence(reply: string): "there" | "elsewhere" | "not" | null {
-  const text = reply.replace(THINKING, "").trim();
-  const judged = text
-    .split("\n")
-    .map((line) => JUDGEMENT.exec(line.trim())?.[1])
-    .findLast((line) => line !== undefined);
-  const word = PRESENCE_WORD.exec(judged ?? text)?.[1];
-  return word ? (word.toLowerCase() as "there" | "elsewhere" | "not") : null;
+  return judgedWord(reply, ["there", "elsewhere", "not"]);
 }
 
 /** A record from the model's reply to that request, or null when it gives none. */

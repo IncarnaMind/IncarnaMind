@@ -9,8 +9,6 @@ import type { Language } from "../../core/language";
 import type { MessageKey, MessageParams } from "../../shared/i18n";
 import { core } from "./core";
 import { formatMoney, joinMeta } from "./cost";
-import { errorMessage } from "./errors";
-import { translateNow } from "./i18n";
 import { useAppStore } from "./store";
 import { type Read, useRead } from "./useRead";
 
@@ -21,9 +19,9 @@ interface TranscriptionServicesState {
   revision: number;
   /** Reads the list and resolves with what is held after it; rejects when the core can't answer. */
   load(): Promise<TranscriptionServiceStatus[]>;
-  /** Keeps a service's own key, with Deepgram's server, once it accepts it; what went wrong, in words, otherwise. */
-  setKey(route: CloudTranscriptionRoute, apiKey: string, server?: string): Promise<string | null>;
-  removeKey(route: CloudTranscriptionRoute): Promise<string | null>;
+  /** Keeps a service's own key, with Deepgram's server, once it accepts it; rejects with why it didn't. */
+  setKey(route: CloudTranscriptionRoute, apiKey: string, server?: string): Promise<void>;
+  removeKey(route: CloudTranscriptionRoute): Promise<void>;
 }
 
 /**
@@ -36,14 +34,7 @@ export const useTranscriptionServices = create<TranscriptionServicesState>()((se
   const take = ({ revision, services }: TranscriptionServices) => {
     if (revision >= get().revision) set({ services, revision });
   };
-  const change = async (action: () => Promise<TranscriptionServices>) => {
-    try {
-      take(await action());
-      return null;
-    } catch (error) {
-      return errorMessage(error, translateNow);
-    }
-  };
+  const change = async (action: () => Promise<TranscriptionServices>) => take(await action());
   return {
     services: null,
     revision: 0,
@@ -108,16 +99,20 @@ async function servicesNow(): Promise<TranscriptionServiceStatus[]> {
   return services ?? load();
 }
 
-/** Where a route's key is changed: its own in Settings › Meetings, a provider's in Settings › Models. */
+/**
+ * Where a route's key is changed, in Settings › Models: a key of its own on its row in Your
+ * providers, opened to Change key, or the Meeting transcription picker once it is gone; a
+ * provider's key in Your providers.
+ */
 export async function checkTranscriptionKey(route: CloudTranscriptionRoute): Promise<void> {
   const { openSettings } = useAppStore.getState();
   try {
     const service = (await servicesNow()).find((each) => each.route === route);
-    openSettings(service?.key === "own" ? "meetings" : "models");
+    if (service?.key !== "own") openSettings("models");
+    else openSettings("models", service.hasKey ? `transcription-key:${route}` : "transcription");
   } catch (error) {
-    // Settings › Meetings lists every route, so the key is found from there.
     console.error("The transcription services couldn't be read.", error);
-    openSettings("meetings");
+    openSettings("models");
   }
 }
 

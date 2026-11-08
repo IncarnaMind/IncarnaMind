@@ -1077,8 +1077,8 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
     expect(seen).not.toContain(1);
   });
 
-  // protects=Stop while a write's sentences are checked keeps the marks that landed and lands none for a sentence whose check Stop cut short, as Check this note leaves them (#2532); fails_when=a sentence stopped mid-check lands marked, or a landed mark is taken back; no_claim=what the Answer says once stopped.
-  test("Stop while a write is checked keeps the marks that landed and lands no more", async () => {
+  // protects=Stop while a write's sentences are checked keeps the marks that landed, and the sentence whose check Stop cut short lands Not checked saying it was stopped, never unmarked over a found Citation (#2532, #2710); fails_when=that sentence stays unmarked or lands marked, or a landed mark is taken back; no_claim=what the Answer says once stopped.
+  test("Stop while a write is checked keeps the marks that landed and says the rest were stopped", async () => {
     const calls: ModelCall[] = [];
     let started: Core | null = null;
     let page: MindClient | null = null;
@@ -1128,15 +1128,66 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
     );
 
     const marks = await marksIn(core, client);
-    expect(marks.map(({ sentence, check }) => [sentence, check.state])).toEqual([
-      ["Spring tides come at new and full moon .", "supported"],
+    expect(marks.map(({ sentence, check }) => [sentence, check.state, check.reason])).toEqual([
+      ["Spring tides come at new and full moon .", "supported", null],
+      ["Neap tides are twice as strong .", "not-checked", "stopped"],
     ]);
     const [change] = changesIn(stopped);
-    expect(change?.checking).toBe(2);
+    // The check stopped mid-way never reports its end: the row says what the call did (#2710).
+    expect(change).not.toHaveProperty("checking");
     expect(change?.selfCheck).toBeUndefined();
   });
 
-  // protects=Stop while a write made before cite is checked after its Run ends the Answer stopped, keeps the text with its Citations and the mark that landed, and lands no more (#1635); fails_when=a mark lands after Stop, or the Citations go; no_claim=what the Answer says once stopped.
+  // protects=a table's cell whose check ended before Stop keeps the verdict it was given, while the sentence whose check Stop cut short lands Not checked (#2710); fails_when=the held cell verdict is overwritten by the stopped mark, as when the stopped marks are chosen before the held ones land; no_claim=the verdict the scripted judge gives the first cell.
+  test("Stop while a table's write is checked keeps the cell verdict that ended, and stops the rest", async () => {
+    const calls: ModelCall[] = [];
+    let started: Core | null = null;
+    let answer: { conversationId: string; answerId: string } | null = null;
+    const model = writingModel(
+      {
+        content:
+          "| Region | Note |\n| --- | --- |\n| North | Spring tides come at new and full moon [^1] |\n| South | Neap tides are twice as strong [^1] |",
+        into: true,
+        // One claim at a time, as a local model checks: the second check starting proves the first ended.
+        check: (call, core) => {
+          if (!sentenceOf(call).includes("Neap tides are twice as strong")) return null;
+          if (call.results.length > 0) return null;
+          const stopped = Promise.resolve().then(() =>
+            answer ? core.stopConversationAnswer(answer) : undefined,
+          );
+          return { ...checkReply(call, PLANS), pause: { after: 0, until: stopped } };
+        },
+      },
+      calls,
+      () => started,
+    );
+    const { core, folderId, mindId, client } = await harbour(model, undefined, undefined);
+    started = core;
+
+    const asked = await core.askInConversation({
+      text: "Add a short note on tides to this Mind",
+      mindId,
+      scope: { folderIds: [folderId], tagIds: [], documentIds: [] },
+    });
+    if (!asked.asked) throw new Error("Not asked.");
+    answer = { conversationId: asked.conversation.id, answerId: asked.answerId };
+    await vi.waitFor(
+      async () => {
+        const { messages } = await core.getConversation(asked.conversation.id);
+        const found = messages.find((each) => each.id === asked.answerId);
+        if (found?.kind !== "answer" || found.status !== "stopped") throw new Error("Not stopped.");
+      },
+      { timeout: 20_000, interval: 20 },
+    );
+
+    const marks = await marksIn(core, client);
+    expect(marks.map(({ sentence, check }) => [sentence, check.state, check.reason])).toEqual([
+      ["Spring tides come at new and full moon", "unsupported", null],
+      ["Neap tides are twice as strong", "not-checked", "stopped"],
+    ]);
+  });
+
+  // protects=Stop while a write made before cite is checked after its Run ends the Answer stopped, keeps the text with its Citations and the mark that landed, and lands Not checked for the sentence Stop cut short (#1635, #2710); fails_when=a mark lands after Stop, the stopped sentence stays unmarked, or the Citations go; no_claim=what the Answer says once stopped.
   test("Stop while a write made before cite is checked after its Run keeps what landed", async () => {
     const calls: ModelCall[] = [];
     let started: Core | null = null;
@@ -1191,11 +1242,13 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
       "+ Spring tides come at new and full moon ⟨found⟩. Neap tides are twice as strong ⟨found⟩.",
     );
     const marks = await marksIn(core, client);
-    expect(marks.map(({ sentence, check }) => [sentence, check.state])).toEqual([
-      ["Spring tides come at new and full moon .", "supported"],
+    expect(marks.map(({ sentence, check }) => [sentence, check.state, check.reason])).toEqual([
+      ["Spring tides come at new and full moon .", "supported", null],
+      ["Neap tides are twice as strong .", "not-checked", "stopped"],
     ]);
     const [change] = changesIn(stopped);
-    expect(change).toMatchObject({ proposals: 1, cited: 2, checking: 2 });
+    expect(change).toMatchObject({ proposals: 1, cited: 2 });
+    expect(change).not.toHaveProperty("checking");
     expect(change?.selfCheck).toBeUndefined();
   });
 

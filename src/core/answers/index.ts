@@ -1899,6 +1899,12 @@ export function createAnswers(options: AnswersOptions) {
         const cut = call.status === "running";
         if (cut) call.status = "failed";
         if (call.approval === "waiting") call.approval = "denied";
+        // A check still running when the Answer stopped never reports again: its row says what the
+        // call did, not that it is checking (#2710).
+        if (call.mindChange?.checking !== undefined) {
+          const { checking: _checking, ...change } = call.mindChange;
+          call.mindChange = change;
+        }
         // What a call was given is kept with the conversation, where no id may be stored (#1800).
         call.input = Object.fromEntries(
           Object.entries(call.input).map(([key, value]) => [
