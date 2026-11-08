@@ -40,3 +40,13 @@ On both arms, from these runs:
 `ask` ships if every bar holds. If one fails, the change ships no further and the numbers go on #2772.
 
 **Cost:** about $0.25 a run and $0.25 for each step 4, about $1.50 for all; within the $6 approved for this work.
+
+## Amended on 2026-11-08, before any run of the arm it describes
+
+- **The change, as pre-review found it short:** a Folder of the Library names the files in a format not read from the folders on disk its Documents are in. With the count of all Documents left out, an Answer asked in a Folder could miss such a file, or keep naming one, when a Document beside it was added or deleted. The change now keeps the count of the Documents in Linked folders that hold such files, and watches a Document whose unread parts can't be read. A Document added anywhere else still changes nothing the line shows. `tests/core/unreadAsk.test.ts` holds both sides through the core.
+- **`ask` is now commit 5eea30e32.** One run of the earlier commit (698d6ae29; steps 1 to 3) was stopped and is not used. `main`'s first run (f3d837b99), made before this, is kept. The order goes on: `ask`, `main`, `ask`.
+- **Corrections to the text above,** which stays as written:
+  - The 2,622 and 2,200 calls were measured on b2ae19bf8, before #2781; on f3d837b99 the import ends within 8 s, and #2781's branch made 336 and 680 calls.
+  - The runs read each Answer's unread line once it is done, not from its first showing.
+  - In these runs every Question is asked in a new Note outside any Folder, so the unread-line bar covers Answers over all Documents. Folder scopes are covered by the core test above.
+  - Four runs and four step 4s at about $0.25 each come to about $2.00.
