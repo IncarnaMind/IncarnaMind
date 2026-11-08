@@ -29,6 +29,7 @@ import type { createAiSdkChatModel } from "../../src/core/providers/models";
 import { pageBlocks } from "../../src/shared/answerBlocks";
 import { appliedAsAsked } from "../../src/shared/askedChanges";
 import { namesOneOf, sourcesAsText } from "../../src/shared/namedSources";
+import { mindName } from "../../src/shared/naming";
 import { resolveProposals } from "../../src/shared/proposals";
 import { connectToMind } from "../../tests/helpers/mindClient";
 import { heading, note, writeMind } from "../../tests/helpers/minds";
@@ -45,6 +46,7 @@ import {
   pointersIn,
   type RequestFailure,
   type RequestOutcome,
+  readsLonger,
   requestFailures,
   rewrittenLater,
   takenOut,
@@ -52,7 +54,7 @@ import {
 import { DATED_TEXTS } from "./dated";
 import { citedClaims } from "./dates";
 import { type Decision, decisionInput, type Forcing, type Route } from "./decisions";
-import { judgeClaims, judgeDocumentAbsence, judgeToolClaims } from "./judge";
+import { FILLED, judgeClaims, judgeDocumentAbsence, judgeToolClaims } from "./judge";
 import type { Asks, ReaskWatch } from "./reasks";
 import { checkCitedSentences, type SentenceSupport } from "./support";
 
@@ -553,7 +555,11 @@ export async function runCase(
   const decision = decided.last;
   counting();
   const minds = await core.listMinds();
-  const names = (id: string) => minds.find((each) => each.id === id)?.title ?? null;
+  // As the User reads a Note's name: its title, else its first line (#2769).
+  const names = (id: string) => {
+    const found = minds.find((each) => each.id === id);
+    return found ? mindName(found) || null : null;
+  };
   const support = each.research ? await checkCitedSentences(core, answer, checkModel) : null;
   const changed = new Set(
     answer.toolCalls.flatMap((call) => (call.mindChange ? [call.mindChange.mindId] : [])),
@@ -586,7 +592,12 @@ export async function runCase(
       ? { waiting: 0, accepted: 0, rejected: 0, applied: true }
       : null;
   };
-  const record = toolRecordLines(answer.toolCalls, names, states);
+  // The User reads the empty Note they were in, once written into, as their new one (#2769).
+  const record = answer.toolCalls.flatMap((call) =>
+    toolRecordLines([call], names, states).map((line) =>
+      call.mindChange?.filled ? `${line}; ${FILLED}` : line,
+    ),
+  );
   const verdict = await judgeClaims(
     judge,
     answer.text,
@@ -608,19 +619,19 @@ export async function runCase(
         ? []
         : [{ block, before: before.get(id) ?? "", after: after.get(id) ?? "(removed)" }],
     );
-    const headings = headingIdsOf(client.doc);
     const summaryIds = new Set(
       (addedBlocks ?? []).flatMap((block) => (ids[block] ? [ids[block]] : [])),
     );
-    const length = (texts: Map<string, string>) =>
-      [...texts.entries()].reduce(
-        (total, [id, text]) =>
-          total + (summaryIds.has(id) && !headings.has(id) ? text.trim().length : 0),
-        0,
-      );
-    longer = length(after) > length(before);
+    longer = readsLonger(before, after, summaryIds, headingIdsOf(client.doc));
   }
   const changedBlocks = changes.map((change) => change.block);
+  const madeNames = [
+    ...new Set(
+      answer.toolCalls.flatMap((call) =>
+        call.mindChange?.created ? [call.mindChange.mindId] : [],
+      ),
+    ),
+  ].flatMap((id) => names(id) ?? []);
   const page = forPage(answer.text, each.request);
   const givenToMinds = givenToMindsOf(
     answer.toolCalls,
@@ -649,6 +660,7 @@ export async function runCase(
     changedBlocks,
     addedBlocks,
     longer,
+    made: { language: each.language, names: madeNames },
     sourcesAsText: sourcesAsTextIn,
     writtenInMinds,
     addedToPage: page,

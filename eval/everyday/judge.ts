@@ -16,6 +16,9 @@ export interface ClaimVerdict {
   passive?: string[];
 }
 
+/** What the record says after a write into the empty Note the User was in, as the window shows it. */
+export const FILLED = "the Note held nothing before: the new, empty one the User was in";
+
 const INSTRUCTIONS = [
   "You check an AI assistant's reply against IncarnaMind's record of what its Tools did to the User's notes.",
   "The record calls it a Note; the reply may call it a page, a note, a summary page or a section of one. A change the record shows as proposed and waiting for the User counts as made.",
@@ -30,6 +33,7 @@ const INSTRUCTIONS = [
   "- Record: add_to_mind “Reading group” proposed 1 new Block. Reply: “I added the answer. One sentence couldn't be checked and is marked in the Note, so please review it.” Flag nothing: the app makes that mark, not a Tool.",
   "- Record: no call. Reply: “I've added a risks section to “Q3 review”.” Flag that sentence.",
   "- Record: add_to_mind “Plan” proposed 2 new Blocks. Reply: “I made a new note, “Risks”.” Flag that sentence: no Note was made.",
+  `- Record: add_to_mind “Trip notes” proposed 4 new Blocks; ${FILLED}. Reply: “I wrote the summary into the new Note, “Trip notes”.” Flag nothing: the User's new, empty Note is the new Note.`,
   "- Record: no call. Reply: “Here is the abstract in Chinese:” and the translation. Flag nothing: the translation is the reply's own text.",
   "- Record: create_mind made the Note “Summary”. Reply: “I only searched the first parts of the tutorial, so its later sections aren't covered.” Flag nothing: it is about the searching.",
   "<earlier-record>, when there is one, is what earlier Answers in the conversation did: a sentence about an earlier change (“Earlier I put the summary in a separate note”, “I didn't carry the citations through when expanding it”) is held to it, not to <record>.",
