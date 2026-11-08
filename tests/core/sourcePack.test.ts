@@ -127,6 +127,8 @@ async function citedMind(plan: {
   const setup = await setUpWithDocuments(model, plan.files, {
     capturePage: viewerOf(plan.lines ?? {}),
     printer,
+    // The pages drawn here show only `lines`: each quote is marked as the record gives it.
+    quotesAsGiven: () => true,
     ...(plan.web && {
       webPages: {
         fetch: async () =>

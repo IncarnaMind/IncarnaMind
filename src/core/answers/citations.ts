@@ -2216,7 +2216,13 @@ export function createCitationSession(
         record = { ...placed, location: locationFor(placed) };
       }
     }
-    if (marker > 0 && !record.time && events.showsWholeSentences?.() && located(check(record))) {
+    // A scan's word that may be misread asks the User to look at it, never at words around it.
+    if (
+      marker > 0 &&
+      !record.time &&
+      events.showsWholeSentences?.() &&
+      check(record).check === "found"
+    ) {
       const shown = wholeSentences(citedText(record), quote, matchingFor(source));
       if (shown !== quote) record = { ...record, shown };
     }
