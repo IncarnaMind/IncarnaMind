@@ -4,6 +4,7 @@ import { CHINESE_SCRIPTS, type ChineseScript } from "../../../shared/meetingWord
 import { useT } from "../i18n";
 import { useAppStore } from "../store";
 import { useAudioKeptKey, useTranscriptionServicesRead } from "../transcriptionServices";
+import { CalendarSettings } from "./meetings/CalendarSettings";
 import { HelpSettings } from "./meetings/HelpSettings";
 import { TranscriptionRouteSelect } from "./meetings/TranscriptionRouteSelect";
 import { TranscriptionRouteLine } from "./meetings/TranscriptionSettings";
@@ -41,6 +42,7 @@ export function MeetingsSettings() {
 
   return (
     <>
+      <CalendarSettings />
       <SettingsSection
         title={t("meetings.settings.title")}
         testId="meetings-settings"

@@ -18,7 +18,7 @@ import { isRecord } from "./errors";
 /** The browser sign-in gives up after this long unless the caller sets its own limit. */
 export const DEFAULT_SIGN_IN_TIMEOUT_MS = 5 * 60_000;
 
-/** The server always listens here, never on other interfaces. */
+/** The server always listens here (and on ::1 for a "localhost" redirect), never elsewhere. */
 const LOOPBACK_HOST = "127.0.0.1";
 
 export interface OAuthPage {
@@ -34,8 +34,13 @@ export interface LoopbackRedirectOptions {
    * accept any loopback port (RFC 8252 §7.3).
    */
   port: number;
-  /** The redirect path, e.g. "/auth/callback". */
+  /** The redirect path, e.g. "/auth/callback"; "" for the bare address. */
   path: string;
+  /**
+   * The host name the redirect URI names. The server listens on 127.0.0.1 either way; a
+   * registration that allows only `http://localhost` (Microsoft's public clients) needs that name.
+   */
+  host?: LoopbackHost;
   /** What the browser tab shows when sign-in finishes, or fails. */
   pages: { success: OAuthPage; failure: OAuthPage };
   /** Defaults to five minutes. */
@@ -46,9 +51,12 @@ export interface LoopbackRedirectOptions {
   stateBytes?: number;
 }
 
+/** How a loopback redirect URI names this computer (RFC 8252 §7.3). */
+export type LoopbackHost = "127.0.0.1" | "localhost";
+
 export type RedirectShape =
   /** A loopback server (`openLoopbackRedirect`); pasting the browser's address is the fallback. */
-  | { kind: "loopback"; port: number; path: string }
+  | { kind: "loopback"; port: number; path: string; host?: LoopbackHost }
   /**
    * A page of the authorization server's own, which shows the code to copy:
    * the User pastes it, as "code#state" or as the page's address.
@@ -576,12 +584,14 @@ export async function openLoopbackRedirect(
     wait.arrive({ params: url.searchParams, response });
   };
 
-  const server = createServer((request, response) => {
-    handle(request, response).catch((error: unknown) => {
-      if (!response.headersSent) response.writeHead(500, { connection: "close" }).end();
-      wait?.fail(error instanceof Error ? error : new Error(String(error)));
+  const serve = () =>
+    createServer((request, response) => {
+      handle(request, response).catch((error: unknown) => {
+        if (!response.headersSent) response.writeHead(500, { connection: "close" }).end();
+        wait?.fail(error instanceof Error ? error : new Error(String(error)));
+      });
     });
-  });
+  const server = serve();
 
   await new Promise<void>((resolve, reject) => {
     server.once("error", (error: NodeJS.ErrnoException) => {
@@ -598,8 +608,19 @@ export async function openLoopbackRedirect(
   });
 
   const { port } = server.address() as AddressInfo;
+  // "localhost" may reach this computer as ::1 first: listen there on the same port too, where
+  // the computer has IPv6. Without it, the browser goes on to 127.0.0.1.
+  const servers = [server];
+  if (options.host === "localhost") {
+    const v6 = serve();
+    const listening = await new Promise<boolean>((resolve) => {
+      v6.once("error", () => resolve(false));
+      v6.listen(port, "::1", () => resolve(true));
+    });
+    if (listening) servers.push(v6);
+  }
   const opened = waitForRedirect({
-    redirectUri: `http://${LOOPBACK_HOST}:${port}${options.path}`,
+    redirectUri: `http://${options.host ?? LOOPBACK_HOST}:${port}${options.path}`,
     pages: options.pages,
     acceptsCode: false,
     ...(options.timeoutMs !== undefined && { timeoutMs: options.timeoutMs }),
@@ -607,13 +628,18 @@ export async function openLoopbackRedirect(
     ...(options.stateBytes !== undefined && { stateBytes: options.stateBytes }),
     // Pages are sent with "connection: close"; drop anything still open so the port is free now.
     release: () =>
-      new Promise<void>((resolve) => {
-        server.close(() => resolve());
-        server.closeAllConnections();
-      }),
+      Promise.all(
+        servers.map(
+          (each) =>
+            new Promise<void>((resolve) => {
+              each.close(() => resolve());
+              each.closeAllConnections();
+            }),
+        ),
+      ).then(() => undefined),
   });
   wait = opened;
-  server.on("error", (error) => opened.fail(error));
+  for (const each of servers) each.on("error", (error) => opened.fail(error));
   return opened.redirect;
 }
 
@@ -629,6 +655,7 @@ export async function authorizeInBrowser(
       ? await openLoopbackRedirect({
           port: options.redirect.port,
           path: options.redirect.path,
+          ...(options.redirect.host && { host: options.redirect.host }),
           pages: options.pages,
           ...(options.timeoutMs !== undefined && { timeoutMs: options.timeoutMs }),
           ...(signal && { signal }),
