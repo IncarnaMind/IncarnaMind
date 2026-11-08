@@ -217,7 +217,9 @@ function CallHelpModelRow() {
   const names = useModelNames();
   const row = useSettingsTarget<HTMLDivElement>(MODEL_TARGET, chosen !== undefined, () =>
     queueMicrotask(() =>
-      row.current?.querySelector<HTMLButtonElement>("button")?.focus({ preventScroll: true }),
+      row.current
+        ?.querySelector<HTMLButtonElement>('[data-testid="call-help-model"]')
+        ?.focus({ preventScroll: true }),
     ),
   );
   if (!chosen) return null;
