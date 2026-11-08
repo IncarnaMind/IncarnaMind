@@ -3799,7 +3799,7 @@ describe("A quote whose page mentions it before its Passage (#1981)", () => {
   });
 });
 
-// protects=#2576; fails_when=the check's sign comparison matches a positive sentence to the bracketed column that is its minus, or fails to match one that gives the minus; no_claim=the model's verdict, which the calculation's numbers decide.
+// protects=#2576; fails_when=the check's sign comparison matches a positive sentence to the bracketed column that is its minus, or fails to match one that gives the minus; no_claim=a judge's Contradicted, which a worked figure never overturns (#1766).
 describe("The check against a statement line's bracketed column (#2576)", () => {
   const LINES = {
     en: "Intercompany eliminations £3.6m (£3.6m)",

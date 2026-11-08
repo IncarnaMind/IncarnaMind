@@ -2694,7 +2694,6 @@ describe("a part the quote states keeps its own duty and condition (#1766, #1708
   });
 
   test.each([
-    { name: "no Duty or Condition line", lines: "", verdict: "not-checked" },
     {
       name: "a Condition that differs",
       lines: "Duty: may / may, same\nCondition: none / only if the harbour master agrees, differs",

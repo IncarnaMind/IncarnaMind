@@ -71,9 +71,6 @@ const rules = (calculate = false) => [
   `- a sentence that adds a detail the Passages don't mention${calculate ? " and calculate doesn't establish" : ""}.`,
 ];
 
-const ABSENCE_LINE =
-  'Absence: yes only when the sentence asserts that a clause, disclosure, figure, approval, event or fact is absent ("The lease has no break clause"); otherwise no. One word, on this line alone.';
-
 // Under Roles alone, "should" for "must" and a rule stated without its Passage's condition were
 // "same" (a side that says neither must nor may; a condition one side adds), so Claude Sonnet
 // 5.5 called every such near copy of a held-out set Supported (#1766, #1708).
@@ -91,7 +88,7 @@ const reply = (language: Language, calculate: boolean) =>
   [
     "Reply in exactly this form, the verdict word in English:",
     "Verdict: supported, unsupported or contradicted",
-    ABSENCE_LINE,
+    'Absence: yes only when the sentence asserts that a clause, disclosure, figure, approval, event or fact is absent ("The lease has no break clause"); otherwise no. One word, on this line alone.',
     'Scope: the sentence\'s own word for the Passage\'s party or term, then same or wider ("Scope: tenants, wider" for "the Tenant"; "Scope: none, same" when the sentence names none). "wider" when that word is a general one for a wider group than the Passage\'s; "same" otherwise: the Passage\'s own word for its party ("the Tenant" for "the Tenant"), a name for it or another word for the very same party ("Ms Patel" for "the Tenant").',
     'Topic: found or not found. "found" when a Passage is about the sentence\'s own subject and detail, even when it gives another value or only part of it; "not found" when none is, though one may be about a neighbouring topic (rent, for a parking fee).',
     // The words are an anchor for the model, not a list the app matches. Worded without them,
@@ -1487,5 +1484,12 @@ export function replyAcrossTurns(last: string, setAside: readonly string[]): str
       (figuresLine && proseOf(last).length > 0))
   )
     return last;
-  return `${earlier}\n\n${last}`;
+  // A Duty or Condition line that takes support away holds from any turn set aside, as it does
+  // beside a last turn with a verdict of its own (#1766).
+  const holding = setAside
+    .filter((_, index) => index !== at)
+    .flatMap(linesOf)
+    .filter(holdsBack);
+  const read = `${earlier}\n\n${last}`;
+  return holding.length === 0 ? read : `${read}\n${holding.join("\n")}`;
 }

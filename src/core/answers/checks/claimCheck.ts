@@ -1351,7 +1351,13 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
           check: (text, aside) => {
             const read = across(text, aside);
             const verdict = readVerdict(read);
-            if (verdict?.verdict !== "supported" || !ownDetailUnread(verdict)) return null;
+            // One line that already differs takes the support away: no ask can give it back.
+            if (
+              verdict?.verdict !== "supported" ||
+              ownDetailDiffers(verdict) ||
+              !ownDetailUnread(verdict)
+            )
+              return null;
             return {
               claims: [],
               writeOnly: true,
@@ -1558,7 +1564,11 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
         if (declined && verdict.verdict === "supported") return unchecked("refused");
         if (comparesOtherWords(verdict, request.claim, askedForOwnWords))
           return unchecked("malformed");
-        if (verdict.verdict === "supported" && ownDetailUnread(verdict))
+        if (
+          verdict.verdict === "supported" &&
+          ownDetailUnread(verdict) &&
+          !ownDetailDiffers(verdict)
+        )
           return unchecked("malformed");
         const evidence =
           cited ??
@@ -1848,8 +1858,10 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
     }
     if (comparesOtherWords(verdict, request.claim, askedForOwnWords))
       return notChecked("malformed");
-    // A Supported reply that gives no Duty or Condition word, even asked again, compared neither.
-    if (verdict.verdict === "supported" && ownDetailUnread(verdict)) return notChecked("malformed");
+    // A Supported reply that gives no Duty or Condition word, even asked again, compared neither;
+    // one whose other line differs is Unsupported below.
+    if (verdict.verdict === "supported" && ownDetailUnread(verdict) && !ownDetailDiffers(verdict))
+      return notChecked("malformed");
     const absence = await absenceFor(verdict.absence ?? null, verdict.verdict);
     if (absence) return absence;
     if (await requiresCalculation(verdict))

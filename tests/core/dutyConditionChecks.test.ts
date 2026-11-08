@@ -7,6 +7,7 @@
  */
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
+import { readVerdict, replyAcrossTurns } from "../../src/core/answers/checks/prompt";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import {
   checkGenerate,
@@ -422,7 +423,7 @@ describe("a duty put another way, or a rule without its condition, is never Supp
 
 describe("a Supported reply without its Duty or Condition line is asked once, and never Supported without them", () => {
   const asks = (calls: readonly ModelCall[]) => calls.filter((call) => call.prompt.includes(ASKED));
-  test.each<[string, Case, "supported" | "not-checked", number]>([
+  test.each<[string, Case, "supported" | "unsupported" | "not-checked", number]>([
     [
       "no Duty line, given when asked",
       {
@@ -472,6 +473,34 @@ describe("a Supported reply without its Duty or Condition line is asked once, an
       },
       "not-checked",
       1,
+    ],
+    [
+      // Paired with "no Condition line, still none when asked": the Duty line already differs.
+      "another duty and no Condition line, never asked",
+      {
+        sentence: "Berth holders should wear a life jacket on the pontoons.",
+        quote: "Berth holders must wear a life jacket on the pontoons.",
+        verdict: "supported",
+        duty: "should / must, differs",
+        condition: null,
+        again: { duty: "must / must, same", condition: SAME },
+      },
+      "unsupported",
+      0,
+    ],
+    [
+      "a figure's sentence without its exception and no Duty line, never asked",
+      {
+        sentence: "Berth holders get a 10% discount on fuel.",
+        quote: "Berth holders get a 10% discount on fuel, unless they pay their fees late.",
+        verdict: "supported",
+        duty: null,
+        condition: "none / unless they pay their fees late, differs",
+        again: { duty: SAME, condition: SAME },
+        number: "10%",
+      },
+      "unsupported",
+      0,
     ],
     [
       "both lines, never asked",
@@ -705,12 +734,6 @@ describe("the second look at a reply that disagreed with itself asks for and rea
       "unsupported",
     ],
     [
-      "en, Supported again with neither line",
-      { ...dropped, look: looked([]) },
-      BERTHS,
-      "not-checked",
-    ],
-    [
       "en, Unsupported again, naming the condition left out",
       {
         ...dropped,
@@ -723,10 +746,16 @@ describe("the second look at a reply that disagreed with itself asks for and rea
       "unsupported",
     ],
     [
-      "zh, Supported again with neither line",
-      { ...droppedZh, look: looked([], "泊位持有人可以租用拖车") },
+      "zh, Supported again with the condition left out",
+      {
+        ...droppedZh,
+        look: looked(
+          ["Duty: may / may, same", "Condition: none / 如果港务长同意, differs"],
+          "泊位持有人可以租用拖车",
+        ),
+      },
       BERTHS_ZH,
-      "not-checked",
+      "unsupported",
     ],
   ])("%s", async (_, each, document, state) => {
     const looks: string[] = [];
@@ -752,6 +781,36 @@ describe("the second look at a reply that disagreed with itself asks for and rea
     );
     expect(looks).toHaveLength(1);
     expect(checked?.state).toBe("not-checked");
+  });
+});
+
+describe("a Duty or Condition line that differs holds from any turn set aside, when the last turn has no verdict (#1766)", () => {
+  const verdictTurn = [
+    "Verdict: supported",
+    "Absence: no",
+    "Scope: none, same",
+    "Topic: found",
+    "Roles: Berth holders may run a generator / Berth holders may run a generator, same",
+    "Time: none / none, same",
+    "Duty: may / may, same",
+    `Condition: ${SAME}`,
+  ].join("\n");
+  const differs = "Condition: none / only if the harbour master agrees, differs";
+  const last = "The rules say so [^1].\nEvidence: [1]";
+  const condition = (setAside: readonly string[]) =>
+    readVerdict(replyAcrossTurns(last, setAside))?.condition;
+
+  test.each<[string, readonly string[], "same" | "differs"]>([
+    ["a turn after the verdict's, beside cite", [verdictTurn, differs], "differs"],
+    [
+      "a line held back before the verdict's turn, across an ask",
+      [differs, verdictTurn],
+      "differs",
+    ],
+    // Paired: with no such turn the verdict's own lines are read.
+    ["no other turn", [verdictTurn], "same"],
+  ])("%s", (_, setAside, read) => {
+    expect(condition(setAside)).toBe(read);
   });
 });
 
