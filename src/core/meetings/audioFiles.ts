@@ -6,6 +6,8 @@
  * most the part still filling is lost. A file's name says its source and where
  * it starts in the Meeting's time, so nothing else is needed to find it again.
  */
+
+import { randomUUID } from "node:crypto";
 import {
   closeSync,
   fsyncSync,
@@ -18,7 +20,8 @@ import {
   statSync,
   writeSync,
 } from "node:fs";
-import { join } from "node:path";
+import { open, rename, rm } from "node:fs/promises";
+import { basename, dirname, join } from "node:path";
 import { MEETING_SAMPLE_RATE } from "../adapters";
 import type { AudioSource } from "../api";
 
@@ -193,8 +196,8 @@ export function readStretch(
   folder: string,
   fromMs: number,
   toMs: number,
+  parts: readonly AudioPart[] = listParts(folder),
 ): Float32Array<ArrayBuffer> | null {
-  const parts = listParts(folder);
   if (parts.length === 0) return null;
   const first = Math.round((fromMs * MEETING_SAMPLE_RATE) / 1000);
   const length = Math.max(0, Math.round((toMs * MEETING_SAMPLE_RATE) / 1000) - first);
@@ -221,4 +224,55 @@ export function readStretch(
     }
   }
   return mixed;
+}
+
+/** How much of a recording is mixed and written at a time: a part's length. */
+const WRITE_MS = 10_000;
+
+/** The most a WAV file's data can hold: its sizes are 32-bit, about 37 hours of the Meeting's audio. */
+export const MAX_RECORDING_MS = Math.floor(
+  ((0xffff_ffff - WAV_HEADER_BYTES) / BYTES_PER_SAMPLE / MEETING_SAMPLE_RATE) * 1000,
+);
+
+/**
+ * Writes a Meeting's audio as one WAV file at `path`, as Save recording… does (#687): every source
+ * mixed into one, mono, 16 kHz, 16-bit, `durationMs` long (at most `MAX_RECORDING_MS`), a stretch
+ * no part covers silent. It is written beside `path` under a name of its own that no file has,
+ * and takes `path` once whole, so a recording stopped between stretches (`stopped`), its audio gone
+ * or a failure leaves nothing behind and touches no other file. Whether it was written.
+ */
+export async function writeRecording(
+  folder: string,
+  durationMs: number,
+  path: string,
+  stopped: () => boolean,
+): Promise<boolean> {
+  const writing = join(dirname(path), `.${basename(path)}.${randomUUID()}${WRITING_SUFFIX}`);
+  const file = await open(writing, "wx");
+  const parts = listParts(folder);
+  let whole = false;
+  try {
+    await file.write(wavHeader(Math.round((durationMs * MEETING_SAMPLE_RATE) / 1000)));
+    for (let fromMs = 0; fromMs < durationMs; fromMs += WRITE_MS) {
+      if (stopped()) return false;
+      const mixed = readStretch(folder, fromMs, Math.min(durationMs, fromMs + WRITE_MS), parts);
+      if (!mixed) return false;
+      const samples = Int16Array.from(mixed, (sample) =>
+        Math.max(-32768, Math.min(32767, Math.round(sample * 32768))),
+      );
+      await file.write(new Uint8Array(samples.buffer));
+    }
+    if (stopped()) return false;
+    await file.sync();
+    whole = true;
+  } finally {
+    await file.close();
+    if (whole) {
+      await rename(writing, path).catch(async (error: unknown) => {
+        await rm(writing, { force: true });
+        throw error;
+      });
+    } else await rm(writing, { force: true });
+  }
+  return true;
 }

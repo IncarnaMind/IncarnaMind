@@ -452,6 +452,8 @@ export const en = {
   "error.folder.wall": "This Folder keeps its work inside it.",
   "error.turnPlace": "This needs to know which note or conversation it’s in.",
   "error.citation.recheckNote": "A Citation can only be checked again for the note it is in.",
+  "error.citation.recheckPlace":
+    "A Citation can only be checked again for the note or conversation it is in.",
   "error.folder.wallMove":
     "Not moved: a Folder that keeps its work inside it can’t have its work moved in or out by the assistant. You can still move it yourself.",
   "error.folder.notFiled":
@@ -5958,6 +5960,16 @@ export const en = {
   "error.transcript.speakersOfTranscript": "Only a Transcript’s speakers can be named.",
   "error.meeting.audioGone": "The Meeting’s audio is no longer on this computer.",
   "error.meeting.audioStretch": "A stretch of audio runs from one time to a later one.",
+  "error.meeting.noAudioToKeep": "This meeting has no audio to keep.",
+  "error.meeting.keepAudioChoice": "Say whether to keep this meeting’s audio.",
+  "error.meeting.recordingPath": "Choose where to save the recording.",
+  "error.meeting.recordingTooLong": "This recording is too long for one file: over 37 hours.",
+  "error.meeting.audioNotDeleted":
+    "Some of this meeting’s audio couldn’t be deleted. IncarnaMind tries again in a minute.",
+  "error.meeting.resumeAudioNotDeleted":
+    "This meeting’s earlier audio couldn’t be deleted yet, so recording can’t resume. Try again in a minute.",
+  "error.meeting.saveWhileRecording": "Stop the recording to save it.",
+  "error.meeting.savingRecording": "This recording is already being saved.",
   "error.meeting.joinMoved": "The meeting has moved since, so this can’t be undone.",
   "error.transcription.keyMissing": "Paste the key first.",
   "error.transcription.unreachable":
@@ -6524,7 +6536,9 @@ export const en = {
   "meetings.start.copyNotice": "Copy a notice",
   "meetings.start.copied": "Copied",
   "meetings.start.noticeText":
-    "I’m recording this meeting with IncarnaMind to take notes. The recording stays on my computer.",
+    "I’m recording this meeting with IncarnaMind to take notes. The recording stays on my computer and is deleted within a day.",
+  "meetings.start.noticeTextKept":
+    "I’m recording this meeting with IncarnaMind to take notes. The recording stays on my computer until I delete it.",
   "meetings.start.dismiss": "Don’t record; keep this as a note (Esc)",
   "meetings.notice.title": "Before you record",
   "meetings.notice.both": "Records your microphone and the computer’s sound: everyone in the call.",
@@ -6748,10 +6762,18 @@ export const en = {
   "meetings.audio.recorded": "Recorded {time}",
   "meetings.audio.kept": "Audio stays on this computer; deleted within a day.",
   "meetings.audio.keptCloud": "The recording stays on this computer; deleted within a day.",
+  "meetings.audio.keptToDelete": "Audio stays on this computer until you delete it.",
+  "meetings.audio.keptToDeleteCloud": "The recording stays on this computer until you delete it.",
   "meetings.audio.keptUntil": "Audio stays on this computer until {time}",
   "meetings.audio.keptWhile": "Audio stays on this computer until a day after the meeting.",
   "meetings.audio.delete": "Delete audio now",
   "meetings.audio.keptUntilShort": "Audio kept until {time}",
+  "meetings.audio.keptUntilToday": "Audio kept until {time} today",
+  "meetings.audio.keptUntilTomorrow": "Audio kept until {time} tomorrow",
+  "meetings.audio.keptForGood": "Audio kept",
+  "meetings.audio.keepAudio": "Keep audio",
+  "meetings.audio.keptLine": "Keeping this meeting’s audio",
+  "meetings.audio.deletedOn": "Audio deleted on {date}",
   "meetings.audio.deleteNow": "Delete now",
   "meetings.audio.confirm": "Delete this meeting’s audio for good? The note stays.",
   "meetings.audio.deleteConfirm": "Delete audio",
@@ -6810,6 +6832,9 @@ export const en = {
   "meetings.settings.route": "Transcribe on",
   "meetings.settings.whatBoth": "Your microphone and the other people (the computer’s sound).",
   "meetings.settings.whatMe": "Only your microphone.",
+  "meetings.settings.keepAudio": "Keep a meeting’s audio",
+  "meetings.settings.keepAudioOff": "A meeting’s audio is deleted a day after it ends.",
+  "meetings.settings.keepAudioOn": "A meeting’s audio stays until you delete it.",
   "meetings.words.title": "Words to know",
   "meetings.words.body":
     "Names and terms that transcription on this computer writes as you do: people, companies, products. Each meeting adds the names in its note and its folder.",
@@ -6967,6 +6992,12 @@ export const en = {
   "meetings.command.splitLine": "Split the line here",
   "meetings.command.noWord": "Click the word where the rest of the line starts",
   "meetings.command.deleteAudio": "Delete audio",
+  "meetings.command.keepAudio": "Keep audio",
+  "meetings.command.audioKeptAlready": "This meeting’s audio is already kept",
+  "meetings.command.saveRecording": "Save recording…",
+  "meetings.command.saveWhileRecording": "Stop the recording to save it",
+  "meetings.recording.saveTitle": "Save recording",
+  "meetings.recording.saved": "Saved the recording",
   "meetings.command.noMeetingInView": "Open a meeting’s note to delete its audio",
   "meetings.command.audioWhileRecording": "Pause or stop the recording to delete its audio",
   "transcript.addToNote": "Add to note",

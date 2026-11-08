@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef } from "react";
 import { useExports } from "../../exports";
-import { useHomeView, useMindNoteStates, useMinuteClock, useOwnMinds } from "../../home";
+import { useHomeView, useMindNoteStates, useOwnMinds } from "../../home";
+import { useMinuteClock } from "../../minuteClock";
 import { rowsIn, useSelectionOrder } from "../../selection";
 import { useAppStore } from "../../store";
 import { useHomeNextStep } from "../../useHomeNextStep";

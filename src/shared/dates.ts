@@ -29,8 +29,15 @@ const BETWEEN_DAY_AND_TIME: Record<Language, string> = { en: ", ", "zh-CN": " " 
 
 const formatters = new Map<string, Intl.DateTimeFormat>();
 
+/**
+ * The computer's time zone as it is now, told by its offsets in winter and summer: a formatter
+ * keeps the zone it was made in, so one is made again once the User's zone changes.
+ */
+const zoneNow = () =>
+  `${new Date(2026, 0, 1).getTimezoneOffset()}/${new Date(2026, 6, 1).getTimezoneOffset()}`;
+
 function formatterFor(locale: string, options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
-  const key = `${locale}|${JSON.stringify(options)}`;
+  const key = `${locale}|${options.timeZone ?? zoneNow()}|${JSON.stringify(options)}`;
   let found = formatters.get(key);
   if (!found) {
     found = new Intl.DateTimeFormat(locale, options);
@@ -169,6 +176,16 @@ export function formatDateTime(
   if (calendarOf(date, options.timeZone) === calendarOf(now, options.timeZone)) return time;
   const day = formatShortDate(date, language, { ...options, now });
   return `${day}${BETWEEN_DAY_AND_TIME[language]}${time}`;
+}
+
+/**
+ * How many days of the User's calendar `moment` falls after `from`: 0 the same day, 1 the next, -1
+ * the one before. Read in the computer's time zone as it is when asked, so a change of zone while
+ * the app runs counts, and by calendar days, so a day of 23 or 25 hours is one.
+ */
+export function daysAfter(moment: Moment, from: Moment = new Date()): number {
+  const day = (date: Date) => Date.UTC(date.getFullYear(), date.getMonth(), date.getDate());
+  return Math.round((day(toDate(moment)) - day(toDate(from))) / 86_400_000);
 }
 
 export function partOfDay(now: Date): "morning" | "afternoon" | "evening" {

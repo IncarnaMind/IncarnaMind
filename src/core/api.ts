@@ -2360,25 +2360,33 @@ export interface TurnPlace {
 }
 
 /**
- * A Citation looked for again for a Note outside the walled Folder that keeps its Document (#1934):
- * nothing was read, so nothing is known of the new version, and the result it was made with stands.
+ * A Citation looked for again for a Note or conversation outside the walled Folder that keeps its
+ * Document (#1934): nothing was read, so nothing is known of the new version, and the result it
+ * was made with stands.
  */
 export interface CitationKeptInside {
   /** The walled Folder's name. */
   keptInside: string;
 }
 
-/** What looking for a Citation again for a Note came to: checked, or kept inside a wall. */
+/** What looking for a Citation again for a Note or conversation came to: checked, or kept inside a wall. */
 export type RecheckResult = CitationRecheck | CitationKeptInside;
 
 export interface RecheckCitationInput extends CitationToRecheck {
   /**
-   * The Note the Citation is in, or going into; null for one shown in no Note (an Answer in the
-   * assistant, the Document's viewer), which is read as browsing is. A Document kept inside a
-   * walled Folder isn't read again for a Note outside it: the check it was made with stands
-   * (#1934). Never left out.
+   * The Note the Citation is in, or going into; null for one shown in no Note (the Document's
+   * viewer, or an Answer that names its conversation below), which is read as browsing is unless
+   * a conversation is given too. A Document kept inside a walled Folder isn't read again for a
+   * Note outside it: the check it was made with stands (#1934). Never left out.
    */
   mindId: string | null;
+  /**
+   * The conversation the Citation is in, when it is in an Answer: one shown with no Note reads
+   * as browsing only when this is null too, so a Document kept inside a walled Folder the
+   * conversation is outside isn't read again (#2782). Absent or null for a Citation in a Note
+   * or in a Document's viewer.
+   */
+  conversationId?: string | null;
 }
 
 /**
@@ -3459,6 +3467,12 @@ export interface DeviceSettings {
   tips: Record<string, number>;
   /** What a Meeting records unless the start block says otherwise: the computer's sound too ("Me and them"), or only the microphone. */
   meetingSystemAudio: boolean;
+  /**
+   * "Keep a meeting's audio" (#687): a Meeting that starts recording while it is on keeps its
+   * audio until the User deletes it, instead of for a day. Off by default; turning it on or off
+   * leaves Meetings already recorded as they are.
+   */
+  keepMeetingAudio: boolean;
   /**
    * The source a failed model download's line picked on this device (#1578), leading the others.
    * "auto" by default: the probe orders them.
@@ -11575,6 +11589,11 @@ export interface MeetingAudio {
   expiresAt: string | null;
   /** When the User, or the day's limit, last deleted it. */
   deletedAt: string | null;
+  /**
+   * Kept until the User deletes it (#687): they chose Keep audio, or "Keep a meeting's audio" was
+   * on when the Meeting started recording. It then has no `expiresAt`.
+   */
+  keptUntilDeleted: boolean;
 }
 
 /**
@@ -14006,6 +14025,12 @@ export interface CoreApi {
   /** Deletes the Meeting's audio on this computer now; a recording goes on keeping what comes next. */
   deleteMeetingAudio(meetingId: string): Promise<Meeting>;
   /**
+   * Keep audio (#687): keeps a Meeting's audio until the User deletes it, or with `kept` false
+   * lets it go a day after its last stretch again, as its Undo does; past that, at the next
+   * sweep. InvalidInputError with no audio to keep.
+   */
+  keepMeetingAudio(input: { meetingId: string; kept: boolean }): Promise<Meeting>;
+  /**
    * Up to 30 seconds of a stopped Meeting's audio, from `fromMs` (#138). NotFoundError once its
    * audio is deleted or its files are gone, and while it records.
    */
@@ -14778,6 +14803,7 @@ const methods: Record<CoreApiMethod, true> = {
   resumeMeeting: true,
   stopMeeting: true,
   deleteMeetingAudio: true,
+  keepMeetingAudio: true,
   readMeetingAudio: true,
   listTranscriptionServices: true,
   setTranscriptionKey: true,
