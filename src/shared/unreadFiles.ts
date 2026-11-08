@@ -261,8 +261,8 @@ export function observeCheckUnread(doc: Y.Doc, listener: () => void): () => void
  * or was read in part, each Linked folder's count of files in a format not read, and how many
  * Documents the Linked folders holding such files have. A Folder of the Library names those files
  * from the folders on disk its Documents are in, so a Document added to or taken from such a Linked
- * folder can change them; one added anywhere else can't, so an import doesn't make every Answer
- * shown ask again at each new Document (#2772).
+ * folder can change them and asks again; one added anywhere else can't, so an import into any other
+ * folder asks nothing again (#2772).
  */
 export function unreadAskKey(
   documents: readonly Pick<

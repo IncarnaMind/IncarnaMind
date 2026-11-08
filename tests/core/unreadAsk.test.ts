@@ -28,7 +28,7 @@ async function harbour() {
   const group = await core.createLibraryGroup({ name: "Harbour", description: "" });
   await linkAndProcess(core, folder, { groupId: group.id });
   const scope: SearchScope = { folderIds: [group.id], tagIds: [], documentIds: [] };
-  return { core, groupId: group.id, scope };
+  return { core, groupId: group.id, scope, folder };
 }
 
 describe("When a Folder's unread files can change, so does what the window watches", () => {
@@ -37,30 +37,54 @@ describe("When a Folder's unread files can change, so does what the window watch
     expect(await names(core, scope)).toEqual(["Contract.doc"]);
     const before = await keyOf(core);
     const tides = (await core.listDocuments()).find((document) => document.name === "Tides");
-    await core.deleteDocuments([tides?.id ?? ""]);
+    if (!tides) throw new Error("Tides wasn't added.");
+    await core.deleteDocuments([tides.id]);
     expect(await names(core, scope)).toEqual([]);
     expect(await keyOf(core)).not.toBe(before);
   });
 
-  test("Documents added to a Linked folder holding no unread file, filed into the Folder, change neither", async () => {
+  test("a Document added beside a file not read and filed into the Folder changes both", async () => {
+    const { core, groupId, scope, folder } = await harbour();
+    const tides = (await core.listDocuments()).find((document) => document.name === "Tides");
+    if (!tides) throw new Error("Tides wasn't added.");
+    await core.deleteDocuments([tides.id]);
+    expect(await names(core, scope)).toEqual([]);
+    const before = await keyOf(core);
+    await writeSourceFile(
+      folder,
+      "Old/Lamps.md",
+      "# Lamps\n\nThe harbour lamps were lit at dusk.\n",
+    );
+    await core.reconcileDocuments();
+    const [lamps] = await waitForDocuments(core, (documents) => {
+      const found = documents.filter((document) => document.name === "Lamps");
+      expect(found.map((document) => document.status)).toEqual(["ready"]);
+    }).then((documents) => documents.filter((document) => document.name === "Lamps"));
+    await core.assignDocumentGroup(lamps?.id ?? "", groupId);
+    expect(await names(core, scope)).toEqual(["Contract.doc"]);
+    expect(await keyOf(core)).not.toBe(before);
+  });
+
+  test("Documents of a Linked folder holding no unread file, filed into the Folder, change neither", async () => {
     const { core, groupId, scope } = await harbour();
     const other = await createSourceFolder();
     await writeSourceFile(other, "Notes 1.md", "# Notes 1\n\nHigh water 1.\n");
-    await linkAndProcess(core, other, { groupId });
+    await linkAndProcess(core, other);
     const before = await keyOf(core);
     for (let i = 2; i <= 4; i++) {
-      await writeSourceFile(other, `Notes ${i}.md`, `# Notes ${i}\n\nHigh water ${i}.\n`);
+      await writeSourceFile(other, `Deep/Notes ${i}.md`, `# Notes ${i}\n\nHigh water ${i}.\n`);
     }
     await core.reconcileDocuments();
-    await waitForDocuments(core, (documents) => {
-      const notes = documents.filter((document) => document.name.startsWith("Notes"));
-      expect(notes.map((document) => document.status)).toEqual([
+    const notes = await waitForDocuments(core, (documents) => {
+      const found = documents.filter((document) => document.name.startsWith("Notes"));
+      expect(found.map((document) => document.status)).toEqual([
         "ready",
         "ready",
         "ready",
         "ready",
       ]);
-    });
+    }).then((documents) => documents.filter((document) => document.name.startsWith("Notes")));
+    for (const note of notes) await core.assignDocumentGroup(note.id, groupId);
     expect(await names(core, scope)).toEqual(["Contract.doc"]);
     expect(await keyOf(core)).toBe(before);
   });

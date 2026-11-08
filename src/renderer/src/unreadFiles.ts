@@ -7,22 +7,27 @@ import { checkSearchedNarrowerThanAll } from "../../shared/claimChecks";
 import { checkUnreadOf, observeCheckUnread, unreadAskKey } from "../../shared/unreadFiles";
 import { core } from "./core";
 import { shownClaims } from "./editor/claimChecks";
+import { sharedRequests } from "./sharedRequests";
 import { useAppStore } from "./store";
+
+// Every Answer shown over one scope asks at the same moment when the Library changes: one request
+// serves them all (#2772).
+const askUnread = sharedRequests<UnreadFile[]>();
 
 /**
  * The files in a Search scope that couldn't be read (#740): asked of the core,
- * and again when a Document's state or a Linked folder's list of files in a
- * format not read changes. Empty until it answers, and when everything was read.
+ * and again when what could change them does (`unreadAskKey`). Empty until it
+ * answers, and when everything was read.
  */
 export function useUnreadFiles(scope: SearchScope | null): UnreadFile[] {
   const [files, setFiles] = useState<UnreadFile[]>([]);
   const state = useAppStore((store) => unreadAskKey(store.documents, store.linkedFolders));
   const wanted = JSON.stringify(scope);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `state` is when to ask again.
   useEffect(() => {
     let current = true;
-    core
-      .listUnreadFiles(JSON.parse(wanted) as SearchScope | null)
+    askUnread(`${wanted}\n${state}`, () =>
+      core.listUnreadFiles(JSON.parse(wanted) as SearchScope | null),
+    )
       .then((found) => {
         if (current) setFiles(found);
       })
