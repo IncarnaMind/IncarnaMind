@@ -58,7 +58,9 @@ const RETRIEVES_FIRST: readonly Admitted[] = [];
  * whose first Chinese option came 0.09 s later (1.12 → 1.21 s). Claude Sonnet 5.5 left
  * (2026-11-08) on the gate's third look: first whole option 4.90 → 1.79 s and done 4.90 → 2.51 s
  * on the new set, English false Supported 15 → 7 presses, but English cited 35 → 33 and 24 → 22,
- * its replies naming only the call's line where a Document's supports it too.
+ * its replies naming only the call's line where a Document's supports it too. Told to name both,
+ * on a fresh slice of such checks (the fourth look), it still named only the call's line: cited
+ * 30 → 26 (en) and 29 → 27 (zh), false Supported 11 → 15 and 7 → 11.
  */
 const MARKS_PASSAGES: readonly Admitted[] = [];
 
