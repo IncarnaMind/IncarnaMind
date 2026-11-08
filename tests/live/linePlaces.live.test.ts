@@ -7,11 +7,13 @@
  *
  * INCARNAMIND_LIVE_RUNS sets how many times each request runs on each path (2 by default),
  * INCARNAMIND_LIVE_CONCURRENCY how many run at once (4), INCARNAMIND_LIVE_ARM names the code under
- * test in the report; INCARNAMIND_LIVE_REPORT names the file the rows go to, one JSON object a line.
- * INCARNAMIND_LIVE_ONLY runs only the requests it names ("en-14,zh-14"). Each row keeps the
- * rewriting model's replies and the assistant's calls, so a run can be replayed with a scripted model.
+ * test in the report; INCARNAMIND_LIVE_REPORT names the file the rows go to, one JSON object a
+ * line, each saved as its job finishes. INCARNAMIND_LIVE_ONLY runs only the requests it names
+ * ("en-14, zh-14"). Each row keeps the rewriting model's replies and the assistant's calls, so a
+ * run can be replayed with a scripted model. A run whose Answer failed or was stopped, or whose
+ * edit failed, keeps `failed` with its kind and message and no kept or lost lines; the report's
+ * last line is the run's model, job count and spend so far.
  */
-import { appendFile } from "node:fs/promises";
 import { wrapLanguageModel } from "ai";
 import { describe, expect, test } from "vitest";
 import type { ConversationAnswer, Core } from "../../src/core";
@@ -20,12 +22,20 @@ import { createTempDataFolder, spentBy, startCore } from "../helpers/core";
 import { wholeMind } from "../helpers/editing";
 import { connectToMind } from "../helpers/mindClient";
 import { note, resolveChanges, shownWithChanges, writeMind } from "../helpers/minds";
-import { PLACE_CASES, type PlaceCase } from "./linePlaces.cases";
+import {
+  answerFailure,
+  editFailure,
+  liveSettings,
+  type PlaceJob,
+  placeJobs,
+  ReportFile,
+  type RunFailure,
+  recordRun,
+  runLiveJobs,
+} from "./linePlaces.harness";
 
 const API_KEY = process.env.DEEPSEEK_API_KEY;
 const MODEL = process.env.INCARNAMIND_LIVE_DEEPSEEK_MODEL ?? "deepseek-flash";
-
-type Path = "editWithAi" | "assistant";
 
 async function ask(core: Core, text: string, mindId: string): Promise<ConversationAnswer> {
   const result = await core.askInConversation({
@@ -53,121 +63,105 @@ async function ask(core: Core, text: string, mindId: string): Promise<Conversati
   return answer as ConversationAnswer;
 }
 
-/** What a run did to the User's lines: those lost that the request doesn't change, and whether what it asks was made. */
-function outcome(each: PlaceCase, after: readonly string[]) {
-  const lost = each.note.filter(
-    (line, index) => !each.changes.includes(index) && !after.includes(line),
-  );
-  const made =
-    each.kind === "add" || each.kind === "add-first"
-      ? after.length > each.note.length
-      : each.changes.every((index) => !after.includes(each.note[index] as string));
-  return { lost, made };
-}
-
 describe("The place rules keep the User's lines and make the edits asked, live: DeepSeek", () => {
   test.skipIf(API_KEY === undefined)(
     `${MODEL}: no line lost that a request doesn't change, and every rename, removal and rewrite made`,
     { timeout: 7_200_000 },
     async () => {
-      const runs = Number(process.env.INCARNAMIND_LIVE_RUNS ?? 2);
-      const arm = process.env.INCARNAMIND_LIVE_ARM ?? "unnamed";
-      const only = process.env.INCARNAMIND_LIVE_ONLY?.split(",");
-      const jobs = PLACE_CASES.filter((each) => !only || only.includes(each.id)).flatMap((each) =>
-        (["editWithAi", "assistant"] as const).flatMap((path) =>
-          Array.from({ length: runs }, (_, index) => ({ each, path, run: index + 1 })),
-        ),
-      );
-      const rows: string[] = [];
-      const spent: string[] = [];
-      let next = 0;
-      const worker = async () => {
-        const dataDir = await createTempDataFolder();
-        let replies: string[] = [];
-        const core = startCore(dataDir, {
-          createChatModel: (spec) =>
-            wrapLanguageModel({
-              model: createAiSdkChatModel(spec),
-              middleware: {
-                specificationVersion: "v4",
-                wrapStream: async ({ doStream, params }) => {
-                  const result = await doStream();
-                  if (!JSON.stringify(params.prompt).includes("<passage>")) return result;
-                  let text = "";
-                  const stream = result.stream.pipeThrough(
-                    new TransformStream({
-                      transform(part, controller) {
-                        if (part.type === "text-delta") text += part.delta;
-                        if (part.type === "finish") replies.push(text);
-                        controller.enqueue(part);
-                      },
-                    }),
-                  );
-                  return { ...result, stream };
+      const settings = liveSettings(process.env);
+      const jobs = placeJobs(settings.only, settings.runs);
+      const report = new ReportFile(settings.report);
+      await runLiveJobs(
+        jobs,
+        settings.concurrency,
+        async () => {
+          const dataDir = await createTempDataFolder();
+          let replies: string[] = [];
+          const core = startCore(dataDir, {
+            createChatModel: (spec) =>
+              wrapLanguageModel({
+                model: createAiSdkChatModel(spec),
+                middleware: {
+                  specificationVersion: "v4",
+                  wrapStream: async ({ doStream, params }) => {
+                    const result = await doStream();
+                    if (!JSON.stringify(params.prompt).includes("<passage>")) return result;
+                    let text = "";
+                    const stream = result.stream.pipeThrough(
+                      new TransformStream({
+                        transform(part, controller) {
+                          if (part.type === "text-delta") text += part.delta;
+                          if (part.type === "finish") replies.push(text);
+                          controller.enqueue(part);
+                        },
+                      }),
+                    );
+                    return { ...result, stream };
+                  },
                 },
-              },
-            }),
-        });
-        core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
-        core.on(
-          "approval.requested",
-          (request) => void core.respondToApproval(request.requestId, "deny"),
-        );
-        await core.saveChatProvider({ kind: "deepseek", apiKey: API_KEY, modelId: MODEL });
-        while (next < jobs.length) {
-          const { each, path, run } = jobs[next++] as { each: PlaceCase; path: Path; run: number };
-          replies = [];
-          const row: Record<string, unknown> = {
-            arm,
-            id: each.id,
-            language: each.language,
-            kind: each.kind,
-            path,
-            run,
+              }),
+          });
+          core.on(
+            "consent.requested",
+            (asked) => void core.respondToConsent(asked.requestId, true),
+          );
+          core.on(
+            "approval.requested",
+            (request) => void core.respondToApproval(request.requestId, "deny"),
+          );
+          await core.saveChatProvider({ kind: "deepseek", apiKey: API_KEY, modelId: MODEL });
+          return {
+            async run({ each, path, run }: PlaceJob) {
+              replies = [];
+              const row: Record<string, unknown> = {
+                arm: settings.arm,
+                id: each.id,
+                language: each.language,
+                kind: each.kind,
+                path,
+                run,
+              };
+              try {
+                const mind = await core.createMind({ title: `${each.id} ${path} ${run}` });
+                const client = await connectToMind(core, mind.id);
+                writeMind(
+                  client,
+                  each.note.map((line) => note(line)),
+                );
+                await client.settled();
+                let failure: RunFailure | null = null;
+                if (path === "editWithAi") {
+                  const result = await core.editWithAi(wholeMind(client, mind.id, each.ask));
+                  row.result = result.kind;
+                  failure = editFailure(result);
+                } else {
+                  const answer = await ask(core, each.ask, mind.id);
+                  row.reply = answer.text;
+                  row.calls = answer.toolCalls
+                    .filter((call) => call.source === "minds")
+                    .map((call) => ({ tool: call.tool, input: call.input }));
+                  failure = answerFailure(answer);
+                }
+                if (!failure) {
+                  await client.settled();
+                  await resolveChanges(client, "accept");
+                  await client.settled();
+                }
+                recordRun(row, each, failure, () => shownWithChanges(client));
+              } catch (error) {
+                row.error = String(error);
+              }
+              row.rewrites = replies;
+              return row;
+            },
+            spend: () => spentBy(dataDir),
+            close: () => core.close(),
           };
-          try {
-            const mind = await core.createMind({ title: `${each.id} ${path} ${run}` });
-            const client = await connectToMind(core, mind.id);
-            writeMind(
-              client,
-              each.note.map((line) => note(line)),
-            );
-            await client.settled();
-            if (path === "editWithAi") {
-              const result = await core.editWithAi(wholeMind(client, mind.id, each.ask));
-              row.result = result.kind;
-            } else {
-              const answer = await ask(core, each.ask, mind.id);
-              row.reply = answer.text;
-              row.calls = answer.toolCalls
-                .filter((call) => call.source === "minds")
-                .map((call) => ({ tool: call.tool, input: call.input }));
-            }
-            await client.settled();
-            await resolveChanges(client, "accept");
-            await client.settled();
-            const after = shownWithChanges(client);
-            row.after = after;
-            Object.assign(row, outcome(each, after));
-            row.rewrites = replies;
-          } catch (error) {
-            row.error = String(error);
-          }
-          rows.push(JSON.stringify(row));
-        }
-        spent.push(...spentBy(dataDir));
-        core.close();
-      };
-      await Promise.all(
-        Array.from({ length: Number(process.env.INCARNAMIND_LIVE_CONCURRENCY ?? 4) }, worker),
+        },
+        report,
+        { arm: settings.arm, model: MODEL },
       );
-      if (process.env.INCARNAMIND_LIVE_REPORT) {
-        await appendFile(
-          process.env.INCARNAMIND_LIVE_REPORT,
-          `${rows.join("\n")}\n${JSON.stringify({ arm, model: MODEL, jobs: jobs.length, spent })}\n`,
-        );
-      }
-      expect(rows).toHaveLength(jobs.length);
+      expect(report.rows).toBe(jobs.length);
     },
   );
 });

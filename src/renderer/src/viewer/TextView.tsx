@@ -16,6 +16,7 @@ import { lineUnits, markdownUnits, type SourceUnit } from "../../../core/documen
 import { findQuote, type TextRange } from "../../../shared/quoteMatch";
 import { useAnnotations, useDocumentAnnotations } from "../annotations";
 import { DocumentFix } from "../components/DocumentFix";
+import { logCaught } from "../errorLog";
 import { useT } from "../i18n";
 import { openDocumentPicture, pictureClickHandlers } from "../pictureViewer";
 import type { ViewerTarget } from "../store";
@@ -32,13 +33,14 @@ import { OutlineButton, type OutlineEntry, UnitOutline } from "./UnitOutline";
 import { ViewerHeader } from "./ViewerHeader";
 import { FileGone, ViewerMessage } from "./ViewerMessage";
 
-type TextRefusal = "viewer.textTooLarge" | "viewer.textUnreadable";
+type TextFailure = "viewer.textTooLarge" | "viewer.textUnreadable" | "viewer.textLoadFailed";
 
 type Loaded =
   | { kind: "loading" }
   | { kind: "ready"; text: string }
   | { kind: "missing" }
-  | { kind: "failed"; key: TextRefusal; message: string };
+  /** `retry`: the file could be read a second time; a refusal's couldn't. */
+  | { kind: "failed"; key: TextFailure; message: string; retry?: boolean };
 
 /** Nothing to highlight. */
 const NO_HIGHLIGHT: readonly TextRange[] = [];
@@ -92,17 +94,25 @@ export function TextView({ document, target }: { document: Document; target: Vie
       },
       (error: unknown) => {
         if (controller.signal.aborted) return;
-        if (error instanceof MissingDocumentError) setLoaded({ kind: "missing" });
-        else {
+        if (error instanceof MissingDocumentError) {
+          setLoaded({ kind: "missing" });
+          return;
+        }
+        if (error instanceof TooLargeDocumentError) {
           setLoaded({
             kind: "failed",
-            key:
-              error instanceof TooLargeDocumentError
-                ? "viewer.textTooLarge"
-                : "viewer.textUnreadable",
-            message: error instanceof Error ? error.message : "",
+            key: "viewer.textTooLarge",
+            message: error.message,
           });
+          return;
         }
+        logCaught(error);
+        setLoaded({
+          kind: "failed",
+          key: "viewer.textLoadFailed",
+          message: error instanceof Error ? error.message : "",
+          retry: true,
+        });
       },
     );
     return () => controller.abort();
@@ -163,7 +173,18 @@ export function TextView({ document, target }: { document: Document; target: Vie
           view
           message={loaded.message}
           reload={reload}
-          fallback={<ViewerMessage tone="error">{t(loaded.key)}</ViewerMessage>}
+          fallback={
+            <ViewerMessage
+              tone="error"
+              action={
+                loaded.retry
+                  ? { label: t("library.fix.retry"), testId: "viewer-retry", onClick: reload }
+                  : undefined
+              }
+            >
+              {t(loaded.key)}
+            </ViewerMessage>
+          }
         />
       ) : (
         <MarkdownDocumentContext.Provider value={document.id}>
