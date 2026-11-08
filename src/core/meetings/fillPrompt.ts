@@ -14,8 +14,8 @@ import {
   speakerName,
 } from "../../shared/speakers";
 import type { QuestionContext } from "../answers/context";
+import { languageSpoken } from "../answers/prompt";
 import { CITATION_NODE } from "../api";
-import { detectLanguage, LANGUAGE_SAMPLE } from "../documents/textLanguage";
 import { LANGUAGE_NAMES, LANGUAGES, type Language } from "../language";
 
 /** A line the User wrote, as the model is shown it. */
@@ -86,17 +86,9 @@ export type CallLanguage = keyof typeof CALL_LANGUAGES;
 const isCallLanguage = (name: string | null): name is CallLanguage =>
   name !== null && Object.hasOwn(CALL_LANGUAGES, name);
 
-/** A transcript line's time and who spoke ("[12:07 Them] "): marks, not what was said. */
-const LINE_MARK = /\[[^\]\n]*\]/g;
-
-/** The language the call was held in, told from what was said; null where it isn't one above. */
+/** The language the call was held in, told from all that was said; null where it isn't one above. */
 export function callLanguage(passages: readonly { text: string }[]): CallLanguage | null {
-  const said = passages
-    .map((passage) => passage.text.replace(LINE_MARK, " "))
-    .join("\n")
-    .slice(0, LANGUAGE_SAMPLE);
-  // What was said is all speech, with no names or figures of a Document's: one common word tells it.
-  const language = detectLanguage(said, 1);
+  const language = languageSpoken(passages);
   return isCallLanguage(language) ? language : null;
 }
 
@@ -137,7 +129,7 @@ export function notesContext(
     // every fact was left out for its metadata (#2773).
     lines.some((line) => !line.heading)
       ? "- lines lists related ordinary L addresses, most relevant first; use [] only when no ordinary line asks about this fact. Include the final answer under its line even when a template section also needs the fact. Never put an H address in lines."
-      : "- The User wrote no ordinary L lines, so lines is always []: never a time, a transcript line or an H address.",
+      : "- The User wrote no ordinary L lines, so lines is always [], never a time, a transcript line or an H address, and every fact names at least one section (summary for anything else).",
     '- sections uses only these ids: "decisions" for final choices actually agreed, "actions" for actual commitments, "questions" for questions explicitly raised and left unanswered, "summary" for other figures/terms that need recording. Use multiple ids only when the same fact genuinely belongs to each. Do not turn a rejected option, hypothetical or undecided proposal into a decision, infer an open question, invent an owner/deadline, or turn a reported event into a promise.',
     "- claim selects factual statements to check against the User's Documents. Code checks the same full fact; do not write a second CLAIMS inventory. Overview metadata has only citations.",
     "- Only a structural heading, never an ordinary paragraph, can host a section. A heading hosts the section its words ask for, in any wording or language, whether or not the User typed lines under it: SUMMARY for what the call was about overall, DECISIONS for final choices, ACTIONS for commitments and their owners, QUESTIONS for questions left open, CLAIMS for what was said that the User's Documents should be checked against. NONE is only for the Note's title or a heading that names a subject of the meeting (a topic, a person, an agenda item) rather than one of those kinds of content.",

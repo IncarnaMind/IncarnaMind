@@ -10,7 +10,7 @@ import type { WindowedPassage } from "../documents/search";
 import { LANGUAGE_NAMES, type Language } from "../language";
 import { estimateTokens } from "./context";
 import type { AnswerMessage } from "./engine";
-import { questionLanguage } from "./prompt";
+import { languageSpoken } from "./prompt";
 
 const TASKS: Readonly<Record<MeetingHelpKind, string>> = {
   say: "What could the User say next, given the last thing said?",
@@ -154,12 +154,7 @@ export function withHelp(
 
 /** The language the newest lines of a live transcript are in, without their times and speakers. */
 export const languageSaid = (heard: readonly WindowedPassage[]): string | null =>
-  questionLanguage(
-    heard
-      .slice(-3)
-      .map((passage) => passage.text.replace(/\[[^\]]*\]/g, " "))
-      .join("\n"),
-  );
+  languageSpoken(heard.slice(-3));
 
 /**
  * A button's Question while the live text is behind but has lines (#1366). The reply starts with a
