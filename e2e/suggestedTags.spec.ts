@@ -273,6 +273,8 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(line).toHaveText(say("organizeReview.apart", { count: "5" }));
       await expect(window.getByTestId("organize-review")).toHaveCount(0);
       await expect(window.getByTestId("organize-waiting")).toHaveCount(0);
+      // Nothing was grouped, so the Library's head doesn't say they are sorted.
+      await expect(window.getByTestId("library-sorted")).toHaveCount(0);
       expect(await tagged(window)).toEqual([]);
       await screenshot(window, `apart-${language}`);
     } finally {
