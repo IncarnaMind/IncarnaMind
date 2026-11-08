@@ -126,15 +126,22 @@ function fillingModel(
   plans: Record<string, Plan> = {},
   {
     failing = () => false,
+    error = { status: 500, message: "The model is overloaded." },
     held,
     seen,
-  }: { failing?: () => boolean; held?: Promise<void>; seen?: (call: ModelCall) => void } = {},
+  }: {
+    failing?: () => boolean;
+    /** What a failing fill request gets back. */
+    error?: { status: number; message: string };
+    held?: Promise<void>;
+    seen?: (call: ModelCall) => void;
+  } = {},
 ) {
   return scriptedModel((call) => {
     seen?.(call);
     if (isCheckRun(call)) return checkReply(call, plans);
     if (!isFill(call)) return { text: "OK" };
-    if (failing()) return { error: { status: 500, message: "The model is overloaded." } };
+    if (failing()) return { error };
     const shown = shownPassages(block(call.prompt, "live-transcript") ?? "");
     const citations = transcriptCitations(call, shown, quotes);
     if (citations) return citations;
@@ -1016,6 +1023,82 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
       expect(await fillOf(core, meeting.id)).toMatchObject({ state: "filled" }),
     );
     await vi.waitFor(() => expect(shown(client)).toHaveLength(before.length + 1));
+    core.close();
+  });
+
+  // protects=a key refused while the notes are made writes nothing and says why in the fill's line, and Try again once it works fills them in once (#2773); fails_when=a refused key leaves the fill waiting, writes part of the notes, or Try again writes them twice; no_claim=the provider's own wording of the refusal.
+  test("a key refused while the notes are made writes nothing and says so; Try again fills them in once", async () => {
+    let refused = true;
+    const model = fillingModel(
+      PRICING_REPLY,
+      { 1: MY_LINES[0] as string },
+      {},
+      { failing: () => refused, error: { status: 401, message: "invalid x-api-key" } },
+    );
+    const { core, meeting, client } = await recorded(model, NOTES);
+    const before = shown(client);
+    const failed = await settledFill(core, meeting);
+    expect(failed).toMatchObject({
+      state: "failed",
+      problem: { kind: "model" },
+      addedBlockIds: [],
+    });
+    expect(failed.problem?.message).not.toBe("");
+    expect(shown(client)).toEqual(before);
+
+    refused = false;
+    await core.fillMeetingNotes(meeting.id);
+    await vi.waitFor(async () =>
+      expect(await fillOf(core, meeting.id)).toMatchObject({ state: "filled", omitted: 0 }),
+    );
+    expect(
+      shown(client).filter(
+        (line) => line === "«The enterprise price is 45 dollars a seat »\uFFFC«.»",
+      ),
+    ).toHaveLength(1);
+    core.close();
+  });
+
+  // protects=Stop pressed again on a stopped call is refused and leaves one set of notes (#2773); fails_when=the second Stop starts a second fill or writes the notes twice; no_claim=the bar's own button, which goes at Stop.
+  test("Stop pressed twice leaves one set of notes", async () => {
+    let fills = 0;
+    const model = fillingModel(
+      PRICING_REPLY,
+      { 1: MY_LINES[0] as string },
+      {},
+      { seen: (call) => fillRun(call) && fills++ },
+    );
+    const { core, meeting, client } = await recorded(model, NOTES);
+    await expect(core.stopMeeting(meeting.id)).rejects.toThrow();
+    expect(await settledFill(core, meeting)).toMatchObject({ state: "filled" });
+    expect(fills).toBe(1);
+    expect(
+      shown(client).filter(
+        (line) => line === "«The enterprise price is 45 dollars a seat »\uFFFC«.»",
+      ),
+    ).toHaveLength(1);
+    core.close();
+  });
+
+  // protects=a call in which nothing was said gets no notes and no request, and says why (#2773); fails_when=a fill request goes out, or the line waits for ever; no_claim=the Transcript's own line, which the transcript tests cover.
+  test("a call in which nothing was said sends nothing and says there is nothing to fill in from", async () => {
+    let fills = 0;
+    const model = fillingModel(PRICING_REPLY, {}, {}, { seen: (call) => isFill(call) && fills++ });
+    const dataDir = await createTempDataFolder();
+    const { core, record } = await transcribingCore(dataDir, {
+      model,
+      engine: { lines: [], theirLines: [] },
+    });
+    await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+    const meeting = await core.createMeeting();
+    await core.startMeeting({ meetingId: meeting.id, systemAudio: true });
+    record(12 * SECOND);
+    await core.stopMeeting(meeting.id);
+    expect(await settledFill(core, meeting)).toMatchObject({
+      state: "off",
+      problem: { kind: "no-transcript" },
+    });
+    expect(fills).toBe(0);
     core.close();
   });
 
