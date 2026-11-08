@@ -6358,7 +6358,7 @@ export const zhCN = {
   "transcript.speaker.unknown": "发言人 ?",
   "transcript.speaker.numbered": "发言人 {n}",
   "transcript.speaker.change": "更改发言人",
-  "transcript.speaker.who": "这一行是谁说的？",
+  "transcript.speaker.who": "这一段是谁说的？",
   "transcript.speaker.new": "新建发言人…",
   "transcript.speaker.name": "名字",
   "transcript.speaker.all": "全部应用",

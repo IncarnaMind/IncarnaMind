@@ -2,17 +2,17 @@
  * Soniox's real-time transcription (#141): all of the stream's audio goes over the socket as it
  * comes, and text comes back token by token, each with who said it. Tokens that aren't final
  * yet can still change; final ones never do. The service ends an utterance with an `<end>`
- * token when the speaker pauses; a line ends there, or where the speaker changes.
+ * token when the speaker pauses; a line ends there, where the speaker changes, or at a sentence's
+ * end (./lineEnds).
  */
 import type { CloudLoss } from "../../adapters";
 import { cleanSpeech } from "../speechText";
+import { endsAfter, endsBefore, startsWord } from "./lineEnds";
 import { createLiveStream, pcmBytes } from "./live";
 import type { CloudStreamHandle, CloudStreamOptions } from "./stream";
 
 export const SONIOX_URL = "wss://stt-rt.soniox.com/transcribe-websocket";
 
-/** A line this long ends even without a pause, so its final text never waits long. */
-const LONGEST_LINE_MS = 20_000;
 /** The key is wrong, or may not use the service; or the account has no credit left. */
 const lossOf = (errorCode: number): CloudLoss =>
   errorCode === 401 || errorCode === 403 ? "refused" : errorCode === 402 ? "credit" : "dropped";
@@ -84,16 +84,23 @@ export function createSonioxStream(options: CloudStreamOptions): CloudStreamHand
     ) {
       close();
     }
-    if (
-      line &&
-      line.tokens.length > 0 &&
-      token.end - (line.tokens[0] as Token).start > LONGEST_LINE_MS
-    ) {
-      close();
+    const first = line?.tokens[0];
+    if (line && first) {
+      const text = wordsOf(line.tokens);
+      const ms = (line.tokens.at(-1) as Token).end - first.start;
+      // A full stop ends the sentence once the piece after it starts a word: not "3." of "3.5".
+      if (
+        (/^\s/u.test(token.text) && endsAfter(text, ms, true)) ||
+        endsBefore(token.end - first.start, startsWord(text, token.text))
+      ) {
+        close();
+      }
     }
     line ??= { id: nextId++, tokens: [], speaker: null };
     line.tokens.push(token);
     if (words && line.speaker === null) line.speaker = token.speaker;
+    const start = (line.tokens[0] as Token).start;
+    if (endsAfter(wordsOf(line.tokens), token.end - start, false)) close();
   }
 
   return createLiveStream(options, {
