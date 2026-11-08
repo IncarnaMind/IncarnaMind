@@ -1,5 +1,6 @@
 import type { LibraryGroup } from "../../../core/api";
-import { buildFolderTree, flattenFolderTree, folderPath, isInsideFolder } from "../folders";
+import { folderTreeOptions, sharedFolderNames } from "../folderPicker";
+import { isInsideFolder } from "../folders";
 import { useT } from "../i18n";
 import { matchName, queryWords } from "../matcher";
 import { useAppStore } from "../store";
@@ -8,39 +9,21 @@ import { type PickerOption, type PickerSection, SearchPicker } from "./SearchPic
 
 type Choice = string | null | { newFolder: string };
 
-/**
- * The Folders as an indented tree: each with the depth the picker indents it by
- * and, while a query narrows the list, its place beside its name ("Chapter 2
- * sources in Thesis: urban heat"), so a Folder is still placed out of its tree.
- */
+/** The tree's pure part in ../folderPicker; here each Folder with its icon. */
 function treeOptions(
   groups: readonly LibraryGroup[],
   query: string,
   t: (key: "move.inFolder", params: { path: string }) => string,
 ): PickerOption<Choice>[] {
-  const words = queryWords(query);
-  const options = flattenFolderTree(buildFolderTree(groups)).flatMap(({ folder, depth }) => {
-    const parentPath = folderPath(groups, folder.parentId).join(" › ");
-    return [
-      {
-        id: folder.id,
-        label: folder.name,
-        indent: depth,
-        keywords: parentPath ? [parentPath] : [],
-        data: { "data-folder-id": folder.id },
-        icon: <FolderLineIcon className="size-4 shrink-0 text-ink-meta" />,
-      },
-    ];
-  });
-  if (words.length === 0) return options;
-  return options.flatMap((option) => {
-    const byName = matchName(words, option.label);
-    const byPath = option.keywords?.some((each) => matchName(words, each));
-    if (!byName && !byPath) return [];
-    const folder = groups.find((each) => each.id === option.id);
-    const path = folder?.parentId ? folderPath(groups, folder.parentId).join(" › ") : "";
-    return [{ ...option, indent: 0, ...(path && { detail: t("move.inFolder", { path }) }) }];
-  });
+  return folderTreeOptions(groups, query, t).map((option) => ({
+    id: option.folder.id,
+    label: option.label,
+    indent: option.indent,
+    keywords: option.keywords,
+    ...(option.detail && { detail: option.detail }),
+    data: { "data-folder-id": option.folder.id },
+    icon: <FolderLineIcon className="size-4 shrink-0 text-ink-meta" />,
+  }));
 }
 
 function taken(names: readonly string[], wanted: string): boolean {
@@ -130,9 +113,12 @@ export function MoveToPicker({
         : [];
     return [{ options: [...found, ...newFolder] }];
   };
+  // Two Folders with one name are told apart by their place, which needs the room (#2425).
+  const shared = sharedFolderNames(groups).size > 0;
   return (
     <SearchPicker<Choice>
       anchor={anchor}
+      {...(shared && { widthClass: "w-[320px] max-w-[calc(100vw-16px)]" })}
       title={t("move.title", { name })}
       searchLabel={t("move.search")}
       noMatch={() => t("move.none")}
